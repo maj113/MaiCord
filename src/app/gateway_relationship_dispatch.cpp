@@ -1,11 +1,13 @@
 #include "gateway_relationship_dispatch.hpp"
+#include "gateway_dispatch_common.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/model/user_activity.hpp"
 #include "maicord/model/user_profile.hpp"
 
-#include <Windows.h>
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -22,13 +24,7 @@ struct Stream {
     GatewayClientDispatchRouteResult error;
 };
 GatewayClientEvent event_for(const Stream& stream, GatewayClientDispatchKind kind) noexcept {
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = kind;
-    event.sequence = stream.sequence;
-    event.has_sequence = true;
-    event.timestamp_ms = stream.now_ms;
-    return event;
+    return gateway_dispatch_event(kind, stream.sequence, stream.now_ms);
 }
 bool publish_relationship(void* opaque, u32, JsonValue value) noexcept {
     auto& stream = *static_cast<Stream*>(opaque);
@@ -75,12 +71,7 @@ bool presence_member(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     JsonString status{};
     if (!json_value_as_string(value, &status)) return presence.valid = false;
-    using Status = GatewayClientMemberListStatus;
-    presence.value.status = json_string_equals_ascii(status, utf8_literal("online")) ? Status::online :
-        json_string_equals_ascii(status, utf8_literal("idle")) ? Status::idle :
-        json_string_equals_ascii(status, utf8_literal("dnd")) ? Status::dnd :
-        json_string_equals_ascii(status, utf8_literal("offline")) || json_string_equals_ascii(status, utf8_literal("invisible")) ?
-        Status::offline : Status::unknown;
+    presence.value.status = gateway_member_status(true, status);
     return true;
 }
 bool user_id_member(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -136,19 +127,12 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
     if (!stream.publish(stream.context, event, {extra, extra_bytes})) { stream.error = fail(GatewayClientDispatchRouteError::payload_capacity); return false; }
     return true;
 }
-struct Friends { JsonValue array; bool seen; bool valid = true; };
+// The single member `name` of an object, which must be `kind` or null.
+struct Friends { Utf8View name; JsonValueKind kind; JsonValue array; bool seen; bool valid = true; };
 bool friends_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (!json_string_equals_ascii(name, utf8_literal("friends"))) return true;
     auto& friends = *static_cast<Friends*>(opaque);
-    if (friends.seen || (value.kind != JsonValueKind::array && value.kind != JsonValueKind::null_value)) return friends.valid = false;
-    friends.seen = true;
-    friends.array = value;
-    return true;
-}
-bool merged_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (!json_string_equals_ascii(name, utf8_literal("merged_presences"))) return true;
-    auto& friends = *static_cast<Friends*>(opaque);
-    if (friends.seen || (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)) return friends.valid = false;
+    if (!json_string_equals_ascii(name, friends.name)) return true;
+    if (friends.seen || (value.kind != friends.kind && value.kind != JsonValueKind::null_value)) return friends.valid = false;
     friends.seen = true;
     friends.array = value;
     return true;
@@ -167,7 +151,7 @@ GatewayClientDispatchRouteResult publish_merged(JsonValue merged, Slice<u32> arr
     if (merged.kind != JsonValueKind::object) return fail(GatewayClientDispatchRouteError::decode);
     const auto scan = json_scan_structurals_avx1(merged.source, array_scratch);
     if (!scan.ok()) return fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
-    Friends friends{};
+    Friends friends{utf8_literal("friends"), JsonValueKind::array};
     const auto read = json_visit_value_object(merged, {array_scratch.data, scan.count}, 64, friends_member, &friends);
     if (!read.ok() || !friends.valid) return fail(GatewayClientDispatchRouteError::decode);
     if (!visit_array(friends.array, array_scratch, publish_presence, stream)) return stream->error;
@@ -188,12 +172,20 @@ bool valid_stream_inputs(JsonValue relationships, JsonValue merged, Slice<u32> a
             byte_ranges_overlap(source, arrays) || byte_ranges_overlap(source, objects)) return false;
     return true;
 }
+// Wakes the consumer, then waits for it to free space; false on cancellation, timeout or failure.
+bool wait_for_space(HANDLE space, HANDLE cancel, HANDLE notification, u64 deadline_ms) noexcept {
+    SetEvent(notification);
+    const u64 now = GetTickCount64();
+    if (now >= deadline_ms) return false;
+    const HANDLE waits[]{cancel, space};
+    const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
+    return WaitForMultipleObjects(2, waits, FALSE, timeout) == WAIT_OBJECT_0 + 1;
+}
 } // namespace
 bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, HANDLE notification,
     u64 deadline_ms, const GatewayClientEvent& event, ConstSlice<u8> payload, bool* deferred) noexcept {
     if (!mailbox || !space || !cancel || !notification || !byte_range_valid(payload) || payload.count > kGatewayClientDispatchPayloadCapacity)
         return false;
-    const HANDLE waits[]{cancel, space};
     for (;;) {
         if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
         const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
@@ -206,53 +198,39 @@ bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE
             else SetEvent(notification);
             return true;
         }
-        SetEvent(notification);
-        const u64 now = GetTickCount64();
-        if (now >= deadline_ms) return false;
-        const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
-        if (WaitForMultipleObjects(2, waits, FALSE, timeout) != WAIT_OBJECT_0 + 1) return false;
+        if (!wait_for_space(space, cancel, notification, deadline_ms)) return false;
     }
 }
 bool gateway_mailbox_wait_lease(HANDLE space, HANDLE cancel, HANDLE notification, u64 deadline_ms,
     const volatile LONG* lease) noexcept {
     if (!space || !cancel || !notification || !lease) return false;
-    const HANDLE waits[]{cancel, space};
     for (;;) {
         if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
-        if (!ReadAcquire(lease)) return true;
-        SetEvent(notification);
-        const u64 now = GetTickCount64();
-        if (now >= deadline_ms) return false;
-        const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
-        if (WaitForMultipleObjects(2, waits, FALSE, timeout) != WAIT_OBJECT_0 + 1) return false;
+        if (!read_acquire(lease)) return true;
+        if (!wait_for_space(space, cancel, notification, deadline_ms)) return false;
     }
 }
 bool gateway_mailbox_publish_external(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel,
     HANDLE notification, u64 deadline_ms, const GatewayClientEvent& event, u32 payload_bytes,
     volatile LONG* lease, bool* deferred) noexcept {
     if (!mailbox || !space || !cancel || !notification || !lease || !payload_bytes ||
-        payload_bytes > kGatewayClientGuildRecordCapacity || ReadAcquire(lease))
+        payload_bytes > kGatewayClientGuildRecordCapacity || read_acquire(lease))
         return false;
-    const HANDLE waits[]{cancel, space};
     for (;;) {
         if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
         const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
         if (write - read > kGatewayClientEventCapacity) return false;
         if (write - read < kGatewayClientEventCapacity) {
-            WriteRelease(lease, 1);
+            write_release(lease, 1);
             if (!spsc_mailbox_push_external(mailbox, event, payload_bytes).ok()) {
-                WriteRelease(lease, 0);
+                write_release(lease, 0);
                 return false;
             }
             if (deferred) *deferred = true;
             else SetEvent(notification);
             return true;
         }
-        SetEvent(notification);
-        const u64 now = GetTickCount64();
-        if (now >= deadline_ms) return false;
-        const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
-        if (WaitForMultipleObjects(2, waits, FALSE, timeout) != WAIT_OBJECT_0 + 1) return false;
+        if (!wait_for_space(space, cancel, notification, deadline_ms)) return false;
     }
 }
 bool gateway_client_relationship_record(ConstSlice<u8> payload, u32* cursor, RelationshipMutation* output) noexcept {
@@ -312,8 +290,8 @@ GatewayClientDispatchRouteResult gateway_relationship_merged_presences(JsonValue
         byte_ranges_overlap(structural, destination)) return fail(GatewayClientDispatchRouteError::invalid_input);
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok()) return fail(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed);
-    Friends merged{};
-    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, 64, merged_member, &merged);
+    Friends merged{utf8_literal("merged_presences"), JsonValueKind::object};
+    const auto read = json_visit_value_object(data, {scratch.data, scan.count}, 64, friends_member, &merged);
     if (!read.ok() || !merged.valid) return fail(GatewayClientDispatchRouteError::decode);
     *output = merged.array;
     return {};

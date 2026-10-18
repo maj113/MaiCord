@@ -314,8 +314,6 @@ bool native_plugin_sdk_event_push(NativePluginSdkRuntime*, const NativePluginSdk
 // Delivers queued events within the per-pass bounds. True when more remain.
 bool native_plugin_sdk_event_deliver(NativePluginSdkRuntime*) noexcept;
 
-// ---- Read (also used by tests) ---------------------------------------------------
-
 // ---- Messages render decorators -----------------------------------------------------
 
 struct NativePluginSdkRenderMessage {

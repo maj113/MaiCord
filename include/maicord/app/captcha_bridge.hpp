@@ -39,6 +39,45 @@ inline constexpr u32 kCaptchaBridgeDefaultTimeoutMs = 5 * 60 * 1000;
 // browser. Generation must be nonzero. Timeout: 1 s through 5 minutes.
 CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, u32 timeout_ms,
                                          const CaptchaBridgeChallenge& challenge) noexcept;
+// Starts the bridge from a stored challenge. copy_secret(kind, SecureBuffer*) fills a locked buffer with
+// one challenge secret. The sitekey is required; rqdata and user_flow stay empty when absent. A failed
+// sitekey copy reports invalid_input with copy_native_error.
+template <typename CopySecret>
+CaptchaBridgeStatus captcha_bridge_start_copied(CaptchaBridge* bridge, u64 generation, u32 timeout_ms,
+                                                CaptchaProvider provider, bool invisible,
+                                                CopySecret copy_secret, u32 copy_native_error) noexcept {
+    SecureBuffer sitekey{}, rqdata{}, user_flow{};
+    const bool copied =
+        secure_buffer_initialize(&sitekey, kCaptchaChallengeSitekeyBytes + kCaptchaChallengeUserFlowBytes)
+            .ok() &&
+        secure_buffer_initialize(&rqdata, kCaptchaChallengeRqdataBytes).ok() &&
+        copy_secret(CaptchaChallengeSecretKind::sitekey, &sitekey).ok();
+    // user_flow borrows the locked tail; only sitekey owns/releases the arena.
+    if (sitekey.data)
+        user_flow = {sitekey.data + kCaptchaChallengeSitekeyBytes, kCaptchaChallengeUserFlowBytes, 0,
+                     sitekey.locked};
+    if (copied && !copy_secret(CaptchaChallengeSecretKind::rqdata, &rqdata).ok())
+        secure_buffer_clear(&rqdata);
+    if (copied && !copy_secret(CaptchaChallengeSecretKind::user_flow, &user_flow).ok())
+        secure_buffer_clear(&user_flow);
+    const CaptchaBridgeStatus status =
+        copied ? captcha_bridge_start(bridge, generation, timeout_ms,
+                                      {{reinterpret_cast<const char*>(sitekey.data), sitekey.bytes},
+                                       {reinterpret_cast<const char*>(rqdata.data), rqdata.bytes},
+                                       provider,
+                                       invisible,
+                                       {reinterpret_cast<const char*>(user_flow.data), user_flow.bytes}})
+               : CaptchaBridgeStatus{generation,
+                                     0,
+                                     copy_native_error,
+                                     0,
+                                     CaptchaBridgePhase::failed,
+                                     CaptchaBridgeError::invalid_input,
+                                     false};
+    secure_buffer_release(&sitekey);
+    secure_buffer_release(&rqdata);
+    return status;
+}
 CaptchaBridgeStatus captcha_bridge_status(const CaptchaBridge* bridge) noexcept;
 HANDLE captcha_bridge_notification_handle(const CaptchaBridge* bridge) noexcept;
 // URL contains the state; do not log it. Output must be locked and disjoint.

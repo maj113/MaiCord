@@ -15,7 +15,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -41,7 +42,7 @@ void buffer_retain(void* context) noexcept {
 void buffer_release(void* context) noexcept {
     auto* buffer = static_cast<UploadBuffer*>(context);
     if (InterlockedDecrement(&buffer->references) == 0) {
-        SecureZeroMemory(buffer->data(), buffer->bytes);
+        secure_clear_bytes(buffer->data(), buffer->bytes);
         VirtualFree(buffer, 0, MEM_RELEASE);
     }
 }
@@ -190,18 +191,11 @@ void perform(VoiceMessageAction action) noexcept {
         }
         g_voice.next_poll_ms = 0;
         break;
-    case VoiceMessageAction::finish:
-        command(VoiceMessageOperation::finish);
-        if (g_voice.status.state != VoiceMessageState::finished) {
-            command(VoiceMessageOperation::discard);
-            g_voice.flow = {};
-            end_notice(VoiceMessageNotice::microphone);
-        }
-        break;
     case VoiceMessageAction::discard:
         command(VoiceMessageOperation::discard);
         remove_draft();
         break;
+    case VoiceMessageAction::finish:
     case VoiceMessageAction::finish_and_send:
         command(VoiceMessageOperation::finish);
         if (g_voice.status.state != VoiceMessageState::finished) {
@@ -210,6 +204,8 @@ void perform(VoiceMessageAction action) noexcept {
             end_notice(VoiceMessageNotice::microphone);
             break;
         }
+        if (action == VoiceMessageAction::finish)
+            break;
         [[fallthrough]];
     case VoiceMessageAction::send:
         command(VoiceMessageOperation::pause);
@@ -243,9 +239,6 @@ void perform(VoiceMessageAction action) noexcept {
 }
 void apply(VoiceMessageEvent event, u64 channel) noexcept {
     perform(voice_message_flow_apply(&g_voice.flow, event, clock_monotonic_milliseconds(), channel));
-}
-bool refresh() noexcept {
-    return refresh_message_composer_ui();
 }
 // Fills the bar from the latest module status.
 void project(u64 now_ms) noexcept {
@@ -331,17 +324,17 @@ void application_voice_message_pointer(UiButtonPointerEvent event, bool over_sen
     if (event == UiButtonPointerEvent::press && over_send && !voice_message_flow_active(f) &&
         message_composer_scene_voice_mode(g_app.message_composer_scene) == UiComposerVoiceMode::available) {
         apply(VoiceMessageEvent::press, g_app.account_ui ? g_app.account_ui->active_channel_id : 0);
-        refresh();
+        refresh_message_composer_ui();
         return;
     }
     if (!f.held)
         return;
     if (event == UiButtonPointerEvent::move && f.hold_inside != over_send) {
         f.hold_inside = over_send;
-        refresh();
+        refresh_message_composer_ui();
     } else if ((event == UiButtonPointerEvent::release || event == UiButtonPointerEvent::cancel) && !activated) {
         apply(VoiceMessageEvent::release_outside);
-        refresh();
+        refresh_message_composer_ui();
     }
 }
 
@@ -357,7 +350,7 @@ bool application_voice_message_activate(MessageComposerControl control) noexcept
             apply(f.phase == VoiceMessagePhase::failed ? VoiceMessageEvent::retry : VoiceMessageEvent::send);
         else
             return false;
-        return refresh();
+        return refresh_message_composer_ui();
     }
     if (!voice_message_flow_active(f) || !ui_composer_voice_bar_visible(mode))
         return false;
@@ -367,7 +360,7 @@ bool application_voice_message_activate(MessageComposerControl control) noexcept
         apply(f.phase == VoiceMessagePhase::recording ? VoiceMessageEvent::stop : VoiceMessageEvent::play);
     else
         return false;
-    return refresh();
+    return refresh_message_composer_ui();
 }
 
 bool application_voice_message_bar_click() noexcept {
@@ -376,7 +369,7 @@ bool application_voice_message_bar_click() noexcept {
         return false;
     if (g_voice.flow.phase == VoiceMessagePhase::review || g_voice.flow.phase == VoiceMessagePhase::failed)
         apply(VoiceMessageEvent::play);
-    refresh();
+    refresh_message_composer_ui();
     return true;
 }
 
@@ -391,11 +384,11 @@ bool application_voice_message_input(UiInputKind kind, u32 code, bool repeated) 
     const bool modifiers = (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000);
     if (code == VK_ESCAPE) {
         apply(VoiceMessageEvent::cancel);
-        return refresh();
+        return refresh_message_composer_ui();
     }
     if (code == VK_RETURN && !modifiers) {
         apply(g_voice.flow.phase == VoiceMessagePhase::failed ? VoiceMessageEvent::retry : VoiceMessageEvent::send);
-        return refresh();
+        return refresh_message_composer_ui();
     }
     return false;
 }
@@ -408,7 +401,7 @@ void application_voice_message_channel_changed(u64 channel_id) noexcept {
 void application_voice_message_deactivated() noexcept {
     if (g_voice.flow.phase == VoiceMessagePhase::recording) {
         apply(VoiceMessageEvent::deactivated);
-        refresh();
+        refresh_message_composer_ui();
     }
 }
 
@@ -416,7 +409,7 @@ bool application_voice_message_pump() noexcept {
     if (stale()) {
         remove_draft();
         g_voice.flow = {};
-        return refresh();
+        return refresh_message_composer_ui();
     }
     const u64 now = clock_monotonic_milliseconds();
     if (g_voice.notice != VoiceMessageNotice::none && now >= g_voice.notice_until_ms) {

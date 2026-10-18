@@ -4,7 +4,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -152,7 +152,7 @@ AccountSessionStoreResult account_user_session_store_save(
         secure_buffer_protect_user_bound(payload, ConstSlice<u8>{entropy, sizeof(entropy)}, {});
     if (required.error != SecureBufferError::output_too_small || required.bytes == 0 ||
         required.bytes > kAccountSessionStoreMaximumFileBytes - kHeaderBytes) {
-        SecureZeroMemory(entropy, sizeof(entropy));
+        secure_clear_bytes(entropy, sizeof(entropy));
         secure_buffer_release(&payload);
         return failure(AccountSessionStoreError::protect, required.native_error, required.bytes);
     }
@@ -160,14 +160,14 @@ AccountSessionStoreResult account_user_session_store_save(
     auto* file_bytes =
         static_cast<u8*>(VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!file_bytes) {
-        SecureZeroMemory(entropy, sizeof(entropy));
+        secure_clear_bytes(entropy, sizeof(entropy));
         secure_buffer_release(&payload);
         return failure(AccountSessionStoreError::memory, thread_last_error());
     }
     const SecureBufferResult protected_result =
         secure_buffer_protect_user_bound(payload, ConstSlice<u8>{entropy, sizeof(entropy)},
                                          Slice<u8>{file_bytes + kHeaderBytes, required.bytes});
-    SecureZeroMemory(entropy, sizeof(entropy));
+    secure_clear_bytes(entropy, sizeof(entropy));
     secure_buffer_release(&payload);
     if (!protected_result.ok() || protected_result.bytes == 0 || protected_result.bytes > required.bytes) {
         const AccountSessionStoreResult result = failure(
@@ -205,8 +205,8 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
     if (file == INVALID_HANDLE_VALUE) {
         return failure(AccountSessionStoreError::open, thread_last_error());
     }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart < kHeaderBytes ||
+    Win32LargeInteger size{};
+    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kHeaderBytes ||
         size.QuadPart > kAccountSessionStoreMaximumFileBytes) {
         const u32 native_error = thread_last_error();
         CloseHandle(file);
@@ -251,7 +251,7 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
     const SecureBufferResult unprotected =
         secure_buffer_unprotect_user_bound(ConstSlice<u8>{file_bytes + kHeaderBytes, protected_bytes},
                                            ConstSlice<u8>{entropy, sizeof(entropy)}, &payload);
-    SecureZeroMemory(entropy, sizeof(entropy));
+    secure_clear_bytes(entropy, sizeof(entropy));
     file_persistence_secure_release(file_bytes, file_size);
     if (!unprotected.ok()) {
         const u32 error = unprotected.native_error;

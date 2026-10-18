@@ -7,7 +7,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/member_context_policy.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -49,13 +50,16 @@ constexpr JoinType kJoinTypes[]{
     {8, utf8_literal("Linked Channel")},
 };
 constexpr Utf8View kPageSizes[]{utf8_literal("12"), utf8_literal("25"), utf8_literal("50"), utf8_literal("100")};
+constexpr Utf8View kBulkButtons[]{utf8_literal("Ban Members"), utf8_literal("Clear selection")};
+constexpr Utf8View kPageButtons[]{utf8_literal("Previous"), utf8_literal("Next")};
 
-bool manage() noexcept {
-    return can_manage_guild();
-}
 // The checkbox column: member safety access plus Manage Server and Ban Members.
 bool bulk_allowed() noexcept {
-    return manage() && permission_has(owner->access.permissions, kPermissionBanMembers);
+    return can_manage_guild() && permission_has(owner->access.permissions, kPermissionBanMembers);
+}
+// Whether the search box differs from the text the current results were asked for.
+bool search_text_changed(Utf8View text) noexcept {
+    return text.bytes != owner->search_applied_bytes || !bytes_equal(text.data, owner->search_applied, text.bytes);
 }
 bool default_filters() noexcept {
     const auto& p = *owner;
@@ -147,7 +151,7 @@ Utf8View join_method(Bank& bank, const GuildSearchMember& m) noexcept {
     case 7: {
         if (!m.invite_code_bytes)
             return utf8_literal("Manual Verification");
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.add(utf8_literal("Manual Verification ("));
         bank.add({m.invite_code, m.invite_code_bytes});
         bank.add(utf8_literal(")"));
@@ -183,6 +187,16 @@ bool can_ban(u64 user) noexcept {
                                     clock_unix_milliseconds() / 1000)
                 .allowed &
             moderation_action_ban) != 0;
+}
+
+// How many members of the page the account may ban, and how many of them are selected.
+void page_selection(u32* actionable, u32* chosen) noexcept {
+    *actionable = *chosen = 0;
+    for (u32 i = 0; i < owner->page_row_count; ++i)
+        if (can_ban(owner->page_rows[i]->user_id)) {
+            ++*actionable;
+            *chosen += selected(owner->page_rows[i]->user_id);
+        }
 }
 
 bool ensure_bank() noexcept {
@@ -230,7 +244,7 @@ void apply_text() noexcept {
     auto& p = *owner;
     const auto text = editor_text(editor_search);
     p.search_due_at = 0;
-    if (text.bytes == p.search_applied_bytes && bytes_equal(text.data, p.search_applied, text.bytes))
+    if (!search_text_changed(text))
         return;
     p.search_applied_bytes = minimum(text.bytes, kSearchBytes);
     copy_bytes(p.search_applied, text.data, p.search_applied_bytes);
@@ -274,7 +288,7 @@ Utf8View filter_value(Bank& bank, Menu menu) noexcept {
         }
         if (!count)
             return utf8_literal("All");
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.number(count);
         bank.add(utf8_literal(" selected"));
         return bank.since(start);
@@ -299,7 +313,7 @@ void project_members(Bank& bank) noexcept {
     const u64 now = clock_unix_milliseconds();
     push({control_search, utf8_literal("Search members"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
           &editor_view(editor_search, control_search, utf8_literal("Search by username or id"), edit)});
-    if (manage()) {
+    if (can_manage_guild()) {
         push_filter(bank, 0, control_filter_joined, utf8_literal("Member Since"), Menu::member_since, edit);
         push_filter(bank, 1, control_filter_created, utf8_literal("Joined Discord"), Menu::joined_discord, edit);
         push_filter(bank, 2, control_filter_method, utf8_literal("Join Method"), Menu::join_method, edit);
@@ -323,12 +337,10 @@ void project_members(Bank& bank) noexcept {
     }
     const bool bulk = bulk_allowed();
     if (bulk && p.selected_count) {
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.number(p.selected_count);
         bank.add(p.selected_count == 1 ? utf8_literal(" member selected") : utf8_literal(" members selected"));
-        p.bulk_buttons[0] = utf8_literal("Ban Members");
-        p.bulk_buttons[1] = utf8_literal("Clear selection");
-        push({control_bulk, bank.since(start), {}, UiSettingsControlKind::buttons, edit, false, {p.bulk_buttons, 2}, 0,
+        push({control_bulk, bank.since(start), {}, UiSettingsControlKind::buttons, edit, false, {kBulkButtons, 2}, 0,
               {}, nullptr});
     }
     if (p.bulk_notice.bytes)
@@ -337,12 +349,8 @@ void project_members(Bank& bank) noexcept {
     push(category(control_list_category,
                   default_filters() ? utf8_literal("Recent Members") : utf8_literal("Search Results")));
     if (bulk) {
-        u32 actionable = 0, chosen = 0;
-        for (u32 i = 0; i < p.page_row_count; ++i)
-            if (can_ban(p.page_rows[i]->user_id)) {
-                ++actionable;
-                chosen += selected(p.page_rows[i]->user_id);
-            }
+        u32 actionable, chosen;
+        page_selection(&actionable, &chosen);
         push({control_select_page, utf8_literal("Select all members on this page"),
               actionable ? Utf8View{} : utf8_literal("There are no actionable members"), UiSettingsControlKind::toggle,
               edit && actionable, actionable && chosen == actionable, {}, 0, {}, nullptr});
@@ -364,7 +372,7 @@ void project_members(Bank& bank) noexcept {
         const Utf8View name = m.nick_bytes          ? bank.add({m.nick, m.nick_bytes})
                               : m.global_name_bytes ? bank.add({m.global_name, m.global_name_bytes})
                                                     : bank.add({m.username, m.username_bytes});
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         if (m.username_bytes) {
             bank.add(utf8_literal("@"));
             bank.add({m.username, m.username_bytes});
@@ -374,7 +382,7 @@ void project_members(Bank& bank) noexcept {
         relative(bank, m.joined_at_ms, now, false);
         bank.add(utf8_literal(" · Joined Discord "));
         relative(bank, (m.user_id >> 22) + kSnowflakeEpochMilliseconds, now, true);
-        if (manage()) {
+        if (can_manage_guild()) {
             bank.add(utf8_literal(" · "));
             bank.add(join_method(bank, m));
         }
@@ -389,10 +397,8 @@ void project_members(Bank& bank) noexcept {
         const auto description = bank.since(start);
         // The highest role, then "+N" for the others.
         const RoleRecord* top = nullptr;
-        u32 held = 0;
         for (u32 j = 0; j < minimum<u32>(m.role_count, kGuildModerationMemberRoles); ++j)
             if (const auto* r = role(m.role_ids[j]); r && r->id != p.guild_id) {
-                ++held;
                 if (!top || r->position > top->position || (r->position == top->position && r->id < top->id))
                     top = r;
             }
@@ -403,13 +409,12 @@ void project_members(Bank& bank) noexcept {
             chip_colors[row][chip_count++] = guild_role_color_rgba(top->color);
         }
         if (m.role_count > 1) {
-            const u32 more = bank.mark();
+            const u32 more = bank.used;
             bank.add(utf8_literal("+"));
             bank.number(m.role_count - 1);
             chips[row][chip_count] = bank.since(more);
             chip_colors[row][chip_count++] = 0;
         }
-        (void)held;
         p.row_ids[row] = m.user_id;
         u8 flags = ui_settings_presentation_avatar | ui_settings_presentation_compact | ui_settings_presentation_accent;
         if (bulk && selected(m.user_id))
@@ -430,18 +435,16 @@ void project_members(Bank& bank) noexcept {
         for (u32 i = 0; i < 4; ++i)
             if (kGuildMemberSearchPageSizes[i] == s.page_size)
                 size_index = i;
-        for (u32 i = 0; i < 4; ++i)
-            p.page_size_choices[i] = kPageSizes[i];
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.add(utf8_literal("members of "));
         if (s.phase == GuildMemberSearchPhase::loading)
             bank.add(utf8_literal("..."));
         else
             bank.number(count);
         push({control_page_size, utf8_literal("Showing"), bank.since(start), UiSettingsControlKind::segments, edit,
-              false, {p.page_size_choices, 4}, size_index, {}, nullptr});
+              false, {kPageSizes, 4}, size_index, {}, nullptr});
     } else if (p.page_row_count) {
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.add(utf8_literal("Showing "));
         bank.number(count);
         bank.add(count == 1 ? utf8_literal(" member") : utf8_literal(" members"));
@@ -449,15 +452,13 @@ void project_members(Bank& bank) noexcept {
     }
     if (count > s.page_size || s.phase == GuildMemberSearchPhase::loading) {
         const u32 pages = guild_member_search_pages(s);
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.add(utf8_literal("Page "));
         bank.number(s.page);
         bank.add(utf8_literal(" of "));
         bank.number(pages);
-        p.page_buttons[0] = utf8_literal("Previous");
-        p.page_buttons[1] = utf8_literal("Next");
         push({control_pages, bank.since(start), {}, UiSettingsControlKind::buttons, edit && (s.page > 1 || s.page < pages),
-              false, {p.page_buttons, 2}, 0, {}, nullptr});
+              false, {kPageButtons, 2}, 0, {}, nullptr});
     }
 }
 
@@ -481,11 +482,8 @@ void open_menu(Menu menu, UiRect anchor) noexcept {
     const auto item = [&](Utf8View label, bool checked, bool separator = false) noexcept {
         if (count >= kPopupCapacity)
             return;
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + count;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (checked ? popup_item_checked : 0) |
-                                                      (separator ? popup_item_separator_before : 0));
+        popup_row(count, label, count,
+                  (checked ? popup_item_checked : 0) | (separator ? popup_item_separator_before : 0));
         ++count;
     };
     switch (menu) {
@@ -510,7 +508,7 @@ void open_menu(Menu menu, UiRect anchor) noexcept {
                 const auto* record = guild_details();
                 const auto vanity = record ? guild_detail_store_vanity_url_code(details(), *record) : Utf8View{};
                 if (vanity.bytes) {
-                    const u32 start = bank.mark();
+                    const u32 start = bank.used;
                     bank.add(vanity);
                     bank.add(utf8_literal(" (Vanity)"));
                     label = bank.since(start);
@@ -601,12 +599,8 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         return;
     }
     case control_select_page: {
-        u32 actionable = 0, chosen = 0;
-        for (u32 i = 0; i < p.page_row_count; ++i)
-            if (can_ban(p.page_rows[i]->user_id)) {
-                ++actionable;
-                chosen += selected(p.page_rows[i]->user_id);
-            }
+        u32 actionable, chosen;
+        page_selection(&actionable, &chosen);
         // All selected clears the whole selection; otherwise the page joins it.
         if (actionable && chosen == actionable)
             p.selected_count = 0;
@@ -641,11 +635,11 @@ void choose(Menu menu, u32 action) noexcept {
     auto& p = *owner;
     if (menu == Menu::member) {
         const u64 user = p.menu_user;
-        if (action == kModerationActions.timeout || action == kModerationActions.ban) {
-            if (action == kModerationActions.ban) {
-                application_member_moderation_start(p.guild_id, user, moderation_action_ban, 0);
-                return;
-            }
+        if (action == kModerationActions.ban) {
+            application_member_moderation_start(p.guild_id, user, moderation_action_ban, 0);
+            return;
+        }
+        if (action == kModerationActions.timeout) {
             const u32 count = member_context_timeout_choices(kModerationActions, {p.popup_items, 16});
             p.menu = Menu::timeout;
             settings_layer_open_choice(&p.layer, user, {p.popup_items, count}, g_app.popup_scene.anchor, 240);
@@ -774,7 +768,7 @@ bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQu
     if (!written.ok())
         return false;
     const u64 hash = hash64_counted_bytes(kHash64Seed, body, written.bytes);
-    SecureZeroMemory(body, written.bytes);
+    secure_clear_bytes(body, written.bytes);
     if (!p.search_retry && hash == p.search.last_body_hash && written.bytes == p.search.last_body_bytes)
         return false;
     p.search_pending = q;
@@ -844,9 +838,7 @@ void members_tick(u64 now) noexcept {
         queue(Op::members_search);
     }
     const auto text = editor_text(editor_search);
-    const bool changed =
-        !(text.bytes == p.search_applied_bytes && bytes_equal(text.data, p.search_applied, text.bytes));
-    if (!changed) {
+    if (!search_text_changed(text)) {
         p.search_due_at = 0;
         return;
     }
@@ -869,7 +861,7 @@ void members_bulk_ban_update(const GuildBulkBanUpdate& update) noexcept {
 void members_release() noexcept {
     auto& p = *owner;
     if (p.search_bank) {
-        SecureZeroMemory(p.search_bank, sizeof(GuildSearchMember) * kGuildMemberSearchCapacity);
+        secure_clear_bytes(p.search_bank, sizeof(GuildSearchMember) * kGuildMemberSearchCapacity);
         VirtualFree(p.search_bank, 0, MEM_RELEASE);
     }
     p.search_bank = nullptr;

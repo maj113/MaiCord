@@ -6,7 +6,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_error.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -148,8 +148,8 @@ AccountInventoryResult account_inventory_load(const wchar_t* path, AccountInvent
                                                           : AccountInventoryError::open,
                        error);
     }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart < kHeaderBytes ||
+    Win32LargeInteger size{};
+    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kHeaderBytes ||
         size.QuadPart > kAccountInventoryMaximumFileBytes) {
         const u32 error = thread_last_error();
         CloseHandle(file);

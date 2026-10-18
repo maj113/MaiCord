@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_client.hpp"
+#include "gateway_dispatch_common.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/stage_channel.hpp"
@@ -75,12 +76,8 @@ bool gateway_client_publish_stage_instances(JsonValue guild, u64 guild_id, Slice
                    reinterpret_cast<GatewayClientStageInstanceRecord*>(payload.data), guild_id, 0};
     if (!json_visit_value_array(instances, {scratch.data, scan.count}, kDepth, guild_row, &pass).ok())
         return true;
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = GatewayClientDispatchKind::stage_instance_snapshot;
-    event.sequence = sequence;
-    event.has_sequence = true;
-    event.timestamp_ms = now_ms;
+    GatewayClientEvent event =
+        gateway_dispatch_event(GatewayClientDispatchKind::stage_instance_snapshot, sequence, now_ms);
     event.voice_states = {guild_id, pass.count, true};
     event.dispatch_payload_bytes = pass.count * static_cast<u32>(sizeof(GatewayClientStageInstanceRecord));
     return publish(context, event, {reinterpret_cast<const u8*>(payload.data), event.dispatch_payload_bytes});

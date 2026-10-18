@@ -180,7 +180,7 @@ u32 voice_rtp_header(Slice<u8> output, u16 sequence, u32 timestamp, u32 ssrc) no
     if (!output.data || output.count < kVoiceRtpHeaderBytes)
         return 0;
     output[0] = 0x80;
-    output[1] = kVoiceRtpOpusType;
+    output[1] = kVoiceOpusPayloadType;
     output[2] = static_cast<u8>(sequence >> 8);
     output[3] = static_cast<u8>(sequence);
     byte_store_be32(output.data + 4, timestamp);

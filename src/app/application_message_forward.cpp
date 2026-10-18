@@ -1,4 +1,5 @@
 #include "application_message_forward.hpp"
+#include "text_edit_keys.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "application_state.hpp"
@@ -21,6 +22,8 @@
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 struct ApplicationMessageForward {
     MessageForwardController controller;
@@ -41,9 +44,6 @@ QuickSwitcherScope scope() noexcept {
     return {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
             g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0};
 }
-bool same_scope(QuickSwitcherScope a, QuickSwitcherScope b) noexcept {
-    return a.account_serial == b.account_serial && a.profile_key == b.profile_key && a.self_user_id == b.self_user_id;
-}
 QuickSwitcherSources sources() noexcept {
     return g_app.account_ui ? QuickSwitcherSources{&g_app.account_ui->chat_state,
         &g_app.account_ui->user_store, application_friends_relationships()} : QuickSwitcherSources{};
@@ -56,6 +56,10 @@ bool available() noexcept {
         !application_theme_editor_active() &&
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active) &&
         !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active;
+}
+// Control characters and line separators never enter the single-line fields.
+bool forbidden_scalar(u32 c) noexcept {
+    return c < 32 || (c >= 127 && c <= 159) || c == 0x2028 || c == 0x2029;
 }
 UiQuickSwitcherKind ui_kind(QuickSwitcherKind kind) noexcept {
     return kind == QuickSwitcherKind::private_channel ? UiQuickSwitcherKind::private_channel :
@@ -93,7 +97,7 @@ TextInputTarget delegate(const TextInputTarget& target) noexcept {
 }
 bool edit_ready(const TextInputTarget& target) noexcept {
     const auto* q = g_app.message_forward;
-    return q && q->active && q->focused && !q->controller.committed && available() && same_scope(q->controller.scope, scope()) &&
+    return q && q->active && q->focused && !q->controller.committed && available() && quick_switcher_scope_equal(q->controller.scope, scope()) &&
         target.context == (q->caption_focused ? &q->caption : &q->edit) && target.identity == q->identity && text_input_ready(delegate(target));
 }
 u32 edit_revision(const TextInputTarget& t) noexcept { return text_input_revision(delegate(t)); }
@@ -106,7 +110,7 @@ TextInputResult edit_copy(const TextInputTarget& t, u32 a, u32 b, Slice<u16> out
 TextInputResult edit_replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> in, TextInputChange* c) noexcept {
     if (!c || (!in.data && in.count)) return TextInputResult::invalid_input;
     for (u32 i = 0; i < in.count; ++i)
-        if (in[i] < 32 || (in[i] >= 127 && in[i] <= 159) || in[i] == 0x2028 || in[i] == 0x2029)
+        if (forbidden_scalar(in[i]))
             return TextInputResult::invalid_input;
     return text_input_replace(delegate(t), a, b, in, c);
 }
@@ -190,7 +194,7 @@ MessageComposer* application_message_forward_edit_model() noexcept {
 }
 bool application_message_forward_edit_focused() noexcept {
     const auto* q = g_app.message_forward;
-    return q && q->active && q->focused && !q->controller.committed && available() && same_scope(q->controller.scope, scope());
+    return q && q->active && q->focused && !q->controller.committed && available() && quick_switcher_scope_equal(q->controller.scope, scope());
 }
 bool application_message_forward_caption_focused() noexcept {
     return application_message_forward_edit_focused() && g_app.message_forward->caption_focused;
@@ -235,7 +239,7 @@ bool application_message_forward_synchronize() noexcept {
     auto* q = g_app.message_forward;
     if (!q) return true;
     if (!g_app.account_ui) { application_message_forward_close(); return true; }
-    if (!same_scope(q->controller.scope, scope())) {
+    if (!quick_switcher_scope_equal(q->controller.scope, scope())) {
         // Never apply an old account's nonces to another account's outbox.
         if (q->account_ui == g_app.account_ui && q->account_instance == g_app.account.instance &&
             q->controller.scope.profile_key == scope().profile_key && q->controller.scope.self_user_id == scope().self_user_id)
@@ -359,7 +363,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     if (ui_input_consume_key_tail(&g_app.message_forward_held_key, {kind, key, repeated})) return true;
     auto* q = g_app.message_forward;
     if (!q || !q->active) return false;
-    if (!available() || !same_scope(q->controller.scope, scope())) {
+    if (!available() || !quick_switcher_scope_equal(q->controller.scope, scope())) {
         if (kind == UiInputKind::key_down || kind == UiInputKind::system_key_down)
             g_app.message_forward_held_key = key;
         application_message_forward_close(); return true;
@@ -388,7 +392,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     if (!application_message_forward_edit_focused()) return true;
     auto& model = q->caption_focused ? q->caption : q->edit;
     if (kind == UiInputKind::character) {
-        if (control || (alt && !ctrl_raw) || key < 32 || (key >= 127 && key <= 159) || key == 0x2028 || key == 0x2029 || key > 0xffff) return true;
+        if (control || (alt && !ctrl_raw) || forbidden_scalar(key) || key > 0xffff) return true;
         if (!model.history) message_composer_enable_history(&model, 2048);
         if (message_composer_insert_utf16(&model, static_cast<u16>(key), clock_monotonic_milliseconds()) == MessageComposerResult::changed)
             application_message_forward_edit_changed(true);
@@ -397,8 +401,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) return true;
     const auto revision = model.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && key == 'A') result = message_composer_select_all(&model);
-    else if (control && (key == 'C' || key == 'X')) {
+    if (control && (key == 'C' || key == 'X')) {
         const u32 a = minimum(model.anchor, model.caret), b = maximum(model.anchor, model.caret);
         if (b > a && clipboard_write_utf8(g_app.window, {model.text + a, b - a}) && key == 'X')
             result = message_composer_replace_range(&model, a, b, {});
@@ -408,19 +411,14 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
         bool valid = read.ok();
         for (u32 i = 0; valid && i < read.bytes;) {
             const auto scalar = utf8_decode_one(text + i, read.bytes - i);
-            valid = scalar.valid && scalar.codepoint >= 32 && !(scalar.codepoint >= 127 && scalar.codepoint <= 159) && scalar.codepoint != 0x2028 && scalar.codepoint != 0x2029;
+            valid = scalar.valid && !forbidden_scalar(scalar.codepoint);
             if (valid) i += scalar.width;
         }
         if (valid) result = message_composer_insert_utf8(&model, {text, read.bytes});
-    } else if (control && key == 'Z') result = shift ? message_composer_redo(&model) : message_composer_undo(&model);
-    else if (control && key == 'Y') result = message_composer_redo(&model);
-    else if (key == VK_BACK) { g_app.message_forward_held_key = key; result = control ? message_composer_delete_word(&model, false) : message_composer_backspace(&model); }
-    else if (key == VK_DELETE) result = control ? message_composer_delete_word(&model, true) : message_composer_delete_forward(&model);
-    else if (key == VK_LEFT || key == VK_RIGHT) result = message_composer_move(&model,
-        control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
-                : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next), shift);
-    else if (key == VK_HOME || key == VK_END) result = message_composer_move(&model,
-        key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
+    } else {
+        if (key == VK_BACK) g_app.message_forward_held_key = key;
+        message_composer_edit_key(&model, key, control, shift, &result);
+    }
     if (result == MessageComposerResult::changed) application_message_forward_edit_changed(revision != model.text_revision);
     return true;
 }
@@ -435,9 +433,8 @@ bool application_message_forward_window_message(UINT message, WPARAM wparam, LPA
     auto* q = g_app.message_forward;
     if (message == WM_LBUTTONDOWN && (!q || !q->active)) g_app.message_forward_pointer_tail = false;
     if (message == WM_LBUTTONUP && g_app.message_forward_pointer_tail && (!q || !q->active)) { g_app.message_forward_pointer_tail = false; return true; }
-    if (!q) return false;
-    if (!q->active) return false;
-    if (!available() || !same_scope(q->controller.scope, scope())) {
+    if (!q || !q->active) return false;
+    if (!available() || !quick_switcher_scope_equal(q->controller.scope, scope())) {
         if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) g_app.message_forward_held_key = static_cast<u32>(wparam);
         application_message_forward_close(); return true;
     }
@@ -496,7 +493,7 @@ void application_message_forward_tick(u64 now) noexcept {
 }
 void application_message_forward_completion(const MessageSendCompletion& completion) noexcept {
     auto* q = g_app.message_forward;
-    if (!q || !same_scope(q->controller.scope, scope())) return;
+    if (!q || !quick_switcher_scope_equal(q->controller.scope, scope())) return;
     if (message_forward_observe_completion(&q->controller, completion)) {
         ++q->content_revision;
         if (q->active) application_request_frame();

@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/media/hevc_mp4_demux.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -29,7 +28,7 @@ void progressive_video_fetch_release(ProgressiveVideoFetch* f) noexcept {
     if (!f)
         return;
     progressive_source_release(&f->source);
-    SecureZeroMemory(f, sizeof(*f));
+    secure_clear_bytes(f, sizeof(*f));
 }
 
 ProgressiveVideoNext progressive_video_fetch_next(ProgressiveVideoFetch* f, bool read_ahead,

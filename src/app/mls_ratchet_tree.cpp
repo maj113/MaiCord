@@ -2,7 +2,7 @@
 #include "maicord/app/mls_key_package.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 MlsStatus mls_verify_point(KdfSha256Workspace& kdf, const u8* signature_key, ConstSlice<u8> label,
@@ -61,7 +61,7 @@ MlsStatus mls_leaf_parse(KdfSha256Workspace* kdf, ConstSlice<u8> input, u8 expec
         u8 binding[13];
         const u32 binding_bytes =
             view.source == MlsLeafSource::key_package ? 0 : mls_leaf_binding(group_id, leaf_index, binding);
-        if (const auto status = mls_verify_point(*kdf, candidate.signature_key, mls_text("LeafNodeTBS"),
+        if (const auto status = mls_verify_point(*kdf, candidate.signature_key, text_bytes("LeafNodeTBS"),
                                                  view.tbs, {binding, binding_bytes}, view.signature);
             status != MlsStatus::ok)
             return status;
@@ -102,10 +102,10 @@ MlsStatus mls_leaf_write(KdfSha256Workspace& kdf, const P256Key& signing, const 
     const u32 binding_bytes =
         source == MlsLeafSource::key_package ? 0 : mls_leaf_binding(group_id, leaf_index, binding);
     const auto signed_result =
-        mls_sign_with_label(kdf, signing, mls_text("LeafNodeTBS"), {output.data, tbs.bytes},
+        mls_sign_with_label(kdf, signing, text_bytes("LeafNodeTBS"), {output.data, tbs.bytes},
                             {binding, binding_bytes}, {signature, sizeof(signature)});
     if (!signed_result.ok()) {
-        SecureZeroMemory(output.data, tbs.bytes);
+        secure_clear_bytes(output.data, tbs.bytes);
         return MlsStatus::crypto_failure;
     }
     MlsWriter writer{output};
@@ -114,7 +114,7 @@ MlsStatus mls_leaf_write(KdfSha256Workspace& kdf, const P256Key& signing, const 
     if (writer.ok() && writer.used > kMlsLeafNodeWriteBytes)
         writer.status = MlsStatus::malformed;
     if (!writer.ok()) {
-        SecureZeroMemory(output.data, minimum(writer.used, output.count));
+        secure_clear_bytes(output.data, minimum(writer.used, output.count));
         return writer.status;
     }
     *written = writer.used;
@@ -138,7 +138,7 @@ MlsStatus mls_parent_node_parse(ConstSlice<u8> input, u32 leaf_count, MlsParentN
     candidate.parent_hash = hash.count ? hash.data : nullptr;
     candidate.parent_hash_bytes = hash.count;
     for (u32 i = 0; i != candidate.unmerged.count; i += 4) {
-        const u32 leaf = mls_load_be32(candidate.unmerged.data + i);
+        const u32 leaf = byte_load_be32(candidate.unmerged.data + i);
         if ((candidate.unmerged_count && leaf <= candidate.maximum_unmerged) ||
             (leaf_count && leaf >= leaf_count))
             return MlsStatus::malformed;
@@ -286,7 +286,7 @@ MlsStatus mls_tree_index_init(MlsTreeIndex* index, const MlsRatchetTree& tree, S
         if (status == MlsStatus::ok && (!has_node || node.index != i))
             status = MlsStatus::malformed;
         if (status != MlsStatus::ok) {
-            SecureZeroMemory(scratch.data, mls_tree_index_bytes(tree));
+            secure_clear_bytes(scratch.data, mls_tree_index_bytes(tree));
             return status;
         }
         offsets[i] = offset;
@@ -334,7 +334,7 @@ MlsStatus mls_tree_resolution(const MlsTreeIndex& index, u32 subtree_root, Slice
             for (u32 i = 0; i != node.parent.unmerged.count; i += 4) {
                 if (used >= nodes.count)
                     return MlsStatus::buffer_too_small;
-                nodes.data[used++] = mls_load_be32(node.parent.unmerged.data + i) * 2;
+                nodes.data[used++] = byte_load_be32(node.parent.unmerged.data + i) * 2;
             }
             continue;
         }
@@ -542,7 +542,7 @@ MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTr
                 mls_parent_hash(kdf, path_keys[index], index + 1 < path_count ? hashes[index + 1] : nullptr,
                                 index + 1 < path_count ? kMlsHashBytes : 0, sibling_hash, hashes[index]);
         if (status != MlsStatus::ok) {
-            SecureZeroMemory(hashes, path_count * kMlsHashBytes);
+            secure_clear_bytes(hashes, path_count * kMlsHashBytes);
             return status;
         }
         last = node;

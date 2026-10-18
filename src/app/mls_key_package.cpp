@@ -1,15 +1,11 @@
 #include "maicord/app/mls_key_package.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/mls_reader.hpp"
+#include "byte_views.hpp"
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
-template <u32 N> ConstSlice<u8> label(const char (&value)[N]) noexcept {
-    return {reinterpret_cast<const u8*>(value), N - 1};
-}
 MlsPackageCryptoResult signature(MlsSignatureResult result) noexcept {
     return {0,
             result.native_status,
@@ -21,18 +17,15 @@ MlsPackageCryptoResult signature(MlsSignatureResult result) noexcept {
                 ? MlsPackageCryptoError::invalid_signature
                 : MlsPackageCryptoError::key_failure};
 }
-u16 integer16(const u8* data) noexcept {
-    return static_cast<u16>((static_cast<u16>(data[0]) << 8) | data[1]);
-}
 bool includes(ConstSlice<u8> values, u16 value) noexcept {
     for (u32 i = 0; i < values.count; i += 2)
-        if (integer16(values.data + i) == value)
+        if (byte_load_be16(values.data + i) == value)
             return true;
     return false;
 }
 bool lists_defaults(ConstSlice<u8> values, u16 last_default) noexcept {
     for (u32 i = 0; i < values.count; i += 2) {
-        const u16 value = integer16(values.data + i);
+        const u16 value = byte_load_be16(values.data + i);
         if (value >= 1 && value <= last_default)
             return true;
     }
@@ -45,7 +38,7 @@ __declspec(noinline) bool extensions_valid(ConstSlice<u8> data, ConstSlice<u8> c
                                            bool leaf) noexcept {
     u64 allowed[1024]{};
     for (u32 i = 0; i < capabilities.count; i += 2) {
-        const u16 id = integer16(capabilities.data + i);
+        const u16 id = byte_load_be16(capabilities.data + i);
         allowed[id >> 6] |= u64{1} << (id & 63);
     }
     if (leaf)
@@ -87,14 +80,13 @@ MlsPackageCryptoError dave_profile(const MlsKeyPackageView& view, u64 expected_u
 }
 MlsPackageCryptoResult check_package(KdfSha256Workspace& workspace, ConstSlice<u8> input,
                                      MlsSignedKeyPackage* output, u64 expected_user_id) noexcept {
-    if (!output || !byte_range_valid(input) || byte_ranges_overlap(input, bytes(*output)))
+    if (!output || !byte_range_valid(input) || byte_ranges_overlap(input, object_bytes(*output)))
         return {0, 0, {}, MlsPackageCryptoError::invalid_input};
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, {}, MlsPackageCryptoError::not_initialized};
-    const ConstSlice<u8> spans[]{input, bytes(*output)};
+    const ConstSlice<u8> spans[]{input, object_bytes(*output)};
     for (auto span : spans)
-        if (byte_ranges_overlap(span, bytes(workspace)) ||
-            byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity}))
+        if (aliases_workspace(workspace, span))
             return {0, 0, {}, MlsPackageCryptoError::invalid_input};
     MlsSignedKeyPackage candidate{};
     const auto wire = mls_key_package_decode(input, &candidate.view);
@@ -123,13 +115,13 @@ MlsPackageCryptoResult check_package(KdfSha256Workspace& workspace, ConstSlice<u
     if (!imported.ok())
         result = {0, imported.native_status, {}, MlsPackageCryptoError::key_failure};
     else
-        result = signature(mls_verify_with_label(workspace, signing, label("LeafNodeTBS"), view.leaf.tbs,
-                                                 {}, view.leaf.signature));
+        result = signature(mls_verify_with_label(workspace, signing, text_bytes("LeafNodeTBS"),
+                                                 view.leaf.tbs, {}, view.leaf.signature));
     if (result.ok())
-        result = signature(mls_verify_with_label(workspace, signing, label("KeyPackageTBS"), view.tbs, {},
-                                                 view.signature));
+        result = signature(mls_verify_with_label(workspace, signing, text_bytes("KeyPackageTBS"), view.tbs,
+                                                 {}, view.signature));
     if (result.ok()) {
-        const auto hashed = mls_reference_hash(workspace, label("MLS 1.0 KeyPackage Reference"), input,
+        const auto hashed = mls_reference_hash(workspace, text_bytes("MLS 1.0 KeyPackage Reference"), input,
                                                {candidate.reference, 32});
         if (!hashed.ok())
             result = {0, hashed.native_status, {}, MlsPackageCryptoError::hash_failure};

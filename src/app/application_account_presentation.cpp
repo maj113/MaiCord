@@ -48,7 +48,7 @@
 #include "maicord/ui/theme.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 #if !defined(MAICORD_ACCOUNT_TEXT_REFRESH_RUNTIME_TEST)

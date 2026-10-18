@@ -27,6 +27,15 @@ bool overview_edit() noexcept {
     return application_channel_overview_edit_focused();
 }
 
+void cancel_native_groups(TextInputTarget target) noexcept {
+    application_message_forward_edit_cancel_native_group(target);
+    application_quick_switcher_edit_cancel_native_group(target);
+    application_friends_search_cancel_native_group(target);
+    application_search_edit_cancel_native_group(target);
+    application_media_picker_edit_cancel_native_group(target);
+    application_channel_overview_edit_cancel_native_group(target);
+}
+
 bool profile_edit() noexcept {
     return g_app.profile && g_app.profile->scene.active && g_app.profile->scene.edit.active;
 }
@@ -54,7 +63,6 @@ const TextEditLayoutOwner& edit_layout() noexcept {
            : overview_edit() ? g_app.renderer.media_picker_layout
            : profile_edit()  ? g_app.renderer.profile_edit_layout
            : gallery_edit()  ? g_app.renderer.media_picker_layout
-
            : search_edit()   ? g_app.renderer.search_layout
                              : g_app.renderer.composer_layout;
 }
@@ -65,7 +73,6 @@ MessageComposer& edit_model() noexcept {
            : profile_edit()  ? *application_profile_edit_model()
            : friends_edit()  ? *application_friends_search_model()
            : gallery_edit()  ? *application_media_picker_edit_model()
-
            : search_edit()   ? *application_search_edit_model()
                              : g_app.message_composer;
 }
@@ -75,7 +82,6 @@ TextInputTarget edit_target() noexcept {
            : overview_edit() ? application_channel_overview_edit_target()
            : friends_edit()  ? application_friends_search_target()
            : gallery_edit()  ? application_media_picker_edit_target()
-
            : search_edit()   ? application_search_edit_target()
                              : message_composer_input_target(&edit_model());
 }
@@ -92,7 +98,6 @@ UiRect edit_bounds() noexcept {
         return ui_friends_scene_search_geometry(*g_app.renderer.friends_scene).text;
     if (gallery_edit())
         return application_media_picker_edit_bounds();
-
     if (search_edit())
         return application_search_edit_bounds();
     const auto* node =
@@ -219,9 +224,8 @@ void changed(void* context) noexcept {
                            : profile_edit()  ? application_profile_refresh_message()
                            : friends_edit()  ? application_friends_search_changed(content)
                            : gallery_edit()  ? application_media_picker_edit_changed(content)
-
-                           : search_edit() ? application_search_edit_changed(content)
-                                           : composer_apply_result(MessageComposerResult::changed, content);
+                           : search_edit()   ? application_search_edit_changed(content)
+                                             : composer_apply_result(MessageComposerResult::changed, content);
     if (g_app.composer_text_input == input)
         input->busy = false;
     if (!refreshed)
@@ -275,7 +279,9 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
         TextEditMetric metric{};
         if (!text_edit_layout_position_geometry(layout, a, &metric))
             return false;
-        rectangle = {metric.left, metric.top, metric.left + 1, metric.top + metric.height};
+        const float left = minimum(maximum(metric.left, bounds.left), bounds.right - 1);
+        *clipped = *clipped || left != metric.left;
+        rectangle = {left, metric.top, left + 1, metric.top + metric.height};
     } else {
         TextEditMetric metrics[kTextEditSelectionCapacity]{};
         u32 count = 0;
@@ -291,12 +297,6 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
             rectangle.right = maximum(rectangle.right, metrics[i].left + metrics[i].width);
             rectangle.bottom = maximum(rectangle.bottom, metrics[i].top + metrics[i].height);
         }
-    }
-    if (a == b) {
-        const float left = minimum(maximum(rectangle.left, bounds.left), bounds.right - 1);
-        *clipped = *clipped || left != rectangle.left;
-        rectangle.left = left;
-        rectangle.right = left + 1;
     }
     const auto visible = ui_rect_intersection(rectangle, bounds);
     if (!ui_rect_has_area(visible))
@@ -342,12 +342,7 @@ void application_composer_text_input_suspend() noexcept {
         return;
     const bool busy = input->busy;
     input->busy = true;
-    application_message_forward_edit_cancel_native_group(input->target);
-    application_quick_switcher_edit_cancel_native_group(input->target);
-    application_friends_search_cancel_native_group(input->target);
-    application_search_edit_cancel_native_group(input->target);
-    application_media_picker_edit_cancel_native_group(input->target);
-    application_channel_overview_edit_cancel_native_group(input->target);
+    cancel_native_groups(input->target);
     secure_text_store_unbind(&input->store);
     secure_text_store_detach(&input->store);
     input->target = {};
@@ -390,12 +385,7 @@ bool application_composer_text_input_synchronize() noexcept {
     input->busy = true;
     const auto target = edit_target();
     if (target != input->target) {
-        application_message_forward_edit_cancel_native_group(input->target);
-        application_quick_switcher_edit_cancel_native_group(input->target);
-        application_friends_search_cancel_native_group(input->target);
-        application_search_edit_cancel_native_group(input->target);
-        application_media_picker_edit_cancel_native_group(input->target);
-        application_channel_overview_edit_cancel_native_group(input->target);
+        cancel_native_groups(input->target);
         input->target = target;
         input->geometry_valid = false;
         input->observed_text_revision = edit_model().text_revision;
@@ -433,7 +423,6 @@ void application_composer_text_input_notify_layout() noexcept {
                          : profile_edit()  ? g_app.profile->scene.revision
                          : friends_edit()  ? g_app.renderer.friends_scene->revision
                          : gallery_edit()  ? g_app.renderer.media_picker_scene->revision
-
                          : search_edit()   ? g_app.renderer.search_scene->revision
                                            : scene.observed_revision;
     if (input->geometry_valid && input->observed_layout_revision == revision &&

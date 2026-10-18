@@ -3,13 +3,14 @@
 #include "maicord/platform/random.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
 constexpr u8 kNoBuffer = 0xff;
 constexpr u32 kPage = 4096;
-constexpr u32 kFixedContext = 0; // Two GroupContext buffers.
+// The fixed block holds two GroupContext buffers, then the external sender, then the proposal cache.
 constexpr u32 kFixedSender = 2 * kMlsGroupContextMaximum;
 constexpr u32 kFixedEntries = kFixedSender + ((kMlsMaxExternalSenderBytes + 15) & ~15u);
 constexpr u32 kFixedMaximum =
@@ -66,7 +67,7 @@ Slice<u8> state(const DaveSession& session, u8 index) noexcept {
     return block(session, static_cast<DaveArenaBlock>(static_cast<u32>(DaveArenaBlock::state0) + index));
 }
 Slice<u8> context(const DaveSession& session, u8 index) noexcept {
-    return {block_data(session, DaveArenaBlock::fixed) + kFixedContext + index * kMlsGroupContextMaximum,
+    return {block_data(session, DaveArenaBlock::fixed) + index * kMlsGroupContextMaximum,
             kMlsGroupContextMaximum};
 }
 Slice<u8> external_sender_buffer(const DaveSession& session) noexcept {
@@ -150,11 +151,11 @@ void clear_pending_slots(DaveSession& session) noexcept {
 }
 void clear_outbound(DaveSession& session) noexcept {
     if (session.outbound_bytes)
-        SecureZeroMemory(block_data(session, DaveArenaBlock::outbound), session.outbound_bytes);
+        secure_clear_bytes(block_data(session, DaveArenaBlock::outbound), session.outbound_bytes);
     session.outbound_bytes = session.outbound_commit_bytes = 0;
 }
 void clear_transitions(DaveSession& session) noexcept {
-    SecureZeroMemory(session.transitions, sizeof(session.transitions));
+    secure_clear_bytes(session.transitions, sizeof(session.transitions));
 }
 u8 find_buffer(const DaveSession& session, const u8* memory, bool contexts) noexcept {
     for (u8 i = 0; i != (contexts ? 2 : 3); ++i) {
@@ -257,7 +258,7 @@ void remove_receiver(DaveSession& session, u32 index) noexcept {
     auto* list = receivers(session);
     dave_receive_sender_release(&list[index].sender);
     list[index] = list[session.receiver_count - 1];
-    SecureZeroMemory(&list[--session.receiver_count], sizeof(DaveReceiver));
+    secure_clear_bytes(&list[--session.receiver_count], sizeof(DaveReceiver));
 }
 void retire_receivers(DaveSession& session, u64 now_ms) noexcept {
     ++session.receive_revision;
@@ -324,10 +325,13 @@ void reset_group(DaveSession& session) noexcept {
     session.group_state = DaveGroupState::none;
     session.active_state = session.active_context = kNoBuffer;
 }
-MlsStatus prepare_leaf(DaveSession& session) noexcept {
+void drop_key_package(DaveSession& session) noexcept {
     dave_key_package_release(&session.package);
     session.package_view = {};
     session.key_package_ready = false;
+}
+MlsStatus prepare_leaf(DaveSession& session) noexcept {
+    drop_key_package(session);
     if (!session.signing_key.handle && !p256_generate(&session.signing_key, P256Kind::ecdsa).ok())
         return MlsStatus::crypto_failure;
     return MlsStatus::ok;
@@ -377,14 +381,14 @@ void dave_session_release(DaveSession* session) noexcept {
         mls_group_clear(&session->group);
         for (u32 i = 0; i != kDaveArenaBlocks; ++i)
             if (session->committed[i])
-                SecureZeroMemory(session->arena + kLayout.offsets[i], session->committed[i]);
+                secure_clear_bytes(session->arena + kLayout.offsets[i], session->committed[i]);
         VirtualFree(session->arena, 0, MEM_RELEASE);
     }
     dave_frame_sealer_release(&session->sealer);
     dave_key_package_release(&session->package);
     p256_release(&session->signing_key);
     kdf_sha256_release(&session->kdf);
-    SecureZeroMemory(session, sizeof(*session));
+    secure_clear_bytes(session, sizeof(*session));
 }
 MlsStatus dave_session_reinitialize(DaveSession* session, u16 protocol_version) noexcept {
     if (!session || !session->initialized || !protocol_version || protocol_version > kDaveProtocolVersion)
@@ -420,9 +424,7 @@ MlsStatus dave_session_key_package(DaveSession* session, ConstSlice<u8>* output)
     *output = {};
     if (!session || !session->initialized || !session->protocol_version || !session->signing_key.handle)
         return MlsStatus::state_conflict;
-    dave_key_package_release(&session->package);
-    session->package_view = {};
-    session->key_package_ready = false;
+    drop_key_package(*session);
     auto status = dave_key_package_create(session->kdf, session->signing_key, session->self_user_id,
                                           &session->package)
                           .ok()
@@ -439,9 +441,7 @@ MlsStatus dave_session_key_package(DaveSession* session, ConstSlice<u8>* output)
         status = create_initial_group(*session);
     }
     if (status != MlsStatus::ok) {
-        dave_key_package_release(&session->package);
-        session->package_view = {};
-        session->key_package_ready = false;
+        drop_key_package(*session);
         return status;
     }
     *output = {session->package.wire, session->package.bytes};
@@ -607,9 +607,7 @@ MlsStatus dave_session_execute_transition(DaveSession* session, u16 transition_i
         dave_frame_sealer_release(&session->sealer);
         session->sealer_ready = false;
         reset_group(*session);
-        dave_key_package_release(&session->package);
-        session->package_view = {};
-        session->key_package_ready = false;
+        drop_key_package(*session);
         session->protocol_version = session->active_protocol_version = 0;
         session->keyed_serial = session->keyed_epoch = 0;
         session->passthrough_until_ms = kDavePassthroughForever;
@@ -654,7 +652,7 @@ MlsStatus dave_session_execute_transition(DaveSession* session, u16 transition_i
     if (rekey) {
         dave_frame_sealer_release(&session->sealer);
         session->sealer = candidate;
-        SecureZeroMemory(&candidate, sizeof(candidate));
+        secure_clear_bytes(&candidate, sizeof(candidate));
         session->sealer_ready = true;
         session->keyed_serial = session->group_serial;
         session->keyed_epoch = epoch_number;

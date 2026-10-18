@@ -881,6 +881,14 @@ struct Writer {
         char digits[20];
         text({digits, decimal_write(digits, value)});
     }
+    // Starts an object member: a comma after the first, then "name":.
+    void key(bool& comma, Utf8View name) noexcept {
+        if (comma)
+            character(',');
+        comma = true;
+        quoted(name);
+        character(':');
+    }
     // Exact finite IEEE float -> decimal rational, including subnormals. Base10
     // integer arithmetic avoids locale, lossy fixed precision and CRT formatters.
     void real(float value) noexcept {
@@ -959,13 +967,8 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     bool comma{};
     const auto tokens = ui_theme_color_descriptors();
     for (u32 i = 0; i < tokens.count; ++i) {
-        const auto& token = tokens[i];
-        if (comma)
-            writer.character(',');
-        comma = true;
-        writer.quoted(token.name);
-        writer.character(':');
-        write_color(writer, *ui_theme_color_get(document.theme, token.id));
+        writer.key(comma, tokens[i].name);
+        write_color(writer, *ui_theme_color_get(document.theme, tokens[i].id));
     }
     // Canonical semantic values are resolved literals: a stored document never
     // depends on table defaults that a later build might change.
@@ -986,24 +989,21 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     }
     writer.text(utf8_literal("}},\"scale\":{"));
     const auto scales = ui_theme_scale_descriptors();
+    comma = false;
     for (u32 i = 0; i < scales.count; ++i) {
-        if (i)
-            writer.character(',');
         float value{};
         ui_theme_scale_get(document.theme.scale, scales[i].id, &value);
-        writer.quoted(scales[i].name);
-        writer.character(':');
+        writer.key(comma, scales[i].name);
         writer.real(value);
     }
     writer.text(utf8_literal("},\"motion\":{"));
     const auto motions = ui_theme_motion_descriptors();
     auto motion = document.theme.motion;
+    comma = false;
     for (u32 i = 0; i < motions.count; ++i) {
-        if (i)
-            writer.character(',');
         const auto* style = ui_theme_motion_slot(&motion, motions[i].id);
-        writer.quoted(motions[i].name);
-        writer.text(utf8_literal(":{\"duration_ms\":"));
+        writer.key(comma, motions[i].name);
+        writer.text(utf8_literal("{\"duration_ms\":"));
         writer.number(style->duration_ms);
         writer.text(utf8_literal(",\"curve\":"));
         writer.quoted(kCurves[static_cast<u32>(style->curve)]);
@@ -1029,11 +1029,9 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal(",\"density\":"));
     writer.number(background.density);
     writer.text(utf8_literal("},\"typography\":{"));
+    comma = false;
     for (u32 i = 0; i < 8; ++i) {
-        if (i)
-            writer.character(',');
-        writer.quoted(kTypographyNames[i]);
-        writer.character(':');
+        writer.key(comma, kTypographyNames[i]);
         if (i < 6)
             writer.real(document.typography.*kTypographyValues[i]);
         else
@@ -1044,14 +1042,9 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     comma = false;
     const auto metrics = ui_theme_metric_descriptors();
     for (u32 i = 0; i < metrics.count; ++i) {
-        const auto& metric = metrics[i];
-        if (comma)
-            writer.character(',');
-        comma = true;
         float value{};
-        ui_theme_metric_get(document.metrics, metric.id, &value);
-        writer.quoted(metric.name);
-        writer.character(':');
+        ui_theme_metric_get(document.metrics, metrics[i].id, &value);
+        writer.key(comma, metrics[i].name);
         writer.real(value);
     }
     // Components carry only authored (non-default) values.
@@ -1059,17 +1052,11 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     comma = false;
     for (u32 i = 0; i < sizeof(kIconRoles) / sizeof(kIconRoles[0]); ++i)
         if (document.icons.colors[i]) {
-            if (comma)
-                writer.character(',');
-            comma = true;
-            writer.quoted(kIconRoles[i]);
-            writer.character(':');
+            writer.key(comma, kIconRoles[i]);
             writer.hex(document.icons.colors[i]);
         }
     if (document.icons.weight != UiThemeIcons{}.weight) {
-        if (comma)
-            writer.character(',');
-        writer.text(utf8_literal("\"weight\":"));
+        writer.key(comma, utf8_literal("weight"));
         writer.real(document.icons.weight);
     }
     writer.text(utf8_literal("},\"settings\":{"));
@@ -1077,20 +1064,12 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     constexpr UiThemeSettings settings_defaults{};
     for (u32 i = 0; i < kSettingsColorCount; ++i)
         if (const u32 packed = document.settings.*kSettingsColors[i]) {
-            if (comma)
-                writer.character(',');
-            comma = true;
-            writer.quoted(kSettingsColorNames[i]);
-            writer.character(':');
+            writer.key(comma, kSettingsColorNames[i]);
             writer.hex(packed);
         }
     for (u32 i = 0; i < kSettingsSizeCount; ++i)
         if (document.settings.*kSettingsSizes[i] != settings_defaults.*kSettingsSizes[i]) {
-            if (comma)
-                writer.character(',');
-            comma = true;
-            writer.quoted(kSettingsSizeNames[i]);
-            writer.character(':');
+            writer.key(comma, kSettingsSizeNames[i]);
             writer.number(document.settings.*kSettingsSizes[i]);
         }
     writer.text(utf8_literal("}}}"));

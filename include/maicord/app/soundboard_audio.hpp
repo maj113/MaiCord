@@ -74,7 +74,6 @@ struct SoundboardMixer {
     u32 count;
     i32 volume_delta; // Soundboard volume minus 100 %.
     u64 last_call_render_us;
-    u64 rendered_frames;
 };
 // Retains the clip. When every voice is busy the most advanced one is replaced.
 bool soundboard_mixer_play(SoundboardMixer*, SoundboardClip*, u32 sound_per_mille, u64 user_id) noexcept;

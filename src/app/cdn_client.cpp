@@ -8,21 +8,12 @@
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/protocol/http1.hpp"
 
-#include <Windows.h>
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
 
-inline constexpr wchar_t kCdnHostWide[] = L"cdn.discordapp.com";
-inline constexpr wchar_t kMediaHostWide[] = L"media.discordapp.net";
-inline constexpr wchar_t kImagesExt1HostWide[] = L"images-ext-1.discordapp.net";
-inline constexpr wchar_t kImagesExt2HostWide[] = L"images-ext-2.discordapp.net";
-inline constexpr wchar_t kFlagAssetsHostWide[] = L"raw.githubusercontent.com";
-inline constexpr wchar_t kCatalogKlipyHostWide[] = L"static.klipy.com";
-inline constexpr wchar_t kCatalogKlipyStatic2HostWide[] = L"static2.klipy.com";
-inline constexpr wchar_t kCatalogTenorHostWide[] = L"media.tenor.com";
-inline constexpr wchar_t kCatalogGiphyHostWide[] = L"media.giphy.com";
-inline constexpr wchar_t kActivityArtHostWide[] = L"i.scdn.co";
 inline constexpr u32 kEncryptedInputBytes = 128 * 1024;
 inline constexpr u32 kHandshakeOutputBytes = 256 * 1024;
 inline constexpr u32 kRecordOutputBytes = 64 * 1024;
@@ -102,17 +93,6 @@ constexpr u32 fixed_storage_bytes() noexcept {
 }
 static_assert(sizeof(CdnClientRuntime) + fixed_storage_bytes() <= 1024u * 1024u);
 
-u32 allocation_bytes(u32 response_capacity) noexcept {
-    if (response_capacity < kCdnClientMinimumResponseBytes ||
-        response_capacity > kMediaMaximumEncodedVideoBytes) {
-        return 0;
-    }
-    const u64 raw =
-        static_cast<u64>(sizeof(CdnClientRuntime)) + fixed_storage_bytes() + response_capacity;
-    const u64 rounded = (raw + 4095ull) & ~4095ull;
-    return rounded <= ~0u ? static_cast<u32>(rounded) : 0;
-}
-
 void assign_storage(CdnClientRuntime* runtime) noexcept {
     u8* cursor = reinterpret_cast<u8*>(runtime) + sizeof(CdnClientRuntime);
     runtime->request_target = cursor;
@@ -135,11 +115,11 @@ void assign_storage(CdnClientRuntime* runtime) noexcept {
 }
 
 CdnClientPhase load_phase(const CdnClient* client) noexcept {
-    return static_cast<CdnClientPhase>(ReadAcquire(&client->phase));
+    return static_cast<CdnClientPhase>(read_acquire(&client->phase));
 }
 
 CdnClientError load_error(const CdnClient* client) noexcept {
-    return static_cast<CdnClientError>(ReadAcquire(&client->error));
+    return static_cast<CdnClientError>(read_acquire(&client->error));
 }
 
 void publish_phase(CdnClient* client, CdnClientPhase phase) noexcept {
@@ -154,11 +134,11 @@ CdnClientResult client_result(const CdnClient* client) noexcept {
     }
     value.phase = load_phase(client);
     value.error = load_error(client);
-    value.native_error = static_cast<u32>(ReadAcquire(&client->native_error));
-    value.connections = static_cast<u64>(ReadAcquire64(&client->connections));
-    value.requests = static_cast<u64>(ReadAcquire64(&client->requests));
-    value.reused_requests = static_cast<u64>(ReadAcquire64(&client->reused_requests));
-    value.responses = static_cast<u64>(ReadAcquire64(&client->responses));
+    value.native_error = static_cast<u32>(read_acquire(&client->native_error));
+    value.connections = static_cast<u64>(read_acquire(&client->connections));
+    value.requests = static_cast<u64>(read_acquire(&client->requests));
+    value.reused_requests = static_cast<u64>(read_acquire(&client->reused_requests));
+    value.responses = static_cast<u64>(read_acquire(&client->responses));
     return value;
 }
 
@@ -200,33 +180,24 @@ bool valid_etag(ConstSlice<u8> etag) noexcept {
 }
 
 const wchar_t* host_wide(CdnHost host) noexcept {
-    if (host == CdnHost::cdn) {
-        return kCdnHostWide;
+    switch (host) {
+    case CdnHost::cdn: return L"cdn.discordapp.com";
+    case CdnHost::media: return L"media.discordapp.net";
+    case CdnHost::images_ext_1: return L"images-ext-1.discordapp.net";
+    case CdnHost::images_ext_2: return L"images-ext-2.discordapp.net";
+    case CdnHost::flag_assets: return L"raw.githubusercontent.com";
+    case CdnHost::catalog_klipy: return L"static.klipy.com";
+    case CdnHost::catalog_klipy2: return L"static2.klipy.com";
+    case CdnHost::catalog_tenor: return L"media.tenor.com";
+    case CdnHost::catalog_giphy: return L"media.giphy.com";
+    case CdnHost::activity_art: return L"i.scdn.co";
+    default: return nullptr;
     }
-    if (host == CdnHost::media) {
-        return kMediaHostWide;
-    }
-    if (host == CdnHost::images_ext_1) {
-        return kImagesExt1HostWide;
-    }
-    if (host == CdnHost::flag_assets)
-        return kFlagAssetsHostWide;
-    if (host == CdnHost::catalog_klipy)
-        return kCatalogKlipyHostWide;
-    if (host == CdnHost::catalog_klipy2)
-        return kCatalogKlipyStatic2HostWide;
-    if (host == CdnHost::catalog_tenor)
-        return kCatalogTenorHostWide;
-    if (host == CdnHost::catalog_giphy)
-        return kCatalogGiphyHostWide;
-    if (host == CdnHost::activity_art)
-        return kActivityArtHostWide;
-    return host == CdnHost::images_ext_2 ? kImagesExt2HostWide : nullptr;
 }
 
 void erase_command(CdnClientRuntime* runtime) noexcept {
-    SecureZeroMemory(runtime->request_target, kCdnMaximumTargetBytes);
-    SecureZeroMemory(runtime->conditional_etag, kCdnMaximumEtagBytes);
+    secure_clear_bytes(runtime->request_target, kCdnMaximumTargetBytes);
+    secure_clear_bytes(runtime->conditional_etag, kCdnMaximumEtagBytes);
     runtime->command = CdnClientCommand{};
 }
 
@@ -247,14 +218,24 @@ void trim_consumed_response(CdnClientRuntime* runtime) noexcept {
 }
 
 void erase_response(CdnClientRuntime* runtime) noexcept {
-    // These buffers contain only public CDN request metadata and public image
-    // bytes. The next decoder initialization overwrites the stored lengths, so
-    // the buffers are not cleared after every response. The complete client
-    // allocation is still securely erased during shutdown because it also
-    // holds TLS state.
+    // The buffers hold only public request metadata and image bytes and the next decoder
+    // initialization overwrites the lengths, so they are not cleared per response. Shutdown
+    // still erases the whole allocation because it also holds TLS state.
     runtime->response = HttpResponseDecoder{};
     runtime->response_step = HttpResponseDecoderStep{};
     runtime->policy = CdnResponseResult{};
+}
+
+// Hands the request slot back after the caller has taken (or consumed) the response.
+void recycle_request(CdnClient* client, CdnClientRuntime* runtime) noexcept {
+    erase_response(runtime);
+    runtime->completed = CdnClientResponse{};
+    runtime->request_started_counter = 0;
+    runtime->redirects = 0;
+    ResetEvent(client->response_event);
+    InterlockedExchange64(&client->current_request_id, 0);
+    InterlockedExchange(&client->request_state, request_state_empty);
+    publish_phase(client, CdnClientPhase::idle);
 }
 
 void close_transport(CdnClientRuntime* runtime) noexcept {
@@ -326,7 +307,7 @@ void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
     response.requested_range = runtime->command.range;
     runtime->completed = response;
     runtime->deadline_ms = 0;
-    SecureZeroMemory(runtime->request_head, kRequestHeadBytes);
+    secure_clear_bytes(runtime->request_head, kRequestHeadBytes);
     erase_command(runtime);
     InterlockedIncrement64(&client->responses);
     InterlockedExchange(&client->request_state, request_state_ready);
@@ -384,7 +365,7 @@ void request_committed(void* opaque, ConstSlice<u8> committed) noexcept {
         runtime->committed_bytes += committed.count;
     }
     if (committed.data && committed.count != 0) {
-        SecureZeroMemory(const_cast<u8*>(committed.data), committed.count);
+        secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
     }
 }
 
@@ -750,7 +731,7 @@ void destroy_client_storage(CdnClient* client) noexcept {
     }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
     const u32 bytes = runtime->storage_committed_bytes;
-    SecureZeroMemory(runtime, bytes);
+    secure_clear_bytes(runtime, bytes);
     VirtualFree(runtime, 0, MEM_RELEASE);
     client->runtime = nullptr;
 }
@@ -783,7 +764,7 @@ CdnResponseResult cdn_client_response_policy(
 }
 
 CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexcept {
-    const u32 bytes = allocation_bytes(response_capacity);
+    const u32 bytes = cdn_client_runtime_bytes(response_capacity);
     if (!client || bytes == 0) {
         CdnClientResult invalid{};
         invalid.error = CdnClientError::invalid_input;
@@ -984,14 +965,7 @@ CdnClientTakeResult cdn_client_take_response(CdnClient* client,
     trim_consumed_response(runtime);
     *response = runtime->completed;
     const u32 body_bytes = runtime->completed.body_bytes;
-    erase_response(runtime);
-    runtime->completed = CdnClientResponse{};
-    runtime->request_started_counter = 0;
-    runtime->redirects = 0;
-    ResetEvent(client->response_event);
-    InterlockedExchange64(&client->current_request_id, 0);
-    InterlockedExchange(&client->request_state, request_state_empty);
-    publish_phase(client, CdnClientPhase::idle);
+    recycle_request(client, runtime);
     return CdnClientTakeResult{body_bytes, CdnClientTakeError::none};
 }
 
@@ -1010,14 +984,7 @@ CdnClientTakeResult cdn_client_consume_response(CdnClient* client,
         return CdnClientTakeResult{body_bytes, CdnClientTakeError::consumer_rejected};
     }
     trim_consumed_response(runtime);
-    erase_response(runtime);
-    runtime->completed = CdnClientResponse{};
-    runtime->request_started_counter = 0;
-    runtime->redirects = 0;
-    ResetEvent(client->response_event);
-    InterlockedExchange64(&client->current_request_id, 0);
-    InterlockedExchange(&client->request_state, request_state_empty);
-    publish_phase(client, CdnClientPhase::idle);
+    recycle_request(client, runtime);
     return CdnClientTakeResult{body_bytes, CdnClientTakeError::none};
 }
 
@@ -1049,26 +1016,20 @@ CdnClientResult cdn_client_stop(CdnClient* client, u32 timeout_ms) noexcept {
         CloseHandle(client->response_event);
     }
     destroy_client_storage(client);
-    const CdnClientError final_error = value.error;
-    const u32 final_native_error = value.native_error;
-    const u64 connections = value.connections;
-    const u64 requests = value.requests;
-    const u64 reused_requests = value.reused_requests;
-    const u64 responses = value.responses;
     *client = CdnClient{};
-    value.phase = final_error == CdnClientError::none ? CdnClientPhase::stopped
-                                                             : CdnClientPhase::failed;
-    value.error = final_error;
-    value.native_error = final_native_error;
-    value.connections = connections;
-    value.requests = requests;
-    value.reused_requests = reused_requests;
-    value.responses = responses;
+    value.phase = value.error == CdnClientError::none ? CdnClientPhase::stopped : CdnClientPhase::failed;
     return value;
 }
 
 u32 cdn_client_runtime_bytes(u32 response_capacity) noexcept {
-    return allocation_bytes(response_capacity);
+    if (response_capacity < kCdnClientMinimumResponseBytes ||
+        response_capacity > kMediaMaximumEncodedVideoBytes) {
+        return 0;
+    }
+    const u64 raw =
+        static_cast<u64>(sizeof(CdnClientRuntime)) + fixed_storage_bytes() + response_capacity;
+    const u64 rounded = (raw + 4095ull) & ~4095ull;
+    return rounded <= ~0u ? static_cast<u32>(rounded) : 0;
 }
 
 } // namespace maicord

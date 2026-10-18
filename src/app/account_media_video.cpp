@@ -64,6 +64,13 @@ void publish_status(AccountMediaVideoRuntime& v, const ProgressiveVideoFetch* fe
     if (notify)
         SetEvent(v.worker->output_event);
 }
+void publish_error(AccountMediaVideoRuntime& v, const AccountVideoResult& result) noexcept {
+    AcquireSRWLockExclusive(&v.lock);
+    v.snapshot.playback.error = result.error;
+    v.snapshot.playback.native_error = result.native_error;
+    ReleaseSRWLockExclusive(&v.lock);
+    SetEvent(v.worker->output_event);
+}
 bool selection_valid(const AccountVideoSelection& s) noexcept {
     return media_asset_key_valid(s.key) && s.identity.account_serial && s.identity.message_id &&
            s.identity.session_epoch && !s.identity.reserved;
@@ -389,13 +396,8 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     }
     HANDLE range_event =
         fetch && lane->media.client_started ? cdn_client_notification_handle(&lane->media.client) : nullptr;
-    if (!initialized.ok()) {
-        AcquireSRWLockExclusive(&v.lock);
-        v.snapshot.playback.error = initialized.error;
-        v.snapshot.playback.native_error = initialized.native_error;
-        ReleaseSRWLockExclusive(&v.lock);
-        SetEvent(lane->owner->output_event);
-    }
+    if (!initialized.ok())
+        publish_error(v, initialized);
     if (initialized.ok()) {
         v.session.source_cancelled = source_cancelled;
         v.session.source_cancel_context = v.worker;
@@ -458,13 +460,8 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
                 const auto accepted = account_video_session_control(
                     &v.session, command.identity, command.command_serial, command.command,
                     command.seek_time_100ns, command.volume, command.muted);
-                if (!accepted.ok()) {
-                    AcquireSRWLockExclusive(&v.lock);
-                    v.snapshot.playback.error = accepted.error;
-                    v.snapshot.playback.native_error = accepted.native_error;
-                    ReleaseSRWLockExclusive(&v.lock);
-                    SetEvent(lane->owner->output_event);
-                }
+                if (!accepted.ok())
+                    publish_error(v, accepted);
             }
         }
         if (exit_selection && !blocked) {

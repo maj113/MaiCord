@@ -8,5 +8,4 @@ namespace maicord {
 // synchronously; rest_take returns the response.
 RestClientSubmitResult account_settings_submit(RestClient*, const AccountSettingsRequest&,
                                                u64 request_id) noexcept;
-RestClientSubmitResult account_settings_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

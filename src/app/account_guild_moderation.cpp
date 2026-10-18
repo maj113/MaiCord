@@ -1,6 +1,7 @@
 #include "maicord/app/account_guild_moderation.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kGuildModerationMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -43,9 +44,9 @@ RestClientSubmitResult account_guild_moderation_submit(RestClient* rest, const G
                      ? rest_client_submit_large_response(rest, submit, kSearchResponseBytes)
                      : rest_client_submit(rest, submit);
     }
-    SecureZeroMemory(body, written.ok() ? written.bytes : 0);
+    secure_clear_bytes(body, written.ok() ? written.bytes : 0);
     VirtualFree(body, 0, MEM_RELEASE);
-    SecureZeroMemory(reason, encoded.bytes);
+    secure_clear_bytes(reason, encoded.bytes);
     return result;
 }
 

@@ -10,6 +10,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 #include "maicord/protocol/guild_assets.hpp"
@@ -18,6 +19,8 @@
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/guild_banner.hpp"
 #include "maicord/ui/profile_media.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -81,22 +84,6 @@ UiGuildCardAction action() noexcept {
         return UiGuildCardAction::join;
     return UiGuildCardAction::none;
 }
-u32 append(char* output, u32 used, u32 capacity, Utf8View text) noexcept {
-    const u32 take = minimum<u32>(text.bytes, capacity - used);
-    copy_bytes(output + used, text.data, take);
-    return used + take;
-}
-u32 append_id(char* output, u32 used, u32 capacity, u64 value) noexcept {
-    char digits[20];
-    u32 n = 0;
-    do {
-        digits[n++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (n && used < capacity)
-        output[used++] = digits[--n];
-    return used;
-}
 // The icon (icons/{id}/{hash}.png) and the tag badge (clan-badges, the
 // key user_guild_badge_media gives the same badge on author lines).
 void resolve_media() noexcept {
@@ -113,14 +100,15 @@ void resolve_media() noexcept {
         // A 64 px icon request that may not animate: the CDN's still WebP
         // (an a_ icon's representative frame) at ui_media_proxy_size(64 * dpr).
         const u32 dpi = g_app.renderer.dpi ? g_app.renderer.dpi : 96u;
-        u32 used = append(c.icon_url, 0, sizeof(c.icon_url), utf8_literal("https://cdn.discordapp.com/icons/"));
-        used = append_id(c.icon_url, used, sizeof(c.icon_url), p.id);
-        used = append(c.icon_url, used, sizeof(c.icon_url), utf8_literal("/"));
-        used = append(c.icon_url, used, sizeof(c.icon_url), {p.icon, p.icon_bytes});
-        used = append(c.icon_url, used, sizeof(c.icon_url), utf8_literal(".webp?size="));
-        used = append_id(c.icon_url, used, sizeof(c.icon_url), ui_media_proxy_size((64u * dpi + 95u) / 96u));
-        c.icon_url_bytes = used;
-        c.icon_key = media_asset_embed(hash64_bytes(kHash64Seed, c.icon_url, used), 1, 0, MediaEmbedResource::image,
+        TextBank url{c.icon_url, sizeof(c.icon_url), 0};
+        url.add(utf8_literal("https://cdn.discordapp.com/icons/"));
+        url.number(p.id);
+        url.add(utf8_literal("/"));
+        url.add({p.icon, p.icon_bytes});
+        url.add(utf8_literal(".webp?size="));
+        url.number(ui_media_proxy_size((64u * dpi + 95u) / 96u));
+        c.icon_url_bytes = url.used;
+        c.icon_key = media_asset_embed(hash64_bytes(kHash64Seed, c.icon_url, url.used), 1, 0, MediaEmbedResource::image,
                                        MediaAttachmentFormat::webp, false, MediaResolutionTier::px512);
         c.icon_key.kind = MediaAssetKind::profile_image;
     }

@@ -10,12 +10,11 @@ ChannelOverviewPatch patch(const ChannelOverviewSnapshot& value, u8 fields) noex
     return {channel_overview_name_view(value), channel_overview_topic_view(value), value.slowmode_seconds,
             fields, value.nsfw};
 }
-bool snapshot_valid(const ChannelOverviewSnapshot& value, ChannelOverviewScope scope, u8 fields) noexcept {
+bool snapshot_valid(const ChannelOverviewSnapshot& value, ChannelOverviewScope scope) noexcept {
     return value.channel_id == scope.channel_id && value.guild_id == scope.guild_id && value.type == 0 &&
            value.name_bytes <= kChannelOverviewNameBytes &&
-           value.topic_bytes <= kChannelOverviewTopicBytes &&
-           !(value.known_fields & ~channel_overview_all) && (value.known_fields & fields) == fields &&
-           (!fields || channel_overview_patch_valid(patch(value, fields)));
+           value.topic_bytes <= kChannelOverviewTopicBytes && value.known_fields == channel_overview_all &&
+           channel_overview_patch_valid(patch(value, channel_overview_all));
 }
 void apply(ChannelOverviewSnapshot& value, const ChannelOverviewPatch& input) noexcept {
     if (input.fields & channel_overview_name) {
@@ -61,12 +60,11 @@ bool editable(const ChannelOverviewController& value) noexcept {
     return value.active && value.available && value.can_manage && value.authoritative &&
            !value.request_id && !value.queued;
 }
-void install_remote(ChannelOverviewController& value, const ChannelOverviewSnapshot& remote,
-                    u8 fields) noexcept {
+void install_remote(ChannelOverviewController& value, const ChannelOverviewSnapshot& remote) noexcept {
     const u8 dirty = value.dirty_fields;
-    const u8 changes = difference(value.baseline, remote, fields);
-    apply(value.baseline, patch(remote, fields));
-    apply(value.draft, patch(remote, static_cast<u8>(fields & ~dirty)));
+    const u8 changes = difference(value.baseline, remote, channel_overview_all);
+    apply(value.baseline, patch(remote, channel_overview_all));
+    apply(value.draft, patch(remote, static_cast<u8>(channel_overview_all & ~dirty)));
     value.dirty_fields = difference(value.baseline, value.draft, channel_overview_all);
     value.conflict_fields =
         static_cast<u8>((value.conflict_fields | (changes & dirty)) & value.dirty_fields);
@@ -230,7 +228,6 @@ bool channel_overview_controller_submitted(ChannelOverviewController* value,
         return false;
     value->request_id = request_id;
     value->submitted_remote_revision = request.remote_revision;
-    value->submitted_fields = request.patch.fields;
     value->queued = false;
     value->retry_at_ms = 0;
     value->phase = request.operation == ChannelOverviewOperation::update ? ChannelOverviewPhase::saving
@@ -314,7 +311,7 @@ bool channel_overview_controller_complete(ChannelOverviewController* value, Chan
             fetch(*value);
         else
             value->phase = ChannelOverviewPhase::failed;
-    } else if (!remote || !snapshot_valid(*remote, scope, channel_overview_all)) {
+    } else if (!remote || !snapshot_valid(*remote, scope)) {
         value->failure = ChannelOverviewFailure::response;
         if (operation == ChannelOverviewOperation::update)
             fetch(*value);
@@ -331,7 +328,7 @@ bool channel_overview_controller_complete(ChannelOverviewController* value, Chan
         } else {
             value->phase = ChannelOverviewPhase::ready;
             value->failure = ChannelOverviewFailure::none;
-            install_remote(*value, *remote, channel_overview_all);
+            install_remote(*value, *remote);
         }
         value->has_baseline = value->authoritative = true;
         if (!value->can_manage) {

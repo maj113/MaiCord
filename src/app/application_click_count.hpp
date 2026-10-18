@@ -1,9 +1,8 @@
 #pragma once
 
 #include "application_state.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/text_pointer_selection.hpp"
-
-#include <Windows.h>
 
 namespace maicord::app_detail {
 

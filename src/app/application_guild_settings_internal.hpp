@@ -5,6 +5,7 @@
 #include "application_settings_layer.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/model/guild_ban_store.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/model/guild_member_search.hpp"
@@ -250,33 +251,7 @@ struct Request {
     bool queued;
 };
 
-struct Bank {
-    char* data;
-    u32 capacity, used;
-    Utf8View add(Utf8View text) noexcept {
-        const u32 take = minimum(text.bytes, capacity - used);
-        copy_bytes(data + used, text.data, take);
-        used += take;
-        return {data + used - take, take};
-    }
-    // Concatenation helper; returns everything appended since mark.
-    u32 mark() const noexcept {
-        return used;
-    }
-    Utf8View since(u32 start) const noexcept {
-        return {data + start, used - start};
-    }
-    void number(u64 value) noexcept {
-        char digits[20];
-        u32 count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value && count < 20);
-        while (count && used < capacity)
-            data[used++] = digits[--count];
-    }
-};
+using Bank = TextBank;
 
 // A picked image held until it is saved: the file bytes (prepared again by the
 // account module at submit) and what preparation reported. `clear` removes.
@@ -310,11 +285,10 @@ struct Settings {
     GuildSettingsAccess access;
     Page page;
     u64 signature;
-    UiWidgetManager* previous_focus;
     // Server Profile: drafts over the last profile read. A replaced icon is
     // cropped into its data URI when the save starts.
     GuildServerProfileDraft profile_base, profile_draft;
-    bool profile_loaded, profile_failed;
+    bool profile_loaded;
     ProfileImageInfo icon_info;
     u8* icon_uri;
     u32 icon_uri_bytes;
@@ -378,7 +352,7 @@ struct Settings {
     Utf8View bulk_notice;
     bool bulk_failed;
     u32 page_row_count;
-    Utf8View filter_choice[6][1], page_size_choices[4], page_buttons[2], bulk_buttons[2];
+    Utf8View filter_choice[6][1];
     // Members and bans.
     u64 row_ids[kRowCapacity];
     u32 row_count;
@@ -492,25 +466,8 @@ struct PageOps {
     void (*context)(const SettingsLayerActivation&) noexcept;
 };
 
-enum class PageGroup : u8 {
-    none,
-    expression,
-    people,
-    moderation,
-};
-
-struct PageDefinition {
-    Page page;
-    PageGroup group;
-    UiIcon icon;
-    u32 section;
-    Utf8View label;
-    Utf8View title;
-    const PageOps* ops;
-};
 extern const PageOps kProfilePage, kEngagementPage, kBoostPage, kExpressionPage, kMembersPage, kRolesPage,
     kInvitesPage, kSafetyPage, kAuditLogPage, kBansPage;
-const PageDefinition& page_definition(Page page) noexcept;
 
 // Identity and transport.
 bool available() noexcept;
@@ -543,7 +500,8 @@ void start_pick(Pick pick) noexcept;
 
 // Projection helpers.
 u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept;
-void push_avatar(u32 index, u64 user_id) noexcept;
+// Fills popup row `index` (enabled plus `flags`); the action is kMenuChoiceBase + action.
+void popup_row(u32 index, Utf8View label, u32 action, u32 flags = 0) noexcept;
 UiSettingsControl category(u64 id, Utf8View label, Utf8View description = {}) noexcept;
 UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action = {}) noexcept;
 // A notice with the loading spinner.
@@ -551,11 +509,11 @@ UiSettingsControl loading(Utf8View description) noexcept;
 Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept;
 UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, bool enabled) noexcept;
 u32 person_color(u64 user_id) noexcept;
-Utf8View member_name(const GuildMemberRecord& member, Utf8View* username) noexcept;
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept;
 Utf8View picked_text(Bank& bank, const Picked& picked, Utf8View current) noexcept;
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept;
 Utf8View user_label(u64 id) noexcept;
+Utf8View user_name(const GuildAdminUser& user) noexcept;
 // Channels of `types` (a bit per channel type) in channel-list order behind a
 // first "none" row; menu_channel holds the matching ids.
 void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, PermissionSet required,

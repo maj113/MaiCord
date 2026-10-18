@@ -1,6 +1,6 @@
 #include "maicord/app/account_user_social.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 static_assert(kUserSocialMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -27,7 +27,7 @@ RestClientSubmitResult account_user_social_submit(RestClient* rest, const UserSo
                                            user_social_route(*request),
                                            request_id,
                                            written.bytes != 0);
-    SecureZeroMemory(body, written.bytes);
+    secure_clear_bytes(body, written.bytes);
     return result;
 }
 

@@ -5,7 +5,6 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/base64url.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -28,8 +27,11 @@ u64 next_wake(const RemoteAuthHandshake& handshake) noexcept {
     return minimum(handshake.expires_at_ms, handshake.next_heartbeat_at_ms);
 }
 
-void fail(RemoteAuthHandshake* handshake) noexcept {
+// Ends the handshake; the arguments are those of result().
+template <typename... Arguments>
+RemoteAuthHandshakeResult fail(RemoteAuthHandshake* handshake, Arguments... arguments) noexcept {
     handshake->phase = RemoteAuthHandshakePhase::failed;
+    return result(arguments...);
 }
 
 bool constant_time_equal(ConstSlice<u8> first, ConstSlice<u8> second) noexcept {
@@ -54,9 +56,8 @@ bool valid_user_payload(ConstSlice<u8> payload) noexcept {
 RemoteAuthHandshakeResult crypto_failure(
     RemoteAuthHandshake* handshake, RemoteAuthCryptoError error,
     RemoteAuthHandshakeStage stage = RemoteAuthHandshakeStage::none) noexcept {
-    fail(handshake);
-    return result(RemoteAuthHandshakeError::crypto, 0, RemoteAuthError::none, error, Base64Error::none,
-                  stage);
+    return fail(handshake, RemoteAuthHandshakeError::crypto, 0, RemoteAuthError::none, error,
+                Base64Error::none, stage);
 }
 
 } // namespace
@@ -80,7 +81,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* 
             ? base64url_encode(ConstSlice<u8>{fingerprint, static_cast<u32>(sizeof(fingerprint))},
                                Slice<char>{handshake->fingerprint, kRemoteAuthFingerprintEncodedBytes})
             : Base64UrlResult{};
-    SecureZeroMemory(fingerprint, sizeof(fingerprint));
+    secure_clear_bytes(fingerprint, sizeof(fingerprint));
     if (!fingerprinted.ok() || !encoded.ok() || encoded.bytes != kRemoteAuthFingerprintEncodedBytes) {
         const RemoteAuthCryptoError crypto_error = fingerprinted.error;
         remote_auth_crypto_release(&handshake->crypto);
@@ -96,7 +97,7 @@ void remote_auth_handshake_release(RemoteAuthHandshake* handshake) noexcept {
         return;
     }
     remote_auth_crypto_release(&handshake->crypto);
-    SecureZeroMemory(handshake, sizeof(*handshake));
+    secure_clear_bytes(handshake, sizeof(*handshake));
 }
 
 RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* handshake, Utf8View body,
@@ -117,12 +118,10 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         body, structural_scratch, maximum_depth,
         Slice<char>{packet_text, static_cast<u32>(sizeof(packet_text))}, &packet);
     if (!decoded.ok()) {
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::protocol, 0, decoded.error);
+        return fail(handshake, RemoteAuthHandshakeError::protocol, 0, decoded.error);
     }
     if (handshake->expires_at_ms != 0 && now_ms >= handshake->expires_at_ms) {
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::session_timeout);
+        return fail(handshake, RemoteAuthHandshakeError::session_timeout);
     }
 
     if (packet.kind == RemoteAuthPacketKind::cancel) {
@@ -132,8 +131,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
     }
     if (packet.kind == RemoteAuthPacketKind::heartbeat_ack) {
         if (handshake->heartbeat_interval_ms == 0) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::unexpected_packet);
+            return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         handshake->heartbeat_unacknowledged = false;
         event->next_wake_at_ms = next_wake(*handshake);
@@ -142,8 +140,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
 
     if (packet.kind == RemoteAuthPacketKind::hello) {
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_hello) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::unexpected_packet);
+            return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         u8 spki[kRemoteAuthPublicSpkiMaximumBytes]{};
         char encoded_spki[432]{};
@@ -153,23 +150,21 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
             exported.ok() ? base64_encode(ConstSlice<u8>{spki, exported.bytes},
                                           Slice<char>{encoded_spki, static_cast<u32>(sizeof(encoded_spki))})
                           : Base64Result{};
-        SecureZeroMemory(spki, sizeof(spki));
+        secure_clear_bytes(spki, sizeof(spki));
         if (!exported.ok()) {
             return crypto_failure(handshake, exported.error);
         }
         if (!encoded.ok()) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::protocol);
+            return fail(handshake, RemoteAuthHandshakeError::protocol);
         }
         const RemoteAuthWriteResult written =
             remote_auth_write_init(Utf8View{encoded_spki, encoded.bytes}, command);
-        SecureZeroMemory(encoded_spki, sizeof(encoded_spki));
+        secure_clear_bytes(encoded_spki, sizeof(encoded_spki));
         if (!written.ok()) {
-            fail(handshake);
-            return result(written.error == RemoteAuthWriteError::output_too_small
-                              ? RemoteAuthHandshakeError::output_too_small
-                              : RemoteAuthHandshakeError::protocol,
-                          written.bytes);
+            return fail(handshake, written.error == RemoteAuthWriteError::output_too_small
+                                       ? RemoteAuthHandshakeError::output_too_small
+                                       : RemoteAuthHandshakeError::protocol,
+                                   written.bytes);
         }
         handshake->expires_at_ms = deadline_after(now_ms, packet.timeout_ms);
         handshake->heartbeat_interval_ms = packet.heartbeat_interval_ms;
@@ -184,8 +179,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
 
     if (packet.kind == RemoteAuthPacketKind::nonce_proof) {
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_nonce) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::unexpected_packet);
+            return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         u8 ciphertext[kRemoteAuthRsaBytes]{};
         u8 nonce[kRemoteAuthMaximumUserPayloadBytes]{};
@@ -198,32 +192,29 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
                 ? remote_auth_crypto_decrypt(handshake->crypto, ConstSlice<u8>{ciphertext, cipher.bytes},
                                              Slice<u8>{nonce, static_cast<u32>(sizeof(nonce))})
                 : RemoteAuthCryptoResult{};
-        SecureZeroMemory(ciphertext, sizeof(ciphertext));
+        secure_clear_bytes(ciphertext, sizeof(ciphertext));
         if (!cipher.ok() || !decrypted.ok() || decrypted.bytes == 0 ||
             decrypted.bytes > kRemoteAuthMaximumNonceBytes) {
-            SecureZeroMemory(nonce, sizeof(nonce));
-            fail(handshake);
-            return result(!cipher.ok() || decrypted.ok() ? RemoteAuthHandshakeError::invalid_nonce
-                                                         : RemoteAuthHandshakeError::crypto,
-                          0, RemoteAuthError::none, decrypted.error);
+            secure_clear_bytes(nonce, sizeof(nonce));
+            return fail(handshake, !cipher.ok() || decrypted.ok() ? RemoteAuthHandshakeError::invalid_nonce
+                                                                  : RemoteAuthHandshakeError::crypto,
+                                   0, RemoteAuthError::none, decrypted.error);
         }
         const Base64UrlResult encoded =
             base64url_encode(ConstSlice<u8>{nonce, decrypted.bytes},
                              Slice<char>{encoded_nonce, static_cast<u32>(sizeof(encoded_nonce))});
-        SecureZeroMemory(nonce, sizeof(nonce));
+        secure_clear_bytes(nonce, sizeof(nonce));
         if (!encoded.ok()) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::invalid_nonce);
+            return fail(handshake, RemoteAuthHandshakeError::invalid_nonce);
         }
         const RemoteAuthWriteResult written =
             remote_auth_write_nonce_proof(Utf8View{encoded_nonce, encoded.bytes}, command);
-        SecureZeroMemory(encoded_nonce, sizeof(encoded_nonce));
+        secure_clear_bytes(encoded_nonce, sizeof(encoded_nonce));
         if (!written.ok()) {
-            fail(handshake);
-            return result(written.error == RemoteAuthWriteError::output_too_small
-                              ? RemoteAuthHandshakeError::output_too_small
-                              : RemoteAuthHandshakeError::protocol,
-                          written.bytes);
+            return fail(handshake, written.error == RemoteAuthWriteError::output_too_small
+                                       ? RemoteAuthHandshakeError::output_too_small
+                                       : RemoteAuthHandshakeError::protocol,
+                                   written.bytes);
         }
         handshake->phase = RemoteAuthHandshakePhase::awaiting_fingerprint;
         event->kind = RemoteAuthHandshakeEventKind::send_command;
@@ -234,20 +225,18 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
 
     if (packet.kind == RemoteAuthPacketKind::pending_remote_init) {
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_fingerprint) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::unexpected_packet);
+            return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         if (!constant_time_equal(
                 ConstSlice<u8>{reinterpret_cast<const u8*>(packet_text), packet.text_bytes},
                 ConstSlice<u8>{reinterpret_cast<const u8*>(handshake->fingerprint),
                                kRemoteAuthFingerprintEncodedBytes})) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::fingerprint_mismatch);
+            return fail(handshake, RemoteAuthHandshakeError::fingerprint_mismatch);
         }
         if (!copy_bytes(data.data, data.count, handshake->fingerprint,
                         kRemoteAuthFingerprintEncodedBytes)) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::output_too_small, kRemoteAuthFingerprintEncodedBytes);
+            return fail(handshake, RemoteAuthHandshakeError::output_too_small,
+                        kRemoteAuthFingerprintEncodedBytes);
         }
         handshake->phase = RemoteAuthHandshakePhase::awaiting_mobile;
         event->kind = RemoteAuthHandshakeEventKind::qr_ready;
@@ -258,8 +247,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
 
     if (packet.kind == RemoteAuthPacketKind::pending_ticket) {
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_mobile) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::unexpected_packet);
+            return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         u8 ciphertext[kRemoteAuthRsaBytes]{};
         u8 plaintext[kRemoteAuthMaximumUserPayloadBytes]{};
@@ -271,22 +259,20 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
                 ? remote_auth_crypto_decrypt(handshake->crypto, ConstSlice<u8>{ciphertext, cipher.bytes},
                                              Slice<u8>{plaintext, static_cast<u32>(sizeof(plaintext))})
                 : RemoteAuthCryptoResult{};
-        SecureZeroMemory(ciphertext, sizeof(ciphertext));
+        secure_clear_bytes(ciphertext, sizeof(ciphertext));
         if (!cipher.ok() || !decrypted.ok()) {
-            SecureZeroMemory(plaintext, sizeof(plaintext));
+            secure_clear_bytes(plaintext, sizeof(plaintext));
             return crypto_failure(handshake, decrypted.error);
         }
         if (!valid_user_payload(ConstSlice<u8>{plaintext, decrypted.bytes})) {
-            SecureZeroMemory(plaintext, sizeof(plaintext));
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::invalid_user_payload);
+            secure_clear_bytes(plaintext, sizeof(plaintext));
+            return fail(handshake, RemoteAuthHandshakeError::invalid_user_payload);
         }
         if (!copy_bytes(data.data, data.count, plaintext, decrypted.bytes)) {
-            SecureZeroMemory(plaintext, sizeof(plaintext));
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::output_too_small, decrypted.bytes);
+            secure_clear_bytes(plaintext, sizeof(plaintext));
+            return fail(handshake, RemoteAuthHandshakeError::output_too_small, decrypted.bytes);
         }
-        SecureZeroMemory(plaintext, sizeof(plaintext));
+        secure_clear_bytes(plaintext, sizeof(plaintext));
         event->kind = RemoteAuthHandshakeEventKind::user_pending;
         event->data_bytes = decrypted.bytes;
         event->next_wake_at_ms = next_wake(*handshake);
@@ -295,12 +281,10 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
 
     if (packet.kind == RemoteAuthPacketKind::pending_login) {
         if (handshake->phase != RemoteAuthHandshakePhase::awaiting_mobile) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::unexpected_packet);
+            return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
         }
         if (!copy_bytes(data.data, data.count, packet_text, packet.text_bytes)) {
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::output_too_small, packet.text_bytes);
+            return fail(handshake, RemoteAuthHandshakeError::output_too_small, packet.text_bytes);
         }
         handshake->phase = RemoteAuthHandshakePhase::ticket_ready;
         event->kind = RemoteAuthHandshakeEventKind::ticket_ready;
@@ -309,8 +293,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         return result(RemoteAuthHandshakeError::none, packet.text_bytes);
     }
 
-    fail(handshake);
-    return result(RemoteAuthHandshakeError::unexpected_packet);
+    return fail(handshake, RemoteAuthHandshakeError::unexpected_packet);
 }
 
 RemoteAuthHandshakeResult remote_auth_handshake_tick(RemoteAuthHandshake* handshake, u64 now_ms,
@@ -323,21 +306,18 @@ RemoteAuthHandshakeResult remote_auth_handshake_tick(RemoteAuthHandshake* handsh
     }
     *event = RemoteAuthHandshakeEvent{};
     if (handshake->expires_at_ms != 0 && now_ms >= handshake->expires_at_ms) {
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::session_timeout);
+        return fail(handshake, RemoteAuthHandshakeError::session_timeout);
     }
     if (handshake->next_heartbeat_at_ms == 0 || now_ms < handshake->next_heartbeat_at_ms) {
         event->next_wake_at_ms = next_wake(*handshake);
         return result(RemoteAuthHandshakeError::none);
     }
     if (handshake->heartbeat_unacknowledged) {
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::heartbeat_timeout);
+        return fail(handshake, RemoteAuthHandshakeError::heartbeat_timeout);
     }
     const RemoteAuthWriteResult written = remote_auth_write_heartbeat(command);
     if (!written.ok()) {
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::output_too_small, written.bytes);
+        return fail(handshake, RemoteAuthHandshakeError::output_too_small, written.bytes);
     }
     handshake->heartbeat_unacknowledged = true;
     handshake->next_heartbeat_at_ms = deadline_after(now_ms, handshake->heartbeat_interval_ms);
@@ -364,26 +344,25 @@ RemoteAuthHandshakeResult remote_auth_handshake_finish_ticket(RemoteAuthHandshak
         body, structural_scratch, maximum_depth,
         Slice<char>{encrypted_token, static_cast<u32>(sizeof(encrypted_token))}, &encrypted_token_bytes);
     if (!decoded.ok()) {
-        SecureZeroMemory(encrypted_token, sizeof(encrypted_token));
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::protocol, 0, decoded.error, RemoteAuthCryptoError::none,
-                      decoded.base64_error, RemoteAuthHandshakeStage::ticket_parse);
+        secure_clear_bytes(encrypted_token, sizeof(encrypted_token));
+        return fail(handshake, RemoteAuthHandshakeError::protocol, 0, decoded.error,
+                    RemoteAuthCryptoError::none, decoded.base64_error,
+                    RemoteAuthHandshakeStage::ticket_parse);
     }
     u8 ciphertext[kRemoteAuthRsaBytes]{};
     const Base64Result cipher = base64_decode(Utf8View{encrypted_token, encrypted_token_bytes},
                                               Slice<u8>{ciphertext, static_cast<u32>(sizeof(ciphertext))});
-    SecureZeroMemory(encrypted_token, sizeof(encrypted_token));
+    secure_clear_bytes(encrypted_token, sizeof(encrypted_token));
     if (!cipher.ok()) {
-        SecureZeroMemory(ciphertext, sizeof(ciphertext));
-        fail(handshake);
-        return result(RemoteAuthHandshakeError::protocol, 0, RemoteAuthError::none,
-                      RemoteAuthCryptoError::none, cipher.error,
-                      RemoteAuthHandshakeStage::ticket_cipher_decode);
+        secure_clear_bytes(ciphertext, sizeof(ciphertext));
+        return fail(handshake, RemoteAuthHandshakeError::protocol, 0, RemoteAuthError::none,
+                    RemoteAuthCryptoError::none, cipher.error,
+                    RemoteAuthHandshakeStage::ticket_cipher_decode);
     }
     const RemoteAuthCryptoResult decrypted =
         remote_auth_crypto_decrypt(handshake->crypto, ConstSlice<u8>{ciphertext, cipher.bytes},
                                    Slice<u8>{token->data, token->capacity});
-    SecureZeroMemory(ciphertext, sizeof(ciphertext));
+    secure_clear_bytes(ciphertext, sizeof(ciphertext));
     if (!decrypted.ok() || decrypted.bytes == 0) {
         secure_buffer_clear(token);
         return crypto_failure(handshake, decrypted.error, RemoteAuthHandshakeStage::ticket_decrypt);
@@ -391,10 +370,9 @@ RemoteAuthHandshakeResult remote_auth_handshake_finish_ticket(RemoteAuthHandshak
     for (u32 index = 0; index < decrypted.bytes; ++index) {
         if (token->data[index] < 0x21 || token->data[index] > 0x7E) {
             secure_buffer_clear(token);
-            fail(handshake);
-            return result(RemoteAuthHandshakeError::protocol, 0, RemoteAuthError::none,
-                          RemoteAuthCryptoError::none, Base64Error::none,
-                          RemoteAuthHandshakeStage::ticket_plaintext);
+            return fail(handshake, RemoteAuthHandshakeError::protocol, 0, RemoteAuthError::none,
+                        RemoteAuthCryptoError::none, Base64Error::none,
+                        RemoteAuthHandshakeStage::ticket_plaintext);
         }
     }
     token->bytes = decrypted.bytes;

@@ -4,6 +4,7 @@
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 bool application_channel_overview_open(u64 channel_id) noexcept;

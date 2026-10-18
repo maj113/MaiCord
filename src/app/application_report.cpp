@@ -17,7 +17,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/render/layer_presentation.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -82,15 +82,12 @@ struct Owner {
 Owner* owner;
 u64 lifetime_serial;
 
-bool available() noexcept {
-    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.user_social &&
            g_app.account.status.required_action == AccountRequirement::none;
 }
 bool scope_current() noexcept {
-    return owner && available() && owner->account_scope == g_app.plugin_account_scope_serial &&
+    return owner && application_account_available() && owner->account_scope == g_app.plugin_account_scope_serial &&
            owner->profile_id == g_app.account.status.profile_id;
 }
 bool busy() noexcept {
@@ -459,17 +456,11 @@ bool ensure_owner() noexcept {
     owner->layer.owner = owner;
     return true;
 }
-u64 next_id() noexcept {
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
-    return id;
-}
 } // namespace
 
 bool application_report_open(const ApplicationReportTarget& target) noexcept {
     const bool message = target.name == ReportMenuName::message;
-    if (!available() || !g_app.renderer_ready || g_app.text_form || application_channel_overview_active() ||
+    if (!application_account_available() || !g_app.renderer_ready || g_app.text_form || application_channel_overview_active() ||
         target.name >= ReportMenuName::count || (message ? !target.channel_id || !target.message_id : !target.user_id) ||
         !ensure_owner() || busy())
         return false;
@@ -534,7 +525,7 @@ void application_report_close(bool restore_focus) noexcept {
     owner->layer.entrance_started = 0;
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
     ui_settings_scene_close(&owner->scene);
-    if (restore_focus && available())
+    if (restore_focus && application_account_available())
         g_app.context_focus = &g_app.shell_scene.widgets;
     application_sync_attachment_drop_target();
     if (g_app.renderer_ready)
@@ -548,7 +539,7 @@ void application_report_release() noexcept {
         return;
     report_menu_release(&owner->menu);
     ui_settings_scene_release(&owner->scene);
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }
@@ -633,7 +624,7 @@ bool application_report_submit(u64 now) noexcept {
         request.operation = UserSocialOperation::report_submit;
         request.text = {reinterpret_cast<const char*>(p.body), written.bytes};
     }
-    const u64 id = next_id();
+    const u64 id = application_next_request_id();
     const auto result = g_app.account.api.user_social(g_app.account.instance, &request, id);
     if (result.error == RestClientSubmitError::busy) {
         p.retry_at = now + 100;

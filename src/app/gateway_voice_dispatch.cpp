@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_voice_control.hpp"
+#include "gateway_dispatch_common.hpp"
 #include "gateway_user_payload.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
@@ -101,15 +102,6 @@ struct Projection {
     u32 depth, records, users, user_bytes;
     bool publishing, replace, publish_failed;
 };
-GatewayClientEvent descriptor(const Projection& p, GatewayClientDispatchKind kind) noexcept {
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = kind;
-    event.sequence = p.sequence;
-    event.has_sequence = true;
-    event.timestamp_ms = p.now_ms;
-    return event;
-}
 bool emit(Projection& p, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
     if (p.publish(p.context, event, payload))
         return true;
@@ -119,7 +111,7 @@ bool emit(Projection& p, const GatewayClientEvent& event, ConstSlice<u8> payload
 bool flush_users(Projection& p) noexcept {
     if (!p.users)
         return true;
-    auto event = descriptor(p, GatewayClientDispatchKind::user_snapshot);
+    auto event = gateway_dispatch_event(GatewayClientDispatchKind::user_snapshot, p.sequence, p.now_ms);
     event.state.record_count = p.users;
     event.dispatch_payload_bytes = p.user_bytes;
     const auto ok =
@@ -133,7 +125,8 @@ bool flush_records(Projection& p, bool final) noexcept {
     // Users precede the rows that reference them.
     if (!flush_users(p))
         return false;
-    auto event = descriptor(p, GatewayClientDispatchKind::voice_state_snapshot);
+    auto event =
+        gateway_dispatch_event(GatewayClientDispatchKind::voice_state_snapshot, p.sequence, p.now_ms);
     event.voice_states = {p.guild_id, p.records, p.replace};
     event.dispatch_payload_bytes = p.records * static_cast<u32>(sizeof(GatewayClientVoiceStateRecord));
     const auto ok = emit(p, event, {reinterpret_cast<const u8*>(p.payload.data), event.dispatch_payload_bytes});

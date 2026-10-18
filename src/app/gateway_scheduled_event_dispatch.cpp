@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_client.hpp"
+#include "gateway_dispatch_common.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -51,12 +52,8 @@ bool gateway_client_publish_scheduled_events(JsonValue guild, u64 guild_id, Slic
     if (events.kind != JsonValueKind::array || events.source.bytes > kGatewayClientDispatchPayloadCapacity)
         return true;
     copy_bytes(payload.data, events.source.data, events.source.bytes);
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = GatewayClientDispatchKind::guild_scheduled_event_snapshot;
-    event.sequence = sequence;
-    event.has_sequence = true;
-    event.timestamp_ms = now_ms;
+    GatewayClientEvent event =
+        gateway_dispatch_event(GatewayClientDispatchKind::guild_scheduled_event_snapshot, sequence, now_ms);
     event.voice_states = {guild_id, 0, true};
     event.dispatch_payload_bytes = events.source.bytes;
     return publish(context, event, {reinterpret_cast<const u8*>(payload.data), events.source.bytes});

@@ -2,7 +2,7 @@
 #include "maicord/app/mls_key_package.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -75,7 +75,7 @@ MlsStatus mls_key_package_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, b
                        ? MlsStatus::crypto_failure
                        : MlsStatus::malformed;
         copy_bytes(candidate.reference, signed_package.reference, kMlsHashBytes);
-    } else if (!mls_reference_hash(kdf, mls_text("MLS 1.0 KeyPackage Reference"), view.serialized,
+    } else if (!mls_reference_hash(kdf, text_bytes("MLS 1.0 KeyPackage Reference"), view.serialized,
                                    {candidate.reference, kMlsHashBytes})
                     .ok())
         return MlsStatus::crypto_failure;
@@ -126,7 +126,7 @@ MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
     if (writer.ok() && writer.used > kMlsGroupContextMaximum)
         writer.status = MlsStatus::buffer_too_small;
     if (!writer.ok()) {
-        SecureZeroMemory(output.data, minimum(writer.used, output.count));
+        secure_clear_bytes(output.data, minimum(writer.used, output.count));
         return writer.status;
     }
     *written = writer.used;
@@ -195,7 +195,7 @@ MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
     if (const auto status = mls_tree_leaf_at(candidate.tree, view.signer, &signer); status != MlsStatus::ok)
         return status;
     if (verify)
-        if (const auto status = mls_verify_point(kdf, signer.leaf.signature_key, mls_text("GroupInfoTBS"),
+        if (const auto status = mls_verify_point(kdf, signer.leaf.signature_key, text_bytes("GroupInfoTBS"),
                                                  view.tbs, {}, view.signature);
             status != MlsStatus::ok)
             return status;
@@ -233,7 +233,7 @@ MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& c
     MlsStatus status = writer.status;
     if (status == MlsStatus::ok) {
         const auto signed_result =
-            mls_sign_with_label(kdf, signing, mls_text("GroupInfoTBS"), {output.data, tbs_bytes}, {},
+            mls_sign_with_label(kdf, signing, text_bytes("GroupInfoTBS"), {output.data, tbs_bytes}, {},
                                 {signature, sizeof(signature)});
         if (!signed_result.ok())
             status = MlsStatus::crypto_failure;
@@ -251,7 +251,7 @@ MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& c
                                     !mls_equal(info->confirmation_tag, confirmation_tag, kMlsHashBytes)))
         status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(output.data, minimum(writer.used, output.count));
+        secure_clear_bytes(output.data, minimum(writer.used, output.count));
         *info = {};
         return status;
     }

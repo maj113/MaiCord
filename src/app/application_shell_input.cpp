@@ -29,6 +29,7 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -280,7 +281,6 @@ bool handle_pane_resize_begin(LPARAM lparam) noexcept {
     g_app.pane_resize_origin_width =
         hit == PaneResizeKind::channels ? g_app.channel_pane_width : g_app.member_pane_width;
     SetCapture(g_app.window);
-
     return true;
 }
 
@@ -290,17 +290,9 @@ bool handle_shell_hover(LPARAM lparam) noexcept {
     }
     const float x = client_dip_x(lparam);
     const float y = client_dip_y(lparam);
-    if (pane_resize_hit(x, y) != PaneResizeKind::none) {
-
+    if (pane_resize_hit(x, y) != PaneResizeKind::none)
         return true;
-    }
-    if (application_plugins_surface_hover(x, y)) {
-        if (g_app.shell_scene.widgets.hovered.generation &&
-            ui_widget_manager_hover(&g_app.shell_scene.widgets, ui_widget_invalid_handle()))
-            application_request_frame();
-        return true;
-    }
-    if (application_voice_shell_hover(x, y)) {
+    if (application_plugins_surface_hover(x, y) || application_voice_shell_hover(x, y)) {
         if (g_app.shell_scene.widgets.hovered.generation &&
             ui_widget_manager_hover(&g_app.shell_scene.widgets, ui_widget_invalid_handle()))
             application_request_frame();
@@ -327,8 +319,7 @@ bool handle_shell_hover(LPARAM lparam) noexcept {
                    widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::channel_footer) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::home_button) + 1u)) {
-
-        if (prior.slot != hit.slot || prior.generation != hit.generation) {
+        if (!ui_widget_handle_equal(prior, hit)) {
             application_request_frame();
         }
         return true;
@@ -357,20 +348,13 @@ bool handle_navigation_hover(LPARAM lparam) noexcept {
                                  channel.id != 0 ? channel.widget : ui_widget_invalid_handle())) {
         return false;
     }
-    const bool changed =
-        prior_guild.slot != g_app.guild_rail_scene.widgets.hovered.slot ||
-        prior_guild.generation != g_app.guild_rail_scene.widgets.hovered.generation ||
-        prior_channel.slot != g_app.shell_navigation_scene.widgets.hovered.slot ||
-        prior_channel.generation != g_app.shell_navigation_scene.widgets.hovered.generation;
+    const bool changed = !ui_widget_handle_equal(prior_guild, g_app.guild_rail_scene.widgets.hovered) ||
+                         !ui_widget_handle_equal(prior_channel, g_app.shell_navigation_scene.widgets.hovered);
     application_channel_prefetch_hover(channel.selectable ? channel.id : 0);
     if (changed) {
         application_request_frame();
     }
-    if (guild.selectable || guild.add_server || channel.selectable) {
-
-        return true;
-    }
-    return false;
+    return guild.selectable || guild.add_server || channel.selectable;
 }
 
 bool handle_shell_click(LPARAM lparam) noexcept {
@@ -432,7 +416,7 @@ bool handle_member_hover(LPARAM lparam) noexcept {
     if (!ui_widget_manager_hover(&g_app.member_list_scene.widgets, hit)) {
         return false;
     }
-    const bool changed = prior.slot != hit.slot || prior.generation != hit.generation;
+    const bool changed = !ui_widget_handle_equal(prior, hit);
     const MemberListHit member = member_list_scene_hit_test(g_app.member_list_scene, x, y);
     if (changed) {
         if (!refresh_retained_projection())
@@ -462,17 +446,8 @@ u64 message_avatar_at(float x, float y) noexcept {
     }
     return 0;
 }
-} // namespace
 
-bool application_message_hover_observe_scroll() noexcept {
-    const auto& timeline = g_app.message_view.timeline;
-    if (!g_app.message_scene.active || !timeline.list)
-        return true;
-    // Anchoring (history prepends, resizes, live-tail growth) moves the
-    // origin with the content; only deliberate scrolling changes this offset.
-    const double offset = static_cast<double>(timeline.scroll_units) - timeline.scroll_origin_units;
-    if (!message_hover_scroll_gate_observe(&g_message_hover_gate, timeline.reset_generation, offset))
-        return true;
+bool clear_message_hover() noexcept {
     set_message_avatar_hover(0);
     bool changed = false;
     if (!message_action_bar_close(&g_app.message_action_bar, &changed))
@@ -484,20 +459,24 @@ bool application_message_hover_observe_scroll() noexcept {
     }
     return !changed || refresh_retained_projection();
 }
+} // namespace
+
+bool application_message_hover_observe_scroll() noexcept {
+    const auto& timeline = g_app.message_view.timeline;
+    if (!g_app.message_scene.active || !timeline.list)
+        return true;
+    // Anchoring (history prepends, resizes, live-tail growth) moves the
+    // origin with the content; only deliberate scrolling changes this offset.
+    const double offset = static_cast<double>(timeline.scroll_units) - timeline.scroll_origin_units;
+    if (!message_hover_scroll_gate_observe(&g_message_hover_gate, timeline.reset_generation, offset))
+        return true;
+    return clear_message_hover();
+}
 
 bool application_message_hover_leave() noexcept {
     if (!g_app.account_ui || !g_app.message_scene.active)
         return true;
-    set_message_avatar_hover(0);
-    bool changed = false;
-    if (!message_action_bar_close(&g_app.message_action_bar, &changed))
-        return false;
-    if (g_app.message_scene.widgets.hovered.generation) {
-        if (!ui_widget_manager_hover(&g_app.message_scene.widgets, ui_widget_invalid_handle()))
-            return false;
-        changed = true;
-    }
-    return !changed || refresh_retained_projection();
+    return clear_message_hover();
 }
 
 bool handle_message_hover(LPARAM lparam) noexcept {
@@ -536,18 +515,14 @@ bool handle_member_click(LPARAM lparam) noexcept {
     if (!g_app.member_list_scene.active || g_app.login.visible) {
         return false;
     }
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const MemberListHit hit = member_list_scene_hit_test(
-        g_app.member_list_scene, static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-        static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale);
+    const float x = client_dip_x(lparam);
+    const float y = client_dip_y(lparam);
+    const MemberListHit hit = member_list_scene_hit_test(g_app.member_list_scene, x, y);
     if (hit.user_id == 0) {
         return false;
     }
     u64 badge_user = 0;
-    const auto badge = member_list_plugin_hit(g_app.member_list_scene,
-                                              static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-                                              static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale,
-                                              &badge_user);
+    const auto badge = member_list_plugin_hit(g_app.member_list_scene, x, y, &badge_user);
     if (badge.action_id) {
         application_plugins_slot_activate(badge.owner_id, {kUiPluginSlotMemberBadge, 0, 0, badge_user, 0}, badge.action_id,
                                           badge.badge.rectangle);

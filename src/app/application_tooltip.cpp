@@ -147,8 +147,7 @@ bool guild_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* targ
         return false;
     const auto handle = keyboard ? scene.widgets.focused : ui_widget_manager_hit_test(scene.widgets, point.x, point.y);
     const auto* row = guild_rail_scene_resolve(scene, handle);
-    if (!row && scene.add_button.generation && handle.slot == scene.add_button.slot &&
-        handle.generation == scene.add_button.generation) {
+    if (!row && ui_widget_handle_matches(scene.add_button, handle)) {
         if (!widget_target(scene.widgets, handle, scope, 0, 1, 0xd01u, utf8_literal("Add a server"), target))
             return false;
         target->placement = UiTooltipPlacement::right;
@@ -278,9 +277,7 @@ bool message_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept 
     }
     if (!label.bytes)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, bar.message_id);
-    const auto* message =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = application_message_record(bar.message_id);
     if (!message || message->channel_id != g_app.account_ui->active_channel_id ||
         !ui_widget_manager_resolve(g_app.message_scene.widgets, bar.owner.handle))
         return false;
@@ -458,7 +455,7 @@ bool theme_editor_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarge
     const auto handle =
         keyboard ? scene->widgets.focused : ui_widget_manager_hit_test(scene->widgets, point.x, point.y);
     for (u32 i = 0; i < kUiThemeEditorElements; ++i) {
-        if (handle.slot != scene->elements[i].slot || handle.generation != scene->elements[i].generation)
+        if (!ui_widget_handle_equal(handle, scene->elements[i]))
             continue;
         const auto element = static_cast<UiThemeEditorElement>(i);
         Utf8View label{};
@@ -540,8 +537,7 @@ bool profile_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* ta
     return true;
 }
 bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexcept {
-    const u64 scope = g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
-                                                        : g_app.account.status.profile_id;
+    const u64 scope = application_account_scope();
     if (g_app.image_viewer.scene.active)
         return viewer_available() && GetCapture() != g_app.window && scope &&
                (!keyboard || g_app.keyboard_focus_visible || g_app.image_viewer.scene.keyboard_focus) &&
@@ -656,8 +652,7 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
             owner.pointer_valid = owner.keyboard = false;
             owner.published_visible = false;
             owner.published_revision = owner.scene.revision;
-            g_app.renderer.retained_presentation.valid = false;
-            application_request_frame();
+            application_repaint();
             return false;
         }
         owner.viewport = viewport;
@@ -727,8 +722,7 @@ void application_tooltip_clear() noexcept {
     owner.dismissed = {};
     owner.failed = {};
     if (visible) {
-        g_app.renderer.retained_presentation.valid = false;
-        application_request_frame();
+        application_repaint();
     }
 }
 void application_tooltip_release() noexcept {

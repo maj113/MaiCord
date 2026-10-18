@@ -1,6 +1,7 @@
 #include "application_message_delete.hpp"
 
 #include "application_account_presentation.hpp"
+#include "application_message_mutation_source.hpp"
 #include "application_state.hpp"
 #include "application_thread_actions.hpp"
 #include "application_reply_draft.hpp"
@@ -12,18 +13,11 @@
 #include "maicord/model/message_store.hpp"
 #include "maicord/ui/navigation_view.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
-struct DeleteSource {
-    MessageHandle handle{};
-    u64 scope{}, profile{}, self{};
-    void* instance{};
-    u32 revision{};
-    u16 channel_generation{};
-};
-DeleteSource delete_source;
+MessageMutationSource delete_source;
 TextFormOwnerKey delete_confirmation;
 
 const MessageRecord* deletable_record(u64 message_id) noexcept {
@@ -139,15 +133,7 @@ bool queue_message_delete(u64 message_id) noexcept {
     g_app.message_delete.channel_id = record->channel_id;
     g_app.message_delete.message_id = record->id;
     g_app.message_delete.retry_at_ms = 0;
-    const auto* channel =
-        chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id);
-    delete_source = {found.handle,
-                     g_app.plugin_account_scope_serial,
-                     g_app.account.status.profile_id,
-                     g_app.account_ui->chat_state.self_user_id,
-                     g_app.account.instance,
-                     record->revision,
-                     channel ? channel->generation : u16{0}};
+    delete_source = message_mutation_source_capture(found.handle, *record);
     application_message_mutation_notice_begin(ApplicationMessageMutationKind::erase, record->channel_id,
                                               record->id);
     if (g_app.window) {
@@ -156,17 +142,9 @@ bool queue_message_delete(u64 message_id) noexcept {
     return true;
 }
 bool application_message_delete_pending_available() noexcept {
-    if (!g_app.account_ui || !delete_source.instance || delete_source.instance != g_app.account.instance ||
-        delete_source.scope != g_app.plugin_account_scope_serial ||
-        delete_source.profile != g_app.account.status.profile_id ||
-        delete_source.self != g_app.account_ui->chat_state.self_user_id)
-        return false;
-    const auto* channel =
-        chat_state_store_find_channel(g_app.account_ui->chat_state, g_app.message_delete.channel_id);
-    const auto* record = message_store_resolve(g_app.message_view.store, delete_source.handle);
-    return channel && channel->generation == delete_source.channel_generation && record &&
-           record->id == g_app.message_delete.message_id && record->channel_id == channel->id &&
-           record->revision == delete_source.revision && message_can_delete(*record);
+    const auto* record = message_mutation_source_record(delete_source, g_app.message_delete.channel_id,
+                                                        g_app.message_delete.message_id);
+    return record && message_can_delete(*record);
 }
 
 bool accept_message_delete_response(const RestClientResponse& response) noexcept {

@@ -3,7 +3,7 @@
 #include "application_state.hpp"
 #include "maicord/platform/taskbar_attention.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -88,7 +88,7 @@ void application_taskbar_attention_notify() noexcept {
 }
 
 bool application_taskbar_attention_window_message(UINT message) noexcept {
-    return g_owner.initialized && taskbar_attention_window_message(&g_owner.native, g_app.window, message);
+    return g_owner.initialized && taskbar_attention_window_message(&g_owner.native, message);
 }
 
 void application_taskbar_attention_counts(u32* mentions, bool* unread) noexcept {

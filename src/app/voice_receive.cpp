@@ -1,7 +1,7 @@
 #include "maicord/app/voice_receive.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -41,24 +41,18 @@ VoiceReceiveResult voice_receive_packet(VoiceReceive* receive, const VoiceReceiv
         return VoiceReceiveResult::invalid;
     const auto& layout = packet.transport.layout;
     if (layout.kind == MediaPacketKind::rtcp) {
-        ++receive->stats.rtcp;
         if (packet.transport.ok())
             voice_video_sink_rtcp(&receive->video, plaintext, now_us);
         return VoiceReceiveResult::ignored;
     }
-    ++receive->stats.rtp;
     // Video RTP is assembled before DAVE; the frame stage decrypts it.
-    if (packet.transport.ok() && layout.kind == MediaPacketKind::rtp && voice_video_source(packet.source)) {
-        if (voice_video_sink_packet(&receive->video, packet, plaintext, now_us))
-            return VoiceReceiveResult::video;
-        ++receive->stats.ignored;
-        return VoiceReceiveResult::ignored;
-    }
+    if (packet.transport.ok() && layout.kind == MediaPacketKind::rtp && voice_video_source(packet.source))
+        return voice_video_sink_packet(&receive->video, packet, plaintext, now_us)
+                   ? VoiceReceiveResult::video
+                   : VoiceReceiveResult::ignored;
     if (!packet.transport.ok() || layout.kind != MediaPacketKind::rtp || layout.type != kVoiceOpusPayloadType ||
-        packet.source.kind != VoiceSourceKind::audio || !packet.member.user_id || !receive->playback.block) {
-        ++receive->stats.ignored;
+        packet.source.kind != VoiceSourceKind::audio || !packet.member.user_id || !receive->playback.block)
         return VoiceReceiveResult::ignored;
-    }
     // rtpsize: the clear header covers fixed header, CSRCs and the extension
     // preamble; extension elements were encrypted and precede the Opus payload.
     if (!layout.payload_bytes || layout.payload_offset > plaintext.count ||

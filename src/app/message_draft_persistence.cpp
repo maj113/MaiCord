@@ -5,7 +5,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -89,10 +89,17 @@ bool transfer(HANDLE file, u8* bytes, u32 count, bool write, u32* native_error) 
 
 void erase_release(u8* bytes, u32 count) noexcept {
     if (bytes) {
-        SecureZeroMemory(bytes, count);
+        secure_clear_bytes(bytes, count);
         VirtualFree(bytes, 0, MEM_RELEASE);
     }
 }
+
+// Erases and releases the buffer on every exit of a load.
+struct ErasedBuffer {
+    u8* bytes;
+    u32 count;
+    ~ErasedBuffer() noexcept { erase_release(bytes, count); }
+};
 
 bool trim_whitespace(u32 codepoint) noexcept {
     return (codepoint >= 0x0009 && codepoint <= 0x000D) || codepoint == 0x0020 || codepoint == 0x00A0 ||
@@ -269,8 +276,8 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     if (file == INVALID_HANDLE_VALUE) {
         return failure(MessageDraftPersistenceError::open, thread_last_error());
     }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart < kHeaderBytes ||
+    Win32LargeInteger size{};
+    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kHeaderBytes ||
         size.QuadPart > kMessageDraftPersistenceMaximumFileBytes) {
         const u32 native_error = thread_last_error();
         CloseHandle(file);
@@ -284,11 +291,11 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
         CloseHandle(file);
         return failure(MessageDraftPersistenceError::memory, native_error);
     }
+    const ErasedBuffer file_guard{file_bytes, file_size};
     u32 native_error = 0;
     const bool read = transfer(file, file_bytes, file_size, false, &native_error);
     CloseHandle(file);
     if (!read) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::read, native_error);
     }
     bool magic = true;
@@ -296,16 +303,13 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
         magic = magic && file_bytes[index] == kMagic[index];
     }
     if (!magic) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::format);
     }
     const u32 version = byte_load_le32(file_bytes + 8);
     if (version != kMessageDraftPersistenceVersion) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::version);
     }
     if (byte_load_le64(file_bytes + 32) != expected_profile_id) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::profile);
     }
     const u32 record_count = byte_load_le32(file_bytes + 20);
@@ -322,7 +326,6 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     if (byte_load_le32(file_bytes + 12) != kHeaderBytes || byte_load_le32(file_bytes + 16) != file_size ||
         record_count > kMessageDraftStoreMaximumRecords || expected_size != file_size ||
         actual_checksum != stored_checksum || (record_count != 0 && stored_revision == 0)) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::format);
     }
 
@@ -349,12 +352,10 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
             !reserved_valid || (flags & ~kSuppressReplyMention) != 0 ||
             (reply_message_id == 0 && flags != 0) ||
             records_duplicate(records, record_bytes, index, channel_id)) {
-            erase_release(file_bytes, file_size);
             return failure(MessageDraftPersistenceError::format);
         }
         const Utf8View text{reinterpret_cast<const char*>(texts + text_cursor), bytes};
         if (!utf8_validate(text).valid || !text_boundary(text, anchor) || !text_boundary(text, caret)) {
-            erase_release(file_bytes, file_size);
             return failure(MessageDraftPersistenceError::format);
         }
         if (reply_message_id == 0 && blank_after_trim(text)) {
@@ -367,32 +368,27 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     }
     if (text_cursor != text_bytes || accepted_records > store->capacity ||
         accepted_bytes > store->text_capacity) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::capacity);
     }
 
     const u64 scratch64 =
         static_cast<u64>(store->capacity) * sizeof(MessageDraftRecord) + store->text_capacity;
     if (scratch64 > 0xFFFFFFFFull) {
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::capacity);
     }
     const u32 scratch_bytes = static_cast<u32>(scratch64);
     auto* scratch =
         static_cast<u8*>(VirtualAlloc(nullptr, scratch_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!scratch) {
-        const u32 error = thread_last_error();
-        erase_release(file_bytes, file_size);
-        return failure(MessageDraftPersistenceError::memory, error);
+        return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }
+    const ErasedBuffer scratch_guard{scratch, scratch_bytes};
     auto* temporary_records = reinterpret_cast<MessageDraftRecord*>(scratch);
     auto* temporary_text = scratch + store->capacity * sizeof(MessageDraftRecord);
     MessageDraftStore temporary{};
     if (!message_draft_store_initialize(&temporary,
                                         Slice<MessageDraftRecord>{temporary_records, store->capacity},
                                         Slice<u8>{temporary_text, store->text_capacity})) {
-        erase_release(scratch, scratch_bytes);
-        erase_release(file_bytes, file_size);
         return failure(MessageDraftPersistenceError::capacity);
     }
     text_cursor = 0;
@@ -408,8 +404,6 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
                                               byte_load_le32(encoded + 24), reply_message_id,
                                               mention_reply_author});
             if (!saved.ok()) {
-                erase_release(scratch, scratch_bytes);
-                erase_release(file_bytes, file_size);
                 return failure(MessageDraftPersistenceError::capacity);
             }
             temporary.records[saved.index].touched = byte_load_le64(encoded + 8);
@@ -430,8 +424,6 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     temporary.text = store->text;
     *store = temporary;
 
-    erase_release(scratch, scratch_bytes);
-    erase_release(file_bytes, file_size);
     return success(file_size, accepted_records, discarded);
 }
 

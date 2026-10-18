@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "text_edit_keys.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_quick_switcher.hpp"
 #include "application_cursor.hpp"
@@ -25,6 +26,8 @@
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/protocol/writer.hpp"
+
+#include <Windows.h>
 
 namespace maicord::app_detail {
 struct ApplicationQuickSwitcher {
@@ -428,8 +431,7 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
     }
     const auto revision = q->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && key == 'A') result = message_composer_select_all(&q->edit);
-    else if (control && (key == 'C' || key == 'X')) {
+    if (control && (key == 'C' || key == 'X')) {
         const u32 a = minimum(q->edit.anchor, q->edit.caret), b = maximum(q->edit.anchor, q->edit.caret);
         if (b > a && clipboard_write_utf8(g_app.window, {q->edit.text + a, b - a}) && key == 'X')
             result = message_composer_replace_range(&q->edit, a, b, {});
@@ -443,15 +445,10 @@ bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) 
             if (valid) i += scalar.width;
         }
         if (valid) result = message_composer_insert_utf8(&q->edit, {text, read.bytes});
-    } else if (control && key == 'Z') result = shift ? message_composer_redo(&q->edit) : message_composer_undo(&q->edit);
-    else if (control && key == 'Y') result = message_composer_redo(&q->edit);
-    else if (key == VK_BACK) { g_app.quick_switcher_held_key = key; result = control ? message_composer_delete_word(&q->edit, false) : message_composer_backspace(&q->edit); }
-    else if (key == VK_DELETE) result = control ? message_composer_delete_word(&q->edit, true) : message_composer_delete_forward(&q->edit);
-    else if (key == VK_LEFT || key == VK_RIGHT) result = message_composer_move(&q->edit,
-        control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
-                : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next), shift);
-    else if (key == VK_HOME || key == VK_END) result = message_composer_move(&q->edit,
-        key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
+    } else {
+        if (key == VK_BACK) g_app.quick_switcher_held_key = key;
+        message_composer_edit_key(&q->edit, key, control, shift, &result);
+    }
     if (result == MessageComposerResult::changed) application_quick_switcher_edit_changed(revision != q->edit.text_revision);
     return true;
 }

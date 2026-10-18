@@ -56,9 +56,24 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/message_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
+
+// The selected channel needs a latest-page catch-up and none is running.
+static bool catchup_wanted() noexcept {
+    const auto& catchup = g_app.message_catchup;
+    const bool inactive =
+        catchup.state == MessageHistoryCatchupState::idle || message_history_browsing_ready(catchup.state) ||
+        (g_app.message_pump.resync_required && catchup.state == MessageHistoryCatchupState::failed);
+    return g_app.account_ui->active_channel_id != 0 && g_app.pending_message_jump_message_id == 0 &&
+           inactive &&
+           (g_app.message_pump.resync_required ||
+            ((g_app.message_view.timeline.follow_bottom ||
+              message_history_newer_prefetch_needed(g_app.message_view.timeline)) &&
+             (g_app.message_pump.catchup_required || g_app.message_view.timeline.newer_refetch_required)));
+}
 
 static void trace_rest_scheduler() noexcept {
     auto& t = g_app.load_trace;
@@ -72,18 +87,8 @@ static void trace_rest_scheduler() noexcept {
                     (owner != g_app.message_history_request_owner && owner != g_app.details_request_owner)))
             pending |= 1ull << static_cast<u32>(owner);
     };
-    const bool catchup_inactive = g_app.message_catchup.state == MessageHistoryCatchupState::idle ||
-                                  message_history_browsing_ready(g_app.message_catchup.state) ||
-                                  (g_app.message_pump.resync_required &&
-                                   g_app.message_catchup.state == MessageHistoryCatchupState::failed);
     mark(MessageHistoryRequestOwner::catchup,
-         g_app.message_catchup.state == MessageHistoryCatchupState::request_required ||
-             (ui.active_channel_id && !g_app.pending_message_jump_message_id && catchup_inactive &&
-              (g_app.message_pump.resync_required ||
-               ((g_app.message_view.timeline.follow_bottom ||
-                 message_history_newer_prefetch_needed(g_app.message_view.timeline)) &&
-                (g_app.message_pump.catchup_required ||
-                 g_app.message_view.timeline.newer_refetch_required)))));
+         g_app.message_catchup.state == MessageHistoryCatchupState::request_required || catchup_wanted());
     mark(MessageHistoryRequestOwner::older,
          g_app.message_older.state == MessageHistoryOlderState::request_required);
     mark(MessageHistoryRequestOwner::message_jump,
@@ -269,7 +274,7 @@ struct MessageHistoryResponseErase {
 
     ~MessageHistoryResponseErase() noexcept {
         if (data && bytes != 0) {
-            SecureZeroMemory(data, bytes);
+            secure_clear_bytes(data, bytes);
         }
         if (favorites) {
             application_gif_favorites_response_drained();
@@ -292,17 +297,7 @@ static bool begin_required_catchup() noexcept {
         return true;
     if (g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
         return true;
-    auto& catchup = g_app.message_catchup;
-    const bool catchup_inactive =
-        catchup.state == MessageHistoryCatchupState::idle ||
-        message_history_browsing_ready(catchup.state) ||
-        (g_app.message_pump.resync_required && catchup.state == MessageHistoryCatchupState::failed);
-    if (g_app.account_ui->active_channel_id != 0 && g_app.pending_message_jump_message_id == 0 &&
-        catchup_inactive &&
-        (g_app.message_pump.resync_required ||
-         ((g_app.message_view.timeline.follow_bottom ||
-           message_history_newer_prefetch_needed(g_app.message_view.timeline)) &&
-          (g_app.message_pump.catchup_required || g_app.message_view.timeline.newer_refetch_required)))) {
+    if (catchup_wanted()) {
         if (g_app.message_pump.resync_required) {
             if (!message_timeline_reset(&g_app.message_view.timeline) ||
                 !message_timeline_set_scroll(&g_app.message_view.timeline, 0, true)) {
@@ -311,7 +306,7 @@ static bool begin_required_catchup() noexcept {
             g_app.message_pump.catchup_required = true;
             g_app.message_pump.resync_required = false;
         }
-        if (!message_history_catchup_begin(&catchup, &g_app.message_pump,
+        if (!message_history_catchup_begin(&g_app.message_catchup, &g_app.message_pump,
                                            g_app.account_ui->active_channel_id,
                                            kMessageHistoryRequestLimit)) {
             return false;
@@ -340,166 +335,74 @@ struct DetailsRequestTurn {
 };
 static DetailsRequestTurn details_request_turn{};
 
+// Admits the lane's request when it has work; the lane's owner tags the request.
+template <bool (*Pending)(u64) noexcept, bool (*Submit)(u64, u64) noexcept,
+          MessageHistoryRequestOwner Owner>
+static bool admit_details_lane(u64 now) noexcept {
+    if (!Pending(now))
+        return false;
+    const u64 request_id = next_message_history_request_id();
+    if (!Submit(request_id, now))
+        return false;
+    g_app.details_request_owner = Owner;
+    g_app.details_request_id = request_id;
+    return true;
+}
+
+// The channel overview, profile and command lanes tag their own request.
+using DetailsLane = bool (*)(u64 now) noexcept;
+static constexpr DetailsLane kDetailsLanes[] = {
+    admit_details_lane<application_thread_actions_pending, application_thread_actions_submit,
+                       MessageHistoryRequestOwner::thread_actions>,
+    admit_details_lane<application_search_navigation_pending, application_search_navigation_submit,
+                       MessageHistoryRequestOwner::search_navigation>,
+    admit_details_lane<application_pinned_messages_pending, application_pinned_messages_submit,
+                       MessageHistoryRequestOwner::pinned_messages>,
+    admit_details_lane<application_thread_browser_pending, application_thread_browser_submit,
+                       MessageHistoryRequestOwner::thread_browser>,
+    application_channel_overview_submit,
+    application_profile_submit,
+    application_commands_submit,
+    admit_details_lane<application_thread_creation_pending, application_thread_creation_submit,
+                       MessageHistoryRequestOwner::thread_creation>,
+    admit_details_lane<application_forum_post_pending, application_forum_post_submit,
+                       MessageHistoryRequestOwner::forum_post>,
+    admit_details_lane<application_poll_pending, application_poll_submit, MessageHistoryRequestOwner::poll>,
+    admit_details_lane<application_member_moderation_pending, application_member_moderation_submit,
+                       MessageHistoryRequestOwner::member_moderation>,
+    admit_details_lane<application_guild_invite_pending, application_guild_invite_submit,
+                       MessageHistoryRequestOwner::guild_invite>,
+    admit_details_lane<application_account_settings_pending, application_account_settings_submit,
+                       MessageHistoryRequestOwner::account_settings>,
+    admit_details_lane<application_private_channel_pending, application_private_channel_submit,
+                       MessageHistoryRequestOwner::private_channel>,
+    admit_details_lane<application_notification_controls_pending, application_notification_controls_submit,
+                       MessageHistoryRequestOwner::guild_notification_settings>,
+    admit_details_lane<application_inbox_pending, application_inbox_submit,
+                       MessageHistoryRequestOwner::inbox_mentions>,
+    admit_details_lane<application_stream_preview_pending, application_stream_preview_submit,
+                       MessageHistoryRequestOwner::stream_preview>,
+    admit_details_lane<application_stage_pending, application_stage_submit,
+                       MessageHistoryRequestOwner::stage>,
+    admit_details_lane<application_message_components_pending, application_message_components_submit,
+                       MessageHistoryRequestOwner::message_components>,
+    admit_details_lane<application_invite_cards_pending, application_invite_cards_submit,
+                       MessageHistoryRequestOwner::invite_cards>,
+    admit_details_lane<application_soundboard_pending, application_soundboard_submit,
+                       MessageHistoryRequestOwner::soundboard>,
+};
+
 static void admit_details_request(u64 now) noexcept {
     auto& turn = details_request_turn;
     if (turn.account_scope != g_app.plugin_account_scope_serial)
         turn = {g_app.plugin_account_scope_serial, 0};
-    constexpr u8 owners = 21;
-    for (u8 tried = 0; tried < owners; ++tried) {
-        const u8 index = static_cast<u8>((turn.next + tried) % owners);
-        bool admitted = false;
-        MessageHistoryRequestOwner owner = MessageHistoryRequestOwner::none;
-        u64 request_id = 0;
-        switch (index) {
-        case 0:
-            if (application_thread_actions_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_thread_actions_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::thread_actions;
-            }
-            break;
-        case 1:
-            if (application_search_navigation_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_search_navigation_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::search_navigation;
-            }
-            break;
-        case 2:
-            if (application_pinned_messages_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_pinned_messages_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::pinned_messages;
-            }
-            break;
-        case 3:
-            if (application_thread_browser_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_thread_browser_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::thread_browser;
-            }
-            break;
-        case 4:
-            admitted = application_channel_overview_submit(now);
-            break;
-        case 5:
-            admitted = application_profile_submit(now);
-            break;
-        case 6:
-            admitted = application_commands_submit(now);
-            break;
-        case 7:
-            if (application_thread_creation_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_thread_creation_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::thread_creation;
-            }
-            break;
-        case 8:
-            if (application_forum_post_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_forum_post_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::forum_post;
-            }
-            break;
-        case 9:
-            if (application_poll_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_poll_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::poll;
-            }
-            break;
-        case 10:
-            if (application_member_moderation_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_member_moderation_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::member_moderation;
-            }
-            break;
-        case 11:
-            if (application_guild_invite_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_guild_invite_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::guild_invite;
-            }
-            break;
-        case 12:
-            if (application_account_settings_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_account_settings_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::account_settings;
-            }
-            break;
-        case 13:
-            if (application_private_channel_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_private_channel_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::private_channel;
-            }
-            break;
-        case 14:
-            if (application_notification_controls_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_notification_controls_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::guild_notification_settings;
-            }
-            break;
-        case 15:
-            if (application_inbox_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_inbox_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::inbox_mentions;
-            }
-            break;
-        case 16:
-            // Go Live preview thumbnails for the hover card and stream tiles.
-            if (application_stream_preview_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_stream_preview_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::stream_preview;
-            }
-            break;
-        case 17:
-            // Stage requests: raise/lower hand, speaker moves, stage instances.
-            if (application_stage_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_stage_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::stage;
-            }
-            break;
-        case 18:
-            // Message component clicks, select choices and modal submits.
-            if (application_message_components_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_message_components_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::message_components;
-            }
-            break;
-        case 19:
-            // Invite card resolution for invite links on screen.
-            if (application_invite_cards_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_invite_cards_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::invite_cards;
-            }
-            break;
-        case 20:
-            // Soundboard: sends, sound lists and the server's sound edits.
-            if (application_soundboard_pending(now)) {
-                request_id = next_message_history_request_id();
-                admitted = application_soundboard_submit(request_id, now);
-                owner = MessageHistoryRequestOwner::soundboard;
-            }
-            break;
+    constexpr u8 lanes = sizeof(kDetailsLanes) / sizeof(kDetailsLanes[0]);
+    for (u8 tried = 0; tried < lanes; ++tried) {
+        const u8 index = static_cast<u8>((turn.next + tried) % lanes);
+        if (kDetailsLanes[index](now)) {
+            turn.next = static_cast<u8>((index + 1) % lanes);
+            return;
         }
-        if (!admitted)
-            continue;
-        if (owner != MessageHistoryRequestOwner::none) {
-            g_app.details_request_owner = owner;
-            g_app.details_request_id = request_id;
-        }
-        turn.next = static_cast<u8>((index + 1) % owners);
-        return;
     }
 }
 
@@ -868,6 +771,84 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
     return true;
 }
 
+// REST response consumers by request owner. A response that could not be taken reaches them as a
+// transport failure with an empty body.
+using ResponseConsumer = bool (*)(const RestClientResponse&, Utf8View body, u64 now_ms) noexcept;
+struct ResponseRoute {
+    MessageHistoryRequestOwner owner;
+    ResponseConsumer consume;
+    bool lenient; // A failed take never stops the pump.
+};
+
+template <bool (*Consume)(const RestClientResponse&, Utf8View) noexcept>
+static bool route_response(const RestClientResponse& response, Utf8View body, u64) noexcept {
+    return Consume(response, body);
+}
+
+static bool route_activity_sharing(const RestClientResponse& response, Utf8View body, u64) noexcept {
+    application_activity_sharing_response(response, body);
+    return true;
+}
+
+static bool route_read_state(const RestClientResponse& response, Utf8View body, u64 now_ms) noexcept {
+    return application_read_state_response(response, reinterpret_cast<const u8*>(body.data), body.bytes,
+                                           now_ms);
+}
+
+static bool route_scoped_read(const RestClientResponse& response, Utf8View body, u64 now_ms) noexcept {
+    return application_scoped_read_response(response, body, now_ms);
+}
+
+static bool route_message_reaction(const RestClientResponse& response, Utf8View, u64) noexcept {
+    return application_message_reaction_response(response);
+}
+
+static constexpr ResponseRoute kResponseRoutes[] = {
+    {MessageHistoryRequestOwner::channel_prefetch, route_response<application_channel_prefetch_response>},
+    {MessageHistoryRequestOwner::forum_post, route_response<application_forum_post_response>},
+    {MessageHistoryRequestOwner::thread_creation, route_response<application_thread_creation_response>},
+    {MessageHistoryRequestOwner::thread_browser, route_response<application_thread_browser_response>},
+    {MessageHistoryRequestOwner::poll, route_response<application_poll_response>},
+    {MessageHistoryRequestOwner::member_moderation, route_response<application_member_moderation_response>},
+    {MessageHistoryRequestOwner::guild_invite, route_response<application_guild_invite_response>},
+    {MessageHistoryRequestOwner::thread_actions, route_response<application_thread_actions_response>},
+    {MessageHistoryRequestOwner::search_navigation, route_response<application_search_navigation_response>},
+    {MessageHistoryRequestOwner::channel_overview, route_response<application_channel_overview_response>},
+    {MessageHistoryRequestOwner::pinned_messages, route_response<application_pinned_messages_response>},
+    {MessageHistoryRequestOwner::self_status, route_response<application_self_status_response>},
+    {MessageHistoryRequestOwner::user_settings, route_response<application_user_settings_response>},
+    {MessageHistoryRequestOwner::guild_notification_settings,
+     route_response<application_notification_controls_response>},
+    {MessageHistoryRequestOwner::custom_status, route_response<application_custom_status_response>},
+    {MessageHistoryRequestOwner::activity_sharing, route_activity_sharing},
+    {MessageHistoryRequestOwner::inbox_mentions, route_response<application_inbox_response>},
+    {MessageHistoryRequestOwner::stream_preview, route_response<application_stream_preview_response>},
+    {MessageHistoryRequestOwner::stage, route_response<application_stage_response>},
+    {MessageHistoryRequestOwner::soundboard, route_response<application_soundboard_response>},
+    {MessageHistoryRequestOwner::message_components,
+     route_response<application_message_components_response>},
+    {MessageHistoryRequestOwner::invite_cards, route_response<application_invite_cards_response>},
+    {MessageHistoryRequestOwner::account_settings, route_response<application_account_settings_response>},
+    {MessageHistoryRequestOwner::private_channel, route_response<application_private_channel_response>},
+    {MessageHistoryRequestOwner::media_catalog, route_response<application_media_picker_response>},
+    {MessageHistoryRequestOwner::gif_favorites, route_response<application_gif_favorites_response>},
+    {MessageHistoryRequestOwner::emoji_preferences, route_response<application_emoji_preferences_response>},
+    {MessageHistoryRequestOwner::message_search, route_response<application_search_response>},
+    {MessageHistoryRequestOwner::read_state_ack, route_read_state},
+    {MessageHistoryRequestOwner::scoped_read, route_scoped_read},
+    {MessageHistoryRequestOwner::friends, route_response<application_friends_response>},
+    {MessageHistoryRequestOwner::commands, route_response<application_commands_response>},
+    {MessageHistoryRequestOwner::user_profile, route_response<application_profile_response>, true},
+    {MessageHistoryRequestOwner::message_reaction, route_message_reaction},
+};
+
+static const ResponseRoute* find_response_route(MessageHistoryRequestOwner owner) noexcept {
+    for (const auto& entry : kResponseRoutes)
+        if (entry.owner == owner)
+            return &entry;
+    return nullptr;
+}
+
 static bool pump_message_history_main(bool admit) noexcept {
     AccountHost& host = g_app.account;
     MessageHistoryCatchup& catchup = g_app.message_catchup;
@@ -956,135 +937,9 @@ static bool pump_message_history_main(bool admit) noexcept {
                 response.body_bytes != taken.body_bytes) {
                 if (owner == MessageHistoryRequestOwner::channel_prefetch)
                     return application_channel_prefetch_response(response, {});
-                if (owner == MessageHistoryRequestOwner::poll) {
+                if (const ResponseRoute* handler = find_response_route(owner)) {
                     response.error = RestClientError::response;
-                    return application_poll_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::member_moderation) {
-                    response.error = RestClientError::response;
-                    return application_member_moderation_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::guild_invite) {
-                    response.error = RestClientError::response;
-                    return application_guild_invite_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::channel_overview) {
-                    response.error = RestClientError::response;
-                    return application_channel_overview_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::search_navigation) {
-                    response.error = RestClientError::response;
-                    return application_search_navigation_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::thread_actions) {
-                    response.error = RestClientError::response;
-                    return application_thread_actions_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::thread_browser) {
-                    response.error = RestClientError::response;
-                    return application_thread_browser_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::thread_creation) {
-                    response.error = RestClientError::response;
-                    return application_thread_creation_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::forum_post) {
-                    response.error = RestClientError::response;
-                    return application_forum_post_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::pinned_messages) {
-                    response.error = RestClientError::response;
-                    return application_pinned_messages_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::self_status) {
-                    response.error = RestClientError::response;
-                    return application_self_status_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::user_settings) {
-                    response.error = RestClientError::response;
-                    return application_user_settings_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::guild_notification_settings) {
-                    response.error = RestClientError::response;
-                    return application_notification_controls_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::custom_status) {
-                    response.error = RestClientError::response;
-                    return application_custom_status_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::activity_sharing) {
-                    response.error = RestClientError::response;
-                    application_activity_sharing_response(response, {});
-                    return true;
-                }
-                if (owner == MessageHistoryRequestOwner::inbox_mentions) {
-                    response.error = RestClientError::response;
-                    return application_inbox_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::stream_preview) {
-                    response.error = RestClientError::response;
-                    return application_stream_preview_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::stage) {
-                    response.error = RestClientError::response;
-                    return application_stage_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::soundboard) {
-                    response.error = RestClientError::response;
-                    return application_soundboard_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::message_components) {
-                    response.error = RestClientError::response;
-                    return application_message_components_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::invite_cards) {
-                    response.error = RestClientError::response;
-                    return application_invite_cards_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::account_settings) {
-                    response.error = RestClientError::response;
-                    return application_account_settings_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::private_channel) {
-                    response.error = RestClientError::response;
-                    return application_private_channel_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::media_catalog) {
-                    response.error = RestClientError::response;
-                    return application_media_picker_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::gif_favorites) {
-                    response.error = RestClientError::response;
-                    return application_gif_favorites_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::emoji_preferences) {
-                    response.error = RestClientError::response;
-                    return application_emoji_preferences_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::message_search) {
-                    response.error = RestClientError::response;
-                    return application_search_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::read_state_ack) {
-                    response.error = RestClientError::response;
-                    return application_read_state_response(response, nullptr, 0, now_ms);
-                }
-                if (owner == MessageHistoryRequestOwner::scoped_read) {
-                    response.error = RestClientError::response;
-                    return application_scoped_read_response(response, {}, now_ms);
-                }
-                if (owner == MessageHistoryRequestOwner::friends) {
-                    response.error = RestClientError::response;
-                    return application_friends_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::commands) {
-                    response.error = RestClientError::response;
-                    return application_commands_response(response, {});
-                }
-                if (owner == MessageHistoryRequestOwner::user_profile) {
-                    response.error = RestClientError::response;
-                    application_profile_response(response, {});
-                    return true;
+                    return handler->consume(response, {}, now_ms) || handler->lenient;
                 }
                 if (owner == MessageHistoryRequestOwner::private_conversation) {
                     fail_private_conversation();
@@ -1117,9 +972,6 @@ static bool pump_message_history_main(bool admit) noexcept {
                         reset_message_edit();
                     }
                     refresh_message_composer_ui();
-                } else if (owner == MessageHistoryRequestOwner::message_reaction) {
-                    response.error = RestClientError::response;
-                    return application_message_reaction_response(response);
                 } else if (owner == MessageHistoryRequestOwner::reaction_users) {
                     const ReactionViewerControllerResult failed = reaction_viewer_controller_submit_failed(
                         &g_app.reaction_viewer_controller, clock_monotonic_milliseconds());
@@ -1173,153 +1025,20 @@ static bool pump_message_history_main(bool admit) noexcept {
                           "rest", line);
             }
 
-            if (owner == MessageHistoryRequestOwner::channel_prefetch) {
-                if (!application_channel_prefetch_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::forum_post) {
-                if (!application_forum_post_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::thread_creation) {
-                if (!application_thread_creation_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::thread_browser) {
-                if (!application_thread_browser_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::poll) {
-                if (!application_poll_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::member_moderation) {
-                if (!application_member_moderation_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::guild_invite) {
-                if (!application_guild_invite_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::thread_actions) {
-                if (!application_thread_actions_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::search_navigation) {
-                if (!application_search_navigation_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::channel_overview) {
-                if (!application_channel_overview_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::pinned_messages) {
-                if (!application_pinned_messages_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::self_status) {
-                if (!application_self_status_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::user_settings) {
-                if (!application_user_settings_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::guild_notification_settings) {
-                if (!application_notification_controls_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::custom_status) {
-                if (!application_custom_status_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::activity_sharing) {
-                application_activity_sharing_response(
-                    response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes});
-            } else if (owner == MessageHistoryRequestOwner::inbox_mentions) {
-                if (!application_inbox_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::stream_preview) {
-                // The body holds the unencrypted preview URL: decoded, then wiped.
-                const bool applied = application_stream_preview_response(
-                    response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes});
-                clear_bytes(body_output.data, minimum(taken.body_bytes, body_output.count));
-                if (!applied)
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::stage) {
-                if (!application_stage_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::soundboard) {
-                if (!application_soundboard_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::message_components) {
-                if (!application_message_components_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::invite_cards) {
-                if (!application_invite_cards_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::account_settings) {
-                if (!application_account_settings_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::private_channel) {
-                if (!application_private_channel_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::media_catalog) {
-                if (!application_media_picker_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::gif_favorites) {
-                if (!application_gif_favorites_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::emoji_preferences) {
-                if (!application_emoji_preferences_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::message_search) {
-                if (!application_search_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::read_state_ack) {
-                if (!application_read_state_response(response, body_output.data, taken.body_bytes, now_ms))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::scoped_read) {
-                if (!application_scoped_read_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes},
-                        now_ms))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::friends) {
-                if (!application_friends_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::commands) {
-                if (!application_commands_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
-                    return false;
-            } else if (owner == MessageHistoryRequestOwner::user_profile) {
-                if (!application_profile_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
+            const Utf8View taken_body{reinterpret_cast<const char*>(body_output.data), taken.body_bytes};
+            if (const ResponseRoute* handler = find_response_route(owner)) {
+                if (!handler->consume(response, taken_body, now_ms))
                     return false;
             } else if (owner == MessageHistoryRequestOwner::attachment_upload) {
-                if (!application_attachment_accept_url(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
+                if (!application_attachment_accept_url(response, taken_body))
                     return false;
             } else if (owner == MessageHistoryRequestOwner::private_conversation) {
-                if (!accept_private_conversation(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes}))
+                if (!accept_private_conversation(response, taken_body))
                     return false;
             } else if (owner == MessageHistoryRequestOwner::media_url_refresh) {
                 const u32 slot = g_app.media_urls.pending_slot;
-                media_url_complete(&g_app.media_urls, response,
-                                   {reinterpret_cast<const char*>(body_output.data), taken.body_bytes},
-                                   now_ms, clock_unix_milliseconds() / 1000);
+                media_url_complete(&g_app.media_urls, response, taken_body, now_ms,
+                                   clock_unix_milliseconds() / 1000);
                 // One record per bounded REST attempt, never the URL/signature or body.
                 if (slot != 0 && slot <= 32) {
                     const auto state = g_app.media_urls.entries[slot - 1].state;
@@ -1340,20 +1059,14 @@ static bool pump_message_history_main(bool admit) noexcept {
                     log_u64(LogLevel::warning, "typing", "http_status", response.status_code);
                 }
             } else if (owner == MessageHistoryRequestOwner::message_send) {
-                if (!accept_message_send_response(
-                        response, {reinterpret_cast<const char*>(body_output.data), taken.body_bytes})) {
+                if (!accept_message_send_response(response, taken_body))
                     return false;
-                }
             } else if (owner == MessageHistoryRequestOwner::message_delete) {
                 if (!accept_message_delete_response(response)) {
                     return false;
                 }
             } else if (owner == MessageHistoryRequestOwner::message_edit) {
                 if (!accept_message_edit_response(response)) {
-                    return false;
-                }
-            } else if (owner == MessageHistoryRequestOwner::message_reaction) {
-                if (!application_message_reaction_response(response)) {
                     return false;
                 }
             } else if (owner == MessageHistoryRequestOwner::reaction_users) {

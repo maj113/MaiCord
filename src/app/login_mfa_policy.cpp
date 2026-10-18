@@ -1,7 +1,7 @@
 #include "maicord/app/login_mfa_policy.hpp"
 #include "maicord/core/ascii.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -115,7 +115,7 @@ LoginMfaCodeResult login_mfa_prepare_code(UserAuthMfaType type, ConstSlice<u8> i
         const SecureBufferResult assigned = secure_buffer_assign(destination, input);
         return assigned.ok() ? validated : code_failure(LoginMfaCodeError::invalid_input);
     }
-    SecureZeroMemory(destination->data, destination->capacity);
+    secure_clear_bytes(destination->data, destination->capacity);
     u32 output = 0;
     for (u32 index = 0; index < input.count; ++index) {
         const u8 value = input.data[index];

@@ -55,7 +55,7 @@ bool client_theme_storage_capture(ClientThemeStorageSnapshot*, const ClientPrefe
 // Every notification, accessibility, navigation, and other preference is preserved.
 bool client_theme_storage_apply_theme_fields(const ClientThemeStorageSnapshot&,
                                              ClientPreferences*) noexcept;
-// Portable96-byte envelope +canonical JSON; explicit fields, reservedzero, checksum.
+// Portable 96-byte envelope plus canonical JSON: explicit fields, zeroed reserved bytes, checksum.
 // Missing/corrupt/invalid files and decode errors preserve caller output.
 // Encode requires enough caller storage for the resolved record; failure preserves output/bytes.
 ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSnapshot&, Slice<u8>,

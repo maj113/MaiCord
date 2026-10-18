@@ -1,12 +1,10 @@
 #include "maicord/app/mls_hpke.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
+#include "byte_views.hpp"
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
 HpkeResult preflight(const KdfSha256Workspace& workspace, ConstSlice<u8> point, ConstSlice<u8> label,
                      ConstSlice<u8> context, ConstSlice<u8> payload, Slice<u8> output, Slice<u8> enc,
                      bool encrypt) noexcept {
@@ -18,8 +16,7 @@ HpkeResult preflight(const KdfSha256Workspace& workspace, ConstSlice<u8> point, 
     const ConstSlice<u8> spans[]{
         point, label, context, payload, {output.data, output.count}, {enc.data, enc.count}};
     for (auto span : spans)
-        if (!byte_range_valid(span) || byte_ranges_overlap(span, bytes(workspace)) ||
-            byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity}))
+        if (!byte_range_valid(span) || aliases_workspace(workspace, span))
             return {0, 0, HpkeError::invalid_input};
     const u32 wanted = encrypt ? payload.count + 16 : payload.count - 16;
     if (output.count < wanted || (encrypt && enc.count < 65))
@@ -79,10 +76,10 @@ HpkeResult mls_decrypt_with_label(KdfSha256Workspace& workspace, const P256Key& 
                                  encapsulated,
                                  ciphertext,
                                  {plaintext.data, plaintext.count},
-                                 bytes(workspace),
+                                 object_bytes(workspace),
                                  {workspace.storage.data, workspace.storage.capacity}};
     for (auto span : spans)
-        if (byte_ranges_overlap(span, bytes(recipient)))
+        if (byte_ranges_overlap(span, object_bytes(recipient)))
             return {0, 0, HpkeError::invalid_input};
     Framing framing;
     frame(framing, label, context);

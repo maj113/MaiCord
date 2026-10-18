@@ -37,12 +37,6 @@ static_assert(sizeof(GatewayClientMessageStickerMutation) == 24);
 static_assert(sizeof(GatewayClientMessageComponentMutation) == 72);
 static_assert(sizeof(GatewayClientMessageCallMutation) == 16);
 
-GatewayClientDispatchRouteResult route_error(
-    GatewayClientDispatchRouteError error,
-    GatewayEventDecodeError event_error = GatewayEventDecodeError::none) noexcept {
-    return GatewayClientDispatchRouteResult{event_error, error};
-}
-
 GatewayClientDispatchRouteResult route_decode_error(const GatewayEventDecodeResult& decoded) noexcept {
     GatewayClientDispatchRouteResult result =
         route_error(GatewayClientDispatchRouteError::decode, decoded.error);
@@ -197,6 +191,17 @@ void copy_message(const GatewayMessageEvent& source, GatewayClientMessageMutatio
         (source.changelog_present ? gateway_client_message_changelog_present : 0) |
         (source.interaction_metadata_present ? gateway_client_message_interaction_metadata_present : 0) |
         (source.pinned ? gateway_client_message_pinned : 0));
+}
+
+void copy_reaction(const GatewayMessageReactionEvent& source,
+                   GatewayClientMessageReactionEvent* destination) noexcept {
+    destination->message_id = source.message_id;
+    destination->channel_id = source.channel_id;
+    destination->user_id = source.user_id;
+    destination->emoji_id = source.emoji_id;
+    destination->name_bytes = static_cast<u16>(source.name.bytes);
+    destination->type = static_cast<u8>(source.type);
+    destination->flags = source.animated ? 1u : 0u;
 }
 
 template <typename Value> bool append_packed(Slice<char> output, u32* cursor, const Value& value) noexcept {
@@ -792,10 +797,11 @@ bool restriction_inactive(const JsonIndexedDocument& doc, const NotificationFiel
     return json_visit_indexed_array(doc, schedule.rules, 64, restriction_rule, &rules).ok() &&
            rules.inactive;
 }
-void notification_incomplete(GatewayClientEvent* e, u64 guild = 0, u64 channel = 0) noexcept {
+void notification_incomplete(GatewayClientEvent* e, ConstSlice<u8>* payload, u64 guild) noexcept {
     e->dispatch_kind = GatewayClientDispatchKind::notification_incomplete;
-    e->notification = {guild, channel, 0, 0, gateway_notification_incomplete, 0, 0};
+    e->notification = {guild, 0, 0, 0, gateway_notification_incomplete, 0, 0};
     e->dispatch_payload_bytes = 0;
+    *payload = {};
 }
 void notification_global_incomplete(GatewayClientEvent* e, ConstSlice<u8>* payload) noexcept {
     e->dispatch_kind = GatewayClientDispatchKind::notification_global;
@@ -808,15 +814,13 @@ bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storag
     JsonIndexedDocument doc{};
     NotificationFields f{};
     if (!notification_document(source, scratch, &doc, &f)) {
-        notification_incomplete(e, f.guild);
-        *payload = {};
+        notification_incomplete(e, payload, f.guild);
         return true;
     }
     const usize address = reinterpret_cast<usize>(storage.data);
     const u32 padding = static_cast<u32>((8 - (address & 7)) & 7);
     if (padding > storage.count || sizeof(MessageNotificationGuildSetting) > storage.count - padding) {
-        notification_incomplete(e, f.guild);
-        *payload = {};
+        notification_incomplete(e, payload, f.guild);
         return true;
     }
     char* start = storage.data + padding;
@@ -830,8 +834,7 @@ bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storag
     const auto err = decode_notification_settings(doc, {doc.input, 0, JsonValueKind::object}, false,
                                                   {&guild, 1}, {overrides, capacity}, &packet);
     if (err != NotificationSettingsDecodeError::none) {
-        notification_incomplete(e, f.guild);
-        *payload = {};
+        notification_incomplete(e, payload, f.guild);
         return true;
     }
     copy_bytes(start, &guild, sizeof(guild));
@@ -1045,8 +1048,11 @@ bool notification_sync(void* opaque, u32, JsonValue value) noexcept {
         return true;
     return append_notification_thread(s, value, f.id);
 }
-void notification_side(const GatewayEnvelope& env, Slice<u32> scratch, Slice<char> storage, u64 self,
-                       GatewayClientEvent* e, ConstSlice<u8>* payload) noexcept {
+} // namespace
+
+void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slice<u32> scratch,
+                                                Slice<char> storage, u64 self, GatewayClientEvent* e,
+                                                ConstSlice<u8>* payload) noexcept {
     const bool guild = json_string_equals_ascii(env.event_name, utf8_literal("GUILD_CREATE")) ||
                        json_string_equals_ascii(env.event_name, utf8_literal("READY_GUILD")) ||
                        json_string_equals_ascii(env.event_name, utf8_literal("GUILD_UPDATE"));
@@ -1174,15 +1180,6 @@ void notification_side(const GatewayEnvelope& env, Slice<u32> scratch, Slice<cha
     *payload = {reinterpret_cast<const u8*>(storage.data), side.cursor};
 }
 
-} // namespace
-
-void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
-                                                Slice<u32> structural_scratch, Slice<char> storage,
-                                                u64 self_user_id, GatewayClientEvent* event,
-                                                ConstSlice<u8>* payload) noexcept {
-    notification_side(envelope, structural_scratch, storage, self_user_id, event, payload);
-}
-
 GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> name_scratch, u64 now_ms,
@@ -1207,19 +1204,11 @@ GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
                 --binding.remaining_prefix;
                 return true;
             }
-            GatewayClientEvent event{};
-            event.kind = GatewayClientEventKind::dispatch;
-            event.dispatch_kind = GatewayClientDispatchKind::message_reaction_add;
-            event.sequence = binding.envelope->sequence;
+            GatewayClientEvent event =
+                gateway_dispatch_event(GatewayClientDispatchKind::message_reaction_add,
+                                       binding.envelope->sequence, binding.now_ms);
             event.has_sequence = binding.envelope->has_sequence;
-            event.timestamp_ms = binding.now_ms;
-            event.reaction.message_id = reaction.message_id;
-            event.reaction.channel_id = reaction.channel_id;
-            event.reaction.user_id = reaction.user_id;
-            event.reaction.emoji_id = reaction.emoji_id;
-            event.reaction.name_bytes = static_cast<u16>(reaction.name.bytes);
-            event.reaction.type = static_cast<u8>(reaction.type);
-            event.reaction.flags = reaction.animated ? 1u : 0u;
+            copy_reaction(reaction, &event.reaction);
             event.dispatch_payload_bytes = reaction.name.bytes;
             return binding.publish(binding.context, event,
                                    {reinterpret_cast<const u8*>(reaction.name.data), reaction.name.bytes});
@@ -1380,7 +1369,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->state.record_count = 1;
         event->dispatch_payload_bytes = writer.used;
         *payload = {reinterpret_cast<const u8*>(content_scratch.data), writer.used};
-        notification_side(envelope, structural_scratch, content_scratch, self_user_id, event, payload);
+        gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
+                                                   self_user_id, event, payload);
         return {};
     }
 
@@ -1391,7 +1381,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     if (state_handled) {
         if (state.ok()) {
             event->dispatch_payload_bytes = payload->count;
-            notification_side(envelope, structural_scratch, content_scratch, self_user_id, event, payload);
+            gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
+                                                       self_user_id, event, payload);
         }
         return state;
     }
@@ -1403,7 +1394,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     if (thread_handled) {
         if (thread_result.ok()) {
             event->dispatch_payload_bytes = payload->count;
-            notification_side(envelope, structural_scratch, content_scratch, self_user_id, event, payload);
+            gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
+                                                       self_user_id, event, payload);
         }
         return thread_result;
     }
@@ -1556,13 +1548,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                : remove     ? GatewayClientDispatchKind::message_reaction_remove
                                : remove_all ? GatewayClientDispatchKind::message_reaction_remove_all
                                             : GatewayClientDispatchKind::message_reaction_remove_emoji;
-        event->reaction.message_id = reaction.message_id;
-        event->reaction.channel_id = reaction.channel_id;
-        event->reaction.user_id = reaction.user_id;
-        event->reaction.emoji_id = reaction.emoji_id;
-        event->reaction.name_bytes = static_cast<u16>(reaction.name.bytes);
-        event->reaction.type = static_cast<u8>(reaction.type);
-        event->reaction.flags = reaction.animated ? 1u : 0u;
+        copy_reaction(reaction, &event->reaction);
         *payload = ConstSlice<u8>{reinterpret_cast<const u8*>(content_scratch.data), reaction.name.bytes};
     } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_DELETE"))) {
         GatewayMessageDeleteEvent message{};
@@ -1591,7 +1577,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         return route_error(GatewayClientDispatchRouteError::event_name_capacity);
     }
     event->dispatch_payload_bytes = payload->count;
-    notification_side(envelope, structural_scratch, content_scratch, self_user_id, event, payload);
+    gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
+                                               self_user_id, event, payload);
     return route_error(GatewayClientDispatchRouteError::none);
 }
 
@@ -1623,28 +1610,17 @@ bool notification_prior(void* opaque, u32 index, JsonValue value) noexcept {
         p.duplicate = true;
     return true;
 }
-GatewayClientEvent notification_event(const NotificationSnapshot& s,
-                                      GatewayClientDispatchKind kind) noexcept {
-    GatewayClientEvent e{};
-    e.kind = GatewayClientEventKind::dispatch;
-    e.dispatch_kind = kind;
-    e.sequence = s.sequence;
-    e.has_sequence = true;
-    e.timestamp_ms = s.now;
-    return e;
-}
 bool snapshot_entry(void* opaque, u32 index, JsonValue value) noexcept {
     auto& s = *static_cast<NotificationSnapshot*>(opaque);
-    auto e = notification_event(s, GatewayClientDispatchKind::notification_settings_entry);
+    auto e = gateway_dispatch_event(GatewayClientDispatchKind::notification_settings_entry, s.sequence,
+                                    s.now);
     ConstSlice<u8> payload{};
     notification_entry(value, s.objects, s.storage, &e, &payload);
     if (e.dispatch_kind == GatewayClientDispatchKind::notification_settings_entry) {
         NotificationPrior prior{s.doc, index, e.notification.guild_id, false};
         if (!json_visit_indexed_array(*s.doc, s.entries, 64, notification_prior, &prior).ok() ||
-            prior.duplicate) {
-            notification_incomplete(&e, e.notification.guild_id);
-            payload = {};
-        }
+            prior.duplicate)
+            notification_incomplete(&e, &payload, e.notification.guild_id);
     }
     if (e.dispatch_kind == GatewayClientDispatchKind::notification_incomplete)
         s.incomplete = true;
@@ -1672,7 +1648,8 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
     s.doc = &doc;
     s.entries = f.entries;
     s.incomplete |= !valid;
-    auto begin = notification_event(s, GatewayClientDispatchKind::notification_snapshot_begin);
+    auto begin = gateway_dispatch_event(GatewayClientDispatchKind::notification_snapshot_begin, s.sequence,
+                                        s.now);
     begin.notification = {0,
                           0,
                           f.version,
@@ -1689,7 +1666,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
         s.incomplete = true;
     }
-    auto global = notification_event(s, GatewayClientDispatchKind::notification_global);
+    auto global = gateway_dispatch_event(GatewayClientDispatchKind::notification_global, s.sequence, s.now);
     MessageNotificationGlobal g{};
     NotificationFields account{};
     JsonIndexedDocument account_doc{};
@@ -1715,12 +1692,14 @@ GatewayClientDispatchRouteResult gateway_client_publish_notification_snapshot(
         return route_error(GatewayClientDispatchRouteError::payload_capacity);
     s.incomplete |= !proto_valid || !account_valid;
     if (s.incomplete) {
-        auto bad = notification_event(s, GatewayClientDispatchKind::notification_incomplete);
+        auto bad = gateway_dispatch_event(GatewayClientDispatchKind::notification_incomplete, s.sequence,
+                                          s.now);
         bad.notification.flags = gateway_notification_incomplete;
         if (!publish(context, bad, {}))
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
     }
-    auto complete = notification_event(s, GatewayClientDispatchKind::notification_snapshot_complete);
+    auto complete = gateway_dispatch_event(GatewayClientDispatchKind::notification_snapshot_complete,
+                                           s.sequence, s.now);
     complete.notification = begin.notification;
     if (s.incomplete)
         complete.notification.flags |= gateway_notification_incomplete;

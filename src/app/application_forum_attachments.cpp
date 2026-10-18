@@ -12,8 +12,7 @@ namespace {
 ApplicationForumAttachments* forum_attachments{};
 static_assert(sizeof(ApplicationForumAttachments) <= 24576);
 bool key(const ApplicationForumAttachments& owner, const ApplicationForumPostTicket& ticket) noexcept {
-    return owner.ticket.serial == ticket.serial && owner.ticket.parent_id == ticket.parent_id &&
-        owner.ticket.publication_revision == ticket.publication_revision;
+    return owner.ticket == ticket;
 }
 const ChannelRecord* parent(const ApplicationForumPostTicket& ticket) noexcept {
     return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, ticket.parent_id) : nullptr;
@@ -147,7 +146,7 @@ bool application_forum_attachments_paste(const ApplicationForumPostTicket& ticke
     if (!authorized(ticket) || !application_forum_attachments_begin(ticket) || !application_forum_attachments_view(ticket).can_add) return false;
     auto& owner = *forum_attachments;
     ClipboardAttachmentData input{};
-    if (!clipboard_attachment_capture(g_app.window, &input)) { status(owner, utf8_literal("Could not read the clipboard attachment.")); return false; }
+    if (!clipboard_attachment_capture(&input)) { status(owner, utf8_literal("Could not read the clipboard attachment.")); return false; }
     const auto count = message_attachment_drafts_channel(&owner.drafts, ticket.parent_id, {});
     const auto result = native_file_picker_take_clipboard(&owner.picker, &input, kAttachmentUploadMaximumCount - count, application_attachment_limit(ticket.parent_id));
     clipboard_attachment_release(&input); return picked_start(owner, result);

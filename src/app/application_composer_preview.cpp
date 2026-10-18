@@ -5,7 +5,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -270,7 +271,7 @@ void application_composer_preview_release() noexcept {
         if (entry.occupied)
             retire(entry, clock_monotonic_milliseconds());
     // Admitted lanes own their retained sources and copied paths.
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
     changed();

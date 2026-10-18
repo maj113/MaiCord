@@ -162,11 +162,12 @@ void write_parent(MlsWriter& writer, const MlsParentNode& parent, ConstSlice<u32
         const u32 added = joiners[i];
         if (!mls_tree_is_below(added * 2, node))
             continue;
-        while (existing < parent.unmerged.count && mls_load_be32(parent.unmerged.data + existing) < added) {
+        while (existing < parent.unmerged.count &&
+               byte_load_be32(parent.unmerged.data + existing) < added) {
             writer.bytes(parent.unmerged.data + existing, 4);
             existing += 4;
         }
-        if (existing < parent.unmerged.count && mls_load_be32(parent.unmerged.data + existing) == added) {
+        if (existing < parent.unmerged.count && byte_load_be32(parent.unmerged.data + existing) == added) {
             writer.status = MlsStatus::malformed;
             return;
         }

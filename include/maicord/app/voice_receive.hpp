@@ -2,12 +2,12 @@
 #include "maicord/app/gateway_voice_control.hpp"
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/app/voice_playback.hpp"
+#include "maicord/app/voice_transmit.hpp"
 #include "maicord/app/voice_video_sink.hpp"
 #include "maicord/app/voice_audio_settings.hpp"
 #include "maicord/platform/voice_audio_output.hpp"
 
 namespace maicord {
-inline constexpr u8 kVoiceOpusPayloadType = 120;
 inline constexpr u32 kVoiceReceiveDatagramBytes = 2048;
 enum class VoiceReceiveResult : u8 {
     queued,
@@ -22,7 +22,7 @@ using VoiceReceiveDecrypt = DaveMediaResult (*)(void* context, const VoiceReceiv
                                                 ConstSlice<u8> frame, Slice<u8> scratch,
                                                 Slice<u8> output) noexcept;
 struct VoiceReceiveStats {
-    u64 rtp, rtcp, ignored, lost, queued;
+    u64 lost, queued;
 };
 // Worker-owned receive path: transport plaintext -> RTP payload -> DAVE ->
 // per-SSRC jitter buffer; an audio thread renders the mix to WASAPI. The UDP

@@ -21,6 +21,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/plugin_slots.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -36,6 +37,13 @@ bool activate_plugin_slot(u32 index) noexcept {
                                           nodes[index].action_id, node ? node->rectangle : UiRect{});
     }
     return true;
+}
+
+// Client DIPs of a mouse message position.
+UiPoint dip_point(LPARAM lparam) noexcept {
+    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
+    return {static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
+            static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale};
 }
 
 bool activate_composer_control(MessageComposerControl control) noexcept {
@@ -87,10 +95,8 @@ bool handle_composer_click(LPARAM lparam) noexcept {
     }
     const i32 client_x = static_cast<short>(LOWORD(lparam));
     const i32 client_y = static_cast<short>(HIWORD(lparam));
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const MessageComposerControl hit =
-        message_composer_scene_hit_test(g_app.message_composer_scene, static_cast<float>(client_x) * scale,
-                                        static_cast<float>(client_y) * scale);
+    const auto [x, y] = dip_point(lparam);
+    const MessageComposerControl hit = message_composer_scene_hit_test(g_app.message_composer_scene, x, y);
     if (hit == MessageComposerControl::none) {
         if (g_app.message_composer.focused) {
             stop_local_typing(g_app.message_composer.channel_id);
@@ -117,9 +123,7 @@ bool handle_composer_click(LPARAM lparam) noexcept {
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         // A third press within the double-click time/distance selects the
         // line; an IME composition keeps its selection (TSF owns it).
-        const u8 clicks = application_click_count(&g_app.message_composer_scene,
-                                                  static_cast<float>(client_x) * scale,
-                                                  static_cast<float>(client_y) * scale, false);
+        const u8 clicks = application_click_count(&g_app.message_composer_scene, x, y, false);
         const bool composing = application_composer_text_input_composing();
         MessageComposerResult selection = MessageComposerResult::unchanged;
         u32 anchor = 0, caret = 0;
@@ -160,17 +164,13 @@ bool handle_composer_click(LPARAM lparam) noexcept {
     }
     if (hit == MessageComposerControl::attachments &&
         message_composer_scene_attachment_row(g_app.message_composer_scene) == message_composer_attachment_row_strip) {
-        const auto tile = message_composer_scene_attachment_hit(g_app.message_composer_scene,
-                                                                static_cast<float>(client_x) * scale,
-                                                                static_cast<float>(client_y) * scale);
+        const auto tile = message_composer_scene_attachment_hit(g_app.message_composer_scene, x, y);
         if (tile.part != UiComposerAttachmentPart::none && !application_attachment_strip_activate(tile))
             log_write(LogLevel::warning, "ui", "attachment_strip_action_failed");
         return true;
     }
     if (hit == MessageComposerControl::plugin_slot)
-        return activate_plugin_slot(message_composer_scene_plugin_slot(g_app.message_composer_scene,
-                                                                       static_cast<float>(client_x) * scale,
-                                                                       static_cast<float>(client_y) * scale));
+        return activate_plugin_slot(message_composer_scene_plugin_slot(g_app.message_composer_scene, x, y));
     if (focus_message_composer_control(hit) && !activate_composer_control(hit)) {
         log_write(LogLevel::warning, "ui", "composer_control_action_failed");
         refresh_message_composer_ui();
@@ -184,10 +184,8 @@ bool handle_composer_double_click(LPARAM lparam) noexcept {
     }
     const i32 client_x = static_cast<short>(LOWORD(lparam));
     const i32 client_y = static_cast<short>(HIWORD(lparam));
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    if (message_composer_scene_hit_test(g_app.message_composer_scene, static_cast<float>(client_x) * scale,
-                                        static_cast<float>(client_y) * scale) !=
-        MessageComposerControl::edit) {
+    const auto [x, y] = dip_point(lparam);
+    if (message_composer_scene_hit_test(g_app.message_composer_scene, x, y) != MessageComposerControl::edit) {
         return false;
     }
     u32 position = g_app.message_composer.caret;
@@ -197,8 +195,7 @@ bool handle_composer_double_click(LPARAM lparam) noexcept {
     g_app.message_composer.focused = true;
     message_composer_scene_focus_edit(&g_app.message_composer_scene);
     g_app.context_focus = &g_app.message_composer_scene.widgets;
-    const u8 clicks = application_click_count(&g_app.message_composer_scene, static_cast<float>(client_x) * scale,
-                                              static_cast<float>(client_y) * scale, true);
+    const u8 clicks = application_click_count(&g_app.message_composer_scene, x, y, true);
     const bool composing = application_composer_text_input_composing();
     u32 anchor = 0, caret = 0;
     if (!ui_text_pointer_press(message_composer_text(g_app.message_composer), position, clicks, false, false,
@@ -227,14 +224,10 @@ bool handle_composer_drag(WPARAM buttons, LPARAM lparam) noexcept {
         end_message_composer_pointer_selection();
         return true;
     }
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const auto target =
-        ui_widget_manager_pointer_target(&g_app.message_composer_scene.widgets,
-                                         static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-                                         static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale);
+    const auto [x, y] = dip_point(lparam);
+    const auto target = ui_widget_manager_pointer_target(&g_app.message_composer_scene.widgets, x, y);
     const auto edit = g_app.message_composer_scene.edit;
-    if (!g_app.message_composer_scene.widgets.captured.generation || target.slot != edit.slot ||
-        target.generation != edit.generation) {
+    if (!g_app.message_composer_scene.widgets.captured.generation || !ui_widget_handle_equal(target, edit)) {
         end_message_composer_pointer_selection();
         return true;
     }
@@ -268,9 +261,7 @@ bool handle_composer_hover(LPARAM lparam) noexcept {
     if (!g_app.account_ui || g_app.login.visible || !g_app.message_composer_scene.active) {
         return false;
     }
-    const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale;
-    const float y = static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale;
+    const auto [x, y] = dip_point(lparam);
     const MessageComposerControl hit = message_composer_scene_hit_test(g_app.message_composer_scene, x, y);
     // Tile and action-bar hover highlights; leaving the strip clears them.
     if (message_composer_scene_attachment_hover(
@@ -279,11 +270,7 @@ bool handle_composer_hover(LPARAM lparam) noexcept {
                 ? message_composer_scene_attachment_hit(g_app.message_composer_scene, x, y)
                 : UiComposerAttachmentHit{kUiComposerAttachmentNoTile, UiComposerAttachmentPart::none}))
         refresh_account_frame(true);
-    if (hit == MessageComposerControl::none) {
-        return false;
-    }
-
-    return true;
+    return hit != MessageComposerControl::none;
 }
 
 bool handle_composer_key(WPARAM key) noexcept {

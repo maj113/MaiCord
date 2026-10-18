@@ -10,7 +10,7 @@ void project_emoji(Bank& bank) noexcept {
     const bool can = editable() && connected() && page_allowed(Page::emoji);
     const auto counts = guild_emoji_counts(state(), p.guild_id);
     const u32 slots = guild_emoji_slots(premium_tier(), guild_features());
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     bank.add(utf8_literal("Static "));
     bank.number(counts.static_count);
     bank.add(utf8_literal(" of "));
@@ -38,7 +38,7 @@ void project_emoji(Bank& bank) noexcept {
         p.member_order[p.row_count] = i;
         p.row_ids[p.row_count++] = emoji.id;
     }
-    const u32 heading = bank.mark();
+    const u32 heading = bank.used;
     bank.add(utf8_literal("Emoji — "));
     bank.number(counts.static_count + counts.animated_count);
     push(category(control_list_category, bank.since(heading)));
@@ -47,12 +47,12 @@ void project_emoji(Bank& bank) noexcept {
                                     : utf8_literal("This server has no custom emoji yet.")));
     for (u32 row = 0; row < p.row_count; ++row) {
         const CustomEmojiRecord* emoji = &s.emojis[p.member_order[row]];
-        const u32 label = bank.mark();
+        const u32 label = bank.used;
         bank.add(utf8_literal(":"));
         bank.add({emoji->name, emoji->name_bytes});
         bank.add(utf8_literal(":"));
         const auto name = bank.since(label);
-        const u32 detail = bank.mark();
+        const u32 detail = bank.used;
         const bool managed = emoji->flags & custom_emoji_managed;
         bank.add(emoji->flags & custom_emoji_animated ? utf8_literal("Animated") : utf8_literal("Static"));
         if (managed)
@@ -78,7 +78,7 @@ void project_stickers(Bank& bank) noexcept {
     auto& p = *owner;
     const bool can = editable() && connected() && page_allowed(Page::stickers);
     const u32 slots = guild_sticker_slots(premium_tier(), guild_features());
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     bank.number(p.sticker_count);
     bank.add(utf8_literal(" of "));
     bank.number(slots);
@@ -93,7 +93,7 @@ void project_stickers(Bank& bank) noexcept {
         push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else if (!p.stickers_loaded)
         push(loading(utf8_literal("Loading stickers…")));
-    const u32 heading = bank.mark();
+    const u32 heading = bank.used;
     bank.add(utf8_literal("Stickers — "));
     bank.number(p.sticker_count);
     push(category(control_list_category, bank.since(heading)));
@@ -103,7 +103,7 @@ void project_stickers(Bank& bank) noexcept {
                                  utf8_literal("GIF")};
     for (u32 i = 0; i < p.sticker_count; ++i) {
         const auto& sticker = p.stickers[i];
-        const u32 detail = bank.mark();
+        const u32 detail = bank.used;
         bank.add(formats[sticker.format_type <= 4 ? sticker.format_type : 0]);
         if (sticker.tags_bytes) {
             bank.add(utf8_literal(" · "));
@@ -137,7 +137,7 @@ void project_soundboard(Bank& bank) noexcept {
     p.soundboard_revision = application_soundboard_revision();
     const bool can = editable() && connected() && page_allowed(Page::soundboard);
     const u32 slots = kSoundboardGuildSlots[minimum<u8>(premium_tier(), 3)];
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     bank.number(view.count);
     bank.add(utf8_literal(" of "));
     bank.number(slots);
@@ -151,7 +151,7 @@ void project_soundboard(Bank& bank) noexcept {
         push(notice({}, utf8_literal("Saving…")));
     else if (!view.loaded)
         push(notice({}, view.loading ? utf8_literal("Loading sounds…") : utf8_literal("Couldn't load sounds yet.")));
-    const u32 heading = bank.mark();
+    const u32 heading = bank.used;
     bank.add(utf8_literal("Sounds — "));
     bank.number(view.count);
     push(category(control_list_category, bank.since(heading)));
@@ -160,7 +160,7 @@ void project_soundboard(Bank& bank) noexcept {
     const u32 count = minimum(view.count, kRowCapacity);
     for (u32 i = 0; i < count; ++i) {
         const auto& sound = view.sounds[i];
-        const u32 detail = bank.mark();
+        const u32 detail = bank.used;
         if (sound.emoji_name_bytes && !sound.emoji_id) {
             bank.add({sound.emoji_name, sound.emoji_name_bytes});
             bank.add(utf8_literal(" · "));
@@ -219,16 +219,14 @@ bool sound_update(u64 id, const Utf8View* name, const Utf8View* emoji, const u16
                                          emoji ? *emoji : current_emoji, emoji ? 0 : sound->emoji_id,
                                          volume ? *volume : sound->volume);
 }
+// An upload abandoned at one of its steps drops the picked file.
 void expression_closed(TextFormOwnerKey key) noexcept {
-    // A sound upload abandoned at its name or emoji step drops the picked file.
-    if (owner && key.scope == owner->lifetime &&
-        ((key.collection == form_sound_name && next_form != form_sound_emoji) || key.collection == form_sound_emoji))
-        release_picked(&owner->upload);
-    // An upload abandoned at its name or tag step drops the picked file.
-    if (owner && key.scope == owner->lifetime &&
-        (key.collection == form_emoji_create || key.collection == form_sticker_name ||
-         key.collection == form_sticker_tags) &&
-        !owner->request.queued && !owner->request_id && next_form != form_sticker_tags)
+    if (!owner || key.scope != owner->lifetime)
+        return;
+    const u64 kind = key.collection;
+    if ((kind == form_sound_name && next_form != form_sound_emoji) || kind == form_sound_emoji ||
+        ((kind == form_emoji_create || kind == form_sticker_name || kind == form_sticker_tags) &&
+         !owner->request.queued && !owner->request_id && next_form != form_sticker_tags))
         release_picked(&owner->upload);
 }
 bool expression_save(TextFormOwnerKey key, Utf8View text) noexcept {
@@ -294,7 +292,7 @@ bool expression_save(TextFormOwnerKey key, Utf8View text) noexcept {
         if (!soundboard_name_valid(text))
             return reject(utf8_literal("Sound names need 2–32 characters."));
         if (key.collection == form_sound_name) {
-            p.sound_name_bytes = static_cast<u32>(minimum<u32>(text.bytes, sizeof(p.sound_name)));
+            p.sound_name_bytes = minimum<u32>(text.bytes, sizeof(p.sound_name));
             copy_bytes(p.sound_name, text.data, p.sound_name_bytes);
             // The emoji step opens next, after this form has closed.
             next_form = form_sound_emoji;
@@ -381,7 +379,7 @@ void open_expression_form(u64 kind, u64 item) noexcept {
     switch (kind) {
     case form_sound_name: {
         request.title = utf8_literal("Name your sound");
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         bank.add({p.upload_filename, p.upload_filename_bytes});
         request.context = bank.since(start);
         request.label = utf8_literal("Sound name");
@@ -432,15 +430,7 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         request.context = utf8_literal("How loud the sound plays for everyone, from 0 to 100.");
         request.label = utf8_literal("Volume (%)");
         request.accept = utf8_literal("Save");
-        char digits[4];
-        u32 value = (so->volume + 5) / 10, count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value && count < 4);
-        for (u32 i = 0; i < count; ++i)
-            initial[i] = digits[count - 1 - i];
-        initial_bytes = count;
+        initial_bytes = decimal_write(initial, (so->volume + 5) / 10);
         request.maximum_codepoints = request.maximum_bytes = 4;
         break;
     }
@@ -457,7 +447,7 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         break;
     case form_emoji_create: {
         request.title = utf8_literal("Name your emoji");
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         image_summary(bank, p.upload.info);
         request.context = bank.since(start);
         request.label = utf8_literal("Emoji name");
@@ -489,7 +479,7 @@ void open_expression_form(u64 kind, u64 item) noexcept {
         break;
     case form_sticker_name: {
         request.title = utf8_literal("Name your sticker");
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         image_summary(bank, p.upload.info);
         request.context = bank.since(start);
         request.label = utf8_literal("Sticker name");
@@ -569,44 +559,29 @@ namespace {
 void open_expression_menu(Menu menu, u64 id, UiRect anchor) noexcept {
     auto& p = *owner;
     u32 count = 0;
-    const auto item = [&](Utf8View label, u32 action, bool danger) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + action;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (danger ? popup_item_danger : 0) |
-                                                      (danger ? popup_item_separator_before : 0));
-        ++count;
-    };
-    item(utf8_literal("Rename"), expression_rename, false);
+    const auto item = [&](Utf8View label, u32 action) noexcept { popup_row(count++, label, action); };
+    if (menu == Menu::sound)
+        item(utf8_literal("Preview"), expression_preview);
+    item(utf8_literal("Rename"), expression_rename);
     if (menu == Menu::sticker) {
-        item(utf8_literal("Change related emoji"), expression_tags, false);
-        item(utf8_literal("Change description"), expression_description, false);
+        item(utf8_literal("Change related emoji"), expression_tags);
+        item(utf8_literal("Change description"), expression_description);
+    } else if (menu == Menu::sound) {
+        item(utf8_literal("Change emoji"), expression_emoji);
+        item(utf8_literal("Change volume"), expression_volume);
     }
-    item(utf8_literal("Delete"), expression_delete, true);
+    popup_row(count++, utf8_literal("Delete"), expression_delete, popup_item_danger | popup_item_separator_before);
     p.menu = menu;
     p.menu_item = id;
     settings_layer_open_choice(&p.layer, id, {p.popup_items, count}, anchor, 240);
 }
 
-void open_sound_menu(u64 id, UiRect anchor) noexcept {
+// The Edit menu of an emoji or sticker row.
+void open_row_menu(u64 control, UiRect anchor) noexcept {
     auto& p = *owner;
-    u32 count = 0;
-    const auto item = [&](Utf8View label, u32 action, bool danger) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + action;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (danger ? popup_item_danger : 0) |
-                                                      (danger ? popup_item_separator_before : 0));
-        ++count;
-    };
-    item(utf8_literal("Preview"), expression_preview, false);
-    item(utf8_literal("Rename"), expression_rename, false);
-    item(utf8_literal("Change emoji"), expression_emoji, false);
-    item(utf8_literal("Change volume"), expression_volume, false);
-    item(utf8_literal("Delete"), expression_delete, true);
-    p.menu = Menu::sound;
-    p.menu_item = id;
-    settings_layer_open_choice(&p.layer, id, {p.popup_items, count}, anchor, 240);
+    const bool emoji_page = p.page == Page::emoji;
+    open_expression_menu(emoji_page ? Menu::emoji : Menu::sticker,
+                         emoji_page ? p.row_ids[control - kRowBase] : p.stickers[control - kRowBase].id, anchor);
 }
 
 void project(Bank& bank) noexcept {
@@ -627,16 +602,14 @@ void activate(const SettingsLayerActivation& activation) noexcept {
             start_pick(emoji_page ? Pick::emoji : Pick::sticker);
         else if (id >= kRowBase && id < kRowBase + p.row_count && activation.button && !busy() &&
                  p.access.manage_expressions)
-            open_expression_menu(emoji_page ? Menu::emoji : Menu::sticker,
-                                 emoji_page ? p.row_ids[id - kRowBase] : p.stickers[id - kRowBase].id,
-                                 activation.anchor);
+            open_row_menu(id, activation.anchor);
         return;
     }
     if (p.page == Page::soundboard) {
         if (id == control_upload)
             start_pick(Pick::sound);
         else if (id >= kRowBase && id < kRowBase + p.row_count && activation.button && p.access.manage_expressions)
-            open_sound_menu(p.row_ids[id - kRowBase], activation.anchor);
+            open_expression_menu(Menu::sound, p.row_ids[id - kRowBase], activation.anchor);
         return;
     }
 }
@@ -696,9 +669,6 @@ void notice_action() noexcept {
     ensure_data();
 }
 
-} // namespace
-
-namespace {
 // Right-click opens the row's Edit menu.
 void context(const SettingsLayerActivation& activation) noexcept {
     auto& p = *owner;
@@ -706,15 +676,14 @@ void context(const SettingsLayerActivation& activation) noexcept {
     if ((p.page != Page::emoji && p.page != Page::stickers) || id < kRowBase || id >= kRowBase + p.row_count ||
         busy() || !p.access.manage_expressions)
         return;
-    const bool emoji_page = p.page == Page::emoji;
-    if (emoji_page) {
+    if (p.page == Page::emoji) {
         const auto* e = emoji(p.row_ids[id - kRowBase]);
         if (!e || (e->flags & custom_emoji_managed))
             return;
     }
-    open_expression_menu(emoji_page ? Menu::emoji : Menu::sticker,
-                         emoji_page ? p.row_ids[id - kRowBase] : p.stickers[id - kRowBase].id, activation.anchor);
+    open_row_menu(id, activation.anchor);
 }
+
 } // namespace
 
 const PageOps kExpressionPage{nullptr, project, activate,    choose,        nullptr, nullptr,

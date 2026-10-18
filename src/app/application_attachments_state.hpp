@@ -16,7 +16,6 @@ struct ApplicationAttachments {
     u64 menu_ids[kAttachmentUploadMaximumCount];
     u32 menu_count;
     u32 uploaded_filename_bytes;
-    u32 label_bytes;
     u32 notice_bytes;
     bool picker_consumed;
     bool picker_cancel_requested;

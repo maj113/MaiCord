@@ -1,4 +1,5 @@
 #include "application_taskbar_attention.hpp"
+#include "application_desktop.hpp"
 #include "application_notifications.hpp"
 #include "application_state.hpp"
 #include "application_friends.hpp"
@@ -19,6 +20,7 @@
 #include "maicord/model/notification_sound_admission.hpp"
 #include "maicord/app/notification_sound_assets.hpp"
 #include "maicord/ui/message_markdown.hpp"
+#include <Windows.h>
 #include <shlobj.h>
 #include <stddef.h>
 
@@ -43,17 +45,8 @@ struct Display {
 };
 constexpr u32 projected_maximum_bytes=256+1024;
 bool identity_paths(Identity& i) noexcept {
-    // A generation folder is deleted by a later update; record the dispatcher.
-    wchar_t module[1024], inherited[1024];
-    const u32 m = GetModuleFileNameW(nullptr,module,1024);
-    if(!m || m>=1024) return false;
-    u32 d = GetEnvironmentVariableW(kApplicationUpdateDispatcherVariable,inherited,1024);
-    const DWORD attributes = d && d<1024 ? GetFileAttributesW(inherited) : INVALID_FILE_ATTRIBUTES;
-    if(attributes==INVALID_FILE_ATTRIBUTES || (attributes&FILE_ATTRIBUTE_DIRECTORY)) d = 0;
-    const auto executable = application_update_startup_registration_path({module,m},{inherited,d});
-    const u32 n = executable.count;
+    const u32 n = application_desktop_registration_executable(i.executable,1024).count;
     if(!n) return false;
-    copy_bytes(i.executable,executable.data,n*sizeof(wchar_t)); i.executable[n] = 0;
     // Toast app icon: MaiCord's mark as a PNG beside the profile data. It is
     // named in the registry only while the file exists; setup writes it.
     const DataPathResult icon_path = data_path(i.icon,1024,L"notification-icon.png");
@@ -65,10 +58,6 @@ bool identity_paths(Identity& i) noexcept {
         {i.icon,icon_present?i.icon_units:0},{identity_nonce,sizeof(identity_nonce)/sizeof(wchar_t)-1},{}};
     return true;
 }
-u32 icon_argb(const Color& color) noexcept {
-    const auto byte = [](float v) noexcept { return static_cast<u32>((v<0?0:v>1?1:v)*255.f+.5f); };
-    return 0xFF000000u|(byte(color.red)<<16)|(byte(color.green)<<8)|byte(color.blue);
-}
 // Writes the tray/taskbar mark in the current theme's colours and names it in
 // the identity. On failure the identity keeps Windows' generic icon.
 void prepare_icon(Identity& i) noexcept {
@@ -78,11 +67,7 @@ void prepare_icon(Identity& i) noexcept {
     const u64 png_bytes = clipboard_image_png_bytes(extent,extent);
     auto* memory = static_cast<u8*>(VirtualAlloc(nullptr,pixels_bytes*2+static_cast<SIZE_T>(png_bytes),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
     if(!memory) return;
-    const auto& tokens = application_theme().tokens;
-    const auto& brand = tokens.accent.brand;
-    const Color shade{brand.red*.78f,brand.green*.78f,brand.blue*.78f,1};
-    const TrayIconPalette palette{icon_argb(brand),icon_argb(shade),icon_argb(tokens.accent.success),
-        icon_argb(tokens.accent.danger),icon_argb(tokens.text.on_accent)};
+    const TrayIconPalette palette = application_tray_palette();
     auto* argb = reinterpret_cast<u32*>(memory);
     u8* rgba = memory+pixels_bytes;
     bool written = tray_icon_render(TrayIconState::normal,0,palette,extent,{argb,extent*extent});
@@ -386,12 +371,13 @@ void scope_remove_guild(StableStorage& storage,u32& count,u64 guild) noexcept {
     for(u32 i=0;i<count;++i) if(rows[i].guild!=guild) rows[kept++]=rows[i];
     count=kept;
 }
+void forget_age_gate(Scope& scope) noexcept {
+    scope.known_gates&=~notification_gate_age_access;
+    scope.flags&=~gateway_notification_channel_age_baseline_complete;
+}
 void scope_admission_failed(ApplicationNotifications& n,u64 guild) noexcept {
     message_notifications_mark_incomplete(&n.settings,guild);
-    if(auto* scope=find_scope(n.guild_scopes,n.guild_scope_count,guild)) {
-        scope->known_gates&=~notification_gate_age_access;
-        scope->flags&=~gateway_notification_channel_age_baseline_complete;
-    }
+    if(auto* scope=find_scope(n.guild_scopes,n.guild_scope_count,guild)) forget_age_gate(*scope);
 }
 void transport_error(ApplicationNotifications& n,DesktopNotificationResult result) noexcept {
     if(result.ok()) return;
@@ -565,16 +551,14 @@ bool application_notifications_project(Application* a,u64 guild,u64 channel,cons
     return true;
 }
 void application_notifications_ack(Application* a,u64 channel) noexcept {
-    if(a && a->notifications && channel)
-        notification_retention_discard_channel(&a->notifications->retention,channel);
-    if(a && a->notifications && channel && a->notifications->display) {
-        auto& n=*a->notifications;
+    if(!a || !a->notifications || !channel) return;
+    auto& n=*a->notifications;
+    notification_retention_discard_channel(&n.retention,channel);
+    if(n.display) {
         desktop_notification_queue_purge_channel(&n.display->queue,n.profile,n.generation,channel);
         if(n.backpressured) post_continuation(*a,n);
     }
-    if(a && a->notifications && a->notifications->enrolled && a->notifications->profile && channel) {
-        transport_error(*a->notifications,desktop_notifications_remove_channel(&a->notifications->native,a->notifications->profile,channel));
-    }
+    if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,channel));
 }
 bool application_notifications_can_pop(Application* a) noexcept {
     if(!a || !a->notifications) return true;
@@ -963,21 +947,13 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
          kind==GatewayClientDispatchKind::thread_members_update || kind==GatewayClientDispatchKind::user_snapshot || kind==GatewayClientDispatchKind::unknown)) {
         const u64 guild=(kind==GatewayClientDispatchKind::guild_create || kind==GatewayClientDispatchKind::guild_update)?event.state.id:
             kind==GatewayClientDispatchKind::thread_members_update?event.thread_members.guild_id:event.state.guild_id;
-        message_notifications_mark_incomplete(&n->settings,guild);
-        if(auto* scope=find_scope(n->guild_scopes,n->guild_scope_count,guild)) {
-            scope->known_gates&=~notification_gate_age_access;
-            scope->flags&=~gateway_notification_channel_age_baseline_complete;
-        }
+        scope_admission_failed(*n,guild);
         if(auto* scope=find_scope(n->channel_scopes,n->channel_scope_count,event.state.id))
             scope->known_gates&=~notification_gate_age_access;
         if(kind==GatewayClientDispatchKind::user_snapshot) n->global_known_gates&=~notification_gate_restricted_hours;
         if(kind==GatewayClientDispatchKind::unknown) {
             for(u32 i=0;i<n->settings.guild_count;++i) n->settings.guilds[i].incomplete=true;
-            for(u32 i=0;i<n->guild_scope_count;++i) {
-                auto& scope=stable_storage_data<Scope>(n->guild_scopes)[i];
-                scope.known_gates&=~notification_gate_age_access;
-                scope.flags&=~gateway_notification_channel_age_baseline_complete;
-            }
+            for(u32 i=0;i<n->guild_scope_count;++i) forget_age_gate(stable_storage_data<Scope>(n->guild_scopes)[i]);
         }
         return;
     }
@@ -1075,11 +1051,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
     GatewayClientNotificationSidecar side{}; ConstSlice<u8> rows{};
     if(!gateway_client_notification_sidecar({payload.data+normal_payload.count,payload.count-normal_payload.count},&side,&rows)) return;
     if(side.flags&gateway_notification_incomplete) {
-        message_notifications_mark_incomplete(&n->settings,side.guild_id);
-        if(auto* scope=find_scope(n->guild_scopes,n->guild_scope_count,side.guild_id)) {
-            scope->known_gates&=~notification_gate_age_access;
-            scope->flags&=~gateway_notification_channel_age_baseline_complete;
-        }
+        scope_admission_failed(*n,side.guild_id);
         if(auto* scope=find_scope(n->channel_scopes,n->channel_scope_count,side.channel_id))
             scope->known_gates&=~notification_gate_age_access;
     }

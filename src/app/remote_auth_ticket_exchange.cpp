@@ -1,7 +1,8 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/remote_auth_ticket_exchange.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -44,9 +45,6 @@ bool locked_output(const SecureBuffer* output) noexcept {
 bool consume_response(void* context, const RestClientResponse& response,
                       ConstSlice<u8> locked_body) noexcept {
     auto* consumed = static_cast<ConsumeContext*>(context);
-    if (!consumed || !consumed->exchange || !consumed->handshake_owner) {
-        return false;
-    }
     if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300) {
         consumed->handshake = remote_auth_handshake_finish_ticket(
             consumed->handshake_owner,
@@ -67,9 +65,6 @@ bool consume_response(void* context, const RestClientResponse& response,
 
 bool submit_replay(void* context, const SecureBuffer* rqtoken, const SecureBuffer* session) noexcept {
     auto* submit = static_cast<ReplaySubmitContext*>(context);
-    if (!submit || !submit->exchange || !submit->solution) {
-        return false;
-    }
     submit->called = true;
     submit->result = rest_client_submit_user_auth(
         &submit->exchange->transport,
@@ -390,7 +385,7 @@ void remote_auth_ticket_exchange_release(RemoteAuthTicketExchange* exchange) noe
     secure_buffer_release(&exchange->captcha_solution);
     secure_buffer_release(&exchange->credential);
     secure_buffer_release(&exchange->request);
-    SecureZeroMemory(exchange, sizeof(*exchange));
+    secure_clear_bytes(exchange, sizeof(*exchange));
 }
 
 SecureBufferResult remote_auth_ticket_exchange_copy_captcha_secret(const RemoteAuthTicketExchange* exchange,

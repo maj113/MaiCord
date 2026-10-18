@@ -55,14 +55,7 @@ struct ReactionViewerController {
     u64 request_epoch;
     u64 retry_at_ms;
     u32 retry_attempt;
-    u32 requests;
-    u32 pages;
-    u32 stale_responses;
-    u32 retries;
-    u32 failures;
     ReactionUsersDecodeError last_decode_error;
-    JsonScanError last_scan_error;
-    JsonReadError last_read_error;
     RestClientError last_transport_error;
     u32 last_decode_offset;
     u16 last_http_status;

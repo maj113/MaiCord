@@ -2,6 +2,7 @@
 #include "maicord/app/plugin_host.hpp"
 #include "maicord/app/plugin_manager_runtime.hpp"
 #include "maicord/ui/settings_scene.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 
@@ -48,13 +49,9 @@ struct PluginBrowserCommand {
 enum class PluginBrowserPhase : u8 { idle, checking, working };
 struct PluginBrowserWorkerView {
     u64 revision;
-    bool started, located;
     PluginBrowserPhase phase;
     u64 checked_unix;                 // the last check that reached a provider
-    PluginIndexCheckError check_error; // of the last check (official first)
-    UpdateFetchError fetch_error;
-    u64 retry_at_unix;
-    u32 offers, reviews, staged;      // staged: automatic updates waiting for the next start
+    u32 offers, staged;               // staged: automatic updates waiting for the next start
     u32 key_changed_count;
     u64 key_changed[kPluginProviderMaximum];
     u64 revoked_serial;               // changes when plugins must be turned off now
@@ -62,7 +59,6 @@ struct PluginBrowserWorkerView {
     PluginRevokedPlugin revoked[kPluginManagerStateMaximumEntries];
     u64 snapshot_serial;              // a new snapshot waits in the worker
     u64 command_serial;               // the completed command
-    PluginBrowserCommandKind command;
     PluginManagerResult manager;
     PluginManagerPrepared prepared;
     PluginManagerSettled settled;

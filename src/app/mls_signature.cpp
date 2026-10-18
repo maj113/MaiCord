@@ -2,25 +2,20 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> owner(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
 KdfResult validate(const KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> a,
                    ConstSlice<u8> b, ConstSlice<u8> destination, u32 prefix) noexcept {
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, KdfError::not_initialized};
     if (label.count > 0x3fffffff - prefix || a.count > 0x3fffffff || b.count > 0x3fffffff - a.count)
         return {0, 0, KdfError::invalid_input};
-    const ConstSlice<u8> storage{workspace.storage.data, workspace.storage.capacity};
     const ConstSlice<u8> spans[]{label, a, b, destination};
     for (auto span : spans)
-        if (!byte_range_valid(span) || byte_ranges_overlap(span, owner(workspace)) ||
-            byte_ranges_overlap(span, storage))
+        if (!byte_range_valid(span) || aliases_workspace(workspace, span))
             return {0, 0, KdfError::invalid_input};
     if (byte_ranges_overlap(destination, label) || byte_ranges_overlap(destination, a) ||
         byte_ranges_overlap(destination, b))
@@ -43,7 +38,7 @@ KdfResult framed_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, Const
     result = sha256(workspace, {parts, 6}, {digest, 32});
     if (result.ok())
         copy_bytes(output.data, digest, 32);
-    SecureZeroMemory(digest, sizeof(digest));
+    secure_clear_bytes(digest, sizeof(digest));
     return result;
 }
 MlsSignatureResult hash_error(KdfResult result) noexcept {
@@ -58,10 +53,14 @@ MlsSignatureResult preflight(const KdfSha256Workspace& workspace, const P256Key&
     auto checked = validate(workspace, label, a, b, signature, 8);
     if (!checked.ok())
         return hash_error(checked);
-    const ConstSlice<u8> spans[]{
-        label, a, b, signature, {workspace.storage.data, workspace.storage.capacity}, owner(workspace)};
+    const ConstSlice<u8> spans[]{label,
+                                 a,
+                                 b,
+                                 signature,
+                                 {workspace.storage.data, workspace.storage.capacity},
+                                 object_bytes(workspace)};
     for (auto span : spans)
-        if (byte_ranges_overlap(span, owner(key)))
+        if (byte_ranges_overlap(span, object_bytes(key)))
             return {0, 0, MlsSignatureError::invalid_input};
     if (!key.handle)
         return {0, 0, MlsSignatureError::not_initialized};
@@ -100,8 +99,8 @@ MlsSignatureResult mls_sign_with_label(KdfSha256Workspace& workspace, const P256
                       encoded.ok() ? MlsSignatureError::none : MlsSignatureError::key_failure};
         }
     }
-    SecureZeroMemory(digest, sizeof(digest));
-    SecureZeroMemory(raw, sizeof(raw));
+    secure_clear_bytes(digest, sizeof(digest));
+    secure_clear_bytes(raw, sizeof(raw));
     return result;
 }
 MlsSignatureResult mls_verify_with_label(KdfSha256Workspace& workspace, const P256Key& key,
@@ -127,8 +126,8 @@ MlsSignatureResult mls_verify_with_label(KdfSha256Workspace& workspace, const P2
                           : MlsSignatureError::key_failure};
         }
     }
-    SecureZeroMemory(digest, sizeof(digest));
-    SecureZeroMemory(raw, sizeof(raw));
+    secure_clear_bytes(digest, sizeof(digest));
+    secure_clear_bytes(raw, sizeof(raw));
     return result;
 }
 } // namespace maicord

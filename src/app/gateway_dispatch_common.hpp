@@ -60,6 +60,64 @@ bool gateway_member_string_size(JsonString value, u16* bytes) noexcept;
 // A presence "status" value; unknown when absent or unrecognized.
 GatewayClientMemberListStatus gateway_member_status(bool seen, JsonString status) noexcept;
 
+inline GatewayClientDispatchRouteResult route_error(
+    GatewayClientDispatchRouteError error,
+    GatewayEventDecodeError event_error = GatewayEventDecodeError::none) noexcept {
+    return GatewayClientDispatchRouteResult{event_error, error};
+}
+
+// A rejected object member: a repeated key is a duplicate, any other failure invalid data.
+constexpr GatewayEventDecodeError gateway_field_error(bool repeated) noexcept {
+    return repeated ? GatewayEventDecodeError::duplicate_field : GatewayEventDecodeError::invalid_data;
+}
+
+// Fails a visit on a repeated key.
+inline bool gateway_duplicate_member(GatewayEventDecodeError* error) noexcept {
+    *error = GatewayEventDecodeError::duplicate_field;
+    return false;
+}
+
+// Keeps the first occurrence of a member whose value has the expected shape. A repeat or another
+// shape fails the visit and sets *error unless an earlier error is already recorded.
+inline bool gateway_keep_member(GatewayEventDecodeError* error, bool* seen, JsonValue* slot,
+                                JsonValue value, bool shape_ok) noexcept {
+    if (*seen || !shape_ok) {
+        if (*error == GatewayEventDecodeError::none)
+            *error = gateway_field_error(*seen);
+        return false;
+    }
+    *seen = true;
+    *slot = value;
+    return true;
+}
+
+inline GatewayClientEvent gateway_dispatch_event(GatewayClientDispatchKind kind, u64 sequence,
+                                                 u64 now_ms) noexcept {
+    GatewayClientEvent event{};
+    event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_kind = kind;
+    event.sequence = sequence;
+    event.has_sequence = true;
+    event.timestamp_ms = now_ms;
+    return event;
+}
+
+// An empty avatar hash, or 32 hexadecimal digits optionally prefixed "a_" for an animated one.
+inline bool gateway_avatar_hash_valid(Utf8View hash) noexcept {
+    if (!hash.bytes)
+        return true;
+    const u32 first = hash.bytes == 34 && hash.data[0] == 'a' && hash.data[1] == '_' ? 2u : 0u;
+    if (hash.bytes - first != 32)
+        return false;
+    for (u32 i = first; i < hash.bytes; ++i) {
+        const char digit = hash.data[i];
+        if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') ||
+              (digit >= 'A' && digit <= 'F')))
+            return false;
+    }
+    return true;
+}
+
 inline constexpr u32 kGatewayMessageRichFieldMask =
     gateway_message_field_message_reference | gateway_message_field_referenced_message |
     gateway_message_field_reactions | gateway_message_field_attachments | gateway_message_field_embeds |

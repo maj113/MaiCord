@@ -1,5 +1,6 @@
 #include "maicord/app/acceptance_record.hpp"
 #include "maicord/app/file_persistence.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include <Windows.h>
@@ -7,33 +8,30 @@
 namespace maicord {
 namespace {
 AcceptanceRecordResult fail(AcceptanceRecordError error, DWORD native = 0) noexcept { return {error, native}; }
-wchar_t lower(wchar_t value) noexcept {
-    return value >= L'A' && value <= L'Z' ? static_cast<wchar_t>(value + L'a' - L'A') : value;
-}
-bool reserved_component(const wchar_t* name, u32 count) noexcept {
+} // namespace
+
+bool acceptance_record_reserved_name(const wchar_t* name, u32 count) noexcept {
     u32 stem = 0;
     while (stem < count && name[stem] != L'.') ++stem;
-    if (stem == 3) {
-        const wchar_t a = lower(name[0]), b = lower(name[1]), c = lower(name[2]);
-        return (a == L'c' && b == L'o' && c == L'n') || (a == L'p' && b == L'r' && c == L'n') ||
-            (a == L'a' && b == L'u' && c == L'x') || (a == L'n' && b == L'u' && c == L'l');
-    }
-    if (stem == 4 && name[3] >= L'0' && name[3] <= L'9')
-        return (lower(name[0]) == L'c' && lower(name[1]) == L'o' && lower(name[2]) == L'm') ||
-            (lower(name[0]) == L'l' && lower(name[1]) == L'p' && lower(name[2]) == L't');
-    return false;
+    const bool numbered = stem == 4 && name[3] >= L'0' && name[3] <= L'9';
+    if (stem != 3 && !numbered)
+        return false;
+    const wchar_t a = ascii_lower(name[0]), b = ascii_lower(name[1]), c = ascii_lower(name[2]);
+    if (numbered)
+        return (a == L'c' && b == L'o' && c == L'm') || (a == L'l' && b == L'p' && c == L't');
+    return (a == L'c' && b == L'o' && c == L'n') || (a == L'p' && b == L'r' && c == L'n') ||
+        (a == L'a' && b == L'u' && c == L'x') || (a == L'n' && b == L'u' && c == L'l');
 }
-} // namespace
 
 bool acceptance_record_path_valid(ConstSlice<wchar_t> path) noexcept {
     if (!path.data || path.count < 4 || path.count > kAcceptanceRecordMaximumPathCharacters - 5 ||
         !byte_range_valid({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) ||
-        lower(path[0]) < L'a' || lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\') return false;
+        ascii_lower(path[0]) < L'a' || ascii_lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\') return false;
     u32 component = 3;
     for (u32 i = 3; i <= path.count; ++i) {
         if (i == path.count || path[i] == L'\\') {
             if (i == component || path[i - 1] == L'.' || path[i - 1] == L' ' ||
-                reserved_component(path.data + component, i - component)) return false;
+                acceptance_record_reserved_name(path.data + component, i - component)) return false;
             component = i + 1;
         } else if (path[i] < 32 || path[i] == L'/' || path[i] == L':' || path[i] == L'*' ||
                    path[i] == L'?' || path[i] == L'"' || path[i] == L'<' || path[i] == L'>' || path[i] == L'|') return false;

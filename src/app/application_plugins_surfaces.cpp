@@ -17,10 +17,6 @@
 namespace maicord::app_detail {
 namespace {
 
-NativePluginSdkRuntime* runtime() noexcept {
-    return g_app.plugins && g_app.plugins->sdk ? &g_app.plugins->sdk->runtime : nullptr;
-}
-
 // The open popover. Row labels are copied here so the popup never borrows
 // runtime storage (which the plugin host frees on close).
 struct PopoverState {
@@ -40,10 +36,6 @@ bool popover_current(const NativePluginSdkRuntime* rt) noexcept {
     return rt && rt->popover_count && rt->popover_revision == g_popover.revision &&
            rt->popover_owner == g_popover.owner_id && g_popover.scope == g_app.plugin_account_scope_serial &&
            g_app.account_ui && !g_app.login.visible;
-}
-void repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
 }
 
 const UiNode* account_footer() noexcept {
@@ -137,7 +129,7 @@ bool application_plugins_surface_hover(float x, float y) noexcept {
     auto& hover = g_ui_plugin_slot_hover;
     if (hover.active != next.active || hover.surface != next.surface || hover.index != next.index) {
         hover = next;
-        repaint();
+        application_repaint();
     }
     return over;
 }
@@ -145,7 +137,7 @@ bool application_plugins_surface_hover(float x, float y) noexcept {
 bool application_plugins_slot_activate(u64 owner_id, NativePluginSdkSlotTarget target, u64 action_id,
                                        UiRect anchor) noexcept {
     if (!application_plugins_slot_action(owner_id, target, action_id)) return false;
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     if (rt && rt->popover_count && rt->popover_owner == owner_id) application_plugins_popover_open(anchor);
     return true;
 }
@@ -172,7 +164,7 @@ Utf8View application_plugins_hover_label(u32 index) noexcept {
 }
 
 bool application_plugins_popover_open(UiRect anchor) noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     if (!rt || !rt->popover_count || !g_app.account_ui || g_app.login.visible) return false;
     PopupItem items[kPluginSdkPopoverNodes]{};
     const u32 count = application_plugins_popover_items(rt->popover, rt->popover_count, {items, kPluginSdkPopoverNodes});
@@ -205,7 +197,7 @@ bool application_plugins_popover_action(u32 action) noexcept {
 }
 
 bool application_plugins_popover_activate(u32 action) noexcept {
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     const u32 index = action - kApplicationPluginPopoverActionFirst;
     const bool valid = popover_owned() && popover_current(rt) && index < rt->popover_count;
     const UiRect anchor = g_popover.anchor;
@@ -238,7 +230,7 @@ void application_plugins_popover_poll() noexcept {
         g_popover.open = false;
         return;
     }
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (popover_current(rt)) return;
     // Owner unloaded (the runtime cleared its popover), rows replaced, or the
     // account scope ended: the rows no longer mean anything.

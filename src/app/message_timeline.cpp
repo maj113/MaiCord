@@ -598,10 +598,8 @@ static MessageTimelineApplyResult apply_decoded_message(
             result.error = MessageTimelineError::ui_mutation;
             return result;
         }
-        first_changed = minimum(first_changed, result.mutation.order_index);
-    } else {
-        first_changed = minimum(first_changed, result.mutation.order_index);
     }
+    first_changed = minimum(first_changed, result.mutation.order_index);
     if (timeline->rich_store &&
         ((message.fields &
           (gateway_message_field_message_reference | gateway_message_field_referenced_message |

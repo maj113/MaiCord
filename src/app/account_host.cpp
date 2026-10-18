@@ -24,6 +24,20 @@ AccountHostResult failure(AccountHostError error, u32 native_error = 0) noexcept
     return AccountHostResult{native_error, error};
 }
 
+// No module call was made. login_refused also reports a failed phase and a native error.
+AccountLoginStatus login_invalid_input() noexcept {
+    AccountLoginStatus status{};
+    status.error = AccountLoginError::invalid_input;
+    return status;
+}
+
+AccountLoginStatus login_refused() noexcept {
+    AccountLoginStatus status = login_invalid_input();
+    status.native_error = ERROR_INVALID_PARAMETER;
+    status.phase = AccountLoginPhase::failed;
+    return status;
+}
+
 bool host_empty(const AccountHost& host) noexcept {
     return !host.module && !host.instance && !host.login_instance;
 }
@@ -61,7 +75,8 @@ bool account_host_api_valid(const AccountModuleApi& api) noexcept {
            api.private_channel && api.custom_status_snapshot && api.custom_status_submit && api.guild_settings &&
            api.mentions && api.guild_assets && api.voice_video_snapshot && api.voice_video_wanted &&
            api.voice_video_device && api.voice_video_frame && api.stream_watch && api.stream_snapshot &&
-           api.stream_volume && api.stream_preview && api.stage && api.user_social && api.local_presence && api.activity_sharing &&
+           api.stream_volume && api.stream_preview && api.stage && api.message_interaction && api.user_social &&
+           api.guild_community && api.local_presence && api.activity_sharing &&
            api.soundboard && api.soundboard_audio && api.voice_message && api.profile_edit &&
            api.profile_image && api.decoders.message_create && api.decoders.message_create_mentions &&
            api.decoders.message_create_users && api.decoders.message_create_rich &&
@@ -212,11 +227,7 @@ AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* pr
 AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* profile_path) noexcept {
     if (!host || !host->module || host->login_instance || host->stop_failed || !profile_path ||
         !host->api.login_start) {
-        AccountLoginStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.phase = AccountLoginPhase::failed;
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
+        return login_refused();
     }
     host->login_status = host->api.login_start(&host->login_instance, profile_path);
     return host->login_status;
@@ -225,11 +236,7 @@ AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* pr
 AccountLoginStatus account_host_login_start_reset(AccountHost* host, const wchar_t* profile_path) noexcept {
     if (!host || !host->module || host->login_instance || host->stop_failed || !profile_path ||
         !host->api.login_start_reset) {
-        AccountLoginStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.phase = AccountLoginPhase::failed;
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
+        return login_refused();
     }
     host->login_status = host->api.login_start_reset(&host->login_instance, profile_path);
     return host->login_status;
@@ -239,11 +246,7 @@ AccountLoginStatus account_host_login_submit_reset(AccountHost* host, const Secu
                                                    const SecureBuffer* password) noexcept {
     if (!host || !host->module || !host->login_instance || host->stop_failed ||
         !host->api.login_submit_reset || !password) {
-        AccountLoginStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.phase = AccountLoginPhase::failed;
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
+        return login_refused();
     }
     host->login_status = host->api.login_submit_reset(host->login_instance, link_token, password);
     return host->login_status;
@@ -273,11 +276,7 @@ AccountLoginStatus account_host_login_submit_verification(AccountHost* host,
                                                           const SecureBuffer* link_token) noexcept {
     if (!host || !host->module || !host->login_instance || host->stop_failed ||
         !host->api.login_submit_verification || !link_token) {
-        AccountLoginStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.phase = AccountLoginPhase::failed;
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
+        return login_refused();
     }
     host->login_status = host->api.login_submit_verification(host->login_instance, link_token);
     return host->login_status;
@@ -287,22 +286,15 @@ AccountLoginStatus account_host_login_submit_recovery(AccountHost* host,
                                                       const SecureBuffer* login) noexcept {
     if (!host || !host->module || !host->login_instance || host->stop_failed ||
         !host->api.login_submit_recovery || !login) {
-        AccountLoginStatus result{};
-        result.error = AccountLoginError::invalid_input;
-        return result;
+        return login_invalid_input();
     }
     host->login_status = host->api.login_submit_recovery(host->login_instance, login);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed || !host->api.login_pump) {
-        AccountLoginStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.phase = AccountLoginPhase::failed;
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
-    }
+    if (!host || !host->module || !host->login_instance || host->stop_failed || !host->api.login_pump)
+        return login_refused();
     host->login_status = host->api.login_pump(host->login_instance);
     return host->login_status;
 }
@@ -311,9 +303,7 @@ AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
                                                           const SecureBuffer* code) noexcept {
     if (!host || !host->module || !host->login_instance || host->stop_failed ||
         !host->api.login_submit_phone_verify || !code) {
-        AccountLoginStatus result{};
-        result.error = AccountLoginError::invalid_input;
-        return result;
+        return login_invalid_input();
     }
     host->login_status = host->api.login_submit_phone_verify(host->login_instance, code);
     return host->login_status;
@@ -321,9 +311,7 @@ AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept {
     if (!host || !host->module || !host->login_instance || host->stop_failed ||
         !host->api.login_submit_phone_resend) {
-        AccountLoginStatus result{};
-        result.error = AccountLoginError::invalid_input;
-        return result;
+        return login_invalid_input();
     }
     host->login_status = host->api.login_submit_phone_resend(host->login_instance);
     return host->login_status;
@@ -344,13 +332,8 @@ SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, 
 }
 
 AccountLoginStatus account_host_login_stop(AccountHost* host, u32 timeout_ms) noexcept {
-    if (!host || !host->module || !host->login_instance || timeout_ms == 0 || !host->api.login_stop) {
-        AccountLoginStatus invalid{};
-        invalid.native_error = ERROR_INVALID_PARAMETER;
-        invalid.phase = AccountLoginPhase::failed;
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
-    }
+    if (!host || !host->module || !host->login_instance || timeout_ms == 0 || !host->api.login_stop)
+        return login_refused();
     host->login_status = host->api.login_stop(&host->login_instance, timeout_ms);
     if (host->login_instance) {
         host->stop_failed = true;

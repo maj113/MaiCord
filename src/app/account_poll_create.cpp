@@ -1,6 +1,6 @@
 #include "maicord/app/account_poll_create.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_id, u64 nonce,
@@ -22,12 +22,10 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
                kRestClientDefaultTimeoutMs,
                true,
                false});
-    SecureZeroMemory(body, sizeof(body));
+    secure_clear_bytes(body, sizeof(body));
     return submitted;
 }
 RestClientSubmitResult account_poll_create_cancel(RestClient* rest, u64 request_id) noexcept {
-    if (!rest || !request_id) return {RestClientSubmitError::invalid_input};
-    return {rest_client_cancel(rest, request_id) ? RestClientSubmitError::none
-                                                       : RestClientSubmitError::busy};
+    return rest_client_cancel_result(rest, request_id);
 }
 } // namespace maicord

@@ -1,8 +1,8 @@
 #include "maicord/app/mls_key_schedule.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -12,52 +12,43 @@ KdfResult validate(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> inp
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, KdfError::not_initialized};
     const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    const ConstSlice<u8> owner{reinterpret_cast<const u8*>(&workspace), sizeof(workspace)};
-    const ConstSlice<u8> storage{workspace.storage.data, workspace.storage.capacity};
-    if (!byte_range_valid(destination) || byte_ranges_overlap(destination, owner) ||
-        byte_ranges_overlap(destination, storage))
+    if (!byte_range_valid(destination) || aliases_workspace(workspace, destination))
         return {0, 0, KdfError::invalid_input};
     for (u32 i = 0; i != inputs.count; ++i)
-        if (!byte_range_valid(inputs.data[i]) || byte_ranges_overlap(inputs.data[i], owner) ||
-            byte_ranges_overlap(inputs.data[i], storage))
+        if (!byte_range_valid(inputs.data[i]) || aliases_workspace(workspace, inputs.data[i]))
             return {0, 0, KdfError::invalid_input};
     return {};
 }
-template <u32 N>
-KdfResult expand(KdfSha256Workspace& workspace, ConstSlice<u8> secret, const char (&label)[N],
+KdfResult expand(KdfSha256Workspace& workspace, ConstSlice<u8> secret, ConstSlice<u8> label,
                  ConstSlice<u8> context, u8* output) noexcept {
-    return mls_expand_label(workspace, secret, {reinterpret_cast<const u8*>(label), N - 1}, context,
-                            {output, 32});
+    return mls_expand_label(workspace, secret, label, context, {output, 32});
 }
 KdfResult finish(KdfSha256Workspace& workspace, MlsEpochSecrets& next, ConstSlice<u8> psk,
                  ConstSlice<u8> confirmed, ConstSlice<u8> context) noexcept {
     u8 member[32];
     auto result = hkdf_sha256_extract(workspace, {next.joiner_secret, 32}, psk, {member, 32});
     if (result.ok())
-        result = expand(workspace, {member, 32}, "welcome", {}, next.welcome_secret);
+        result = expand(workspace, {member, 32}, text_bytes("welcome"), {}, next.welcome_secret);
     if (result.ok())
-        result = expand(workspace, {member, 32}, "epoch", context, next.epoch_secret);
-    SecureZeroMemory(member, sizeof(member));
+        result = expand(workspace, {member, 32}, text_bytes("epoch"), context, next.epoch_secret);
+    secure_clear_bytes(member, sizeof(member));
     struct Label {
-        const char* text;
-        u32 length;
+        ConstSlice<u8> text;
         u8* output;
     };
-    const Label labels[]{{"sender data", 11, next.sender_data_secret},
-                         {"encryption", 10, next.encryption_secret},
-                         {"exporter", 8, next.exporter_secret},
-                         {"authentication", 14, next.epoch_authenticator},
-                         {"external", 8, next.external_secret},
-                         {"confirm", 7, next.confirmation_key},
-                         {"membership", 10, next.membership_key},
-                         {"resumption", 10, next.resumption_psk},
-                         {"init", 4, next.init_secret}};
+    const Label labels[]{{text_bytes("sender data"), next.sender_data_secret},
+                         {text_bytes("encryption"), next.encryption_secret},
+                         {text_bytes("exporter"), next.exporter_secret},
+                         {text_bytes("authentication"), next.epoch_authenticator},
+                         {text_bytes("external"), next.external_secret},
+                         {text_bytes("confirm"), next.confirmation_key},
+                         {text_bytes("membership"), next.membership_key},
+                         {text_bytes("resumption"), next.resumption_psk},
+                         {text_bytes("init"), next.init_secret}};
     for (const auto& label : labels) {
         if (!result.ok())
             break;
-        result = mls_expand_label(workspace, {next.epoch_secret, 32},
-                                  {reinterpret_cast<const u8*>(label.text), label.length}, {},
-                                  {label.output, 32});
+        result = expand(workspace, {next.epoch_secret, 32}, label.text, {}, label.output);
     }
     if (result.ok())
         result = hmac_sha256(workspace, {next.confirmation_key, 32}, {&confirmed, 1},
@@ -81,8 +72,8 @@ KdfResult derive(KdfSha256Workspace& workspace, ConstSlice<u8> initial, ConstSli
         u8 pre_joiner[32];
         result = hkdf_sha256_extract(workspace, initial, commit, {pre_joiner, 32});
         if (result.ok())
-            result = expand(workspace, {pre_joiner, 32}, "joiner", context, next.joiner_secret);
-        SecureZeroMemory(pre_joiner, sizeof(pre_joiner));
+            result = expand(workspace, {pre_joiner, 32}, text_bytes("joiner"), context, next.joiner_secret);
+        secure_clear_bytes(pre_joiner, sizeof(pre_joiner));
     }
     if (result.ok())
         result = finish(workspace, next, psk, confirmed, context);
@@ -96,7 +87,7 @@ KdfResult derive(KdfSha256Workspace& workspace, ConstSlice<u8> initial, ConstSli
 } // namespace
 void mls_epoch_clear(MlsEpochSecrets* epoch) noexcept {
     if (epoch)
-        SecureZeroMemory(epoch, sizeof(*epoch));
+        secure_clear_bytes(epoch, sizeof(*epoch));
 }
 KdfResult mls_epoch_initial(KdfSha256Workspace& workspace, ConstSlice<u8> init_secret,
                             ConstSlice<u8> context, MlsEpochSecrets* output) noexcept {

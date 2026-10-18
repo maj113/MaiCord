@@ -1,21 +1,14 @@
 #include "maicord/app/hpke_context.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
 bool initialized(const HpkeContext& context) noexcept {
     return (context.role == HpkeRole::sender || context.role == HpkeRole::recipient) &&
            aes_gcm_auxiliary(context.cipher).count == 32;
-}
-bool workspace_alias(const KdfSha256Workspace& workspace, ConstSlice<u8> span) noexcept {
-    return byte_ranges_overlap(span, bytes(workspace)) ||
-           byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity});
 }
 HpkeResult setup_preflight(const HpkeContext* context, const KdfSha256Workspace& workspace,
                            ConstSlice<u8> point, ConstSlice<ConstSlice<u8>> info, ConstSlice<u8> output,
@@ -24,7 +17,7 @@ HpkeResult setup_preflight(const HpkeContext* context, const KdfSha256Workspace&
         return {0, 0, HpkeError::invalid_input};
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, HpkeError::not_initialized};
-    if (hpke_aliases(*context, bytes(workspace)) ||
+    if (hpke_aliases(*context, object_bytes(workspace)) ||
         hpke_aliases(*context, {workspace.storage.data, workspace.storage.capacity}))
         return {0, 0, HpkeError::invalid_input};
     if (info.count > ~u32{0} / sizeof(ConstSlice<u8>))
@@ -33,13 +26,13 @@ HpkeResult setup_preflight(const HpkeContext* context, const KdfSha256Workspace&
                                      info.count * static_cast<u32>(sizeof(ConstSlice<u8>))};
     const ConstSlice<u8> spans[]{point, descriptors, output};
     for (auto span : spans)
-        if (!byte_range_valid(span) || hpke_aliases(*context, span) || workspace_alias(workspace, span))
+        if (!byte_range_valid(span) || hpke_aliases(*context, span) || aliases_workspace(workspace, span))
             return {0, 0, HpkeError::invalid_input};
     if (point.count != 65 || byte_ranges_overlap(output, point) || byte_ranges_overlap(output, descriptors))
         return {0, 0, HpkeError::invalid_input};
     for (u32 i = 0; i != info.count; ++i) {
         const auto span = info.data[i];
-        if (!byte_range_valid(span) || hpke_aliases(*context, span) || workspace_alias(workspace, span) ||
+        if (!byte_range_valid(span) || hpke_aliases(*context, span) || aliases_workspace(workspace, span) ||
             byte_ranges_overlap(output, span))
             return {0, 0, HpkeError::invalid_input};
     }
@@ -113,7 +106,7 @@ HpkeResult crypt(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> input,
                                                {output.data, payload}, {output.data + payload, 16})
                              : aes_gcm_decrypt(context.cipher, {nonce, 12}, aad, {input.data, payload},
                                                {input.data + payload, 16}, {output.data, payload});
-    SecureZeroMemory(nonce, 12);
+    secure_clear_bytes(nonce, 12);
     if (result.ok()) {
         for (u32 i = 12; i != 0;)
             if (++context.sequence[--i])
@@ -136,7 +129,7 @@ void hpke_release(HpkeContext* context) noexcept {
     *context = {};
 }
 bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept {
-    return byte_ranges_overlap(span, bytes(context)) ||
+    return byte_ranges_overlap(span, object_bytes(context)) ||
            byte_ranges_overlap(span, {context.cipher.object.data, context.cipher.object.capacity});
 }
 HpkeResult hpke_setup_sender(HpkeContext* context, KdfSha256Workspace& workspace, ConstSlice<u8> recipient,
@@ -171,8 +164,8 @@ HpkeResult hpke_setup_sender_parts(HpkeContext* context, KdfSha256Workspace& wor
         copy_bytes(encapsulated.data, enc, 65);
         result.bytes = 65;
     }
-    SecureZeroMemory(shared, 32);
-    SecureZeroMemory(info_hash, 32);
+    secure_clear_bytes(shared, 32);
+    secure_clear_bytes(info_hash, 32);
     return result;
 }
 HpkeResult hpke_setup_recipient(HpkeContext* context, KdfSha256Workspace& workspace,
@@ -185,17 +178,18 @@ HpkeResult hpke_setup_recipient_parts(HpkeContext* context, KdfSha256Workspace& 
                                       const P256Key& recipient, ConstSlice<u8> encapsulated,
                                       ConstSlice<ConstSlice<u8>> info) noexcept {
     if (info.count > ~u32{0} / sizeof(ConstSlice<u8>) ||
-        byte_ranges_overlap(bytes(recipient), {reinterpret_cast<const u8*>(info.data),
+        byte_ranges_overlap(object_bytes(recipient), {reinterpret_cast<const u8*>(info.data),
                                                info.count * static_cast<u32>(sizeof(ConstSlice<u8>))}))
         return {0, 0, HpkeError::invalid_input};
     auto result = setup_preflight(context, workspace, encapsulated, info, {}, false);
     if (!result.ok())
         return result;
-    if (hpke_aliases(*context, bytes(recipient)) || workspace_alias(workspace, bytes(recipient)) ||
-        byte_ranges_overlap(bytes(recipient), encapsulated))
+    if (hpke_aliases(*context, object_bytes(recipient)) ||
+        aliases_workspace(workspace, object_bytes(recipient)) ||
+        byte_ranges_overlap(object_bytes(recipient), encapsulated))
         return {0, 0, HpkeError::invalid_input};
     for (u32 i = 0; i != info.count; ++i)
-        if (byte_ranges_overlap(bytes(recipient), info.data[i]))
+        if (byte_ranges_overlap(object_bytes(recipient), info.data[i]))
             return {0, 0, HpkeError::invalid_input};
     u8 shared[32], info_hash[32];
     const auto hashed = hpke_info_hash(workspace, info, {info_hash, 32});
@@ -205,8 +199,8 @@ HpkeResult hpke_setup_recipient_parts(HpkeContext* context, KdfSha256Workspace& 
         result = from_derivation(hpke_decap(workspace, recipient, encapsulated, {shared, 32}));
     if (result.ok())
         result = install(context, workspace, {shared, 32}, {info_hash, 32}, HpkeRole::recipient);
-    SecureZeroMemory(shared, 32);
-    SecureZeroMemory(info_hash, 32);
+    secure_clear_bytes(shared, 32);
+    secure_clear_bytes(info_hash, 32);
     return result;
 }
 HpkeResult hpke_seal(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> plaintext,
@@ -222,7 +216,7 @@ HpkeResult hpke_export(const HpkeContext& context, KdfSha256Workspace& workspace
     if (!initialized(context))
         return {0, 0, HpkeError::not_initialized};
     if (hpke_aliases(context, exporter_context) || hpke_aliases(context, {output.data, output.count}) ||
-        hpke_aliases(context, bytes(workspace)) ||
+        hpke_aliases(context, object_bytes(workspace)) ||
         hpke_aliases(context, {workspace.storage.data, workspace.storage.capacity}))
         return {0, 0, HpkeError::invalid_input};
     const auto auxiliary = aes_gcm_auxiliary(context.cipher);

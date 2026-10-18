@@ -46,7 +46,6 @@ constexpr u32 bank_name_bytes = kThreadBrowserSearchMaximumRows * kThreadBrowser
 constexpr u32 bank_bytes = (bank_row_bytes + bank_name_bytes + 4095) & ~4095u;
 // Active fallback pages (25 rows each) fetched per choice before it settles.
 constexpr u32 kThreadBrowserActiveFetchLimit = 10 * kThreadBrowserArchivedLimit;
-// ---- forum/media post list state ---------------------------------------------
 // Post metadata from every accepted page, keyed by thread ID (oldest evicted).
 // Gateway records carry no tags, counts or starter previews, so forum parents
 // always load their active posts over REST to fill this cache.
@@ -118,11 +117,8 @@ static_assert(sizeof(ApplicationThreadBrowser) < 8192);
 namespace {
 ApplicationThreadBrowser* browser_owner{};
 u64 browser_publication{}, browser_session{};
-const ChannelRecord* channel(u64 id) noexcept {
-    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id) : nullptr;
-}
 u64 default_parent() noexcept {
-    const auto* selected = g_app.account_ui ? channel(g_app.account_ui->active_channel_id) : nullptr;
+    const auto* selected = g_app.account_ui ? application_channel_record(g_app.account_ui->active_channel_id) : nullptr;
     return selected ? (channel_is_thread(selected->type) ? selected->parent_id : selected->id) : 0;
 }
 bool actor_current(const BrowserScope& scope) noexcept {
@@ -131,7 +127,7 @@ bool actor_current(const BrowserScope& scope) noexcept {
         scope.profile == g_app.account.status.profile_id && scope.self == g_app.account_ui->chat_state.self_user_id;
 }
 bool parent_readable(u64 id) noexcept {
-    const auto* parent = channel(id);
+    const auto* parent = application_channel_record(id);
     if (!parent || !parent->occupied || !parent->guild_id || !channel_is_thread_parent(parent->type) ||
         !parent->permissions_resolved || (parent->flags & kChannelObfuscatedFlag)) return false;
     constexpr u32 required = channel_action_view | channel_action_read_history;
@@ -141,15 +137,19 @@ bool parent_readable(u64 id) noexcept {
         (parent->actions & required) == required && chat_state_store_channel_visible(state, *parent);
 }
 bool current(const ApplicationThreadBrowser& value) noexcept {
-    const auto* parent = actor_current(value.scope) ? channel(value.scope.parent) : nullptr;
+    const auto* parent = actor_current(value.scope) ? application_channel_record(value.scope.parent) : nullptr;
     return value.panel && parent && parent_readable(parent->id) && parent->generation == value.scope.generation &&
         parent->guild_id == value.scope.guild && g_app.account_ui->active_channel_id == value.scope.underlying_channel &&
         g_app.account_ui->chat_state.selected_guild_id == value.scope.guild;
 }
-bool front() noexcept {
-    return application_thread_browser_active() && !application_settings_active() && !g_app.text_form && !application_forum_form_active() &&
-        !g_app.popup_scene.active && !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
+// No settings page, form, popup, viewer or profile covers the browser's host view.
+bool uncovered() noexcept {
+    return !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
+        !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
         !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
+}
+bool front() noexcept {
+    return application_thread_browser_active() && !application_forum_form_active() && uncovered();
 }
 void invalidate(ApplicationThreadBrowser& value) noexcept {
     value.publication = ++browser_publication;
@@ -217,7 +217,7 @@ bool repaint() noexcept {
 // ever arrive, so the tab asks REST for the parent's active threads instead of
 // waiting on it.
 bool active_fetch_needed(const ApplicationThreadBrowser& value) noexcept {
-    const auto* parent = value.tab == UiThreadBrowserTab::active ? channel(value.scope.parent) : nullptr;
+    const auto* parent = value.tab == UiThreadBrowserTab::active ? application_channel_record(value.scope.parent) : nullptr;
     // Forum cards need REST post metadata even when the Gateway inventory is synced.
     return parent && (!parent->thread_listing_synced || (value.forum_mode && !value.active_loaded));
 }
@@ -258,6 +258,10 @@ bool eligible(const ApplicationThreadBrowser& value, const ChannelRecord& row, b
         (!active || (row.thread_active_known && row.thread_listed_active)) &&
         chat_state_store_thread_accessible(g_app.account_ui->chat_state, row);
 }
+UiThreadBrowserRow thread_row(const ChatStateStore& state, const ChannelRecord& row) noexcept {
+    return {row.id, chat_state_store_channel_name(state, row), row.thread_archived_known && row.thread_archived,
+        row.thread_self_joined, row.thread_self_joined_known, row.type};
+}
 void project(ApplicationThreadBrowser& value) noexcept {
     const auto& state = g_app.account_ui->chat_state;
     if (value.projected_channels == state.channel_mutations && value.projected_permissions == state.permission_mutations) return;
@@ -270,9 +274,7 @@ void project(ApplicationThreadBrowser& value) noexcept {
     const auto take = [&](const ChannelRecord& row) noexcept {
         const u32 index = value.total++;
         if (index < first || value.row_count == kUiThreadBrowserPageCapacity) return;
-        value.rows[value.row_count++] = {row.id, chat_state_store_channel_name(state, row),
-            row.thread_archived_known && row.thread_archived, row.thread_self_joined,
-            row.thread_self_joined_known, row.type};
+        value.rows[value.row_count++] = thread_row(state, row);
     };
     if (value.tab == UiThreadBrowserTab::active) {
         // Count and project one page directly. No fixed-size copy or truncation
@@ -294,20 +296,15 @@ void project(ApplicationThreadBrowser& value) noexcept {
         // A Gateway deletion/private-membership withdrawal wins immediately.
         // Names come from freshly authorized Core records, never stale banks.
         for (u32 i = 0; i < page.row_count; ++i) {
-            const auto* row = channel(page.rows.data[i].id);
+            const auto* row = application_channel_record(page.rows.data[i].id);
             if (!row || !eligible(value, *row, false)) continue;
             if (value.tab == UiThreadBrowserTab::search) take(*row);
-            else if (value.row_count < kUiThreadBrowserPageCapacity) {
-                value.rows[value.row_count++] = {row->id, chat_state_store_channel_name(state, *row),
-                    row->thread_archived_known && row->thread_archived, row->thread_self_joined,
-                    row->thread_self_joined_known, row->type};
-            }
+            else if (value.row_count < kUiThreadBrowserPageCapacity) value.rows[value.row_count++] = thread_row(state, *row);
         }
         if (value.tab == UiThreadBrowserTab::search) value.has_more = first + value.row_count < value.total;
     }
     ++value.revision;
 }
-// ---- forum/media post list ---------------------------------------------------
 bool forum_commit(u8* base, u32* committed, u32 bytes, u32 reserve) noexcept {
     bytes = (bytes + 65535) & ~65535u;
     if (bytes > reserve) bytes = reserve;
@@ -454,7 +451,7 @@ void project_forum(ApplicationThreadBrowser& value) noexcept {
         // focus reset), fresh activity labels.
         forum.activity_refresh_s = 0;
         for (u32 i = 0; i < value.row_count; ++i)
-            if (const auto* row = channel(value.rows[i].thread_id)) forum_card(value, *row, i, now_s);
+            if (const auto* row = application_channel_record(value.rows[i].thread_id)) forum_card(value, *row, i, now_s);
         ++value.revision;
         return;
     }
@@ -485,7 +482,7 @@ void project_forum(ApplicationThreadBrowser& value) noexcept {
     } else if (value.has_page) {
         const auto& page = value.banks[value.bank].page;
         for (u32 i = 0; i < page.row_count; ++i) {
-            const auto* row = channel(page.rows.data[i].id);
+            const auto* row = application_channel_record(page.rows.data[i].id);
             if (row && eligible(value, *row, false)) consider(*row);
         }
     }
@@ -496,11 +493,9 @@ void project_forum(ApplicationThreadBrowser& value) noexcept {
         value.page_index = count ? (count - 1) / kUiThreadBrowserPageCapacity : 0;
     const u32 first = paged ? value.page_index * kUiThreadBrowserPageCapacity : 0;
     for (u32 k = first; k < count && value.row_count < kUiThreadBrowserPageCapacity; ++k) {
-        const auto* row = channel(forum.keys[k].thread_id);
+        const auto* row = application_channel_record(forum.keys[k].thread_id);
         if (!row) continue;
-        value.rows[value.row_count] = {row->id, chat_state_store_channel_name(state, *row),
-            row->thread_archived_known && row->thread_archived, row->thread_self_joined,
-            row->thread_self_joined_known, row->type};
+        value.rows[value.row_count] = thread_row(state, *row);
         forum_card(value, *row, value.row_count, now_s);
         ++value.row_count;
     }
@@ -554,7 +549,7 @@ bool forum_meta_response(ApplicationThreadBrowser& value, const RestClientRespon
         body.bytes == response.body_bytes && body.bytes <= kForumPostMaximumResponseBytes &&
         forum_parent_decode(body, request,
             {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount}, &candidate).ok() &&
-        candidate.type == channel(value.scope.parent)->type) {
+        candidate.type == application_channel_record(value.scope.parent)->type) {
         forum.meta = candidate;
         forum.meta_loaded = true;
         if (candidate.fields & forum_parent_default_sort_order)
@@ -587,7 +582,7 @@ bool read_input(const void* opaque, u32 index, ChannelInput* output) noexcept {
     const u32 raw = context.indices[index];
     const auto& row = context.bank->page.rows.data[raw];
     *output = {row.id, row.guild_id, row.parent_id, thread_browser_row_name(context.bank->page, raw), 0, 0, row.type};
-    const auto* old = channel(row.id);
+    const auto* old = application_channel_record(row.id);
     if (old) { output->position = old->position; output->flags = old->flags; }
     output->name_known = true;
     output->last_message_id = row.last_message_id;
@@ -618,7 +613,7 @@ bool apply_page(ApplicationThreadBrowser& value, BrowserBank& bank, const Browse
     const bool changed = flight.gateway_serial != value.gateway_serial;
     for (u32 i = 0; i < bank.page.row_count; ++i) {
         const auto& row = bank.page.rows.data[i];
-        const auto* old = channel(row.id);
+        const auto* old = application_channel_record(row.id);
         if (old && (old->guild_id != value.scope.guild || old->parent_id != value.scope.parent || old->type != row.type)) return false;
         // A later matching Gateway update takes over this scope. Existing rows
         // are resolved from Core; unknown/deleted rows are not resurrected.
@@ -639,7 +634,7 @@ bool application_thread_browser_available(u64 parent_id) noexcept {
     if (!g_app.account_ui || g_app.login.visible || application_friends_active() || !g_app.plugin_account_scope_serial ||
         !g_app.account.status.profile_id || !g_app.account_ui->chat_state.self_user_id) return false;
     const u64 id = parent_id ? parent_id : default_parent();
-    const auto* parent = channel(id);
+    const auto* parent = application_channel_record(id);
     return parent_readable(id) && parent && g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
 }
 bool application_thread_browser_active() noexcept { return browser_owner && current(*browser_owner); }
@@ -651,7 +646,7 @@ bool application_thread_browser_open(u64 parent_id) noexcept {
     application_pinned_messages_close();
     if (!ensure_owner()) return false;
     auto& value = *browser_owner;
-    const auto* parent = channel(id);
+    const auto* parent = application_channel_record(id);
     BrowserScope next{g_app.plugin_account_scope_serial, g_app.account.status.profile_id, g_app.account_ui->chat_state.self_user_id,
         parent->guild_id, id, g_app.account_ui->active_channel_id, g_app.account.instance, g_app.account_ui, parent->generation};
     if (!actor_current(value.scope)) value.actor_floor = 0;
@@ -711,7 +706,7 @@ bool application_thread_browser_synchronize() noexcept {
     auto* value = browser_owner;
     if (!value) { renderer_bind_thread_browser_scene(&g_app.renderer, nullptr); return true; }
     if (value->captured && value->pressed.thread_id == ~u64{0}) {
-        const auto* parent = channel(value->pressed_scope.parent);
+        const auto* parent = application_channel_record(value->pressed_scope.parent);
         if (!actor_current(value->pressed_scope) || !parent || !parent_readable(parent->id) ||
             parent->generation != value->pressed_scope.generation || default_parent() != value->pressed_scope.parent ||
             !ui_widget_manager_input_enabled(g_app.shell_scene.widgets, value->pressed.widget)) clear_capture(*value);
@@ -722,7 +717,7 @@ bool application_thread_browser_synchronize() noexcept {
         return true;
     }
     if (!front()) clear_capture(*value);
-    const auto* parent = channel(value->scope.parent);
+    const auto* parent = application_channel_record(value->scope.parent);
     if (value->tab == UiThreadBrowserTab::active && !value->flight.active) {
         if (parent->thread_listing_synced && (!value->forum_mode || value->active_loaded)) {
             // The Gateway inventory arrived first; it is authoritative.
@@ -988,7 +983,7 @@ bool application_thread_browser_activate(UiThreadBrowserTarget target) noexcept 
         break;
     }
     case UiThreadBrowserAction::open_thread: {
-        const auto* row = channel(target.thread_id);
+        const auto* row = application_channel_record(target.thread_id);
         if (!row || !eligible(value, *row, value.tab == UiThreadBrowserTab::active)) return false;
         if (!application_navigate_known_message(row->id, 0)) return false;
         application_thread_browser_close(); return repaint();
@@ -1000,7 +995,7 @@ bool application_thread_browser_activate(UiThreadBrowserTarget target) noexcept 
 bool application_thread_browser_search_scope(ApplicationThreadBrowserSearchScope* out) noexcept {
     if (!out || !application_thread_browser_active()) return false;
     const auto& value = *browser_owner;
-    const auto* parent = channel(value.scope.parent);
+    const auto* parent = application_channel_record(value.scope.parent);
     *out = {value.scope.parent, value.session, chat_state_store_channel_name(g_app.account_ui->chat_state, *parent),
         value.forum_mode};
     return true;
@@ -1037,18 +1032,16 @@ bool application_thread_browser_scroll_to(double offset) noexcept {
     if (ui_thread_browser_scene_scroll(&browser_owner->scene, static_cast<float>(offset))) application_request_frame();
     return true;
 }
-bool application_thread_browser_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
     const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
     const float client_x = static_cast<short>(LOWORD(lparam)) * scale;
     const float client_y = static_cast<short>(HIWORD(lparam)) * scale;
     const bool header = ui_rect_contains(ui_scene_header_geometry(g_app.shell_scene).threads, client_x, client_y);
-    const bool header_front = application_thread_browser_available() && !application_settings_active() && !g_app.text_form && !application_forum_form_active() &&
-        !g_app.popup_scene.active && !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
-        !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
+    const bool header_front = application_thread_browser_available() && !application_forum_form_active() && uncovered();
     if (message == WM_LBUTTONDOWN && header && header_front) {
         if (!ensure_owner()) return true;
         auto& value = *browser_owner;
-        const auto* parent = channel(default_parent());
+        const auto* parent = application_channel_record(default_parent());
         value.pressed_scope = {g_app.plugin_account_scope_serial, g_app.account.status.profile_id, g_app.account_ui->chat_state.self_user_id,
             parent->guild_id, parent->id, g_app.account_ui->active_channel_id, g_app.account.instance, g_app.account_ui, parent->generation};
         value.pressed = {UiThreadBrowserAction::none, ~u64{0}, 0,
@@ -1066,7 +1059,7 @@ bool application_thread_browser_window_message(UINT message, WPARAM wparam, LPAR
     if (value->captured && value->pressed.thread_id == ~u64{0}) {
         if (message == WM_LBUTTONUP) {
             const auto captured = value->pressed_scope;
-            const auto* parent = channel(captured.parent);
+            const auto* parent = application_channel_record(captured.parent);
             const bool accepted = header && header_front && actor_current(captured) && parent &&
                 parent->generation == captured.generation && parent->guild_id == captured.guild &&
                 g_app.account_ui->active_channel_id == captured.underlying_channel && default_parent() == captured.parent &&
@@ -1127,17 +1120,13 @@ bool application_thread_browser_window_message(UINT message, WPARAM wparam, LPAR
         value->captured = true; g_app.context_focus = &value->scene.widgets;
         SetFocus(g_app.window); SetCapture(g_app.window); application_request_frame(); return true;
     }
-    (void)wparam;
     return message == WM_LBUTTONDBLCLK || message == WM_CONTEXTMENU || message == WM_MOUSEHWHEEL ||
         message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP;
 }
 bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     auto* value = browser_owner;
     if ((kind == UiInputKind::key_down || kind == UiInputKind::system_key_down) &&
-        (code == VK_RETURN || code == VK_SPACE) && application_thread_browser_available() &&
-        !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
-        !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
-        !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active) &&
+        (code == VK_RETURN || code == VK_SPACE) && application_thread_browser_available() && uncovered() &&
         g_app.context_focus == &g_app.shell_scene.widgets) {
         const auto handle = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::threads_toggle)];
         const auto focused = g_app.shell_scene.widgets.focused;

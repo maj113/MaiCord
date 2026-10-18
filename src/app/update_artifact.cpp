@@ -51,12 +51,8 @@ UpdateArtifactResult update_artifact_verify(ConstSlice<wchar_t> absolute_path,
         {reinterpret_cast<const u8*>(absolute_path.data), absolute_path.count * static_cast<u32>(sizeof(wchar_t))},
         {reinterpret_cast<const u8*>(&approved), sizeof(approved)},
         {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    for (u32 index = 0; index < sizeof(ranges) / sizeof(ranges[0]); ++index) {
-        if (!byte_range_valid(ranges[index])) return result(UpdateArtifactError::invalid_input);
-        for (u32 previous = 0; previous < index; ++previous)
-            if (byte_ranges_overlap(ranges[index], ranges[previous])) return result(UpdateArtifactError::invalid_input);
-    }
-    if (output->file) return result(UpdateArtifactError::invalid_input);
+    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}) || output->file)
+        return result(UpdateArtifactError::invalid_input);
     if (!valid_path(absolute_path)) return result(UpdateArtifactError::path);
     wchar_t terminated[kUpdateArtifactMaximumPathCharacters + 1];
     for (u32 index = 0; index < absolute_path.count; ++index) terminated[index] = absolute_path[index];

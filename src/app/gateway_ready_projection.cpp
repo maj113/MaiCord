@@ -1,5 +1,6 @@
 #include "maicord/app/gateway_guild_folders.hpp"
 #include "maicord/app/gateway_user_settings.hpp"
+#include "gateway_dispatch_common.hpp"
 #include "gateway_ready_projection.hpp"
 #include "gateway_user_payload.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -144,12 +145,7 @@ bool emit(Pass& pass, const GatewayClientEvent& event, ConstSlice<u8> payload) n
     return false;
 }
 GatewayClientEvent descriptor(const Pass& pass, GatewayClientDispatchKind kind) noexcept {
-    GatewayClientEvent event{};
-    event.kind = GatewayClientEventKind::dispatch;
-    event.dispatch_kind = kind;
-    event.sequence = pass.sequence; event.has_sequence = true;
-    event.timestamp_ms = pass.now_ms;
-    return event;
+    return gateway_dispatch_event(kind, pass.sequence, pass.now_ms);
 }
 bool flush_users(Pass& pass) noexcept {
     if (!pass.user_count) return true;
@@ -230,9 +226,8 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
                                                                  pass.scratch.large, &event, &payload);
         } else
             pass.result.route = gateway_client_route_dispatch_large(
-                envelope, pass.scratch.records, 64, pass.scratch.payload, {}, pass.ready->user_id,
-                pass.kind == RecordKind::guild ? pass.scratch.large : GatewayClientLargeRecord{}, &event,
-                &payload);
+                envelope, pass.scratch.records, 64, pass.scratch.payload, {}, pass.ready->user_id, {},
+                &event, &payload);
     } while (!pass.result.route.ok() && grow_record_index(pass));
     const bool expected = pass.kind == RecordKind::guild ?
         event.dispatch_kind == GatewayClientDispatchKind::guild_create :
@@ -290,9 +285,6 @@ bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureS
     }
     return kind != RecordKind::user || flush_users(pass);
 }
-bool relationship(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
-    return emit(*static_cast<Pass*>(opaque), event, payload);
-}
 bool run(Pass& pass) noexcept {
     const auto& ready = *pass.ready;
     pass.result.failure_stage = GatewayClientFailureStage::ready_route;
@@ -310,15 +302,15 @@ bool run(Pass& pass) noexcept {
     if (ready.users.kind == JsonValueKind::array &&
         !records(pass, ready.users, RecordKind::user, GatewayClientFailureStage::ready_user_route)) return false;
     pass.result.route=gateway_client_publish_notification_snapshot(ready,pass.scratch.arrays,
-        pass.scratch.records,pass.scratch.payload,pass.sequence,pass.now_ms,relationship,&pass);
+        pass.scratch.records,pass.scratch.payload,pass.sequence,pass.now_ms,relay,&pass);
     if(!pass.result.route.ok()||pass.result.interrupted)return false;
     // The folder layout is ancillary: a malformed group never fails READY.
     if (!allowed(pass)) return false;
     gateway_client_publish_guild_folders(ready.user_settings_proto, false, pass.scratch.payload, pass.sequence,
-        true, pass.now_ms, relationship, &pass);
+        true, pass.now_ms, relay, &pass);
     if (pass.result.interrupted) return false;
     gateway_client_publish_user_settings(ready.user_settings_proto, ready.auth_session_id_hash, false,
-        pass.scratch.payload, pass.sequence, true, pass.now_ms, relationship, &pass);
+        pass.scratch.payload, pass.sequence, true, pass.now_ms, relay, &pass);
     if (pass.result.interrupted) return false;
     pass.members = {};
     pass.merged_invalid = false;
@@ -344,7 +336,7 @@ bool run(Pass& pass) noexcept {
     }
     if (!allowed(pass)) return false;
     pass.result.route = gateway_client_publish_relationship_snapshot(ready.relationships, ready.merged_presences,
-        pass.scratch.arrays, pass.scratch.records, pass.sequence, pass.now_ms, relationship, &pass);
+        pass.scratch.arrays, pass.scratch.records, pass.sequence, pass.now_ms, relay, &pass);
     if (!pass.result.route.ok() || pass.result.interrupted) return false;
     const auto complete = descriptor(pass, GatewayClientDispatchKind::ready_state_complete);
     if (!emit(pass, complete, {})) return false;

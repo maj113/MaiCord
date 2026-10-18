@@ -5,7 +5,8 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -28,10 +29,6 @@ void changed() noexcept {
     if (++publication == 0)
         ++publication;
     application_request_frame();
-}
-bool ticket_equal(const ApplicationForumPostTicket& a, const ApplicationForumPostTicket& b) noexcept {
-    return a.serial == b.serial && a.parent_id == b.parent_id &&
-           a.publication_revision == b.publication_revision;
 }
 bool actor_current(const PreviewEntry& entry) noexcept {
     return g_app.account_ui && g_app.account.instance == entry.instance &&
@@ -75,26 +72,14 @@ bool source_current(const PreviewEntry& entry) noexcept {
            content.context == entry.request.content.context && content.ops == entry.request.content.ops &&
            content.bytes == entry.request.content.bytes;
 }
-bool extension(Utf8View filename, const char* suffix, u32 bytes) noexcept {
-    if (!filename.data || filename.bytes < bytes)
-        return false;
-    for (u32 i = 0; i < bytes; ++i) {
-        char c = filename.data[filename.bytes - bytes + i];
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c + ('a' - 'A'));
-        if (c != suffix[i])
-            return false;
-    }
-    return true;
-}
 MediaAttachmentFormat format(Utf8View filename) noexcept {
-    if (extension(filename, ".png", 4))
+    if (filename_ends_with(filename, utf8_literal(".png")))
         return MediaAttachmentFormat::png;
-    if (extension(filename, ".webp", 5))
+    if (filename_ends_with(filename, utf8_literal(".webp")))
         return MediaAttachmentFormat::webp;
-    if (extension(filename, ".jpg", 4) || extension(filename, ".jpeg", 5))
+    if (filename_ends_with(filename, utf8_literal(".jpg")) || filename_ends_with(filename, utf8_literal(".jpeg")))
         return MediaAttachmentFormat::jpeg;
-    if (extension(filename, ".gif", 4))
+    if (filename_ends_with(filename, utf8_literal(".gif")))
         return MediaAttachmentFormat::gif;
     return MediaAttachmentFormat::unknown;
 }
@@ -123,7 +108,7 @@ ApplicationForumPreview application_forum_preview_view(const ApplicationForumPos
                                                        u64 id) noexcept {
     if (owner)
         for (const auto& entry : owner->entries)
-            if (entry.occupied && entry.request.key.id == id && ticket_equal(entry.ticket, ticket) &&
+            if (entry.occupied && entry.request.key.id == id && entry.ticket == ticket &&
                 source_current(entry))
                 return {media_asset_key_valid(entry.request.key) ? entry.request.key : MediaAssetKey{},
                         entry.ready, entry.failed};
@@ -191,7 +176,7 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
         PreviewEntry* entry = nullptr;
         for (auto& slot : owner->entries)
             if (slot.occupied && !slot.retired && slot.request.key.id == row.id &&
-                ticket_equal(slot.ticket, post.ticket)) {
+                slot.ticket == post.ticket) {
                 entry = &slot;
                 break;
             }
@@ -260,7 +245,7 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
 void application_forum_preview_retire(const ApplicationForumPostTicket& ticket, u64 id) noexcept {
     if (owner)
         for (auto& entry : owner->entries)
-            if (entry.occupied && ticket_equal(entry.ticket, ticket) && (!id || entry.request.key.id == id))
+            if (entry.occupied && entry.ticket == ticket && (!id || entry.request.key.id == id))
                 retire(entry, clock_monotonic_milliseconds());
 }
 void application_forum_preview_release() noexcept {
@@ -270,7 +255,7 @@ void application_forum_preview_release() noexcept {
         if (entry.occupied)
             retire(entry, clock_monotonic_milliseconds());
     // Lanes own retained sources and copied paths independently after admission.
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
     changed();

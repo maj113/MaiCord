@@ -6,6 +6,7 @@
 #include "maicord/app/plugin_bundle_install.hpp"
 #include "maicord/app/plugin_catalog.hpp"
 #include "maicord/app/plugin_preferences.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/input_router.hpp"
@@ -244,10 +245,7 @@ inline bool identity_matches(const NativePluginPreference& identity, const Nativ
     if (identity.owner_id != manifest.owner_id || identity.abi_version != manifest.abi_version ||
         identity.dll_bytes != manifest.dll_bytes || identity.dll_bytes > kNativePluginDllNameCapacity) return false;
     for (u32 i = 0; i < 32; ++i) if (identity.sha256[i] != manifest.sha256[i]) return false;
-    for (u32 i = 0; i < identity.dll_bytes; ++i) {
-        const char c = manifest.dll[i];
-        if (identity.dll[i] != (c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c)) return false;
-    }
+    for (u32 i = 0; i < identity.dll_bytes; ++i) if (identity.dll[i] != ascii_lower(manifest.dll[i])) return false;
     return true;
 }
 inline void append_text(ApplicationPluginCatalogText& output, Utf8View value) noexcept {

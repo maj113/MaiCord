@@ -27,9 +27,4 @@ Slice<u8> application_emoji_preferences_response_buffer() noexcept;
 u64 application_emoji_preferences_next_wake() noexcept;
 // Call after pending responses were handled or the account worker joined.
 void application_emoji_preferences_release() noexcept;
-// Key mapping: custom IDs as decimal, Unicode by its primary shortcode. Only
-// entries this client adds use these keys; observed keys are sent back as
-// received. Returns 0 bytes when the emoji has no settings key.
-u32 application_emoji_preference_key(ReactionEmojiRef, Slice<char> output) noexcept;
-ReactionEmojiRef application_emoji_preference_ref(Utf8View key) noexcept;
 } // namespace maicord::app_detail

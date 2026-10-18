@@ -10,6 +10,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
+#include <Windows.h>
 #include <dxgi1_4.h>
 #include <psapi.h>
 #include <d3d11_1.h>

@@ -16,13 +16,15 @@
 #include "application_profile_editor.hpp"
 #include "application_composer.hpp"
 #include "application_link_trust.hpp"
+#include "text_edit_keys.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -179,7 +181,6 @@ void load_note(ApplicationProfile& p) noexcept {
     const auto text = application_user_note(user, &loading);
     const u32 bytes = minimum<u32>(text.bytes, kUserNoteMaximumBytes);
     copy_bytes(p.note_display, text.data, bytes);
-    p.note_display_bytes = bytes;
     s.note_text = {p.note_display, bytes};
     s.note_loading = loading && !bytes;
 }
@@ -528,15 +529,6 @@ bool application_profile_menu_activate(u32 action) noexcept {
         return mutate_role(*p, p->menu_roles[action - menu_role_first], true);
     return true;
 }
-namespace {
-// Placement by anchor: message rows open right, the member list left (16
-// apart), the account panel above.
-ProfilePlacement placement_of(ProfileAnchor kind) noexcept {
-    return kind == ProfileAnchor::account  ? ProfilePlacement::above
-           : kind == ProfileAnchor::member ? ProfilePlacement::left
-                                           : ProfilePlacement::right;
-}
-} // namespace
 bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexcept {
     if (!g_app.account_ui || !user)
         return false;
@@ -569,7 +561,10 @@ bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexc
     g_app.message_composer.focused = false;
     application_composer_text_input_suspend();
     p->anchor_kind = kind;
-    p->scene.placement = placement_of(kind);
+    // Message rows open right, the member list left (16 apart), the account panel above.
+    p->scene.placement = kind == ProfileAnchor::account  ? ProfilePlacement::above
+                         : kind == ProfileAnchor::member ? ProfilePlacement::left
+                                                         : ProfilePlacement::right;
     p->scene.presentation = ProfilePresentation::popout;
     p->scene.relation = relation_of(user);
     p->scene.scroll_to_note = false;
@@ -633,11 +628,9 @@ bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexc
     g_app.renderer.profile_scene = &p->scene;
     return repaint(true);
 }
-bool application_profile_open_edit(u64 user, UiRect anchor, ProfileAnchor kind) noexcept {
+bool application_profile_open_edit(u64 user, UiRect, ProfileAnchor) noexcept {
     if (!g_app.account_ui || user != g_app.account_ui->chat_state.self_user_id || !user)
         return false;
-    (void)anchor;
-    (void)kind;
     application_profile_close();
     return application_profile_editor_open(ProfileEditorTab::main);
 }
@@ -896,7 +889,6 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
                 ReleaseCapture();
         }
         application_profile_refresh_message();
-
         return true;
     }
     if (event == UiButtonPointerEvent::press && p->scene.note_editing) {
@@ -991,11 +983,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
             }
             return true;
         }
-        if (control && key == 'A')
-            result = message_composer_select_all(edit);
-        else if (control && (key == 'Z' || key == 'Y'))
-            result = key == 'Y' || shift ? message_composer_redo(edit) : message_composer_undo(edit);
-        else if (control && (key == 'C' || key == 'X')) {
+        if (control && (key == 'C' || key == 'X')) {
             const auto first = minimum(edit->anchor, edit->caret),
                        last = maximum(edit->anchor, edit->caret);
             if (first != last && clipboard_write_utf8(g_app.window, {edit->text + first, last - first}) &&
@@ -1007,33 +995,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
             if (read.ok())
                 result = message_composer_insert_utf8(edit, {text, read.bytes});
         } else
-            switch (key) {
-            case VK_BACK:
-                result =
-                    control ? message_composer_delete_word(edit, false) : message_composer_backspace(edit);
-                break;
-            case VK_DELETE:
-                result = control ? message_composer_delete_word(edit, true)
-                                 : message_composer_delete_forward(edit);
-                break;
-            case VK_LEFT:
-                result = message_composer_move(
-                    edit, control ? MessageComposerMove::previous_word : MessageComposerMove::previous,
-                    shift);
-                break;
-            case VK_RIGHT:
-                result = message_composer_move(
-                    edit, control ? MessageComposerMove::next_word : MessageComposerMove::next, shift);
-                break;
-            case VK_HOME:
-                result = message_composer_move(edit, MessageComposerMove::document_home, shift);
-                break;
-            case VK_END:
-                result = message_composer_move(edit, MessageComposerMove::document_end, shift);
-                break;
-            default:
-                break;
-            }
+            message_composer_edit_key(edit, key, control, shift, &result);
         if (result == MessageComposerResult::changed)
             application_profile_refresh_message();
         return true;
@@ -1061,9 +1023,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
         edit_model(*p).focused = s.edit.active && s.widgets.focused.slot == s.message_field.slot &&
                              s.widgets.focused.generation == s.message_field.generation;
         application_profile_refresh_message();
-    }
-
-    else if (key == VK_DOWN || key == VK_UP) {
+    } else if (key == VK_DOWN || key == VK_UP) {
         queue_profile_scroll(false,
                              key == VK_DOWN ? -WHEEL_DELTA : WHEEL_DELTA);
         repaint(true);

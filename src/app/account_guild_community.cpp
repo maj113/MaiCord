@@ -40,8 +40,4 @@ RestClientSubmitResult account_guild_community_submit(RestClient* rest,
                                      {},
                                      {context, context_bytes}});
 }
-
-RestClientSubmitResult account_guild_community_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

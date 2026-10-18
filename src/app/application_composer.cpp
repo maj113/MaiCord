@@ -17,7 +17,8 @@
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -78,15 +79,23 @@ void note_mention_member_query() noexcept {
     note_member_query(autocomplete.member_query_guild_id, composer.channel_id, query);
 }
 
+bool composer_owns_popup() noexcept {
+    return g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
+           g_app.popup_owner_kind == PopupOwnerKind::commands;
+}
+void close_composer_popup() noexcept {
+    if (composer_owns_popup()) {
+        popup_scene_close(&g_app.popup_scene);
+        set_popup_owner(PopupOwnerKind::none);
+    }
+}
+
 bool synchronize_autocomplete() noexcept {
     if (application_composer_text_input_composing() ||
         (g_app.profile && g_app.profile->scene.active) || !g_app.message_composer.focused) {
         g_app.composer_autocomplete.member_query_guild_id = 0;
         cancel_composer_member_query();
-        if ((g_app.popup_owner_kind == PopupOwnerKind::autocomplete || g_app.popup_owner_kind == PopupOwnerKind::commands)) {
-            popup_scene_close(&g_app.popup_scene);
-            set_popup_owner(PopupOwnerKind::none);
-        }
+        close_composer_popup();
         return true;
     }
     if (!g_app.account_ui || g_app.login.visible || g_app.reaction_viewer.active ||
@@ -110,10 +119,7 @@ bool synchronize_autocomplete() noexcept {
     note_mention_member_query();
     const ComposerAutocomplete& autocomplete = g_app.composer_autocomplete;
     if (autocomplete.count == 0) {
-        if ((g_app.popup_owner_kind == PopupOwnerKind::autocomplete || g_app.popup_owner_kind == PopupOwnerKind::commands)) {
-            popup_scene_close(&g_app.popup_scene);
-            set_popup_owner(PopupOwnerKind::none);
-        }
+        close_composer_popup();
         return true;
     }
     PopupItem items[kComposerAutocompleteCapacity]{};
@@ -159,10 +165,9 @@ bool synchronize_autocomplete() noexcept {
     const UiRect anchor = surface->rectangle;
     const UiRect viewport = application_viewport_dips();
     const float preferred_width = ui_rect_width(anchor);
+    const u64 owner_id = g_app.message_composer.channel_id != 0 ? g_app.message_composer.channel_id : 1;
     if (g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::autocomplete &&
-        g_app.popup_scene.kind == PopupKind::autocomplete &&
-        g_app.popup_scene.owner_id ==
-            (g_app.message_composer.channel_id != 0 ? g_app.message_composer.channel_id : 1) &&
+        g_app.popup_scene.kind == PopupKind::autocomplete && g_app.popup_scene.owner_id == owner_id &&
         g_app.popup_scene.item_count == autocomplete.count &&
         g_app.popup_scene.items[0].flags == items[0].flags &&
         ui_rect_equal(g_app.popup_scene.anchor, anchor) &&
@@ -177,8 +182,7 @@ bool synchronize_autocomplete() noexcept {
         return true;
     }
     const PopupSceneResult opened = popup_scene_open(
-        &g_app.popup_scene, PopupKind::autocomplete,
-        g_app.message_composer.channel_id != 0 ? g_app.message_composer.channel_id : 1,
+        &g_app.popup_scene, PopupKind::autocomplete, owner_id,
         ConstSlice<PopupItem>{items, autocomplete.count}, anchor, viewport, preferred_width, true);
     if (!opened.ok()) {
         return false;
@@ -190,9 +194,7 @@ bool synchronize_autocomplete() noexcept {
 } // namespace
 
 bool refresh_active_autocomplete() noexcept {
-    const bool shown = (g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
-                        g_app.popup_owner_kind == PopupOwnerKind::commands) &&
-                       g_app.popup_scene.active;
+    const bool shown = composer_owns_popup() && g_app.popup_scene.active;
     // An '@' query in a guild also re-runs while closed: members the gateway
     // returns for it may now match (the official client re-queries on member changes).
     return (!shown && !g_app.composer_autocomplete.member_query_guild_id) || synchronize_autocomplete();
@@ -242,11 +244,14 @@ bool refresh_message_composer_ui() noexcept {
     return synchronize_shell_layout() && synchronize_autocomplete() && refresh_account_frame(true);
 }
 
+static u32 caret_blink_ms() noexcept {
+    return g_app.login.caret_blink_ms != 0 ? g_app.login.caret_blink_ms : kDefaultCaretBlinkMilliseconds;
+}
+
 void reset_message_composer_caret_timing(bool edit_active) noexcept {
     if (!edit_active) message_composer_break_history_run(&g_app.message_composer);
     const bool visible = edit_active && g_app.account_ui && g_app.window && GetFocus() == g_app.window;
-    const u32 blink_ms =
-        g_app.login.caret_blink_ms != 0 ? g_app.login.caret_blink_ms : kDefaultCaretBlinkMilliseconds;
+    const u32 blink_ms = caret_blink_ms();
     g_app.message_composer_caret_visible = visible;
     message_composer_scene_set_caret_visible(&g_app.message_composer_scene, visible);
     g_app.message_composer_caret_blink_at_ms =
@@ -260,8 +265,7 @@ void application_tick_message_composer_caret(u64 now_ms) noexcept {
         now_ms < g_app.message_composer_caret_blink_at_ms) {
         return;
     }
-    const u32 blink_ms =
-        g_app.login.caret_blink_ms != 0 ? g_app.login.caret_blink_ms : kDefaultCaretBlinkMilliseconds;
+    const u32 blink_ms = caret_blink_ms();
     if (!g_app.renderer_ready || !g_app.account_ui || !g_app.message_composer_scene.active ||
         !g_app.message_composer.focused || GetFocus() != g_app.window || blink_ms == INFINITE) {
         reset_message_composer_caret_timing(false);

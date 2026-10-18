@@ -9,7 +9,7 @@
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/message_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -103,7 +103,7 @@ bool content_confirmation_open(TextFormOwnerKey key, Utf8View) noexcept {
 void release_bank() noexcept {
     if (!g_owner.bank)
         return;
-    SecureZeroMemory(g_owner.bank, sizeof(Bank));
+    secure_clear_bytes(g_owner.bank, sizeof(Bank));
     VirtualFree(g_owner.bank, 0, MEM_RELEASE);
     g_owner.bank = nullptr;
 }
@@ -329,7 +329,7 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
     request.required_data_version = required;
     request.required_data_version_present = pinned;
     const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
-    SecureZeroMemory(g_owner.bank->partial, bytes);
+    secure_clear_bytes(g_owner.bank->partial, bytes);
     if (!admitted.ok()) {
         // Busy lanes retry the same edits shortly; nothing is rolled back.
         user_settings_store_complete(s, UserSettingsOutcome::rate_limited, {}, now_ms + 500);

@@ -117,9 +117,6 @@ struct MessageComposerController {
     u32 channel_switches;
     u32 draft_commits;
     u32 queued;
-    u32 submitted;
-    u32 failed;
-    u32 completed;
     u32 compactions;
     u32 rejected;
     bool initialized;

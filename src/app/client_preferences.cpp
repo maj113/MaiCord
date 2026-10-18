@@ -1,4 +1,5 @@
 #include "maicord/app/client_preferences.hpp"
+#include "client_gradient_record.hpp"
 #include "maicord/app/account_profile.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -6,7 +7,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/win32_process.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -90,21 +91,7 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
         (preferences.selected_message_sounds_enabled ? 32u : 0u) | (preferences.developer_mode ? 64u : 0u));
     record.data[18] = preferences.output_volume;
     record.data[19] = static_cast<u8>(preferences.soundpack);
-    for (u32 i = 0; i < 5; ++i)
-        byte_store_le32(record.data + 20 + i * 4, preferences.gradient.colors[i]);
-    record.data[40] = static_cast<u8>(preferences.gradient.angle_degrees);
-    record.data[41] = static_cast<u8>(preferences.gradient.angle_degrees >> 8);
-    record.data[42] = preferences.gradient.color_count;
-    record.data[43] = preferences.gradient.intensity;
-    record.data[44] = static_cast<u8>(preferences.gradient.effect);
-    record.data[45] = preferences.gradient.speed;
-    record.data[46] = preferences.gradient.strength;
-    record.data[47] = preferences.gradient.density;
-    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i) {
-        record.data[48 + i * 3] = preferences.effect_profiles[i].speed;
-        record.data[49 + i * 3] = preferences.effect_profiles[i].strength;
-        record.data[50 + i * 3] = preferences.effect_profiles[i].density;
-    }
+    gradient_record_store(record.data, preferences.gradient, preferences.effect_profiles);
     record.data[58] = static_cast<u8>(preferences.expression_picker_width);
     record.data[59] = static_cast<u8>(preferences.expression_picker_width >> 8);
     record.data[66] =
@@ -136,9 +123,6 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
         return failure(ClientPreferencesError::size);
     if (byte_load_le32(record.data + 12) != kClientPreferencesRecordBytes)
         return failure(ClientPreferencesError::format);
-    for (u32 i = 72; i < kChecksumOffset; ++i)
-        if (record.data[i] != 0)
-            return failure(ClientPreferencesError::format);
     if (record.data[16] > static_cast<u8>(ClientTheme::custom_light_gradient) ||
         (record.data[17] & ~kKnownFlags) != 0 || record.data[18] > 200 ||
         !notification_soundpack_valid(static_cast<NotificationSoundpack>(record.data[19])) ||
@@ -156,28 +140,7 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
                                  (record.data[17] & 32) != 0,
                                  record.data[18],
                                  static_cast<NotificationSoundpack>(record.data[19])};
-    for (u32 i = 0; i < 5; ++i)
-        decoded.gradient.colors[i] = byte_load_le32(record.data + 20 + i * 4);
-    decoded.gradient.angle_degrees = byte_load_le16(record.data + 40);
-    decoded.gradient.color_count = record.data[42];
-    decoded.gradient.intensity = record.data[43];
-    if (background_effect_known(record.data[44])) {
-        decoded.gradient.effect = static_cast<BackgroundEffect>(record.data[44]);
-        decoded.gradient.speed = record.data[45];
-        decoded.gradient.strength = record.data[46];
-        decoded.gradient.density = record.data[47];
-    } else {
-        const auto defaults = background_effect_settings_defaults(BackgroundEffect::none);
-        decoded.gradient.effect = BackgroundEffect::none;
-        decoded.gradient.speed = defaults.speed;
-        decoded.gradient.strength = defaults.strength;
-        decoded.gradient.density = defaults.density;
-    }
-    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i)
-        decoded.effect_profiles[i] = {record.data[48 + i * 3], record.data[49 + i * 3],
-                                      record.data[50 + i * 3]};
-    if (!background_theme_valid(decoded.gradient))
-        return failure(ClientPreferencesError::format);
+    gradient_record_load(record.data, &decoded.gradient, decoded.effect_profiles);
     decoded.developer_mode = (record.data[17] & 64) != 0;
     decoded.taskbar_flash = !(record.data[66] & 1);
     decoded.unread_badge = !(record.data[66] & 2);
@@ -209,8 +172,8 @@ ClientPreferencesResult client_preferences_load_file(const wchar_t* path,
                            : ClientPreferencesError::open,
                        native_error);
     }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size)) {
+    Win32LargeInteger size{};
+    if (!GetFileSizeEx(file, size.native())) {
         const u32 native_error = thread_last_error();
         CloseHandle(file);
         return failure(ClientPreferencesError::size, native_error);

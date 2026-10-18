@@ -1,8 +1,8 @@
 #include "maicord/app/dave_receive_epoch.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -15,9 +15,6 @@ struct Entry {
 };
 Entry* entries(DaveReceiveEpoch& epoch) noexcept {
     return reinterpret_cast<Entry*>(epoch.storage.data + 32);
-}
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
 }
 u64 deadline(u64 now) noexcept {
     return now > never - key_lifetime_ms ? never : now + key_lifetime_ms;
@@ -62,13 +59,12 @@ void cleanup(DaveReceiveEpoch& epoch, u64 now) noexcept {
     if (removed) {
         epoch.count -= removed;
         copy_bytes(data, data + removed, epoch.count * sizeof(Entry));
-        SecureZeroMemory(data + epoch.count, removed * sizeof(Entry));
+        secure_clear_bytes(data + epoch.count, removed * sizeof(Entry));
     }
     epoch.cleanup_pending = false;
 }
 bool protected_span(ConstSlice<u8> span, DaveReceiveEpoch& epoch, KdfSha256Workspace& workspace) noexcept {
-    return dave_receive_epoch_aliases(epoch, span) || byte_ranges_overlap(span, bytes(workspace)) ||
-           byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity});
+    return dave_receive_epoch_aliases(epoch, span) || aliases_workspace(workspace, span);
 }
 DaveEpochOpenResult fail(DaveEpochError error, u32 generation = 0) noexcept {
     DaveEpochOpenResult result{};
@@ -78,7 +74,7 @@ DaveEpochOpenResult fail(DaveEpochError error, u32 generation = 0) noexcept {
 }
 } // namespace
 bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> span) noexcept {
-    if (byte_ranges_overlap(span, bytes(epoch)) ||
+    if (byte_ranges_overlap(span, object_bytes(epoch)) ||
         byte_ranges_overlap(span, {epoch.storage.data, epoch.storage.capacity}))
         return true;
     if (!epoch.storage.data)
@@ -93,7 +89,7 @@ bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> sp
 KdfResult dave_receive_epoch_initialize(DaveReceiveEpoch* epoch, ConstSlice<u8> seed, u64 now,
                                         Gcm64Backend backend) noexcept {
     if (!epoch || epoch->storage.data || epoch->storage.locked || seed.count != 16 ||
-        !byte_range_valid(seed) || byte_ranges_overlap(seed, bytes(*epoch)) ||
+        !byte_range_valid(seed) || byte_ranges_overlap(seed, object_bytes(*epoch)) ||
         (backend != Gcm64Backend::automatic && backend != Gcm64Backend::portable &&
          backend != Gcm64Backend::pclmul))
         return {0, 0, KdfError::invalid_input};
@@ -146,12 +142,12 @@ DaveEpochOpenResult dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Wo
         return result;
     }
     const ConstSlice<u8> spans[]{
-        bytes(view), view.frame, ranges, {scratch.data, scratch.count}, {output.data, output.count}};
+        object_bytes(view), view.frame, ranges, {scratch.data, scratch.count}, {output.data, output.count}};
     for (auto span : spans)
         if (protected_span(span, epoch, workspace))
             return fail(DaveEpochError::invalid_input);
-    if (byte_ranges_overlap(bytes(workspace), bytes(epoch)) ||
-        byte_ranges_overlap(bytes(workspace), {epoch.storage.data, epoch.storage.capacity}))
+    if (byte_ranges_overlap(object_bytes(workspace), object_bytes(epoch)) ||
+        byte_ranges_overlap(object_bytes(workspace), {epoch.storage.data, epoch.storage.capacity}))
         return fail(DaveEpochError::invalid_input);
     if (now < epoch.last_now_ms)
         return fail(DaveEpochError::invalid_time);

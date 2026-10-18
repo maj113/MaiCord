@@ -1,20 +1,17 @@
 #include "maicord/app/plugin_module_loader.hpp"
+#include "maicord/core/ascii.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
 
 NativePluginModuleResult result(NativePluginModuleError error, DWORD win32_error = 0) noexcept {
-    return {error, {NativePluginError::none, UiPageError::none, false}, win32_error};
+    return {error, {}, win32_error};
 }
 
 NativePluginModuleResult host_result(NativePluginResult host) noexcept {
     return {host.ok() ? NativePluginModuleError::none : NativePluginModuleError::host, host, 0};
-}
-
-wchar_t lower_ascii(wchar_t value) noexcept {
-    return value >= L'A' && value <= L'Z' ? static_cast<wchar_t>(value + (L'a' - L'A')) : value;
 }
 
 bool valid_path(ConstSlice<wchar_t> path) noexcept {
@@ -22,9 +19,9 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
     for (u32 index = 0; index < path.count; ++index) {
         if (!path[index] || path[index] == L'/' || path[index] < 32) return false;
     }
-    if (path[path.count - 4] != L'.' || lower_ascii(path[path.count - 3]) != L'd' ||
-        lower_ascii(path[path.count - 2]) != L'l' || lower_ascii(path[path.count - 1]) != L'l') return false;
-    const wchar_t drive = lower_ascii(path[0]);
+    if (path[path.count - 4] != L'.' || ascii_lower(path[path.count - 3]) != L'd' ||
+        ascii_lower(path[path.count - 2]) != L'l' || ascii_lower(path[path.count - 1]) != L'l') return false;
+    const wchar_t drive = ascii_lower(path[0]);
     if (drive >= L'a' && drive <= L'z' && path[1] == L':' && path[2] == L'\\') {
         for (u32 index = 3; index < path.count; ++index) if (path[index] == L':') return false;
         return true;
@@ -48,31 +45,30 @@ NativePluginResult validate_definition(const NativePluginHost& host,
                                       const NativePluginDefinition& definition) noexcept {
     if (!definition.owner_id || !definition.start || !definition.stop || !definition.state_alignment ||
         (definition.state_alignment & (definition.state_alignment - 1)) || definition.state_alignment > 64)
-        return {NativePluginError::invalid_argument, UiPageError::none, false};
+        return {NativePluginError::invalid_argument};
     if (definition.owner_id == host.policy.reserved_owner_id || native_plugin_host_find(host, definition.owner_id))
-        return {NativePluginError::duplicate_owner, UiPageError::none, false};
+        return {NativePluginError::duplicate_owner};
     if (definition.required_capabilities & (~host.policy.granted_capabilities | ~native_plugin_known_capabilities))
-        return {NativePluginError::capability_denied, UiPageError::none, false};
+        return {NativePluginError::capability_denied};
     if (definition.page_limit > host.policy.max_pages_per_plugin ||
         (definition.page_limit && !(definition.required_capabilities & native_plugin_capability_pages)) ||
         definition.state_bytes > kNativePluginModuleMaxStateBytes ||
         definition.state_bytes > host.policy.max_state_bytes_per_plugin ||
         host.state_bytes > host.policy.max_total_state_bytes ||
         definition.state_bytes > host.policy.max_total_state_bytes - host.state_bytes)
-        return {NativePluginError::budget, UiPageError::none, false};
+        return {NativePluginError::budget};
     for (u32 index = 0; index < host.pages->count; ++index) {
         if (ui_page_registry_at(*host.pages, index)->key.owner_id == definition.owner_id)
-            return {NativePluginError::duplicate_owner, UiPageError::none, false};
+            return {NativePluginError::duplicate_owner};
     }
     bool free_slot = false;
     for (u32 index = 0; index < host.slots.count; ++index) {
         const auto& slot = host.slots[index];
         if (slot.phase == NativePluginPhase::empty) free_slot = true;
         else if (slot.definition.owner_id == definition.owner_id)
-            return {NativePluginError::duplicate_owner, UiPageError::none, false};
+            return {NativePluginError::duplicate_owner};
     }
-    return {free_slot && host.generation != ~u64{0} ? NativePluginError::none : NativePluginError::capacity,
-        UiPageError::none, false};
+    return {free_slot && host.generation != ~u64{0} ? NativePluginError::none : NativePluginError::capacity};
 }
 
 // Called only after enable rollback or successful disable has removed every
@@ -117,8 +113,8 @@ NativePluginModuleResult failed_load(NativePluginModule* module, NativePluginMod
 static NativePluginModuleResult allocate_state(NativePluginModule* module, u32 state_bytes) noexcept {
     module->state_bytes = state_bytes;
     if (!state_bytes) return result(NativePluginModuleError::none);
-    SYSTEM_INFO system{};
-    GetSystemInfo(&system);
+    Win32SystemInfo system{};
+    GetSystemInfo(system.native());
     module->allocation_bytes = (static_cast<usize>(state_bytes) + system.dwPageSize - 1) /
         system.dwPageSize * system.dwPageSize;
     module->state = VirtualAlloc(nullptr, static_cast<SIZE_T>(module->allocation_bytes), MEM_RESERVE | MEM_COMMIT,
@@ -133,7 +129,7 @@ static NativePluginModuleResult query_error(NativePluginSdkQueryError error) noe
     case NativePluginSdkQueryError::owner:
     case NativePluginSdkQueryError::abi: return result(NativePluginModuleError::metadata_mismatch);
     case NativePluginSdkQueryError::budget:
-        return {NativePluginModuleError::host, {NativePluginError::budget, UiPageError::none, false}, 0};
+        return {NativePluginModuleError::host, {NativePluginError::budget}, 0};
     default: return result(NativePluginModuleError::query_failed);
     }
 }
@@ -196,7 +192,7 @@ NativePluginModuleResult native_plugin_module_load_declared(NativePluginModule* 
     if (manifest.min_host_abi > kPluginSdkHostAbi) return result(NativePluginModuleError::unsupported);
     const u64 expected_owner = manifest.owner_id;
     if (expected_owner == host->policy.reserved_owner_id || native_plugin_host_find(*host, expected_owner))
-        return host_result({NativePluginError::duplicate_owner, UiPageError::none, false});
+        return host_result({NativePluginError::duplicate_owner});
     // Allocate the module record before any filesystem handle is acquired; even a rare
     // failed CloseHandle remains visible and retryable through unload.
     module->integrity = static_cast<NativePluginVerifiedFile*>(VirtualAlloc(nullptr,

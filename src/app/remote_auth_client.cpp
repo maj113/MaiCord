@@ -87,16 +87,16 @@ template <usize Count> ConstSlice<u8> bytes(const char (&text)[Count]) noexcept 
     return ConstSlice<u8>{reinterpret_cast<const u8*>(text), static_cast<u32>(Count - 1)};
 }
 
-RemoteAuthClientPhase load_phase(const RemoteAuthClient* client) noexcept {
-    return client ? static_cast<RemoteAuthClientPhase>(
-                        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->phase), 0, 0))
-                  : RemoteAuthClientPhase::empty;
+template <typename T> T load_field(const volatile LONG& field) noexcept {
+    return static_cast<T>(InterlockedCompareExchange(const_cast<volatile LONG*>(&field), 0, 0));
 }
 
-RemoteAuthClientError load_error(const RemoteAuthClient* client) noexcept {
-    return client ? static_cast<RemoteAuthClientError>(
-                        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->error), 0, 0))
-                  : RemoteAuthClientError::invalid_input;
+u64 load_field64(const volatile LONG64& field) noexcept {
+    return static_cast<u64>(InterlockedCompareExchange64(const_cast<volatile LONG64*>(&field), 0, 0));
+}
+
+RemoteAuthClientPhase load_phase(const RemoteAuthClient* client) noexcept {
+    return load_field<RemoteAuthClientPhase>(client->phase);
 }
 
 void publish_phase(RemoteAuthClient* client, RemoteAuthClientPhase phase) noexcept {
@@ -109,80 +109,35 @@ RemoteAuthClientResult client_result(const RemoteAuthClient* client) noexcept {
         value.error = RemoteAuthClientError::invalid_input;
         return value;
     }
-    value.next_wake_at_ms = static_cast<u64>(
-        InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client->next_wake_at_ms), 0, 0));
-    value.ticket_error_code = static_cast<u64>(
-        InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client->ticket_error_code), 0, 0));
-    value.retry_at_ms = static_cast<u64>(
-        InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client->retry_at_ms), 0, 0));
-    value.native_error = static_cast<u32>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->native_error), 0, 0));
-    value.ticket_response_bytes = static_cast<u32>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_response_bytes), 0, 0));
-    value.ticket_decode_error_offset = static_cast<u32>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_decode_error_offset), 0, 0));
-    value.http_status = static_cast<u16>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->http_status), 0, 0));
-    value.handshake_error = static_cast<RemoteAuthHandshakeError>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->handshake_error), 0, 0));
-    value.handshake_stage = static_cast<RemoteAuthHandshakeStage>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->handshake_stage), 0, 0));
-    value.protocol_error = static_cast<RemoteAuthError>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->protocol_error), 0, 0));
-    value.crypto_error = static_cast<RemoteAuthCryptoError>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->crypto_error), 0, 0));
-    value.base64_error = static_cast<Base64Error>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->base64_error), 0, 0));
-    value.ticket_response_kind = static_cast<UserAuthResponseKind>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_response_kind), 0, 0));
-    value.ticket_decode_error = static_cast<UserAuthDecodeError>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_decode_error), 0, 0));
-    value.ticket_scan_error = static_cast<JsonScanError>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_scan_error), 0, 0));
-    value.ticket_read_error = static_cast<JsonReadError>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_read_error), 0, 0));
-    value.ticket_content_type = static_cast<RestContentType>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_content_type), 0, 0));
-    value.ticket_content_encoding = static_cast<RestContentEncoding>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_content_encoding), 0, 0));
-    value.ticket_body_kind = static_cast<RestBodyKind>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->ticket_body_kind), 0, 0));
-    value.captcha_provider = static_cast<CaptchaProvider>(
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->captcha_provider), 0, 0));
-    value.captcha_invisible =
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->captcha_invisible), 0, 0) != 0;
-    value.error = load_error(client);
+    value.next_wake_at_ms = load_field64(client->next_wake_at_ms);
+    value.ticket_error_code = load_field64(client->ticket_error_code);
+    value.retry_at_ms = load_field64(client->retry_at_ms);
+    value.native_error = load_field<u32>(client->native_error);
+    value.ticket_response_bytes = load_field<u32>(client->ticket_response_bytes);
+    value.ticket_decode_error_offset = load_field<u32>(client->ticket_decode_error_offset);
+    value.http_status = load_field<u16>(client->http_status);
+    value.handshake_error = load_field<RemoteAuthHandshakeError>(client->handshake_error);
+    value.handshake_stage = load_field<RemoteAuthHandshakeStage>(client->handshake_stage);
+    value.protocol_error = load_field<RemoteAuthError>(client->protocol_error);
+    value.crypto_error = load_field<RemoteAuthCryptoError>(client->crypto_error);
+    value.base64_error = load_field<Base64Error>(client->base64_error);
+    value.ticket_response_kind = load_field<UserAuthResponseKind>(client->ticket_response_kind);
+    value.ticket_decode_error = load_field<UserAuthDecodeError>(client->ticket_decode_error);
+    value.ticket_scan_error = load_field<JsonScanError>(client->ticket_scan_error);
+    value.ticket_read_error = load_field<JsonReadError>(client->ticket_read_error);
+    value.ticket_content_type = load_field<RestContentType>(client->ticket_content_type);
+    value.ticket_content_encoding = load_field<RestContentEncoding>(client->ticket_content_encoding);
+    value.ticket_body_kind = load_field<RestBodyKind>(client->ticket_body_kind);
+    value.captcha_provider = load_field<CaptchaProvider>(client->captcha_provider);
+    value.captcha_invisible = load_field<LONG>(client->captcha_invisible) != 0;
+    value.error = load_field<RemoteAuthClientError>(client->error);
     value.phase = load_phase(client);
     return value;
 }
 
 void publish_event(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
                    RemoteAuthClientEventKind kind) noexcept {
-    const RemoteAuthClientResult status = client_result(client);
-    RemoteAuthClientEvent event{};
-    event.next_wake_at_ms = status.next_wake_at_ms;
-    event.ticket_error_code = status.ticket_error_code;
-    event.retry_at_ms = status.retry_at_ms;
-    event.native_error = status.native_error;
-    event.ticket_response_bytes = status.ticket_response_bytes;
-    event.ticket_decode_error_offset = status.ticket_decode_error_offset;
-    event.http_status = status.http_status;
-    event.handshake_error = status.handshake_error;
-    event.handshake_stage = status.handshake_stage;
-    event.protocol_error = status.protocol_error;
-    event.crypto_error = status.crypto_error;
-    event.base64_error = status.base64_error;
-    event.ticket_response_kind = status.ticket_response_kind;
-    event.ticket_decode_error = status.ticket_decode_error;
-    event.ticket_scan_error = status.ticket_scan_error;
-    event.ticket_read_error = status.ticket_read_error;
-    event.ticket_content_type = status.ticket_content_type;
-    event.ticket_content_encoding = status.ticket_content_encoding;
-    event.ticket_body_kind = status.ticket_body_kind;
-    event.captcha_provider = status.captcha_provider;
-    event.captcha_invisible = status.captcha_invisible;
-    event.kind = kind;
-    event.error = status.error;
+    const RemoteAuthClientEvent event{client_result(client), kind};
     if (!spsc_queue_push(&runtime->events, event)) {
         InterlockedCompareExchange(&client->error, static_cast<LONG>(RemoteAuthClientError::event),
                                    static_cast<LONG>(RemoteAuthClientError::none));
@@ -603,9 +558,6 @@ void publish_ticket_status(RemoteAuthClient* client,
 
 void handle_ticket_event(void* context, const RemoteAuthTicketExchangeEvent& event) noexcept {
     auto* ticket = static_cast<TicketEventContext*>(context);
-    if (!ticket || !ticket->client || !ticket->runtime) {
-        return;
-    }
     publish_ticket_status(ticket->client, event.status);
     if (event.kind == RemoteAuthTicketExchangeEventKind::retrying) {
         publish_phase(ticket->client, RemoteAuthClientPhase::ticket_exchange);
@@ -812,10 +764,9 @@ bool tick_handshake(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
 }
 
 void drain_transport(RemoteAuthClientRuntime* runtime) noexcept {
-    const u32 socket_completions = (runtime->connection.connect_pending ? 1u : 0u) +
-                                   (runtime->connection.receive_pending ? 1u : 0u) +
-                                   (runtime->connection.send_pending ? 1u : 0u);
-    u32 remaining_socket = socket_completions;
+    u32 remaining_socket = (runtime->connection.connect_pending ? 1u : 0u) +
+                           (runtime->connection.receive_pending ? 1u : 0u) +
+                           (runtime->connection.send_pending ? 1u : 0u);
     if (runtime->resolver.pending) {
         network_resolver_cancel(&runtime->resolver);
     }
@@ -989,34 +940,47 @@ bool initialize_runtime(RemoteAuthClientRuntime* runtime, u32* native_error) noe
     return true;
 }
 
+// source_bytes names the field guarded by the snapshot lock, so it is read under that lock.
+bool copy_snapshot(const RemoteAuthClient& client, const char* source, const u32& source_bytes,
+                   Slice<char> output, u32* output_bytes) noexcept {
+    if (!output_bytes || (!output.data && output.count != 0))
+        return false;
+    AcquireSRWLockShared(client.snapshot_lock.native());
+    const u32 count = source_bytes;
+    const bool fits = count != 0 && count <= output.count && output.data;
+    if (fits)
+        copy_bytes(output.data, source, count);
+    *output_bytes = count;
+    ReleaseSRWLockShared(client.snapshot_lock.native());
+    return fits;
+}
+
+RemoteAuthClientResult start_failure(RemoteAuthClient* client, RemoteAuthClientError error,
+                                     u32 native_error) noexcept {
+    InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
+    InterlockedExchange(&client->error, static_cast<LONG>(error));
+    publish_phase(client, RemoteAuthClientPhase::failed);
+    return client_result(client);
+}
+
 } // namespace
 
 RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexcept {
     if (!client || client->runtime || client->thread ||
-        load_phase(client) != RemoteAuthClientPhase::empty) {
-        RemoteAuthClientResult value{};
-        value.error = RemoteAuthClientError::invalid_input;
-        return value;
-    }
+        load_phase(client) != RemoteAuthClientPhase::empty)
+        return client_result(nullptr);
     *client = RemoteAuthClient{};
     publish_phase(client, RemoteAuthClientPhase::starting);
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(
         VirtualAlloc(nullptr, sizeof(RemoteAuthClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!runtime) {
-        InterlockedExchange(&client->native_error, thread_last_error());
-        InterlockedExchange(&client->error, static_cast<LONG>(RemoteAuthClientError::memory));
-        publish_phase(client, RemoteAuthClientPhase::failed);
-        return client_result(client);
-    }
+    if (!runtime)
+        return start_failure(client, RemoteAuthClientError::memory, thread_last_error());
     client->runtime = runtime;
     u32 native_error = 0;
     if (!initialize_runtime(runtime, &native_error)) {
         release_runtime(runtime);
         client->runtime = nullptr;
-        InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
-        InterlockedExchange(&client->error, static_cast<LONG>(RemoteAuthClientError::memory));
-        publish_phase(client, RemoteAuthClientPhase::failed);
-        return client_result(client);
+        return start_failure(client, RemoteAuthClientError::memory, native_error);
     }
     client->ready_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     client->notification_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -1035,10 +999,7 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
             CloseHandle(client->ready_event);
         release_runtime(runtime);
         *client = RemoteAuthClient{};
-        InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
-        InterlockedExchange(&client->error, static_cast<LONG>(RemoteAuthClientError::event));
-        publish_phase(client, RemoteAuthClientPhase::failed);
-        return client_result(client);
+        return start_failure(client, RemoteAuthClientError::event, native_error);
     }
     constexpr usize kStackReserve = 256 * 1024;
     client->thread = CreateThread(nullptr, kStackReserve, remote_auth_thread, client,
@@ -1051,10 +1012,7 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
         CloseHandle(client->ready_event);
         release_runtime(runtime);
         *client = RemoteAuthClient{};
-        InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
-        InterlockedExchange(&client->error, static_cast<LONG>(RemoteAuthClientError::thread));
-        publish_phase(client, RemoteAuthClientPhase::failed);
-        return client_result(client);
+        return start_failure(client, RemoteAuthClientError::thread, native_error);
     }
     const DWORD ready = WaitForSingleObject(client->ready_event, 5'000);
     if (ready != WAIT_OBJECT_0) {
@@ -1069,11 +1027,8 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
 }
 
 RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient* client) noexcept {
-    if (!client || !client->runtime || !client->thread) {
-        RemoteAuthClientResult value{};
-        value.error = RemoteAuthClientError::invalid_input;
-        return value;
-    }
+    if (!client || !client->runtime || !client->thread)
+        return client_result(nullptr);
     AcquireSRWLockExclusive(client->snapshot_lock.native());
     const RemoteAuthClientPhase phase = load_phase(client);
     if (phase == RemoteAuthClientPhase::authenticated || phase == RemoteAuthClientPhase::cancelled ||
@@ -1093,11 +1048,8 @@ RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient* client) noexc
 }
 
 RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 timeout_ms) noexcept {
-    if (!client || !client->runtime || !client->thread || timeout_ms == 0) {
-        RemoteAuthClientResult value{};
-        value.error = RemoteAuthClientError::invalid_input;
-        return value;
-    }
+    if (!client || !client->runtime || !client->thread || timeout_ms == 0)
+        return client_result(nullptr);
     AcquireSRWLockExclusive(client->snapshot_lock.native());
     if (load_phase(client) == RemoteAuthClientPhase::authenticated) {
         // Authentication publication proves the worker finished writing this
@@ -1186,38 +1138,12 @@ bool remote_auth_client_pop_event(RemoteAuthClient* client, RemoteAuthClientEven
 
 bool remote_auth_client_copy_qr_url(const RemoteAuthClient& client, Slice<char> output,
                                     u32* output_bytes) noexcept {
-    if (!output_bytes || (!output.data && output.count != 0)) {
-        return false;
-    }
-    AcquireSRWLockShared(client.snapshot_lock.native());
-    const u32 bytes_to_copy = client.qr_url_bytes;
-    if (bytes_to_copy == 0 || bytes_to_copy > output.count || !output.data) {
-        *output_bytes = bytes_to_copy;
-        ReleaseSRWLockShared(client.snapshot_lock.native());
-        return false;
-    }
-    copy_bytes(output.data, client.qr_url, bytes_to_copy);
-    *output_bytes = bytes_to_copy;
-    ReleaseSRWLockShared(client.snapshot_lock.native());
-    return true;
+    return copy_snapshot(client, client.qr_url, client.qr_url_bytes, output, output_bytes);
 }
 
 bool remote_auth_client_copy_user(const RemoteAuthClient& client, Slice<char> output,
                                   u32* output_bytes) noexcept {
-    if (!output_bytes || (!output.data && output.count != 0)) {
-        return false;
-    }
-    AcquireSRWLockShared(client.snapshot_lock.native());
-    const u32 bytes_to_copy = client.user_bytes;
-    if (bytes_to_copy == 0 || bytes_to_copy > output.count || !output.data) {
-        *output_bytes = bytes_to_copy;
-        ReleaseSRWLockShared(client.snapshot_lock.native());
-        return false;
-    }
-    copy_bytes(output.data, client.user, bytes_to_copy);
-    *output_bytes = bytes_to_copy;
-    ReleaseSRWLockShared(client.snapshot_lock.native());
-    return true;
+    return copy_snapshot(client, client.user, client.user_bytes, output, output_bytes);
 }
 
 SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient* client,

@@ -4,7 +4,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -105,8 +105,8 @@ AcceptanceRecordResult read_cache(const PluginManagerPaths& paths, u64 provider,
         return {native == ERROR_FILE_NOT_FOUND ? AcceptanceRecordError::missing : AcceptanceRecordError::open, native};
     }
     result = acceptance_record_disk_file(file);
-    LARGE_INTEGER size{};
-    if (result.ok() && !GetFileSizeEx(file, &size)) result = {AcceptanceRecordError::size, GetLastError()};
+    Win32LargeInteger size{};
+    if (result.ok() && !GetFileSizeEx(file, size.native())) result = {AcceptanceRecordError::size, GetLastError()};
     if (result.ok() && (size.QuadPart <= 64 || size.QuadPart > 64 + kPluginIndexMaximumBytes)) result = {AcceptanceRecordError::size, 0};
     u32 native = 0;
     if (result.ok() && !file_persistence_read_complete(file, {work->record, static_cast<u32>(size.QuadPart)}, &native))
@@ -121,8 +121,8 @@ bool cache_current(const PluginManagerPaths& paths, u64 provider, const PluginIn
     if (!cache_path(paths, provider, path)) return false;
     const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
-    LARGE_INTEGER size{};
-    bool same = acceptance_record_disk_file(file).ok() && GetFileSizeEx(file, &size) && size.QuadPart == 64 + work.document_bytes;
+    Win32LargeInteger size{};
+    bool same = acceptance_record_disk_file(file).ok() && GetFileSizeEx(file, size.native()) && size.QuadPart == 64 + work.document_bytes;
     u8 chunk[4096];
     for (u32 at = 0; same && at < 64 + work.document_bytes;) {
         const u32 n = minimum<u32>(sizeof(chunk), 64 + work.document_bytes - at);

@@ -36,7 +36,7 @@
 #include "maicord/app/navigation_shortcuts.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -58,6 +58,12 @@ bool consume_shortcut_tail(UiInputKind kind, u32 code) noexcept {
     if (kind == UiInputKind::key_down && code != shortcut_held_key)
         shortcut_held_key = 0;
     return false;
+}
+
+// Escape-style cancellations apply only when no edit or reply is in progress.
+bool no_edit_or_reply() noexcept {
+    return !g_app.message_edit.editor_active &&
+           (!g_app.account_ui || !g_app.account_ui->message_composer_controller.reply_message_id);
 }
 
 UiInputDisposition disposition(bool handled) noexcept {
@@ -136,26 +142,21 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
                                         ? application_shortcut_action(event.code)
                                         : ShortcutAction::none;
     if (event.kind == UiInputKind::key_down && !event.repeated && shortcut == ShortcutAction::mark_server_read &&
-        !g_app.message_edit.editor_active &&
-        (!g_app.account_ui || !g_app.account_ui->message_composer_controller.reply_message_id) &&
-        application_scoped_read_shortcut()) {
+        no_edit_or_reply() && application_scoped_read_shortcut()) {
         navigation_held_key = event.code;
         return UiInputDisposition::handled;
     }
     // Modal layers have first refusal above. Keep an editor's Escape semantics,
     // then let an unobscured pending link retire before ordinary pane focus.
     if (event.kind == UiInputKind::key_down && event.code == VK_ESCAPE && !event.repeated &&
-        !g_app.message_edit.editor_active &&
-        (!g_app.account_ui || !g_app.account_ui->message_composer_controller.reply_message_id) &&
-        application_message_navigation_cancel()) {
+        no_edit_or_reply() && application_message_navigation_cancel()) {
         navigation_held_key = event.code;
         return UiInputDisposition::handled;
     }
     // The official client's plain Escape: mark read and return to the live edge once
     // edits, replies and pending attachments have had first refusal.
     if (event.kind == UiInputKind::key_down && !event.repeated && shortcut == ShortcutAction::mark_channel_read &&
-        !g_app.message_edit.editor_active &&
-        (!g_app.account_ui || !g_app.account_ui->message_composer_controller.reply_message_id) &&
+        no_edit_or_reply() &&
         (!g_app.context_focus || g_app.context_focus == &g_app.message_scene.widgets ||
          g_app.context_focus == &g_app.message_composer_scene.widgets) &&
         application_unread_banner_escape()) {

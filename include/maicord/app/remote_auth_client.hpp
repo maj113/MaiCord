@@ -66,32 +66,6 @@ enum class RemoteAuthClientEventKind : u8 {
     stopped,
 };
 
-struct RemoteAuthClientEvent {
-    u64 next_wake_at_ms;
-    u64 ticket_error_code;
-    u64 retry_at_ms;
-    u32 native_error;
-    u32 ticket_response_bytes;
-    u32 ticket_decode_error_offset;
-    u16 http_status;
-    RemoteAuthHandshakeError handshake_error;
-    RemoteAuthHandshakeStage handshake_stage;
-    RemoteAuthError protocol_error;
-    RemoteAuthCryptoError crypto_error;
-    Base64Error base64_error;
-    UserAuthResponseKind ticket_response_kind;
-    UserAuthDecodeError ticket_decode_error;
-    JsonScanError ticket_scan_error;
-    JsonReadError ticket_read_error;
-    RestContentType ticket_content_type;
-    RestContentEncoding ticket_content_encoding;
-    RestBodyKind ticket_body_kind;
-    CaptchaProvider captcha_provider;
-    bool captcha_invisible;
-    RemoteAuthClientEventKind kind;
-    RemoteAuthClientError error;
-};
-
 struct RemoteAuthClientResult {
     u64 next_wake_at_ms;
     u64 ticket_error_code;
@@ -120,6 +94,11 @@ struct RemoteAuthClientResult {
     constexpr bool ok() const noexcept {
         return error == RemoteAuthClientError::none;
     }
+};
+
+// The client status as of the moment the worker published the event.
+struct RemoteAuthClientEvent : RemoteAuthClientResult {
+    RemoteAuthClientEventKind kind;
 };
 
 struct RemoteAuthClient {

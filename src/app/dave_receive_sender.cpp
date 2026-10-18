@@ -2,8 +2,10 @@
 #include "maicord/app/dave_receive_sender.hpp"
 #include "maicord/app/mls_exporter.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 struct DaveReceiveNode {
@@ -13,9 +15,6 @@ struct DaveReceiveNode {
 };
 namespace {
 constexpr u64 never = ~u64{0};
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
 u64 deadline(u64 now, u64 duration) noexcept {
     return duration > never - now ? never : now + duration;
 }
@@ -28,16 +27,16 @@ DaveSenderError validate(const DaveReceiveSender& sender, DaveReceiveIdentity id
     return now < sender.last_now_ms ? DaveSenderError::invalid_time : DaveSenderError::none;
 }
 bool external(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
-    if (!byte_range_valid(span) || byte_ranges_overlap(span, bytes(sender)))
+    if (!byte_range_valid(span) || byte_ranges_overlap(span, object_bytes(sender)))
         return false;
     for (const auto* node = sender.newest; node; node = node->older)
-        if (byte_ranges_overlap(span, bytes(*node)) || dave_receive_epoch_aliases(node->epoch, span))
+        if (byte_ranges_overlap(span, object_bytes(*node)) || dave_receive_epoch_aliases(node->epoch, span))
             return false;
     return true;
 }
 void destroy(DaveReceiveNode* node) noexcept {
     dave_receive_epoch_release(&node->epoch);
-    SecureZeroMemory(node, sizeof(*node));
+    secure_clear_bytes(node, sizeof(*node));
     VirtualFree(node, 0, MEM_RELEASE);
 }
 void collect(DaveReceiveSender& sender, u64 now) noexcept {
@@ -130,7 +129,7 @@ DaveSenderTransitionResult dave_receive_sender_transition_exporter(
         return {{}, 0, valid};
     if (!revision || revision <= sender.latest_revision)
         return {{}, 0, DaveSenderError::stale_transition};
-    if (!external(sender, exporter_secret) || !external(sender, bytes(workspace)) ||
+    if (!external(sender, exporter_secret) || !external(sender, object_bytes(workspace)) ||
         !external(sender, {workspace.storage.data, workspace.storage.capacity}))
         return {{}, 0, DaveSenderError::invalid_input};
     u8 seed[16];
@@ -138,7 +137,7 @@ DaveSenderTransitionResult dave_receive_sender_transition_exporter(
     auto result = exported.ok() ? dave_receive_sender_transition(sender, identity, revision, {seed, 16},
                                                                  now, grace, backend)
                                 : DaveSenderTransitionResult{exported, 0, DaveSenderError::epoch_export};
-    SecureZeroMemory(seed, sizeof(seed));
+    secure_clear_bytes(seed, sizeof(seed));
     return result;
 }
 DaveSenderError dave_receive_sender_retire(DaveReceiveSender& sender, DaveReceiveIdentity identity,
@@ -170,10 +169,9 @@ DaveSenderOpenResult dave_receive_sender_open(DaveReceiveSender& sender, DaveRec
         return fail(DaveSenderError::not_initialized);
     const ConstSlice<u8> spans[]{frame, {scratch.data, scratch.count}, {output.data, output.count}};
     for (auto span : spans)
-        if (!external(sender, span) || byte_ranges_overlap(span, bytes(workspace)) ||
-            byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity}))
+        if (!external(sender, span) || aliases_workspace(workspace, span))
             return fail(DaveSenderError::invalid_input);
-    if (!external(sender, bytes(workspace)) ||
+    if (!external(sender, object_bytes(workspace)) ||
         !external(sender, {workspace.storage.data, workspace.storage.capacity}) ||
         byte_ranges_overlap({scratch.data, scratch.count}, frame) ||
         byte_ranges_overlap({scratch.data, scratch.count}, {output.data, output.count}) ||

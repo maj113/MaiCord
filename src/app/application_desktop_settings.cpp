@@ -1,10 +1,8 @@
 #include "application_desktop.hpp"
 #include "application_state.hpp"
-#include "application_update_startup.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -31,25 +29,6 @@ void observe(bool force) noexcept {
     g_registered.known = true;
 }
 } // namespace
-
-ConstSlice<wchar_t> application_desktop_registration_executable(wchar_t* buffer, u32 capacity) noexcept {
-    // A generation folder is deleted by a later update; register the
-    // dispatcher (the stable MaiCord.exe), as the notification identity does.
-    wchar_t module[1024], inherited[1024];
-    const u32 m = GetModuleFileNameW(nullptr, module, 1024);
-    if (!buffer || !m || m >= 1024)
-        return {};
-    u32 d = GetEnvironmentVariableW(kApplicationUpdateDispatcherVariable, inherited, 1024);
-    const DWORD attributes = d && d < 1024 ? GetFileAttributesW(inherited) : INVALID_FILE_ATTRIBUTES;
-    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY))
-        d = 0;
-    const auto path = application_update_startup_registration_path({module, m}, {inherited, d});
-    if (!path.count || path.count >= capacity)
-        return {};
-    copy_bytes(buffer, path.data, path.count * sizeof(wchar_t));
-    buffer[path.count] = 0;
-    return {buffer, path.count};
-}
 
 bool application_desktop_settings_project(SettingBinding binding, UiSettingsControl* control) noexcept {
     if (!control)

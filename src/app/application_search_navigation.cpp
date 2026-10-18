@@ -53,6 +53,16 @@ bool deleted(u64 id) noexcept {
     for (u64 value : navigation.deleted_channels) if (id && value == id) return true;
     return false;
 }
+bool readable(const ChannelRecord* channel) noexcept {
+    constexpr u32 required = channel_action_view | channel_action_read_history;
+    const auto* guild = navigation.target_guild ?
+        chat_state_store_find_guild(g_app.account_ui->chat_state, navigation.target_guild) : nullptr;
+    return channel && channel->occupied && channel->id == navigation.target_channel &&
+        channel->guild_id == navigation.target_guild && channel_is_message_capable(channel->type) &&
+        !(channel->flags & kChannelObfuscatedFlag) &&
+        (channel_is_private(channel->type) || (channel->permissions_resolved && guild && !guild->unavailable)) &&
+        (channel->actions & required) == required && application_channel_readable(g_app, channel->id);
+}
 
 bool current() noexcept {
     ApplicationSearchNavigationSource source{};
@@ -69,17 +79,10 @@ bool current() noexcept {
     }
     if (navigation.admitted) {
         const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, navigation.target_channel);
-        constexpr u32 required = channel_action_view | channel_action_read_history;
-        const auto* guild = navigation.target_guild ?
-            chat_state_store_find_guild(g_app.account_ui->chat_state, navigation.target_guild) : nullptr;
         return (navigation.selecting || (g_app.account_ui->active_channel_id == navigation.target_channel &&
             g_app.account_ui->chat_state.selected_channel_id == navigation.target_channel &&
-            g_app.load_trace.channel_epoch == navigation.target_epoch)) && channel &&
-            channel->guild_id == navigation.target_guild && channel->generation == navigation.admitted_generation &&
-            channel_is_message_capable(channel->type) &&
-            !(channel->flags & kChannelObfuscatedFlag) &&
-            (channel_is_private(channel->type) || (channel->permissions_resolved && guild && !guild->unavailable)) &&
-            (channel->actions & required) == required && application_channel_readable(g_app, channel->id);
+            g_app.load_trace.channel_epoch == navigation.target_epoch)) && readable(channel) &&
+            channel->generation == navigation.admitted_generation;
     }
     if (navigation.source_epoch != g_app.load_trace.channel_epoch) return false;
     if (navigation.timeline) return timeline_current(navigation.timeline_source);
@@ -120,20 +123,10 @@ void finish(Utf8View text, ApplicationMessageNavigationStage stage = Application
     navigation.phase = MessageNavigationPhase::idle;
     navigation.retry_at = 0;
 }
-bool readable(const ChannelRecord* channel) noexcept {
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    const auto* guild = navigation.target_guild ?
-        chat_state_store_find_guild(g_app.account_ui->chat_state, navigation.target_guild) : nullptr;
-    return channel && channel->occupied && channel->id == navigation.target_channel &&
-        channel->guild_id == navigation.target_guild && channel_is_message_capable(channel->type) &&
-        !(channel->flags & kChannelObfuscatedFlag) &&
-        (channel_is_private(channel->type) || (channel->permissions_resolved && guild && !guild->unavailable)) &&
-        (channel->actions & required) == required && application_channel_readable(g_app, channel->id);
-}
 bool navigate() noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state,
                                                            navigation.target_channel);
-    if (channel && (channel->type == 10 || channel->type == 11 || channel->type == 12))
+    if (channel && channel_is_thread(channel->type))
         navigation.parent = channel->parent_id;
     if (!current()) {
         finish(utf8_literal("The source message changed. Try Jump again."), ApplicationMessageNavigationStage::source_changed);
@@ -204,7 +197,6 @@ void retire() noexcept {
     if (g_app.account.instance != navigation.account_instance) navigation.request_id = 0;
     // Keep the ID until the scheduler drains its exact owned completion.
 }
-bool thread(u8 type) noexcept { return type == 10 || type == 11 || type == 12; }
 }
 
 bool application_search_navigation_begin(const ApplicationSearchSourceTicket& ticket) noexcept {
@@ -268,7 +260,7 @@ bool begin_navigation(const ApplicationSearchNavigationSource& source, const Mes
         return true;
     }
     if (channel) {
-        if (!thread(channel->type) || channel->permissions_resolved) return navigate();
+        if (!channel_is_thread(channel->type) || channel->permissions_resolved) return navigate();
         notice(utf8_literal("Loading thread…"), ApplicationMessageNavigationStage::waiting_channel);
         return true;
     }
@@ -474,7 +466,7 @@ bool application_search_navigation_response(const RestClientResponse& response, 
     if (!routed.ok() || event.state.id != navigation.requested_channel ||
         event.state.guild_id != navigation.target_guild || !event.state.guild_id ||
         (event.state.flags & kChannelObfuscatedFlag) ||
-        (navigation.phase == MessageNavigationPhase::parent && thread(event.state.type))) {
+        (navigation.phase == MessageNavigationPhase::parent && channel_is_thread(event.state.type))) {
         finish(utf8_literal("Couldn't load the channel. Try again.")); return true;
     }
     const auto* resident = chat_state_store_find_channel(ui.chat_state, event.state.id);
@@ -484,14 +476,15 @@ bool application_search_navigation_response(const RestClientResponse& response, 
         resident->generation != navigation.resident_generation || resident->revision != navigation.resident_revision);
     const u8 type = newer ? resident->type : event.state.type;
     const u64 parent = newer ? resident->parent_id : event.state.parent_id;
-    if (deleted(event.state.id) || (thread(type) && deleted(parent))) {
+    if (deleted(event.state.id) || (channel_is_thread(type) && deleted(parent))) {
         finish(utf8_literal("This thread or its parent is no longer available."), ApplicationMessageNavigationStage::failure_parent, 404); return true;
     }
     if (resident && resident->guild_id != navigation.target_guild) {
         finish(utf8_literal("This channel is no longer in this server.")); return true;
     }
-    if (navigation.phase == MessageNavigationPhase::channel && thread(type)) navigation.parent = parent;
-    if (thread(type) && !chat_state_store_find_channel(ui.chat_state, parent)) {
+    if (navigation.phase == MessageNavigationPhase::channel && channel_is_thread(type))
+        navigation.parent = parent;
+    if (channel_is_thread(type) && !chat_state_store_find_channel(ui.chat_state, parent)) {
         if (!parent || navigation.parent_fetched || parent == navigation.target_channel) {
             finish(utf8_literal("The parent channel for this thread is unavailable."), ApplicationMessageNavigationStage::failure_parent); return true;
         }

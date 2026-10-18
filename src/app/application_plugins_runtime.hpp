@@ -5,6 +5,9 @@
 #include "maicord/app/plugin_bundle_install.hpp"
 #include "maicord/core/utf.hpp"
 
+namespace maicord {
+enum class RelationshipType : u8;
+}
 namespace maicord::app_detail {
 struct ApplicationPluginCatalogOwner;
 // ABI-5 runtime, call accounting and the notices they produce. Allocated with
@@ -51,6 +54,10 @@ struct ApplicationPlugins {
 };
 static_assert(sizeof(ApplicationPlugins) <= 12288);
 
+// The ABI-5 runtime, null while the plugins owner or its SDK is not allocated.
+NativePluginSdkRuntime* application_plugins_runtime() noexcept;
+// MC_RELATIONSHIP_* of a relationship type (application_plugins_read.cpp).
+u32 application_plugins_relationship_kind(RelationshipType) noexcept;
 // Shared between application_plugins.cpp and application_plugins_sdk.cpp.
 bool application_plugins_save_choices(ApplicationPlugins&, const NativePluginPreferences&) noexcept;
 // Creates the ABI-5 runtime and opens the call marker; reports a plugin that

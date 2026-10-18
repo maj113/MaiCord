@@ -45,6 +45,7 @@
 #include "maicord/ui/scroll_host.hpp"
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/thread_header.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationVideo;
@@ -453,6 +454,42 @@ struct Application {
 };
 
 extern Application g_app;
+
+// Microseconds since process start on the application clock.
+inline u64 application_now_us() noexcept {
+    return clock_microseconds(g_app.clock, g_app.process_start, clock_now());
+}
+
+// Resident timeline record of a message, or null.
+inline const MessageRecord* application_message_record(u64 id) noexcept {
+    const auto found = message_store_find(g_app.message_view.store, id);
+    return found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+}
+
+// Scope key of the active account: the plugin scope serial, else the profile id.
+inline u64 application_account_scope() noexcept {
+    return g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
+                                             : g_app.account.status.profile_id;
+}
+
+// The signed-in account UI can issue requests.
+inline bool application_account_available() noexcept {
+    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
+}
+
+// Channel record of the active account, or null.
+inline const ChannelRecord* application_channel_record(u64 id) noexcept {
+    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id) : nullptr;
+}
+
+// Next account REST request id; zero means "no request" and is skipped.
+inline u64 application_next_request_id() noexcept {
+    u64& id = g_app.account_ui->message_history_request_id;
+    if (!++id)
+        ++id;
+    return id;
+}
+
 const Theme& application_theme() noexcept;
 bool application_refresh_theme_consumers(bool typography_changed, bool geometry_changed) noexcept;
 bool application_synchronize_theme_consumers() noexcept;
@@ -460,5 +497,10 @@ void application_theme_release() noexcept;
 
 // UI-thread only. Worker completions reach this through the main event pump.
 bool application_request_frame() noexcept;
+// Drops the retained presentation and schedules a frame.
+inline void application_repaint() noexcept {
+    g_app.renderer.retained_presentation.valid = false;
+    application_request_frame();
+}
 
 } // namespace maicord::app_detail

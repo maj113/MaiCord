@@ -59,7 +59,7 @@ struct ApplicationProfile {
     // The note field: its editor while editing and the text the card shows.
     MessageComposer note;
     u64 note_user;
-    u32 note_text_revision, note_display_bytes;
+    u32 note_text_revision;
     char note_display[kUserNoteMaximumBytes];
 };
 bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind = ProfileAnchor::point) noexcept;

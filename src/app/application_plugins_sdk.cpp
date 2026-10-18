@@ -9,16 +9,12 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
 
 ApplicationPluginsSdk* owner() noexcept { return g_app.plugins ? g_app.plugins->sdk : nullptr; }
-NativePluginSdkRuntime* runtime() noexcept {
-    auto* sdk = owner();
-    return sdk ? &sdk->runtime : nullptr;
-}
 u64 monotonic() noexcept { return clock_monotonic_milliseconds(); }
 // Turns a plugin off after a call returned over budget: unload it and keep it
 // off across restarts until the user enables it again.
@@ -53,7 +49,7 @@ void turn_off(ApplicationPlugins& plugins, u64 owner_id, u32 flag) noexcept {
 }
 u32 slot_query(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
                Slice<UiPluginSlotNode> output) noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     if (!rt || !output.data) return 0;
     NativePluginSdkSlotNode nodes[16]{};
     const u32 count = native_plugin_sdk_slots(*rt, {surface, channel_id, message_id, user_id, guild_id},
@@ -77,6 +73,11 @@ bool edit_save(TextFormOwnerKey key, Utf8View text) noexcept {
     return result == NativePluginError::none;
 }
 } // namespace
+
+NativePluginSdkRuntime* application_plugins_runtime() noexcept {
+    auto* sdk = owner();
+    return sdk ? &sdk->runtime : nullptr;
+}
 
 bool application_plugins_sdk_open(ApplicationPlugins& plugins, PluginCallMarker* leftover) noexcept {
     if (leftover) *leftover = {};
@@ -156,12 +157,12 @@ void application_plugins_sdk_poll(ApplicationPlugins& plugins) noexcept {
 }
 
 bool application_plugins_command_pending() noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     return rt && native_plugin_sdk_command_matches(*rt, message_composer_text(g_app.message_composer));
 }
 
 u32 application_plugins_commands(Utf8View prefix, Slice<NativePluginSdkCommandView> output) noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     return rt ? native_plugin_sdk_commands(*rt, prefix, output) : 0;
 }
 
@@ -219,12 +220,12 @@ void application_plugins_slots_rendered() noexcept {
 }
 
 u64 application_plugins_slot_revision() noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     return rt ? rt->slot_revision : 0;
 }
 
 bool application_plugins_slot_action(u64 owner_id, NativePluginSdkSlotTarget target, u64 action_id) noexcept {
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     return rt && !application_plugins_busy() && native_plugin_sdk_slot_action(rt, owner_id, target, action_id);
 }
 

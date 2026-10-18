@@ -16,6 +16,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 namespace {
 UiUnreadBannerScene g_banner{};
@@ -190,8 +192,7 @@ bool application_unread_banner_synchronize(u64 now_ms) noexcept {
                                                  timeline_presented() ? g_app.message_scene.viewport : UiRect{},
                                                  owner, now_ms, motion_allowed());
     if (changed || notice_changed) {
-        g_app.renderer.retained_presentation.valid = false;
-        application_request_frame();
+        application_repaint();
     }
     // The hover toolbar belongs to the timeline layer: these bars draw above
     // it, so it clips (or hides) itself where they cover it.

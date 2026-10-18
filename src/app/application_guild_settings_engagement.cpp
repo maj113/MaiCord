@@ -97,6 +97,17 @@ void toggle(const SettingsLayerActivation& activation) noexcept {
                                      clock_monotonic_milliseconds());
 }
 
+// The server ID, or with `json` the widget's JSON API address.
+Utf8View widget_text(Bank& bank, bool json) noexcept {
+    const u32 start = bank.used;
+    if (json)
+        bank.add(utf8_literal("https://discord.com/api/guilds/"));
+    bank.number(owner->guild_id);
+    if (json)
+        bank.add(utf8_literal("/widget.json"));
+    return bank.since(start);
+}
+
 void project(Bank& bank) noexcept {
     auto& p = *owner;
     auto& d = p.engagement_draft;
@@ -193,43 +204,20 @@ void project(Bank& bank) noexcept {
     push({control_widget_channel, utf8_literal("Invite Channel"),
           utf8_literal("With a channel selected, the widget offers an invite link to it."),
           UiSettingsControlKind::choice, edit, false, {p.widget_choice, 1}, 0, {}, nullptr});
-    const u32 id_start = bank.mark();
-    bank.number(p.guild_id);
-    push({control_widget_id, utf8_literal("Server ID"), bank.since(id_start), UiSettingsControlKind::action, true,
+    push({control_widget_id, utf8_literal("Server ID"), widget_text(bank, false), UiSettingsControlKind::action, true,
           false, {}, 0, utf8_literal("Copy"), nullptr},
          {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    const u32 json_start = bank.mark();
-    bank.add(utf8_literal("https://discord.com/api/guilds/"));
-    bank.number(p.guild_id);
-    bank.add(utf8_literal("/widget.json"));
-    push({control_widget_json, utf8_literal("JSON API"), bank.since(json_start), UiSettingsControlKind::action, true,
+    push({control_widget_json, utf8_literal("JSON API"), widget_text(bank, true), UiSettingsControlKind::action, true,
           false, {}, 0, utf8_literal("Copy"), nullptr},
          {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-}
-
-void copy_row(u64 id) noexcept {
-    char text[96];
-    Bank bank{text, sizeof(text), 0};
-    if (id == control_widget_json)
-        bank.add(utf8_literal("https://discord.com/api/guilds/"));
-    bank.number(owner->guild_id);
-    if (id == control_widget_json)
-        bank.add(utf8_literal("/widget.json"));
-    clipboard_write_utf8(g_app.window, bank.since(0));
 }
 
 void open_timeout_menu(UiRect anchor) noexcept {
     auto& p = *owner;
-    u32 count = 0;
-    for (u32 i = 0; i < sizeof(kGuildAfkTimeouts) / sizeof(u32); ++i) {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = kAfkLabels[i];
-        p.popup_items[count].action = kMenuChoiceBase + i;
-        p.popup_items[count].flags = static_cast<u16>(
-            popup_item_enabled |
-            (kGuildAfkTimeouts[i] == p.engagement_draft.afk_timeout_seconds ? popup_item_checked : 0));
-        ++count;
-    }
+    constexpr u32 count = sizeof(kGuildAfkTimeouts) / sizeof(u32);
+    for (u32 i = 0; i < count; ++i)
+        popup_row(i, kAfkLabels[i], i,
+                  kGuildAfkTimeouts[i] == p.engagement_draft.afk_timeout_seconds ? popup_item_checked : 0);
     p.menu = Menu::afk_timeout;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 240);
 }
@@ -239,7 +227,9 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     auto& d = p.engagement_draft;
     const u64 id = activation.value.target.control_id;
     if (id == control_widget_id || id == control_widget_json) {
-        copy_row(id);
+        char text[96];
+        Bank bank{text, sizeof(text), 0};
+        clipboard_write_utf8(g_app.window, widget_text(bank, id == control_widget_json));
         return;
     }
     if (!can_manage_guild())

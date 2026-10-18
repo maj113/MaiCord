@@ -18,8 +18,7 @@ inline constexpr u32 kVoiceVideoUnwantedUsers = 32;
 using VoiceVideoDecrypt = DaveMediaResult (*)(void* context, u64 user_id, u32 ssrc, ConstSlice<u8> frame,
                                               Slice<u8> scratch, Slice<u8> output) noexcept;
 struct VoiceVideoStats {
-    u64 packets, rtcp, ignored, frames, delivered, dave_rejected, dropped, keyframe_requests, feedback_sent,
-        streams_ended;
+    u64 packets, delivered, dave_rejected, keyframe_requests;
 };
 // A remote participant announcing an active camera or screen stream (op 12).
 struct VoiceVideoUser {

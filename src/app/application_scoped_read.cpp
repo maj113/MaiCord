@@ -7,7 +7,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -508,12 +508,7 @@ void application_scoped_read_superseded(u64 channel, u64 serial) noexcept {
     auto* row = target(*o, channel);
     if (!row || row->action_serial == serial)
         return;
-    const u64 old = row->action_serial;
-    bulk_read_ack_cancel(&o->queue, channel, old);
-    application_read_state_scoped_cancel(channel, old);
-    auto* rows = stable_storage_data<ScopedTarget>(o->targets);
-    const u32 at = static_cast<u32>(row - rows);
-    rows[at] = rows[--o->target_count];
+    remove_target(*o, static_cast<u32>(row - stable_storage_data<ScopedTarget>(o->targets)));
     recount(*o);
     publish(*o);
 }
@@ -568,8 +563,8 @@ ApplicationScopedReadMetrics application_scoped_read_metrics() noexcept {
     const auto* o = g_app.scoped_read;
     if (!o)
         return m;
-    MEMORY_BASIC_INFORMATION region{};
-    VirtualQuery(o, &region, sizeof(region));
+    Win32MemoryInformation region{};
+    VirtualQuery(o, region.native(), sizeof(region));
     m.owner_bytes = sizeof(*o);
     m.owner_reserved_bytes = static_cast<u32>(region.RegionSize);
     m.owner_committed_bytes = m.owner_reserved_bytes;

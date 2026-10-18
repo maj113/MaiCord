@@ -2,9 +2,11 @@
 // Internal helpers shared by the DAVE MLS group implementation.
 #include "maicord/app/dave_key_derivation.hpp"
 #include "maicord/app/mls_tree.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
 #include "maicord/protocol/mls_reader.hpp"
+#include "byte_views.hpp"
 
 #include "maicord/core/win32_types.hpp"
 
@@ -19,12 +21,6 @@ inline bool mls_equal(const void* left, const void* right, u32 bytes) noexcept {
     for (u32 i = 0; i != bytes; ++i)
         difference |= a[i] ^ b[i];
     return difference == 0;
-}
-template <u32 N> constexpr ConstSlice<u8> mls_text(const char (&value)[N]) noexcept {
-    return {reinterpret_cast<const u8*>(value), N - 1};
-}
-inline MlsStatus mls_wire(const MlsReader& reader) noexcept {
-    return reader.error == MlsWireError::none ? MlsStatus::ok : MlsStatus::malformed;
 }
 inline bool mls_done(const MlsReader& reader) noexcept {
     return reader.error == MlsWireError::none && reader.used == reader.input.count;
@@ -46,10 +42,6 @@ inline u64 mls_load_be64(const u8* data) noexcept {
         value = (value << 8) | data[i];
     return value;
 }
-inline u32 mls_load_be32(const u8* data) noexcept {
-    return (static_cast<u32>(data[0]) << 24) | (static_cast<u32>(data[1]) << 16) |
-           (static_cast<u32>(data[2]) << 8) | data[3];
-}
 inline void mls_store_be64(u64 value, u8* output) noexcept {
     for (u32 i = 0; i != 8; ++i)
         output[7 - i] = static_cast<u8>(value >> (8 * i));
@@ -57,7 +49,7 @@ inline void mls_store_be64(u64 value, u8* output) noexcept {
 // Sorted big-endian u32 list membership (unmerged leaves).
 inline bool mls_u32_list_contains(ConstSlice<u8> values, u32 target) noexcept {
     for (u32 i = 0; i + 4 <= values.count; i += 4) {
-        const u32 value = mls_load_be32(values.data + i);
+        const u32 value = byte_load_be32(values.data + i);
         if (value == target)
             return true;
         if (value > target)
@@ -140,7 +132,7 @@ MlsStatus mls_derive_secret(KdfSha256Workspace& kdf, const u8* secret, const cha
                             u8* output) noexcept {
     u8 derived[kMlsHashBytes];
     const auto status = mls_status(
-        mls_expand_label(kdf, {secret, kMlsHashBytes}, mls_text(label), {}, {derived, kMlsHashBytes}));
+        mls_expand_label(kdf, {secret, kMlsHashBytes}, text_bytes(label), {}, {derived, kMlsHashBytes}));
     if (status == MlsStatus::ok)
         copy_bytes(output, derived, kMlsHashBytes);
     secure_clear_bytes(derived, sizeof(derived));

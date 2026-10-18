@@ -50,10 +50,6 @@ namespace {
 constexpr u64 kNoticeMs = 8000;
 
 ApplicationPluginsSdk* sdk_owner() noexcept { return g_app.plugins ? g_app.plugins->sdk : nullptr; }
-NativePluginSdkRuntime* runtime() noexcept {
-    auto* sdk = sdk_owner();
-    return sdk ? &sdk->runtime : nullptr;
-}
 bool account_ready() noexcept {
     return g_app.account_ui && g_app.account.instance && !g_app.login.visible &&
            g_app.account.status.required_action == AccountRequirement::none;
@@ -238,7 +234,7 @@ PluginModal g_modal;
 u64 g_modal_serial;
 
 bool modal_valid(TextFormOwnerKey key) noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     return g_modal.open && key.scope == g_modal.serial && key.collection == g_modal.owner_id && rt &&
            g_app.plugin_account_scope_serial == g_modal.account_scope && native_plugin_sdk_find(*rt, g_modal.owner_id);
 }
@@ -260,7 +256,7 @@ void modal_closed(TextFormOwnerKey key) noexcept {
     SecureZeroMemory(g_modal.text, sizeof(g_modal.text));
     g_modal.open = g_modal.accepted = false;
     g_modal.text_bytes = 0;
-    if (auto* rt = runtime())
+    if (auto* rt = application_plugins_runtime())
         native_plugin_sdk_modal_result(rt, owner, modal, accepted, {text, bytes});
     SecureZeroMemory(text, sizeof(text));
 }
@@ -362,7 +358,7 @@ u8 application_plugins_composer_notice_tone() noexcept {
 }
 
 bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated) noexcept {
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (!rt || (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || code > 0xff ||
         shortcut_key_is_modifier(code) || keybinds_blocked() || application_plugins_busy() ||
         (g_app.window && GetForegroundWindow() != g_app.window))
@@ -388,7 +384,7 @@ bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated
 }
 
 void application_plugins_keybinds_synchronize() noexcept {
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (!rt)
         return;
     const u32 revision = application_custom_keybinds_revision();

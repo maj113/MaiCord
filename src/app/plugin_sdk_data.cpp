@@ -323,7 +323,7 @@ bool parse_emoji(mc_str emoji, u64* id, Utf8View* name) noexcept {
     if (!colon || colon + 1 >= emoji.bytes || emoji.bytes - colon - 1 > 20) return false;
     for (u32 i = 0; i < colon; ++i) {
         const char c = emoji.data[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return false;
+        if (!ascii_is_alnum(c) && c != '_') return false;
     }
     u64 value = 0;
     for (u32 i = colon + 1; i < emoji.bytes; ++i) {

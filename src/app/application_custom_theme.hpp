@@ -2,6 +2,7 @@
 
 #include "maicord/app/client_theme_storage.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 enum class ApplicationCustomThemeAction : u8 {

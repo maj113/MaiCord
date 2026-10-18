@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/core/base.hpp"
+#include "maicord/core/win32_user.hpp"
 
-#include <Windows.h>
 namespace maicord::app_detail {
 inline bool keyboard_focus_after_message(bool visible, UINT message, WPARAM key, bool shift) noexcept {
     if (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK || message == WM_RBUTTONDOWN ||

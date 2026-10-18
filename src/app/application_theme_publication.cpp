@@ -2,7 +2,7 @@
 #include "application_custom_theme.hpp"
 #include "application_theme_publication.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 

@@ -5,7 +5,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/win32_process.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -310,11 +310,11 @@ bool link_trust_load_file(const wchar_t* path, LinkTrustStore* store) noexcept {
         const u32 error = thread_last_error();
         return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
     }
-    LARGE_INTEGER size{};
+    Win32LargeInteger size{};
     static u8 record[kLinkTrustFileBytes];
     u32 native_error = 0;
     const bool read =
-        GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= kLinkTrustFileBytes &&
+        GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kLinkTrustFileBytes &&
         file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native_error);
     CloseHandle(file);
     return read && link_trust_decode({record, static_cast<u32>(size.QuadPart)}, store);

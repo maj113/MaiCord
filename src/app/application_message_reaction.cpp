@@ -10,7 +10,7 @@
 #include "maicord/model/reaction_preferences.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -818,13 +818,10 @@ bool application_message_reaction_response(const RestClientResponse& response) n
     } else if (outcome.kind == MessageReactionOutcomeKind::retry) {
         if (latest_feedback)
             feedback(outcome.target, outcome.serial, utf8_literal("Retrying reaction…"));
-    } else if (outcome.kind == MessageReactionOutcomeKind::settled) {
-        if (latest_feedback)
-            feedback(outcome.target, outcome.serial, {});
-        if (latest_feedback)
-            application_message_mutation_notice_succeeded(ApplicationMessageMutationKind::reaction,
-                                                          outcome.target.channel_id,
-                                                          outcome.target.message_id);
+    } else if (outcome.kind == MessageReactionOutcomeKind::settled && latest_feedback) {
+        feedback(outcome.target, outcome.serial, {});
+        application_message_mutation_notice_succeeded(ApplicationMessageMutationKind::reaction,
+                                                      outcome.target.channel_id, outcome.target.message_id);
     }
     mirror();
     publish(outcome.project);
@@ -839,8 +836,8 @@ ApplicationMessageReactionMetrics application_message_reaction_metrics() noexcep
     ApplicationMessageReactionMetrics result{};
     if (!owner)
         return result;
-    MEMORY_BASIC_INFORMATION memory{};
-    VirtualQuery(owner, &memory, sizeof(memory));
+    Win32MemoryInformation memory{};
+    VirtualQuery(owner, memory.native(), sizeof(memory));
     result.owner_bytes = sizeof(ReactionOwner);
     result.owner_committed_bytes = memory.State == MEM_COMMIT ? static_cast<u32>(memory.RegionSize) : 0;
     result.intent_bytes = kMessageReactionMaximumIntents * sizeof(MessageReactionIntent);

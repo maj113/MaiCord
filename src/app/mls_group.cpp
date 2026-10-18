@@ -2,12 +2,12 @@
 #include "maicord/app/mls_group.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
 void clear_successor(MlsSuccessor* successor) noexcept {
-    SecureZeroMemory(successor, sizeof(*successor));
+    secure_clear_bytes(successor, sizeof(*successor));
 }
 // Validates a complete epoch state (tree integrity, tree hash, private keys,
 // transcript) and installs it with a fresh proposal cache.
@@ -95,7 +95,7 @@ MlsStatus commit_sender(const MlsGroup& group, ConstSlice<u8> message, u32* send
 void mls_group_cancel_pending(MlsGroup* group) noexcept {
     if (!group)
         return;
-    SecureZeroMemory(&group->local, sizeof(group->local));
+    secure_clear_bytes(&group->local, sizeof(group->local));
     clear_successor(&group->remote);
     group->pending_message = {};
     group->pending_joiners = nullptr;
@@ -109,7 +109,7 @@ void mls_group_clear(MlsGroup* group) noexcept {
         return;
     if (group->initialized)
         mls_proposal_cache_clear(&group->proposals);
-    SecureZeroMemory(group, sizeof(*group));
+    secure_clear_bytes(group, sizeof(*group));
 }
 const MlsSuccessor* mls_group_pending_successor(const MlsGroup& group) noexcept {
     return group.pending == MlsPending::local    ? &group.local.successor
@@ -174,15 +174,15 @@ MlsStatus mls_group_create_initial(KdfSha256Workspace& kdf, MlsGroup* group, u64
         status = group_init(kdf, &candidate, tree, context, tree_private, epoch, transcript,
                             external_sender, arena, false);
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(tree_output.data, writer.used);
+        secure_clear_bytes(tree_output.data, writer.used);
         if (context_written)
-            SecureZeroMemory(context_output.data, context_written);
+            secure_clear_bytes(context_output.data, context_written);
         mls_group_clear(&candidate);
         return status;
     }
     mls_group_clear(group);
     *group = candidate;
-    SecureZeroMemory(&candidate, sizeof(candidate));
+    secure_clear_bytes(&candidate, sizeof(candidate));
     *tree_bytes = writer.used;
     *context_bytes = context_written;
     return MlsStatus::ok;
@@ -277,12 +277,12 @@ MlsStatus mls_group_join_welcome(KdfSha256Workspace& kdf, MlsGroup* group, Const
                 *group = replacement;
                 *group_info_bytes = plaintext.count;
             }
-            SecureZeroMemory(&replacement, sizeof(replacement));
+            secure_clear_bytes(&replacement, sizeof(replacement));
         }
         if (status != MlsStatus::ok)
-            SecureZeroMemory(group_info_output.data, plaintext.count);
+            secure_clear_bytes(group_info_output.data, plaintext.count);
     }
-    SecureZeroMemory(&candidate, sizeof(candidate));
+    secure_clear_bytes(&candidate, sizeof(candidate));
     dave_welcome_release(&decrypted);
     return status;
 }

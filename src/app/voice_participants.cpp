@@ -3,7 +3,7 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -27,22 +27,12 @@ template <typename T> bool reserve(T*& data, u32& capacity, u32 count, u32 requi
     capacity = next;
     return true;
 }
-u32 user_position(const VoiceParticipants& participants, u64 id) noexcept {
-    u32 first = 0, end = participants.user_count;
+template <typename T, typename Key>
+u32 position(const T* items, u32 count, Key T::*field, Key key) noexcept {
+    u32 first = 0, end = count;
     while (first < end) {
         const u32 middle = first + (end - first) / 2;
-        if (participants.users[middle].user_id < id)
-            first = middle + 1;
-        else
-            end = middle;
-    }
-    return first;
-}
-u32 source_position(const VoiceParticipants& participants, u32 ssrc) noexcept {
-    u32 first = 0, end = participants.source_count;
-    while (first < end) {
-        const u32 middle = first + (end - first) / 2;
-        if (participants.sources[middle].ssrc < ssrc)
+        if (items[middle].*field < key)
             first = middle + 1;
         else
             end = middle;
@@ -50,7 +40,7 @@ u32 source_position(const VoiceParticipants& participants, u32 ssrc) noexcept {
     return first;
 }
 VoiceParticipant& ensure_user(VoiceParticipants& participants, u64 id) noexcept {
-    const u32 at = user_position(participants, id);
+    const u32 at = position(participants.users, participants.user_count, &VoiceParticipant::user_id, id);
     if (at == participants.user_count || participants.users[at].user_id != id) {
         copy_bytes(participants.users + at + 1, participants.users + at,
                    (participants.user_count - at) * static_cast<u32>(sizeof(VoiceParticipant)));
@@ -199,12 +189,12 @@ VoiceParticipantsError update_sources(VoiceParticipants& participants,
 }
 } // namespace
 VoiceParticipant voice_participants_user(const VoiceParticipants& participants, u64 id) noexcept {
-    const u32 at = user_position(participants, id);
+    const u32 at = position(participants.users, participants.user_count, &VoiceParticipant::user_id, id);
     return at < participants.user_count && participants.users[at].user_id == id ? participants.users[at]
                                                                                 : VoiceParticipant{};
 }
 VoiceSsrcBinding voice_participants_source(const VoiceParticipants& participants, u32 ssrc) noexcept {
-    const u32 at = source_position(participants, ssrc);
+    const u32 at = position(participants.sources, participants.source_count, &VoiceSsrcBinding::ssrc, ssrc);
     return at < participants.source_count && participants.sources[at].ssrc == ssrc
                ? participants.sources[at]
                : VoiceSsrcBinding{};
@@ -243,7 +233,8 @@ VoiceParticipantsResult voice_participants_event(VoiceParticipants* participants
         if (!voice_visit_participant_users(event, connect_user, participants))
             return {VoiceParticipantsError::decode};
     } else if (opcode == 13) {
-        const u32 at = user_position(*participants, event.user_id);
+        const u32 at = position(participants->users, participants->user_count, &VoiceParticipant::user_id,
+                                event.user_id);
         if (at < participants->user_count && participants->users[at].user_id == event.user_id) {
             copy_bytes(participants->users + at, participants->users + at + 1,
                        (--participants->user_count - at) * static_cast<u32>(sizeof(VoiceParticipant)));

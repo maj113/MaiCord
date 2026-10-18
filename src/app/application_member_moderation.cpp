@@ -5,6 +5,7 @@
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/core/time.hpp"
@@ -12,7 +13,6 @@
 #include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/ui/member_context_policy.hpp"
 
-#include <Windows.h>
 
 namespace maicord::app_detail {
 namespace {
@@ -25,7 +25,6 @@ constexpr MemberModerationMenuActions kActions{
     kMemberModerationActionBase + 4, kMemberModerationActionBase + 5, kMemberModerationActionBase + 0x100};
 constexpr u32 kChoiceCount = sizeof(kModerationBanDeleteChoices) / sizeof(u32);
 constexpr u32 kNicknameCodepoints = kGuildAdminNicknameCodepoints;
-
 
 struct Actor {
     u64 scope, profile, self;
@@ -107,7 +106,7 @@ bool still_allowed() noexcept {
 }
 
 void reset() noexcept {
-    SecureZeroMemory(moderation.text, sizeof(moderation.text));
+    secure_clear_bytes(moderation.text, sizeof(moderation.text));
     moderation.user_count = 0;
     const u64 menu_guild = moderation.menu_guild_id, menu_user = moderation.menu_user_id;
     moderation = {};
@@ -118,6 +117,13 @@ void reset() noexcept {
 void changed() noexcept {
     ++moderation.revision;
     application_request_frame();
+}
+
+bool reject(Utf8View status) noexcept {
+    moderation.status = status;
+    moderation.step = Step::failed;
+    changed();
+    return false;
 }
 
 Utf8View target_name(u64 guild_id, u64 user_id) noexcept {
@@ -193,26 +199,14 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
     const auto validation = utf8_validate(text);
     const bool nickname = moderation.kind == Kind::nickname;
     if (!validation.valid || text.bytes > (nickname ? kNicknameCodepoints * 4 : kGuildAdminReasonBytes) ||
-        (nickname && validation.codepoints > kNicknameCodepoints)) {
-        moderation.status = utf8_literal("This text is too long.");
-        moderation.step = Step::failed;
-        changed();
-        return false;
-    }
+        (nickname && validation.codepoints > kNicknameCodepoints))
+        return reject(utf8_literal("This text is too long."));
     for (u32 i = 0; i < text.bytes; ++i)
-        if (static_cast<u8>(text.data[i]) < 0x20) {
-            moderation.status = utf8_literal("Use a single line without control characters.");
-            moderation.step = Step::failed;
-            changed();
-            return false;
-        }
-    if (!still_allowed()) {
-        moderation.status = utf8_literal("You can't do this to this member anymore.");
-        moderation.step = Step::failed;
-        changed();
-        return false;
-    }
-    SecureZeroMemory(moderation.text, sizeof(moderation.text));
+        if (static_cast<u8>(text.data[i]) < 0x20)
+            return reject(utf8_literal("Use a single line without control characters."));
+    if (!still_allowed())
+        return reject(utf8_literal("You can't do this to this member anymore."));
+    secure_clear_bytes(moderation.text, sizeof(moderation.text));
     copy_bytes(moderation.text, text.data, text.bytes);
     moderation.text_bytes = text.bytes;
     moderation.step = Step::queued;
@@ -251,27 +245,15 @@ bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 s
     if (!owner_current(key) || (moderation.kind != Kind::ban && !bulk) ||
         (moderation.step != Step::editing && moderation.step != Step::failed) || select >= kChoiceCount)
         return false;
-    if (bulk && choice >= kModerationBanReasonCount) {
-        moderation.status = utf8_literal("Ban reason must be provided");
-        moderation.step = Step::failed;
-        changed();
-        return false;
-    }
+    if (bulk && choice >= kModerationBanReasonCount)
+        return reject(utf8_literal("Ban reason must be provided"));
     const Utf8View reason = moderation_ban_reason(choice, typed, text);
-    if (!utf8_validate(reason).valid || reason.bytes > kGuildAdminReasonBytes) {
-        moderation.status = utf8_literal("This text is too long.");
-        moderation.step = Step::failed;
-        changed();
-        return false;
-    }
-    if (!still_allowed()) {
-        moderation.status = bulk ? utf8_literal("You can't ban these members anymore.")
-                                 : utf8_literal("You can't do this to this member anymore.");
-        moderation.step = Step::failed;
-        changed();
-        return false;
-    }
-    SecureZeroMemory(moderation.text, sizeof(moderation.text));
+    if (!utf8_validate(reason).valid || reason.bytes > kGuildAdminReasonBytes)
+        return reject(utf8_literal("This text is too long."));
+    if (!still_allowed())
+        return reject(bulk ? utf8_literal("You can't ban these members anymore.")
+                           : utf8_literal("You can't do this to this member anymore."));
+    secure_clear_bytes(moderation.text, sizeof(moderation.text));
     copy_bytes(moderation.text, reason.data, reason.bytes);
     moderation.text_bytes = reason.bytes;
     moderation.choice = kModerationBanDeleteChoices[select];
@@ -287,11 +269,7 @@ bool open_ban_form() noexcept {
     if (moderation.kind == Kind::bulk_ban) {
         title.add(utf8_literal("Ban "));
         char digits[12];
-        u32 count = 0;
-        for (u32 n = moderation.user_count; n || !count; n /= 10)
-            digits[count++] = static_cast<char>('0' + n % 10);
-        while (count)
-            title.add({&digits[--count], 1});
+        title.add({digits, decimal_write(digits, moderation.user_count)});
         title.add(moderation.user_count == 1 ? utf8_literal(" member?") : utf8_literal(" members?"));
     } else {
         title.add(utf8_literal("Ban @"));
@@ -570,12 +548,8 @@ bool application_member_moderation_pending(u64 now_ms) noexcept {
 bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
     if (!request_id || !application_member_moderation_pending(now_ms))
         return false;
-    if (!still_allowed()) {
-        moderation.step = Step::failed;
-        moderation.status = utf8_literal("You can't do this to this member anymore.");
-        changed();
-        return false;
-    }
+    if (!still_allowed())
+        return reject(utf8_literal("You can't do this to this member anymore."));
     MemberPatch patch{};
     const GuildAdminRequest request = build_request(&patch, clock_unix_milliseconds());
     GuildModerationRequest bulk{};
@@ -601,10 +575,7 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
             reset();
             return false;
         }
-        moderation.step = Step::failed;
-        moderation.status = utf8_literal("This change couldn't be sent.");
-        changed();
-        return false;
+        return reject(utf8_literal("This change couldn't be sent."));
     }
     moderation.step = Step::sending;
     moderation.request_id = request_id;
@@ -630,7 +601,7 @@ bool application_member_moderation_response(const RestClientResponse& response, 
     if (response.error == RestClientError::none && response.status_code >= 200 &&
         response.status_code < 300) {
         moderation.step = Step::done;
-        SecureZeroMemory(moderation.text, sizeof(moderation.text));
+        secure_clear_bytes(moderation.text, sizeof(moderation.text));
     } else {
         moderation.step = Step::failed;
         moderation.status = failure_text(response);

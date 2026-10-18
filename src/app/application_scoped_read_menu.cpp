@@ -31,38 +31,28 @@ struct ScopedReadMenu {
 ScopedReadMenu menu;
 // The width derives from the same shared row/padding primitives as the footer.
 constexpr float menu_width = 6 * kUiMenuRowHeight + 2 * kUiMenuPadding;
-bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.slot == b.slot && a.generation == b.generation;
+template <typename Scene>
+bool scene_row(const Scene& scene, u64 id, UiWidgetHandle* row, u32* revision, u16* generation) noexcept {
+    for (u32 i = 0; i < scene.count; ++i)
+        if (scene.rows[i].view.id == id) {
+            *row = scene.rows[i].widget;
+            *revision = scene.source_revision;
+            *generation = scene.widgets.generation;
+            return true;
+        }
+    return false;
 }
 bool navigation_row(ReadScopeKind kind, u64 id, UiWidgetHandle* row, u32* revision,
                     u16* generation) noexcept {
     if (!g_app.account_ui)
         return false;
     const auto& navigation = g_app.account_ui->navigation_view;
-    if (kind == ReadScopeKind::guild) {
-        const auto& scene = g_app.guild_rail_scene;
-        if (!guild_context_row_current(navigation, scene, id))
-            return false;
-        for (u32 i = 0; i < scene.count; ++i)
-            if (scene.rows[i].view.id == id) {
-                *row = scene.rows[i].widget;
-                *revision = scene.source_revision;
-                *generation = scene.widgets.generation;
-                return true;
-            }
-    } else if (kind == ReadScopeKind::category) {
-        const auto& scene = g_app.shell_navigation_scene;
-        if (!channel_context_row_current(navigation, scene, id))
-            return false;
-        for (u32 i = 0; i < scene.count; ++i)
-            if (scene.rows[i].view.id == id) {
-                *row = scene.rows[i].widget;
-                *revision = scene.source_revision;
-                *generation = scene.widgets.generation;
-                return true;
-            }
-    }
-    return false;
+    if (kind == ReadScopeKind::guild)
+        return guild_context_row_current(navigation, g_app.guild_rail_scene, id) &&
+               scene_row(g_app.guild_rail_scene, id, row, revision, generation);
+    return kind == ReadScopeKind::category &&
+           channel_context_row_current(navigation, g_app.shell_navigation_scene, id) &&
+           scene_row(g_app.shell_navigation_scene, id, row, revision, generation);
 }
 bool popup_current() noexcept {
     const auto& popup = g_app.popup_scene;
@@ -79,7 +69,7 @@ bool activation_current(u32 action) noexcept {
     UiWidgetHandle row{};
     u32 revision{};
     u16 generation{};
-    if (!navigation_row(menu.kind, menu.id, &row, &revision, &generation) || !same_handle(row, menu.row) ||
+    if (!navigation_row(menu.kind, menu.id, &row, &revision, &generation) || !ui_widget_handle_equal(row, menu.row) ||
         revision != menu.source_revision || generation != menu.navigation_generation)
         return false;
     const auto view = application_scoped_read_view(menu.kind, menu.id);
@@ -255,7 +245,7 @@ bool application_scoped_read_menu_refresh() noexcept {
         return dismiss_popup();
     const auto view = application_scoped_read_view(menu.kind, menu.id);
     if (revision == menu.source_revision && generation == menu.navigation_generation &&
-        same_handle(row, menu.row) && view.publication_revision == menu.publication_revision)
+        ui_widget_handle_equal(row, menu.row) && view.publication_revision == menu.publication_revision)
         return true;
     const ReadScopeKind kind = menu.kind;
     const u64 id = menu.id;

@@ -41,7 +41,6 @@ enum class GatewayClientPhase : u8 {
     websocket_opening,
     awaiting_hello,
     hello,
-    identify_wait,
     identifying,
     resuming,
     ready,
@@ -89,7 +88,6 @@ enum class GatewayClientFailureStage : u8 {
     ready_route,
     ready_publish,
     ready_guild_route,
-    ready_guild_publish,
     dispatch_route,
     close_stop,
     close_random,
@@ -102,9 +100,7 @@ enum class GatewayClientFailureStage : u8 {
     session_push,
     application_output,
     ready_private_route,
-    ready_private_publish,
     ready_user_route,
-    ready_user_publish,
 };
 
 enum class GatewayClientEventKind : u8 {
@@ -1120,9 +1116,8 @@ enum class GatewaySelfStatusError : u8 {
     out_of_date
 };
 struct GatewayClientSelfStatusSnapshot {
-    u64 profile_id, self_user_id, revision, desired_revision, transmitted_revision, settings_revision;
+    u64 profile_id, self_user_id, revision, settings_revision;
     GatewayUserStatus status, confirmed_status;
-    u32 settings_owner_bytes, settings_group_bytes;
     GatewaySelfStatusError last_error;
     bool available, authoritative, pending;
 };

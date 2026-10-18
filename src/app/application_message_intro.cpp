@@ -34,7 +34,7 @@ bool window_at_channel_start(const ChannelRecord& channel) noexcept {
     return older.cursor_before ? first->id <= older.cursor_before : settled;
 }
 
-MessageSceneIntroKind intro_kind(const ChannelRecord& channel, const ChatStateStore& state) noexcept {
+MessageSceneIntroKind intro_kind(const ChannelRecord& channel) noexcept {
     switch (channel.type) {
     case 1:
         return MessageSceneIntroKind::direct_message;
@@ -45,7 +45,6 @@ MessageSceneIntroKind intro_kind(const ChannelRecord& channel, const ChatStateSt
     case 12:
         return MessageSceneIntroKind::thread;
     default:
-        (void)state;
         return MessageSceneIntroKind::channel;
     }
 }
@@ -67,7 +66,7 @@ void application_message_intro_synchronize() noexcept {
                           message_scene_intro_compose(&intro, MessageSceneIntroKind::no_history, channel->id, name,
                                                       {}, 0, false);
             } else if (window_at_channel_start(*channel)) {
-                const MessageSceneIntroKind kind = intro_kind(*channel, state);
+                const MessageSceneIntroKind kind = intro_kind(*channel);
                 u64 recipient = 0;
                 Utf8View username{};
                 if (kind == MessageSceneIntroKind::direct_message && state.private_channels) {

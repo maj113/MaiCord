@@ -8,7 +8,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -26,10 +26,6 @@ struct Owner {
     u8 code_bytes;
 };
 Owner* owner{};
-
-u64 account_scope() noexcept {
-    return g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial : g_app.account.status.profile_id;
-}
 
 bool visible_invites(bool touch, u64 now_ms) noexcept {
     auto& scene = g_app.message_scene;
@@ -77,10 +73,10 @@ bool visible_invites(bool touch, u64 now_ms) noexcept {
 void application_invite_cards_synchronize(u64 now_ms) noexcept {
     if (!g_app.account_ui || !g_app.message_scene.active)
         return;
-    if (owner && owner->account_scope != account_scope()) {
+    if (owner && owner->account_scope != application_account_scope()) {
         // A different account never sees another account's resolutions.
         invite_card_cache_clear(&owner->cache);
-        owner->account_scope = account_scope();
+        owner->account_scope = application_account_scope();
         owner->request_id = 0;
     }
     if (!owner) {
@@ -90,7 +86,7 @@ void application_invite_cards_synchronize(u64 now_ms) noexcept {
         owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
         if (!owner)
             return;
-        owner->account_scope = account_scope();
+        owner->account_scope = application_account_scope();
         message_scene_bind_invite_cards(&g_app.message_scene, &owner->cache);
     }
     if (g_app.message_scene.invite_cards != &owner->cache)

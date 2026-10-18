@@ -13,7 +13,7 @@
 #include "maicord/media/webp_alpha.hpp"
 #include "maicord/media/webp_thumbnail.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

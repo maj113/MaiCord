@@ -3,6 +3,7 @@
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "application_forum_post.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 struct TextFormOwnerKey {

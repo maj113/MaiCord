@@ -35,6 +35,9 @@ bool application_stop_account() noexcept;
 void application_prepare_account_stop() noexcept;
 void application_account_stop_observed(const AccountHostStopResult& result, bool had_account) noexcept;
 bool application_account_publish_logged_out(bool unconfirmed) noexcept;
+// Closes popups and deactivates the account scenes, then rebuilds the empty message view. False when
+// that rebuild fails.
+bool application_hide_account_scenes() noexcept;
 
 } // namespace app_detail
 } // namespace maicord

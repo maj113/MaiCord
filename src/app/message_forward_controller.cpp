@@ -4,9 +4,6 @@
 
 namespace maicord {
 namespace {
-bool same_scope(QuickSwitcherScope a, QuickSwitcherScope b) noexcept {
-    return a.account_serial == b.account_serial && a.profile_key == b.profile_key && a.self_user_id == b.self_user_id;
-}
 void changed(MessageForwardController* c) noexcept { ++c->revision; if (!c->revision) ++c->revision; }
 bool fail(MessageForwardController* c, MessageForwardError error) noexcept {
     if (c) { c->error = error; changed(c); } return false;
@@ -57,7 +54,7 @@ bool queue_one(MessageForwardController* c, MessageForwardDestination& d, QuickS
 } // namespace
 
 bool message_forward_current(const MessageForwardController& c, QuickSwitcherScope scope, QuickSwitcherSources sources) noexcept {
-    if (!c.initialized || !scope.account_serial || !scope.profile_key || !scope.self_user_id || !same_scope(c.scope, scope) ||
+    if (!c.initialized || !scope.account_serial || !scope.profile_key || !scope.self_user_id || !quick_switcher_scope_equal(c.scope, scope) ||
         !sources.state || sources.state->self_user_id != scope.self_user_id || !valid_source_channel(sources, c.source)) return false;
     // A loaded identity must still be the captured generation. Absence is
     // expected when another history window replaces the source timeline.
@@ -115,7 +112,7 @@ bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope
     Utf8View query, MessageComposerController* outbox) noexcept {
     if (!c) return false;
     if (!c->initialized) {
-        if (!c->committed || !outbox || !same_scope(c->scope, scope)) return false;
+        if (!c->committed || !outbox || !quick_switcher_scope_equal(c->scope, scope)) return false;
         bool did_change = message_forward_refresh(c, *outbox);
         for (u32 i = 0; i < c->destination_count; ++i) {
             auto& d = c->destinations[i];
@@ -130,7 +127,7 @@ bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope
     if (!message_forward_current(*c, scope, sources)) {
         message_forward_cancel_pending(c, outbox);
         c->candidates.count = 0; c->source.store = nullptr; c->initialized = false;
-        return fail(c, same_scope(c->scope, scope) ? MessageForwardError::invalid_source : MessageForwardError::stale_scope);
+        return fail(c, quick_switcher_scope_equal(c->scope, scope) ? MessageForwardError::invalid_source : MessageForwardError::stale_scope);
     }
     const bool age_restricted = source_age_restricted(sources, c->source);
     bool did_change = c->source.age_restricted != age_restricted;

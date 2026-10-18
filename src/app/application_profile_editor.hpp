@@ -5,6 +5,7 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 struct RestClientResponse;

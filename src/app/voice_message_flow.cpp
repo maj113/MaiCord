@@ -43,6 +43,11 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
         f = {};
         f.notice = notice;
     };
+    if (f.phase != VoiceMessagePhase::idle &&
+        (event == VoiceMessageEvent::cancel || event == VoiceMessageEvent::channel_changed)) {
+        reset(VoiceMessageNotice::none);
+        return VoiceMessageAction::discard;
+    }
     switch (f.phase) {
     case VoiceMessagePhase::idle:
         if ((event != VoiceMessageEvent::press && event != VoiceMessageEvent::toggle) || !channel_id)
@@ -83,10 +88,6 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
                        : event == VoiceMessageEvent::limit_reached ? VoiceMessageNotice::limit
                                                                    : VoiceMessageNotice::none;
             return VoiceMessageAction::finish;
-        case VoiceMessageEvent::cancel:
-        case VoiceMessageEvent::channel_changed:
-            reset(VoiceMessageNotice::none);
-            return VoiceMessageAction::discard;
         case VoiceMessageEvent::capture_failed:
             reset(VoiceMessageNotice::microphone);
             return VoiceMessageAction::discard;
@@ -101,10 +102,6 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
             return VoiceMessageAction::send;
         case VoiceMessageEvent::play:
             return VoiceMessageAction::toggle_preview;
-        case VoiceMessageEvent::cancel:
-        case VoiceMessageEvent::channel_changed:
-            reset(VoiceMessageNotice::none);
-            return VoiceMessageAction::discard;
         default:
             return VoiceMessageAction::none;
         }
@@ -119,10 +116,6 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
             f.phase = VoiceMessagePhase::failed;
             f.notice = VoiceMessageNotice::upload;
             return VoiceMessageAction::none;
-        case VoiceMessageEvent::cancel:
-        case VoiceMessageEvent::channel_changed:
-            reset(VoiceMessageNotice::none);
-            return VoiceMessageAction::discard;
         default:
             return VoiceMessageAction::none;
         }
@@ -135,10 +128,6 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
             return VoiceMessageAction::retry;
         case VoiceMessageEvent::play:
             return VoiceMessageAction::toggle_preview;
-        case VoiceMessageEvent::cancel:
-        case VoiceMessageEvent::channel_changed:
-            reset(VoiceMessageNotice::none);
-            return VoiceMessageAction::discard;
         default:
             return VoiceMessageAction::none;
         }

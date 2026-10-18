@@ -7,11 +7,20 @@
 
 namespace maicord {
 enum class LoginRemoteStatus : u8;
+enum class AccountPathsError : u8;
+struct AccountPaths;
 }
 
 namespace maicord::app_detail {
 
 void application_login_reset_backup_acknowledgement() noexcept;
+// Forgets the QR/phone-approval session, wiping its code and user preview.
+void application_login_reset_remote_session() noexcept;
+// Forgets SMS, WebAuthn, backup-code, CAPTCHA and password-reveal progress.
+void application_login_reset_attempt() noexcept;
+// Resolves the profile paths, creates their directories and loads the account module.
+// `error` receives the path failure; it stays none when only the module failed to load.
+bool application_login_prepare_owner(AccountPaths* paths, AccountPathsError* error = nullptr) noexcept;
 void application_login_schedule_remote_restart(LoginRemoteStatus status) noexcept;
 bool application_login_tick_backup_acknowledgement(u64 now_ms) noexcept;
 bool application_login_auth_cooldown_active() noexcept;

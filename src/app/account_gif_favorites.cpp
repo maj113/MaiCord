@@ -12,8 +12,7 @@ RestClientSubmitResult settings_proto(RestClient* rest, AccountGifFavoritesOpera
     if (operation == AccountGifFavoritesOperation::cancel) {
         if (patch.count)
             return invalid;
-        return {rest_client_cancel(rest, request) ? RestClientSubmitError::none
-                                                          : RestClientSubmitError::busy};
+        return rest_client_cancel_result(rest, request);
     }
     if (operation > AccountGifFavoritesOperation::update ||
         (operation == AccountGifFavoritesOperation::fetch && patch.count) ||

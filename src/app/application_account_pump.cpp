@@ -40,7 +40,7 @@
 #include "application_poll.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -503,7 +503,7 @@ void drain_terminal_gateway_diagnostics() noexcept {
             if (popped.error == GatewayClientPopError::empty)
                 break;
             if (!popped.ok() || popped.payload_bytes > scratch.count) {
-                SecureZeroMemory(scratch.data, scratch.count);
+                secure_clear_bytes(scratch.data, scratch.count);
                 log_u64(LogLevel::error, "gateway", "terminal_diagnostic_pop_error",
                         static_cast<u64>(popped.ok() ? GatewayClientPopError::corrupt : popped.error));
                 return;
@@ -512,7 +512,7 @@ void drain_terminal_gateway_diagnostics() noexcept {
                 event.kind == GatewayClientEventKind::closed)
                 application_log_gateway_event(event);
             if (popped.payload_bytes)
-                SecureZeroMemory(scratch.data, popped.payload_bytes);
+                secure_clear_bytes(scratch.data, popped.payload_bytes);
         }
     }
 }

@@ -3,7 +3,7 @@
 #include "maicord/app/soundboard_audio.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -106,8 +106,7 @@ bool refill(VoicePlayback& playback, VoicePlaybackStream& stream, u64 now_us) no
             stream.last_frames = result.frames;
             if (voice_pcm_level({stream.pcm, result.frames * kVoiceChannels}) >= kVoiceSpeakingLevel)
                 stream.last_loud_us = now_us;
-        } else
-            ++playback.stats.decode_errors;
+        }
     } else if (frame.next.count && stream.decoded && opus_packet_has_fec(frame.next)) {
         // One packet lost and its successor carries LBRR: recover it in band.
         result = opus_decoder_decode_fec(&stream.decoder, frame.next, stream.last_frames, pcm);
@@ -238,7 +237,6 @@ void voice_playback_render(VoicePlayback* playback, Slice<i16> output, u64 now_u
             soundboard_mixer_render(playback->effects, {playback->mix, samples}, frames,
                                     static_cast<u32>(100 + playback->master_delta), true, now_us);
         voice_mixer_finish({playback->mix, samples}, {output.data, samples});
-        playback->stats.rendered_frames += frames;
     } else if (playback->deafened && playback->effects)
         soundboard_mixer_stop(playback->effects, 0); // Sounds started while deafened never queue up.
     ReleaseSRWLockExclusive(playback->lock.native());

@@ -7,6 +7,7 @@
 #include "application_message_interaction.hpp"
 #include "application_modal_scroll.hpp"
 #include "application_shell_input.hpp"
+#include "text_edit_keys.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/render/layer_presentation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
@@ -17,6 +18,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 #include <shellapi.h>
 
 namespace maicord::app_detail {
@@ -574,9 +576,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
             layer->hooks->editor_enter(layer, ui_settings_scene_focused(*scene).control_id);
         return true;
     }
-    if (control && key == 'A')
-        result = message_composer_select_all(model);
-    else if (control && (key == 'C' || key == 'X')) {
+    if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
         if (last > first && clipboard_write_utf8(g_app.window, {model->text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(model, first, last, {});
@@ -585,24 +585,8 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
         const auto read = clipboard_read_utf8(g_app.window, {buffer, sizeof(buffer)});
         if (read.ok() && replace_selection(layer, {buffer, read.bytes}, true))
             result = MessageComposerResult::changed;
-    } else if (control && key == 'Z')
-        result = shift ? message_composer_redo(model) : message_composer_undo(model);
-    else if (control && key == 'Y')
-        result = message_composer_redo(model);
-    else if (key == VK_BACK)
-        result = control ? message_composer_delete_word(model, false) : message_composer_backspace(model);
-    else if (key == VK_DELETE)
-        result = control ? message_composer_delete_word(model, true) : message_composer_delete_forward(model);
-    else if (key == VK_LEFT || key == VK_RIGHT)
-        result = message_composer_move(
-            model,
-            control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
-                    : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next),
-            shift);
-    else if (key == VK_HOME || key == VK_END)
-        result = message_composer_move(
-            model, key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
-    else if (key == VK_UP || key == VK_DOWN) {
+    } else if (!message_composer_edit_key(model, key, control, shift, &result) &&
+               (key == VK_UP || key == VK_DOWN)) {
         if (group)
             text_input_end_group(native_target);
         if (!multiline) {

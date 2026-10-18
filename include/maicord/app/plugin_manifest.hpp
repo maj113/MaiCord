@@ -49,6 +49,9 @@ NativePluginManifestResult native_plugin_manifest_parse(Utf8View document,
     NativePluginManifest* output) noexcept;
 // Also validates caller-created metadata before a declared module load.
 bool native_plugin_manifest_valid(const NativePluginManifest& manifest) noexcept;
+// A plugin DLL leaf: letters (any case), digits, '_', '-' and single dots, ending in ".dll"
+// and not starting with a dot or naming a reserved device (CON, COM1, ...).
+bool native_plugin_dll_name_valid(Utf8View name) noexcept;
 // One Windows path component naming an ordinary file or directory: nonempty,
 // no leading or trailing dot, no trailing space, no reserved device name (CON,
 // COM1, ...) and no control, delimiter, wildcard, '~' or surrogate unit.

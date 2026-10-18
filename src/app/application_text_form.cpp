@@ -15,6 +15,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 namespace {
 struct LoginFormMeasureStorage {
@@ -36,9 +38,6 @@ bool valid(const ApplicationTextForm* form) noexcept {
 }
 bool user_dismissible(const ApplicationTextForm& form) noexcept {
     return form.can_cancel && form.dismissible;
-}
-void redraw() noexcept {
-    application_request_frame();
 }
 void end_capture(ApplicationTextForm* form) noexcept {
     form->dragging = false;
@@ -205,8 +204,19 @@ bool refresh(ApplicationTextForm* form) noexcept {
         secure_text_store_notify_layout(&form->store);
     }
     form->refreshing = false;
-    redraw();
+    application_request_frame();
     return result;
+}
+// Applies a pending progress update. False when the form closed instead.
+bool settle(ApplicationTextForm* form) noexcept {
+    bool changed = false, complete = false;
+    if (!progress(form, &changed, &complete) || complete) {
+        application_text_form_close(false);
+        return false;
+    }
+    if (changed)
+        refresh(form);
+    return true;
 }
 bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
@@ -507,8 +517,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         form->caret_visible = true;
     }
     form->request.initial = {};
-    bool progress_changed = false, completed = false;
-    if (!initialized || !progress(form, &progress_changed, &completed) || completed || !project(form)) {
+    const auto discard = [&]() noexcept {
         text_form_release(&form->scene);
         if (!request.confirmation_only)
             secure_edit_release(&form->edit);
@@ -516,19 +525,15 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         if (request.login_owner)
             renderer_release_login_form_text(&g_app.renderer);
         return false;
-    }
+    };
+    bool progress_changed = false, completed = false;
+    if (!initialized || !progress(form, &progress_changed, &completed) || completed || !project(form))
+        return discard();
     auto* prior = request.login_owner
                       ? &g_app.login_scene.widgets
                       : (g_app.context_focus ? g_app.context_focus : &g_app.message_composer_scene.widgets);
-    if (parent && !application_forum_form_suspend_child(request.forum_parent)) {
-        text_form_release(&form->scene);
-        if (!request.confirmation_only)
-            secure_edit_release(&form->edit);
-        VirtualFree(form, 0, MEM_RELEASE);
-        if (request.login_owner)
-            renderer_release_login_form_text(&g_app.renderer);
-        return false;
-    }
+    if (parent && !application_forum_form_suspend_child(request.forum_parent))
+        return discard();
     form->previous_focus = {prior, prior->focused};
     ui_button_keyboard_cancel(&g_app.button_keyboard);
     if (request.login_owner) {
@@ -636,7 +641,7 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
         closed(owner);
     if (forum_parent.serial)
         application_forum_form_resume_child(forum_parent);
-    redraw();
+    application_request_frame();
 }
 
 bool application_text_form_forum_child(const ApplicationForumPostTicket& ticket) noexcept {
@@ -681,11 +686,8 @@ bool application_text_form_synchronize() noexcept {
     }
     if (changed || styles_changed || measure_changed || !form->scene.layout_signature)
         return refresh(form);
-    const auto viewport = application_viewport_dips();
-    if (form->scene.content.focus_visible != g_app.keyboard_focus_visible)
-        return refresh(form);
-    if (viewport.left != form->scene.viewport.left || viewport.top != form->scene.viewport.top ||
-        viewport.right != form->scene.viewport.right || viewport.bottom != form->scene.viewport.bottom)
+    if (form->scene.content.focus_visible != g_app.keyboard_focus_visible ||
+        !ui_rect_equal(application_viewport_dips(), form->scene.viewport))
         return refresh(form);
     return true;
 }
@@ -699,13 +701,8 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
         application_text_form_close(false);
         return true;
     }
-    bool progress_changed = false, completed = false;
-    if (!progress(form, &progress_changed, &completed) || completed) {
-        application_text_form_close(false);
+    if (!settle(form))
         return true;
-    }
-    if (progress_changed)
-        refresh(form);
     if (kind == UiInputKind::system_key_down)
         return code != VK_F4 && code != VK_SPACE;
     if (kind == UiInputKind::system_character)
@@ -848,13 +845,8 @@ bool application_text_form_filter_message(const MSG& message) noexcept {
         application_text_form_close(false);
         return false;
     }
-    bool progress_changed = false, completed = false;
-    if (!progress(form, &progress_changed, &completed) || completed) {
-        application_text_form_close(false);
+    if (!settle(form))
         return false;
-    }
-    if (progress_changed)
-        refresh(form);
     return form->editable && !form->request.confirmation_only &&
            secure_text_store_filter_message(&form->store, message);
 }
@@ -870,13 +862,8 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         application_text_form_close(false);
         return false;
     }
-    bool progress_changed = false, completed = false;
-    if (!progress(form, &progress_changed, &completed) || completed) {
-        application_text_form_close(false);
+    if (!settle(form))
         return true;
-    }
-    if (progress_changed)
-        refresh(form);
     *result = 0;
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     const float x = static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale;
@@ -987,7 +974,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
                                  ? form->scene.elements[static_cast<u32>(element)]
                                  : ui_widget_invalid_handle();
         const auto previous = form->scene.widgets.hovered;
-        if (previous.slot != hovered.slot || previous.generation != hovered.generation) {
+        if (!ui_widget_handle_equal(previous, hovered)) {
             if (!ui_widget_manager_hover(&form->scene.widgets, hovered))
                 ui_widget_manager_hover(&form->scene.widgets, ui_widget_invalid_handle());
             if (hovered.generation) {
@@ -1008,9 +995,8 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         const auto button = form->pointer_button;
         const auto element = text_form_hit_test(form->scene, x, y);
         const bool clicked =
-            button.generation && element != TextFormElement::count &&
-            form->scene.elements[static_cast<u32>(element)].slot == button.slot &&
-            form->scene.elements[static_cast<u32>(element)].generation == button.generation;
+            element != TextFormElement::count &&
+            ui_widget_handle_matches(button, form->scene.elements[static_cast<u32>(element)]);
         end_capture(form);
         if (clicked)
             activate(form, element);

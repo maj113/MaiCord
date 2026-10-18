@@ -7,6 +7,14 @@
 namespace maicord {
 namespace {
 
+// A guild create/update event whose descriptor matches its payload.
+bool guild_event_payload(const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    return event.kind == GatewayClientEventKind::dispatch &&
+           (event.dispatch_kind == GatewayClientDispatchKind::guild_create ||
+            event.dispatch_kind == GatewayClientDispatchKind::guild_update) &&
+           event.dispatch_payload_bytes == payload.count;
+}
+
 bool read_record(ConstSlice<u8> payload, u32 offset, GatewayClientStateMutation* record) noexcept {
     if (!record || offset > payload.count || sizeof(*record) > payload.count - offset) {
         return false;
@@ -91,10 +99,7 @@ bool gateway_client_event_state_name(const GatewayClientEvent& event, ConstSlice
 
 bool gateway_client_event_guild_icon(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                      Utf8View* icon_hash) noexcept {
-    if (!icon_hash || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::guild_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::guild_update) ||
-        event.dispatch_payload_bytes != payload.count ||
+    if (!icon_hash || !guild_event_payload(event, payload) ||
         (event.state.fields & gateway_client_state_field_icon) == 0 ||
         event.state.name_bytes > payload.count ||
         event.state.icon_bytes > payload.count - event.state.name_bytes ||
@@ -109,10 +114,7 @@ bool gateway_client_event_guild_icon(const GatewayClientEvent& event, ConstSlice
 
 bool gateway_client_event_guild_banner(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                        Utf8View* banner_hash) noexcept {
-    if (!banner_hash || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::guild_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::guild_update) ||
-        event.dispatch_payload_bytes != payload.count || !event.state.guild_banner ||
+    if (!banner_hash || !guild_event_payload(event, payload) || !event.state.guild_banner ||
         gateway_client_guild_strings_bytes(event.state) > payload.count ||
         (gateway_client_guild_banner_bytes(event.state) && !payload.data)) {
         return false;
@@ -171,13 +173,8 @@ bool gateway_client_event_next_guild_channel(const GatewayClientEvent& event, Co
 
 bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice<u8> payload, u32 index,
                                      GatewayClientRoleMutation* role, Utf8View* name) noexcept {
-    if (!role || !name || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::guild_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::guild_update) ||
-        event.dispatch_payload_bytes != payload.count || index >= event.state.role_count) {
-        return false;
-    }
-    if (gateway_client_guild_strings_bytes(event.state) > payload.count) {
+    if (!role || !name || !guild_event_payload(event, payload) || index >= event.state.role_count ||
+        gateway_client_guild_strings_bytes(event.state) > payload.count) {
         return false;
     }
     u32 cursor = gateway_client_guild_strings_bytes(event.state);
@@ -193,10 +190,7 @@ bool gateway_client_event_guild_role(const GatewayClientEvent& event, ConstSlice
 
 bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                              Slice<u32> offsets) noexcept {
-    if (event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::guild_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::guild_update) ||
-        event.dispatch_payload_bytes != payload.count ||
+    if (!guild_event_payload(event, payload) ||
         gateway_client_guild_strings_bytes(event.state) > payload.count || event.state.role_count > offsets.count ||
         (!offsets.data && event.state.role_count != 0) || (!payload.data && payload.count != 0) ||
         !offset_output_disjoint(offsets, event.state.role_count, payload.data, payload.count) ||
@@ -214,10 +208,7 @@ bool gateway_client_event_guild_role_offsets(const GatewayClientEvent& event, Co
 
 bool gateway_client_event_guild_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload, u32 offset,
                                         GatewayClientRoleMutation* role, Utf8View* name) noexcept {
-    if (!role || !name || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::guild_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::guild_update) ||
-        event.dispatch_payload_bytes != payload.count ||
+    if (!role || !name || !guild_event_payload(event, payload) ||
         gateway_client_guild_strings_bytes(event.state) > payload.count ||
         offset < gateway_client_guild_strings_bytes(event.state) ||
         (!payload.data && payload.count != 0)) return false;

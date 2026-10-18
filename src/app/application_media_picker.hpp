@@ -5,6 +5,7 @@
 #include "maicord/ui/media_picker.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 

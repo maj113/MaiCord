@@ -210,7 +210,6 @@ struct MessageEventPump {
     // Guild presence appearance changes applied without any repaint.
     u32 presence_offscreen;
     MessageContentAvailability content_access;
-    GatewayClientEventKind last_lifecycle;
     bool has_sequence;
     bool resync_required;
     bool catchup_required;
@@ -271,6 +270,9 @@ void message_event_pump_set_view_active(MessageEventPump* pump, bool view_active
 MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                                                          const GatewayClientEvent& event,
                                                          ConstSlice<u8> payload) noexcept;
+// The rich-store change a validated reaction dispatch makes to its message.
+MessageRichReactionMutation message_reaction_mutation(const GatewayMessageReactionEvent& event,
+                                                      u64 self_user_id) noexcept;
 // Static ASCII label for diagnostics ("unknown" for out-of-range values).
 const char* message_event_pump_reject_reason_name(MessageEventPumpRejectReason reason) noexcept;
 MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, void* source,

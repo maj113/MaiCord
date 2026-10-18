@@ -15,7 +15,11 @@ inline constexpr u32 kUpdateGenerationMaximumRootEntries = 16;
 
 struct UpdateGenerationIdentity { u8 bytes[16]; };
 struct UpdateGenerationReference { UpdatePairDescriptor pair; bool present; };
-struct UpdateGenerationDirectoryIdentity { DWORD volume; u64 file; };
+struct UpdateGenerationDirectoryIdentity {
+    DWORD volume;
+    u64 file;
+    constexpr bool operator==(const UpdateGenerationDirectoryIdentity&) const noexcept = default;
+};
 enum class UpdateGenerationDisposalTarget : u8 { none, previous, candidate };
 struct UpdateGenerationDisposalIntent {
     UpdateGenerationDisposalTarget target;

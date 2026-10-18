@@ -40,8 +40,7 @@ bool source_current() noexcept {
     if (!g_app.account_ui)
         return false;
     const auto& ui = *g_app.account_ui;
-    const u64 scope = g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
-                                                        : g_app.account.status.profile_id;
+    const u64 scope = application_account_scope();
     const auto found = message_store_find(g_app.message_view.store, hovered.message_id);
     const auto* message =
         found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;

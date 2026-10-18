@@ -16,21 +16,13 @@ namespace {
 const AccountUiRuntime* ui_state() noexcept { return g_app.account_ui; }
 u64 self_id() noexcept { return g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0; }
 
-u32 status_from_member(GuildMemberStatus status) noexcept {
+// GuildMemberStatus, RelationshipPresence and GatewayClientMemberListStatus share their names.
+template <typename Status> u32 status_value(Status status) noexcept {
     switch (status) {
-    case GuildMemberStatus::online: return MC_STATUS_ONLINE;
-    case GuildMemberStatus::idle: return MC_STATUS_IDLE;
-    case GuildMemberStatus::dnd: return MC_STATUS_DND;
-    case GuildMemberStatus::offline: return MC_STATUS_OFFLINE;
-    default: return MC_STATUS_UNKNOWN;
-    }
-}
-u32 status_from_relationship(RelationshipPresence presence) noexcept {
-    switch (presence) {
-    case RelationshipPresence::online: return MC_STATUS_ONLINE;
-    case RelationshipPresence::idle: return MC_STATUS_IDLE;
-    case RelationshipPresence::dnd: return MC_STATUS_DND;
-    case RelationshipPresence::offline: return MC_STATUS_OFFLINE;
+    case Status::online: return MC_STATUS_ONLINE;
+    case Status::idle: return MC_STATUS_IDLE;
+    case Status::dnd: return MC_STATUS_DND;
+    case Status::offline: return MC_STATUS_OFFLINE;
     default: return MC_STATUS_UNKNOWN;
     }
 }
@@ -40,25 +32,6 @@ u32 status_from_platform(ClientPlatformStatus status) noexcept {
     case ClientPlatformStatus::idle: return MC_STATUS_IDLE;
     case ClientPlatformStatus::dnd: return MC_STATUS_DND;
     default: return MC_STATUS_OFFLINE;
-    }
-}
-u32 status_from_list(GatewayClientMemberListStatus status) noexcept {
-    switch (status) {
-    case GatewayClientMemberListStatus::online: return MC_STATUS_ONLINE;
-    case GatewayClientMemberListStatus::idle: return MC_STATUS_IDLE;
-    case GatewayClientMemberListStatus::dnd: return MC_STATUS_DND;
-    case GatewayClientMemberListStatus::offline: return MC_STATUS_OFFLINE;
-    default: return MC_STATUS_UNKNOWN;
-    }
-}
-u32 relationship_kind(RelationshipType type) noexcept {
-    switch (type) {
-    case RelationshipType::friend_: return MC_RELATIONSHIP_FRIEND;
-    case RelationshipType::blocked: return MC_RELATIONSHIP_BLOCKED;
-    case RelationshipType::incoming: return MC_RELATIONSHIP_INCOMING;
-    case RelationshipType::outgoing: return MC_RELATIONSHIP_OUTGOING;
-    case RelationshipType::implicit: return MC_RELATIONSHIP_IMPLICIT;
-    default: return MC_RELATIONSHIP_NONE;
     }
 }
 // VoiceFlag (Gateway order: deaf, mute, self deaf, self mute) to MC_VOICE_*.
@@ -210,7 +183,7 @@ bool read_member(void*, u64 guild_id, u64 user_id, mc_member_info* info) noexcep
     info->guild_id = member->guild_id;
     info->user_id = member->user_id;
     info->colour_role_id = member->color_role_id;
-    info->status = status_from_member(member->status);
+    info->status = status_value(member->status);
     if (member->roles_known) {
         info->flags |= MC_MEMBER_ROLES;
         const auto roles = guild_member_store_role_ids(*member);
@@ -245,9 +218,9 @@ bool read_user(void*, u64 user_id, mc_user_info* info) noexcept {
 bool read_relationship(void*, u64 user_id, mc_relationship_info* info) noexcept {
     const auto* record = relationship_of(user_id);
     if (!record || record->type == RelationshipType::none || record->type == RelationshipType::suggestion) return false;
-    info->type = relationship_kind(record->type);
+    info->type = application_plugins_relationship_kind(record->type);
     info->user_id = record->user_id;
-    if (record->type == RelationshipType::friend_) info->status = status_from_relationship(record->presence);
+    if (record->type == RelationshipType::friend_) info->status = status_value(record->presence);
     info->nickname_bytes = utf8_copy_truncated(info->nickname, Utf8View{record->nickname, record->nickname_bytes});
     return true;
 }
@@ -276,13 +249,13 @@ bool read_presence(void*, u64 user_id, u64 guild_id, mc_presence_info* info) noe
     const auto* relationship = relationship_of(user_id);
     const bool friend_known = relationship && relationship->type == RelationshipType::friend_ &&
                               relationship->presence != RelationshipPresence::unknown;
-    const u32 member_status = member ? status_from_member(member->status) : MC_STATUS_UNKNOWN;
-    u32 status = member_status ? member_status : friend_known ? status_from_relationship(relationship->presence) : 0;
+    const u32 member_status = member ? status_value(member->status) : MC_STATUS_UNKNOWN;
+    u32 status = member_status ? member_status : friend_known ? status_value(relationship->presence) : 0;
     if (!status && !guild_id) {
         // Without a server, any resident member row carries the global status.
         for (u32 i = 0; i < ui.guild_member_store.capacity && !status; ++i) {
             const auto& row = ui.guild_member_store.records[i];
-            if (row.occupied && row.user_id == user_id) status = status_from_member(row.status);
+            if (row.occupied && row.user_id == user_id) status = status_value(row.status);
         }
     }
     const u8 packed = user_store_client_status(ui.user_store, user_id);
@@ -723,6 +696,17 @@ void translate_member(const GatewayClientEvent& event, ConstSlice<u8> payload, c
 
 } // namespace
 
+u32 application_plugins_relationship_kind(RelationshipType type) noexcept {
+    switch (type) {
+    case RelationshipType::friend_: return MC_RELATIONSHIP_FRIEND;
+    case RelationshipType::blocked: return MC_RELATIONSHIP_BLOCKED;
+    case RelationshipType::incoming: return MC_RELATIONSHIP_INCOMING;
+    case RelationshipType::outgoing: return MC_RELATIONSHIP_OUTGOING;
+    case RelationshipType::implicit: return MC_RELATIONSHIP_IMPLICIT;
+    default: return MC_RELATIONSHIP_NONE;
+    }
+}
+
 u32 application_plugins_gateway_translate(const GatewayClientEvent& event, ConstSlice<u8> payload, u64 interest,
                                           void* context, PluginGatewayEmit emit_event) noexcept {
     using K = GatewayClientDispatchKind;
@@ -793,7 +777,7 @@ u32 application_plugins_gateway_translate(const GatewayClientEvent& event, Const
         out.kind = MC_EVENT_PRESENCE;
         out.guild_id = presence.guild_id;
         out.user_id = presence.user_id;
-        out.value = status_from_list(presence.status);
+        out.value = status_value(presence.status);
         emit(out);
         break;
     }

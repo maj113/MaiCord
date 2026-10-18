@@ -10,7 +10,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -72,12 +72,7 @@ BrowserUi* g_ui;
 
 u64 now_unix() noexcept { return clock_unix_milliseconds() / 1000; }
 void set_status(Utf8View text, bool critical = false) noexcept {
-    g_status_bytes = 0;
-    for (u32 i = 0; i < text.bytes;) {
-        const auto decoded = utf8_decode_one(text.data + i, text.bytes - i);
-        if (!decoded.valid || !decoded.width || decoded.width > sizeof(g_status) - g_status_bytes) break;
-        for (u32 j = 0; j < decoded.width; ++j) g_status[g_status_bytes++] = text.data[i++];
-    }
+    g_status_bytes = utf8_copy_truncated(g_status, text);
     g_status_critical = critical;
 }
 void set_form_status(Utf8View text, bool busy) noexcept {

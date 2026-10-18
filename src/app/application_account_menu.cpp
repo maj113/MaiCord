@@ -19,7 +19,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationAccountMenu {
@@ -39,10 +40,6 @@ struct ApplicationAccountMenu {
 };
 static_assert(sizeof(ApplicationAccountMenu) <= 4096);
 namespace {
-u64 account_scope() noexcept {
-    return g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
-                                             : g_app.account.status.profile_id;
-}
 bool surface_available() noexcept {
     return !application_account_logout_blocked() && g_app.account_ui && !g_app.login.visible &&
            !application_settings_active() && !application_friends_requests_active() &&
@@ -52,7 +49,7 @@ bool surface_available() noexcept {
            !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
 }
 bool source_current(const ApplicationAccountMenu& owner) noexcept {
-    if (!surface_available() || !owner.scope || owner.scope != account_scope() ||
+    if (!surface_available() || !owner.scope || owner.scope != application_account_scope() ||
         owner.profile_id != g_app.account.status.profile_id ||
         owner.self_user != g_app.account_ui->chat_state.self_user_id)
         return false;
@@ -203,7 +200,7 @@ void application_account_menu_release() noexcept {
         VirtualFree(owner, 0, MEM_RELEASE);
 }
 bool application_account_menu_open(UiWidgetHandle source, UiRect anchor) noexcept {
-    if (!surface_available() || !account_scope() || !g_app.account_ui->chat_state.self_user_id ||
+    if (!surface_available() || !application_account_scope() || !g_app.account_ui->chat_state.self_user_id ||
         !ui_rect_valid(anchor))
         return false;
     if (g_app.account_menu && popup_current(*g_app.account_menu)) {
@@ -219,7 +216,7 @@ bool application_account_menu_open(UiWidgetHandle source, UiRect anchor) noexcep
     auto& owner = *g_app.account_menu;
     owner.panel = 0;
     owner.source = source;
-    owner.scope = account_scope();
+    owner.scope = application_account_scope();
     owner.profile_id = g_app.account.status.profile_id;
     owner.self_user = g_app.account_ui->chat_state.self_user_id;
     if (!source_current(owner))

@@ -203,16 +203,6 @@ struct CdnAnimatedWebpResult {
     }
 };
 
-struct CdnMediaPipelineCounters {
-    u64 cache_hits;
-    u64 fetches_required;
-    u64 admitted_responses;
-    u64 transient_responses;
-    u64 not_modified;
-    u64 decode_failures;
-    u64 rejected;
-};
-
 struct CdnMediaPipeline {
     EncodedMediaCache* cache;
     Vp8lWorkspace* webp_workspace;
@@ -239,7 +229,6 @@ struct CdnMediaPipeline {
     // conditional request without retaining a pointer into evictable storage.
     u8 result_etag[kEncodedMediaCacheMaximumEtagBytes];
     u32 result_etag_bytes;
-    CdnMediaPipelineCounters counters;
 };
 
 enum class CdnEncodedAudioState : u8 {

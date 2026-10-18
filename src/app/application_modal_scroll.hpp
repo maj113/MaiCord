@@ -1,7 +1,8 @@
 #pragma once
+#include "maicord/core/win32_records.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/scroll_host.hpp"
 
-#include <Windows.h>
 #include <limits.h>
 
 namespace maicord::app_detail {
@@ -10,8 +11,8 @@ namespace maicord::app_detail {
 inline UiScrollDispatch application_modal_scroll_wheel(UiScrollHost* host, UiScrollBinding binding,
                                                        HWND window, u32 dpi, WPARAM wparam, LPARAM lparam,
                                                        u64 now_us) noexcept {
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (!ScreenToClient(window, &point))
+    Win32Point point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    if (!ScreenToClient(window, point.native()))
         return UiScrollDispatch::unhandled;
     const double scale = 96.0 / maximum(dpi, 1u);
     UINT lines = 3;

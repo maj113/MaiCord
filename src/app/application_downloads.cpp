@@ -37,6 +37,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <shlobj.h>
 
 namespace maicord::app_detail {
@@ -98,9 +99,7 @@ struct ApplicationDownloads {
     u32 menu_opens;
     ReceivedAttachmentKind menu_kind;
     MediaAttachmentFormat menu_format;
-    bool menu_sticker; // menu.url is a sticker image; menu.attachment is zero
-    bool menu_embed;   // menu is embed media; its link rows use menu_link
-    u16 menu_link_bytes;
+    u16 menu_link_bytes; // embed media menus (menu.embed) name this link in their link rows
     char menu_link[2048];
     AccountUiRuntime* account_ui;
     void* account_instance;
@@ -156,21 +155,33 @@ bool url_current(Utf8View url, u64 origin, u64 attachment) noexcept {
            protocol_writer_append_literal(&writer, "/") && parsed.target_bytes > writer.used &&
            bytes_equal(target, prefix, writer.used);
 }
-bool capture_payload(const MessageRecord& record, MessageHandle handle, const MessageRichStore& store,
+// The message's rich record, or its forwarded snapshot's.
+const MessageRichRecord* rich_of(const MessageRichStore& store, u64 message_id, bool snapshot) noexcept {
+    return snapshot ? message_rich_store_snapshot(store, message_id)
+                    : message_rich_store_find(store, message_id);
+}
+// The identity and scope fields every source shares.
+void bind_message(DownloadSource* source, const MessageRecord& message) noexcept {
+    source->scope = g_app.plugin_account_scope_serial;
+    source->profile = g_app.account.status.profile_id;
+    source->self = g_app.account_ui->chat_state.self_user_id;
+    source->channel = message.channel_id;
+    source->message = message.id;
+    source->revision = message.revision;
+}
+bool capture_payload(const MessageRecord& message, MessageHandle handle, const MessageRichStore& store,
                      u64 attachment_id, bool snapshot, DownloadSource* out) noexcept {
     if (!account_ready() || !attachment_id ||
-        record.delivery != MessageDeliveryState::authoritative || !channel_current(record.channel_id))
+        message.delivery != MessageDeliveryState::authoritative || !channel_current(message.channel_id))
         return false;
-    const auto* message = &record;
-    const u64 message_id = message->id;
-    const auto* outer = message_rich_store_find(store, message_id);
-    const auto* rich = snapshot ? message_rich_store_snapshot(store, message_id) : outer;
-    if (!outer || !rich || rich->message_revision != message->revision ||
-        outer->message_revision != message->revision ||
+    const auto* outer = message_rich_store_find(store, message.id);
+    const auto* rich = snapshot ? message_rich_store_snapshot(store, message.id) : outer;
+    if (!outer || !rich || rich->message_revision != message.revision ||
+        outer->message_revision != message.revision ||
         (snapshot &&
          (outer->reference.type != 1 || !outer->reference.channel_id || !outer->reference.message_id)))
         return false;
-    const auto origin = snapshot ? outer->reference.channel_id : message->channel_id;
+    const auto origin = snapshot ? outer->reference.channel_id : message.channel_id;
     for (u32 i = 0; i < rich->attachment_count; ++i) {
         const auto& a = rich->attachments[i];
         if (a.id != attachment_id)
@@ -184,16 +195,11 @@ bool capture_payload(const MessageRecord& record, MessageHandle handle, const Me
                                                             {source.filename, sizeof(source.filename)});
         if (!name.ok() || !name.bytes)
             return false;
-        source.scope = g_app.plugin_account_scope_serial;
-        source.profile = g_app.account.status.profile_id;
-        source.self = g_app.account_ui->chat_state.self_user_id;
-        source.channel = message->channel_id;
-        source.message = message_id;
+        bind_message(&source, message);
         source.attachment = attachment_id;
         source.origin_channel = origin;
-        source.origin_message = snapshot ? outer->reference.message_id : message_id;
+        source.origin_message = snapshot ? outer->reference.message_id : message.id;
         source.handle = handle;
-        source.revision = message->revision;
         source.bytes = a.size;
         source.snapshot = snapshot;
         source.risky = name.risky;
@@ -304,13 +310,10 @@ bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, co
     if (!embed_filename(original.bytes ? original : url,
                         gifv ? MediaAttachmentFormat::mp4 : selected.format, &source))
         return false;
-    source.scope = g_app.plugin_account_scope_serial;
-    source.profile = g_app.account.status.profile_id;
-    source.self = g_app.account_ui->chat_state.self_user_id;
-    source.channel = source.origin_channel = record.channel_id;
-    source.message = source.origin_message = record.id;
+    bind_message(&source, record);
+    source.origin_channel = record.channel_id;
+    source.origin_message = record.id;
     source.handle = handle;
-    source.revision = record.revision;
     source.bytes = kHttpsFileDownloadSizeFromResponse;
     source.snapshot = snapshot;
     source.embed = true;
@@ -375,36 +378,31 @@ bool source_media_allowed(const DownloadSource& source, bool activation = false)
         message->revision != source.revision || outer->message_revision != source.revision ||
         rich->message_revision != source.revision)
         return false;
+    u32 index = source.embed_index;
+    bool spoiler = false, explicit_media = false;
     if (source.embed) {
-        if (source.embed_index >= rich->embed_count)
+        if (index >= rich->embed_count)
             return false;
-        const auto owner = message_media_owner(*message, outer);
-        const auto key = message_media_reveal_key(source.message, MessageMediaSource::embed,
-                                                  source.embed_index, source.snapshot);
-        const bool explicit_media = message_rich_embed_explicit(rich->embeds[source.embed_index]);
-        return activation ? !application_media_activation_consumed(*scene, owner, source.message, key,
-                                                                   false, explicit_media)
-                          : message_scene_media_obscure(*scene, owner, source.message, key, false,
-                                                        explicit_media) == MessageMediaObscure::none;
+        explicit_media = message_rich_embed_explicit(rich->embeds[index]);
+    } else {
+        index = 0;
+        while (index < rich->attachment_count && rich->attachments[index].id != source.attachment)
+            ++index;
+        if (index == rich->attachment_count)
+            return false;
+        spoiler = message_rich_attachment_spoiler(*store, rich->attachments[index]);
+        explicit_media = message_rich_attachment_explicit(rich->attachments[index]);
     }
-    for (u32 index = 0; index < rich->attachment_count; ++index) {
-        const auto& attachment = rich->attachments[index];
-        if (attachment.id != source.attachment)
-            continue;
-        const auto owner = message_media_owner(*message, outer);
-        const auto key = message_media_reveal_key(source.message, MessageMediaSource::attachment,
-                                                  index, source.snapshot);
-        const bool spoiler = message_rich_attachment_spoiler(*store, attachment),
-                   explicit_media = message_rich_attachment_explicit(attachment);
-        // Only a user activation may reveal or request age confirmation. Pending
-        // admission rechecks policy without creating either side effect.
-        return activation
-                   ? !application_media_activation_consumed(*scene, owner, source.message, key,
-                                                             spoiler, explicit_media)
-                   : message_scene_media_obscure(*scene, owner, source.message, key, spoiler,
-                                                  explicit_media) == MessageMediaObscure::none;
-    }
-    return false;
+    const auto owner = message_media_owner(*message, outer);
+    const auto key = message_media_reveal_key(
+        source.message, source.embed ? MessageMediaSource::embed : MessageMediaSource::attachment, index,
+        source.snapshot);
+    // Only a user activation may reveal or request age confirmation. Pending
+    // admission rechecks policy without creating either side effect.
+    return activation ? !application_media_activation_consumed(*scene, owner, source.message, key, spoiler,
+                                                               explicit_media)
+                      : message_scene_media_obscure(*scene, owner, source.message, key, spoiler,
+                                                    explicit_media) == MessageMediaObscure::none;
 }
 void changed(ApplicationDownloads& q) noexcept {
     ++q.revision;
@@ -904,16 +902,14 @@ bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidg
             if (!row)
                 continue;
             const auto* message = message_store_resolve(g_app.message_view.store, row->message);
-            const auto* rich = message ? (s ? message_rich_store_snapshot(store, message->id)
-                                            : message_rich_store_find(store, message->id))
-                                       : nullptr;
+            const auto* rich = message ? rich_of(store, message->id, s != 0) : nullptr;
             if (!rich || rich->message_revision != message->revision)
                 continue;
             for (u32 a = 0; a < rich->attachment_count; ++a) {
                 const auto widget =
                     message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, a);
                 if (focused.generation) {
-                    if (widget.slot == focused.slot && widget.generation == focused.generation &&
+                    if (ui_widget_handle_equal(widget, focused) &&
                         ui_widget_manager_input_enabled(scene.widgets, widget))
                         return capture(message->id, rich->attachments[a].id, s != 0, out);
                     continue;
@@ -983,8 +979,7 @@ const MessageRichAttachment* source_attachment(const DownloadSource& source) noe
     if (!g_app.account_ui || !source_current(source))
         return nullptr;
     const auto& store = g_app.account_ui->message_rich_store;
-    const auto* rich = source.snapshot ? message_rich_store_snapshot(store, source.message)
-                                       : message_rich_store_find(store, source.message);
+    const auto* rich = rich_of(store, source.message, source.snapshot);
     for (u32 index = 0; rich && index < rich->attachment_count; ++index)
         if (rich->attachments[index].id == source.attachment)
             return &rich->attachments[index];
@@ -995,8 +990,7 @@ ReceivedAttachmentKind source_kind(const DownloadSource& source, MediaAttachment
     const auto* attachment = source_attachment(source);
     *format =
         attachment ? message_rich_attachment_format(store, *attachment) : MediaAttachmentFormat::unknown;
-    const auto* rich = source.snapshot ? message_rich_store_snapshot(store, source.message)
-                                       : message_rich_store_find(store, source.message);
+    const auto* rich = rich_of(store, source.message, source.snapshot);
     switch (*format) {
     case MediaAttachmentFormat::png:
     case MediaAttachmentFormat::jpeg:
@@ -1026,8 +1020,7 @@ bool open_context(DownloadSource source, UiRect anchor) noexcept {
     const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
     // Plugins see the attachment's index in the message, its URL and filename.
     const auto& store = g_app.account_ui->message_rich_store;
-    const auto* rich = source.snapshot ? message_rich_store_snapshot(store, source.message)
-                                       : message_rich_store_find(store, source.message);
+    const auto* rich = rich_of(store, source.message, source.snapshot);
     u32 index = 0;
     while (rich && index < rich->attachment_count && rich->attachments[index].id != source.attachment)
         ++index;
@@ -1040,8 +1033,6 @@ bool open_context(DownloadSource source, UiRect anchor) noexcept {
     q->menu = source;
     q->menu_kind = kind;
     q->menu_format = format;
-    q->menu_sticker = false;
-    q->menu_embed = false;
     q->menu_opens = g_app.message_context.opens;
     q->menu_valid = true;
     return application_request_frame();
@@ -1059,9 +1050,7 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
             const auto* row = s ? message_scene_snapshot_row(scene, scene.rows[r]) : &scene.rows[r];
             const auto* message =
                 row ? message_store_resolve(g_app.message_view.store, row->message) : nullptr;
-            const auto* rich = message ? (s ? message_rich_store_snapshot(store, message->id)
-                                            : message_rich_store_find(store, message->id))
-                                       : nullptr;
+            const auto* rich = message ? rich_of(store, message->id, s != 0) : nullptr;
             if (!rich || rich->message_revision != message->revision ||
                 message->channel_id != g_app.account_ui->active_channel_id)
                 continue;
@@ -1077,8 +1066,7 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
                     node->rectangle,
                     ui_rect_intersection(node->clip_rectangle,
                                          ui_rect_intersection(row_node->rectangle, scene.viewport)));
-                const bool hit = focused.generation ? widget.slot == focused.slot &&
-                                                          widget.generation == focused.generation
+                const bool hit = focused.generation ? ui_widget_handle_equal(widget, focused)
                                                     : ui_rect_contains(visible, x, y);
                 if (!hit)
                     continue;
@@ -1098,12 +1086,7 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
                     !protocol_writer_append_bytes(&writer, target, written.bytes))
                     return false;
                 source.url_bytes = static_cast<u16>(writer.used);
-                source.scope = g_app.plugin_account_scope_serial;
-                source.profile = g_app.account.status.profile_id;
-                source.self = g_app.account_ui->chat_state.self_user_id;
-                source.channel = message->channel_id;
-                source.message = message->id;
-                source.revision = message->revision;
+                bind_message(&source, *message);
                 *out = source;
                 return true;
             }
@@ -1123,9 +1106,7 @@ bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nu
             const auto* row = s ? message_scene_snapshot_row(scene, scene.rows[r]) : &scene.rows[r];
             const auto* message =
                 row ? message_store_resolve(g_app.message_view.store, row->message) : nullptr;
-            const auto* rich = message ? (s ? message_rich_store_snapshot(store, message->id)
-                                            : message_rich_store_find(store, message->id))
-                                       : nullptr;
+            const auto* rich = message ? rich_of(store, message->id, s != 0) : nullptr;
             const auto* row_node = row ? message_scene_layout_node(scene, row->widget) : nullptr;
             if (!rich || !row_node || rich->message_revision != message->revision ||
                 message->channel_id != g_app.account_ui->active_channel_id)
@@ -1160,12 +1141,7 @@ bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nu
                 DownloadSource source{};
                 copy_bytes(source.url, url.data, url.bytes);
                 source.url_bytes = static_cast<u16>(url.bytes);
-                source.scope = g_app.plugin_account_scope_serial;
-                source.profile = g_app.account.status.profile_id;
-                source.self = g_app.account_ui->chat_state.self_user_id;
-                source.channel = message->channel_id;
-                source.message = message->id;
-                source.revision = message->revision;
+                bind_message(&source, *message);
                 *out = source;
                 if (embed_index)
                     *embed_index = i;
@@ -1188,8 +1164,6 @@ bool open_sticker_context(const DownloadSource& source, UiRect anchor) noexcept 
         return false;
     q->menu = source;
     q->menu_kind = ReceivedAttachmentKind::sticker;
-    q->menu_sticker = true;
-    q->menu_embed = false;
     q->menu_opens = g_app.message_context.opens;
     q->menu_valid = true;
     return application_request_frame();
@@ -1197,8 +1171,7 @@ bool open_sticker_context(const DownloadSource& source, UiRect anchor) noexcept 
 // What embed media is, for its menu labels: an animation, a video or an image.
 ReceivedAttachmentKind embed_kind(const DownloadSource& source) noexcept {
     const auto& store = g_app.account_ui->message_rich_store;
-    const auto* rich = source.snapshot ? message_rich_store_snapshot(store, source.message)
-                                       : message_rich_store_find(store, source.message);
+    const auto* rich = rich_of(store, source.message, source.snapshot);
     MessageRichEmbedMediaSelection selected{};
     if (!rich || source.embed_index >= rich->embed_count ||
         !embed_media(store, *rich, source.embed_index, &selected))
@@ -1226,8 +1199,6 @@ bool open_embed_context(const DownloadSource& source, Utf8View link, UiRect anch
         return false;
     q->menu = source;
     q->menu_kind = kind;
-    q->menu_sticker = false;
-    q->menu_embed = true;
     copy_bytes(q->menu_link, link.data, link.bytes);
     q->menu_link_bytes = static_cast<u16>(link.bytes);
     q->menu_opens = g_app.message_context.opens;
@@ -1496,7 +1467,7 @@ bool application_downloads_context_action(u32 action) noexcept {
     if (!dismiss_popup())
         return false;
     const Utf8View url{source.url, source.url_bytes};
-    if (q->menu_sticker) {
+    if (q->menu_kind == ReceivedAttachmentKind::sticker) {
         const auto found = message_store_find(g_app.message_view.store, source.message);
         const auto* message =
             found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
@@ -1510,7 +1481,7 @@ bool application_downloads_context_action(u32 action) noexcept {
     }
     if (!source_current(source))
         return true;
-    if (q->menu_embed) {
+    if (source.embed) {
         const Utf8View link{q->menu_link, q->menu_link_bytes};
         if (action == kReceivedAttachmentActionSave)
             return begin_source(source);
@@ -1609,9 +1580,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
             const auto pressed = q->context;
             const auto widget = q->pressed_widget;
             const auto bounds = q->pressed_bounds;
-            const auto held = g_app.message_scene.widgets.captured;
-            const bool owned =
-                held.generation && held.slot == widget.slot && held.generation == widget.generation;
+            const bool owned = ui_widget_handle_matches(g_app.message_scene.widgets.captured, widget);
             q->inline_capture = false;
             if (owned)
                 ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
@@ -1625,7 +1594,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
                 attachment_at(static_cast<short>(LOWORD(lparam)) * scale,
                               static_cast<short>(HIWORD(lparam)) * scale, true, &live, {}, &current_bounds,
                               &current_widget) &&
-                current_widget.slot == widget.slot && current_widget.generation == widget.generation &&
+                ui_widget_handle_equal(current_widget, widget) &&
                 bytes_equal(&bounds, &current_bounds, sizeof(bounds)) && live.message == pressed.message &&
                 live.attachment == pressed.attachment && live.snapshot == pressed.snapshot &&
                 live.revision == pressed.revision && live.handle.generation == pressed.handle.generation &&
@@ -1635,9 +1604,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
         }
         if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS ||
             message == WM_SIZE || message == WM_DPICHANGED) {
-            const auto held = g_app.message_scene.widgets.captured;
-            if (held.generation && held.slot == q->pressed_widget.slot &&
-                held.generation == q->pressed_widget.generation)
+            if (ui_widget_handle_matches(g_app.message_scene.widgets.captured, q->pressed_widget))
                 ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
             q->inline_capture = false;
             g_app.downloads_pointer_tail = true;
@@ -1728,7 +1695,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
     const bool captured =
         q->captured &&
         (backdrop ||
-         (held.generation && held.slot == widget.slot && held.generation == widget.generation && node &&
+         (ui_widget_handle_matches(held, widget) && node &&
           bytes_equal(&node->rectangle, &q->pressed_bounds, sizeof(q->pressed_bounds))));
     revoke_capture(*q);
     g_app.downloads_pointer_tail = false;
@@ -1741,10 +1708,7 @@ HANDLE application_downloads_notification() noexcept {
     return g_app.downloads ? g_app.downloads->picker.notification : nullptr;
 }
 u64 application_downloads_next_wake() noexcept {
-    const auto* q = g_app.downloads;
-    if (!q)
-        return 0;
-    return q->wake_at;
+    return g_app.downloads ? g_app.downloads->wake_at : 0;
 }
 void application_downloads_prepare_account_stop() noexcept {
     auto* q = g_app.downloads;
@@ -1753,9 +1717,7 @@ void application_downloads_prepare_account_stop() noexcept {
     if (q->inline_capture) {
         q->inline_capture = false;
         g_app.downloads_pointer_tail = true;
-        const auto held = g_app.message_scene.widgets.captured;
-        if (held.generation && held.slot == q->pressed_widget.slot &&
-            held.generation == q->pressed_widget.generation)
+        if (ui_widget_handle_matches(g_app.message_scene.widgets.captured, q->pressed_widget))
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
         if (GetCapture() == g_app.window)
             ReleaseCapture();

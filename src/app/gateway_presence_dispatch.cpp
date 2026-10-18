@@ -2,6 +2,8 @@
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
+#include "gateway_dispatch_common.hpp"
+
 namespace maicord {
 namespace {
 
@@ -36,15 +38,8 @@ bool visit_presence(void* opaque, JsonString key, JsonValue value) noexcept {
         if (!mark(context, 4)) return false;
         JsonString status{};
         valid = json_value_as_string(value, &status);
-        if (valid) {
-            using Status = GatewayClientMemberListStatus;
-            context->value.status = json_string_equals_ascii(status, utf8_literal("online")) ? Status::online
-                : json_string_equals_ascii(status, utf8_literal("idle")) ? Status::idle
-                : json_string_equals_ascii(status, utf8_literal("dnd")) ? Status::dnd
-                : json_string_equals_ascii(status, utf8_literal("offline")) ||
-                  json_string_equals_ascii(status, utf8_literal("invisible")) ? Status::offline
-                : Status::unknown;
-        }
+        if (valid)
+            context->value.status = gateway_member_status(true, status);
     } else if (json_string_equals_ascii(key, utf8_literal("client_status"))) {
         if (!mark(context, 16)) return false;
         // Per-platform detail is advisory: a malformed object leaves every

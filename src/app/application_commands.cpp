@@ -14,7 +14,8 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -65,6 +66,12 @@ struct Commands {
     bool context_wanted, context_send;
 };
 Commands* commands;
+Commands* ensure_commands() noexcept {
+    if (!commands)
+        commands = static_cast<Commands*>(
+            VirtualAlloc(nullptr, sizeof(Commands), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    return commands;
+}
 void advance_channel_index_epoch(Commands& c) noexcept {
     if (++c.channel_index_epoch == 0)
         ++c.channel_index_epoch;
@@ -249,7 +256,7 @@ bool autocomplete_enabled() noexcept {
            enabled;
 }
 u64 next_nonce() noexcept {
-    const u64 stamp = (clock_unix_milliseconds() - 1420070400000ull) << 22;
+    const u64 stamp = (clock_unix_milliseconds() - kSnowflakeEpochMilliseconds) << 22;
     auto& serial = commands->nonce_serial;
     serial = maximum(serial + 1, stamp);
     return serial;
@@ -457,10 +464,7 @@ bool application_commands_sync(bool* handled) noexcept {
         return true;
     }
     *handled = true;
-    if (!commands)
-        commands = static_cast<Commands*>(
-            VirtualAlloc(nullptr, sizeof(Commands), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!commands)
+    if (!ensure_commands())
         return false;
     auto& c = *commands;
     const auto& composer = g_app.message_composer;
@@ -737,12 +741,10 @@ bool application_commands_submit(u64 now) noexcept {
         application = c.selected.command->application_id;
         payload = {c.payload, data.used};
     }
-    auto& ui = *g_app.account_ui;
-    if (++ui.message_history_request_id == 0)
-        ++ui.message_history_request_id;
+    const u64 request_id = application_next_request_id();
     const auto result = g_app.account.api.application_command(
         g_app.account.instance, op == 2 ? c.send_channel : c.channel, op == 2 ? c.send_guild : c.guild,
-        application, nonce, payload, ui.message_history_request_id, op);
+        application, nonce, payload, request_id, op);
     if (result.error == RestClientSubmitError::busy) {
         c.retry_at = now + 100;
         c.indexing_retry = false;
@@ -782,7 +784,7 @@ bool application_commands_submit(u64 now) noexcept {
     } else if (op < 2)
         c.pending &= ~(1u << slot);
     g_app.details_request_owner = MessageHistoryRequestOwner::commands;
-    g_app.details_request_id = ui.message_history_request_id;
+    g_app.details_request_id = request_id;
     return true;
 }
 bool application_commands_response(const RestClientResponse& response, Utf8View body) noexcept {
@@ -1054,12 +1056,6 @@ u64 application_commands_next_wake() noexcept {
     return earliest_deadline(wake, c.retry_at ? c.retry_at : 1);
 }
 namespace {
-Commands* ensure_commands() noexcept {
-    if (!commands)
-        commands = static_cast<Commands*>(
-            VirtualAlloc(nullptr, sizeof(Commands), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    return commands;
-}
 // Binds the command index to the active channel without disturbing a draft.
 bool bind_context_channel() noexcept {
     if (!g_app.account_ui || !ensure_commands())

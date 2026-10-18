@@ -30,7 +30,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/deadline.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -94,7 +95,6 @@ struct Overview {
     UiSettingsFooter footer;
     MessageComposer models[2];
     BoundedEdit bindings[2];
-    UiWidgetManager* previous_focus;
     u64 lifetime, projected_revision;
     bool permission_observed;
     // Channel identity and capabilities.
@@ -182,7 +182,7 @@ bool channel_usable(u64 id) noexcept {
     return c && c->occupied && !(c->flags & kChannelObfuscatedFlag) && c->guild_id && supported_type(c->type) &&
            c->permissions_resolved && (c->effective_permissions & kPermissionViewChannel);
 }
-// Text overview through the overview controller (unchanged contract).
+// Text overview through the overview controller.
 bool manage(u64 id) noexcept {
     if (!g_app.account_ui)
         return false;
@@ -282,8 +282,6 @@ Utf8View status() noexcept {
     return c.dirty_fields ? utf8_literal("You have unsaved changes.") : Utf8View{};
 }
 
-// Projection ------------------------------------------------------------
-
 u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept {
     if (owner->control_count >= kControlCapacity)
         return ~0u;
@@ -347,7 +345,7 @@ void project_text_overview() noexcept {
         p.presentation[4].variant = UiSettingsVariant::primary;
     p.control_count = 5;
 }
-void project_generic_overview(Bank& bank) noexcept {
+void project_generic_overview() noexcept {
     auto& p = *owner;
     const bool edit = editable() && p.loaded && p.can_overview;
     auto& d = p.draft;
@@ -403,7 +401,6 @@ void project_generic_overview(Bank& bank) noexcept {
     push({4, utf8_literal("Age-restricted channel"),
           utf8_literal("Members must confirm they meet the age requirement to view this channel."),
           UiSettingsControlKind::toggle, edit, d.nsfw, {}, 0, {}, nullptr});
-    (void)bank;
 }
 
 Utf8View target_name(Bank& bank, const PermissionOverwriteRecord& entry, u32* color, bool* member) noexcept {
@@ -621,7 +618,7 @@ bool project() noexcept {
     else if (p.text)
         project_text_overview();
     else
-        project_generic_overview(bank);
+        project_generic_overview();
     const bool dirty = page_dirty();
     const bool saving = permissions || !p.text ? p.request_id && p.op != Op::fetch
                                                : p.controller.phase == ChannelOverviewPhase::saving;
@@ -679,8 +676,6 @@ void build_navigation() noexcept {
     }
     ui_settings_scene_bind_navigation(&p.scene, {p.nav, p.nav_count}, ++p.nav_revision);
 }
-
-// Drafts and requests -----------------------------------------------------
 
 void load_overwrites() noexcept {
     const auto* channel = chat_state_store_find_channel(state(), owner->identity.channel_id);
@@ -811,8 +806,6 @@ void set_override(u64 id, PermissionSet bit, PermissionTriState value) noexcept 
         permission_overwrite_draft_remove(&d, id);
 }
 
-// Activation ----------------------------------------------------------------
-
 void request_close() noexcept;
 void select(UiPageKey key) noexcept {
     auto& p = *owner;
@@ -829,8 +822,6 @@ void select(UiPageKey key) noexcept {
     repaint();
 }
 void activate_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     auto& c = p.controller;
     const auto target = activation.value.target;
@@ -959,8 +950,6 @@ void activate_hook(SettingsLayer*, const SettingsLayerActivation& activation) no
     repaint();
 }
 void choose_hook(SettingsLayer*, u32 action) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const Menu menu = p.menu;
     p.menu = Menu::none;
@@ -979,7 +968,7 @@ void choose_hook(SettingsLayer*, u32 action) noexcept {
     }
 }
 bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept {
-    if (!owner || selected_permissions() || !(control == 1 || (control == 2 && owner->text)))
+    if (selected_permissions() || !(control == 1 || (control == 2 && owner->text)))
         return false;
     *model = &owner->models[control - 1];
     *binding = &owner->bindings[control - 1];
@@ -987,8 +976,6 @@ bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEd
     return true;
 }
 bool edited_hook(SettingsLayer*, u64 control) noexcept {
-    if (!owner)
-        return false;
     const auto text = message_composer_text(owner->models[control - 1]);
     if (owner->text) {
         ChannelOverviewPatch patch{};
@@ -1088,7 +1075,6 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
     auto& p = *owner;
     const auto* channel = chat_state_store_find_channel(state(), channel_id);
     p.lifetime = ++lifetime;
-    p.previous_focus = g_app.context_focus;
     p.permission_observed = false;
     p.identity = scope(channel_id);
     p.type = channel->type;
@@ -1224,7 +1210,7 @@ void application_channel_overview_release() noexcept {
     ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }
@@ -1313,9 +1299,7 @@ bool application_channel_overview_submit(u64 now) noexcept {
     if (p.text) {
         const auto request = channel_overview_controller_request(p.controller, now);
         if (request.ready && g_app.account.api.channel_overview && g_app.account.instance) {
-            u64 id = ++g_app.account_ui->message_history_request_id;
-            if (!id)
-                id = ++g_app.account_ui->message_history_request_id;
+            const u64 id = application_next_request_id();
             const auto submitted = g_app.account.api.channel_overview(
                 g_app.account.instance, request.operation, request.scope.channel_id,
                 request.operation == ChannelOverviewOperation::update ? &request.patch : nullptr, id);
@@ -1339,9 +1323,7 @@ bool application_channel_overview_submit(u64 now) noexcept {
     }
     if (!p.queued || p.request_id || (p.retry_at && p.retry_at > now) || !g_app.account.instance)
         return false;
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
+    const u64 id = application_next_request_id();
     RestClientSubmitResult submitted{RestClientSubmitError::invalid_input};
     // Channel routes are channel-major: no guild ID.
     GuildAdminRequest request{};

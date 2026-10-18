@@ -101,6 +101,24 @@ bool message_payload_offsets(const GatewayClientEvent& event, ConstSlice<u8> pay
     return true;
 }
 
+// A message create/update event whose descriptor matches its payload; reports the roles and users
+// offsets.
+bool message_event_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* role_offset = nullptr,
+                           u32* user_offset = nullptr) noexcept {
+    u32 roles = 0, users = 0, rich = 0;
+    if (event.kind != GatewayClientEventKind::dispatch ||
+        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
+         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
+        event.dispatch_payload_bytes != payload.count || (!payload.data && payload.count != 0) ||
+        !message_payload_offsets(event, payload, &roles, &users, &rich))
+        return false;
+    if (role_offset)
+        *role_offset = roles;
+    if (user_offset)
+        *user_offset = users;
+    return true;
+}
+
 bool rich_header_valid(const GatewayClientMessageRichHeader& header, u32 rich_fields) noexcept {
     return !(
         !reserved_zero(header.reserved, sizeof(header.reserved)) ||
@@ -780,17 +798,9 @@ bool gateway_client_event_visit_message_snapshot_mention_users(
 }
 bool gateway_client_event_message_mention_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                   u32 index, u64* role_id) noexcept {
-    if (!role_id || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
-        index >= event.message.mention_role_count || event.dispatch_payload_bytes != payload.count ||
-        (!payload.data && payload.count != 0)) {
-        return false;
-    }
     u32 role_offset = 0;
-    u32 user_offset = 0;
-    u32 rich_offset = 0;
-    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
+    if (!role_id || index >= event.message.mention_role_count ||
+        !message_event_offsets(event, payload, &role_offset)) {
         return false;
     }
     const u64 offset = static_cast<u64>(role_offset) + static_cast<u64>(index) * sizeof(u64);
@@ -804,17 +814,10 @@ bool gateway_client_event_message_mention_role_at(const GatewayClientEvent& even
 
 bool gateway_client_event_message_member_role_at(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                  u32 index, u64* role_id) noexcept {
-    if (!role_id || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
-        index >= event.message.member_role_count || event.dispatch_payload_bytes != payload.count ||
-        (!payload.data && payload.count != 0)) {
-        return false;
-    }
     u32 role_offset = 0;
     u32 user_offset = 0;
-    u32 rich_offset = 0;
-    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
+    if (!role_id || index >= event.message.member_role_count ||
+        !message_event_offsets(event, payload, &role_offset, &user_offset)) {
         return false;
     }
     const u64 offset = static_cast<u64>(role_offset) +
@@ -830,18 +833,8 @@ bool gateway_client_event_message_member_role_at(const GatewayClientEvent& event
 
 bool gateway_client_event_message_author_name(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                               Utf8View* name) noexcept {
-    if (!name || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
-        event.dispatch_payload_bytes != payload.count || (!payload.data && payload.count != 0)) {
+    if (!name || !message_event_offsets(event, payload))
         return false;
-    }
-    u32 role_offset = 0;
-    u32 user_offset = 0;
-    u32 rich_offset = 0;
-    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
-        return false;
-    }
     *name = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes,
                      event.message.author_name_bytes};
     return utf8_validate(*name).valid;
@@ -850,18 +843,8 @@ bool gateway_client_event_message_author_name(const GatewayClientEvent& event, C
 bool gateway_client_event_message_author_avatar_hash(const GatewayClientEvent& event,
                                                      ConstSlice<u8> payload,
                                                      Utf8View* avatar_hash) noexcept {
-    if (!avatar_hash || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
-        event.dispatch_payload_bytes != payload.count || (!payload.data && payload.count != 0)) {
+    if (!avatar_hash || !message_event_offsets(event, payload))
         return false;
-    }
-    u32 role_offset = 0;
-    u32 user_offset = 0;
-    u32 rich_offset = 0;
-    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
-        return false;
-    }
     *avatar_hash = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
                                 event.message.author_name_bytes,
                             event.message.author_avatar_hash_bytes};
@@ -870,18 +853,8 @@ bool gateway_client_event_message_author_avatar_hash(const GatewayClientEvent& e
 
 bool gateway_client_event_message_member_nick(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                               Utf8View* nick) noexcept {
-    if (!nick || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
-        event.dispatch_payload_bytes != payload.count || (!payload.data && payload.count != 0)) {
+    if (!nick || !message_event_offsets(event, payload))
         return false;
-    }
-    u32 role_offset = 0;
-    u32 user_offset = 0;
-    u32 rich_offset = 0;
-    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
-        return false;
-    }
     *nick = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
                          event.message.author_name_bytes + event.message.author_avatar_hash_bytes,
                      event.message.member_nick_bytes};
@@ -890,25 +863,14 @@ bool gateway_client_event_message_member_nick(const GatewayClientEvent& event, C
 
 bool gateway_client_event_message_mention_user_at(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                   u32 index, u64* user_id, Utf8View* name) noexcept {
-    if (!user_id || !name || event.kind != GatewayClientEventKind::dispatch ||
-        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
-         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
-        index >= event.message.mention_user_count || event.dispatch_payload_bytes != payload.count ||
-        (!payload.data && payload.count != 0)) {
-        return false;
-    }
-    u32 role_offset = 0;
     u32 user_offset = 0;
-    u32 rich_offset = 0;
-    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
+    if (!user_id || !name || index >= event.message.mention_user_count ||
+        !message_event_offsets(event, payload, nullptr, &user_offset)) {
         return false;
     }
     GatewayClientNamedUserMutation packed{};
-    const u32 offset = user_offset + index * static_cast<u32>(sizeof(packed));
-    auto* bytes = reinterpret_cast<u8*>(&packed);
-    for (u32 byte = 0; byte < sizeof(packed); ++byte) {
-        bytes[byte] = payload[offset + byte];
-    }
+    copy_bytes(&packed, payload.data + user_offset + index * static_cast<u32>(sizeof(packed)),
+               sizeof(packed));
     if (packed.id == 0 || packed.name_bytes > kGatewayMessageUserNameMaximumBytes ||
         packed.name_offset < event.message.content_bytes ||
         packed.name_offset > event.message.transient_bytes ||

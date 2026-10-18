@@ -19,6 +19,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 namespace {
 constexpr u32 kMentionCapacity = 200;

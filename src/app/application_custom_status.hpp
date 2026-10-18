@@ -4,6 +4,7 @@
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Effective custom status: a queued choice, else the saved settings. False

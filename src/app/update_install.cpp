@@ -17,9 +17,6 @@ UpdateInstallResult pair_result(UpdatePairResult p, UpdateInstallError error) no
     for (auto& owner : r.pair.cleanup_files) owner = nullptr;
     r.pair.cleanup_hash = nullptr; return r;
 }
-bool same(const UpdateGenerationDirectoryIdentity& a, const UpdateGenerationDirectoryIdentity& b) noexcept {
-    return a.volume == b.volume && a.file == b.file;
-}
 bool file_info(HANDLE h, UpdateGenerationDirectoryIdentity* id, u64* bytes) noexcept {
     BY_HANDLE_FILE_INFORMATION info{}; LARGE_INTEGER size{};
     if (!h || h == INVALID_HANDLE_VALUE || GetFileType(h) != FILE_TYPE_DISK || !GetFileInformationByHandle(h, &info) || !GetFileSizeEx(h, &size) ||
@@ -75,7 +72,7 @@ const UpdateGenerationReference* disposal_reference(const UpdateInstallContext& 
 bool durable_directory(const UpdateInstallContext& c) noexcept {
     const auto* ref = disposal_reference(c);
     return ref && ref->present && bytes_equal(ref->pair.document_sha256, c.directory.document_sha256, 32) &&
-        same(c.directory.identity, c.transaction->state.disposal.directory);
+        c.directory.identity == c.transaction->state.disposal.directory;
 }
 bool root_contains(const UpdateGenerationTransaction& t, ConstSlice<wchar_t> path) noexcept {
     if (path.count < t.root_characters) return false;
@@ -121,7 +118,7 @@ UpdateInstallResult preflight(UpdateInstallContext* c, UpdateStage* stage, const
         const HANDLE h = i ? extra[i - 1] : stage->file; u64 bytes = 0; UpdateGenerationDirectoryIdentity id{};
         if (!file_info(h, &id, &bytes) || id.volume != c->transaction->identities[c->transaction->ancestor_count - 1].volume ||
             !stage_outside_root(*c->transaction, h)) return fail(UpdateInstallError::stage, ERROR_INVALID_DATA);
-        bool duplicate = false; for (u32 j = 0; j < count; ++j) if (same(id, ids[j])) duplicate = true;
+        bool duplicate = false; for (u32 j = 0; j < count; ++j) if (id == ids[j]) duplicate = true;
         if (!duplicate) { ids[count++] = id; if (!add_allocated(&retained, bytes, cluster)) return fail(UpdateInstallError::budget); }
     }
     UpdateInstallResult r{}; r.retained_bytes_bound = retained;
@@ -283,7 +280,7 @@ UpdateInstallResult dispose_files(UpdateInstallContext* c) noexcept {
                 return fail(UpdateInstallError::cleanup, native);
             }
             UpdateGenerationDirectoryIdentity id{}; u64 bytes = 0;
-            if (!file_info(c->files[i], &id, &bytes) || !same(id, c->file_identities[i])) {
+            if (!file_info(c->files[i], &id, &bytes) || id != c->file_identities[i]) {
                 // Retain for preserve-close only; never dispose a replacement.
                 c->known_files[i] = false; c->remediation_required = true; return fail(UpdateInstallError::remediation, ERROR_INVALID_DATA);
             }
@@ -345,10 +342,7 @@ UpdateInstallResult update_install_initialize(UpdateInstallContext* c, UpdateGen
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(c), sizeof(*c)}, {reinterpret_cast<const u8*>(transaction), sizeof(*transaction)},
         {reinterpret_cast<const u8*>(&key), sizeof(key)}, {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)},
         {workspace.storage.data, workspace.storage.capacity}, {reinterpret_cast<const u8*>(&limits), sizeof(limits)}};
-    for (u32 i = 0; i < sizeof(ranges) / sizeof(ranges[0]); ++i) {
-        if (!byte_range_valid(ranges[i])) return fail(UpdateInstallError::invalid_input);
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return fail(UpdateInstallError::invalid_input);
-    }
+    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return fail(UpdateInstallError::invalid_input);
     auto r = generation(update_generation_validate(transaction)); if (!r.ok()) return r;
     u8 fingerprint[32]{};
     if (!update_generation_inventory_fingerprint(key, workspace, {fingerprint, 32}).ok() ||
@@ -403,7 +397,7 @@ UpdateInstallResult update_install_begin_disposal(UpdateInstallContext* c, Updat
     for (u32 i = 0; i < 5; ++i) {
         r = generation(update_generation_file_open(&c->directory, static_cast<UpdateGenerationFile>(i), false, &c->files[i])); if (!r.ok()) return r;
         UpdateGenerationDirectoryIdentity id{}; u64 bytes = 0;
-        if (!file_info(c->files[i], &id, &bytes) || (c->known_files[i] && !same(id, c->file_identities[i]))) {
+        if (!file_info(c->files[i], &id, &bytes) || (c->known_files[i] && id != c->file_identities[i])) {
             c->remediation_required = true; return fail(UpdateInstallError::remediation, ERROR_INVALID_DATA);
         }
         intent.files[i] = id; c->file_identities[i] = id; c->known_files[i] = true;

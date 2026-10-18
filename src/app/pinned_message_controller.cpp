@@ -102,7 +102,6 @@ void install(PinnedMessageController& value, const MessagePinsPage& page,
     value.has_page = value.authoritative = true;
     value.page_index = value.requested_page_index;
     value.has_previous = value.page_index != 0;
-    if (!value.page_index) value.cursor_count = 0;
     value.cursors[value.page_index] = value.pending.query.before;
     value.cursor_count = value.page_index + 1;
     bool selection_present = false;

@@ -10,7 +10,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 static_assert(application_plugin_catalog_detail::kApplicationPluginCodePageUtf8 == CP_UTF8 &&
@@ -37,27 +37,26 @@ void capture_loaded_identity(ApplicationPlugins& plugins, u32 slot, const Native
     identity.abi_version = manifest.abi_version;
     identity.dll_bytes = manifest.dll_bytes;
     copy_bytes(identity.sha256, manifest.sha256, sizeof(identity.sha256));
-    for (u32 i = 0; i < manifest.dll_bytes; ++i) {
-        const char c = manifest.dll[i];
-        identity.dll[i] = c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c;
-    }
+    for (u32 i = 0; i < manifest.dll_bytes; ++i) identity.dll[i] = ascii_lower(manifest.dll[i]);
     plugins.loaded_identity_generations[slot] = plugins.modules[slot].generation;
+}
+// Settings > Plugins is the page on screen.
+bool plugins_page_selected() noexcept {
+    const auto* scene = g_app.renderer.settings_scene;
+    return scene && scene->selected_page.owner_id == 1 && scene->selected_page.page_id == 4;
 }
 bool install_context(const ApplicationPlugins& plugins,bool detached=false) noexcept {
     if(g_app.plugins!=&plugins)return false;
-    const auto* scene=g_app.renderer.settings_scene;
     return static_cast<const void*>(g_app.settings)==plugins.install_settings&&
         application_settings_lifetime()==plugins.install_lifetime&&
         g_app.plugin_account_scope_serial==plugins.install_account_serial&&
         g_app.account.status.profile_id==plugins.install_profile&&g_app.account_ui&&!g_app.login.visible&&
-        ((application_settings_active()&&scene&&scene->selected_page.owner_id==1&&scene->selected_page.page_id==4)||
-         (detached&&!application_settings_active()));
+        ((application_settings_active()&&plugins_page_selected())||(detached&&!application_settings_active()));
 }
 void preferences_error(NativePluginPreferencesResult result) noexcept {
     log_u64(LogLevel::warning, "plugins", "preferences_error", static_cast<u64>(result.error));
     log_u64(LogLevel::warning, "plugins", "preferences_native_error", result.win32_error);
 }
-bool save_choices(ApplicationPlugins& plugins, const NativePluginPreferences& candidate) noexcept;
 ApplicationPlugins* ensure() noexcept {
     if (g_app.plugins) return g_app.plugins;
     g_app.plugins = static_cast<ApplicationPlugins*>(VirtualAlloc(nullptr, sizeof(ApplicationPlugins),
@@ -76,7 +75,7 @@ ApplicationPlugins* ensure() noexcept {
             log_u64(LogLevel::warning, "plugins", "exited_during_call_owner", leftover.owner_id);
             NativePluginPreferences flagged = plugins.preferences;
             if (native_plugin_preferences_set_flags(&flagged, leftover.owner_id, native_plugin_preference_crashed)) {
-                if (!save_choices(plugins, flagged)) {
+                if (!application_plugins_save_choices(plugins, flagged)) {
                     plugins.preferences = flagged;
                     plugins.preferences_dirty = true;
                 }
@@ -86,14 +85,6 @@ ApplicationPlugins* ensure() noexcept {
         }
     }
     return g_app.plugins;
-}
-bool save_choices(ApplicationPlugins& plugins, const NativePluginPreferences& candidate) noexcept {
-    const auto released = native_plugin_preferences_release(&plugins.preferences_io);
-    if (!released.ok()) { preferences_error(released); return false; }
-    const auto saved = native_plugin_preferences_save(&plugins.preferences_io, candidate);
-    if (saved.ok() || saved.committed) plugins.preferences = candidate;
-    if (!saved.ok()) preferences_error(saved);
-    return saved.ok() || saved.committed;
 }
 u32 free_slot(const ApplicationPlugins& plugins) noexcept {
     for (u32 i = 0; i < 8; ++i)
@@ -130,7 +121,12 @@ void copy_label(ApplicationPlugins& plugins, u32 index, ConstSlice<wchar_t> path
 }
 } // namespace
 bool application_plugins_save_choices(ApplicationPlugins& plugins, const NativePluginPreferences& candidate) noexcept {
-    return save_choices(plugins, candidate);
+    const auto released = native_plugin_preferences_release(&plugins.preferences_io);
+    if (!released.ok()) { preferences_error(released); return false; }
+    const auto saved = native_plugin_preferences_save(&plugins.preferences_io, candidate);
+    if (saved.ok() || saved.committed) plugins.preferences = candidate;
+    if (!saved.ok()) preferences_error(saved);
+    return saved.ok() || saved.committed;
 }
 bool application_plugins_choose() noexcept {
     // A DLL without a manifest has no declared identity or permissions.
@@ -247,15 +243,14 @@ bool application_plugins_unload(u32 index) noexcept {
     plugins->activating = true;
     NativePluginPreferences disabled = plugins->preferences;
     if (native_plugin_preferences_remove_owner(&disabled, plugins->modules[index].owner_id)) {
-        if (!save_choices(*plugins, disabled)) {
+        if (!application_plugins_save_choices(*plugins, disabled)) {
             plugins->status = utf8_literal("Couldn't unload the plugin. Try again.");
             plugins->activating = false; application_settings_refresh_pages(); return false;
         }
         plugins->preferences_dirty = false;
     }
     const bool reopen = application_settings_active();
-    const auto* previous_scene = g_app.renderer.settings_scene;
-    const bool plugin_page = previous_scene && previous_scene->selected_page.owner_id == 1 && previous_scene->selected_page.page_id == 4;
+    const bool plugin_page = plugins_page_selected();
     auto* settings = g_app.settings;
     const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
     const auto result = native_plugin_module_unload(&plugins->modules[index]);
@@ -338,7 +333,7 @@ bool application_plugins_retry_save() noexcept {
     auto* plugins = g_app.plugins;
     if (!plugins || application_plugins_busy() || !plugins->preferences_dirty) return false;
     plugins->activating = true;
-    const bool saved = save_choices(*plugins, plugins->preferences);
+    const bool saved = application_plugins_save_choices(*plugins, plugins->preferences);
     plugins->preferences_dirty = !saved;
     plugins->status = saved ? utf8_literal("Plugins saved.") :
         utf8_literal("Plugins enabled, but couldn't be saved. Try again.");
@@ -358,10 +353,9 @@ Utf8View application_plugins_status() noexcept {
 
 namespace {
 bool catalog_context(ApplicationPlugins* plugins, u64 expected_revision, bool require_catalog = true) noexcept {
-    const auto* scene = g_app.renderer.settings_scene;
     return plugins && plugins == g_app.plugins && !application_plugins_busy() && (!require_catalog || plugins->catalog) &&
         plugins->catalog_revision == expected_revision && g_app.account_ui && !g_app.login.visible &&
-        application_settings_active() && scene && scene->selected_page.owner_id == 1 && scene->selected_page.page_id == 4;
+        application_settings_active() && plugins_page_selected();
 }
 bool advance_catalog(ApplicationPlugins& plugins) noexcept {
     if (plugins.catalog_revision == ~u64{0}) return false;
@@ -489,9 +483,8 @@ bool application_plugins_install() noexcept {
         if(plugins->installer.runtime)poll_install(*plugins);else plugins->installing=false;
         application_settings_refresh_pages();return true;
     }
-    if(application_plugins_busy()||!g_app.account_ui||g_app.login.visible||!application_settings_active())return false;
-    const auto* scene=g_app.renderer.settings_scene;
-    if(!scene||scene->selected_page.owner_id!=1||scene->selected_page.page_id!=4)return false;
+    if(application_plugins_busy()||!g_app.account_ui||g_app.login.visible||!application_settings_active()||
+        !plugins_page_selected())return false;
     plugins=ensure();if(!plugins||(plugins->catalog&&plugins->catalog->catalog.cleanup))return false;
     // Capture before the dialog starts, including the monotonic lifetime that
     // prevents a released/reallocated Settings pointer from passing this guard.
@@ -529,8 +522,7 @@ bool application_plugins_discover() noexcept {
     auto* plugins = ensure();
     if (!plugins) return false;
     auto* settings = g_app.settings;
-    const auto* scene = g_app.renderer.settings_scene;
-    if (!scene || scene->selected_page.owner_id != 1 || scene->selected_page.page_id != 4) return false;
+    if (!plugins_page_selected()) return false;
     const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
     // No live Settings or choice descriptor borrows a bank being overwritten.
     application_settings_plugin_catalog_unbind();
@@ -664,7 +656,7 @@ bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
     wchar_t directory[kNativePluginCatalogPathCapacity];
     const u32 characters = catalog.directory_characters;
     if (!characters || characters >= kNativePluginCatalogPathCapacity) return false;
-    for (u32 i = 0; i <= characters; ++i) directory[i] = catalog.directory[i];
+    copy_bytes(directory, catalog.directory, (characters + 1) * static_cast<u32>(sizeof(wchar_t)));
     auto* settings = g_app.settings;
     const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
     const u32 first = plugins->catalog_first;
@@ -675,12 +667,11 @@ bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
     application_plugins_sdk_bind_host(*plugins, host);
     const auto result = native_plugin_module_load_declared(&plugins->modules[slot], host, {directory, characters},
         manifest, approved);
-    const auto* current_scene = g_app.renderer.settings_scene;
     const bool current = g_app.plugins == plugins && g_app.settings == settings &&
         serial == g_app.plugin_account_scope_serial && profile == g_app.account.status.profile_id &&
         g_app.account_ui && !g_app.login.visible && plugins->catalog_revision == revision && plugins->catalog_first == first &&
-        application_settings_active() && current_scene && current_scene->revision == scene_revision &&
-        current_scene->selected_page.owner_id == 1 && current_scene->selected_page.page_id == 4;
+        application_settings_active() && plugins_page_selected() &&
+        g_app.renderer.settings_scene->revision == scene_revision;
     if (!current) {
         const auto rollback = native_plugin_module_unload(&plugins->modules[slot]);
         plugins->activating = false;
@@ -706,7 +697,7 @@ bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
             approved & manifest.permissions);
         if (admitted.ok()) {
             plugins->activating = true;
-            const bool saved = save_choices(*plugins, remembered);
+            const bool saved = application_plugins_save_choices(*plugins, remembered);
             plugins->preferences = remembered;
             plugins->preferences_dirty = !saved;
             plugins->status = saved ? utf8_literal("Plugin enabled.") :
@@ -728,7 +719,7 @@ bool application_plugins_catalog_forget(u64 revision) noexcept {
     if (!catalog_context(plugins, revision, false) || plugins->catalog_first || !plugins->preferences.count) return false;
     plugins->activating = true;
     const NativePluginPreferences empty{};
-    const bool saved = save_choices(*plugins, empty);
+    const bool saved = application_plugins_save_choices(*plugins, empty);
     if (saved) plugins->preferences_dirty = false;
     plugins->status = saved ? utf8_literal("Saved plugins cleared.") :
         utf8_literal("Couldn't clear saved plugins. Try again.");
@@ -841,9 +832,8 @@ bool application_plugins_restore() noexcept {
 
 bool application_plugins_install_prepared(ConstSlice<wchar_t> manifest, NativePluginBundleInstallOptions options, u64 uninstall_owner,
     ConstSlice<wchar_t> directory) noexcept {
-    if (application_plugins_busy() || !g_app.account_ui || g_app.login.visible || !application_settings_active()) return false;
-    const auto* scene = g_app.renderer.settings_scene;
-    if (!scene || scene->selected_page.owner_id != 1 || scene->selected_page.page_id != 4) return false;
+    if (application_plugins_busy() || !g_app.account_ui || g_app.login.visible || !application_settings_active() ||
+        !plugins_page_selected()) return false;
     auto* plugins = ensure();
     if (!plugins || (plugins->catalog && plugins->catalog->catalog.cleanup)) return false;
     plugins->install_settings = g_app.settings; plugins->install_lifetime = application_settings_lifetime();

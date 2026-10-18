@@ -175,50 +175,30 @@ bool u32_value(JsonValue value, u32* output) noexcept {
 
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RootContext*>(opaque);
+    const bool array = value.kind == JsonValueKind::array;
     if (json_name_is(name, utf8_literal("guild_id"))) {
-        if (context->guild_seen || !json_value_to_snowflake(value, &context->guild_id)) {
-            return reject(&context->error, context->guild_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->guild_seen || !json_value_to_snowflake(value, &context->guild_id))
+            return reject(&context->error, gateway_field_error(context->guild_seen));
         context->guild_seen = true;
     } else if (json_name_is(name, utf8_literal("id"))) {
-        if (context->list_seen || !json_value_to_member_list_id(value, &context->list_id)) {
-            return reject(&context->error, context->list_seen ? GatewayEventDecodeError::duplicate_field
-                                                              : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->list_seen || !json_value_to_member_list_id(value, &context->list_id))
+            return reject(&context->error, gateway_field_error(context->list_seen));
         context->list_seen = true;
     } else if (json_name_is(name, utf8_literal("member_count"))) {
-        if (context->members_seen || !u32_value(value, &context->member_count)) {
-            return reject(&context->error, context->members_seen ? GatewayEventDecodeError::duplicate_field
-                                                                 : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->members_seen || !u32_value(value, &context->member_count))
+            return reject(&context->error, gateway_field_error(context->members_seen));
         context->members_seen = true;
     } else if (json_name_is(name, utf8_literal("online_count"))) {
-        if (context->online_seen || !u32_value(value, &context->online_count)) {
-            return reject(&context->error, context->online_seen ? GatewayEventDecodeError::duplicate_field
-                                                                : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->online_seen || !u32_value(value, &context->online_count))
+            return reject(&context->error, gateway_field_error(context->online_seen));
         context->online_seen = true;
     } else if (json_name_is(name, utf8_literal("groups"))) {
-        if (context->groups_seen || value.kind != JsonValueKind::array)
-            return reject(&context->error, context->groups_seen ? GatewayEventDecodeError::duplicate_field
-                                                                : GatewayEventDecodeError::invalid_data);
-        context->groups = value;
-        context->groups_seen = true;
+        return gateway_keep_member(&context->error, &context->groups_seen, &context->groups, value, array);
     } else if (json_name_is(name, utf8_literal("members"))) {
-        if (context->member_array_seen || value.kind != JsonValueKind::array)
-            return reject(&context->error, context->member_array_seen
-                                               ? GatewayEventDecodeError::duplicate_field
-                                               : GatewayEventDecodeError::invalid_data);
-        context->member_array = value;
-        context->member_array_seen = true;
+        return gateway_keep_member(&context->error, &context->member_array_seen, &context->member_array,
+                                   value, array);
     } else if (json_name_is(name, utf8_literal("ops"))) {
-        if (context->ops_seen || value.kind != JsonValueKind::array) {
-            return reject(&context->error, context->ops_seen ? GatewayEventDecodeError::duplicate_field
-                                                             : GatewayEventDecodeError::invalid_data);
-        }
-        context->ops = value;
-        context->ops_seen = true;
+        return gateway_keep_member(&context->error, &context->ops_seen, &context->ops, value, array);
     }
     return true;
 }
@@ -226,38 +206,21 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
 bool visit_op(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<OpObject*>(opaque);
     if (json_name_is(name, utf8_literal("op"))) {
-        if (context->operation_seen || !json_value_as_string(value, &context->operation)) {
-            return reject(&context->error, context->operation_seen
-                                               ? GatewayEventDecodeError::duplicate_field
-                                               : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->operation_seen || !json_value_as_string(value, &context->operation))
+            return reject(&context->error, gateway_field_error(context->operation_seen));
         context->operation_seen = true;
     } else if (json_name_is(name, utf8_literal("range"))) {
-        if (context->range_seen || value.kind != JsonValueKind::array) {
-            return reject(&context->error, context->range_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
-        context->range = value;
-        context->range_seen = true;
+        return gateway_keep_member(&context->error, &context->range_seen, &context->range, value,
+                                   value.kind == JsonValueKind::array);
     } else if (json_name_is(name, utf8_literal("items"))) {
-        if (context->items_seen || value.kind != JsonValueKind::array) {
-            return reject(&context->error, context->items_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
-        context->items = value;
-        context->items_seen = true;
+        return gateway_keep_member(&context->error, &context->items_seen, &context->items, value,
+                                   value.kind == JsonValueKind::array);
     } else if (json_name_is(name, utf8_literal("item"))) {
-        if (context->item_seen || value.kind != JsonValueKind::object) {
-            return reject(&context->error, context->item_seen ? GatewayEventDecodeError::duplicate_field
-                                                              : GatewayEventDecodeError::invalid_data);
-        }
-        context->item = value;
-        context->item_seen = true;
+        return gateway_keep_member(&context->error, &context->item_seen, &context->item, value,
+                                   value.kind == JsonValueKind::object);
     } else if (json_name_is(name, utf8_literal("index"))) {
-        if (context->index_seen || !u32_value(value, &context->index)) {
-            return reject(&context->error, context->index_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->index_seen || !u32_value(value, &context->index))
+            return reject(&context->error, gateway_field_error(context->index_seen));
         context->index_seen = true;
     }
     return true;
@@ -265,24 +228,17 @@ bool visit_op(void* opaque, JsonString name, JsonValue value) noexcept {
 
 bool visit_item(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ItemObject*>(opaque);
+    const bool object_or_null =
+        value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value;
     if (json_name_is(name, utf8_literal("member"))) {
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        if (context->member_seen ||
-            (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)) {
-            return reject(&context->error, context->member_seen ? GatewayEventDecodeError::duplicate_field
-                                                                : GatewayEventDecodeError::invalid_data);
-        }
-        context->member = value;
-        context->member_seen = true;
-    } else if (json_name_is(name, utf8_literal("group"))) {
+        return gateway_keep_member(&context->error, &context->member_seen, &context->member, value,
+                                   object_or_null);
+    }
+    if (json_name_is(name, utf8_literal("group"))) {
         context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
-        if (context->group_seen ||
-            (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)) {
-            return reject(&context->error, context->group_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
-        context->group = value;
-        context->group_seen = true;
+        return gateway_keep_member(&context->error, &context->group_seen, &context->group, value,
+                                   object_or_null);
     }
     return true;
 }
@@ -291,30 +247,21 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MemberObject*>(opaque);
     if (json_name_is(name, utf8_literal("user"))) {
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        if (context->user_seen || value.kind != JsonValueKind::object) {
-            return reject(&context->error, context->user_seen ? GatewayEventDecodeError::duplicate_field
-                                                              : GatewayEventDecodeError::invalid_data);
-        }
-        context->user = value;
-        context->user_seen = true;
-    } else if (json_name_is(name, utf8_literal("roles"))) {
+        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
+                                   value.kind == JsonValueKind::object);
+    }
+    if (json_name_is(name, utf8_literal("roles"))) {
         context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
-        if (context->roles_seen || value.kind != JsonValueKind::array) {
-            return reject(&context->error, context->roles_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
-        context->roles = value;
-        context->roles_seen = true;
-    } else if (json_name_is(name, utf8_literal("presence"))) {
+        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
+                                   value.kind == JsonValueKind::array);
+    }
+    if (json_name_is(name, utf8_literal("presence"))) {
         context->field_detail = (3u << 8) | static_cast<u32>(value.kind);
-        if (context->presence_seen ||
-            (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)) {
-            return reject(&context->error, context->presence_seen ? GatewayEventDecodeError::duplicate_field
-                                                                  : GatewayEventDecodeError::invalid_data);
-        }
-        context->presence = value;
-        context->presence_seen = true;
-    } else if (json_name_is(name, utf8_literal("nick"))) {
+        return gateway_keep_member(
+            &context->error, &context->presence_seen, &context->presence, value,
+            value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value);
+    }
+    if (json_name_is(name, utf8_literal("nick"))) {
         context->field_detail = (4u << 8) | static_cast<u32>(value.kind);
         if (context->nickname_seen) {
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
@@ -352,10 +299,8 @@ bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<PresenceObject*>(opaque);
     if (json_name_is(name, utf8_literal("status"))) {
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        if (context->status_seen || !json_value_as_string(value, &context->status)) {
-            return reject(&context->error, context->status_seen ? GatewayEventDecodeError::duplicate_field
-                                                                : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->status_seen || !json_value_as_string(value, &context->status))
+            return reject(&context->error, gateway_field_error(context->status_seen));
         context->status_seen = true;
     } else if (json_name_is(name, utf8_literal("client_status"))) {
         if (context->client_status_seen)
@@ -785,39 +730,19 @@ template <typename Value> bool read_packed(ConstSlice<u8> payload, u32* cursor, 
     return true;
 }
 
-bool valid_operation(GatewayClientMemberListOperation operation) noexcept {
-    return operation == GatewayClientMemberListOperation::sync ||
-           operation == GatewayClientMemberListOperation::update ||
-           operation == GatewayClientMemberListOperation::insert ||
-           operation == GatewayClientMemberListOperation::remove ||
-           operation == GatewayClientMemberListOperation::invalidate ||
-           operation == GatewayClientMemberListOperation::group_summary;
-}
-
-bool valid_status(GatewayClientMemberListStatus status) noexcept {
-    return status == GatewayClientMemberListStatus::unknown ||
-           status == GatewayClientMemberListStatus::online ||
-           status == GatewayClientMemberListStatus::idle || status == GatewayClientMemberListStatus::dnd ||
-           status == GatewayClientMemberListStatus::offline;
-}
-
 } // namespace
 
 bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<GatewayMemberUser*>(opaque);
     if (json_name_is(name, utf8_literal("id"))) {
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        if (context->id_seen || !json_value_to_snowflake(value, &context->id)) {
-            return reject(&context->error, context->id_seen ? GatewayEventDecodeError::duplicate_field
-                                                            : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->id_seen || !json_value_to_snowflake(value, &context->id))
+            return reject(&context->error, gateway_field_error(context->id_seen));
         context->id_seen = true;
     } else if (json_name_is(name, utf8_literal("username"))) {
         context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
-        if (context->username_seen || !json_value_as_string(value, &context->username)) {
-            return reject(&context->error, context->username_seen ? GatewayEventDecodeError::duplicate_field
-                                                                  : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->username_seen || !json_value_as_string(value, &context->username))
+            return reject(&context->error, gateway_field_error(context->username_seen));
         context->username_seen = true;
     } else if (json_name_is(name, utf8_literal("global_name")) ||
                json_name_is(name, utf8_literal("display_name"))) {
@@ -1023,7 +948,8 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
          event.dispatch_kind != GatewayClientDispatchKind::guild_member_profile_update) ||
         event.dispatch_payload_bytes != payload.count || *index >= event.member_list.record_count ||
         *cursor > payload.count || !read_packed(payload, cursor, mutation) ||
-        !valid_operation(mutation->operation) || !valid_status(mutation->status) ||
+        mutation->operation > GatewayClientMemberListOperation::group_summary ||
+        mutation->status > GatewayClientMemberListStatus::offline ||
         mutation->role_count > kMemberListMaximumRoles) {
         return false;
     }
@@ -1118,19 +1044,8 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
         !utf8_validate(*avatar_hash).valid || !utf8_validate(login_name).valid) {
         return false;
     }
-    if (avatar_hash->bytes) {
-        const u32 first =
-            avatar_hash->bytes == 34 && avatar_hash->data[0] == 'a' && avatar_hash->data[1] == '_' ? 2u
-                                                                                                   : 0u;
-        if (avatar_hash->bytes - first != 32)
-            return false;
-        for (u32 character = first; character < avatar_hash->bytes; ++character) {
-            const char digit = avatar_hash->data[character];
-            if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') ||
-                  (digit >= 'A' && digit <= 'F')))
-                return false;
-        }
-    }
+    if (!gateway_avatar_hash_valid(*avatar_hash))
+        return false;
     for (u32 role = 0; role < mutation->role_count; ++role) {
         u64 id = 0;
         for (u32 byte = 0; byte < 8; ++byte)

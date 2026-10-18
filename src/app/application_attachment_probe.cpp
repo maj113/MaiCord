@@ -4,6 +4,7 @@
 #include "maicord/app/attachment_media_probe.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
+#include <Windows.h>
 #include <objbase.h>
 
 namespace maicord::app_detail {

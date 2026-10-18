@@ -17,6 +17,7 @@
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/stream_card_scene.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -55,10 +56,6 @@ struct StreamUi {
 // is reset with its scope before it ticks, so its stored style is unread.
 StreamUi stream{.card = {.entrance = {.style = {0, UiMotionCurve::linear}}}};
 
-void repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
 }
@@ -89,7 +86,7 @@ bool submit(const GatewayStreamKey& key) noexcept {
     stream.requested_ms = now_ms();
     stream.ended_ms = 0;
     stream.pending = {};
-    repaint();
+    application_repaint();
     return true;
 }
 // Card blockers: sign-in, settings, popups and modal surfaces own the pointer.
@@ -109,7 +106,7 @@ void close_card(bool keep_hover = false) noexcept {
     stream.card_pressed = false;
     if (stream.card.active) {
         ui_stream_card_close(&stream.card);
-        repaint();
+        application_repaint();
     }
     if (g_app.renderer.stream_card_scene == &stream.card)
         g_app.renderer.stream_card_scene = nullptr;
@@ -155,7 +152,7 @@ void project_card(u64 now) noexcept {
     }
     g_app.renderer.stream_card_scene = &stream.card;
     if (revision != stream.card.revision)
-        repaint();
+        application_repaint();
 }
 void card_pump(u64 now) noexcept {
     if (card_blocked()) {
@@ -175,7 +172,7 @@ void card_pump(u64 now) noexcept {
     if (valid(stream.card_key))
         project_card(now);
     if (stream.card.active && ui_stream_card_tick(&stream.card, now, g_app.preferences.reduced_motion))
-        repaint();
+        application_repaint();
 }
 void format_label(u32 percent) noexcept {
     TextBank label{stream.menu_label, sizeof(stream.menu_label), 0};
@@ -244,7 +241,7 @@ bool application_stream_stop() noexcept {
     stream.requested = stream.pending = {};
     stream.ended_ms = 0;
     stream.view = {};
-    repaint();
+    application_repaint();
     return active;
 }
 
@@ -343,7 +340,7 @@ bool application_stream_menu_pointer(float x, float y, bool press) noexcept {
         format_label(percent);
         popup_scene_set_feedback(&g_app.popup_scene, {stream.menu_label, stream.menu_label_bytes});
         refresh_popup_text();
-        repaint();
+        application_repaint();
     }
     return true;
 }
@@ -397,7 +394,7 @@ void application_stream_pump() noexcept {
         stream.volume = stream.snapshot.volume_percent;
     if (!same_view(view, stream.view)) {
         stream.view = view;
-        repaint();
+        application_repaint();
     }
     card_pump(now);
 }
@@ -439,7 +436,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
         if (stream.card.active && !stream.leave_ms)
             stream.leave_ms = now_ms();
         if (ui_stream_card_set_hover(&stream.card, -1e7f, -1e7f))
-            repaint();
+            application_repaint();
         return false;
     case WM_MOUSEWHEEL:
         // The channel list scrolls under the card: its anchor is gone.
@@ -471,7 +468,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
     case WM_MOUSEMOVE: {
         const u64 now = now_ms();
         if (ui_stream_card_set_hover(&stream.card, point.x, point.y))
-            repaint();
+            application_repaint();
         if (over_card) {
             stream.leave_ms = 0;
             return true;
@@ -515,7 +512,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
                 ui_stream_card_set_pressed(&stream.card, true);
                 SetCapture(g_app.window);
                 stream.captured = true;
-                repaint();
+                application_repaint();
             }
             return true;
         }
@@ -539,7 +536,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
                 } else
                     application_stream_watch(target);
             }
-            repaint();
+            application_repaint();
             return true;
         }
         if (valid(badge_press)) {
@@ -594,7 +591,7 @@ bool application_stream_preview_response(const RestClientResponse& response, Utf
                                                 {stream.preview_url, bytes}, response.retry_at_ms, now_ms());
     clear_bytes(stream.preview_url, sizeof(stream.preview_url));
     if (entry)
-        repaint();
+        application_repaint();
     return true;
 }
 

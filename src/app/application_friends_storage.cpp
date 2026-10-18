@@ -3,37 +3,43 @@
 namespace maicord::app_detail {
 namespace {
 bool admit(StableStorage* bank, u32 count) noexcept {
-    return bank && bank->arena.base && count <= kFriendsRelationshipCapacity &&
-        (!count || stable_storage_reserve(bank, count));
+    return bank->arena.base && count <= kFriendsRelationshipCapacity &&
+           (!count || stable_storage_reserve(bank, count));
 }
-}
+} // namespace
 bool friends_relationship_storage_initialize(FriendsRelationshipStorage* storage) noexcept {
-    if (!storage || storage->active.arena.base || storage->candidate.arena.base || storage->indices.arena.base) return false;
-    if (!stable_storage_initialize(&storage->active, kFriendsRelationshipCapacity, 0,
-            sizeof(RelationshipRecord), alignof(RelationshipRecord)) ||
-        !stable_storage_initialize(&storage->candidate, kFriendsRelationshipCapacity, 0,
-            sizeof(RelationshipRecord), alignof(RelationshipRecord)) ||
+    if (storage->active.arena.base || storage->candidate.arena.base || storage->indices.arena.base)
+        return false;
+    constexpr usize record_bytes = sizeof(RelationshipRecord);
+    constexpr usize record_alignment = alignof(RelationshipRecord);
+    if (!stable_storage_initialize(&storage->active, kFriendsRelationshipCapacity, 0, record_bytes,
+                                   record_alignment) ||
+        !stable_storage_initialize(&storage->candidate, kFriendsRelationshipCapacity, 0, record_bytes,
+                                   record_alignment) ||
         !stable_storage_initialize(&storage->indices, kFriendsRelationshipCapacity, 0, sizeof(u32), alignof(u32))) {
-        friends_relationship_storage_release(storage);return false;
+        friends_relationship_storage_release(storage);
+        return false;
     }
     return true;
 }
 void friends_relationship_storage_release(FriendsRelationshipStorage* storage) noexcept {
-    if (!storage) return;
-    stable_storage_release(&storage->active);stable_storage_release(&storage->candidate);stable_storage_release(&storage->indices);
+    stable_storage_release(&storage->active);
+    stable_storage_release(&storage->candidate);
+    stable_storage_release(&storage->indices);
 }
 bool friends_relationship_storage_active(FriendsRelationshipStorage* storage, u32 count) noexcept {
-    return storage && admit(&storage->active, count);
+    return admit(&storage->active, count);
 }
 bool friends_relationship_storage_candidate(FriendsRelationshipStorage* storage, u32 count) noexcept {
-    return storage && admit(&storage->candidate, count);
+    return admit(&storage->candidate, count);
 }
 bool friends_relationship_storage_indices(FriendsRelationshipStorage* storage, u32 count) noexcept {
-    return storage && admit(&storage->indices, count);
+    return admit(&storage->indices, count);
 }
 bool friends_relationship_storage_upsert(FriendsRelationshipStorage* storage,
-    const RelationshipStore& store, u64 user_id) noexcept {
-    if (!user_id || store.count > kFriendsRelationshipCapacity) return false;
+                                         const RelationshipStore& store, u64 user_id) noexcept {
+    if (!user_id || store.count > kFriendsRelationshipCapacity)
+        return false;
     const bool existing = relationship_store_find(store, user_id) != nullptr;
     return friends_relationship_storage_active(storage, store.count + (existing ? 0u : 1u));
 }

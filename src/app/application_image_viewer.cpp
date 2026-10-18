@@ -13,6 +13,8 @@
 #include "maicord/render/media_atlas.hpp"
 #include "maicord/media/presentation_policy.hpp"
 #include "maicord/ui/clipboard.hpp"
+
+#include <Windows.h>
 namespace maicord::app_detail {
 namespace {
 // The official client's modal spring (tension 1000, friction 48); exit settles faster.
@@ -24,8 +26,8 @@ UiRect viewport() noexcept {
 UiMotionScope reveal_scope() noexcept {
     return {0x4d45444941564945ull, g_app.image_viewer.reveal_generation};
 }
-const ApplicationMediaViewerItem* current_item() noexcept {
-    const auto& viewer = g_app.image_viewer;
+ApplicationMediaViewerItem* current_item() noexcept {
+    auto& viewer = g_app.image_viewer;
     return viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
 }
 bool current_video() noexcept {
@@ -234,10 +236,6 @@ Utf8View current_url() noexcept {
     }
     return url;
 }
-bool open_original() noexcept {
-    const Utf8View url = current_url();
-    return url.bytes && application_open_content_url(url);
-}
 bool copy_image() noexcept {
     const auto& viewer = g_app.image_viewer;
     if (current_video())
@@ -300,8 +298,7 @@ void activate(u32 index) noexcept {
                              record->revision == viewer.message_revision &&
                              source.handle.slot == viewer.source_slot &&
                              source.handle.generation == viewer.source_generation;
-        const auto* shown =
-            viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
+        const auto* shown = current_item();
         if (current && shown && shown->kind == MessageSceneRichItemKind::embed)
             application_downloads_begin_embed(viewer.message_id, shown->index, viewer.attachment_snapshot);
         else if (current && viewer.attachment_id)
@@ -312,7 +309,8 @@ void activate(u32 index) noexcept {
         application_image_viewer_dismiss();
         return;
     case ui_image_viewer_open_original:
-        open_original();
+        if (const Utf8View url = current_url(); url.bytes)
+            application_open_content_url(url);
         return;
     case ui_image_viewer_copy:
         copy_image();
@@ -374,13 +372,12 @@ bool begin(const OpenRequest& request) noexcept {
         item.fallback = request.fallback;
     if (ui_size_valid(request.pixels))
         item.pixels = request.pixels;
-    const UiRect origin = request.origin;
     viewer.origin_item = static_cast<u8>(start);
     viewer.closing = false;
-    viewer.origin = origin;
+    viewer.origin = request.origin;
     ++viewer.reveal_generation;
     ui_motion_transition_reset(&viewer.reveal, reveal_scope(), g_app.preferences.reduced_motion ? 1.0f : 0.0f);
-    ui_image_viewer_set_reveal(&viewer.scene, viewer.reveal.value, origin);
+    ui_image_viewer_set_reveal(&viewer.scene, viewer.reveal.value, request.origin);
     viewer.item_index = static_cast<u8>(start);
     select_item(start);
     application_composer_text_input_suspend();
@@ -408,7 +405,6 @@ void record_identity(const MessageRecord& message, MessageHandle handle, bool sn
 } // namespace
 bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept {
     const auto& viewer = g_app.image_viewer;
-    if (!out) return false;
     *out = {};
     if (!viewer.scene.active || !g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed || g_app.login.visible ||
         viewer.account_scope != g_app.plugin_account_scope_serial || viewer.profile_id != g_app.account.status.profile_id ||
@@ -454,8 +450,7 @@ void application_image_viewer_close() noexcept {
     // The playing session returns to its inline preview at the same position.
     application_video_viewer_detach();
     g_app.renderer.image_viewer = nullptr;
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
+    application_repaint();
 }
 void application_image_viewer_dismiss() noexcept {
     auto& viewer = g_app.image_viewer;
@@ -477,8 +472,8 @@ void application_image_viewer_dismiss() noexcept {
 }
 bool application_image_viewer_video_geometry(MediaAssetKey key, UiRect* preview, UiRect* clip) noexcept {
     const auto& viewer = g_app.image_viewer;
-    if (!preview || !clip || !viewer.scene.active || !current_video() ||
-        !media_asset_key_valid(viewer.key) || !media_asset_key_equal(key, viewer.key))
+    if (!viewer.scene.active || !current_video() || !media_asset_key_valid(viewer.key) ||
+        !media_asset_key_equal(key, viewer.key))
         return false;
     *preview = viewer.scene.display;
     *clip = viewer.scene.viewport;
@@ -537,7 +532,7 @@ bool application_image_viewer_synchronize() noexcept {
         application_image_viewer_close();
         return renderer_rebuild_content_text(&g_app.renderer, application_theme());
     }
-    auto* item = viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
+    auto* item = current_item();
     if (item && !viewer_item_visible(source, *item)) {
         application_image_viewer_close();
         return renderer_rebuild_content_text(&g_app.renderer, application_theme());
@@ -580,10 +575,9 @@ bool application_image_viewer_synchronize() noexcept {
     } else if (scene.copied) {
         application_request_frame();
     }
-    const auto* shown = viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
-    const bool embed = shown && shown->kind == MessageSceneRichItemKind::embed && !viewer.search_result;
+    const bool embed = item && item->kind == MessageSceneRichItemKind::embed && !viewer.search_result;
     const bool save =
-        embed ? application_downloads_embed_available(viewer.message_id, shown->index,
+        embed ? application_downloads_embed_available(viewer.message_id, item->index,
                                                       viewer.attachment_snapshot)
               : viewer.attachment_id &&
                     (viewer.search_result

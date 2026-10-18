@@ -1,10 +1,11 @@
 #include "maicord/app/update_acceptance.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/app/acceptance_record.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/hash.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -12,14 +13,10 @@ constexpr u8 kMagic[8]{'M','A','I','U','A','C','C','1'};
 constexpr u32 kChecksumOffset = 120;
 UpdateAcceptanceResult fail(UpdateAcceptanceError error, DWORD native = 0,
     UpdateManifestError manifest = UpdateManifestError::none) noexcept { return {error, native, manifest}; }
-bool zero(const u8* data, u32 bytes) noexcept {
-    for (u32 i = 0; i < bytes; ++i) if (data[i]) return false;
-    return true;
-}
 bool valid_state(const UpdateAcceptanceState& state) noexcept {
     for (const auto& channel : state.channels)
         if (channel.present ? !channel.highest_version :
-            (channel.highest_version || !zero(channel.manifest_sha256, 32))) return false;
+            (channel.highest_version || !bytes_zero(channel.manifest_sha256, 32))) return false;
     return true;
 }
 bool equal(const UpdateAcceptanceState& a, const UpdateAcceptanceState& b) noexcept {
@@ -29,16 +26,9 @@ bool equal(const UpdateAcceptanceState& a, const UpdateAcceptanceState& b) noexc
             !bytes_equal(a.channels[i].manifest_sha256, b.channels[i].manifest_sha256, 32)) return false;
     return true;
 }
-bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
-    for (u32 i = 0; i < ranges.count; ++i) {
-        if (!byte_range_valid(ranges[i])) return false;
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return false;
-    }
-    return true;
-}
 bool object_and_buffer(const void* object, u32 bytes, ConstSlice<u8> buffer) noexcept {
     const ConstSlice<u8> ranges[]{{static_cast<const u8*>(object), bytes}, buffer};
-    return object && disjoint({ranges, 2});
+    return object && byte_ranges_all_disjoint({ranges, 2});
 }
 // The shared record errors use the updater's ordinals up to release.
 UpdateAcceptanceResult convert(AcceptanceRecordResult result) noexcept {
@@ -52,8 +42,6 @@ static_assert(same(AcceptanceRecordError::path, UpdateAcceptanceError::path) && 
     same(AcceptanceRecordError::flush, UpdateAcceptanceError::flush) && same(AcceptanceRecordError::commit, UpdateAcceptanceError::commit) &&
     same(AcceptanceRecordError::release, UpdateAcceptanceError::release));
 static_assert(kUpdateAcceptanceMaximumPathCharacters == kAcceptanceRecordMaximumPathCharacters);
-bool valid_path(ConstSlice<wchar_t> path) noexcept { return acceptance_record_path_valid(path); }
-UpdateAcceptanceResult ancestors(wchar_t* path, u32 count) noexcept { return convert(acceptance_record_ancestors(path, count)); }
 UpdateAcceptanceResult load(const wchar_t* path, UpdateAcceptanceState* state) noexcept {
     u8 record[kUpdateAcceptanceRecordBytes]{};
     const auto result = convert(acceptance_record_read(path, {record, sizeof(record)}));
@@ -61,13 +49,13 @@ UpdateAcceptanceResult load(const wchar_t* path, UpdateAcceptanceState* state) n
 }
 UpdateAcceptanceResult current(const UpdateAcceptanceTransaction& transaction) noexcept {
     if (!transaction.lock || !transaction.path_characters ||
-        !valid_path({transaction.path, transaction.path_characters}) || !valid_state(transaction.state))
+        !acceptance_record_path_valid({transaction.path, transaction.path_characters}) || !valid_state(transaction.state))
         return fail(UpdateAcceptanceError::invalid_input);
     auto result = convert(acceptance_record_disk_file(transaction.lock));
     if (!result.ok()) return fail(UpdateAcceptanceError::lock, result.native_error);
     wchar_t checked[kUpdateAcceptanceMaximumPathCharacters + 1];
     acceptance_record_terminate({transaction.path, transaction.path_characters}, checked);
-    result = ancestors(checked, transaction.path_characters);
+    result = convert(acceptance_record_ancestors(checked, transaction.path_characters));
     if (!result.ok()) return result;
     UpdateAcceptanceState state{};
     result = load(transaction.path, &state);
@@ -104,14 +92,14 @@ UpdateAcceptanceResult update_acceptance_decode(ConstSlice<u8> record, UpdateAcc
     if (!state || !record.data || !object_and_buffer(state, sizeof(*state), record)) return fail(UpdateAcceptanceError::invalid_input);
     if (record.count != kUpdateAcceptanceRecordBytes) return fail(UpdateAcceptanceError::size);
     if (!bytes_equal(record.data, kMagic, sizeof(kMagic)) || byte_load_le32(record.data + 8) != 1 ||
-        byte_load_le32(record.data + 12) != kUpdateAcceptanceRecordBytes || !zero(record.data + 112, 8))
+        byte_load_le32(record.data + 12) != kUpdateAcceptanceRecordBytes || !bytes_zero(record.data + 112, 8))
         return fail(UpdateAcceptanceError::format);
     if (byte_load_le64(record.data + kChecksumOffset) != hash64_bytes(kHash64Seed, record.data, kChecksumOffset))
         return fail(UpdateAcceptanceError::checksum);
     UpdateAcceptanceState candidate{};
     for (u32 i = 0; i < 2; ++i) {
         const u32 offset = 16 + i * 48;
-        if (record[offset + 40] > 1 || !zero(record.data + offset + 41, 7)) return fail(UpdateAcceptanceError::format);
+        if (record[offset + 40] > 1 || !bytes_zero(record.data + offset + 41, 7)) return fail(UpdateAcceptanceError::format);
         candidate.channels[i].highest_version = byte_load_le64(record.data + offset);
         copy_bytes(candidate.channels[i].manifest_sha256, record.data + offset + 8, 32);
         candidate.channels[i].present = record[offset + 40] == 1;
@@ -121,23 +109,23 @@ UpdateAcceptanceResult update_acceptance_decode(ConstSlice<u8> record, UpdateAcc
     return {};
 }
 UpdateAcceptanceResult update_acceptance_load(ConstSlice<wchar_t> path, UpdateAcceptanceState* state) noexcept {
-    if (!state || !valid_path(path) || !object_and_buffer(state, sizeof(*state),
+    if (!state || !acceptance_record_path_valid(path) || !object_and_buffer(state, sizeof(*state),
         {reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}))
         return fail(UpdateAcceptanceError::invalid_input);
     wchar_t terminated[kUpdateAcceptanceMaximumPathCharacters + 1];
     acceptance_record_terminate(path, terminated);
-    const auto result = ancestors(terminated, path.count);
+    const auto result = convert(acceptance_record_ancestors(terminated, path.count));
     return result.ok() ? load(terminated, state) : result;
 }
 UpdateAcceptanceResult update_acceptance_begin(ConstSlice<wchar_t> path,
     UpdateAcceptanceTransaction* transaction, bool allow_first_use) noexcept {
-    if (!transaction || !valid_path(path) || !object_and_buffer(transaction, sizeof(*transaction),
+    if (!transaction || !acceptance_record_path_valid(path) || !object_and_buffer(transaction, sizeof(*transaction),
         {reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) || transaction->lock)
         return fail(UpdateAcceptanceError::invalid_input);
     UpdateAcceptanceTransaction candidate{};
     acceptance_record_terminate(path, candidate.path);
     candidate.path_characters = path.count;
-    auto result = ancestors(candidate.path, path.count);
+    auto result = convert(acceptance_record_ancestors(candidate.path, path.count));
     if (!result.ok()) return result;
     result = convert(acceptance_record_lock(candidate.path, path.count, &candidate.lock));
     if (!result.ok()) return result;
@@ -154,7 +142,7 @@ UpdateAcceptanceResult update_acceptance_capture_policy(const UpdateAcceptanceTr
         {reinterpret_cast<const u8*>(&transaction), sizeof(transaction)},
         {reinterpret_cast<const u8*>(&trusted), sizeof(trusted)},
         {reinterpret_cast<const u8*>(captured), sizeof(*captured)}};
-    if (!captured || trusted.channel > UpdateChannel::preview || !disjoint({ranges, 3}))
+    if (!captured || trusted.channel > UpdateChannel::preview || !byte_ranges_all_disjoint({ranges, 3}))
         return fail(UpdateAcceptanceError::invalid_input);
     const auto result = current(transaction);
     if (!result.ok()) return result;
@@ -183,7 +171,7 @@ UpdateAcceptanceResult update_acceptance_verify_commit(UpdateAcceptanceTransacti
         {reinterpret_cast<const u8*>(policy), sizeof(*policy)},
         {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
         {reinterpret_cast<const u8*>(approved), sizeof(*approved)}};
-    if (!disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return fail(UpdateAcceptanceError::invalid_input);
+    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return fail(UpdateAcceptanceError::invalid_input);
     UpdateManifestPolicy captured{};
     auto result = update_acceptance_capture_policy(*transaction, *policy, &captured);
     if (!result.ok()) return result;
@@ -216,7 +204,7 @@ UpdateAcceptanceResult update_acceptance_verify_commit(UpdateAcceptanceTransacti
 UpdateAcceptanceResult update_acceptance_release(UpdateAcceptanceTransaction* transaction) noexcept {
     if (!transaction) return fail(UpdateAcceptanceError::invalid_input);
     if (transaction->lock && !CloseHandle(transaction->lock)) return fail(UpdateAcceptanceError::release, GetLastError());
-    SecureZeroMemory(transaction, sizeof(*transaction));
+    secure_clear_bytes(transaction, sizeof(*transaction));
     return {};
 }
 } // namespace maicord

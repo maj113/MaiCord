@@ -2,12 +2,13 @@
 #include "application_downloads.hpp"
 #include "application_surface_motion.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 #if !defined(MAICORD_SURFACE_MOTION_CONTROLLER_TEST)
 #include "application_state.hpp"
 #include "application_unread_banner.hpp"
 #include "application_guild_folders.hpp"
+#include "maicord/core/deadline.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
 #endif
 
@@ -198,15 +199,14 @@ void application_surface_motion_synchronize(u64 now_ms) noexcept {
                               !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active);
     if (rail_visible) {
         const auto* home = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::home_button));
-        const bool home_hovered = home && home->widget.slot == g_app.shell_scene.widgets.hovered.slot &&
-                                  home->widget.generation == g_app.shell_scene.widgets.hovered.generation;
+        const bool home_hovered = home && ui_widget_handle_equal(home->widget, g_app.shell_scene.widgets.hovered);
         pill_changed = guild_rail_indicator_tick(&rail.home_indicator, {~u64{0}, 1},
                            g_app.renderer.navigation_view && !g_app.renderer.navigation_view->selected_guild_id,
                            home_hovered, false, now_ms, allowed);
     }
     for (u32 i = 0; i < rail.count; ++i) {
         auto& row = rail.rows[i];
-        const bool hovered = row.widget.slot == rail.widgets.hovered.slot && row.widget.generation == rail.widgets.hovered.generation;
+        const bool hovered = ui_widget_handle_equal(row.widget, rail.widgets.hovered);
         // An expanded folder header hands selection and unread pills to its members.
         const bool open_folder = row.view.folder_role == GuildFolderRole::header && row.view.folder_expanded;
         pill_changed = guild_rail_indicator_tick(&row.indicator, {row.view.id, maximum<u64>(1, row.view.generation)},
@@ -245,28 +245,22 @@ u64 application_surface_motion_next_wake(u64 now_ms) noexcept {
     const bool allowed = host_motion_allowed();
     if (!allowed)
         return 0;
-    u64 wake = application_unread_banner_next_wake(now_ms);
-    if (const u64 folders = application_guild_folders_next_wake(now_ms); folders && (!wake || folders < wake))
-        wake = folders;
+    u64 wake = earliest_deadline(application_unread_banner_next_wake(now_ms),
+                                 application_guild_folders_next_wake(now_ms));
     const auto& rail = g_app.guild_rail_scene;
     if (rail.active && !g_app.renderer.login_visible &&
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active)) {
-        const u64 home = guild_rail_indicator_next_wake(rail.home_indicator, now_ms);
-        if (home && (!wake || home < wake)) wake = home;
-        for (u32 i = 0; i < rail.count; ++i) {
-            const u64 deadline = guild_rail_indicator_next_wake(rail.rows[i].indicator, now_ms);
-            if (deadline && (!wake || deadline < wake)) wake = deadline;
-        }
+        wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.home_indicator, now_ms));
+        for (u32 i = 0; i < rail.count; ++i)
+            wake = earliest_deadline(wake, guild_rail_indicator_next_wake(rail.rows[i].indicator, now_ms));
     }
     for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i) {
         const auto surface = static_cast<RendererLayerSurface>(i);
         const auto current = observe(surface, allowed);
         if (!current.animate)
             continue;
-        const u64 deadline =
-            application_surface_motion_owner_next_wake(g_app.surface_motion, surface, current.key, now_ms);
-        if (deadline && (!wake || deadline < wake))
-            wake = deadline;
+        wake = earliest_deadline(
+            wake, application_surface_motion_owner_next_wake(g_app.surface_motion, surface, current.key, now_ms));
     }
     return wake;
 }

@@ -19,15 +19,13 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/time.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 namespace {
 ApplicationForumForm* owner;
 u32 held_key;
 u64 next_surface_serial;
-bool equal(ApplicationForumPostTicket a, ApplicationForumPostTicket b) noexcept {
-    return a.serial == b.serial && a.parent_id == b.parent_id &&
-           a.publication_revision == b.publication_revision;
-}
 bool valid(const ApplicationForumForm* f) noexcept {
     return f && f == owner && g_app.renderer_ready && g_app.account_ui && !g_app.login.visible &&
            application_forum_post_current(f->ticket);
@@ -52,20 +50,15 @@ void reset_caret(ApplicationForumForm* f) noexcept {
     f->blink_at_ms =
         f->caret_visible && f->blink_ms != INFINITE ? clock_monotonic_milliseconds() + f->blink_ms : 0;
 }
-// Suffixes are lowercase literals.
-bool file_suffix(Utf8View name, Utf8View suffix) noexcept {
-    return name.bytes >= suffix.bytes &&
-           ascii_equal_ignore_case({name.data + name.bytes - suffix.bytes, suffix.bytes}, suffix);
-}
 Utf8View file_kind(Utf8View name) noexcept {
-    if (file_suffix(name, utf8_literal(".png")) || file_suffix(name, utf8_literal(".jpg")) ||
-        file_suffix(name, utf8_literal(".jpeg")) || file_suffix(name, utf8_literal(".webp")) ||
-        file_suffix(name, utf8_literal(".gif")))
+    if (filename_ends_with(name, utf8_literal(".png")) || filename_ends_with(name, utf8_literal(".jpg")) ||
+        filename_ends_with(name, utf8_literal(".jpeg")) || filename_ends_with(name, utf8_literal(".webp")) ||
+        filename_ends_with(name, utf8_literal(".gif")))
         return utf8_literal("Image");
-    if (file_suffix(name, utf8_literal(".mp4")) || file_suffix(name, utf8_literal(".webm")) ||
-        file_suffix(name, utf8_literal(".mov")))
+    if (filename_ends_with(name, utf8_literal(".mp4")) || filename_ends_with(name, utf8_literal(".webm")) ||
+        filename_ends_with(name, utf8_literal(".mov")))
         return utf8_literal("Video");
-    if (file_suffix(name, utf8_literal(".pdf")))
+    if (filename_ends_with(name, utf8_literal(".pdf")))
         return utf8_literal("PDF");
     return utf8_literal("File");
 }
@@ -94,7 +87,7 @@ bool project(ApplicationForumForm* f) noexcept {
     if (!valid(f) || f->child_suspended)
         return false;
     const auto v = application_forum_post_view();
-    if (!equal(v.ticket, f->ticket) || v.tags.count > kForumPostTagCapacity)
+    if (v.ticket != f->ticket || v.tags.count > kForumPostTagCapacity)
         return false;
     const bool editability_changed = f->editable != v.can_edit;
     const bool became_readonly = f->editable && !v.can_edit;
@@ -620,7 +613,7 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
     return true;
 }
 void application_forum_form_close(const ApplicationForumPostTicket& ticket) noexcept {
-    if (owner && equal(owner->ticket, ticket))
+    if (owner && owner->ticket == ticket)
         dispose(false, true, false);
 }
 void application_forum_form_close(bool restore, bool rebuild) noexcept {
@@ -632,7 +625,7 @@ void application_forum_form_release() noexcept {
 }
 bool application_forum_form_suspend_child(const ApplicationForumPostTicket& ticket) noexcept {
     auto* f = owner;
-    if (!valid(f) || !equal(f->ticket, ticket) || !f->editable || f->closing || f->child_suspended)
+    if (!valid(f) || f->ticket != ticket || !f->editable || f->closing || f->child_suspended)
         return false;
     f->child_previous_focus = forum_post_focused(f->scene);
     f->child_suspended = true;
@@ -659,7 +652,7 @@ bool application_forum_form_suspend_child(const ApplicationForumPostTicket& tick
 }
 void application_forum_form_resume_child(const ApplicationForumPostTicket& ticket) noexcept {
     auto* f = owner;
-    if (!f || !equal(f->ticket, ticket) || !f->child_suspended || f->closing)
+    if (!f || f->ticket != ticket || !f->child_suspended || f->closing)
         return;
     f->child_suspended = false;
     if (!valid(f)) {
@@ -748,7 +741,6 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         return true;
     }
     if (kind == UiInputKind::key_down && code == VK_TAB) {
-        const auto prior = forum_post_focused(f->scene);
         if (forum_post_move_focus(&f->scene, shift)) {
             const auto next = forum_post_focused(f->scene);
             // Focus movement happened in the retained manager; clear both native bindings.
@@ -757,7 +749,6 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
                 secure_text_store_detach(&field.store);
                 field.composition = {};
             }
-            (void)prior;
             focus(f, next);
         }
         return true;

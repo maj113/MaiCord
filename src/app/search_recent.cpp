@@ -4,7 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -154,11 +154,11 @@ bool search_recent_load_file(const wchar_t* path, SearchRecentList* list) noexce
         const u32 error = thread_last_error();
         return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
     }
-    LARGE_INTEGER size{};
+    Win32LargeInteger size{};
     u8 record[kSearchRecentFileBytes];
     u32 native_error = 0;
     const bool read =
-        GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= kSearchRecentFileBytes &&
+        GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kSearchRecentFileBytes &&
         file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native_error);
     CloseHandle(file);
     return read && search_recent_decode({record, static_cast<u32>(size.QuadPart)}, list);

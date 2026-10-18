@@ -37,7 +37,7 @@ bool open_message_media_context_popup(u64 message_id, UiRect anchor, ConstSlice<
 // false (nothing opened) when the hit is not a link with a resolvable URL.
 bool open_message_link_context_popup(const MessageTextHit& hit, UiRect anchor) noexcept;
 bool activate_message_link_action(u32 action) noexcept;
-bool activate_popup_action(u32 action, bool alt_pressed, bool shift_pressed) noexcept;
+bool activate_popup_action(u32 action, bool shift_pressed) noexcept;
 bool open_context_popup(i32 client_x, i32 client_y) noexcept;
 bool open_focused_context_popup() noexcept;
 void focus_context_at(float x, float y) noexcept;

@@ -14,7 +14,8 @@
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -121,11 +122,7 @@ u64 now_ms() noexcept {
 }
 void repaint() noexcept {
     ++board.revision;
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
-AccountHost& host() noexcept {
-    return g_app.account;
+    application_repaint();
 }
 const GatewayClientVoiceSnapshot* session() noexcept {
     return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
@@ -244,7 +241,7 @@ void add_effect(u64 user_id, u64 channel_id, Utf8View emoji, bool custom_emoji, 
 
 // Account module playback -------------------------------------------------------
 bool audio(SoundboardAudioOperation operation, u64 sound_id, u64 user_id, u16 volume) noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     if (!h.instance || !h.api.soundboard_audio)
         return false;
     SoundboardAudioCommand command{};
@@ -576,8 +573,8 @@ void application_soundboard_gateway(const GatewayClientEvent& event, ConstSlice<
 
 bool application_soundboard_available(u64 channel_id) noexcept {
     const auto* s = session();
-    return s && in_call(*s) && s->channel_id == channel_id && voice_channel(channel_id) && host().api.soundboard &&
-           host().api.soundboard_audio;
+    return s && in_call(*s) && s->channel_id == channel_id && voice_channel(channel_id) &&
+           g_app.account.api.soundboard && g_app.account.api.soundboard_audio;
 }
 
 bool application_soundboard_picker_open() noexcept {
@@ -668,22 +665,16 @@ SoundboardGuildView application_soundboard_guild(u64 guild_id) noexcept {
     const auto* load = load_of(guild_id, false);
     view.loaded = load && load->state == LoadState::loaded;
     view.loading = load && (load->state == LoadState::wanted || load->state == LoadState::in_flight);
-    // Rows of one server are contiguous only after a load; return them in place.
-    u32 first = board.sound_count, count = 0;
-    {
-        // Stable partition: this server's sounds to the front.
-        u32 write = 0;
-        for (u32 i = 0; i < board.sound_count; ++i)
-            if (board.sounds[i].guild_id == guild_id) {
-                const auto sound = board.sounds[i];
-                for (u32 k = i; k > write; --k)
-                    board.sounds[k] = board.sounds[k - 1];
-                board.sounds[write++] = sound;
-            }
-        first = 0;
-        count = write;
-    }
-    view.sounds = count ? board.sounds + first : nullptr;
+    // Rows of one server are contiguous only after a load: a stable partition puts them in front.
+    u32 count = 0;
+    for (u32 i = 0; i < board.sound_count; ++i)
+        if (board.sounds[i].guild_id == guild_id) {
+            const auto sound = board.sounds[i];
+            for (u32 k = i; k > count; --k)
+                board.sounds[k] = board.sounds[k - 1];
+            board.sounds[count++] = sound;
+        }
+    view.sounds = count ? board.sounds : nullptr;
     view.count = count;
     for (u32 i = 0; i < board.count; ++i) {
         const auto& queued = board.queue[(board.head + i) % kQueueCapacity].request;
@@ -720,7 +711,7 @@ bool application_soundboard_probe(ConstSlice<u8> file, SoundboardFileInfo* info,
     request.operation = SoundboardOperation::probe;
     request.sound = file;
     request.info = out;
-    auto& h = host();
+    auto& h = g_app.account;
     const bool ok = h.instance && h.api.soundboard && h.api.soundboard(h.instance, &request, 0).ok() && out->ok();
     if (!ok && error) {
         switch (out->error) {
@@ -784,8 +775,8 @@ bool application_soundboard_pending(u64 now) noexcept {
     // Writes from a previous account scope are dropped unsent.
     while (board.count && board.queue[board.head].account_scope != g_app.plugin_account_scope_serial)
         drop_head();
-    if (board.in_flight_request || (board.retry_at_ms && now < board.retry_at_ms) || !host().instance ||
-        !host().api.soundboard)
+    if (board.in_flight_request || (board.retry_at_ms && now < board.retry_at_ms) ||
+        !g_app.account.instance || !g_app.account.api.soundboard)
         return false;
     SoundboardRequest load{};
     return board.count || next_load(&load);
@@ -794,7 +785,7 @@ bool application_soundboard_pending(u64 now) noexcept {
 bool application_soundboard_submit(u64 request_id, u64 now) noexcept {
     if (!application_soundboard_pending(now))
         return false;
-    auto& h = host();
+    auto& h = g_app.account;
     SoundboardRequest load{};
     const bool write = board.count != 0;
     if (!write)
@@ -958,6 +949,6 @@ void application_soundboard_release() noexcept {
     while (board.count)
         drop_head();
     // In place: the state is too large for a temporary.
-    SecureZeroMemory(&board, sizeof(board));
+    secure_clear_bytes(&board, sizeof(board));
 }
 } // namespace maicord::app_detail

@@ -13,6 +13,9 @@ enum class QuickSwitcherMode : u8 { navigation, forwarding, friends };
 struct QuickSwitcherScope {
     u64 account_serial, profile_key, self_user_id;
 };
+inline bool quick_switcher_scope_equal(QuickSwitcherScope a, QuickSwitcherScope b) noexcept {
+    return a.account_serial == b.account_serial && a.profile_key == b.profile_key && a.self_user_id == b.self_user_id;
+}
 struct QuickSwitcherSources {
     const ChatStateStore* state;
     const UserStore* users;

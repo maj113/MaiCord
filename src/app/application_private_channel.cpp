@@ -21,7 +21,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -60,28 +60,21 @@ Utf8View title(u64 channel_id, Slice<char> storage) noexcept {
     const auto* channel = chat_state_store_find_channel(state(), channel_id);
     return channel ? private_channel_title(state(), &g_app.account_ui->user_store, *channel, storage) : Utf8View{};
 }
-bool navigation_changed() noexcept {
-    application_friends_hide();
-    application_read_state_activity();
-    return synchronize_navigation_view() && synchronize_selected_channel() && synchronize_shell_layout() &&
-           refresh_account_frame(true);
-}
-
 bool form_valid(TextFormOwnerKey key) noexcept {
     return scope_current() && key.scope == g_app.account.status.profile_id && key.collection == g_private.form_serial &&
            private_channel_is_group(state(), key.item);
 }
+// Wakes the lane when a request was queued.
+bool started(bool queued) noexcept {
+    if (queued) wake();
+    return queued;
+}
 bool rename_save(TextFormOwnerKey key, Utf8View name) noexcept {
-    if (!form_valid(key) || !private_channel_begin_rename(&g_private.controller, state(), key.item, name)) return false;
-    wake();
-    return true;
+    return form_valid(key) && started(private_channel_begin_rename(&g_private.controller, state(), key.item, name));
 }
 bool leave_save(TextFormOwnerKey key, Utf8View) noexcept {
-    if (!form_valid(key) ||
-        !private_channel_begin_leave(&g_private.controller, state(), key.item, g_private.form_silent))
-        return false;
-    wake();
-    return true;
+    return form_valid(key) &&
+           started(private_channel_begin_leave(&g_private.controller, state(), key.item, g_private.form_silent));
 }
 TextFormOwnerKey next_form_key(u64 channel_id) noexcept {
     if (!++g_private.form_serial) ++g_private.form_serial;
@@ -172,7 +165,7 @@ bool application_private_channel_response(const RestClientResponse& response, Ut
         // The last request handled returns the list to conversations.
         if (g_private.requests_mode && !application_private_channel_request_count())
             g_private.requests_mode = false;
-        return navigation_changed();
+        return private_navigation_changed();
     }
     return refresh_account_frame(true);
 }
@@ -180,14 +173,10 @@ bool application_private_channel_response(const RestClientResponse& response, Ut
 bool application_private_channel_create(ConstSlice<u64> users) noexcept {
     if (!scope_current() || !users.count) return false;
     if (users.count == 1) return queue_private_conversation(PrivateConversationOperation::open, users[0]);
-    if (!private_channel_begin_create(&g_private.controller, state(), users)) return false;
-    wake();
-    return true;
+    return started(private_channel_begin_create(&g_private.controller, state(), users));
 }
 bool application_private_channel_add(u64 channel_id, ConstSlice<u64> users) noexcept {
-    if (!scope_current() || !private_channel_begin_add(&g_private.controller, state(), channel_id, users)) return false;
-    wake();
-    return true;
+    return scope_current() && started(private_channel_begin_add(&g_private.controller, state(), channel_id, users));
 }
 bool application_private_channel_call(u64 channel_id) noexcept {
     if (!scope_current() || !private_channel_member_count(state(), channel_id)) return false;
@@ -306,8 +295,7 @@ bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shif
             return true;
         }
         if (action == popup_action_private_call_decline) {
-            *applied = private_channel_begin_ring(&g_private.controller, state(), call, true);
-            if (*applied) wake();
+            *applied = started(private_channel_begin_ring(&g_private.controller, state(), call, true));
         } else
             *applied = application_voice_join(0, call) && application_navigate_notification(call, 0);
         return true;
@@ -319,9 +307,8 @@ bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shif
         return true;
     }
     if (action == popup_action_private_remove_member && g_app.popup_owner_kind == PopupOwnerKind::member) {
-        *applied = scope_current() && private_channel_begin_remove(&g_private.controller, state(),
-                                                                   state().selected_channel_id, owner_id);
-        if (*applied) wake();
+        *applied = scope_current() && started(private_channel_begin_remove(&g_private.controller, state(),
+                                                                           state().selected_channel_id, owner_id));
         return true;
     }
     if (channel_owner &&
@@ -371,22 +358,13 @@ bool application_private_channel_row_close(u64 channel_id, float x, float y) noe
     return false;
 }
 bool application_private_channel_accept_request(u64 channel_id) noexcept {
-    if (!scope_current() || !private_channel_begin_accept_request(&g_private.controller, state(), channel_id))
-        return false;
-    wake();
-    return true;
+    return scope_current() && started(private_channel_begin_accept_request(&g_private.controller, state(), channel_id));
 }
 bool application_private_channel_ignore_request(u64 channel_id) noexcept {
-    if (!scope_current() || !private_channel_begin_ignore_request(&g_private.controller, state(), channel_id))
-        return false;
-    wake();
-    return true;
+    return scope_current() && started(private_channel_begin_ignore_request(&g_private.controller, state(), channel_id));
 }
 bool application_private_channel_dismiss_safety(u64 channel_id) noexcept {
-    if (!scope_current() || !private_channel_begin_dismiss_safety(&g_private.controller, state(), channel_id))
-        return false;
-    wake();
-    return true;
+    return scope_current() && started(private_channel_begin_dismiss_safety(&g_private.controller, state(), channel_id));
 }
 void application_private_channel_navigation(NavigationView* view) noexcept {
     if (!view || !g_app.account_ui)
@@ -414,7 +392,7 @@ void application_private_channel_set_requests_mode(bool requests) noexcept {
     if (!scope_current() || g_private.requests_mode == requests)
         return;
     g_private.requests_mode = requests;
-    navigation_changed();
+    private_navigation_changed();
 }
 u32 application_private_channel_request_count() noexcept {
     if (!g_app.account_ui || !state().private_channels)

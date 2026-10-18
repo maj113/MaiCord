@@ -24,6 +24,16 @@ void start(PrivateChannelActionController* c, const ChatStateStore& state,
     c->phase = PrivateChannelActionPhase::queued;
     c->intent_revision = state.navigation_intent_revision;
 }
+bool begin_request_decision(PrivateChannelActionController* c, const ChatStateStore& state, u64 channel_id,
+                            PrivateChannelActionKind kind) noexcept {
+    const auto* record = metadata(state, channel_id);
+    if (!startable(c, state) || !record || !private_channel_is_request(*record)) return false;
+    PrivateChannelActionRequest request{};
+    request.kind = kind;
+    request.channel_id = channel_id;
+    start(c, state, request);
+    return true;
+}
 // Distinct, non-self users that fit in one request.
 bool valid_people(const ChatStateStore& state, ConstSlice<u64> users) noexcept {
     if (!users.count || !users.data || users.count > kPrivateChannelRecipientMaximum) return false;
@@ -184,23 +194,11 @@ bool private_channel_begin_ring(PrivateChannelActionController* c, const ChatSta
 }
 bool private_channel_begin_accept_request(PrivateChannelActionController* c, const ChatStateStore& state,
                                           u64 channel_id) noexcept {
-    const auto* record = metadata(state, channel_id);
-    if (!startable(c, state) || !record || !private_channel_is_request(*record)) return false;
-    PrivateChannelActionRequest request{};
-    request.kind = PrivateChannelActionKind::accept_request;
-    request.channel_id = channel_id;
-    start(c, state, request);
-    return true;
+    return begin_request_decision(c, state, channel_id, PrivateChannelActionKind::accept_request);
 }
 bool private_channel_begin_ignore_request(PrivateChannelActionController* c, const ChatStateStore& state,
                                           u64 channel_id) noexcept {
-    const auto* record = metadata(state, channel_id);
-    if (!startable(c, state) || !record || !private_channel_is_request(*record)) return false;
-    PrivateChannelActionRequest request{};
-    request.kind = PrivateChannelActionKind::ignore_request;
-    request.channel_id = channel_id;
-    start(c, state, request);
-    return true;
+    return begin_request_decision(c, state, channel_id, PrivateChannelActionKind::ignore_request);
 }
 bool private_channel_begin_dismiss_safety(PrivateChannelActionController* c, const ChatStateStore& state,
                                           u64 channel_id) noexcept {

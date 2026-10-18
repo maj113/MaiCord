@@ -9,13 +9,10 @@
 #include "maicord/app/account_paths.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail {
 namespace {
-bool logout_blocks_browser_auth() noexcept {
-    return application_account_logout_blocked() || application_account_logout_host_owned();
-}
 bool stop_browser_owner(LoginStatus terminal) noexcept {
     auto& login = g_app.login;
     auto& host = g_app.account;
@@ -24,20 +21,17 @@ bool stop_browser_owner(LoginStatus terminal) noexcept {
         account_host_login_stop(&host, kAccountStopTimeoutMs);
         application_login_retain_auth_retry();
     }
-    if (host.login_instance || host.stop_failed) {
-        login.status = LoginStatus::cancelling;
-        login.focus = LoginControl::back;
-        return application_refresh_login_view();
-    }
-    application_account_module_release();
-    login.status = host.module ? LoginStatus::cancelling : terminal;
+    const bool stopped = !host.login_instance && !host.stop_failed;
+    if (stopped)
+        application_account_module_release();
+    login.status = !stopped || host.module ? LoginStatus::cancelling : terminal;
     login.focus = LoginControl::back;
     return application_refresh_login_view();
 }
 } // namespace
 
 bool application_login_begin_browser_auth() noexcept {
-    if (logout_blocks_browser_auth())
+    if (application_account_logout_locked())
         return false;
     if (application_login_auth_cooldown_active())
         return true;
@@ -54,20 +48,9 @@ bool application_login_begin_browser_auth() noexcept {
     secure_edit_clear(&login.login);
     secure_edit_clear(&login.password);
     secure_edit_clear(&login.mfa);
-    login.remote_active = false;
-    login.qr_ready = false;
-    login.remote_restart_at_ms = 0;
-    login.remote_retry_attempt = 0;
-    login.remote_status = LoginRemoteStatus::idle;
-    SecureZeroMemory(&login.qr_code, sizeof(login.qr_code));
-    SecureZeroMemory(login.remote_user, sizeof(login.remote_user));
-    login.remote_user_bytes = 0;
+    application_login_reset_remote_session();
+    application_login_reset_attempt();
     login.mfa_capabilities = 0;
-    login.sms_requested = login.sms_sending = login.sms_failed = false;
-    login.webauthn_attempted = false;
-    application_login_reset_backup_acknowledgement();
-    application_captcha_auth_reset();
-    login.password_revealed = false;
     login.status = LoginStatus::browser_starting;
     login.focus = LoginControl::back;
     if (host.login_instance) {
@@ -89,9 +72,7 @@ bool application_login_begin_browser_auth() noexcept {
         return application_refresh_login_view();
     }
     AccountPaths paths{};
-    const auto resolved = account_paths_resolve(&paths);
-    const auto ensured = resolved.ok() ? account_paths_ensure_directories(paths) : resolved;
-    if (!ensured.ok() || !application_account_module_load())
+    if (!application_login_prepare_owner(&paths))
         return stop_browser_owner(LoginStatus::browser_failed);
     host.login_status = account_host_login_start(&host, paths.profile);
     if (!host.login_instance || !host.login_status.ok())
@@ -111,7 +92,7 @@ bool application_browser_auth_pump(bool* handled) noexcept {
     if (!handled)
         return false;
     *handled = false;
-    if (logout_blocks_browser_auth()) {
+    if (application_account_logout_locked()) {
         *handled = true;
         return true;
     }
@@ -141,13 +122,13 @@ bool application_browser_auth_pump(bool* handled) noexcept {
         SecureBuffer url{};
         const bool copied = secure_buffer_initialize(&url, 256).ok() &&
                             host.api.login_copy_browser_url(instance, epoch, &url).ok();
-        const bool current = !logout_blocks_browser_auth() && !application_login_auth_cooldown_active() &&
+        const bool current = !application_account_logout_locked() && !application_login_auth_cooldown_active() &&
                              epoch == login.application_auth_epoch &&
                              host.module == module && host.login_instance == instance && login.visible &&
                              login.status != LoginStatus::cancelling;
         const bool opened = copied && current && browser_sign_in_launch(g_app.window, &url);
         secure_buffer_release(&url);
-        if (logout_blocks_browser_auth() || epoch != login.application_auth_epoch ||
+        if (application_account_logout_locked() || epoch != login.application_auth_epoch ||
             host.module != module || host.login_instance != instance || !login.visible ||
             login.status == LoginStatus::cancelling)
             return true;

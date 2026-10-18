@@ -9,9 +9,15 @@
 #include "application_read_state.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
+bool private_navigation_changed() noexcept {
+    application_friends_hide();
+    application_read_state_activity();
+    return synchronize_navigation_view() && synchronize_selected_channel() && synchronize_shell_layout() &&
+        refresh_account_frame(true);
+}
 bool queue_private_conversation(PrivateConversationOperation operation, u64 id) noexcept {
     if (!g_app.account_ui || !g_app.account.instance) return false;
     auto& ui = *g_app.account_ui;
@@ -21,10 +27,7 @@ bool queue_private_conversation(PrivateConversationOperation operation, u64 id) 
             const auto& pending = ui.private_conversation;
             if (pending.operation == PrivateConversationOperation::close && pending.target_id == cached &&
                 pending.phase != PrivateConversationPhase::idle && pending.phase != PrivateConversationPhase::failed) return false;
-            if (!chat_state_store_select_channel(&ui.chat_state, cached).ok()) return false;
-            application_friends_hide();
-            application_read_state_activity();
-            return synchronize_navigation_view() && synchronize_selected_channel() && synchronize_shell_layout() && refresh_account_frame(true);
+            return chat_state_store_select_channel(&ui.chat_state, cached).ok() && private_navigation_changed();
         }
     }
     if (!private_conversation_begin(&ui.private_conversation, ui.chat_state, operation, id)) return false;

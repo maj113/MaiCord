@@ -236,13 +236,6 @@ UpdatePairResult finish(Reader& reader, HANDLE* files, u32 count) noexcept {
     }
     return reader.status;
 }
-bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
-    for (u32 i = 0; i < ranges.count; ++i) {
-        if (!byte_range_valid(ranges[i])) return false;
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return false;
-    }
-    return true;
-}
 UpdatePairResult invalid() noexcept { UpdatePairResult result{}; result.error = UpdatePairError::invalid_input; return result; }
 bool inputs(UpdateStage* stage, const UpdatePairOffer& offer, const P256Key& key,
     KdfSha256Workspace& workspace, Slice<u32> scratch, const void* output, u32 output_bytes,
@@ -259,7 +252,7 @@ bool inputs(UpdateStage* stage, const UpdatePairOffer& offer, const P256Key& key
         {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
         {static_cast<const u8*>(output), output_bytes}, {static_cast<const u8*>(extra1), extra1_bytes},
         {static_cast<const u8*>(extra2), extra2_bytes}, {static_cast<const u8*>(extra3), extra3_bytes}};
-    return disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])});
+    return byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])});
 }
 } // namespace
 

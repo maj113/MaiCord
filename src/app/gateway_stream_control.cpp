@@ -47,8 +47,6 @@ bool matches(const GatewayStreamControl& stream, const GatewayStreamKey& key) no
 } // namespace
 
 bool gateway_stream_bind(GatewayStreamControl* stream, u64 user_id, Utf8View session) noexcept {
-    if (!stream)
-        return false;
     if (gateway_stream_active(*stream))
         gateway_stream_reset(stream, GatewayStreamEnd::session);
     return voice_setup_bind_utf8(&stream->setup, user_id, session) == VoiceSetupResult::updated;
@@ -59,7 +57,7 @@ bool gateway_stream_active(const GatewayStreamControl& stream) noexcept {
 }
 
 bool gateway_stream_watch(GatewayStreamControl* stream, const GatewayStreamKey& key, u64 now_ms) noexcept {
-    if (!stream || !gateway_stream_key_valid(key) || !stream->setup.user_id || !stream->setup.login_session.bytes)
+    if (!gateway_stream_key_valid(key) || !stream->setup.user_id || !stream->setup.login_session.bytes)
         return false;
     if (matches(*stream, key))
         return true;
@@ -79,7 +77,7 @@ bool gateway_stream_watch(GatewayStreamControl* stream, const GatewayStreamKey& 
 }
 
 void gateway_stream_stop(GatewayStreamControl* stream, GatewayStreamEnd end) noexcept {
-    if (!stream || !gateway_stream_active(*stream))
+    if (!gateway_stream_active(*stream))
         return;
     // Unsent watch: the server never heard of it. Otherwise tell it we left;
     // a full queue only skips the courtesy delete.
@@ -89,7 +87,7 @@ void gateway_stream_stop(GatewayStreamControl* stream, GatewayStreamEnd end) noe
 }
 
 bool gateway_stream_next(const GatewayStreamControl& stream, GatewayStreamCommand* output) noexcept {
-    if (!output || !stream.queue_count)
+    if (!stream.queue_count)
         return false;
     *output = stream.queue[stream.queue_head];
     return true;
@@ -97,7 +95,7 @@ bool gateway_stream_next(const GatewayStreamControl& stream, GatewayStreamComman
 
 bool gateway_stream_submitted(GatewayStreamControl* stream, const GatewayStreamCommand& command) noexcept {
     GatewayStreamCommand expected{};
-    if (!stream || !gateway_stream_next(*stream, &expected) || expected.kind != command.kind ||
+    if (!gateway_stream_next(*stream, &expected) || expected.kind != command.kind ||
         !(expected.key == command.key))
         return false;
     stream->queue_head = (stream->queue_head + 1) % kGatewayStreamCommandQueue;
@@ -119,7 +117,7 @@ GatewayCommandWriteResult gateway_stream_write(const GatewayStreamCommand& comma
 }
 
 void gateway_stream_create(GatewayStreamControl* stream, const GatewayStreamCreate& event, u64 now_ms) noexcept {
-    if (!stream || !matches(*stream, event.key))
+    if (!matches(*stream, event.key))
         return;
     stream->viewer_count = event.viewer_count;
     stream->paused = event.paused;
@@ -140,7 +138,7 @@ void gateway_stream_create(GatewayStreamControl* stream, const GatewayStreamCrea
 }
 
 void gateway_stream_server(GatewayStreamControl* stream, const GatewayStreamServer& event) noexcept {
-    if (!stream || !matches(*stream, event.key) || !stream->rtc_server_id)
+    if (!matches(*stream, event.key) || !stream->rtc_server_id)
         return;
     const auto result = voice_setup_stream_server(&stream->setup, event.token, event.endpoint, event.unavailable);
     if (result == VoiceSetupResult::invalid_input || result == VoiceSetupResult::storage_failed ||
@@ -157,7 +155,7 @@ void gateway_stream_server(GatewayStreamControl* stream, const GatewayStreamServ
 }
 
 void gateway_stream_update(GatewayStreamControl* stream, const GatewayStreamUpdate& event) noexcept {
-    if (!stream || !matches(*stream, event.key))
+    if (!matches(*stream, event.key))
         return;
     if (event.has_viewers)
         stream->viewer_count = event.viewer_count;
@@ -166,8 +164,6 @@ void gateway_stream_update(GatewayStreamControl* stream, const GatewayStreamUpda
 }
 
 void gateway_stream_delete(GatewayStreamControl* stream, const GatewayStreamDelete& event) noexcept {
-    if (!stream)
-        return;
     // The media server may close the stream socket before the Gateway reports
     // the end: a late delete still explains why the stream stopped.
     if (stream->phase == GatewayStreamPhase::ended && stream->end == GatewayStreamEnd::failed &&
@@ -188,13 +184,13 @@ bool gateway_stream_dispatch(GatewayStreamControl* stream, const GatewayEnvelope
     const auto& name = envelope.event_name;
     if (json_string_equals_ascii(name, utf8_literal("STREAM_CREATE"))) {
         GatewayStreamCreate event{};
-        if (stream && gateway_decode_stream_create(envelope.data, scratch, maximum_depth, &event).ok())
+        if (gateway_decode_stream_create(envelope.data, scratch, maximum_depth, &event).ok())
             gateway_stream_create(stream, event, now_ms);
         return true;
     }
     if (json_string_equals_ascii(name, utf8_literal("STREAM_SERVER_UPDATE"))) {
         GatewayStreamServer event{};
-        if (!stream || !gateway_stream_active(*stream))
+        if (!gateway_stream_active(*stream))
             return true;
         if (gateway_decode_stream_server(envelope.data, scratch, maximum_depth, &event).ok())
             gateway_stream_server(stream, event);
@@ -204,13 +200,13 @@ bool gateway_stream_dispatch(GatewayStreamControl* stream, const GatewayEnvelope
     }
     if (json_string_equals_ascii(name, utf8_literal("STREAM_UPDATE"))) {
         GatewayStreamUpdate event{};
-        if (stream && gateway_decode_stream_update(envelope.data, scratch, maximum_depth, &event).ok())
+        if (gateway_decode_stream_update(envelope.data, scratch, maximum_depth, &event).ok())
             gateway_stream_update(stream, event);
         return true;
     }
     if (json_string_equals_ascii(name, utf8_literal("STREAM_DELETE"))) {
         GatewayStreamDelete event{};
-        if (stream && gateway_decode_stream_delete(envelope.data, scratch, maximum_depth, &event).ok())
+        if (gateway_decode_stream_delete(envelope.data, scratch, maximum_depth, &event).ok())
             gateway_stream_delete(stream, event);
         return true;
     }
@@ -218,8 +214,8 @@ bool gateway_stream_dispatch(GatewayStreamControl* stream, const GatewayEnvelope
 }
 
 void gateway_stream_observe(GatewayStreamControl* stream, const GatewayStreamConnectionState& state) noexcept {
-    if (!stream || (stream->phase != GatewayStreamPhase::connecting && stream->phase != GatewayStreamPhase::active &&
-                    stream->phase != GatewayStreamPhase::reconnecting))
+    if (stream->phase != GatewayStreamPhase::connecting && stream->phase != GatewayStreamPhase::active &&
+        stream->phase != GatewayStreamPhase::reconnecting)
         return;
     if (state.failed) {
         gateway_stream_stop(stream, GatewayStreamEnd::failed);
@@ -241,12 +237,12 @@ void gateway_stream_observe(GatewayStreamControl* stream, const GatewayStreamCon
 }
 
 void gateway_stream_voice(GatewayStreamControl* stream, u64 voice_channel_id, bool in_call) noexcept {
-    if (stream && gateway_stream_active(*stream) && (!in_call || voice_channel_id != stream->key.channel_id))
+    if (gateway_stream_active(*stream) && (!in_call || voice_channel_id != stream->key.channel_id))
         gateway_stream_stop(stream, GatewayStreamEnd::left_channel);
 }
 
 bool gateway_stream_expire(GatewayStreamControl* stream, u64 now_ms) noexcept {
-    if (!stream || !gateway_stream_active(*stream))
+    if (!gateway_stream_active(*stream))
         return false;
     if (!deadline_due(now_ms, stream->create_deadline_ms) && !deadline_due(now_ms, stream->setup.state_deadline_ms))
         return false;
@@ -260,16 +256,12 @@ u64 gateway_stream_deadline(const GatewayStreamControl& stream) noexcept {
 }
 
 void gateway_stream_reset(GatewayStreamControl* stream, GatewayStreamEnd end) noexcept {
-    if (!stream)
-        return;
     stream->queue_head = stream->queue_count = 0;
     if (gateway_stream_active(*stream))
         clear_session(stream, end);
 }
 
 void gateway_stream_release(GatewayStreamControl* stream) noexcept {
-    if (!stream)
-        return;
     gateway_stream_reset(stream, GatewayStreamEnd::session);
     voice_setup_release(&stream->setup);
     stream->phase = GatewayStreamPhase::idle;

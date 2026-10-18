@@ -1,14 +1,15 @@
 #include "maicord/app/plugin_host.hpp"
 #include "maicord/app/plugin_settings_projection.hpp"
 #include "maicord/app/plugin_call_ledger.hpp"
+#include "maicord/core/byte_range.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 namespace {
 
 NativePluginResult result(NativePluginError error) noexcept {
-    return {error, UiPageError::none};
+    return {error};
 }
 NativePluginResult settings_result(NativePluginSettingsError error) noexcept {
     return result(error == NativePluginSettingsError::none ? NativePluginError::none :
@@ -17,7 +18,7 @@ NativePluginResult settings_result(NativePluginSettingsError error) noexcept {
 }
 
 NativePluginResult page_result(UiPageResult page) noexcept {
-    return {page.ok() ? NativePluginError::none : NativePluginError::page, page.error};
+    return {page.ok() ? NativePluginError::none : NativePluginError::page};
 }
 
 NativePluginSlot* service_slot(void* binding, u64 generation) noexcept {
@@ -61,17 +62,6 @@ NativePluginResult WINAPI unregister_page(void* binding, u64 generation, u64 pag
     slot->service_busy = false;
     host->busy = was_busy;
     return page_result(page);
-}
-
-bool range_valid(const void* data, usize bytes) noexcept {
-    return !bytes || (data && reinterpret_cast<usize>(data) <= ~usize{0} - bytes);
-}
-
-bool ranges_overlap(const void* left, usize left_bytes, const void* right, usize right_bytes) noexcept {
-    if (!left_bytes || !right_bytes) return false;
-    const usize first = reinterpret_cast<usize>(left);
-    const usize second = reinterpret_cast<usize>(right);
-    return first <= second ? second - first < left_bytes : first - second < right_bytes;
 }
 
 // Calls into DLL code are timed and marked; adapter trampolines are host code
@@ -121,7 +111,7 @@ NativePluginResult native_plugin_host_enable(NativePluginHost* host,
     if (!host || !host->slots.data || !host->pages) return result(NativePluginError::invalid_argument);
     if (host->busy) return result(NativePluginError::busy);
     if (!definition.owner_id || !definition.start || !definition.stop ||
-        !range_valid(state_storage.data, definition.state_bytes) ||
+        !byte_range_valid(state_storage.data, definition.state_bytes) ||
         !definition.state_alignment || (definition.state_alignment & (definition.state_alignment - 1)) ||
         definition.state_alignment > 64 ||
         (definition.state_bytes && (!state_storage.data ||
@@ -138,13 +128,13 @@ NativePluginResult native_plugin_host_enable(NativePluginHost* host,
         host->state_bytes > host->policy.max_total_state_bytes ||
         definition.state_bytes > host->policy.max_total_state_bytes - host->state_bytes)
         return result(NativePluginError::budget);
-    if (ranges_overlap(state_storage.data, definition.state_bytes, host, sizeof(*host)) ||
-        ranges_overlap(state_storage.data, definition.state_bytes, host->slots.data,
+    if (byte_ranges_overlap(state_storage.data, definition.state_bytes, host, sizeof(*host)) ||
+        byte_ranges_overlap(state_storage.data, definition.state_bytes, host->slots.data,
             static_cast<usize>(host->slots.count) * sizeof(NativePluginSlot)) ||
-        ranges_overlap(state_storage.data, definition.state_bytes, host->pages, sizeof(*host->pages)) ||
-        ranges_overlap(state_storage.data, definition.state_bytes, host->pages->storage.data,
+        byte_ranges_overlap(state_storage.data, definition.state_bytes, host->pages, sizeof(*host->pages)) ||
+        byte_ranges_overlap(state_storage.data, definition.state_bytes, host->pages->storage.data,
             static_cast<usize>(host->pages->storage.count) * sizeof(UiPage)) ||
-        ranges_overlap(state_storage.data, definition.state_bytes, &definition, sizeof(definition)))
+        byte_ranges_overlap(state_storage.data, definition.state_bytes, &definition, sizeof(definition)))
         return result(NativePluginError::invalid_argument);
     NativePluginSlot* free_slot = nullptr;
     for (u32 index = 0; index < host->slots.count; ++index) {
@@ -153,7 +143,8 @@ NativePluginResult native_plugin_host_enable(NativePluginHost* host,
             if (!free_slot) free_slot = &slot;
         } else {
             if (slot.definition.owner_id == definition.owner_id) return result(NativePluginError::duplicate_owner);
-            if (ranges_overlap(slot.state, slot.definition.state_bytes, state_storage.data, definition.state_bytes))
+            if (byte_ranges_overlap(slot.state, slot.definition.state_bytes, state_storage.data,
+                                    definition.state_bytes))
                 return result(NativePluginError::invalid_argument);
         }
     }
@@ -294,7 +285,7 @@ NativePluginResult native_plugin_host_activate_settings(NativePluginHost* host,
     slot->service_busy = false;
     host->busy = false;
     return {outcome.accepted ? NativePluginError::none : NativePluginError::activation_failed,
-        UiPageError::none, outcome.accepted && outcome.changed};
+        outcome.accepted && outcome.changed};
 }
 
 const NativePluginSlot* native_plugin_host_find(const NativePluginHost& host, u64 owner_id) noexcept {

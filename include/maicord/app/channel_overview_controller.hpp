@@ -57,7 +57,7 @@ struct ChannelOverviewController {
     ChannelOverviewOperation operation{};
     ChannelOverviewPhase phase{};
     ChannelOverviewFailure failure{};
-    u8 dirty_fields{}, submitted_fields{}, rate_attempts{}, conflict_fields{};
+    u8 dirty_fields{}, rate_attempts{}, conflict_fields{};
     bool active{}, available{}, can_manage{}, authoritative{}, has_baseline{}, queued{},
         permission_denied{};
 };

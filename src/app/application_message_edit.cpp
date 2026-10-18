@@ -3,6 +3,7 @@
 #include "application_composer.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_message_mutation_notice.hpp"
+#include "application_message_mutation_source.hpp"
 #include "application_state.hpp"
 #include "application_thread_actions.hpp"
 #include "application_reply_draft.hpp"
@@ -16,18 +17,11 @@
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
-struct EditSource {
-    MessageHandle handle{};
-    u64 scope{}, profile{}, self{};
-    void* instance{};
-    u32 revision{};
-    u16 channel_generation{};
-};
-EditSource edit_source;
+MessageMutationSource edit_source;
 
 const MessageRecord* editable_record(u64 message_id) noexcept {
     if (!g_app.account_ui || !message_id)
@@ -106,7 +100,7 @@ bool apply_response(u32 body_bytes) noexcept {
         found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
     if (!existing || existing->channel_id != edit.channel_id)
         return true;
-    if (existing && message.edited_timestamp_ms != 0 &&
+    if (message.edited_timestamp_ms != 0 &&
         existing->edited_timestamp_ms > message.edited_timestamp_ms) {
         return true;
     }
@@ -138,18 +132,10 @@ void reset_message_edit() noexcept {
     edit_source = {};
 }
 bool application_message_edit_pending_available() noexcept {
-    if (!g_app.account_ui || !edit_source.instance || edit_source.instance != g_app.account.instance ||
-        edit_source.scope != g_app.plugin_account_scope_serial ||
-        edit_source.profile != g_app.account.status.profile_id ||
-        edit_source.self != g_app.account_ui->chat_state.self_user_id)
-        return false;
-    const auto* channel =
-        chat_state_store_find_channel(g_app.account_ui->chat_state, g_app.message_edit.channel_id);
-    const auto* record = message_store_resolve(g_app.message_view.store, edit_source.handle);
-    return channel && channel->generation == edit_source.channel_generation && record &&
-           record->id == g_app.message_edit.message_id && record->channel_id == channel->id &&
-           record->revision == edit_source.revision && record->author_id == edit_source.self &&
-           application_thread_actions_channel_sendable(channel->id);
+    const auto* record = message_mutation_source_record(edit_source, g_app.message_edit.channel_id,
+                                                        g_app.message_edit.message_id);
+    return record && record->author_id == edit_source.self &&
+           application_thread_actions_channel_sendable(record->channel_id);
 }
 
 bool cancel_message_edit_editor() noexcept {
@@ -274,16 +260,8 @@ bool queue_message_edit() noexcept {
     edit.content_bytes = content.bytes;
     edit.retry_at_ms = 0;
     edit.phase = MessageEditRequestPhase::queued;
-    const auto found = message_store_find(g_app.message_view.store, record->id);
-    const auto* channel =
-        chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id);
-    edit_source = {found.handle,
-                   g_app.plugin_account_scope_serial,
-                   g_app.account.status.profile_id,
-                   g_app.account_ui->chat_state.self_user_id,
-                   g_app.account.instance,
-                   record->revision,
-                   channel ? channel->generation : u16{0}};
+    edit_source = message_mutation_source_capture(message_store_find(g_app.message_view.store, record->id).handle,
+                                                  *record);
     application_message_mutation_notice_begin(ApplicationMessageMutationKind::edit, edit.channel_id,
                                               edit.message_id);
     if (g_app.window) {
@@ -307,15 +285,8 @@ bool queue_message_edit_content(u64 message_id, Utf8View content) noexcept {
     edit.message_id = record->id;
     edit.retry_at_ms = 0;
     edit.phase = MessageEditRequestPhase::queued;
-    const auto found = message_store_find(g_app.message_view.store, record->id);
-    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id);
-    edit_source = {found.handle,
-                   g_app.plugin_account_scope_serial,
-                   g_app.account.status.profile_id,
-                   g_app.account_ui->chat_state.self_user_id,
-                   g_app.account.instance,
-                   record->revision,
-                   channel ? channel->generation : u16{0}};
+    edit_source = message_mutation_source_capture(message_store_find(g_app.message_view.store, record->id).handle,
+                                                  *record);
     application_message_mutation_notice_begin(ApplicationMessageMutationKind::edit, edit.channel_id,
                                               edit.message_id);
     if (g_app.window)
@@ -328,8 +299,7 @@ bool accept_message_edit_response(const RestClientResponse& response) noexcept {
     if (!g_app.account_ui || edit.message_id == 0 || edit.phase != MessageEditRequestPhase::submitting) {
         return false;
     }
-    if (!response.transport_ok()) {
-        log_u64(LogLevel::error, "rest", "message_edit_transport_error", static_cast<u64>(response.error));
+    const auto failed = [&]() noexcept {
         application_message_mutation_notice_failed(ApplicationMessageMutationKind::edit, edit.channel_id,
                                                    edit.message_id, response);
         if (edit.editor_active) {
@@ -338,6 +308,10 @@ bool accept_message_edit_response(const RestClientResponse& response) noexcept {
             reset_message_edit();
         }
         return refresh_message_composer_ui();
+    };
+    if (!response.transport_ok()) {
+        log_u64(LogLevel::error, "rest", "message_edit_transport_error", static_cast<u64>(response.error));
+        return failed();
     }
     if (response.status_code == 429 && response.rate_limited && response.retry_at_ms != 0 &&
         !api_rejection_requires_action(response.rejection)) {
@@ -348,14 +322,7 @@ bool accept_message_edit_response(const RestClientResponse& response) noexcept {
     }
     if (response.status_code < 200 || response.status_code >= 300) {
         log_u64(LogLevel::error, "rest", "message_edit_http_status", response.status_code);
-        application_message_mutation_notice_failed(ApplicationMessageMutationKind::edit, edit.channel_id,
-                                                   edit.message_id, response);
-        if (edit.editor_active) {
-            edit.phase = MessageEditRequestPhase::idle;
-        } else {
-            reset_message_edit();
-        }
-        return refresh_message_composer_ui();
+        return failed();
     }
     if (!apply_response(response.body_bytes)) {
         return false;

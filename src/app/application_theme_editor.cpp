@@ -13,6 +13,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationThemeEditor {

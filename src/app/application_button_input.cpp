@@ -8,7 +8,7 @@
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/settings_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
@@ -101,8 +101,7 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
         // Hold the microphone to record; releasing anywhere else cancels.
         if (owner == &g_app.message_composer_scene.widgets)
             application_voice_message_pointer(event,
-                                              hit.slot == g_app.message_composer_scene.send.slot &&
-                                                  hit.generation == g_app.message_composer_scene.send.generation,
+                                              ui_widget_handle_equal(hit, g_app.message_composer_scene.send),
                                               result.activate);
         if ((event == UiButtonPointerEvent::release || cancel) && owner == captured_owner) {
             g_app.button_pointer_owner = nullptr;

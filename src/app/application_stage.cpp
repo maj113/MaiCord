@@ -7,7 +7,7 @@
 #include "maicord/model/stage_policy.hpp"
 #include "maicord/protocol/stage_channel.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -47,10 +47,6 @@ StageState stage{};
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
 }
-void repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
 const ChannelRecord* channel_of(u64 channel_id) noexcept {
     if (!g_app.account_ui || !channel_id)
         return nullptr;
@@ -84,7 +80,7 @@ void set_notice(u64 channel_id, Utf8View text) noexcept {
     copy_bytes(stage.notice, text.data, stage.notice_bytes);
     stage.notice_channel = channel_id;
     stage.notice_until_ms = now_ms() + kNoticeMs;
-    repaint();
+    application_repaint();
 }
 Utf8View failure_text(StageOperation operation) noexcept {
     switch (operation) {
@@ -136,9 +132,7 @@ bool queue_simple(const ChannelRecord& channel, StageOperation operation, u64 us
     return enqueue(request);
 }
 void drop_head() noexcept {
-    if (!stage.count)
-        return;
-    SecureZeroMemory(&stage.queue[stage.head], sizeof(stage.queue[stage.head]));
+    secure_clear_bytes(&stage.queue[stage.head], sizeof(stage.queue[stage.head]));
     stage.head = (stage.head + 1) % kQueueCapacity;
     --stage.count;
 }
@@ -185,14 +179,18 @@ void form_closed(TextFormOwnerKey key) noexcept {
     if (key.scope == stage.form.serial)
         stage.form = {};
 }
-bool open_topic_form(const ChannelRecord& channel, bool start) noexcept {
-    if (g_app.text_form)
-        return false;
+// Binds a fresh form owner to the channel.
+void begin_form(const ChannelRecord& channel) noexcept {
     stage.form = {};
     stage.form.serial = ++stage.form_serial ? stage.form_serial : ++stage.form_serial;
     stage.form.channel_id = channel.id;
     stage.form.guild_id = channel.guild_id;
     stage.form.account_scope = g_app.plugin_account_scope_serial;
+}
+bool open_topic_form(const ChannelRecord& channel, bool start) noexcept {
+    if (g_app.text_form)
+        return false;
+    begin_form(channel);
     stage.form.start = start;
     const auto* instance = stage_instance_store_find(stage.instances, channel.id);
     ApplicationTextFormRequest request{};
@@ -225,11 +223,7 @@ bool end_save(TextFormOwnerKey key, Utf8View) noexcept {
 bool open_end_confirmation(const ChannelRecord& channel) noexcept {
     if (g_app.text_form)
         return false;
-    stage.form = {};
-    stage.form.serial = ++stage.form_serial ? stage.form_serial : ++stage.form_serial;
-    stage.form.channel_id = channel.id;
-    stage.form.guild_id = channel.guild_id;
-    stage.form.account_scope = g_app.plugin_account_scope_serial;
+    begin_form(channel);
     ApplicationTextFormRequest request{};
     request.title = utf8_literal("End stage?");
     request.context = utf8_literal("The stage ends for everyone. Speakers move back to the audience.");
@@ -256,12 +250,12 @@ void application_stage_gateway(const GatewayClientEvent& event, ConstSlice<u8> p
         return;
     if (event.dispatch_kind == GatewayClientDispatchKind::guild_delete) {
         if (stage_instance_store_clear_guild(&stage.instances, event.state.id))
-            repaint();
+            application_repaint();
         return;
     }
     if (event.dispatch_kind == GatewayClientDispatchKind::channel_delete) {
         if (stage_instance_store_remove(&stage.instances, event.state.id))
-            repaint();
+            application_repaint();
         return;
     }
     if (event.dispatch_kind != GatewayClientDispatchKind::stage_instance_snapshot)
@@ -281,7 +275,7 @@ void application_stage_gateway(const GatewayClientEvent& event, ConstSlice<u8> p
                                    {record.topic, minimum<u32>(record.topic_bytes, kGatewayClientStageTopicBytes)});
     }
     if (revision != stage.instances.revision)
-        repaint();
+        application_repaint();
 }
 
 const StageInstanceStore& application_stage_instances() noexcept {
@@ -396,7 +390,7 @@ void application_stage_pump() noexcept {
     stage.invited_channel = channel->id;
     if (!application_call_visible())
         application_call_open(channel->id, 0);
-    repaint();
+    application_repaint();
 }
 
 bool application_stage_pending(u64 now) noexcept {
@@ -463,7 +457,7 @@ u64 application_stage_next_wake(bool lane_idle) noexcept {
     const u64 now = now_ms();
     if (stage.notice_bytes && now >= stage.notice_until_ms) {
         stage.notice_bytes = 0;
-        repaint();
+        application_repaint();
     }
     u64 wake = stage.notice_bytes ? stage.notice_until_ms : 0;
     if (lane_idle && stage.count && !stage.in_flight_request) {
@@ -476,7 +470,7 @@ u64 application_stage_next_wake(bool lane_idle) noexcept {
 void application_stage_release() noexcept {
     // In place: the state is too large for a temporary.
     const u64 serial = stage.form_serial;
-    SecureZeroMemory(&stage, sizeof(stage));
+    secure_clear_bytes(&stage, sizeof(stage));
     stage.form_serial = serial;
 }
 } // namespace maicord::app_detail

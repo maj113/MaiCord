@@ -4,19 +4,18 @@
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "maicord/core/time.hpp"
-
-#include <Windows.h>
+#include "maicord/core/win32_records.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 inline void application_begin_window_resize() noexcept {
-    animation_visual_runtime_suspend(&g_app.animations,
-                                     clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+    animation_visual_runtime_suspend(&g_app.animations, application_now_us());
     renderer_set_live_resize(&g_app.renderer, true);
 }
 inline void application_end_window_resize(HWND window) noexcept {
     if (g_app.renderer_ready) {
-        RECT client{};
-        if (!GetClientRect(window, &client) ||
+        Win32Rect client{};
+        if (!GetClientRect(window, client.native()) ||
             !renderer_finish_resize(&g_app.renderer,
                                     static_cast<u32>(maximum<LONG>(1, client.right - client.left)),
                                     static_cast<u32>(maximum<LONG>(1, client.bottom - client.top)))) {

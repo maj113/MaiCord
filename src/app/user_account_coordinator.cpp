@@ -1,6 +1,6 @@
 #include "maicord/app/user_account_coordinator.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -34,7 +34,7 @@ void cleanup_failed_start(UserAccountCoordinator* coordinator, SecureBuffer* res
         rest_client_stop(&coordinator->rest, 5'000);
     }
     secure_buffer_release(rest_credential);
-    SecureZeroMemory(coordinator, sizeof(*coordinator));
+    secure_clear_bytes(coordinator, sizeof(*coordinator));
 }
 
 void set_failure(UserAccountCoordinator* coordinator, UserAccountCoordinatorError error,
@@ -66,8 +66,8 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         configuration->properties, Slice<u8>{json_scratch, sizeof(json_scratch)},
         Slice<u8>{super_properties, sizeof(super_properties)});
     if (!properties.ok()) {
-        SecureZeroMemory(json_scratch, sizeof(json_scratch));
-        SecureZeroMemory(super_properties, sizeof(super_properties));
+        secure_clear_bytes(json_scratch, sizeof(json_scratch));
+        secure_clear_bytes(super_properties, sizeof(super_properties));
         UserAccountCoordinatorResult result{};
         result.error = UserAccountCoordinatorError::properties;
         return result;
@@ -75,7 +75,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
 
     SecureBuffer rest_credential{};
     if (!duplicate_credential(profile->credential, &rest_credential)) {
-        SecureZeroMemory(super_properties, sizeof(super_properties));
+        secure_clear_bytes(super_properties, sizeof(super_properties));
         UserAccountCoordinatorResult result{};
         result.error = UserAccountCoordinatorError::credential;
         return result;
@@ -86,7 +86,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         rest_client_start_user(&coordinator->rest, &rest_credential, &rest_configuration,
                                kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared);
     if (!rest_started.ok()) {
-        SecureZeroMemory(super_properties, sizeof(super_properties));
+        secure_clear_bytes(super_properties, sizeof(super_properties));
         cleanup_failed_start(coordinator, &rest_credential);
         UserAccountCoordinatorResult result{};
         result.error = UserAccountCoordinatorError::rest_start;
@@ -100,7 +100,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         copied ? rest_client_start_user(&coordinator->details, &rest_credential, &rest_configuration,
                                         kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared)
                : RestClientResult{.error = RestClientError::memory};
-    SecureZeroMemory(super_properties, sizeof(super_properties));
+    secure_clear_bytes(super_properties, sizeof(super_properties));
     if (!details_started.ok()) {
         cleanup_failed_start(coordinator, &rest_credential);
         UserAccountCoordinatorResult result{};
@@ -208,7 +208,6 @@ UserAccountCoordinatorResult user_account_coordinator_restart_gateway(
         return coordinator->state;
     }
     coordinator->state.gateway_restart_at_ms = 0;
-    ++coordinator->state.gateway_restarts;
     if (coordinator->state.phase != UserAccountCoordinatorPhase::running)
         coordinator->state.phase = UserAccountCoordinatorPhase::gateway_connecting;
     return coordinator->state;
@@ -263,7 +262,7 @@ UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinato
         return coordinator->state;
     }
     const u64 profile_id = coordinator->metadata.profile_id;
-    SecureZeroMemory(coordinator, sizeof(*coordinator));
+    secure_clear_bytes(coordinator, sizeof(*coordinator));
     coordinator->state.profile_id = profile_id;
     coordinator->state.phase = UserAccountCoordinatorPhase::stopped;
     return coordinator->state;

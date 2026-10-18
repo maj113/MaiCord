@@ -24,7 +24,6 @@ enum class MessageHistoryApplyError : u8 {
     invalid_page,
     channel_mismatch,
     capacity,
-    not_following,
     reconcile,
     ui_mutation,
     not_found,

@@ -3,7 +3,7 @@
 #include "maicord/platform/aes_gcm.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -103,10 +103,10 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
     u8 key[16], nonce[kAesGcmNonceBytes];
     MlsWipe key_wipe{key, sizeof(key)}, nonce_wipe{nonce, sizeof(nonce)};
     auto status = mls_status(mls_expand_label(kdf, {successor.epoch.welcome_secret, kMlsHashBytes},
-                                              mls_text("key"), {}, {key, sizeof(key)}));
+                                              text_bytes("key"), {}, {key, sizeof(key)}));
     if (status == MlsStatus::ok)
         status = mls_status(mls_expand_label(kdf, {successor.epoch.welcome_secret, kMlsHashBytes},
-                                             mls_text("nonce"), {}, {nonce, sizeof(nonce)}));
+                                             text_bytes("nonce"), {}, {nonce, sizeof(nonce)}));
     AesGcmKey cipher{};
     if (status == MlsStatus::ok && !aes_gcm_initialize(&cipher, {key, sizeof(key)}).ok())
         status = MlsStatus::crypto_failure;
@@ -142,7 +142,7 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
             status = MlsStatus::malformed;
         if (status == MlsStatus::ok) {
             const auto encrypted = mls_encrypt_with_label(
-                kdf, {proposals[i].added.init_key, kMlsPointBytes}, mls_text("Welcome"),
+                kdf, {proposals[i].added.init_key, kMlsPointBytes}, text_bytes("Welcome"),
                 {output.data + info_offset, encrypted_info}, {secrets, plain.used},
                 {kem_output, kMlsPointBytes}, {sealed, sizeof(sealed)});
             if (!encrypted.ok() || encrypted.bytes != sealed_secrets)
@@ -151,7 +151,7 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
         writer.vector(proposals[i].added.reference, kMlsHashBytes);
         writer.vector(kem_output, kMlsPointBytes);
         writer.vector(sealed, sealed_secrets);
-        SecureZeroMemory(secrets, sizeof(secrets));
+        secure_clear_bytes(secrets, sizeof(secrets));
         ++add;
     }
     writer.varint(encrypted_info);
@@ -165,7 +165,7 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
          parsed.encrypted_group_info.data != output.data + info_offset))
         status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(output.data, static_cast<u32>(required));
+        secure_clear_bytes(output.data, static_cast<u32>(required));
         return status;
     }
     *written = static_cast<u32>(required);

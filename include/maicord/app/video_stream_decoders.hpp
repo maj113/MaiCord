@@ -45,7 +45,6 @@ struct VideoStreamDecoders {
     // Worker-only: SSRCs waiting for their first keyframe, for request throttling.
     u32 waiting_ssrc[kVideoStreamDecoderStreams];
     u64 waiting_ms[kVideoStreamDecoderStreams];
-    u32 created, refused;
 };
 
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept;

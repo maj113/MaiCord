@@ -3,7 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -14,21 +14,10 @@ Result fail(RE error, DWORD native = 0, PluginIndexError index = PluginIndexErro
     return {error, native, index, false};
 }
 Result convert(AcceptanceRecordResult result) noexcept { return {result.error, result.native_error, PluginIndexError::none, false}; }
-bool zero(const u8* data, u32 bytes) noexcept {
-    for (u32 i = 0; i < bytes; ++i) if (data[i]) return false;
-    return true;
-}
-bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
-    for (u32 i = 0; i < ranges.count; ++i) {
-        if (!byte_range_valid(ranges[i])) return false;
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return false;
-    }
-    return true;
-}
 bool object_and_path(const void* object, u32 bytes, ConstSlice<wchar_t> path) noexcept {
     const ConstSlice<u8> ranges[]{{static_cast<const u8*>(object), bytes},
         {reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}};
-    return object && disjoint({ranges, 2});
+    return object && byte_ranges_all_disjoint({ranges, 2});
 }
 bool equal(const PluginIndexAcceptanceState& a, const PluginIndexAcceptanceState& b) noexcept {
     for (u32 i = 0; i < kPluginIndexAcceptanceSlots; ++i)
@@ -79,7 +68,7 @@ bool plugin_index_acceptance_valid(const PluginIndexAcceptanceState& state) noex
     for (u32 i = 0; i < kPluginIndexAcceptanceSlots; ++i) {
         const PluginIndexFloor& slot = state.slots[i];
         if (!slot.present) {
-            if (slot.provider || slot.sequence || !zero(slot.index_sha256, 32)) return false;
+            if (slot.provider || slot.sequence || !bytes_zero(slot.index_sha256, 32)) return false;
             continue;
         }
         if (!slot.sequence || (i == 0) != (slot.provider == kPluginProviderOfficial) || slot.provider == kPluginProviderFile)
@@ -92,7 +81,7 @@ bool plugin_index_acceptance_valid(const PluginIndexAcceptanceState& state) noex
 PluginIndexAcceptanceResult plugin_index_acceptance_encode(const PluginIndexAcceptanceState& state, Slice<u8> record) noexcept {
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(&state), sizeof(state)}, {record.data, record.count}};
     if (record.count != kPluginIndexAcceptanceRecordBytes || !record.data || !plugin_index_acceptance_valid(state) ||
-        !disjoint({ranges, 2})) return fail(RE::invalid_input);
+        !byte_ranges_all_disjoint({ranges, 2})) return fail(RE::invalid_input);
     u8 candidate[kPluginIndexAcceptanceRecordBytes]{};
     copy_bytes(candidate, kMagic, 8);
     byte_store_le32(candidate + 8, kPluginIndexAcceptanceVersion);
@@ -112,7 +101,7 @@ PluginIndexAcceptanceResult plugin_index_acceptance_encode(const PluginIndexAcce
 
 PluginIndexAcceptanceResult plugin_index_acceptance_decode(ConstSlice<u8> record, PluginIndexAcceptanceState* state) noexcept {
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(state), sizeof(*state)}, record};
-    if (!state || !record.data || !disjoint({ranges, 2})) return fail(RE::invalid_input);
+    if (!state || !record.data || !byte_ranges_all_disjoint({ranges, 2})) return fail(RE::invalid_input);
     if (record.count != kPluginIndexAcceptanceRecordBytes) return fail(RE::size);
     if (!bytes_equal(record.data, kMagic, 8) || byte_load_le32(record.data + 12) != kPluginIndexAcceptanceRecordBytes ||
         byte_load_le32(record.data + 16) != kPluginIndexAcceptanceSlots || byte_load_le32(record.data + 20)) return fail(RE::format);
@@ -121,7 +110,7 @@ PluginIndexAcceptanceResult plugin_index_acceptance_decode(ConstSlice<u8> record
     PluginIndexAcceptanceState candidate{};
     for (u32 i = 0; i < kPluginIndexAcceptanceSlots; ++i) {
         const u8* slot = record.data + 32 + i * kPluginIndexAcceptanceSlotBytes;
-        if (slot[48] > 1 || !zero(slot + 49, 7)) return fail(RE::format);
+        if (slot[48] > 1 || !bytes_zero(slot + 49, 7)) return fail(RE::format);
         candidate.slots[i].provider = byte_load_le64(slot);
         candidate.slots[i].sequence = byte_load_le64(slot + 8);
         copy_bytes(candidate.slots[i].index_sha256, slot + 16, 32);
@@ -182,7 +171,7 @@ PluginIndexAcceptanceResult plugin_index_acceptance_verify_commit(PluginIndexAcc
         return fail(RE::invalid_input);
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(transaction), sizeof(*transaction)},
         {reinterpret_cast<const u8*>(output), static_cast<u32>(sizeof(*output))}};
-    if (!disjoint({ranges, 2})) return fail(RE::invalid_input);
+    if (!byte_ranges_all_disjoint({ranges, 2})) return fail(RE::invalid_input);
     auto result = current(*transaction);
     if (!result.ok()) return result;
     const auto verified = key ? plugin_index_verify(document, signature, *key, workspace, policy, scratch, output)
@@ -229,7 +218,7 @@ PluginIndexAcceptanceResult plugin_index_acceptance_forget(PluginIndexAcceptance
 PluginIndexAcceptanceResult plugin_index_acceptance_release(PluginIndexAcceptanceTransaction* transaction) noexcept {
     if (!transaction) return fail(RE::invalid_input);
     if (transaction->lock && !CloseHandle(transaction->lock)) return fail(RE::release, GetLastError());
-    SecureZeroMemory(transaction, sizeof(*transaction));
+    secure_clear_bytes(transaction, sizeof(*transaction));
     return {};
 }
 

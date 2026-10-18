@@ -1,6 +1,6 @@
 #include "maicord/app/account_channel_overview.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_channel_overview_submit(RestClient* rest,
@@ -31,7 +31,7 @@ RestClientSubmitResult account_channel_overview_submit(RestClient* rest,
          RestMajorParameter::channel},
         request_id,
         patch != nullptr);
-    SecureZeroMemory(body, sizeof(body));
+    secure_clear_bytes(body, sizeof(body));
     return submitted;
 }
 } // namespace maicord

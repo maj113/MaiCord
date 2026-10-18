@@ -24,6 +24,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/shortcuts_scene.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -47,10 +49,6 @@ struct GlobalKeys {
 };
 GlobalKeys global{};
 
-void repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
 bool focused_message(u64* id) noexcept {
     const u64 message = g_app.message_scene.focused_message_id;
     if (g_app.context_focus != &g_app.message_scene.widgets || !message || !g_app.keyboard_focus_visible)
@@ -132,18 +130,8 @@ void project() noexcept {
 bool append_query(u32 character) noexcept {
     if (character < 0x20 || character == 0x7f || (character >= 0xd800 && character <= 0xdfff) || character > 0xffff)
         return false;
-    char encoded[3]{};
-    u32 bytes = 0;
-    if (character < 0x80)
-        encoded[bytes++] = static_cast<char>(character);
-    else if (character < 0x800) {
-        encoded[bytes++] = static_cast<char>(0xc0 | (character >> 6));
-        encoded[bytes++] = static_cast<char>(0x80 | (character & 0x3f));
-    } else {
-        encoded[bytes++] = static_cast<char>(0xe0 | (character >> 12));
-        encoded[bytes++] = static_cast<char>(0x80 | ((character >> 6) & 0x3f));
-        encoded[bytes++] = static_cast<char>(0x80 | (character & 0x3f));
-    }
+    char encoded[4];
+    const u32 bytes = utf8_encode(character, encoded);
     if (overlay.query_bytes + bytes > kQueryBytes)
         return false;
     copy_bytes(overlay.query + overlay.query_bytes, encoded, bytes);
@@ -160,7 +148,7 @@ bool pop_query() noexcept {
 }
 bool refresh() noexcept {
     project();
-    return application_shortcuts_overlay_synchronize() && (repaint(), true);
+    return application_shortcuts_overlay_synchronize() && (application_repaint(), true);
 }
 } // namespace
 
@@ -184,7 +172,7 @@ ShortcutAction application_shortcut_action(u32 key) noexcept {
     return shortcut_first(application_shortcut_context(), shortcut_chord_from_keyboard(key));
 }
 
-bool application_run_shortcut(ShortcutAction action, u32 key, bool repeated) noexcept {
+static bool run_shortcut(ShortcutAction action, bool repeated) noexcept {
     using A = ShortcutAction;
     const auto navigation = navigation_of(action);
     if (navigation.mode != NavigationMode::none)
@@ -205,7 +193,6 @@ bool application_run_shortcut(ShortcutAction action, u32 key, bool repeated) noe
     default:
         break;
     }
-    (void)key;
     u64 message = 0;
     // One-shot actions swallow auto-repeat once they own the chord.
     if (repeated)
@@ -263,7 +250,7 @@ bool handle_shortcut_key(u32 key, bool repeated) noexcept {
     ShortcutAction candidates[4]{};
     const u32 count = shortcut_resolve(application_shortcut_context(), chord, {candidates, 4});
     for (u32 i = 0; i < count; ++i)
-        if (application_run_shortcut(candidates[i], key, repeated))
+        if (run_shortcut(candidates[i], repeated))
             return true;
     return false;
 }
@@ -333,7 +320,7 @@ void application_shortcuts_overlay_close() noexcept {
     overlay.query_bytes = 0;
     overlay.scene.active = false;
     g_app.renderer.shortcuts_scene = nullptr;
-    repaint();
+    application_repaint();
 }
 void application_shortcuts_overlay_release() noexcept {
     overlay.active = false;
@@ -406,7 +393,7 @@ bool application_shortcuts_overlay_input(UiInputKind kind, u32 code, bool repeat
     default: return true;
     }
     if (ui_shortcuts_scene_scroll(&overlay.scene, delta))
-        repaint();
+        application_repaint();
     return true;
 }
 
@@ -416,13 +403,13 @@ bool application_shortcuts_overlay_window_message(UINT message, WPARAM wparam, L
     switch (message) {
     case WM_MOUSEWHEEL:
         if (ui_shortcuts_scene_scroll(&overlay.scene, -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80))
-            repaint();
+            application_repaint();
         return true;
     case WM_MOUSEMOVE: {
         bool changed = false;
         ui_shortcuts_scene_set_hover(&overlay.scene, client_dip_x(lparam), client_dip_y(lparam), &changed);
         if (changed)
-            repaint();
+            application_repaint();
         return true;
     }
     case WM_SETCURSOR: {

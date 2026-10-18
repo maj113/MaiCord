@@ -18,6 +18,7 @@ enum class ApplicationForumPostPhase : u8 {
 struct ApplicationForumPostTicket {
     u64 serial, parent_id;
     u32 publication_revision;
+    friend bool operator==(const ApplicationForumPostTicket&, const ApplicationForumPostTicket&) = default;
 };
 struct ApplicationForumPostTag {
     u64 id;

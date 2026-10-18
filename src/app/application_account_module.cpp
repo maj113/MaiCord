@@ -65,7 +65,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_error.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -281,11 +281,8 @@ bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
         trace.field("last", static_cast<u64>(subscription.ranges[i].last));
         trace.write("gateway");
     }
-    if (g_app.account_ui) {
-        log_u64(LogLevel::info, "gateway", "guild_member_subscription_list_id",
-                member_list_channel_cached_id(&g_app.member_list_identity, g_app.account_ui->chat_state,
-                                              pending.channel_id));
-    }
+    log_u64(LogLevel::info, "gateway", "guild_member_subscription_list_id",
+            member_list_channel_cached_id(&g_app.member_list_identity, state, pending.channel_id));
     member_list_subscription_sent(&pending);
     return true;
 }
@@ -645,6 +642,16 @@ void application_log_account_observations(const AccountModuleStatus& status, u32
     }
 }
 
+namespace {
+void release_account_owners() noexcept {
+    application_gif_favorites_release();
+    application_emoji_preferences_release();
+    application_action_captcha_release();
+    application_user_settings_release();
+    application_account_settings_release();
+}
+} // namespace
+
 void application_prepare_account_stop() noexcept {
     UiWidgetManager* const logout_focus =
         application_account_logout_blocked() && g_app.text_form ? g_app.context_focus : nullptr;
@@ -714,19 +721,14 @@ void application_account_stop_observed(const AccountHostStopResult& stopped, boo
     if (!stopped.ok()) {
         log_u64(LogLevel::error, "account", "host_stop_error", static_cast<u64>(stopped.error));
         log_u64(LogLevel::error, "account", "host_stop_native_error", stopped.native_error);
+        return;
     }
-    if (stopped.ok()) {
-        // The joined stop cleared the account instance. The host can now release
-        // retained reaction backing without losing a live completion ticket.
-        application_thread_actions_release();
-        application_poll_release();
-        reset_message_reaction();
-        application_gif_favorites_release();
-        application_emoji_preferences_release();
-        application_action_captcha_release();
-        application_user_settings_release();
-        application_account_settings_release();
-    }
+    // The joined stop cleared the account instance. The host can now release
+    // retained reaction backing without losing a live completion ticket.
+    application_thread_actions_release();
+    application_poll_release();
+    reset_message_reaction();
+    release_account_owners();
 }
 
 bool application_stop_account() noexcept {
@@ -738,11 +740,7 @@ bool application_stop_account() noexcept {
     application_prepare_account_stop();
     AccountHost& host = g_app.account;
     if (!host.module) {
-        application_gif_favorites_release();
-        application_emoji_preferences_release();
-        application_action_captcha_release();
-        application_user_settings_release();
-        application_account_settings_release();
+        release_account_owners();
         return true;
     }
     const bool had_account = host.instance != nullptr;
@@ -750,6 +748,20 @@ bool application_stop_account() noexcept {
         &host, kAccountStopTimeoutMs, clock_monotonic_milliseconds(), clock_unix_milliseconds());
     application_account_stop_observed(stopped, had_account);
     return stopped.ok();
+}
+
+bool application_hide_account_scenes() noexcept {
+    popup_scene_close(&g_app.popup_scene);
+    application_plugins_menu_dismissed();
+    g_app.popup_owner_kind = PopupOwnerKind::none;
+    g_app.message_action_bar.active = false;
+    g_app.member_list_scene.active = false;
+    g_app.message_scene.active = false;
+    g_app.message_composer_scene.active = false;
+    message_view_runtime_release(&g_app.message_view);
+    return message_view_runtime_initialize(
+               &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
+        .ok();
 }
 
 bool application_account_publish_logged_out(bool unconfirmed) noexcept {
@@ -760,13 +772,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
         return true;
     if (g_app.account_ui)
         application_release_account_ui(g_app);
-    popup_scene_close(&g_app.popup_scene);
-    application_plugins_menu_dismissed();
-    g_app.popup_owner_kind = PopupOwnerKind::none;
-    g_app.message_action_bar.active = false;
-    g_app.member_list_scene.active = false;
-    g_app.message_scene.active = false;
-    g_app.message_composer_scene.active = false;
+    const bool shell_reset = application_hide_account_scenes();
     g_app.login.visible = true;
     g_app.login.status =
         unconfirmed ? RendererLoginStatus::signed_out_unconfirmed : RendererLoginStatus::signed_out;
@@ -784,12 +790,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     g_app.login.webauthn_post_epoch = 0;
     g_app.login.browser_launch_epoch = 0;
     g_app.login.focus = LoginControl::login;
-    message_view_runtime_release(&g_app.message_view);
-    if (!message_view_runtime_initialize(
-             &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
-             .ok())
-        return false;
-    if (!application_refresh_login_view())
+    if (!shell_reset || !application_refresh_login_view())
         return false;
     if (!application_login_begin_remote_auth())
         log_write(LogLevel::warning, "auth", "remote_auth_restart_failed");
@@ -804,17 +805,7 @@ bool application_account_return_to_login(bool rejected) noexcept {
     if (!application_stop_account())
         return false;
     application_release_account_ui(g_app);
-    popup_scene_close(&g_app.popup_scene);
-    application_plugins_menu_dismissed();
-    g_app.popup_owner_kind = PopupOwnerKind::none;
-    g_app.message_action_bar.active = false;
-    g_app.member_list_scene.active = false;
-    g_app.message_scene.active = false;
-    g_app.message_composer_scene.active = false;
-    message_view_runtime_release(&g_app.message_view);
-    if (!message_view_runtime_initialize(
-             &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
-             .ok())
+    if (!application_hide_account_scenes())
         return false;
     if (rejected) {
         AccountPaths paths{};
@@ -945,8 +936,7 @@ bool application_account_prestart() noexcept {
     application_account_switch_initialize();
     AccountEarlyStart& early = g_early_start;
     if (early.instance || early.failed || g_app.account.instance || g_app.account.login_instance ||
-        application_account_logout_host_owned() || application_account_logout_blocked() ||
-        !account_paths_resolve(&early.paths).ok())
+        application_account_logout_locked() || !account_paths_resolve(&early.paths).ok())
         return false;
     // Pending logout recovery and every diagnostic path need the UI; attach
     // repeats these probes with logging when this early start declines.

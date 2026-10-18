@@ -101,12 +101,11 @@ struct Owner {
     char editor_text[kEditors][kEditorBytes];
     UiSettingsFooter footer;
     PopupItem popup_items[kTimeChoices];
-    UiWidgetManager* previous_focus;
     char title[160];
     Mode mode;
     Phase phase;
     Menu menu;
-    bool revisit, from_list, failed;
+    bool from_list, failed;
     u64 lifetime, account_scope, profile_id;
     u64 guild_id, event_id;
     u16 guild_generation;
@@ -130,9 +129,7 @@ struct Owner {
     Utf8View channel_labels[kChannelChoices];
     u32 channel_count, channel_index;
     char day_labels[kDayChoices][32];
-    u8 day_label_bytes[kDayChoices];
     char time_labels[kTimeChoices][24];
-    u8 time_label_bytes[kTimeChoices];
     Utf8View day_views[kDayChoices], time_views[kTimeChoices];
     u64 created_event_id;
     // Projection text.
@@ -154,7 +151,6 @@ struct Background {
     u64 missing_events[16]; // linked events the server could not return
     u32 missing_count;
     u64 interest_event;
-    bool interest_value;
     u64 gate_opened[16]; // servers whose rules opened on their own this session
     u32 gate_opened_count;
     u8 body[kGuildCommunityMaximumBodyBytes];
@@ -164,9 +160,6 @@ Background* background;
 ScheduledEventStore* events;
 u32 published_events_revision;
 
-bool available() noexcept {
-    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready && g_app.account.api.guild_community;
 }
@@ -265,11 +258,13 @@ void discard_modal_submissions() noexcept {
             background->queue[kept++] = background->queue[i];
     background->queue_count = kept;
 }
-
-u32 number_bytes(u32 value) noexcept {
-    char digits[20];
-    return decimal_write(digits, value);
+void pop_request() noexcept {
+    auto& b = *background;
+    for (u32 i = 1; i < b.queue_count; ++i)
+        b.queue[i - 1] = b.queue[i];
+    --b.queue_count;
 }
+
 // These bounds describe what the modal can show, independently of the larger
 // decoded models. Recompute before submission instead of trusting footer state.
 bool rules_presentation_complete(const Owner& p) noexcept {
@@ -290,7 +285,7 @@ bool rules_presentation_complete(const Owner& p) noexcept {
                 ++controls;
             agree = true;
             for (u32 v = 0; v < field.value_count; ++v)
-                text_bytes += (v ? 1u : 0u) + number_bytes(v + 1) + 2u + field.values[v].bytes;
+                text_bytes += (v ? 1u : 0u) + decimal_digits(v + 1) + 2u + field.values[v].bytes;
         } else {
             ++controls;
             if (field.type == GuildVerificationFieldType::text_input ||
@@ -331,8 +326,8 @@ bool onboarding_presentation_complete(const Owner& p) noexcept {
         } else {
             // Reserve the largest footer used on this page, including the
             // submitting phase, so a queued write has the same admission rule.
-            const u32 progress = utf8_literal("Question ").bytes + number_bytes(++flow_step) +
-                                 utf8_literal(" of ").bytes + number_bytes(flow_count);
+            const u32 progress = utf8_literal("Question ").bytes + decimal_digits(++flow_step) +
+                                 utf8_literal(" of ").bytes + decimal_digits(flow_count);
             const u32 status =
                 maximum(p.status.bytes, maximum(progress, utf8_literal("Finishing\xE2\x80\xA6").bytes));
             const u32 instructions =
@@ -362,8 +357,6 @@ bool onboarding_required_complete(const GuildOnboarding& model) noexcept {
 }
 constexpr Utf8View kIncompleteForm =
     utf8_literal("These rules or questions can't be shown completely here. Open Discord to continue.");
-
-// ---- Editors -------------------------------------------------------------------
 
 bool editable() noexcept {
     return owner && owner->scene.active && owner->phase != Phase::submitting && owner->phase != Phase::loading;
@@ -417,8 +410,6 @@ void clear_editors() noexcept {
         message_composer_refresh_borrowed(&owner->models[i], 0);
     }
 }
-
-// ---- Projection ----------------------------------------------------------------
 
 void push(const UiSettingsControl& control,
           UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
@@ -572,11 +563,8 @@ void project_rules(Bank& bank) noexcept {
             break;
         }
     }
-    bool complete = true;
-    {
-        GuildVerificationAnswer answers[kGuildVerificationFieldMaximum];
-        complete = rules_answers(answers);
-    }
+    GuildVerificationAnswer answers[kGuildVerificationFieldMaximum];
+    const bool complete = rules_answers(answers);
     Utf8View status = p.status;
     if (!status.bytes && p.phase == Phase::submitting)
         status = utf8_literal("Submitting\xE2\x80\xA6");
@@ -767,7 +755,23 @@ void project_event(Bank& bank) noexcept {
 }
 
 u64 create_start_unix() noexcept;
-void project_create(Bank& bank) noexcept {
+// The create form as filled in so far.
+ScheduledEventCreate event_draft() noexcept {
+    const auto& p = *owner;
+    ScheduledEventCreate create{};
+    create.name = editor_value(control_name);
+    create.description = editor_value(control_description);
+    create.location = editor_value(control_location);
+    create.entity = p.where == 0   ? ScheduledEventEntity::stage
+                    : p.where == 1 ? ScheduledEventEntity::voice
+                                   : ScheduledEventEntity::external;
+    create.channel_id = p.where != 2 && p.channel_index < p.channel_count ? p.channel_choices[p.channel_index] : 0;
+    create.start_unix_seconds = create_start_unix();
+    const u32 minutes = kDurationMinutes[p.duration];
+    create.end_unix_seconds = minutes ? create.start_unix_seconds + minutes * 60ull : 0;
+    return create;
+}
+void project_create() noexcept {
     auto& p = *owner;
     const bool edit = editable();
     push({control_where, utf8_literal("Where is your event?"), {}, UiSettingsControlKind::radio, edit, false,
@@ -800,18 +804,7 @@ void project_create(Bank& bank) noexcept {
                                  edit))
         push({control_description, utf8_literal("Description"), {}, UiSettingsControlKind::multiline, edit, false, {},
               0, {}, view});
-    ScheduledEventCreate create{};
-    create.name = editor_value(control_name);
-    create.description = editor_value(control_description);
-    create.location = editor_value(control_location);
-    create.entity = p.where == 0 ? ScheduledEventEntity::stage
-                    : p.where == 1 ? ScheduledEventEntity::voice
-                                   : ScheduledEventEntity::external;
-    create.channel_id = !external && p.channel_index < p.channel_count ? p.channel_choices[p.channel_index] : 0;
-    create.start_unix_seconds = create_start_unix();
-    const u32 minutes = kDurationMinutes[p.duration];
-    create.end_unix_seconds = minutes ? create.start_unix_seconds + minutes * 60ull : 0;
-    const auto error = scheduled_event_create_validate(create, clock_unix_milliseconds() / 1000);
+    const auto error = scheduled_event_create_validate(event_draft(), clock_unix_milliseconds() / 1000);
     Utf8View hint{};
     switch (error) {
     case ScheduledEventCreateError::name: hint = utf8_literal("Give your event a topic."); break;
@@ -822,7 +815,6 @@ void project_create(Bank& bank) noexcept {
     case ScheduledEventCreateError::description: hint = utf8_literal("The description is too long."); break;
     default: break;
     }
-    (void)bank;
     p.footer = {p.status.bytes ? p.status
                 : p.phase == Phase::submitting ? utf8_literal("Creating your event\xE2\x80\xA6")
                                                : hint,
@@ -845,7 +837,7 @@ bool project() noexcept {
     case Mode::channels_roles: project_onboarding(bank); break;
     case Mode::events: project_events(bank); break;
     case Mode::event: project_event(bank); break;
-    case Mode::create: project_create(bank); break;
+    case Mode::create: project_create(); break;
     default: break;
     }
     if (p.mode == Mode::rules)
@@ -863,8 +855,6 @@ bool repaint() noexcept {
     application_request_frame();
     return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
-
-// ---- Create: local calendar choices ------------------------------------------
 
 constexpr u64 kWindowsToUnixSeconds = 11'644'473'600ull;
 u64 filetime_seconds(const FILETIME& time) noexcept {
@@ -915,7 +905,6 @@ void build_calendar() noexcept {
                                           : 0;
             bytes = written > 0 ? static_cast<u32>(written) : 0;
         }
-        p.day_label_bytes[d] = static_cast<u8>(bytes);
         p.day_views[d] = {p.day_labels[d], bytes};
     }
     for (u32 t = 0; t < kTimeChoices; ++t) {
@@ -930,8 +919,7 @@ void build_calendar() noexcept {
         const int written = units > 1 ? WideCharToMultiByte(CP_UTF8, 0, wide, units - 1, p.time_labels[t],
                                                              sizeof(p.time_labels[t]), nullptr, nullptr)
                                       : 0;
-        p.time_label_bytes[t] = static_cast<u8>(written > 0 ? written : 0);
-        p.time_views[t] = {p.time_labels[t], p.time_label_bytes[t]};
+        p.time_views[t] = {p.time_labels[t], written > 0 ? static_cast<u32>(written) : 0u};
     }
     // The next half hour, an hour ahead, as the official client's default.
     SYSTEMTIME now{};
@@ -958,12 +946,10 @@ void build_channels() noexcept {
         p.channel_index = 0;
 }
 
-// ---- Modal lifetime -----------------------------------------------------------
-
 void activate(SettingsLayer*, const SettingsLayerActivation&) noexcept;
 void choose(SettingsLayer*, u32 action) noexcept;
 bool edited(SettingsLayer*, u64 control) noexcept {
-    if (!owner || editor_slot(control) < 0)
+    if (editor_slot(control) < 0)
         return false;
     owner->failed = false;
     owner->status = {};
@@ -972,7 +958,7 @@ bool edited(SettingsLayer*, u64 control) noexcept {
 bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
                  bool* multiline) noexcept {
     const int slot = editor_slot(control);
-    if (!owner || slot < 0)
+    if (slot < 0)
         return false;
     *model = &owner->models[slot];
     *binding = &owner->bindings[slot];
@@ -1007,7 +993,7 @@ bool ensure_owner() noexcept {
     return true;
 }
 bool can_open() noexcept {
-    return available() && g_app.renderer_ready && !g_app.text_form &&
+    return application_account_available() && g_app.renderer_ready && !g_app.text_form &&
            (!application_channel_overview_active() || application_guild_community_active()) && ensure_owner();
 }
 void set_title(Utf8View title) noexcept {
@@ -1058,7 +1044,6 @@ bool open_modal(Mode mode, u64 guild_id, Utf8View title, u64 focus) noexcept {
     p.profile_id = g_app.account.status.profile_id;
     p.guild_id = guild_id;
     p.guild_generation = g->generation;
-    p.previous_focus = g_app.context_focus;
     p.failed = false;
     p.status = {};
     p.copied_until = 0;
@@ -1092,14 +1077,12 @@ bool open_modal(Mode mode, u64 guild_id, Utf8View title, u64 focus) noexcept {
     return false;
 }
 bool scope_current() noexcept {
-    if (!owner || !available() || owner->account_scope != g_app.plugin_account_scope_serial ||
+    if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
         owner->profile_id != g_app.account.status.profile_id)
         return false;
     const auto* g = guild(owner->guild_id);
     return g && g->generation == owner->guild_generation && !g->unavailable;
 }
-
-// ---- Actions ----------------------------------------------------------------------
 
 void reload() noexcept {
     auto& p = *owner;
@@ -1196,7 +1179,6 @@ void toggle_interest(const ScheduledEvent& e, bool interested) noexcept {
     if (!ensure_background() || background->interest_event)
         return;
     background->interest_event = e.id;
-    background->interest_value = interested;
     // Optimistic, like the official client; a refusal reverts it.
     scheduled_event_store_set_interest(events, e.id, interested, true);
     enqueue(interested ? GuildCommunityOperation::event_interested : GuildCommunityOperation::event_uninterested,
@@ -1236,8 +1218,6 @@ void open_menu(Menu menu, UiRect anchor) noexcept {
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 220);
 }
 void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const auto target = activation.value.target;
     switch (target.kind) {
@@ -1343,8 +1323,6 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     repaint();
 }
 void choose(SettingsLayer*, u32 action) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const Menu menu = p.menu;
     p.menu = Menu::none;
@@ -1375,14 +1353,6 @@ void choose(SettingsLayer*, u32 action) noexcept {
     repaint();
 }
 
-// ---- Requests -----------------------------------------------------------------------
-
-u64 next_request_id() noexcept {
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
-    return id;
-}
 // Body for a modal submit, built from the modal's current state.
 u32 build_body(const Request& request) noexcept {
     auto& b = *background;
@@ -1412,20 +1382,8 @@ u32 build_body(const Request& request) noexcept {
         return guild_onboarding_write_responses(p.onboarding, clock_unix_milliseconds(),
                                                 {b.body, sizeof(b.body)},
                                                 request.op == GuildCommunityOperation::onboarding_update);
-    case GuildCommunityOperation::event_create: {
-        ScheduledEventCreate create{};
-        create.name = editor_value(control_name);
-        create.description = editor_value(control_description);
-        create.location = editor_value(control_location);
-        create.entity = p.where == 0 ? ScheduledEventEntity::stage
-                        : p.where == 1 ? ScheduledEventEntity::voice
-                                       : ScheduledEventEntity::external;
-        create.channel_id = p.where != 2 && p.channel_index < p.channel_count ? p.channel_choices[p.channel_index] : 0;
-        create.start_unix_seconds = create_start_unix();
-        const u32 minutes = kDurationMinutes[p.duration];
-        create.end_unix_seconds = minutes ? create.start_unix_seconds + minutes * 60ull : 0;
-        return scheduled_event_write_create(create, {b.body, sizeof(b.body)});
-    }
+    case GuildCommunityOperation::event_create:
+        return scheduled_event_write_create(event_draft(), {b.body, sizeof(b.body)});
     default:
         return 0;
     }
@@ -1448,8 +1406,6 @@ void request_failed(const Request& request, Utf8View text) noexcept {
     events_changed();
 }
 } // namespace
-
-// ---- Public: gateway and store ----------------------------------------------------
 
 void application_guild_community_gateway(const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
     if (event.kind == GatewayClientEventKind::ready) {
@@ -1599,7 +1555,6 @@ bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noe
     owner->flow_count = owner->step = 0;
     owner->phase = Phase::loading;
     owner->status = {};
-    owner->revisit = revisit;
     if (!open_modal(revisit ? Mode::channels_roles : Mode::onboarding, guild_id,
                     revisit ? utf8_literal("Channels & Roles") : utf8_literal("Customize your experience"), 0))
         return false;
@@ -1614,7 +1569,6 @@ bool application_guild_community_open_events(u64 guild_id) noexcept {
     owner->phase = Phase::loading;
     if (!open_modal(Mode::events, guild_id, utf8_literal("Events"), 0))
         return false;
-    owner->phase = Phase::loading;
     enqueue(GuildCommunityOperation::events_list, guild_id);
     return repaint();
 }
@@ -1628,7 +1582,6 @@ bool application_guild_community_open_event(u64 guild_id, u64 event_id) noexcept
     owner->phase = known ? Phase::ready : Phase::loading;
     if (!open_modal(Mode::event, guild_id, utf8_literal("Event"), control_interested))
         return false;
-    owner->phase = known ? Phase::ready : Phase::loading;
     if (!known)
         enqueue(GuildCommunityOperation::event_get, guild_id, event_id);
     enqueue(GuildCommunityOperation::event_rsvps, guild_id);
@@ -1754,8 +1707,6 @@ void application_guild_community_frame() noexcept {
     }
 }
 
-// ---- Public: modal host contract -------------------------------------------------
-
 bool application_guild_community_active() noexcept {
     return owner && owner->scene.active;
 }
@@ -1775,7 +1726,7 @@ void application_guild_community_close(bool restore_focus) noexcept {
     ui_settings_scene_close(&owner->scene);
     owner->mode = Mode::none;
     owner->lifetime = ++lifetime_serial;
-    if (restore_focus && available())
+    if (restore_focus && application_account_available())
         g_app.context_focus = &g_app.shell_scene.widgets;
     application_sync_attachment_drop_target();
     if (g_app.renderer_ready)
@@ -1875,16 +1826,14 @@ bool application_guild_community_submit(u64 now) noexcept {
     if (guild_community_operation_has_body(request.op)) {
         const u32 bytes = build_body(request);
         if (!bytes) {
-            for (u32 i = 1; i < b.queue_count; ++i)
-                b.queue[i - 1] = b.queue[i];
-            --b.queue_count;
+            pop_request();
             request_failed(request, utf8_literal("This couldn't be sent. Try again."));
             return false;
         }
         wire.body = b.body;
         wire.body_bytes = bytes;
     }
-    const u64 id = next_request_id();
+    const u64 id = application_next_request_id();
     // A join after a solved CAPTCHA carries its token (one armed retry).
     if (request.op == GuildCommunityOperation::guild_join &&
         application_guild_card_join_take_captcha(request.guild_id) &&
@@ -1895,9 +1844,7 @@ bool application_guild_community_submit(u64 now) noexcept {
         b.retry_at = deadline_after(now, 50);
         return false;
     }
-    for (u32 i = 1; i < b.queue_count; ++i)
-        b.queue[i - 1] = b.queue[i];
-    --b.queue_count;
+    pop_request();
     b.retry_at = 0;
     if (wire.body_bytes)
         SecureZeroMemory(b.body, wire.body_bytes);
@@ -1917,11 +1864,11 @@ bool application_guild_community_submit(u64 now) noexcept {
 }
 
 bool application_guild_community_profile(u64 guild_id) noexcept {
-    return available() && enqueue(GuildCommunityOperation::guild_profile_get, guild_id);
+    return application_account_available() && enqueue(GuildCommunityOperation::guild_profile_get, guild_id);
 }
 
 bool application_guild_community_join(u64 guild_id) noexcept {
-    return available() && enqueue(GuildCommunityOperation::guild_join, guild_id);
+    return application_account_available() && enqueue(GuildCommunityOperation::guild_join, guild_id);
 }
 
 bool application_guild_community_owns_response(u64 request_id) noexcept {

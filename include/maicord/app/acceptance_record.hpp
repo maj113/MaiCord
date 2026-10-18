@@ -31,6 +31,8 @@ struct AcceptanceRecordResult {
     constexpr bool ok() const noexcept { return error == AcceptanceRecordError::none; }
 };
 
+// A Windows reserved device name (CON, PRN, AUX, NUL, COM0-9, LPT0-9) before any extension.
+bool acceptance_record_reserved_name(const wchar_t* name, u32 count) noexcept;
 // The path rules above, leaving room for the 5-character ".lock" sibling.
 bool acceptance_record_path_valid(ConstSlice<wchar_t> path) noexcept;
 // Copies path and appends a NUL (output holds count + 1 characters).

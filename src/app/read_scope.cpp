@@ -1,7 +1,5 @@
 #include "maicord/app/read_scope.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include <cstdint>
-#include <limits>
 
 namespace maicord {
 namespace {
@@ -50,7 +48,7 @@ u64 clock_cursor(u64 time_ms) noexcept {
     if (time_ms <= epoch)
         return 0;
     const u64 delta = time_ms - epoch;
-    constexpr u64 limit = std::numeric_limits<u64>::max() >> 22;
+    constexpr u64 limit = ~u64{0} >> 22;
     return (delta > limit ? limit : delta) << 22;
 }
 ReadScopeTarget target(const ChatStateStore& state, const ReadScopeSource& source,
@@ -78,8 +76,8 @@ ReadScopeTarget target(const ChatStateStore& state, const ReadScopeSource& sourc
 bool overlap(const void* first, u64 first_bytes, const void* second, u64 second_bytes) noexcept {
     if (!first_bytes || !second_bytes)
         return false;
-    const auto a = reinterpret_cast<std::uintptr_t>(first), b = reinterpret_cast<std::uintptr_t>(second);
-    constexpr auto maximum = std::numeric_limits<std::uintptr_t>::max();
+    const auto a = reinterpret_cast<usize>(first), b = reinterpret_cast<usize>(second);
+    constexpr usize maximum = ~usize{0};
     if (first_bytes > maximum - a || second_bytes > maximum - b)
         return true;
     return a < b + second_bytes && b < a + first_bytes;
@@ -166,8 +164,7 @@ ReadScopePlanResult read_scope_plan(const ChatStateStore& state, ReadScopeKind k
         const auto& channel = state.channels[state.channel_order[i]];
         if (!capture_eligible(state, result.source, channel))
             continue;
-        const auto entry = target(state, result.source, channel, cursor);
-        output[used++] = entry;
+        output[used++] = target(state, result.source, channel, cursor);
     }
     return result;
 }

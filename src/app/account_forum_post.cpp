@@ -1,6 +1,7 @@
 #include "maicord/app/account_forum_post.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kForumPostMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -29,7 +30,7 @@ __declspec(noinline) RestClientSubmitResult submit_body(RestClient* rest,
                             ? rest_client_submit(rest, target, {body, written.bytes}, route,
                                                  request_id, true)
                             : RestClientSubmitResult{RestClientSubmitError::body_capacity};
-    SecureZeroMemory(body, size.bytes);
+    secure_clear_bytes(body, size.bytes);
     VirtualFree(body, 0, MEM_RELEASE);
     return result;
 }

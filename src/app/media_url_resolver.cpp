@@ -28,10 +28,8 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
         return {};
     MediaUrlEntry* replace = nullptr;
     for (auto& entry : resolver->entries) {
-        bool matches = entry.state != MediaUrlState::empty && entry.original_bytes == source.bytes;
-        for (u32 i = 0; matches && i < source.bytes; ++i)
-            matches = entry.original[i] == source.data[i];
-        if (matches) {
+        if (entry.state != MediaUrlState::empty && entry.original_bytes == source.bytes &&
+            bytes_equal(entry.original, source.data, source.bytes)) {
             entry.last_used_ms = now_ms;
             if (entry.state == MediaUrlState::ready) {
                 const Utf8View refreshed{entry.refreshed, entry.refreshed_bytes};

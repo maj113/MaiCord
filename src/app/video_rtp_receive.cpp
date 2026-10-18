@@ -4,7 +4,7 @@
 #include "maicord/media/rtp_h264.hpp"
 #include "maicord/media/rtp_h265.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -144,11 +144,10 @@ VideoRtpCodec codec_of(const VideoRtpReceiver& receiver, u8 type) noexcept {
     const auto* binding = media_codec(receiver, type);
     return binding ? binding->codec : VideoRtpCodec::none;
 }
-void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, u64 now_us) noexcept {
+void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexcept {
     const auto& head = slot_at(stream, stream.base);
     const u8 type = head.payload_type;
     const u32 timestamp = head.timestamp;
-    const u64 first_arrival = head.time_us;
     const VideoRtpCodec codec = codec_of(receiver, type);
     RtpVideoAssembly assembly;
     rtp_video_assembly_begin(&assembly, {receiver.frame, kVideoRtpFrameBytes});
@@ -186,7 +185,6 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, u64 no
     if (keyframe) {
         stream.keyframe_needed = false;
         stream.references_lost = false;
-        ++stream.stats.keyframes;
     } else if (!stream.keyframe_seen) {
         stream.keyframe_needed = true; // Joined mid-stream: ask for a starting point.
     }
@@ -194,13 +192,9 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end, u64 no
     ++stream.stats.frames;
     VideoRtpFrame frame{};
     frame.user_id = stream.user_id;
-    frame.frame_id = ++stream.frame_count;
-    frame.first_arrival_us = first_arrival;
-    frame.complete_us = now_us;
     frame.annex_b = {receiver.frame, bytes};
     frame.ssrc = stream.ssrc;
     frame.rtp_timestamp = timestamp;
-    frame.codec = codec;
     frame.keyframe = keyframe;
     frame.references_lost = stream.references_lost;
     if (receiver.sink)
@@ -272,7 +266,7 @@ void assemble(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 now_us) no
             ++sequence;
         }
         if (complete) {
-            deliver(receiver, stream, end, now_us);
+            deliver(receiver, stream, end);
             continue;
         }
         if (!blocked || !expired(config, slot_at(stream, sequence), now_us))
@@ -378,10 +372,8 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
     }
     auto& slot = slot_at(stream, extended);
     if (extended <= stream.highest) {
-        if (slot.sequence == extended && (slot.state == present || slot.state == padding)) {
-            ++stream.stats.duplicates;
+        if (slot.sequence == extended && (slot.state == present || slot.state == padding))
             return VideoRtpPush::duplicate;
-        }
         if (slot.state == missing && slot.sequence == extended && stream.missing)
             --stream.missing;
     } else {
@@ -406,10 +398,8 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
     slot.state = payload.count ? present : padding;
     copy_bytes(payload_at(stream, extended), payload.data, payload.count);
     ++stream.received;
-    if (!payload.count) {
-        ++stream.stats.padding;
+    if (!payload.count)
         return VideoRtpPush::padding;
-    }
     return rtx ? VideoRtpPush::recovered : VideoRtpPush::stored;
 }
 // Feedback items only count once RTCP can be sent (a local SSRC is known).
@@ -442,7 +432,6 @@ VideoRtpConfig video_rtp_default_config() noexcept {
     config.report_interval_us = 1'000'000;
     config.idle_stream_us = 5'000'000;
     config.max_nacks = 5;
-    config.use_fir = false;
     return config;
 }
 
@@ -517,24 +506,18 @@ VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource&
         const auto* binding = rtx_codec(*receiver, layout.type);
         // RFC 4588 4: the payload starts with the original sequence number.
         // Shorter RTX packets are bandwidth-probe padding of the RTX stream.
-        if (!binding || payload.count < 2) {
-            ++receiver->ignored_packets;
+        if (!binding || payload.count < 2)
             return binding ? VideoRtpPush::padding : VideoRtpPush::ignored;
-        }
         sequence = byte_load_be16(payload.data);
         payload = {payload.data + 2, payload.count - 2};
         type = binding->payload_type;
-    } else if (!media_codec(*receiver, layout.type)) {
-        ++receiver->ignored_packets;
+    } else if (!media_codec(*receiver, layout.type))
         return VideoRtpPush::ignored;
-    }
     auto* stream = find(*receiver, source.media_ssrc);
     if (!stream)
         stream = create(*receiver, source.media_ssrc, source.user_id, now_us);
-    if (!stream) {
-        ++receiver->ignored_packets;
+    if (!stream)
         return VideoRtpPush::ignored;
-    }
     stream->last_packet_us = now_us;
     stream->user_id = source.user_id;
     if (source.rtx)
@@ -543,8 +526,6 @@ VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource&
         ++stream->stats.oversized;
         return VideoRtpPush::ignored; // Left missing: recovery or keyframe handles it.
     }
-    ++stream->stats.packets;
-    stream->stats.bytes += payload.count;
     if (source.rtx)
         ++stream->stats.rtx_packets;
     const auto result =
@@ -667,8 +648,6 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
                         ++slot.nacks;
                         slot.nack_us = now_us + config.nack_retry_us;
                     }
-                    stream.stats.nacked_packets += consumed;
-                    ++stream.stats.nack_packets;
                 }
             }
             rescan(config, stream);
@@ -686,7 +665,6 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
                 if (config.use_fir)
                     ++stream.fir_sequence;
                 stream.keyframe_request_us = now_us;
-                ++stream.stats.keyframe_requests;
             }
         }
     }

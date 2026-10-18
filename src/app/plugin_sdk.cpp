@@ -8,7 +8,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace plugin_sdk {
@@ -262,11 +262,6 @@ bool add(Demand& demand, u32 text, u32 views = 0) noexcept {
     demand.views += views;
     return demand.text <= kPageTextBytes && demand.views <= kPageViews;
 }
-void hex_colour(u32 colour, char (&output)[7]) noexcept {
-    constexpr char digits[] = "0123456789ABCDEF";
-    output[0] = '#';
-    for (u32 i = 0; i < 6; ++i) output[1 + i] = digits[(colour >> (20 - 4 * i)) & 15];
-}
 bool slider_steps(const mc_setting& control, u32* steps) noexcept {
     if (control.step <= 0 || control.minimum >= control.maximum) return false;
     const i64 span = static_cast<i64>(control.maximum) - control.minimum;
@@ -280,6 +275,10 @@ u32 slider_selected(const mc_setting& control, u32 steps) noexcept {
     if (control.value <= control.minimum) return 0;
     const i64 index = (static_cast<i64>(control.value) - control.minimum + control.step / 2) / control.step;
     return index >= steps ? steps - 1 : static_cast<u32>(index);
+}
+// Byte limit of an edited value: text honours max_bytes, keybinds and colours are short.
+u32 edit_limit(const mc_setting& control) noexcept {
+    return control.kind == MC_SETTING_TEXT ? (control.max_bytes ? minimum(control.max_bytes, kTextMaximum) : 256) : 63;
 }
 constexpr Utf8View kEditLabel = utf8_literal("Edit");
 constexpr Utf8View kNotSet = utf8_literal("Not set");
@@ -311,9 +310,7 @@ mc_status validate_setting(const mc_setting& control, Demand& demand) noexcept {
     }
     case MC_SETTING_TEXT:
     case MC_SETTING_KEYBIND: {
-        const u32 limit = control.kind == MC_SETTING_KEYBIND ? 63 :
-            control.max_bytes ? minimum(control.max_bytes, kTextMaximum) : 256;
-        if (!text_ok(control.text, limit, false)) return MC_E_INVALID;
+        if (!text_ok(control.text, edit_limit(control), false)) return MC_E_INVALID;
         u32 conflict = 0;
         if (control.kind == MC_SETTING_KEYBIND && control.text.bytes) {
             char normal[64];
@@ -424,12 +421,10 @@ void write_setting(NativePluginSdkBinding& binding, Writer& writer, const mc_set
                     conflict = utf8_literal("too many shortcuts");
             }
         } else if (control.kind == MC_SETTING_COLOUR) {
-            hex_colour(control.colour, colour);
-            value = {colour, 7};
+            value = {colour, color_hex_format(control.colour << 8, false, {colour, sizeof(colour)})};
         }
         extra.value = writer.text(value);
-        extra.max_bytes = control.kind == MC_SETTING_TEXT ?
-            (control.max_bytes ? minimum(control.max_bytes, kTextMaximum) : 256) : 63;
+        extra.max_bytes = edit_limit(control);
         out.description = writer.join(description, extra.value.bytes ? extra.value : kNotSet);
         if (conflict.bytes) {
             writer.text(kSeparator);
@@ -658,8 +653,8 @@ void store_load(NativePluginSdkBinding& binding) noexcept {
     if (file == INVALID_HANDLE_VALUE) return;
     u8 buffer[kStoreFileBytes];
     DWORD read = 0;
-    LARGE_INTEGER size{};
-    const bool ok = GetFileSizeEx(file, &size) && size.QuadPart <= kStoreFileBytes &&
+    Win32LargeInteger size{};
+    const bool ok = GetFileSizeEx(file, size.native()) && size.QuadPart <= kStoreFileBytes &&
                     ReadFile(file, buffer, static_cast<DWORD>(size.QuadPart), &read, nullptr) &&
                     read == static_cast<DWORD>(size.QuadPart);
     CloseHandle(file);
@@ -1040,6 +1035,17 @@ NativePluginSdkComposeResult notice(NativePluginSdkRuntime* runtime, u64 owner, 
 bool output_ok(const mc_text_output& output, u32 maximum_action) noexcept {
     return output.action <= maximum_action && output.bytes <= kPluginSdkOutputBytes;
 }
+// The key names of a keybind's normal form with their virtual keys.
+struct NamedKey {
+    Utf8View name;
+    u8 code;
+};
+constexpr NamedKey kNamedKeys[]{
+    {utf8_literal("Space"), 0x20}, {utf8_literal("Enter"), 0x0D}, {utf8_literal("Tab"), 0x09},
+    {utf8_literal("Escape"), 0x1B}, {utf8_literal("Backspace"), 0x08}, {utf8_literal("Delete"), 0x2E},
+    {utf8_literal("Insert"), 0x2D}, {utf8_literal("Home"), 0x24}, {utf8_literal("End"), 0x23},
+    {utf8_literal("PageUp"), 0x21}, {utf8_literal("PageDown"), 0x22}, {utf8_literal("Up"), 0x26},
+    {utf8_literal("Down"), 0x28}, {utf8_literal("Left"), 0x25}, {utf8_literal("Right"), 0x27}};
 
 } // namespace
 
@@ -1126,7 +1132,7 @@ NativePluginResult native_plugin_sdk_enable(NativePluginSdkBinding* binding, Nat
                                            const NativePluginDefinition& adapter, Slice<u8> state) noexcept {
     if (!live(binding) || !host || host->sdk != binding->runtime || binding->phase != Phase::queried ||
         !native_plugin_sdk_adapter(adapter) || adapter.owner_id != binding->owner_id)
-        return {NativePluginError::invalid_argument, UiPageError::none, false};
+        return {NativePluginError::invalid_argument};
     plugin_call_ledger_forget(binding->runtime->ledger, binding->owner_id);
     binding->runtime->pending = binding;
     const auto result = native_plugin_host_enable(host, adapter, state);
@@ -1198,10 +1204,6 @@ bool native_plugin_sdk_keybind_normalize(Utf8View text, char (&output)[64], u32*
     if (!bytes || !text.bytes || text.bytes > 63) return false;
     constexpr Utf8View modifiers[]{utf8_literal("Ctrl"), utf8_literal("Alt"), utf8_literal("Shift"), utf8_literal("Win")};
     constexpr Utf8View aliases[]{utf8_literal("control"), utf8_literal("option"), utf8_literal("shift"), utf8_literal("meta")};
-    constexpr Utf8View named[]{utf8_literal("Space"), utf8_literal("Enter"), utf8_literal("Tab"), utf8_literal("Escape"),
-                               utf8_literal("Backspace"), utf8_literal("Delete"), utf8_literal("Insert"), utf8_literal("Home"),
-                               utf8_literal("End"), utf8_literal("PageUp"), utf8_literal("PageDown"), utf8_literal("Up"),
-                               utf8_literal("Down"), utf8_literal("Left"), utf8_literal("Right")};
     u32 mask = 0;
     char key[12];
     u32 key_bytes = 0;
@@ -1224,7 +1226,7 @@ bool native_plugin_sdk_keybind_normalize(Utf8View text, char (&output)[64], u32*
         if (modifier) continue;
         if (key_bytes) return false;
         const char c = part.data[0];
-        if (part.bytes == 1 && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))) {
+        if (part.bytes == 1 && ascii_is_alnum(c)) {
             key[0] = c >= 'a' && c <= 'z' ? static_cast<char>(c - 32) : c;
             key_bytes = 1;
         } else if ((c == 'f' || c == 'F') && part.bytes >= 2 && part.bytes <= 3 && part.data[1] >= '0' &&
@@ -1236,10 +1238,10 @@ bool native_plugin_sdk_keybind_normalize(Utf8View text, char (&output)[64], u32*
             if (number >= 10) key[key_bytes++] = static_cast<char>('0' + number / 10);
             key[key_bytes++] = static_cast<char>('0' + number % 10);
         } else {
-            for (auto name : named)
-                if (ascii_equal_ignore_case(part, name)) {
-                    copy_bytes(key, name.data, name.bytes);
-                    key_bytes = name.bytes;
+            for (const auto& named : kNamedKeys)
+                if (ascii_equal_ignore_case(part, named.name)) {
+                    copy_bytes(key, named.name.data, named.name.bytes);
+                    key_bytes = named.name.bytes;
                     break;
                 }
             if (!key_bytes && ascii_equal_ignore_case(part, utf8_literal("esc"))) {
@@ -1281,15 +1283,6 @@ bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chor
     take(utf8_literal("Shift"), 4);
     if (bytes - at > 4 && bytes_equal(text + at, "Win+", 4)) return false;
     const Utf8View key{text + at, bytes - at};
-    struct Named {
-        Utf8View name;
-        u8 key;
-    };
-    constexpr Named named[]{{utf8_literal("Space"), 0x20}, {utf8_literal("Enter"), 0x0D}, {utf8_literal("Tab"), 0x09},
-                            {utf8_literal("Escape"), 0x1B}, {utf8_literal("Backspace"), 0x08}, {utf8_literal("Delete"), 0x2E},
-                            {utf8_literal("Insert"), 0x2D}, {utf8_literal("Home"), 0x24}, {utf8_literal("End"), 0x23},
-                            {utf8_literal("PageUp"), 0x21}, {utf8_literal("PageDown"), 0x22}, {utf8_literal("Up"), 0x26},
-                            {utf8_literal("Down"), 0x28}, {utf8_literal("Left"), 0x25}, {utf8_literal("Right"), 0x27}};
     u8 code = 0;
     if (key.bytes == 1) code = static_cast<u8>(key.data[0]); // 'A'-'Z' and '0'-'9' are their virtual keys
     else if (key.data[0] == 'F' && key.bytes <= 3 && key.data[1] >= '0' && key.data[1] <= '9') {
@@ -1297,8 +1290,8 @@ bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chor
                                           : static_cast<u32>(key.data[1] - '0') * 10 + static_cast<u32>(key.data[2] - '0');
         code = static_cast<u8>(0x70 + number - 1);
     } else {
-        for (const auto& entry : named)
-            if (utf8_equal(entry.name, key)) code = entry.key;
+        for (const auto& named : kNamedKeys)
+            if (utf8_equal(named.name, key)) code = named.code;
     }
     if (!code) return false;
     *chord = {code, modifiers};

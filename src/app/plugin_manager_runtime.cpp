@@ -1,57 +1,21 @@
+#include "plugin_manager_common.hpp"
 #include "maicord/app/plugin_manager_runtime.hpp"
 #include "maicord/app/update_log.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
+using namespace plugin_manager_detail;
 using ME = PluginManagerError;
 using Op = PluginJournalOperation;
-constexpr u32 kInstallerTimeoutMs = 30000;
 
-PluginManagerResult failure(ME error) noexcept {
-    PluginManagerResult r{};
-    r.error = error;
-    return r;
-}
-PluginManagerResult record_failure(AcceptanceRecordResult result) noexcept {
-    PluginManagerResult r = failure(ME::records);
-    r.record_error = result.error;
-    r.native_error = result.native_error;
-    return r;
-}
-AcceptanceRecordResult load_state(const PluginManagerPaths& paths, PluginManagerState* state) noexcept {
-    *state = {};
-    const auto loaded = plugin_manager_state_load({paths.state, paths.state_count}, state);
-    return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
-}
 AcceptanceRecordResult load_providers(const PluginManagerPaths& paths, PluginProviders* providers) noexcept {
     *providers = {};
     const auto loaded = plugin_providers_load({paths.providers, paths.providers_count}, providers);
     return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
-}
-PluginManagerEntry* state_entry(PluginManagerState& state, u64 owner) noexcept {
-    for (u32 i = 0; i < state.count && i < kPluginManagerStateMaximumEntries; ++i)
-        if (state.entries[i].owner == owner) return &state.entries[i];
-    return nullptr;
-}
-NativePluginPreferencesResult load_trust(const PluginManagerPaths& paths, NativePluginPreferences* trust) noexcept {
-    NativePluginPreferencesIo io{};
-    const auto loaded = native_plugin_preferences_load_file(&io, paths.trust, trust);
-    const auto released = native_plugin_preferences_release(&io);
-    return loaded.ok() ? released : loaded;
-}
-NativePluginPreferencesResult save_trust(const PluginManagerPaths& paths, const NativePluginPreferences& trust) noexcept {
-    NativePluginPreferencesIo io{};
-    const auto saved = native_plugin_preferences_save_file(&io, paths.trust, trust);
-    const auto released = native_plugin_preferences_release(&io);
-    return saved.ok() ? released : saved;
-}
-const NativePluginPreference* trusted_owner(const NativePluginPreferences& trust, u64 owner) noexcept {
-    for (u32 i = 0; i < trust.count && i < kNativePluginPreferencesMaximumEntries; ++i)
-        if (trust.entries[i].owner_id == owner) return &trust.entries[i];
-    return nullptr;
 }
 // The local inventory in work. false only when the directory exists and
 // cannot be read; a missing directory is an empty inventory.
@@ -486,7 +450,6 @@ bool commit(u8* base, u64* committed, u64 bytes) noexcept {
 struct Builder {
     PluginCatalogSnapshot* s;
     u64 entries_committed, versions_committed, documents_committed;
-    u64 entries_limit, versions_limit, documents_limit;
 };
 PluginCatalogStatus cache_status(const PluginIndexCacheResult& cached) noexcept {
     if (cached.error == PluginIndexCheckError::cache && cached.record_error == AcceptanceRecordError::missing) return PluginCatalogStatus::none;
@@ -520,7 +483,7 @@ bool append_index(Builder& b, u32 slot, const PluginIndex& index, Utf8View docum
     const bool custom = provider.kind != PluginProviderKind::official;
     for (u32 p = 0; p < index.plugin_count; ++p) {
         const PluginIndexPlugin& plugin = index.plugins[p];
-        if (s.entry_count >= b.entries_limit ||
+        if (s.entry_count >= kPluginCatalogSnapshotEntries ||
             !commit(reinterpret_cast<u8*>(s.entries), &b.entries_committed, u64{s.entry_count + 1} * sizeof(PluginCatalogEntryView)) ||
             !commit(reinterpret_cast<u8*>(s.versions), &b.versions_committed,
                 u64{s.version_count + plugin.version_count} * sizeof(PluginCatalogVersionView)))
@@ -605,12 +568,11 @@ PluginCatalogSnapshot* plugin_catalog_snapshot_build(const PluginManagerPaths& p
     s->entries = reinterpret_cast<PluginCatalogEntryView*>(base + align_up(kHeaderBytes, kPage));
     s->versions = reinterpret_cast<PluginCatalogVersionView*>(base + align_up(kHeaderBytes, kPage) + kEntriesBytes);
     s->documents = reinterpret_cast<char*>(base + align_up(kHeaderBytes, kPage) + kEntriesBytes + kVersionsBytes);
-    s->built_unix = now;
     s->configured = input.configured;
     s->official_flags = input.providers->official_flags;
-    Builder b{s, 0, 0, 0, kPluginCatalogSnapshotEntries, kPluginCatalogSnapshotEntries * kPluginIndexMaximumVersions, kDocumentsBytes};
+    Builder b{s, 0, 0, 0};
     // Installed plugins first, so catalog entries can point at them.
-    s->inventory_error = !scan_inventory(paths, manager_work);
+    scan_inventory(paths, manager_work);
     const bool states = load_state(paths, &manager_work->state).ok();
     const bool trusted = load_trust(paths, &manager_work->trust).ok();
     for (u32 i = 0; i < manager_work->catalog.count && s->installed_count < kNativePluginCatalogMaximumEntries; ++i) {
@@ -659,10 +621,7 @@ PluginCatalogSnapshot* plugin_catalog_snapshot_build(const PluginManagerPaths& p
             while (slash < source.repository_bytes && source.repository[slash] != '/') ++slash;
             constexpr Utf8View pages = utf8_literal(".github.io");
             if (slash + pages.bytes <= kPluginProviderHostCapacity && source.repository_bytes - slash + 1 <= kPluginProviderPathCapacity) {
-                for (u32 c = 0; c < slash; ++c) {
-                    const char ch = source.repository[c];
-                    provider.host[c] = ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch + 32) : ch;
-                }
+                for (u32 c = 0; c < slash; ++c) provider.host[c] = ascii_lower(source.repository[c]);
                 copy_bytes(provider.host + slash, pages.data, pages.bytes);
                 provider.host_bytes = slash + pages.bytes;
                 copy_bytes(provider.path, source.repository + slash, source.repository_bytes - slash);

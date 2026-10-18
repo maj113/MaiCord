@@ -119,7 +119,6 @@ VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 t
         clear(*buffer);
         buffer->next_sequence = sequence;
         buffer->has_last = buffer->has_played = false;
-        ++buffer->stats.resync;
         result = VoiceJitterPush::resync;
     }
     auto& value = slot(*buffer, sequence);
@@ -133,7 +132,6 @@ VoiceJitterPush voice_jitter_push(VoiceJitterBuffer* buffer, u16 sequence, u32 t
     value.bytes = static_cast<u16>(packet.count);
     copy_bytes(value.data, packet.data, packet.count);
     ++buffer->count;
-    ++buffer->stats.stored;
     observe(*buffer, sequence, timestamp, arrival_us);
     return result;
 }
@@ -156,10 +154,8 @@ VoiceJitterFrame voice_jitter_pop(VoiceJitterBuffer* buffer) noexcept {
         take(*buffer);
         ++buffer->stats.trimmed;
     }
-    if (holds(*buffer, buffer->next_sequence)) {
-        ++buffer->stats.played;
+    if (holds(*buffer, buffer->next_sequence))
         return take(*buffer);
-    }
     frame.sequence = buffer->next_sequence;
     if (buffer->count) {
         // A later packet exists, so this one is lost rather than late.
@@ -172,11 +168,9 @@ VoiceJitterFrame voice_jitter_pop(VoiceJitterBuffer* buffer) noexcept {
         buffer->last_played = buffer->next_sequence++;
         buffer->has_played = true;
         buffer->underrun = 0;
-        ++buffer->stats.lost;
         return frame;
     }
     // Empty: conceal in place (the packet may still arrive), then go quiet.
-    ++buffer->stats.underruns;
     if (++buffer->underrun > kVoiceJitterConcealFrames) {
         buffer->playing = false;
         return frame;

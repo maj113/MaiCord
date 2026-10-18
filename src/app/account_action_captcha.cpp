@@ -71,43 +71,12 @@ CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestCl
                  .ok())
             return refused(captcha, CaptchaBridgeError::rejected);
         const CaptchaChallengeSnapshot snapshot = captcha_challenge_snapshot(&captcha->challenge);
-        SecureBuffer sitekey{}, rqdata{}, user_flow{};
-        const bool copied = secure_buffer_initialize(&sitekey, kCaptchaChallengeSitekeyBytes +
-                                                                   kCaptchaChallengeUserFlowBytes)
-                                .ok() &&
-                            secure_buffer_initialize(&rqdata, kCaptchaChallengeRqdataBytes).ok() &&
-                            captcha_challenge_copy_secret(&captcha->challenge,
-                                                          CaptchaChallengeSecretKind::sitekey, &sitekey)
-                                .ok();
-        // user_flow borrows the locked tail; only sitekey owns/releases the arena.
-        if (sitekey.data)
-            user_flow = {sitekey.data + kCaptchaChallengeSitekeyBytes, kCaptchaChallengeUserFlowBytes, 0,
-                         sitekey.locked};
-        if (copied &&
-            !captcha_challenge_copy_secret(&captcha->challenge, CaptchaChallengeSecretKind::rqdata, &rqdata)
-                 .ok())
-            secure_buffer_clear(&rqdata);
-        if (copied && !captcha_challenge_copy_secret(&captcha->challenge,
-                                                     CaptchaChallengeSecretKind::user_flow, &user_flow)
-                           .ok())
-            secure_buffer_clear(&user_flow);
-        captcha->status =
-            copied
-                ? captcha_bridge_start(&captcha->bridge, request.generation, request.timeout_ms,
-                                       {{reinterpret_cast<const char*>(sitekey.data), sitekey.bytes},
-                                        {reinterpret_cast<const char*>(rqdata.data), rqdata.bytes},
-                                        snapshot.provider,
-                                        snapshot.invisible,
-                                        {reinterpret_cast<const char*>(user_flow.data), user_flow.bytes}})
-                : CaptchaBridgeStatus{request.generation,
-                                      0,
-                                      0,
-                                      0,
-                                      CaptchaBridgePhase::failed,
-                                      CaptchaBridgeError::invalid_input,
-                                      false};
-        secure_buffer_release(&sitekey);
-        secure_buffer_release(&rqdata);
+        captcha->status = captcha_bridge_start_copied(
+            &captcha->bridge, request.generation, request.timeout_ms, snapshot.provider, snapshot.invisible,
+            [captcha](CaptchaChallengeSecretKind kind, SecureBuffer* output) noexcept {
+                return captcha_challenge_copy_secret(&captcha->challenge, kind, output);
+            },
+            0);
         captcha->challenge_ready = captcha->status.ok();
         if (!captcha->status.ok())
             erase(captcha);

@@ -6,7 +6,7 @@
 #include "maicord/ui/guild_banner.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

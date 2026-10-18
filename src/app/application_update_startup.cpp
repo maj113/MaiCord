@@ -2,7 +2,7 @@
 #include "maicord/app/update_log.hpp"
 #include "maicord/app/update_service.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

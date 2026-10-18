@@ -173,10 +173,8 @@ struct PluginCatalogInstalledView {
 };
 inline constexpr u32 kPluginCatalogSnapshotEntries = kPluginIndexAcceptanceSlots * kPluginIndexMaximumPlugins;
 struct PluginCatalogSnapshot {
-    u64 built_unix;
     u32 official_flags, provider_count, entry_count, version_count, installed_count;
     bool configured;      // the build has an official provider
-    bool inventory_error; // the plugins directory could not be read
     PluginCatalogProviderView providers[kPluginIndexAcceptanceSlots];
     PluginCatalogInstalledView installed[kNativePluginCatalogMaximumEntries];
     PluginCatalogEntryView* entries;

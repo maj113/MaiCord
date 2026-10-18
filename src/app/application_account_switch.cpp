@@ -5,7 +5,6 @@
 #include "application_captcha_auth.hpp"
 #include "application_login_ui.hpp"
 #include "application_login_auth.hpp"
-#include "application_plugins.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
 #include "application_ui_runtime.hpp"
@@ -20,7 +19,8 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_error.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -47,7 +47,6 @@ struct SwitchOwner {
     u32 confirm_slot;
     char confirm_title[kConfirmTitleBytes];
     char confirm_context[kConfirmContextBytes];
-    u32 confirm_title_bytes, confirm_context_bytes;
     bool confirm_failed;
     bool initialized, host_transferred, nothing_to_stop, publishing_login, add_mode, return_known;
 };
@@ -174,13 +173,7 @@ bool attach_selected() noexcept {
     secure_edit_clear(&g_app.login.login);
     secure_edit_clear(&g_app.login.password);
     secure_edit_clear(&g_app.login.mfa);
-    g_app.login.remote_active = false;
-    g_app.login.qr_ready = false;
-    g_app.login.remote_status = LoginRemoteStatus::idle;
-    g_app.login.remote_restart_at_ms = 0;
-    g_app.login.remote_retry_attempt = 0;
-    SecureZeroMemory(g_app.login.remote_user, sizeof(g_app.login.remote_user));
-    g_app.login.remote_user_bytes = 0;
+    application_login_reset_remote_session();
     g_app.login.reset_mode = false;
     g_app.login.mfa_capabilities = 0;
     clear_login_hints();
@@ -198,8 +191,6 @@ bool show_login() noexcept {
     g_switch.publishing_login = false;
     return shown;
 }
-
-// ---- Switch effects ----
 
 bool io_stop_begin(void*) noexcept {
     AccountHost& host = g_app.account;
@@ -248,17 +239,7 @@ AccountSwitchStop io_stop_poll(void*) noexcept {
 
 void io_reset(void*) noexcept {
     application_release_account_ui(g_app);
-    popup_scene_close(&g_app.popup_scene);
-    application_plugins_menu_dismissed();
-    g_app.popup_owner_kind = PopupOwnerKind::none;
-    g_app.message_action_bar.active = false;
-    g_app.member_list_scene.active = false;
-    g_app.message_scene.active = false;
-    g_app.message_composer_scene.active = false;
-    message_view_runtime_release(&g_app.message_view);
-    if (!message_view_runtime_initialize(
-             &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true)
-             .ok())
+    if (!application_hide_account_scenes())
         log_write(LogLevel::error, "account", "switch_message_view_failed");
     clear_login_hints();
     g_app.login_scene.switching_accounts = true;
@@ -294,8 +275,8 @@ bool io_open_login(void*) noexcept {
 }
 
 void io_commit(void*, u32 slot, AccountSwitchKind) noexcept {
-    if (!account_inventory_find_slot(g_switch.inventory, slot) ||
-        account_inventory_find_slot(g_switch.inventory, slot)->user_id != g_app.account.status.profile_id)
+    const auto* entry = account_inventory_find_slot(g_switch.inventory, slot);
+    if (!entry || entry->user_id != g_app.account.status.profile_id)
         record_account(slot, g_app.account.status.profile_id);
     account_inventory_touch(&g_switch.inventory, slot, clock_unix_milliseconds());
     save_inventory();
@@ -363,8 +344,7 @@ bool begin_switch(u32 slot) noexcept {
     return begin(AccountSwitchKind::switch_account, slot);
 }
 
-// ---- Log out of a saved account that is not active ----
-
+// Logging out of a saved account that is not active.
 TextFormOwnerKey confirm_key() noexcept {
     return {g_switch.confirm_serial, g_switch.confirm_slot, g_switch.confirm_user};
 }
@@ -427,8 +407,6 @@ bool open_forget_confirmation(const AccountInventoryEntry& entry) noexcept {
         append(g_switch.confirm_context, 0, kConfirmContextBytes, utf8_literal("You'll have to log in to "));
     context = append(g_switch.confirm_context, context, kConfirmContextBytes - 12, username.bytes ? username : name);
     context = append(g_switch.confirm_context, context, kConfirmContextBytes, utf8_literal(" again later."));
-    g_switch.confirm_title_bytes = title;
-    g_switch.confirm_context_bytes = context;
     ApplicationTextFormRequest request{};
     request.title = {g_switch.confirm_title, title};
     request.context = {g_switch.confirm_context, context};
@@ -441,8 +419,6 @@ bool open_forget_confirmation(const AccountInventoryEntry& entry) noexcept {
     request.danger = true;
     return application_text_form_open(request);
 }
-
-// ---- Observation ----
 
 // Keeps the active slot's public identity current once READY names the user.
 void observe_running() noexcept {
@@ -495,8 +471,7 @@ bool login_escape_reserved() noexcept {
 // A rejected token marks its entry; an idle sign-in screen offers Esc back
 // to another saved account.
 void observe_signed_out() noexcept {
-    if (g_app.account.instance || !g_app.login.visible || application_account_logout_blocked() ||
-        application_account_logout_host_owned())
+    if (g_app.account.instance || !g_app.login.visible || application_account_logout_locked())
         return;
     const u32 slot = selected();
     if (g_app.login.status == RendererLoginStatus::session_expired) {
@@ -563,9 +538,9 @@ void application_account_switch_initialize() noexcept {
 }
 
 bool application_account_switch_available() noexcept {
-    return g_switch.initialized && !busy() && !application_account_logout_blocked() &&
-           !application_account_logout_host_owned() && g_app.account.instance && !g_app.account.stop_failed &&
-           g_app.account_ui && g_app.account_ui->chat_state.self_user_id && !g_app.login.visible;
+    return g_switch.initialized && !busy() && !application_account_logout_locked() && g_app.account.instance &&
+           !g_app.account.stop_failed && g_app.account_ui && g_app.account_ui->chat_state.self_user_id &&
+           !g_app.login.visible;
 }
 
 bool application_account_switch_panel(UiAccountSwitcherModel* model, u64 owner_id,
@@ -639,8 +614,8 @@ void application_account_switch_pump() noexcept {
 }
 
 bool application_account_switch_login_escape() noexcept {
-    if (!g_switch.initialized || !g_app.login.visible || application_account_logout_blocked() ||
-        application_account_logout_host_owned() || login_escape_reserved())
+    if (!g_switch.initialized || !g_app.login.visible || application_account_logout_locked() ||
+        login_escape_reserved())
         return false;
     auto& machine = g_switch.machine;
     if (machine.phase == AccountSwitchPhase::login) {

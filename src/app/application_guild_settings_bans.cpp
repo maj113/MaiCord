@@ -54,11 +54,6 @@ bool matches(const BanQuery& query, u64 user_id, Utf8View name) noexcept {
     return query.text.bytes && guild_settings_text_matches(query.text, name);
 }
 
-Utf8View ban_name(const GuildAdminBan& ban) noexcept {
-    const auto& u = ban.user;
-    return u.display_bytes ? Utf8View{u.display, u.display_bytes} : Utf8View{u.username, u.username_bytes};
-}
-
 void push_row(Bank& bank, u64 user_id, Utf8View name, Utf8View reason, bool can_unban, Utf8View avatar,
               u16 discriminator) noexcept {
     auto& p = *owner;
@@ -106,8 +101,9 @@ void project_bans(Bank& bank) noexcept {
     else if (searching)
         push(loading(utf8_literal("Searching bans…")));
     // Typing filters the loaded bans at once; Enter or Search also asks the server.
-    const BanQuery query = parse(trim(editor_text(editor_search)));
-    const bool filtered = trim(editor_text(editor_search)).bytes != 0;
+    const Utf8View typed = trim(editor_text(editor_search));
+    const BanQuery query = parse(typed);
+    const bool filtered = typed.bytes != 0;
     p.row_count = 0;
     const bool can_unban = editable() && guild_settings_can_unban(p.access);
     for (u32 i = 0; i < store.count && p.row_count < kRowCapacity; ++i) {
@@ -119,9 +115,9 @@ void project_bans(Bank& bank) noexcept {
     }
     for (u32 i = 0; filtered && i < p.ban_search_count && p.row_count < kRowCapacity; ++i) {
         const auto& ban = p.ban_search[i];
-        if (guild_ban_store_find(store, ban.user.id) || !matches(query, ban.user.id, ban_name(ban)))
+        if (guild_ban_store_find(store, ban.user.id) || !matches(query, ban.user.id, user_name(ban.user)))
             continue;
-        push_row(bank, ban.user.id, ban_name(ban), {ban.reason, ban.reason_bytes}, can_unban,
+        push_row(bank, ban.user.id, user_name(ban.user), {ban.reason, ban.reason_bytes}, can_unban,
                  {ban.user.avatar, ban.user.avatar_bytes}, ban.user.discriminator);
     }
     if (store.complete && !p.row_count)
@@ -140,7 +136,7 @@ void open_ban(u64 user) noexcept {
     } else {
         for (u32 i = 0; i < p.ban_search_count; ++i)
             if (p.ban_search[i].user.id == user) {
-                name = ban_name(p.ban_search[i]);
+                name = user_name(p.ban_search[i].user);
                 reason = {p.ban_search[i].reason, p.ban_search[i].reason_bytes};
             }
     }

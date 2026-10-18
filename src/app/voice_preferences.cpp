@@ -6,7 +6,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -184,9 +184,9 @@ bool voice_preferences_load_file(const wchar_t* path, VoicePreferences* preferen
     if (file == INVALID_HANDLE_VALUE)
         return false;
     static u8 record[kVoicePreferencesMaximumBytes];
-    LARGE_INTEGER size{};
+    Win32LargeInteger size{};
     u32 native = 0;
-    const bool read = GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= sizeof(record) &&
+    const bool read = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= sizeof(record) &&
                       file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native);
     CloseHandle(file);
     return read && voice_preferences_decode({record, static_cast<u32>(size.QuadPart)}, preferences);

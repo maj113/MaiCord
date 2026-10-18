@@ -519,7 +519,7 @@ __declspec(noinline) bool ApplicationMediaPump::restore_cached_animation_frame(
         release_animation_visual(advance.key, advance.generation);
         return true;
     }
-    if (!visual || visual->cache_generation == 0) {
+    if (visual->cache_generation == 0) {
         return false;
     }
     AnimationFrameCacheResult cached{};
@@ -581,9 +581,6 @@ ApplicationMediaPump::remove_pending_animation(u32 index) noexcept {
 
 __declspec(noinline) bool ApplicationMediaPump::consume_pending_animation_frame(
     const AccountMediaFrame& frame, bool* repaint, bool* consumed) noexcept {
-    if (!consumed) {
-        return false;
-    }
     *consumed = false;
     for (u32 index = 0; index < application.animations.pending_advance_count; ++index) {
         const AnimationFrameAdvance& pending = application.animations.pending_advances[index];

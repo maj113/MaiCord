@@ -20,6 +20,7 @@
 #include "application_video.hpp"
 #include "application_search_content.hpp"
 #include "application_search_navigation.hpp"
+#include "text_edit_keys.hpp"
 #include "application_thread_browser.hpp"
 #include "application_poll.hpp"
 #include "application_channel_authority.hpp"
@@ -38,6 +39,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
+
+#include <Windows.h>
 
 #include <limits.h>
 
@@ -547,18 +550,19 @@ struct SearchPollPublication {
     GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers];
     GatewayMessagePollAnswerCount counts[kGatewayMessagePollMaximumAnswers];
 };
+// The first result carrying a message's poll; later copies of the message are skipped.
+bool poll_first(const SearchBank& bank, u32 index) noexcept {
+    if (!bank.poll_fields[index])
+        return false;
+    for (u32 j = 0; j < index; ++j)
+        if (bank.messages[j].message.id == bank.messages[index].message.id)
+            return false;
+    return true;
+}
 bool publish_polls(ApplicationSearch& s, SearchBank& bank, u32 message_count) noexcept {
     u32 count = 0;
-    for (u32 i = 0; i < message_count; ++i) {
-        const auto& message = bank.messages[i].message;
-        if (!bank.poll_fields[i])
-            continue;
-        bool duplicate = false;
-        for (u32 j = 0; j < i; ++j)
-            duplicate |= bank.messages[j].message.id == message.id;
-        if (!duplicate)
-            ++count;
-    }
+    for (u32 i = 0; i < message_count; ++i)
+        count += poll_first(bank, i);
     if (!count)
         return true;
     auto* publication = static_cast<SearchPollPublication*>(
@@ -570,14 +574,9 @@ bool publish_polls(ApplicationSearch& s, SearchBank& bank, u32 message_count) no
     auto* inputs = reinterpret_cast<MessagePollPageInput*>(publication + count);
     u32 at = 0;
     for (u32 i = 0; i < message_count; ++i) {
+        if (!poll_first(bank, i))
+            continue;
         const auto& message = bank.messages[i].message;
-        if (!bank.poll_fields[i])
-            continue;
-        bool duplicate = false;
-        for (u32 j = 0; j < i; ++j)
-            duplicate |= bank.messages[j].message.id == message.id;
-        if (duplicate)
-            continue;
         auto& entry = publication[at];
         entry.ticket = poll_ticket(s, message.id);
         if (const auto* record = message_poll_store_find(bank.staged_polls, message.id)) {
@@ -684,11 +683,7 @@ bool resolve(void* context, u32 index, UiSearchRow* out) noexcept {
             group = i;
     }
     auto body = item.card_excerpt.bytes ? item.card_excerpt : item.message.content;
-    u32 bytes = minimum(body.bytes, 1024u);
-    while (bytes < body.bytes && bytes && static_cast<u8>(body.data[bytes]) >= 0x80 &&
-           static_cast<u8>(body.data[bytes]) < 0xc0)
-        --bytes;
-    body.bytes = bytes;
+    body.bytes = utf8_truncated_length(body, 1024);
     *out = {item.message.channel_id,
             item.message.id,
             s.bank->author_bytes[index] ? Utf8View{s.bank->author_names[index], s.bank->author_bytes[index]}
@@ -765,6 +760,27 @@ void focus(ApplicationSearch& s, bool value) noexcept {
             g_app.context_focus = nullptr;
     }
 }
+// Ends any press, drag or capture the panel holds.
+void release_pointer(ApplicationSearch& s) noexcept {
+    s.dragging = s.captured = s.scrollbar_dragging = false;
+    s.pressed = {};
+    ui_widget_manager_capture(&s.scene.widgets, ui_widget_invalid_handle());
+    if (GetCapture() == g_app.window)
+        ReleaseCapture();
+}
+void focus_widget(ApplicationSearch& s, u32 index) noexcept {
+    ui_widget_manager_focus(&s.scene.widgets, {static_cast<u16>(index), s.scene.widgets.generation});
+}
+// Focuses the first widget with this action (and source index, unless ~0u).
+bool focus_target(ApplicationSearch& s, UiSearchAction action, u32 source_index = ~0u) noexcept {
+    for (u32 i = 1; i < s.scene.widgets.count; ++i)
+        if (s.scene.targets[i].action == action &&
+            (source_index == ~0u || s.scene.targets[i].source_index == source_index)) {
+            focus_widget(s, i);
+            return true;
+        }
+    return false;
+}
 bool repaint() noexcept {
     if (!application_search_synchronize() || !refresh_retained_projection())
         return false;
@@ -773,7 +789,7 @@ bool repaint() noexcept {
     return true;
 }
 bool selected_scope(MessageSearchScope* kind, u64* id) noexcept {
-    if (!g_app.account_ui || !kind || !id)
+    if (!g_app.account_ui)
         return false;
     const auto& state = g_app.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, g_app.account_ui->active_channel_id);
@@ -843,11 +859,7 @@ void current_scope(ApplicationSearch& s) noexcept {
     focus(s, false);
     s.source.count = 0;
     ++s.source.revision;
-    s.pressed = {};
-    s.dragging = s.captured = s.scrollbar_dragging = false;
-    ui_widget_manager_capture(&s.scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    release_pointer(s);
     message_composer_clear(&s.edit);
     message_composer_refresh_borrowed(&s.edit, 0);
     s.scope = kind;
@@ -1095,6 +1107,17 @@ void choice_user(ApplicationSearch& s, SearchFilterChoices& b, u64 id, u8 rank,
         choice_add(b, id, rank, label, self ? utf8_literal("You") : username, value, 0,
                    user ? user_store_avatar_hash(*user) : Utf8View{});
 }
+// A new source revision; when the counter is exhausted the chooser publishes no rows.
+void choices_publish(SearchFilterChoices& b) noexcept {
+    if (filter_publication_counter != ~u32{0}) {
+        b.source.revision = ++filter_publication_counter;
+        return;
+    }
+    b.source.revision = ~u32{0};
+    b.source.rows = {};
+    b.source.selected = kUiSearchFilterNoSelection;
+    b.source.hint = utf8_literal("Suggestions unavailable. Type a value.");
+}
 bool choices_synchronize(ApplicationSearch& s) noexcept {
     if (!s.focused || !s.suggestions || !front() || !context_current(s) ||
         application_composer_text_input_composing()) {
@@ -1131,14 +1154,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         // while identical matching inputs keep the existing choices.
         b.stamp = stamp;
         b.filter = filter;
-        if (filter_publication_counter != ~u32{0})
-            b.source.revision = ++filter_publication_counter;
-        else {
-            b.source.revision = ~u32{0};
-            b.source.rows = {};
-            b.source.selected = kUiSearchFilterNoSelection;
-            b.source.hint = utf8_literal("Suggestions unavailable. Type a value.");
-        }
+        choices_publish(b);
         return true;
     }
     const bool preserve_selection =
@@ -1270,13 +1286,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         kind != UiSearchFilterKind::file_name)
         b.source.hint = b.capacity_limited ? utf8_literal("Up to four values per filter.")
                                            : utf8_literal("No matches. Keep typing.");
-    if (filter_publication_counter != ~u32{0})
-        b.source.revision = ++filter_publication_counter;
-    else {
-        b.source.revision = ~u32{0};
-        b.source.rows = {};
-        b.source.hint = utf8_literal("Suggestions unavailable. Type a value.");
-    }
+    choices_publish(b);
     b.source.selected = b.source.rows.count ? 0 : kUiSearchFilterNoSelection;
     if (preserve_selection)
         for (u32 i = 0; i < b.source.rows.count; ++i)
@@ -1457,7 +1467,6 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
     parsed.query.endpoint =
         s.tabs_unavailable ? MessageSearchEndpoint::legacy : MessageSearchEndpoint::tabs;
     parsed.query.tab_counts = !tab_switch;
-    s.panel = true;
     s.filters = false;
     s.suggestions = s.sort_menu = false;
     if (!parsed.ok()) {
@@ -1498,14 +1507,8 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
     if (tab_switch) {
         if (!repaint())
             return false;
-        for (u32 i = 1; i < s.scene.widgets.count; ++i)
-            if (s.scene.targets[i].action == UiSearchAction::tab &&
-                s.scene.targets[i].source_index == static_cast<u32>(s.tab)) {
-                g_app.context_focus = &s.scene.widgets;
-                ui_widget_manager_focus(&s.scene.widgets,
-                                        {static_cast<u16>(i), s.scene.widgets.generation});
-                break;
-            }
+        if (focus_target(s, UiSearchAction::tab, static_cast<u32>(s.tab)))
+            g_app.context_focus = &s.scene.widgets;
         application_request_frame();
         return true;
     }
@@ -1537,15 +1540,9 @@ void decorate(SearchBank& bank) noexcept {
         auto* label = bank.channels[group];
         u32 used = 0;
         label[used++] = '#';
-        if (name.bytes) {
-            const u32 bytes = minimum<u32>(name.bytes, sizeof(bank.channels[group]) - 1);
-            u32 last = bytes;
-            while (last < name.bytes && last && static_cast<u8>(name.data[last]) >= 0x80 &&
-                   static_cast<u8>(name.data[last]) < 0xc0)
-                --last;
-            CopyMemory(label + used, name.data, last);
-            used += last;
-        } else
+        if (name.bytes)
+            used += utf8_copy_truncated(label + used, sizeof(bank.channels[group]) - 1, name);
+        else
             used += decimal_write(label + used, m.channel_id);
         bank.channel_bytes[group] = static_cast<u8>(used);
         auto* detail = bank.details[i];
@@ -1630,12 +1627,7 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
             return false;
         g_app.context_focus = &s.scene.widgets;
         if (s.filters)
-            for (u32 i = 1; i < s.scene.widgets.count; ++i)
-                if (s.scene.targets[i].action == UiSearchAction::filter_from) {
-                    ui_widget_manager_focus(&s.scene.widgets,
-                                            {static_cast<u16>(i), s.scene.widgets.generation});
-                    break;
-                }
+            focus_target(s, UiSearchAction::filter_from);
         application_request_frame();
         return true;
     case UiSearchAction::sort:
@@ -1646,12 +1638,7 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
             return false;
         g_app.context_focus = &s.scene.widgets;
         if (s.sort_menu)
-            for (u32 i = 1; i < s.scene.widgets.count; ++i)
-                if (s.scene.targets[i].action == UiSearchAction::newest) {
-                    ui_widget_manager_focus(&s.scene.widgets,
-                                            {static_cast<u16>(i), s.scene.widgets.generation});
-                    break;
-                }
+            focus_target(s, UiSearchAction::newest);
         application_request_frame();
         return true;
     case UiSearchAction::result:
@@ -1869,11 +1856,7 @@ bool application_search_close_panel() noexcept {
     retire_actions(*s);
     choices_release(*s);
     focus(*s, false);
-    s->dragging = s->captured = s->scrollbar_dragging = false;
-    s->pressed = {};
-    ui_widget_manager_capture(&s->scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    release_pointer(*s);
     return repaint();
 }
 bool application_search_read_blocked() noexcept {
@@ -1959,7 +1942,7 @@ bool row_access_check(const ApplicationSearch& s, u32 index) noexcept {
                item.guild_known && item.guild_id == s.scope_id && guild && !guild->unavailable;
     }
     if (!channel->occupied || (channel->flags & kChannelObfuscatedFlag) ||
-        (channel->type != 10 && channel->type != 11 && channel->type != 12) ||
+        !channel_is_thread(channel->type) ||
         (s.bank->channel_generations[index] && s.bank->channel_generations[index] != channel->generation))
         return false;
     if (channel->type == 12 && channel->thread_self_joined_known && !channel->thread_self_joined)
@@ -2273,13 +2256,7 @@ bool application_search_synchronize() noexcept {
     if (!front() && (s->focused || s->captured || s->suggestions || s->filters || s->sort_menu)) {
         s->suggestions = s->filters = s->sort_menu = false;
         focus(*s, false);
-        s->dragging = false;
-        s->captured = false;
-        s->scrollbar_dragging = false;
-        s->pressed = {};
-        ui_widget_manager_capture(&s->scene.widgets, ui_widget_invalid_handle());
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        release_pointer(*s);
     }
     const bool choices_changed = choices_synchronize(*s);
     const auto state = s->controller.state;
@@ -2756,6 +2733,13 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
     const bool rich_focused = rich_scene && g_app.context_focus == &rich_scene->widgets;
     if (!s || (!s->focused && g_app.context_focus != &s->scene.widgets && !rich_focused))
         return false;
+    const auto activate_focused = [&]() noexcept {
+        const auto h = s->scene.widgets.focused;
+        if (rich_focused)
+            activate(*s, ui_search_scene_rich_widget_target(s->scene, rich_scene->widgets.focused));
+        else if (h.generation && h.slot < s->scene.storage.widgets.count)
+            activate(*s, s->scene.targets[h.slot]);
+    };
     if (kind == UiInputKind::character) {
         if (!s->focused || control || (alt && !raw) || key < 32 || key == 127 || key == 0x2028 ||
             key == 0x2029)
@@ -2822,22 +2806,13 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         s->held_key = key;
         if (s->focused)
             commit(*s);
-        else {
-            const auto h = s->scene.widgets.focused;
-            if (rich_focused)
-                activate(*s, ui_search_scene_rich_widget_target(s->scene, rich_scene->widgets.focused));
-            else if (h.generation && h.slot < s->scene.storage.widgets.count)
-                activate(*s, s->scene.targets[h.slot]);
-        }
+        else
+            activate_focused();
         return true;
     }
     if (key == VK_SPACE && !s->focused) {
         s->held_key = key;
-        const auto h = s->scene.widgets.focused;
-        if (rich_focused)
-            activate(*s, ui_search_scene_rich_widget_target(s->scene, rich_scene->widgets.focused));
-        else if (h.generation && h.slot < s->scene.storage.widgets.count)
-            activate(*s, s->scene.targets[h.slot]);
+        activate_focused();
         return true;
     }
     if (key == VK_TAB) {
@@ -2862,8 +2837,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
                 for (u32 i = 0; i < s->scene.widgets.count; ++i)
                     if (s->scene.targets[i].action == UiSearchAction::result &&
                         s->scene.targets[i].source_index == target.source_index) {
-                        ui_widget_manager_focus(&s->scene.widgets,
-                                                {static_cast<u16>(i), s->scene.widgets.generation});
+                        focus_widget(*s, i);
                         g_app.context_focus = &s->scene.widgets;
                         break;
                     }
@@ -2886,8 +2860,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
                 if ((s->sort_menu && sort) || (!s->sort_menu && filter)) {
                     focus(*s, false);
                     g_app.context_focus = &s->scene.widgets;
-                    ui_widget_manager_focus(&s->scene.widgets,
-                                            {static_cast<u16>(found), s->scene.widgets.generation});
+                    focus_widget(*s, found);
                     repaint();
                     break;
                 }
@@ -2918,9 +2891,14 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         return true;
     const u32 revision = s->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && key == 'A')
-        result = message_composer_select_all(&s->edit);
-    else if (control && (key == 'C' || key == 'X')) {
+    if (key == VK_BACK) {
+        s->held_key = key;
+        // Backspace in the empty field removes the scope chip, as with
+        // other chip inputs; a held key never reaches past the query.
+        if (!repeated && !s->edit.bytes && thread_scope(*s, nullptr))
+            return activate(*s, {UiSearchAction::scope, 0, 0});
+    }
+    if (control && (key == 'C' || key == 'X')) {
         const auto first = minimum(s->edit.anchor, s->edit.caret),
                    last = maximum(s->edit.anchor, s->edit.caret);
         if (last > first && clipboard_write_utf8(g_app.window, {s->edit.text + first, last - first}) &&
@@ -2934,31 +2912,8 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
             line = static_cast<u8>(text[i]) >= 32;
         if (line)
             result = message_composer_insert_utf8(&s->edit, {text, read.bytes});
-    } else if (control && key == 'Z')
-        result = shift ? message_composer_redo(&s->edit) : message_composer_undo(&s->edit);
-    else if (control && key == 'Y')
-        result = message_composer_redo(&s->edit);
-    else if (key == VK_BACK) {
-        s->held_key = key;
-        // Backspace in the empty field removes the scope chip, as with
-        // other chip inputs; a held key never reaches past the query.
-        if (!repeated && !s->edit.bytes && thread_scope(*s, nullptr))
-            return activate(*s, {UiSearchAction::scope, 0, 0});
-        result =
-            control ? message_composer_delete_word(&s->edit, false) : message_composer_backspace(&s->edit);
-    } else if (key == VK_DELETE)
-        result = control ? message_composer_delete_word(&s->edit, true)
-                         : message_composer_delete_forward(&s->edit);
-    else if (key == VK_LEFT || key == VK_RIGHT)
-        result = message_composer_move(
-            &s->edit,
-            control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
-                    : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next),
-            shift);
-    else if (key == VK_HOME || key == VK_END)
-        result = message_composer_move(
-            &s->edit,
-            key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
+    } else
+        message_composer_edit_key(&s->edit, key, control, shift, &result);
     if (result == MessageComposerResult::changed)
         application_search_edit_changed(revision != s->edit.text_revision);
     return true;
@@ -2970,13 +2925,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
     if (message == WM_KILLFOCUS) {
         s->suggestions = s->filters = s->sort_menu = false;
         focus(*s, false);
-        s->dragging = false;
-        s->captured = false;
-        s->scrollbar_dragging = false;
-        s->pressed = {};
-        ui_widget_manager_capture(&s->scene.widgets, ui_widget_invalid_handle());
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        release_pointer(*s);
         return false;
     }
     if (message == WM_CAPTURECHANGED && reinterpret_cast<HWND>(lparam) != g_app.window) {
@@ -3158,13 +3107,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
     if (message == WM_LBUTTONUP && (s->captured || inside)) {
         const auto pressed = s->pressed;
         const bool drag = s->dragging || s->scrollbar_dragging;
-        s->dragging = false;
-        s->captured = false;
-        s->scrollbar_dragging = false;
-        s->pressed = {};
-        ui_widget_manager_capture(&s->scene.widgets, ui_widget_invalid_handle());
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        release_pointer(*s);
         if (!drag && s->pressed_revision == s->scene.revision && ui_search_target_equal(pressed, hit))
             activate(*s, pressed);
         return true;

@@ -8,7 +8,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -113,6 +113,13 @@ bool publish(CustomThemeOwner& o, const ClientThemeStorageSnapshot& snapshot) no
     application_preferences_apply();
     changed(o);
     return true;
+}
+// Outside a preview the published theme is the applied one; note whether it still has to be saved.
+void adopt_effective(CustomThemeOwner& o) noexcept {
+    if (o.previewing)
+        return;
+    o.storage_dirty = o.storage_dirty || !same(o.applied, o.effective);
+    o.applied = o.effective;
 }
 bool save(CustomThemeOwner& o) noexcept {
     if (o.previewing)
@@ -393,10 +400,7 @@ bool application_custom_theme_preferences_changed(bool choose_builtin, bool pers
         return false;
     if (choose_builtin)
         o->previewing = o->candidate_ready = false;
-    if (!o->previewing) {
-        o->storage_dirty = o->storage_dirty || !same(o->applied, o->effective);
-        o->applied = o->effective;
-    }
+    adopt_effective(*o);
     return !persist || (!o->storage_dirty && !o->save_failed) || save(*o);
 }
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot* out) noexcept {
@@ -409,10 +413,7 @@ bool application_custom_theme_restore(const ClientThemeStorageSnapshot& snapshot
     auto* o = ensure();
     if (!o || !publish(*o, snapshot))
         return false;
-    if (!o->previewing) {
-        o->storage_dirty = o->storage_dirty || !same(o->applied, o->effective);
-        o->applied = o->effective;
-    }
+    adopt_effective(*o);
     return !persist || save(*o);
 }
 void application_custom_theme_poll() noexcept {

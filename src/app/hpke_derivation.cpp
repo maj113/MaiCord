@@ -1,23 +1,16 @@
 #include "maicord/app/hpke_derivation.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
 constexpr u8 version[]{'H', 'P', 'K', 'E', '-', 'v', '1'};
 constexpr u8 kem_suite[]{'K', 'E', 'M', 0, 0x10};
 constexpr u8 hpke_suite[]{'H', 'P', 'K', 'E', 0, 0x10, 0, 1, 0, 1};
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
-template <u32 N> ConstSlice<u8> label(const char (&value)[N]) noexcept {
-    return {reinterpret_cast<const u8*>(value), N - 1};
-}
 bool external(const KdfSha256Workspace& workspace, ConstSlice<u8> span) noexcept {
-    return byte_range_valid(span) && !byte_ranges_overlap(span, bytes(workspace)) &&
-           !byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity});
+    return byte_range_valid(span) && !aliases_workspace(workspace, span);
 }
 bool ready(const KdfSha256Workspace& workspace) noexcept {
     return workspace.storage.data && workspace.storage.locked;
@@ -48,11 +41,11 @@ HpkeDerivationResult kem_secret(KdfSha256Workspace& workspace, ConstSlice<u8> dh
                                 ConstSlice<u8> recipient, Slice<u8> output) noexcept {
     u8 prk[32];
     auto result =
-        extract(workspace, {kem_suite, sizeof(kem_suite)}, {}, label("eae_prk"), dh, {}, {prk, 32});
+        extract(workspace, {kem_suite, sizeof(kem_suite)}, {}, text_bytes("eae_prk"), dh, {}, {prk, 32});
     if (result.ok())
-        result = expand(workspace, {kem_suite, sizeof(kem_suite)}, {prk, 32}, label("shared_secret"), enc,
-                        recipient, output);
-    SecureZeroMemory(prk, sizeof(prk));
+        result = expand(workspace, {kem_suite, sizeof(kem_suite)}, {prk, 32}, text_bytes("shared_secret"),
+                        enc, recipient, output);
+    secure_clear_bytes(prk, sizeof(prk));
     return from_kdf(result);
 }
 HpkeDerivationResult kem_preflight(const KdfSha256Workspace& workspace, const P256Key& key,
@@ -63,12 +56,12 @@ HpkeDerivationResult kem_preflight(const KdfSha256Workspace& workspace, const P2
     if (key.kind != P256Kind::ecdh || !key.has_private)
         return {0, 0, HpkeDerivationError::key_failure};
     const ConstSlice<u8> spans[]{
-        point, {shared.data, shared.count}, {encapsulated.data, encapsulated.count}, bytes(key)};
+        point, {shared.data, shared.count}, {encapsulated.data, encapsulated.count}, object_bytes(key)};
     for (auto span : spans)
         if (!external(workspace, span))
             return {0, 0, HpkeDerivationError::invalid_input};
     for (u32 i = 0; i != 3; ++i)
-        if (byte_ranges_overlap(spans[i], bytes(key)))
+        if (byte_ranges_overlap(spans[i], object_bytes(key)))
             return {0, 0, HpkeDerivationError::invalid_input};
     if (point.count != 65 || byte_ranges_overlap(spans[0], spans[1]) ||
         byte_ranges_overlap(spans[0], spans[2]) || byte_ranges_overlap(spans[1], spans[2]))
@@ -82,18 +75,18 @@ HpkeDerivationResult hpke_derive_key_pair(KdfSha256Workspace& workspace, ConstSl
                                           P256Key* output) noexcept {
     if (!ready(workspace))
         return {0, 0, HpkeDerivationError::not_initialized};
-    if (!output || !external(workspace, bytes(*output)) || !external(workspace, ikm) ||
-        byte_ranges_overlap(ikm, bytes(*output)) || output->handle)
+    if (!output || !external(workspace, object_bytes(*output)) || !external(workspace, ikm) ||
+        byte_ranges_overlap(ikm, object_bytes(*output)) || output->handle)
         return {0, 0, HpkeDerivationError::invalid_input};
     u8 prk[32], scalar[32];
     P256Key candidate{};
     auto result = from_kdf(
-        extract(workspace, {kem_suite, sizeof(kem_suite)}, {}, label("dkp_prk"), ikm, {}, {prk, 32}));
+        extract(workspace, {kem_suite, sizeof(kem_suite)}, {}, text_bytes("dkp_prk"), ikm, {}, {prk, 32}));
     if (result.ok()) {
         for (u32 i = 0; i != 256; ++i) {
             const u8 counter = static_cast<u8>(i);
             result = from_kdf(expand(workspace, {kem_suite, sizeof(kem_suite)}, {prk, 32},
-                                     label("candidate"), {&counter, 1}, {}, {scalar, 32}));
+                                     text_bytes("candidate"), {&counter, 1}, {}, {scalar, 32}));
             if (!result.ok())
                 break;
             // P-256's RFC bitmask is 0xff. Import validates 1 <= scalar < n
@@ -115,8 +108,8 @@ HpkeDerivationResult hpke_derive_key_pair(KdfSha256Workspace& workspace, ConstSl
         result.bytes = 0;
     }
     p256_release(&candidate);
-    SecureZeroMemory(prk, sizeof(prk));
-    SecureZeroMemory(scalar, sizeof(scalar));
+    secure_clear_bytes(prk, sizeof(prk));
+    secure_clear_bytes(scalar, sizeof(scalar));
     return result;
 }
 HpkeDerivationResult hpke_encap(KdfSha256Workspace& workspace, const P256Key& ephemeral,
@@ -140,8 +133,8 @@ HpkeDerivationResult hpke_encap(KdfSha256Workspace& workspace, const P256Key& ep
         result.bytes = 97;
     }
     p256_release(&recipient);
-    SecureZeroMemory(dh, 32);
-    SecureZeroMemory(shared, 32);
+    secure_clear_bytes(dh, 32);
+    secure_clear_bytes(shared, 32);
     return result;
 }
 HpkeDerivationResult hpke_decap(KdfSha256Workspace& workspace, const P256Key& recipient,
@@ -163,13 +156,13 @@ HpkeDerivationResult hpke_decap(KdfSha256Workspace& workspace, const P256Key& re
         result.bytes = 32;
     }
     p256_release(&ephemeral);
-    SecureZeroMemory(dh, 32);
-    SecureZeroMemory(shared, 32);
+    secure_clear_bytes(dh, 32);
+    secure_clear_bytes(shared, 32);
     return result;
 }
 void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept {
     if (secrets)
-        SecureZeroMemory(secrets, sizeof(*secrets));
+        secure_clear_bytes(secrets, sizeof(*secrets));
 }
 HpkeDerivationResult hpke_base_key_schedule(KdfSha256Workspace& workspace, ConstSlice<u8> shared_secret,
                                             ConstSlice<u8> info_a, ConstSlice<u8> info_b,
@@ -178,7 +171,7 @@ HpkeDerivationResult hpke_base_key_schedule(KdfSha256Workspace& workspace, Const
         return {0, 0, HpkeDerivationError::not_initialized};
     if (!output || shared_secret.count != 32)
         return {0, 0, HpkeDerivationError::invalid_input};
-    const ConstSlice<u8> spans[]{shared_secret, info_a, info_b, bytes(*output)};
+    const ConstSlice<u8> spans[]{shared_secret, info_a, info_b, object_bytes(*output)};
     for (auto span : spans)
         if (!external(workspace, span))
             return {0, 0, HpkeDerivationError::invalid_input};
@@ -187,7 +180,7 @@ HpkeDerivationResult hpke_base_key_schedule(KdfSha256Workspace& workspace, Const
     auto result = from_kdf(hpke_info_hash(workspace, {info, 2}, {hash, 32}));
     if (result.ok())
         result = hpke_base_key_schedule_hashed_info(workspace, shared_secret, {hash, 32}, output);
-    SecureZeroMemory(hash, sizeof(hash));
+    secure_clear_bytes(hash, sizeof(hash));
     return result;
 }
 KdfResult hpke_info_hash(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> info,
@@ -204,7 +197,7 @@ HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& work
         return {0, 0, HpkeDerivationError::not_initialized};
     if (!output || shared_secret.count != 32 || info_hash.count != 32)
         return {0, 0, HpkeDerivationError::invalid_input};
-    const ConstSlice<u8> spans[]{shared_secret, info_hash, bytes(*output)};
+    const ConstSlice<u8> spans[]{shared_secret, info_hash, object_bytes(*output)};
     for (auto span : spans)
         if (!external(workspace, span))
             return {0, 0, HpkeDerivationError::invalid_input};
@@ -217,31 +210,31 @@ HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& work
     HpkeBaseSecrets candidate{};
     copy_bytes(context + 1, psk_id_hash, 32);
     copy_bytes(context + 33, info_hash.data, 32);
-    auto result = extract(workspace, {hpke_suite, sizeof(hpke_suite)}, shared_secret, label("secret"), {},
-                          {}, {secret, 32});
+    auto result = extract(workspace, {hpke_suite, sizeof(hpke_suite)}, shared_secret, text_bytes("secret"),
+                          {}, {}, {secret, 32});
     if (result.ok())
-        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, label("key"),
+        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, text_bytes("key"),
                         {context, 65}, {}, {candidate.key, 16});
     if (result.ok())
-        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, label("base_nonce"),
+        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, text_bytes("base_nonce"),
                         {context, 65}, {}, {candidate.base_nonce, 12});
     if (result.ok())
-        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, label("exp"),
+        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, text_bytes("exp"),
                         {context, 65}, {}, {candidate.exporter_secret, 32});
     if (result.ok()) {
         *output = candidate;
         result.bytes = sizeof(candidate);
     }
     hpke_base_secrets_clear(&candidate);
-    SecureZeroMemory(context, sizeof(context));
-    SecureZeroMemory(secret, sizeof(secret));
+    secure_clear_bytes(context, sizeof(context));
+    secure_clear_bytes(secret, sizeof(secret));
     return from_kdf(result);
 }
 KdfResult hpke_export_secret(KdfSha256Workspace& workspace, ConstSlice<u8> exporter_secret,
                              ConstSlice<u8> context, Slice<u8> output) noexcept {
     if (exporter_secret.count != 32 || output.count > 8160)
         return {0, 0, KdfError::invalid_input};
-    return expand(workspace, {hpke_suite, sizeof(hpke_suite)}, exporter_secret, label("sec"), context, {},
-                  output);
+    return expand(workspace, {hpke_suite, sizeof(hpke_suite)}, exporter_secret, text_bytes("sec"), context,
+                  {}, output);
 }
 } // namespace maicord

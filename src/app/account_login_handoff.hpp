@@ -1,5 +1,7 @@
 #pragma once
 
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account_module_api.hpp"
 #include "maicord/app/account_profile_promotion.hpp"
@@ -8,8 +10,6 @@
 #include "maicord/app/remote_auth_client.hpp"
 #include "maicord/platform/random.hpp"
 #include <stddef.h>
-
-#include <Windows.h>
 
 // Shared login orchestration, kept local to this translation unit for the account DLL and
 // native handoff tests. This adds no worker or other resource.
@@ -42,6 +42,12 @@ struct AccountLoginRuntime {
     bool authenticated_pending; // fills the final alignment byte
 };
 static_assert(offsetof(AccountLoginRuntime, authenticated_pending) + sizeof(bool) == sizeof(AccountLoginRuntime));
+
+AccountLoginStatus login_invalid_input() noexcept {
+    AccountLoginStatus status{};
+    status.error = AccountLoginError::invalid_input;
+    return status;
+}
 
 AccountLoginPhase login_phase(UserAuthCoordinatorPhase phase) noexcept {
     switch (phase) {
@@ -136,11 +142,8 @@ AccountLoginPhase remote_login_phase(RemoteAuthClientPhase phase) noexcept {
 }
 
 AccountLoginStatus login_status(AccountLoginRuntime* runtime) noexcept {
-    if (!runtime) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime)
+        return login_invalid_input();
     const UserAuthCoordinatorResult coordinator = runtime->coordinator_started
                                                       ? user_auth_coordinator_status(&runtime->coordinator)
                                                       : UserAuthCoordinatorResult{};
@@ -253,7 +256,7 @@ bool load_remote_user_id(AccountLoginRuntime* runtime) noexcept {
     const RemoteAuthUserPreviewResult parsed =
         copied ? remote_auth_parse_user_preview(Utf8View{payload, payload_bytes}, &preview)
                : RemoteAuthUserPreviewResult{0, RemoteAuthUserPreviewError::invalid_input};
-    SecureZeroMemory(payload, sizeof(payload));
+    secure_clear_bytes(payload, sizeof(payload));
     if (!parsed.ok() || preview.user_id == 0) {
         runtime->error = AccountLoginError::remote_auth;
         runtime->remote_status.native_error = ERROR_INVALID_DATA;
@@ -264,17 +267,19 @@ bool load_remote_user_id(AccountLoginRuntime* runtime) noexcept {
     return true;
 }
 
+bool profile_failure(AccountLoginRuntime* runtime, u32 native_error) noexcept {
+    runtime->error = AccountLoginError::profile;
+    runtime->profile_native_error = native_error;
+    if (runtime->remote_mode)
+        runtime->remote_status.native_error = native_error;
+    return false;
+}
+
 bool commit_login_profile(AccountLoginRuntime* runtime) noexcept {
     const AccountProfilePromotionResult committed =
         account_profile_promotion_commit(&runtime->promotion, runtime->profile_path);
-    if (!committed.ok()) {
-        runtime->error = AccountLoginError::profile;
-        runtime->profile_native_error = committed.native_error;
-        if (runtime->remote_mode) {
-            runtime->remote_status.native_error = committed.native_error;
-        }
-        return false;
-    }
+    if (!committed.ok())
+        return profile_failure(runtime, committed.native_error);
     runtime->error = AccountLoginError::none;
     runtime->profile_native_error = 0;
     runtime->profile_saved = true;
@@ -289,31 +294,20 @@ bool stage_remote_profile(AccountLoginRuntime* runtime) noexcept {
     AccountProfile profile{};
     const SecureBufferResult initialized =
         secure_buffer_initialize(&profile.credential, kAccountProfileMaximumCredentialBytes);
-    if (!initialized.ok()) {
-        runtime->error = AccountLoginError::profile;
-        runtime->profile_native_error = initialized.native_error;
-        runtime->remote_status.native_error = initialized.native_error;
-        return false;
-    }
+    if (!initialized.ok())
+        return profile_failure(runtime, initialized.native_error);
     profile.metadata = AccountProfileMetadata{runtime->user_id};
     const SecureBufferResult taken =
         remote_auth_client_take_credential(&runtime->remote_auth, &profile.credential);
     if (!taken.ok()) {
-        runtime->error = AccountLoginError::profile;
-        runtime->profile_native_error = taken.native_error;
-        runtime->remote_status.native_error = taken.native_error;
         account_profile_release(&profile);
-        return false;
+        return profile_failure(runtime, taken.native_error);
     }
     const AccountProfilePromotionResult staged =
         account_profile_promotion_stage(&runtime->promotion, &profile);
     account_profile_release(&profile);
-    if (!staged.ok()) {
-        runtime->error = AccountLoginError::profile;
-        runtime->profile_native_error = staged.native_error;
-        runtime->remote_status.native_error = staged.native_error;
-        return false;
-    }
+    if (!staged.ok())
+        return profile_failure(runtime, staged.native_error);
     runtime->authenticated_pending = false;
     return commit_login_profile(runtime);
 }
@@ -332,18 +326,12 @@ bool stage_coordinator_profile(AccountLoginRuntime* runtime) noexcept {
     }
     AccountProfile profile{};
     const auto promoted = user_auth_coordinator_take_profile(&runtime->coordinator, runtime->user_id, &profile, 5'000);
-    if (!promoted.ok()) {
-        runtime->error = AccountLoginError::profile;
-        runtime->profile_native_error = promoted.native_error;
-        return false;
-    }
+    if (!promoted.ok())
+        return profile_failure(runtime, promoted.native_error);
     const auto staged = account_profile_promotion_stage(&runtime->promotion, &profile);
     account_profile_release(&profile);
-    if (!staged.ok()) {
-        runtime->error = AccountLoginError::profile;
-        runtime->profile_native_error = staged.native_error;
-        return false;
-    }
+    if (!staged.ok())
+        return profile_failure(runtime, staged.native_error);
     runtime->authenticated_pending = false;
     return commit_login_profile(runtime);
 }
@@ -400,11 +388,8 @@ AccountLoginStatus pump_remote_auth(AccountLoginRuntime* runtime) noexcept {
 
 AccountLoginStatus WINAPI module_login_pump(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime)
+        return login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     // A quarantined stop only tears down. Neither a pending browser
     // response nor a late QR completion may restart profile setup.
@@ -487,11 +472,8 @@ HANDLE WINAPI module_login_notification_handle(void* instance) noexcept {
 }
 
 AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noexcept {
-    if (!instance || !*instance || timeout_ms == 0) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!instance || !*instance || timeout_ms == 0)
+        return login_invalid_input();
     auto* runtime = static_cast<AccountLoginRuntime*>(*instance);
     runtime->authenticated_pending = false;
     runtime->error = AccountLoginError::stop;
@@ -555,7 +537,7 @@ AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noe
     const u64 retry_at_ms = maximum(remote_limited ? runtime->remote_status.retry_at_ms : 0,
                                     ordinary_limited ? runtime->coordinator.state.retry_at_ms : 0);
     account_profile_promotion_release(&runtime->promotion);
-    SecureZeroMemory(runtime, sizeof(*runtime));
+    secure_clear_bytes(runtime, sizeof(*runtime));
     VirtualFree(runtime, 0, MEM_RELEASE);
     *instance = nullptr;
     AccountLoginStatus status{};

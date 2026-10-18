@@ -199,27 +199,6 @@ MessageComposerControllerResult save_active_draft(MessageComposerController* con
     return MessageComposerControllerResult{{}, 0, MessageComposerControllerError::none, saved.changed};
 }
 
-} // namespace
-
-namespace {
-bool initialize_controller(MessageComposerController* controller, MessageComposer* composer,
-                           MessageDraftStore* drafts, MessageTimeline* timeline, Slice<u8> request_text,
-                           bool clear_requests) noexcept;
-} // namespace
-
-bool message_composer_controller_initialize(MessageComposerController* controller,
-                                            MessageComposer* composer, MessageDraftStore* drafts,
-                                            MessageTimeline* timeline, Slice<u8> request_text) noexcept {
-    return initialize_controller(controller, composer, drafts, timeline, request_text, true);
-}
-
-bool message_composer_controller_initialize_sparse(MessageComposerController* controller,
-                                                   MessageComposer* composer, MessageDraftStore* drafts,
-                                                   MessageTimeline* timeline, Slice<u8> request_text) noexcept {
-    return initialize_controller(controller, composer, drafts, timeline, request_text, false);
-}
-
-namespace {
 bool initialize_controller(MessageComposerController* controller, MessageComposer* composer,
                            MessageDraftStore* drafts, MessageTimeline* timeline, Slice<u8> request_text,
                            bool clear_requests) noexcept {
@@ -245,7 +224,20 @@ bool initialize_controller(MessageComposerController* controller, MessageCompose
     controller->reply_revision = 1;
     return true;
 }
+
 } // namespace
+
+bool message_composer_controller_initialize(MessageComposerController* controller,
+                                            MessageComposer* composer, MessageDraftStore* drafts,
+                                            MessageTimeline* timeline, Slice<u8> request_text) noexcept {
+    return initialize_controller(controller, composer, drafts, timeline, request_text, true);
+}
+
+bool message_composer_controller_initialize_sparse(MessageComposerController* controller,
+                                                   MessageComposer* composer, MessageDraftStore* drafts,
+                                                   MessageTimeline* timeline, Slice<u8> request_text) noexcept {
+    return initialize_controller(controller, composer, drafts, timeline, request_text, false);
+}
 
 MessageComposerControllerResult message_composer_controller_commit_draft(
     MessageComposerController* controller) noexcept {
@@ -676,7 +668,7 @@ MessageComposerControllerResult message_composer_controller_cancel_unsent(
 
 MessageComposerControllerResult message_composer_controller_prepare_submit(
     MessageComposerController* controller, u64 now_monotonic_ms, MessageComposerSubmit* submit) noexcept {
-    if (submit) {
+    const auto clear_submit = [submit]() noexcept {
         submit->content = {};
         submit->nonce = submit->channel_id = submit->reply_message_id = 0;
         submit->attachment_count = 0;
@@ -684,7 +676,9 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
         submit->mention_reply_author = false;
         submit->suppress_notifications = false;
         submit->forward_reference = {};
-    }
+    };
+    if (submit)
+        clear_submit();
     if (!controller_valid(controller) || !submit || now_monotonic_ms == 0) {
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     }
@@ -728,13 +722,7 @@ MessageComposerControllerResult message_composer_controller_prepare_submit(
     if (selected->attachment_bytes && !message_attachment_storage_read(
         {controller->request_text + selected->text_offset + selected->text_bytes, selected->attachment_bytes},
         {submit->attachments, kAttachmentUploadMaximumCount}, &submit->attachment_count)) {
-        submit->content = {};
-        submit->nonce = submit->channel_id = submit->reply_message_id = 0;
-        submit->attachment_count = 0;
-        submit->sticker_count = 0;
-        submit->mention_reply_author = false;
-        submit->suppress_notifications = false;
-        submit->forward_reference = {};
+        clear_submit();
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     }
     return MessageComposerControllerResult{
@@ -759,7 +747,6 @@ MessageComposerControllerResult message_composer_controller_mark_submitted(
     request->phase = MessageComposerRequestPhase::submitting;
     request->retry_at_ms = 0;
     controller->inflight_nonce = nonce;
-    ++controller->submitted;
     return MessageComposerControllerResult{{}, nonce, MessageComposerControllerError::none, true};
 }
 
@@ -788,7 +775,6 @@ MessageComposerControllerResult message_composer_controller_submit_failed(
     if (controller->inflight_nonce == nonce) {
         controller->inflight_nonce = 0;
     }
-    ++controller->failed;
     return MessageComposerControllerResult{observed.invalidation, nonce,
                                            MessageComposerControllerError::none, observed.changed};
 }
@@ -829,7 +815,6 @@ MessageComposerControllerResult message_composer_controller_observe_http(
     } else {
         request->phase = MessageComposerRequestPhase::failed;
         request->retry_at_ms = 0;
-        ++controller->failed;
     }
     return MessageComposerControllerResult{observed.invalidation, nonce,
                                            MessageComposerControllerError::none, observed.changed};
@@ -1019,11 +1004,9 @@ bool message_composer_controller_take_completion(MessageComposerController* cont
     if (request) {
         if (completion->kind == MessageSendCompletionKind::accepted) {
             erase_request(controller, request);
-            ++controller->completed;
         } else if (request->phase != MessageComposerRequestPhase::confirmed) {
             request->phase = MessageComposerRequestPhase::failed;
             request->retry_at_ms = 0;
-            ++controller->failed;
         }
     }
     return true;

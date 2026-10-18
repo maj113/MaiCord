@@ -36,6 +36,15 @@ bool role_patch_pending() noexcept {
     RolePatch patch{};
     return guild_role_patch(owner->role_base, owner->role_draft, &patch);
 }
+// Whether the draft order still is the stored one.
+bool order_matches_store() noexcept {
+    const RoleRecord* stored[kGuildRoleMaximum];
+    const u32 count = guild_settings_sorted_roles(state(), owner->guild_id, {stored, kGuildRoleMaximum});
+    bool same = count == owner->order_count;
+    for (u32 i = 0; same && i < count; ++i)
+        same = stored[i]->id == owner->order[i];
+    return same;
+}
 
 void project_role_list(Bank& bank) noexcept {
     const bool manage = page_allowed(Page::roles) && editable();
@@ -49,7 +58,7 @@ void project_role_list(Bank& bank) noexcept {
     const RoleRecord* sorted[kGuildRoleMaximum];
     const u32 count = resolve_order(sorted);
     const auto query = editor_text(editor_search);
-    const u32 heading = bank.mark();
+    const u32 heading = bank.used;
     bank.add(utf8_literal("Roles — "));
     bank.number(count);
     push(category(control_list_category, bank.since(heading)));
@@ -70,7 +79,7 @@ void project_role_list(Bank& bank) noexcept {
             continue;
         const bool everyone = r.id == owner->guild_id;
         const bool editable_role = guild_settings_role_editable(owner->access, r);
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         if (everyone)
             bank.add(utf8_literal("Default permissions for all members"));
         else {
@@ -102,7 +111,7 @@ void project_role_editor(Bank& bank) noexcept {
     const bool everyone = owner->editing_role == owner->guild_id;
     const bool writable = editable() && role_writable();
     auto& d = owner->role_draft;
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     if (owner->role_missing)
         bank.add(utf8_literal("This role was deleted."));
     else if (!role_writable())
@@ -257,7 +266,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     const u64 id = target.control_id;
     if (!p.editing_role) {
         if (id == control_create) {
-            if (!p.order_dirty && guard_dirty() == false)
+            if (!p.order_dirty && !guard_dirty())
                 queue(Op::role_create);
             repaint();
         } else if (id >= kRowBase && id < kRowBase + p.order_count)
@@ -347,16 +356,9 @@ bool reconcile(u64 now) noexcept {
             }
         }
     }
-    if (!p.editing_role && !p.order_dirty && !mutation_pending()) {
-        const RoleRecord* stored[kGuildRoleMaximum];
-        const u32 count = guild_settings_sorted_roles(state(), p.guild_id, {stored, kGuildRoleMaximum});
-        bool same = count == p.order_count;
-        for (u32 i = 0; same && i < count; ++i)
-            same = stored[i]->id == p.order[i];
-        if (!same) {
-            load_order();
-            changed = true;
-        }
+    if (!p.editing_role && !p.order_dirty && !mutation_pending() && !order_matches_store()) {
+        load_order();
+        changed = true;
     }
     if (p.open_after_create && role(p.open_after_create) && !p.editing_role) {
         const u64 id = p.open_after_create;
@@ -422,12 +424,7 @@ void roles_drop(u64 dragged, u64 target, bool after) noexcept {
     for (u32 i = 0; i < p.order_count; ++i)
         p.order[i] = order[i]->id;
     // A move back to the stored order clears the draft.
-    const RoleRecord* stored[kGuildRoleMaximum];
-    const u32 count = guild_settings_sorted_roles(state(), p.guild_id, {stored, kGuildRoleMaximum});
-    bool same = count == p.order_count;
-    for (u32 i = 0; same && i < count; ++i)
-        same = stored[i]->id == p.order[i];
-    p.order_dirty = !same;
+    p.order_dirty = !order_matches_store();
     repaint();
 }
 
@@ -442,18 +439,13 @@ void context(const SettingsLayerActivation& activation) noexcept {
     if (!r)
         return;
     u32 count = 0;
-    const auto item = [&](Utf8View label, u32 action, bool danger) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + action;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (danger ? popup_item_danger : 0) |
-                                                      (danger && count ? popup_item_separator_before : 0));
-        ++count;
-    };
     if (g_app.preferences.developer_mode)
-        item(utf8_literal("Copy Role ID"), role_action_copy_id, false);
-    if (page_allowed(Page::roles) && guild_settings_role_deletable(p.access, *r))
-        item(utf8_literal("Delete Role"), role_action_delete, true);
+        popup_row(count++, utf8_literal("Copy Role ID"), role_action_copy_id);
+    if (page_allowed(Page::roles) && guild_settings_role_deletable(p.access, *r)) {
+        popup_row(count, utf8_literal("Delete Role"), role_action_delete,
+                  popup_item_danger | (count ? popup_item_separator_before : 0));
+        ++count;
+    }
     if (!count)
         return;
     p.menu = Menu::role;

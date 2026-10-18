@@ -152,7 +152,7 @@ PollControllerResult poll_controller_queue_vote(PollController* c,u16 mask,u64 n
         c->vote_phase=PollControllerVotePhase::uncertain; c->refresh_required=true;
         return result(*c,PollControllerError::uncertain,true);
     }
-    if (c->snapshot.mine_known && c->snapshot.mine_mask==mask) return result(*c);
+    if (c->snapshot.mine_mask==mask) return result(*c);
     if (!advance(*c)) return result(*c,PollControllerError::exhausted);
     c->pending={}; c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::vote;
     c->pending.desired_mask=mask; c->pending.epoch=c->epoch; c->pending.due_at_ms=now;

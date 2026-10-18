@@ -59,6 +59,10 @@ UpdatePreparationResult update_prepare_stage(UpdatePreparationContext* context,
     KdfSha256Workspace& workspace, UpdateManifestPolicy* trusted_policy,
     Slice<u32> structural_scratch, UpdateStage* output) noexcept;
 
+// Writes the stage filename for a signed document digest, NUL-terminated, into
+// name (kUpdatePreparedStageFilenameCharacters + 1 characters).
+void update_prepare_stage_name(const u8* manifest_sha256, wchar_t* name) noexcept;
+
 // Closes artifact before acceptance lock. Stops on a failed release, keeping
 // that handle and the acceptance lock handle for retry. Does not release output
 // stage or result.stage cleanup handles; those require their respective APIs.

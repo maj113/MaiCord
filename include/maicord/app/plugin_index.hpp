@@ -145,7 +145,6 @@ struct PluginIndexPlugin {
     // Preview versions are validated, then ignored (index.ignored_versions).
     u32 first_version, version_count;
     u32 details_bytes; // 0 when the plugin has no details document
-    u8 details_sha256[32];
 };
 struct PluginIndexRevocation {
     u64 owner_id, since;
@@ -166,7 +165,7 @@ struct PluginIndex {
     u8 key[65];    // provider.key of a custom signed index
     bool has_key;
     bool expired;  // only with policy.accept_expired
-    PluginIndexText provider_id, provider_name, provider_homepage;
+    PluginIndexText provider_id, provider_name;
     u32 plugin_count, version_count, revoked_count, blocked_count, ignored_versions;
     PluginIndexPlugin plugins[kPluginIndexMaximumPlugins];
     PluginIndexVersion versions[kPluginIndexMaximumListedVersions];

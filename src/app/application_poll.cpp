@@ -13,6 +13,7 @@
 #include "maicord/protocol/message_poll.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/scene_cursor.hpp"
+#include <Windows.h>
 #include <shellapi.h>
 
 namespace maicord::app_detail {
@@ -80,10 +81,6 @@ bool actor_current(const ApplicationPollSource& s) noexcept {
            current.profile_id == s.source.actor.profile_id &&
            current.self_user_id == s.source.actor.self_user_id;
 }
-const ChannelRecord* channel(u64 id) noexcept {
-    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id)
-                            : nullptr;
-}
 bool readable(const ChannelRecord& c) noexcept {
     constexpr u32 required = channel_action_view | channel_action_read_history;
     if (!c.occupied || !channel_is_message_capable(c.type) ||
@@ -97,7 +94,7 @@ bool readable(const ChannelRecord& c) noexcept {
         return false;
     if (!channel_is_thread(c.type))
         return true;
-    const auto* parent = channel(c.parent_id);
+    const auto* parent = application_channel_record(c.parent_id);
     return parent && parent->guild_id == c.guild_id && parent->permissions_resolved &&
            !(parent->flags & kChannelObfuscatedFlag) && (parent->actions & required) == required &&
            chat_state_store_channel_visible(g_app.account_ui->chat_state, *parent) &&
@@ -121,7 +118,7 @@ const MessagePollRecord* poll(const ApplicationPollSource& s) noexcept {
             return nullptr;
     } else
         return nullptr;
-    const auto* c = channel(s.source.channel_id);
+    const auto* c = application_channel_record(s.source.channel_id);
     const auto* message = message_store_resolve(*s.store, s.source.handle);
     if (!c || !readable(*c) || c->generation != s.source.channel_generation || c->guild_id != s.guild_id ||
         c->parent_id != s.parent_id || c->type != s.channel_type || !message ||
@@ -131,7 +128,7 @@ const MessagePollRecord* poll(const ApplicationPollSource& s) noexcept {
         message->content_availability != MessageContentAvailability::available)
         return nullptr;
     if (s.parent_id && channel_is_thread(c->type)) {
-        const auto* parent = channel(s.parent_id);
+        const auto* parent = application_channel_record(s.parent_id);
         if (!parent || parent->generation != s.parent_generation)
             return nullptr;
     }
@@ -145,7 +142,7 @@ bool capture(u64 id, ApplicationPollSource* out) noexcept {
         return false;
     const auto found = message_store_find(g_app.message_view.store, id);
     const auto* m = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-    const auto* c = m ? channel(m->channel_id) : nullptr;
+    const auto* c = m ? application_channel_record(m->channel_id) : nullptr;
     const auto* p = m ? message_poll_store_find(g_app.account_ui->message_poll_store, id) : nullptr;
     if (!m || !c || !p || !readable(*c) || p->channel_id != c->id || !p->content_revision ||
         m->delivery != MessageDeliveryState::authoritative ||
@@ -154,7 +151,7 @@ bool capture(u64 id, ApplicationPollSource* out) noexcept {
         g_app.account_ui->chat_state.selected_channel_id != c->id ||
         g_app.account_ui->chat_state.selected_guild_id != c->guild_id)
         return false;
-    const auto* parent = channel_is_thread(c->type) ? channel(c->parent_id) : nullptr;
+    const auto* parent = channel_is_thread(c->type) ? application_channel_record(c->parent_id) : nullptr;
     *out = {
         {a, c->id, id, g_app.load_trace.channel_epoch, found.handle, p->content_revision, c->generation},
         g_app.account_ui,
@@ -467,11 +464,9 @@ bool project_voters() noexcept {
                                  owner->controller.voters_failed && !loading && connected()};
     const auto viewport = application_viewport_dips();
     const auto theme = hash64_counted_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
-    const auto& previous = owner->scene.geometry.viewport;
     if (owner->scene.active && owner->scene.state.revision == owner->revision &&
-        previous.left == viewport.left && previous.top == viewport.top &&
-        previous.right == viewport.right && previous.bottom == viewport.bottom &&
-        owner->projected_theme == theme && owner->projected_dpi == g_app.renderer.dpi)
+        ui_rect_equal(owner->scene.geometry.viewport, viewport) && owner->projected_theme == theme &&
+        owner->projected_dpi == g_app.renderer.dpi)
         return true;
     const auto laid = ui_widget_manager_layout_rectangle(&owner->widgets, viewport);
     const bool projected =
@@ -485,9 +480,6 @@ bool project_voters() noexcept {
         owner->projected_dpi = g_app.renderer.dpi;
     }
     return projected;
-}
-bool same_rectangle(UiRect a, UiRect b) noexcept {
-    return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
 }
 MessageScene* source_scene(const ApplicationPollSource& source) noexcept {
     if (source.surface == UiPollSourceSurface::timeline)
@@ -532,10 +524,9 @@ bool project_card() noexcept {
     const UiWidgetReference root{&scene->widgets, handle};
     const bool same =
         owner->card.active && owner->card.projection.state.revision == state.revision &&
-        owner->card.owner.manager == root.manager && owner->card.owner.handle.slot == handle.slot &&
-        owner->card.owner.handle.generation == handle.generation &&
-        same_rectangle(owner->card_node_bounds, node->content_rectangle) &&
-        same_rectangle(owner->card.clip, clip) && owner->card.projection.state.now_ms == state.now_ms &&
+        owner->card.owner.manager == root.manager && ui_widget_handle_equal(owner->card.owner.handle, handle) &&
+        ui_rect_equal(owner->card_node_bounds, node->content_rectangle) &&
+        ui_rect_equal(owner->card.clip, clip) && owner->card.projection.state.now_ms == state.now_ms &&
         owner->card_theme == theme && owner->card_dpi == g_app.renderer.dpi;
     if (!same) {
         UiPollProjection projection{};
@@ -593,8 +584,7 @@ bool choose_card(UiPoint point, bool keyboard) noexcept {
         if (!root.generation || !ui_widget_manager_input_enabled(scene->widgets, root))
             continue;
         if (keyboard &&
-            (g_app.context_focus != &scene->widgets || scene->widgets.focused.slot != root.slot ||
-             scene->widgets.focused.generation != root.generation))
+            (g_app.context_focus != &scene->widgets || !ui_widget_handle_equal(scene->widgets.focused, root)))
             continue;
         UiPollAnswer answers[kUiPollMaximumAnswers]{};
         UiPollProjection projection{};
@@ -628,20 +618,23 @@ bool choose_card(UiPoint point, bool keyboard) noexcept {
 }
 } // namespace
 
-bool application_poll_source_current(const ApplicationPollSource& source) noexcept {
-    return poll(source) != nullptr;
-}
-bool application_poll_state(u64 id, Slice<UiPollAnswer> answers, UiPollState* out,
-                            ApplicationPollSource* source) noexcept {
-    ApplicationPollSource s{};
-    if (!capture(id, &s))
-        return false;
+// Projects a captured card source; the source is handed back on success.
+static bool project_source(const ApplicationPollSource& s, Slice<UiPollAnswer> answers, UiPollState* out,
+                           ApplicationPollSource* source) noexcept {
     const auto* p = poll(s);
     if (!p || !project_state(s, *p, answers, out))
         return false;
     if (source)
         *source = s;
     return true;
+}
+bool application_poll_source_current(const ApplicationPollSource& source) noexcept {
+    return poll(source) != nullptr;
+}
+bool application_poll_state(u64 id, Slice<UiPollAnswer> answers, UiPollState* out,
+                            ApplicationPollSource* source) noexcept {
+    ApplicationPollSource s{};
+    return capture(id, &s) && project_source(s, answers, out, source);
 }
 bool application_poll_search_state(u64 id, u32 source_publication, Slice<UiPollAnswer> answers,
                                    UiPollState* out, ApplicationPollSource* source) noexcept {
@@ -652,11 +645,11 @@ bool application_poll_search_state(u64 id, u32 source_publication, Slice<UiPollA
         !view.message || view.message->delivery != MessageDeliveryState::authoritative ||
         view.message->content_availability != MessageContentAvailability::available)
         return false;
-    const auto* c = channel(view.message->channel_id);
+    const auto* c = application_channel_record(view.message->channel_id);
     const auto* p = message_poll_store_find(g_app.account_ui->message_poll_store, id);
     if (!c || !readable(*c) || !p || p->channel_id != c->id || view.message->channel_id != c->id)
         return false;
-    const auto* parent = channel_is_thread(c->type) ? channel(c->parent_id) : nullptr;
+    const auto* parent = channel_is_thread(c->type) ? application_channel_record(c->parent_id) : nullptr;
     const ApplicationPollSource s{
         {a, c->id, id, g_app.load_trace.channel_epoch, view.handle, p->content_revision, c->generation},
         g_app.account_ui,
@@ -671,11 +664,7 @@ bool application_poll_search_state(u64 id, u32 source_publication, Slice<UiPollA
         view.ticket.publication_revision,
         view.ticket.index,
         UiPollSourceSurface::search};
-    if (!poll(s) || !project_state(s, *p, answers, out))
-        return false;
-    if (source)
-        *source = s;
-    return true;
+    return project_source(s, answers, out, source);
 }
 bool application_poll_open(const ApplicationPollSource& source) noexcept {
     const auto* p = poll(source);
@@ -719,25 +708,9 @@ ApplicationPollView application_poll_view() noexcept {
     if (!application_poll_active())
         return {};
     auto& value = *owner;
-    const auto* p = poll(value.source);
-    UiPollState state{};
-    if (!project_state(value.source, *p, {value.answers, kUiPollMaximumAnswers}, &state))
-        return {};
-    return {value.source,
-            state,
-            value.status,
-            value.pages[value.bank]
-                ? ConstSlice<ReactionUser>{value.pages[value.bank]->users, value.user_count}
-                : ConstSlice<ReactionUser>{},
-            value.publication,
-            value.revision,
-            value.controller.voter_answer_id,
-            value.page,
-            true,
-            value.voters_active,
-            value.scene.state.loading,
-            value.controller.voters_failed,
-            value.voters_more};
+    return {value.pages[value.bank] ? ConstSlice<ReactionUser>{value.pages[value.bank]->users, value.user_count}
+                                    : ConstSlice<ReactionUser>{},
+            value.page, value.voters_more};
 }
 bool application_poll_action(const ApplicationPollSource& source, const UiPollAction& action) noexcept {
     const auto* p = poll(source);
@@ -1238,8 +1211,7 @@ bool application_poll_input(UiInputKind kind, u32 code, bool repeated) noexcept 
     const bool focused =
         owner && owner->card.active && owner->card.owner.manager &&
         g_app.context_focus == owner->card.owner.manager &&
-        owner->card.owner.manager->focused.slot == owner->card.owner.handle.slot &&
-        owner->card.owner.manager->focused.generation == owner->card.owner.handle.generation;
+        ui_widget_handle_equal(owner->card.owner.manager->focused, owner->card.owner.handle);
     if (!voters && !focused &&
         ((kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || !choose_card({}, true)))
         return false;

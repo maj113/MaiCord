@@ -4,14 +4,15 @@
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Server lifecycle: Invite people (a modal that creates an invite link with
 // expiry and use options), Create a server (name and optional icon), Join a
 // server (an invite link form that hands over to the invite dialog), Leave
 // server (a confirmation; owners get an explanation instead), Folder
-// settings (name and colour) and a server's Privacy settings. Drag-and-drop channel moves are sent from here
-// too. Requests use the DETAILS lane through application_channel_overview,
+// settings (name and colour) and a server's Privacy settings. Drag-and-drop
+// channel moves are sent from here too. Requests use the DETAILS lane through application_channel_overview,
 // which forwards to this owner while its modal is open.
 
 bool application_guild_lifecycle_open_invite(u64 guild_id) noexcept;
@@ -36,7 +37,6 @@ void application_guild_lifecycle_close(bool restore_focus = true) noexcept;
 void application_guild_lifecycle_release() noexcept;
 bool application_guild_lifecycle_synchronize() noexcept;
 bool application_guild_lifecycle_input(UiInputKind, u32, bool) noexcept;
-struct SettingsLayer;
 bool application_guild_lifecycle_window_message(UINT, WPARAM, LPARAM) noexcept;
 bool application_guild_lifecycle_submit(u64 now) noexcept;
 bool application_guild_lifecycle_owns_response(u64 request_id) noexcept;

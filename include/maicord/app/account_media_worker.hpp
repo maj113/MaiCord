@@ -94,10 +94,7 @@ struct AccountMediaWorkerLane {
 
 struct AccountMediaWorkerCounters {
     volatile LONG64 queued;
-    volatile LONG64 completed;
     volatile LONG64 ready;
-    volatile LONG64 failed;
-    volatile LONG64 busy;
 };
 
 struct AccountMediaWorkerRetry {

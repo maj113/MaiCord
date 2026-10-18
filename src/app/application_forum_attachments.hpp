@@ -1,8 +1,15 @@
 #pragma once
 #include "application_forum_post.hpp"
 #include "maicord/app/message_attachment_drafts.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/forum_post.hpp"
+#include "maicord/core/win32_types.hpp"
 namespace maicord::app_detail {
+// Whether the file name ends in `suffix` (lowercase), ignoring ASCII case.
+inline bool filename_ends_with(Utf8View name, Utf8View suffix) noexcept {
+    return name.bytes >= suffix.bytes &&
+           ascii_equal_ignore_case({name.data + name.bytes - suffix.bytes, suffix.bytes}, suffix);
+}
 struct ApplicationForumAttachmentRow {
     u64 id;
     Utf8View filename, description, status;

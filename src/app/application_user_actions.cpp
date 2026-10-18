@@ -27,7 +27,8 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/user_context_menu.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -67,7 +68,6 @@ struct State {
     u32 role_count;
     ApplicationContextCommand apps[kUserContextAppItems];
     u32 app_count;
-    u8 app_type;
     // Requests.
     InviteJob invite;
     u64 role_user, role_guild, role_id;
@@ -135,8 +135,6 @@ u32 format_id(u64 value, char* out) noexcept {
     return message_context_format_snowflake(value, {out, 20});
 }
 
-// Facts ---------------------------------------------------------------------
-
 bool is_bot(u64 user_id) noexcept {
     const auto* appearance = user_appearance_find(g_app.account_ui->user_store.appearance, user_id);
     return appearance && (appearance->fields & appearance_bot) && appearance->bot;
@@ -149,6 +147,12 @@ bool composer_accepts_mention() noexcept {
     const auto* channel = channel_id ? chat_state_store_find_channel(chat(), channel_id) : nullptr;
     return channel && g_app.message_composer.channel_id == channel_id && !g_app.message_edit.editor_active &&
            (channel->actions & channel_action_send_messages);
+}
+// Whether the command type lists any rows or is still loading them.
+bool apps_available(u8 type) noexcept {
+    ApplicationContextCommand probe[1];
+    bool loading = false;
+    return application_commands_context(type, {probe, 1}, &loading) || loading;
 }
 // Servers this user can be invited to, in rail order, skipping the menu's own.
 u32 collect_invite_guilds(u64 exclude, u64* output, u32 capacity) noexcept {
@@ -196,8 +200,6 @@ u32 collect_roles(u64 guild_id, u64 user_id, u64* ids, bool* held, u32 capacity)
 bool role_busy() noexcept {
     return g_state && (g_state->role_queued || g_state->work == Work::role);
 }
-
-// Menu ------------------------------------------------------------------------
 
 bool menu_current(u64 user_id) noexcept {
     if (!g_state || g_state->scope != g_app.plugin_account_scope_serial || g_state->menu_user != user_id ||
@@ -257,7 +259,6 @@ bool open_roles() noexcept {
 bool open_apps(u8 type, u64 owner, PopupOwnerKind kind) noexcept {
     auto& s = *g_state;
     bool loading = false;
-    s.app_type = type;
     s.app_count = application_commands_context(type, {s.apps, kUserContextAppItems}, &loading);
     UserContextChoice choices[kUserContextAppItems];
     for (u32 i = 0; i < s.app_count; ++i)
@@ -266,8 +267,6 @@ bool open_apps(u8 type, u64 owner, PopupOwnerKind kind) noexcept {
     s.follow = FollowUp::apps;
     return count && (reopen({s.items, count}, owner, kind, 260.0f) || dismiss_popup());
 }
-
-// Notes -------------------------------------------------------------------------
 
 bool note_form_valid(TextFormOwnerKey key) noexcept {
     return g_state && available() && key.scope == g_app.plugin_account_scope_serial &&
@@ -326,8 +325,6 @@ bool begin_note(u64 user_id) noexcept {
     wake();
     return true;
 }
-
-// Invite to server ---------------------------------------------------------------
 
 bool begin_invite(u64 guild_id) noexcept {
     auto& s = *g_state;
@@ -391,16 +388,8 @@ u64 read_channel_id(Utf8View body) noexcept {
     return find.id;
 }
 
-// Lane -------------------------------------------------------------------------------
-
 bool lane_free() noexcept {
     return g_app.details_request_owner == MessageHistoryRequestOwner::none;
-}
-u64 next_id() noexcept {
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
-    return id;
 }
 bool connected() noexcept {
     return available() && g_app.account.status.gateway_ready &&
@@ -417,8 +406,6 @@ bool claim(u64 id, Work work, u64 user) noexcept {
     return true;
 }
 } // namespace
-
-// Public: user menu -------------------------------------------------------------------
 
 bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMenuSource source,
                                 ConstSlice<PopupItem> leading, const UiPopupFeedback* feedback) noexcept {
@@ -446,13 +433,9 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
     facts.can_invite = !self && collect_invite_guilds(guild, scratch, 1) != 0;
     bool held[kUserContextRoleItems];
     facts.can_edit_roles = guild && collect_roles(guild, user_id, scratch, held, 1) != 0;
-    if (!self && g_app.account_ui->active_channel_id && g_app.account.api.application_command) {
-        ApplicationContextCommand probe[1];
-        bool loading = false;
-        facts.has_apps = application_commands_context(kCommandTypeUser, {probe, 1}, &loading) || loading;
-    }
+    if (!self && g_app.account_ui->active_channel_id && g_app.account.api.application_command)
+        facts.has_apps = apps_available(kCommandTypeUser);
     facts.can_report = !self && g_app.account.api.user_social;
-    facts.developer_mode = false; // Copy user ID joins the copy group below.
     PopupItem items[kMenuCapacity]{};
     u32 count = 0;
     for (u32 i = 0; i < leading.count; ++i)
@@ -524,11 +507,8 @@ u32 application_user_actions_private_channel_items(u64 channel_id, Slice<PopupIt
     }
     u64 scratch[1];
     facts.can_invite = collect_invite_guilds(0, scratch, 1) != 0;
-    if (g_app.account_ui->active_channel_id == channel_id && g_app.account.api.application_command) {
-        ApplicationContextCommand probe[1];
-        bool loading = false;
-        facts.has_apps = application_commands_context(kCommandTypeUser, {probe, 1}, &loading) || loading;
-    }
+    if (g_app.account_ui->active_channel_id == channel_id && g_app.account.api.application_command)
+        facts.has_apps = apps_available(kCommandTypeUser);
     facts.can_report = g_app.account.api.user_social != nullptr;
     facts.developer_mode = g_app.preferences.developer_mode;
     const u32 count = user_context_menu_build(facts, output);
@@ -685,8 +665,6 @@ bool application_user_menu_activate(u32 action) noexcept {
     }
 }
 
-// Public: message menu ---------------------------------------------------------------------
-
 MessageContextMenuExtras application_user_actions_message_extras(const MessageRecord& record) noexcept {
     MessageContextMenuExtras extras{};
     if (!available() || record.delivery != MessageDeliveryState::authoritative)
@@ -697,11 +675,8 @@ MessageContextMenuExtras application_user_actions_message_extras(const MessageRe
     const bool manage = row && (row->actions & channel_action_manage_messages);
     extras.remove_embeds = rich && rich->embed_count && !(record.flags & kMessageFlagSuppressEmbeds) &&
                            (own || manage) && g_app.account.api.user_social;
-    if (record.channel_id == g_app.account_ui->active_channel_id && g_app.account.api.application_command) {
-        ApplicationContextCommand probe[1];
-        bool loading = false;
-        extras.apps = application_commands_context(kCommandTypeMessage, {probe, 1}, &loading) || loading;
-    }
+    if (record.channel_id == g_app.account_ui->active_channel_id && g_app.account.api.application_command)
+        extras.apps = apps_available(kCommandTypeMessage);
     extras.speak = record.content_bytes != 0;
     extras.report = !own && record.author_id && g_app.account.api.user_social;
     return extras;
@@ -744,11 +719,7 @@ bool application_user_actions_message_activate(u64 message_id, u32 action) noexc
         const Utf8View content = message_store_content(g_app.message_view.store, found.handle);
         u32 used = 0;
         const auto append = [&](Utf8View text) noexcept {
-            u32 take = minimum<u32>(text.bytes, sizeof(s.speak) - used);
-            while (take && take < text.bytes && (static_cast<u8>(text.data[take]) & 0xC0) == 0x80)
-                --take;
-            copy_bytes(s.speak + used, text.data, take);
-            used += take;
+            used += utf8_copy_truncated(s.speak + used, sizeof(s.speak) - used, text);
         };
         if (name.bytes) {
             append(name);
@@ -782,8 +753,6 @@ void application_user_actions_commands_changed() noexcept {
     else if (g_app.popup_owner_kind == PopupOwnerKind::member && owner == g_state->menu_user)
         open_apps(kCommandTypeUser, owner, PopupOwnerKind::member);
 }
-
-// Public: notes ---------------------------------------------------------------------------------
 
 Utf8View application_user_note(u64 user_id, bool* loading) noexcept {
     if (loading)
@@ -826,8 +795,6 @@ void application_user_actions_note_gateway(Utf8View data) noexcept {
         application_profile_note_changed();
 }
 
-// Public: lane ------------------------------------------------------------------------------------
-
 u64 application_user_actions_next_wake() noexcept {
     if (!g_state || !connected() || g_state->request_id || !lane_free())
         return 0;
@@ -855,7 +822,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         return false;
     };
     if (s.invite.phase == InvitePhase::create) {
-        const u64 id = next_id();
+        const u64 id = application_next_request_id();
         InviteCreate options{kInviteMaxAgeSeconds, 1, false, true};
         GuildAdminRequest request{};
         request.operation = GuildAdminOperation::invite_create;
@@ -874,7 +841,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         return claim(id, Work::invite_create, s.invite.user_id);
     }
     if (s.invite.phase == InvitePhase::dm) {
-        const u64 id = next_id();
+        const u64 id = application_next_request_id();
         const auto result = api.private_conversation(g_app.account.instance, PrivateConversationOperation::open,
                                                      s.invite.user_id, id);
         if (busy(result))
@@ -910,7 +877,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         request.guild_id = s.role_guild;
         request.target_id = s.role_user;
         request.member = &patch;
-        const u64 id = next_id();
+        const u64 id = application_next_request_id();
         const auto result = api.guild_admin(g_app.account.instance, &request, id);
         if (busy(result)) {
             s.role_queued = true;
@@ -929,7 +896,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         request.channel_id = s.flags_channel;
         request.message_id = s.flags_message;
         request.flags = s.flags_value;
-        const u64 id = next_id();
+        const u64 id = application_next_request_id();
         const auto result = api.user_social ? api.user_social(g_app.account.instance, &request, id)
                                             : RestClientSubmitResult{RestClientSubmitError::invalid_input};
         if (busy(result)) {
@@ -953,7 +920,7 @@ bool application_user_actions_submit(u64 now) noexcept {
         request.text = sent;
     } else
         request.operation = UserSocialOperation::note_get;
-    const u64 id = next_id();
+    const u64 id = application_next_request_id();
     const auto result = api.user_social(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (next.work == UserNoteWork::save)

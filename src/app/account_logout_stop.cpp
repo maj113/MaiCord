@@ -1,6 +1,6 @@
 #include "maicord/app/account_logout_stop.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

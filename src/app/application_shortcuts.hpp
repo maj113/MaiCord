@@ -16,7 +16,6 @@ bool handle_shortcut_key(u32 key, bool repeated) noexcept;
 // Custom (voice) keybinds apply everywhere in the window, ahead of modal
 // surfaces; they never share a built-in, text-editing or system chord.
 bool application_custom_keybind_input(UiInputKind kind, u32 code, bool repeated) noexcept;
-bool application_run_shortcut(ShortcutAction action, u32 key, bool repeated) noexcept;
 
 // Background voice keybinds: polls the custom chords (the push-to-talk
 // mechanism) while a call is active and another window has focus.

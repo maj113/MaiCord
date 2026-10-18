@@ -54,7 +54,8 @@
 #include "maicord/ui/composer_autocomplete.hpp"
 #include "maicord/ui/widget_storage.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -119,6 +120,37 @@ bool commit_chat_state_backing(void* context, ChatStateBacking backing, u32 bank
     committed.name_bytes[bank] = bytes;
     return true;
 }
+
+void release_shell_storage(Application& application) noexcept {
+    popup_scene_release(&application.popup_scene);
+    ui_widget_storage_release(&application.popup_storage);
+    ui_widget_storage_release(&application.member_list_storage);
+    ui_widget_storage_release(&application.shell_navigation_storage);
+    ui_widget_storage_release(&application.guild_rail_storage);
+    ui_virtual_row_storage_release(&application.member_list_rows);
+    ui_virtual_row_storage_release(&application.shell_navigation_rows);
+    ui_virtual_row_storage_release(&application.guild_rail_rows);
+}
+
+void release_overlay_owners() noexcept {
+    application_account_menu_release();
+    application_search_release();
+    application_pinned_messages_release();
+    application_inbox_release();
+    application_thread_browser_release();
+    application_media_picker_release();
+    application_downloads_release();
+    application_shortcuts_overlay_release();
+    application_call_release();
+    application_stream_release();
+    application_guild_card_release();
+    application_stage_release();
+    application_soundboard_release();
+    application_message_components_release();
+    application_invite_cards_release();
+    application_message_forward_release();
+    application_quick_switcher_release();
+}
 } // namespace
 
 bool application_initialize_shell_scenes(Application& application) noexcept {
@@ -167,14 +199,7 @@ bool application_initialize_shell_scenes(Application& application) noexcept {
                                       ui_widget_storage_layout_nodes(application.popup_storage)) ||
         !ui_widget_manager_bind_growable_storage(&application.popup_scene.widgets, ui_widget_storage_grow,
                                                  &application.popup_storage)) {
-        popup_scene_release(&application.popup_scene);
-        ui_widget_storage_release(&application.popup_storage);
-        ui_widget_storage_release(&application.member_list_storage);
-        ui_widget_storage_release(&application.shell_navigation_storage);
-        ui_widget_storage_release(&application.guild_rail_storage);
-        ui_virtual_row_storage_release(&application.member_list_rows);
-        ui_virtual_row_storage_release(&application.shell_navigation_rows);
-        ui_virtual_row_storage_release(&application.guild_rail_rows);
+        release_shell_storage(application);
         return false;
     }
     application.guild_rail_scene.row_storage = &application.guild_rail_rows;
@@ -185,7 +210,7 @@ bool application_initialize_shell_scenes(Application& application) noexcept {
 
 // The login screen never lays out messages: the scene reserves its address
 // range at startup and commits its signed-in working set in
-// application_initialize_account_ui (about 0.7 MB fewer committed bytes before sign-in).
+// application_initialize_account_ui.
 bool application_initialize_message_scene(Application& application) noexcept {
     if (!ui_widget_storage_initialize(&application.message_scene_storage, kMessageSceneWidgetCapacity, 1)) {
         return false;
@@ -209,37 +234,14 @@ void application_release_widget_storage(Application& application) noexcept {
     if (&application == &g_app) {
         application_theme_editor_release();
         application_tooltip_release();
-        application_account_menu_release();
-        application_search_release();
-        application_pinned_messages_release();
-        application_inbox_release();
-        application_thread_browser_release();
-        application_media_picker_release();
-        application_downloads_release();
-        application_shortcuts_overlay_release();
-        application_call_release();
-        application_stream_release();
-        application_guild_card_release();
-        application_stage_release();
-        application_soundboard_release();
-        application_message_components_release();
-        application_invite_cards_release();
-        application_message_forward_release();
-        application_quick_switcher_release();
+        release_overlay_owners();
     }
     message_scene_release(&application.message_scene);
     ui_widget_storage_release(&application.message_scene_storage);
     message_composer_scene_release(&application.message_composer_scene);
     application_commands_release();
     composer_autocomplete_release(&application.composer_autocomplete);
-    popup_scene_release(&application.popup_scene);
-    ui_widget_storage_release(&application.popup_storage);
-    ui_widget_storage_release(&application.member_list_storage);
-    ui_widget_storage_release(&application.shell_navigation_storage);
-    ui_widget_storage_release(&application.guild_rail_storage);
-    ui_virtual_row_storage_release(&application.member_list_rows);
-    ui_virtual_row_storage_release(&application.shell_navigation_rows);
-    ui_virtual_row_storage_release(&application.guild_rail_rows);
+    release_shell_storage(application);
     ui_scene_release(&application.shell_scene);
     application.member_list_scene.row_storage = nullptr;
     application.shell_navigation_scene.row_storage = nullptr;
@@ -254,25 +256,7 @@ void application_release_account_ui(Application& application) noexcept {
         application_poll_release();
         application_member_moderation_release();
         application_tooltip_clear();
-        application_account_menu_release();
-        application_search_release();
-        application_pinned_messages_release();
-        application_inbox_release();
-        application_thread_browser_release();
-        application_media_picker_release();
-        application_downloads_release();
-        application_shortcuts_overlay_release();
-        application_call_release();
-        application_stream_release();
-        application_guild_card_release();
-        application_stage_release();
-        application_soundboard_release();
-        application_message_components_release();
-        application_invite_cards_release();
-        application_message_forward_release();
-        application_quick_switcher_release();
-    }
-    if (&application == &g_app) {
+        release_overlay_owners();
         // Detach borrowed popup feedback while its retained owner is alive.
         application_scoped_read_menu_clear();
         if (application.scoped_read && application.popup_scene.active)
@@ -280,29 +264,23 @@ void application_release_account_ui(Application& application) noexcept {
         application_scoped_read_release();
     }
     application_read_state_release(application);
-    if (&application == &g_app)
-        application_friends_release();
     if (&application == &g_app) {
+        application_friends_release();
         application_theme_editor_release();
         application_settings_release();
     }
     application.message_rejection = {};
     application.message_rejection_channel_id = 0;
     application.message_mutation_notice = {};
-    if (&application == &g_app)
-        application_profile_release();
-    if (&application == &g_app)
-        application_image_viewer_close();
-    if (&application == &g_app)
-        application_text_form_close(false, false);
-    if (&application == &g_app)
-        application_thread_creation_release();
     if (&application == &g_app) {
+        application_profile_release();
+        application_image_viewer_close();
+        application_text_form_close(false, false);
+        application_thread_creation_release();
         application_forum_form_release();
         application_forum_post_release();
-    }
-    if (&application == &g_app)
         application_composer_text_input_release();
+    }
     application.image_viewer.scene.active = false;
     application.image_viewer.held_key = 0;
     application.renderer.image_viewer = nullptr;

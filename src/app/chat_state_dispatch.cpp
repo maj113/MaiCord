@@ -89,27 +89,21 @@ GuildSettings guild_settings(const GatewayClientStateMutation& state) noexcept {
     return settings;
 }
 
-RoleInput linked_role(RoleInput input, bool linked) noexcept {
-    input.linked = linked;
-    return input;
-}
-
 RoleInput packed_role_input(u64 guild_id, const GatewayClientRoleMutation& role, Utf8View name) noexcept {
-    RoleInput input{role.id,
-                            guild_id,
-                            role.permissions,
-                            name,
-                            role.position,
-                            role.color,
-                            (role.flags & gateway_client_role_hoist) != 0,
-                            (role.flags & gateway_client_role_managed) != 0,
-                            (role.flags & gateway_client_role_mentionable) != 0,
-                            (role.flags & gateway_client_role_has_icon) != 0,
-                            (role.flags & gateway_client_role_in_prompt) != 0};
-    input.secondary_color = role.secondary_color;
-    input.tertiary_color = role.tertiary_color;
-    input.linked = (role.flags & gateway_client_role_linked) != 0;
-    return input;
+    return RoleInput{role.id,
+                     guild_id,
+                     role.permissions,
+                     name,
+                     role.position,
+                     role.color,
+                     (role.flags & gateway_client_role_hoist) != 0,
+                     (role.flags & gateway_client_role_managed) != 0,
+                     (role.flags & gateway_client_role_mentionable) != 0,
+                     (role.flags & gateway_client_role_has_icon) != 0,
+                     (role.flags & gateway_client_role_in_prompt) != 0,
+                     role.secondary_color,
+                     role.tertiary_color,
+                     (role.flags & gateway_client_role_linked) != 0};
 }
 
 GuildInput guild_input(const GatewayClientEvent& event, ConstSlice<u8> payload, Utf8View name,
@@ -149,7 +143,7 @@ ChannelInput channel_input(const GatewayClientStateMutation& state, Utf8View nam
                                static_cast<u16>(state.rate_limit_per_user ? state.rate_limit_per_user - 1 : 0),
                                state.rate_limit_per_user != 0,
                                // Aliases a role's colour, so only a joined thread carries it.
-                               state.thread_self_joined && (state.type == 10 || state.type == 11 || state.type == 12)
+                               state.thread_self_joined && channel_is_thread(state.type)
                                    ? state.thread_join_seconds
                                    : 0u};
 }
@@ -161,20 +155,16 @@ bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_
     return (state.fields & required) == required && state.id != 0 &&
         !(state.channel_event_flags & ~gateway_client_channel_new_thread) &&
         (allow_new_thread || !state.channel_event_flags) &&
-        (!state.channel_event_flags || state.type == 10 || state.type == 11 || state.type == 12) &&
+        (!state.channel_event_flags || channel_is_thread(state.type)) &&
         !state.guild_banner && state.rate_limit_per_user <= 21601 &&
         !(state.content_policy & ~kChannelContentAgeRestricted) && (!state.content_policy || state.content_policy_known) &&
         (!state.thread_archived || state.thread_archived_known) &&
         (!state.thread_locked || state.thread_locked_known) &&
         (!state.thread_self_joined || state.thread_self_joined_known) &&
-        (!state.thread_archived_known || state.type == 10 || state.type == 11 || state.type == 12) &&
-        (!(state.thread_locked_known || state.thread_self_joined_known) || state.type == 10 || state.type == 11 || state.type == 12) &&
+        (!state.thread_archived_known || channel_is_thread(state.type)) &&
+        (!(state.thread_locked_known || state.thread_self_joined_known) || channel_is_thread(state.type)) &&
         (private_channel ? state.guild_id == 0 && state.parent_id == 0 &&
             !(state.fields & gateway_client_state_field_permission_overwrites) : state.guild_id != 0);
-}
-
-bool thread_channel_type(u8 type) noexcept {
-    return type == 10 || type == 11 || type == 12;
 }
 
 bool read_u64(ConstSlice<u8> payload, u32 offset, u64* value) noexcept {
@@ -488,7 +478,7 @@ bool thread_sync_record(ConstSlice<u8> payload, u32 offset, GatewayClientStateMu
     if (offset > payload.count || sizeof(*channel) > payload.count - offset) return false;
     copy_bytes(channel, payload.data + offset, sizeof(*channel));
     offset += sizeof(*channel);
-    if (!validate_channel_state(*channel) || !thread_channel_type(channel->type) || !channel->parent_id ||
+    if (!validate_channel_state(*channel) || !channel_is_thread(channel->type) || !channel->parent_id ||
         channel->parent_id == channel->id ||
         channel->overwrite_count || (channel->fields & gateway_client_state_field_permission_overwrites) ||
         channel->name_bytes > payload.count - offset) return false;
@@ -542,7 +532,7 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         for (u8 value : proof.reserved) if (value) return apply_error(ChatStateApplyError::invalid_payload);
         const auto* channel = chat_state_store_find_channel(*store, proof.thread_id);
         if (!channel) return result;
-        if (channel->guild_id != proof.guild_id || !thread_channel_type(channel->type)) return apply_error(ChatStateApplyError::invalid_payload);
+        if (channel->guild_id != proof.guild_id || !channel_is_thread(channel->type)) return apply_error(ChatStateApplyError::invalid_payload);
         const auto* guild = chat_state_store_find_guild(*store, proof.guild_id);
         if (!guild || guild->unavailable) return result;
         if (!chat_state_store_set_thread_self_membership(store, proof.thread_id, proof.self_user_id, true))
@@ -578,7 +568,7 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         if (cursor != payload.count || actual != proof.authority_flags) return apply_error(ChatStateApplyError::invalid_payload);
         const auto* channel = chat_state_store_find_channel(*store, proof.thread_id);
         if (!channel) return result;
-        if (channel->guild_id != proof.guild_id || !thread_channel_type(channel->type)) return apply_error(ChatStateApplyError::invalid_payload);
+        if (channel->guild_id != proof.guild_id || !channel_is_thread(channel->type)) return apply_error(ChatStateApplyError::invalid_payload);
         const auto* guild = chat_state_store_find_guild(*store, proof.guild_id);
         if (!guild || guild->unavailable) return result;
         if (proof.incomplete) {
@@ -625,7 +615,7 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         const auto* resident = chat_state_store_find_channel(*store, state.id);
         if (parent && (parent->guild_id != sync.guild_id || !channel_is_thread_parent(parent->type)))
             return apply_error(ChatStateApplyError::invalid_payload);
-        if (resident && !thread_channel_type(resident->type))
+        if (resident && !channel_is_thread(resident->type))
             return apply_error(ChatStateApplyError::invalid_payload);
     }
     const u32 members_begin = cursor;
@@ -661,13 +651,13 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         const auto& channel = store->channels[store->channel_order[i]];
         if (channel.guild_id != sync.guild_id ||
             (sync.scope == GatewayClientThreadSyncScope::parents &&
-             !id_in(payload, 0, sync.parent_count, thread_channel_type(channel.type) ? channel.parent_id : channel.id)))
+             !id_in(payload, 0, sync.parent_count, channel_is_thread(channel.type) ? channel.parent_id : channel.id)))
             continue;
         if (channel_is_thread_parent(channel.type)) {
             chat_state_store_set_thread_listing_synced(store, channel.id, sync.self_user_id);
             continue;
         }
-        if (!thread_channel_type(channel.type))
+        if (!channel_is_thread(channel.type))
             continue;
         bool listed = false;
         for (u32 r = 0; r < sync.thread_count; ++r) if (byte_load_le64(payload.data + offsets[r]) == channel.id) listed = true;
@@ -924,7 +914,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                         !validate_channel_state(channel) || channel.guild_id != event.state.id ||
                         channel_name.bytes > 400 ||
                         (!(channel.fields & gateway_client_state_field_permission_overwrites) && channel.overwrite_count != 0) ||
-                        (!thread_channel_type(channel.type) &&
+                        (!channel_is_thread(channel.type) &&
                          (channel.fields & gateway_client_state_field_permission_overwrites) == 0) ||
                         !overwrite_payload_valid(overwrites, channel.overwrite_count)) {
                         return apply_error(ChatStateApplyError::invalid_payload);
@@ -998,7 +988,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 if (admission == ChatStateStoreError::invalid_input)
                     return apply_error(ChatStateApplyError::invalid_payload);
                 if (admission != ChatStateStoreError::none)
-                    return store_error(ChatStateStoreResult{0, admission, false, false});
+                    return table_full(admission);
                 if (!chat_state_store_prepare_permissions(store,
                     store->role_count - resident_guild_roles(*store, event.state.id) + event.state.role_count,
                     store->overwrite_count - resident_guild_overwrites(*store, event.state.id) + event.state.overwrite_count))
@@ -1103,7 +1093,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 *store, guild, event.state.role_count, read_guild_role_input, &role_input);
             if (admission == ChatStateStoreError::invalid_input) return apply_error(ChatStateApplyError::invalid_payload);
             if (admission != ChatStateStoreError::none)
-                return store_error(ChatStateStoreResult{0, admission, false, false});
+                return table_full(admission);
             if (!chat_state_store_prepare_permissions(store,
                 store->role_count - old_roles + event.state.role_count, store->overwrite_count))
                 return apply_error(ChatStateApplyError::capacity);
@@ -1161,16 +1151,16 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             payload.count != role_name.bytes ||
             !chat_state_store_find_guild(*store, event.state.guild_id) ||
             !chat_state_store_upsert_role(
-                store, linked_role(RoleInput{event.state.id, event.state.guild_id,
-                                        event.state.permissions, role_name,
-                                        event.state.position, event.state.color,
-                                        event.state.hoist,
-                                        event.state.managed,
-                                        (event.state.role_flags & gateway_client_role_mentionable) != 0,
-                                        (event.state.role_flags & gateway_client_role_has_icon) != 0,
-                                        (event.state.role_flags & gateway_client_role_in_prompt) != 0,
-                                        event.state.secondary_color, event.state.tertiary_color},
-                                   (event.state.role_flags & gateway_client_role_linked) != 0))) {
+                store, RoleInput{event.state.id, event.state.guild_id,
+                                 event.state.permissions, role_name,
+                                 event.state.position, event.state.color,
+                                 event.state.hoist,
+                                 event.state.managed,
+                                 (event.state.role_flags & gateway_client_role_mentionable) != 0,
+                                 (event.state.role_flags & gateway_client_role_has_icon) != 0,
+                                 (event.state.role_flags & gateway_client_role_in_prompt) != 0,
+                                 event.state.secondary_color, event.state.tertiary_color,
+                                 (event.state.role_flags & gateway_client_role_linked) != 0})) {
             return apply_error(ChatStateApplyError::capacity);
         }
         chat_state_store_recompute_guild_permissions(store, event.state.guild_id);
@@ -1235,7 +1225,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             !gateway_client_event_state_name(event, payload, &name) || name.bytes > 400 ||
             (resident && resident->guild_id != event.state.guild_id) ||
             (!has_overwrites && event.state.overwrite_count != 0) ||
-            (!has_overwrites && !thread_channel_type(event.state.type) && !channel_is_private(event.state.type) &&
+            (!has_overwrites && !channel_is_thread(event.state.type) && !channel_is_private(event.state.type) &&
              (event.dispatch_kind == GatewayClientDispatchKind::channel_create || !resident)) ||
             (has_overwrites &&
              (!gateway_client_event_channel_overwrites(event, payload, &overwrites) ||
@@ -1250,7 +1240,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
         if (admission == ChatStateStoreError::invalid_input)
             return apply_error(ChatStateApplyError::invalid_payload);
         if (admission != ChatStateStoreError::none)
-            return store_error(ChatStateStoreResult{0, admission, false, false});
+            return table_full(admission);
         if (has_overwrites && !chat_state_store_prepare_permissions(store, store->role_count,
             store->overwrite_count - (resident ? resident->overwrite_count : 0u) + event.state.overwrite_count))
             return apply_error(ChatStateApplyError::capacity);

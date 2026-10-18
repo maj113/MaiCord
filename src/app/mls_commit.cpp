@@ -1,7 +1,7 @@
 #include "maicord/app/mls_group.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -27,13 +27,6 @@ MlsStatus confirmed_hash(KdfSha256Workspace& kdf, const MlsCommit& commit, const
     const ConstSlice<u8> parts[]{
         {interim, kMlsHashBytes}, commit.confirmed_content, commit.confirmed_signature};
     return mls_hash(kdf, {parts, 3}, confirmed);
-}
-MlsStatus transcript_commit(KdfSha256Workspace& kdf, MlsTranscript* transcript, const u8* confirmed,
-                            const u8* tag) noexcept {
-    copy_bytes(transcript->confirmed, confirmed, kMlsHashBytes);
-    transcript->has_confirmed = true;
-    return mls_status(mls_transcript_interim(kdf, {transcript->confirmed, kMlsHashBytes},
-                                             {tag, kMlsHashBytes}, {transcript->interim, kMlsHashBytes}));
 }
 MlsStatus next_epoch(KdfSha256Workspace& kdf, const MlsEpochSecrets& current, const u8* commit_secret,
                      const u8* confirmed, ConstSlice<u8> context, MlsEpochSecrets* next) noexcept {
@@ -114,7 +107,7 @@ MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor
     u8 signature[kMlsSignatureMaximum], confirmed[kMlsHashBytes], membership[kMlsHashBytes];
     if (writer.ok()) {
         const auto signed_result =
-            mls_sign_with_label(kdf, signing, mls_text("FramedContentTBS"), {message.data, content_end},
+            mls_sign_with_label(kdf, signing, text_bytes("FramedContentTBS"), {message.data, content_end},
                                 context.serialized, {signature, sizeof(signature)});
         if (!signed_result.ok())
             return MlsStatus::crypto_failure;
@@ -152,10 +145,9 @@ MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor
     }
     if (status == MlsStatus::ok && writer.used > kMlsMaxCommitBytes)
         status = MlsStatus::buffer_too_small;
-    if (status == MlsStatus::ok) {
-        authored->transcript = current.transcript;
-        status = transcript_commit(kdf, &authored->transcript, confirmed, authored->epoch.confirmation_tag);
-    }
+    if (status == MlsStatus::ok)
+        status =
+            mls_transcript_join(kdf, &authored->transcript, confirmed, authored->epoch.confirmation_tag);
     u32 consumed = 0;
     if (status == MlsStatus::ok)
         status = mls_group_context_parse({context_output.data, context_bytes}, external_sender,
@@ -172,13 +164,13 @@ MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor
          authored->commit.sender_leaf != sender_leaf ||
          authored->commit.reference_count != proposals.count || authored->commit.has_path != has_path))
         status = MlsStatus::crypto_failure;
-    SecureZeroMemory(confirmed, sizeof(confirmed));
-    SecureZeroMemory(membership, sizeof(membership));
+    secure_clear_bytes(confirmed, sizeof(confirmed));
+    secure_clear_bytes(membership, sizeof(membership));
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(message.data, minimum(writer.used, message.count));
+        secure_clear_bytes(message.data, minimum(writer.used, message.count));
         if (context_bytes)
-            SecureZeroMemory(context_output.data, context_bytes);
-        SecureZeroMemory(authored, sizeof(*authored));
+            secure_clear_bytes(context_output.data, context_bytes);
+        secure_clear_bytes(authored, sizeof(*authored));
         return status;
     }
     authored->message_bytes = writer.used;
@@ -311,7 +303,7 @@ MlsStatus mls_commit_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const 
     if (!mls_done(reader) || signature.count < 8 || signature.count > kMlsSignatureMaximum ||
         tag.count != kMlsHashBytes || membership.count != kMlsHashBytes)
         return MlsStatus::malformed;
-    if (const auto status = mls_verify_point(kdf, sender.signature_key, mls_text("FramedContentTBS"),
+    if (const auto status = mls_verify_point(kdf, sender.signature_key, text_bytes("FramedContentTBS"),
                                              {input.data, content_end}, context.serialized, signature);
         status != MlsStatus::ok)
         return status;
@@ -434,7 +426,7 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
                         signing, external_sender, message, buffers.next_context);
     if (status != MlsStatus::ok) {
         if (path_bytes && offset + path_bytes <= message.count)
-            SecureZeroMemory(message.data + offset, path_bytes);
+            secure_clear_bytes(message.data + offset, path_bytes);
         return status;
     }
     auto& successor = local->successor;
@@ -541,15 +533,13 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
         !mls_confirmation_matches({candidate.epoch.confirmation_tag, kMlsHashBytes},
                                   {commit.confirmation_tag, kMlsHashBytes}))
         status = MlsStatus::crypto_failure;
-    if (status == MlsStatus::ok) {
-        candidate.transcript = current.transcript;
-        status = transcript_commit(kdf, &candidate.transcript, confirmed, commit.confirmation_tag);
-    }
+    if (status == MlsStatus::ok)
+        status = mls_transcript_join(kdf, &candidate.transcript, confirmed, commit.confirmation_tag);
     u32 consumed = 0;
     if (status == MlsStatus::ok)
         status = mls_group_context_parse({buffers.next_context.data, context_bytes}, external_sender,
                                          &candidate.context, &consumed);
-    SecureZeroMemory(hpke_context, sizeof(hpke_context));
+    secure_clear_bytes(hpke_context, sizeof(hpke_context));
     if (status != MlsStatus::ok)
         return status;
     candidate.tree = *next_tree;

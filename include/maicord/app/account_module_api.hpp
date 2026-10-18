@@ -14,7 +14,6 @@
 #include "maicord/app/account_thread_browser.hpp"
 #include "maicord/app/account_thread_creation.hpp"
 #include "maicord/app/account_forum_post.hpp"
-#include "maicord/app/account_self_status.hpp"
 #include "maicord/app/account_logout.hpp"
 #include "maicord/app/account_bulk_message_ack.hpp"
 #include "maicord/app/account_stage.hpp"

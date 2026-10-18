@@ -62,16 +62,20 @@ const PluginActivity* plugin_activity() noexcept {
     return newest;
 }
 
-void scope() noexcept {
-    if (g.account_scope == g_app.plugin_account_scope_serial)
-        return;
-    if (g.request_id)
-        return; // The primary lane still owns this completion.
+// Drops the account state but keeps the loaded registered games.
+void reset() noexcept {
     const RegisteredGames games = g.games;
     const bool loaded = g.games_loaded;
     g = {};
     g.games = games;
     g.games_loaded = loaded;
+}
+void scope() noexcept {
+    if (g.account_scope == g_app.plugin_account_scope_serial)
+        return;
+    if (g.request_id)
+        return; // The primary lane still owns this completion.
+    reset();
     g.account_scope = g_app.plugin_account_scope_serial;
 }
 bool module() noexcept {
@@ -212,13 +216,8 @@ u64 application_activity_next_wake() noexcept {
     return wake;
 }
 void application_activity_clear() noexcept {
-    if (g.request_id)
-        return;
-    const RegisteredGames games = g.games;
-    const bool loaded = g.games_loaded;
-    g = {};
-    g.games = games;
-    g.games_loaded = loaded;
+    if (!g.request_id)
+        reset();
 }
 bool application_activity_set_plugin(u64 owner_id, const ApplicationPluginActivity* activity) noexcept {
     if (!owner_id)

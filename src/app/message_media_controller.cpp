@@ -8,7 +8,7 @@
 #include "maicord/ui/message_rich_widgets.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 
@@ -148,41 +148,38 @@ bool first_asset_observation(MessageMediaController* controller, MediaAssetKey k
     return true;
 }
 
-MediaAttachmentFormat supported_attachment_format_impl(const MessageRichStore& store,
-                                                       const MessageRichAttachment& attachment) noexcept {
-    const MediaAttachmentFormat format = message_rich_attachment_format(store, attachment);
-    if (format == MediaAttachmentFormat::unknown) {
-        return MediaAttachmentFormat::unknown;
-    }
-    return format;
-}
-
 bool asset_resident(MediaAtlas* atlas, MediaAssetKey key) noexcept {
     return atlas && media_atlas_find(atlas, key).ok();
 }
 
-// A paused animation (play false) keeps its current frame: the timeline entry
-// is only looked up, so it is never marked visible and never advances.
-bool request_asset(const MessageMediaControllerCallbacks& callbacks, MediaAssetKey key, bool animated,
-                   MessageMediaController* controller, AnimationTimeline* animations, MediaAtlas* atlas,
-                   u64 now_us, u32* candidates, bool* stopped, bool play = true) noexcept {
-    // Leave the key unmarked so a hovered row sharing it can still play it.
+// True when the asset still needs its callback. A paused animation (play false) keeps its current
+// frame: the timeline entry is only looked up, so it is never marked visible and never advances.
+// A paused or held asset is left unmarked so a hovered row or group sharing it can still play it.
+bool needs_request(MessageMediaController* controller, MediaAssetKey key, bool animated,
+                   AnimationTimeline* animations, MediaAtlas* atlas, u64 now_us, bool play,
+                   bool* force_request) noexcept {
     if (animated && !play && animation_timeline_find(animations, key).ok() && asset_resident(atlas, key))
-        return true;
-    if (!first_asset_observation(controller, key)) {
-        return true;
-    }
-    bool force_request = false;
+        return false;
+    if (!first_asset_observation(controller, key))
+        return false;
+    *force_request = false;
     if (animated) {
         const bool observed = play ? animation_timeline_observe_visible(animations, key, now_us)
                                    : animation_timeline_find(animations, key).ok();
-        if (observed && asset_resident(atlas, key)) {
-            return true;
-        }
-        force_request = !observed;
-    } else if (asset_resident(atlas, key)) {
+        if (observed && asset_resident(atlas, key))
+            return false;
+        *force_request = !observed;
         return true;
     }
+    return !asset_resident(atlas, key);
+}
+
+bool request_asset(const MessageMediaControllerCallbacks& callbacks, MediaAssetKey key, bool animated,
+                   MessageMediaController* controller, AnimationTimeline* animations, MediaAtlas* atlas,
+                   u64 now_us, u32* candidates, bool* stopped, bool play = true) noexcept {
+    bool force_request = false;
+    if (!needs_request(controller, key, animated, animations, atlas, now_us, play, &force_request))
+        return true;
     ++*candidates;
     bool stop_scan = false;
     if (!callbacks.asset(callbacks.context, key, force_request, &stop_scan)) {
@@ -202,24 +199,10 @@ bool request_avatar(const MessageMediaControllerCallbacks& callbacks, const User
         return true;
     }
     const bool animated = asset_hash_animated(avatar_hash);
-    const MediaAssetKey key = media_asset_user_avatar(user.id, variant, animated);
-    // Leave the key unmarked so a hovered group by the same author can play it.
-    if (animated && !play && animation_timeline_find(animations, key).ok() && asset_resident(atlas, key))
-        return true;
-    if (!first_asset_observation(controller, key)) {
-        return true;
-    }
     bool force_request = false;
-    if (animated) {
-        const bool observed = play ? animation_timeline_observe_visible(animations, key, now_us)
-                                   : animation_timeline_find(animations, key).ok();
-        if (observed && asset_resident(atlas, key)) {
-            return true;
-        }
-        force_request = !observed;
-    } else if (asset_resident(atlas, key)) {
+    if (!needs_request(controller, media_asset_user_avatar(user.id, variant, animated), animated, animations,
+                       atlas, now_us, play, &force_request))
         return true;
-    }
     ++*candidates;
     bool stop_scan = false;
     if (!callbacks.avatar(callbacks.context, user, force_request, &stop_scan)) {
@@ -352,7 +335,7 @@ bool visit_inline_emojis(const MessageMediaControllerCallbacks& callbacks, Utf8V
 
 MediaAttachmentFormat message_media_supported_attachment_format(
     const MessageRichStore& store, const MessageRichAttachment& attachment) noexcept {
-    return supported_attachment_format_impl(store, attachment);
+    return message_rich_attachment_format(store, attachment);
 }
 
 bool message_media_controller_initialize(MessageMediaController* controller,
@@ -755,6 +738,10 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
         return failure(controller, MessageMediaControllerError::invalid_input);
     }
     u32 candidates = 0;
+    const auto stopped_at = [&](u32 visible) noexcept {
+        saturating_accumulate(controller->decoration_candidates, candidates);
+        return MessageMediaControllerResult{visible + 1u, candidates, MessageMediaControllerError::none, true};
+    };
     for (u32 visible = 0; visible < controller->row_count; ++visible) {
         const MessageMediaVisibleRow& row = controller->rows[visible];
         if (!row.message) {
@@ -767,11 +754,8 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
                                       row.message->id == controller->avatar_message_id)) {
             return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
         }
-        if (stopped) {
-            saturating_accumulate(controller->decoration_candidates, candidates);
-            return MessageMediaControllerResult{visible + 1u, candidates, MessageMediaControllerError::none,
-                                                true};
-        }
+        if (stopped)
+            return stopped_at(visible);
         const bool emoji_plays =
             message_media_controller_animation_plays(*controller, MediaAssetKind::custom_emoji, row.message->id);
         const bool stickers_play =
@@ -781,11 +765,8 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
                                  row.message->id, row.message->revision, 0)) {
             return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
         }
-        if (stopped) {
-            saturating_accumulate(controller->decoration_candidates, candidates);
-            return MessageMediaControllerResult{visible + 1u, candidates, MessageMediaControllerError::none,
-                                                true};
-        }
+        if (stopped)
+            return stopped_at(visible);
         for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
         if (content_scope && !rich_store) continue;
         const auto* content_rich = content_scope && rich_store
@@ -807,11 +788,8 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
                                                     media_atlas, now_us, &candidates, &stopped, false)) {
                 return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
             }
-            if (stopped) {
-                saturating_accumulate(controller->decoration_candidates, candidates);
-                return MessageMediaControllerResult{visible + 1u, candidates,
-                                                    MessageMediaControllerError::none, true};
-            }
+            if (stopped)
+                return stopped_at(visible);
         }
         for (u32 sticker = 0; sticker < content_rich->sticker_count; ++sticker) {
             const MessageRichSticker& value = content_rich->stickers[sticker];
@@ -824,11 +802,8 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
                                &candidates, &stopped, stickers_play)) {
                 return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
             }
-            if (stopped) {
-                saturating_accumulate(controller->decoration_candidates, candidates);
-                return MessageMediaControllerResult{visible + 1u, candidates,
-                                                    MessageMediaControllerError::none, true};
-            }
+            if (stopped)
+                return stopped_at(visible);
         }
         for (u32 reaction = 0; !content_scope && message_rich_display().reactions &&
                                 reaction < content_rich->reaction_count;
@@ -849,11 +824,8 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
                                &stopped, emoji_plays)) {
                 return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
             }
-            if (stopped) {
-                saturating_accumulate(controller->decoration_candidates, candidates);
-                return MessageMediaControllerResult{visible + 1u, candidates,
-                                                    MessageMediaControllerError::none, true};
-            }
+            if (stopped)
+                return stopped_at(visible);
         }
     }
         }

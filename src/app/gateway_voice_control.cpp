@@ -20,8 +20,6 @@ bool local_session(const GatewayVoiceControl& voice, const GatewayVoiceState& st
 } // namespace
 
 void gateway_voice_request(GatewayVoiceControl* voice, const GatewayVoiceStateUpdate& desired) noexcept {
-    if (!voice)
-        return;
     voice->desired = desired;
     voice->requested = true;
     voice->error = GatewayVoiceError::none;
@@ -32,7 +30,7 @@ void gateway_voice_request(GatewayVoiceControl* voice, const GatewayVoiceStateUp
 }
 
 bool gateway_voice_next(const GatewayVoiceControl& voice, GatewayVoiceStateUpdate* output) noexcept {
-    if (!output || !voice.requested || voice.error != GatewayVoiceError::none || !voice.setup.user_id)
+    if (!voice.requested || voice.error != GatewayVoiceError::none || !voice.setup.user_id)
         return false;
     const auto& setup = voice.setup;
     const GatewayVoiceStateUpdate current{setup.guild_id, setup.channel_id, false, false, false};
@@ -56,8 +54,6 @@ bool gateway_voice_next(const GatewayVoiceControl& voice, GatewayVoiceStateUpdat
 
 bool gateway_voice_submitted(GatewayVoiceControl* voice, const GatewayVoiceStateUpdate& command,
                              u64 now_ms) noexcept {
-    if (!voice)
-        return false;
     GatewayVoiceStateUpdate expected{};
     if (!gateway_voice_next(*voice, &expected) || !same(command, expected))
         return false;
@@ -77,8 +73,6 @@ bool gateway_voice_submitted(GatewayVoiceControl* voice, const GatewayVoiceState
 }
 
 void gateway_voice_cancel(GatewayVoiceControl* voice, GatewayVoiceError error) noexcept {
-    if (!voice)
-        return;
     voice_setup_leave(&voice->setup);
     voice->requested = voice->awaiting_acknowledgement = voice->has_applied = false;
     voice->acknowledgement_deadline_ms = 0;
@@ -87,14 +81,12 @@ void gateway_voice_cancel(GatewayVoiceControl* voice, GatewayVoiceError error) n
 }
 
 void gateway_voice_release(GatewayVoiceControl* voice) noexcept {
-    if (!voice)
-        return;
     gateway_voice_cancel(voice, GatewayVoiceError::none);
     voice_setup_release(&voice->setup);
 }
 
 void gateway_voice_state(GatewayVoiceControl* voice, const GatewayVoiceState& state, u64 now_ms) noexcept {
-    if (!voice || !voice->requested || state.user_id != voice->setup.user_id)
+    if (!voice->requested || state.user_id != voice->setup.user_id)
         return;
     const u64 guild = voice->awaiting_acknowledgement ? voice->pending.guild_id : voice->setup.guild_id;
     if (!local_session(*voice, state)) {
@@ -130,7 +122,7 @@ void gateway_voice_state(GatewayVoiceControl* voice, const GatewayVoiceState& st
 }
 
 void gateway_voice_server(GatewayVoiceControl* voice, const GatewayVoiceServer& server) noexcept {
-    if (!voice || !voice->requested)
+    if (!voice->requested)
         return;
     const auto result = voice_setup_server(&voice->setup, server);
     if (result == VoiceSetupResult::invalid_input || result == VoiceSetupResult::storage_failed)
@@ -140,7 +132,7 @@ void gateway_voice_server(GatewayVoiceControl* voice, const GatewayVoiceServer& 
 }
 
 bool gateway_voice_expire(GatewayVoiceControl* voice, u64 now_ms) noexcept {
-    if (!voice || !deadline_due(now_ms, voice->acknowledgement_deadline_ms))
+    if (!deadline_due(now_ms, voice->acknowledgement_deadline_ms))
         return false;
     gateway_voice_cancel(voice, GatewayVoiceError::state_timeout);
     return true;

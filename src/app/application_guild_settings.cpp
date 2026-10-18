@@ -17,7 +17,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/app/account_profile_edit.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail::server_settings {
 
@@ -31,31 +31,43 @@ constexpr u64 kTwoFactorRequired = 60'003;
 constexpr u64 kMaximumEmoji = 30'008;
 constexpr u64 kMaximumStickers = 30'039;
 
+enum class PageGroup : u8 {
+    none,
+    expression,
+    people,
+    moderation,
+};
+struct PageDefinition {
+    Page page;
+    PageGroup group;
+    UiIcon icon;
+    u32 section;
+    Utf8View label;
+    const PageOps* ops;
+};
 constexpr PageDefinition kPages[]{
     {Page::profile, PageGroup::none, UiIcon::guild, guild_settings_profile, utf8_literal("Server Profile"),
-     utf8_literal("Server Profile"), &kProfilePage},
+     &kProfilePage},
     {Page::engagement, PageGroup::none, UiIcon::activity, guild_settings_engagement, utf8_literal("Engagement"),
-     utf8_literal("Engagement"), &kEngagementPage},
+     &kEngagementPage},
     {Page::boost_perks, PageGroup::none, UiIcon::boost, guild_settings_boost_perks, utf8_literal("Boost Perks"),
-     utf8_literal("Boost Perks"), &kBoostPage},
+     &kBoostPage},
     {Page::emoji, PageGroup::expression, UiIcon::emoji, guild_settings_expressions, utf8_literal("Emoji"),
-     utf8_literal("Emoji"), &kExpressionPage},
+     &kExpressionPage},
     {Page::stickers, PageGroup::expression, UiIcon::sticker, guild_settings_expressions, utf8_literal("Stickers"),
-     utf8_literal("Stickers"), &kExpressionPage},
+     &kExpressionPage},
     {Page::soundboard, PageGroup::expression, UiIcon::audio_lines, guild_settings_expressions,
-     utf8_literal("Soundboard"), utf8_literal("Soundboard"), &kExpressionPage},
+     utf8_literal("Soundboard"), &kExpressionPage},
     {Page::members, PageGroup::people, UiIcon::members, guild_settings_members, utf8_literal("Members"),
-     utf8_literal("Members"), &kMembersPage},
-    {Page::roles, PageGroup::people, UiIcon::shield, guild_settings_roles, utf8_literal("Roles"),
-     utf8_literal("Roles"), &kRolesPage},
+     &kMembersPage},
+    {Page::roles, PageGroup::people, UiIcon::shield, guild_settings_roles, utf8_literal("Roles"), &kRolesPage},
     {Page::invites, PageGroup::people, UiIcon::user_plus, guild_settings_invites, utf8_literal("Invites"),
-     utf8_literal("Invites"), &kInvitesPage},
+     &kInvitesPage},
     {Page::safety, PageGroup::moderation, UiIcon::shield_check, guild_settings_safety, utf8_literal("Safety Setup"),
-     utf8_literal("Safety Setup"), &kSafetyPage},
+     &kSafetyPage},
     {Page::audit_log, PageGroup::moderation, UiIcon::audit_log, guild_settings_audit_log, utf8_literal("Audit Log"),
-     utf8_literal("Audit Log"), &kAuditLogPage},
-    {Page::bans, PageGroup::moderation, UiIcon::gavel, guild_settings_bans, utf8_literal("Bans"),
-     utf8_literal("Bans"), &kBansPage},
+     &kAuditLogPage},
+    {Page::bans, PageGroup::moderation, UiIcon::gavel, guild_settings_bans, utf8_literal("Bans"), &kBansPage},
 };
 static_assert(sizeof(kPages) / sizeof(kPages[0]) == kPageCount);
 constexpr bool pages_in_order() noexcept {
@@ -67,17 +79,14 @@ constexpr bool pages_in_order() noexcept {
 static_assert(pages_in_order());
 constexpr Utf8View kGroupHeaders[]{{}, utf8_literal("EXPRESSION"), utf8_literal("PEOPLE"), utf8_literal("MODERATION")};
 
-const PageOps& ops() noexcept {
-    return *page_definition(owner->page).ops;
-}
-} // namespace
-
 const PageDefinition& page_definition(Page page) noexcept {
     const u32 index = static_cast<u32>(page);
     return kPages[index && index <= kPageCount ? index - 1 : 0];
 }
-
-// Identity --------------------------------------------------------------
+const PageOps& ops() noexcept {
+    return *page_definition(owner->page).ops;
+}
+} // namespace
 
 bool available() noexcept {
     return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
@@ -145,8 +154,6 @@ bool page_dirty() noexcept {
 }
 } // namespace
 
-// Drafts ------------------------------------------------------------------
-
 const RoleRecord* role(u64 id) noexcept {
     return id ? chat_state_store_find_role(state(), owner->guild_id, id) : nullptr;
 }
@@ -155,17 +162,27 @@ bool pending(const Picked& picked) noexcept {
 }
 void release_picked(Picked* picked) noexcept {
     if (picked->data) {
-        SecureZeroMemory(picked->data, picked->capacity);
+        secure_clear_bytes(picked->data, picked->capacity);
         VirtualFree(picked->data, 0, MEM_RELEASE);
     }
     *picked = {};
 }
+namespace {
+// The icon, banner and splash picks and their data URIs.
+void release_images() noexcept {
+    auto& p = *owner;
+    release_picked(&p.icon);
+    release_picked(&p.banner);
+    release_picked(&p.splash);
+    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    release_uri(&p.banner_uri, &p.banner_uri_bytes);
+    release_uri(&p.splash_uri, &p.splash_uri_bytes);
+}
+} // namespace
 bool editable() noexcept {
     return owner && owner->scene.active && scope_current() && !mutation_pending() && !owner->layer.choice &&
            !g_app.text_form;
 }
-
-// Editors -----------------------------------------------------------------
 
 namespace {
 bool binding_ready(void* model, u64 identity) noexcept {
@@ -218,8 +235,6 @@ Utf8View editor_text(Editor index) noexcept {
     return message_composer_text(owner->models[index]);
 }
 
-// Projection --------------------------------------------------------------
-
 u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation) noexcept {
     if (owner->control_count >= kControlCapacity)
         return ~0u;
@@ -228,10 +243,12 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation present
     owner->avatar_media[owner->control_count] = {};
     return owner->control_count++;
 }
-// Member rows draw the cached avatar over their initials once it is resident.
-void push_avatar(u32 index, u64 user_id) noexcept {
-    if (index < kControlCapacity)
-        owner->avatar_media[index] = application_user_avatar_media(user_id);
+void popup_row(u32 index, Utf8View label, u32 action, u32 flags) noexcept {
+    auto& item = owner->popup_items[index];
+    item = {};
+    item.label = label;
+    item.action = kMenuChoiceBase + action;
+    item.flags = static_cast<u16>(popup_item_enabled | flags);
 }
 UiSettingsControl category(u64 id, Utf8View label, Utf8View description) noexcept {
     return {id, label, description, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr};
@@ -246,7 +263,7 @@ Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept {
     const auto* channel = channel_id ? chat_state_store_find_channel(state(), channel_id) : nullptr;
     if (!channel)
         return none;
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
     bank.add(chat_state_store_channel_name(state(), *channel));
     return bank.since(start);
@@ -260,16 +277,6 @@ UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, b
 u32 person_color(u64 user_id) noexcept {
     constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
     return colors[(user_id >> 22) % 6];
-}
-Utf8View member_name(const GuildMemberRecord& member, Utf8View* username) noexcept {
-    const auto& users = g_app.account_ui->user_store;
-    const auto* user = user_store_find(users, member.user_id);
-    *username = user ? user_store_username(users, *user) : Utf8View{};
-    const auto nickname = guild_member_store_nickname(member);
-    if (nickname.bytes)
-        return nickname;
-    const auto name = user ? user_store_name(users, *user) : Utf8View{};
-    return name.bytes ? name : *username;
 }
 
 // "512×512 PNG · 1.0 MB", plus the source size when it was resized.
@@ -325,20 +332,19 @@ Utf8View image_error_text(GuildImageProfile profile, GuildImageError error) noex
     default: return utf8_literal("This image couldn't be prepared.");
     }
 }
-// Description of an image row: the pending change, or the current state.
 } // namespace
+// Description of an image row: the pending change, or the current state.
 Utf8View picked_text(Bank& bank, const Picked& picked, Utf8View current) noexcept {
     if (picked.clear)
         return utf8_literal("Removed when you save.");
     if (!picked.set)
         return current;
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     bank.add(utf8_literal("New: "));
     image_summary(bank, picked.info);
     bank.add(utf8_literal(". Save to apply."));
     return bank.since(start);
 }
-
 
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept {
     const u64 delta = future ? (then_ms > now_ms ? then_ms - now_ms : 0) : (now_ms > then_ms ? now_ms - then_ms : 0);
@@ -357,12 +363,14 @@ void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept {
     if (!future)
         bank.add(utf8_literal(" ago"));
 }
+Utf8View user_name(const GuildAdminUser& user) noexcept {
+    return user.display_bytes ? Utf8View{user.display, user.display_bytes}
+                              : Utf8View{user.username, user.username_bytes};
+}
 Utf8View user_label(u64 id) noexcept {
     for (u32 i = 0; i < owner->audit_user_count; ++i)
-        if (owner->audit_users[i].id == id) {
-            const auto& u = owner->audit_users[i];
-            return u.display_bytes ? Utf8View{u.display, u.display_bytes} : Utf8View{u.username, u.username_bytes};
-        }
+        if (owner->audit_users[i].id == id)
+            return user_name(owner->audit_users[i]);
     const auto& users = g_app.account_ui->user_store;
     if (const auto* user = user_store_find(users, id)) {
         const auto name = user_store_name(users, *user);
@@ -446,12 +454,12 @@ bool project_page() noexcept {
         content.footer = selected ? &p.footer : nullptr;
         if (selected) {
             if (p.page == Page::roles && p.editing_role) {
-                const u32 start = bank.mark();
+                const u32 start = bank.used;
                 bank.add(utf8_literal("Edit role — "));
                 bank.add({p.role_draft.name, p.role_draft.name_bytes});
                 content.title = bank.since(start);
             } else
-                content.title = page_definition(p.page).title;
+                content.title = page_definition(p.page).label;
             ++content.revision;
         }
     }
@@ -505,8 +513,6 @@ bool repaint() noexcept {
     application_request_frame();
     return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
-
-// Requests ----------------------------------------------------------------
 
 void queue(Op op, u64 target) noexcept {
     auto& r = owner->request;
@@ -611,8 +617,6 @@ void creation_closed(TextFormOwnerKey key) noexcept {
 
 } // namespace
 
-// Activation ----------------------------------------------------------------
-
 bool guard_dirty() noexcept {
     if (!page_dirty())
         return false;
@@ -643,8 +647,6 @@ bool form_save(TextFormOwnerKey key, Utf8View) noexcept {
     repaint();
     return true;
 }
-
-// Images ----------------------------------------------------------------------
 
 namespace {
 GuildImageProfile pick_profile(Pick pick) noexcept {
@@ -683,49 +685,15 @@ void start_pick(Pick pick) noexcept {
         show_failure(utf8_literal("Couldn't open the file picker."));
     }
 }
-// Reads the whole file into a fresh allocation bounded by the source limit.
 namespace {
 bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) noexcept {
-    *error = utf8_literal("Couldn't read that file.");
-    if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
+    u8* data = nullptr;
+    u32 bytes = 0;
+    if (!application_image_file_read(path, &data, &bytes, error))
         return false;
-    auto* name = static_cast<wchar_t*>(
-        VirtualAlloc(nullptr, (path.count + 1) * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!name)
-        return false;
-    copy_bytes(name, path.data, path.count * sizeof(wchar_t));
-    name[path.count] = 0;
-    const HANDLE file = CreateFileW(name, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    VirtualFree(name, 0, MEM_RELEASE);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
-    LARGE_INTEGER size{};
-    bool ok = GetFileSizeEx(file, &size) && size.QuadPart > 0;
-    if (ok && size.QuadPart > kGuildImageSourceMaximumBytes) {
-        *error = utf8_literal("Choose a file of 16 MB or less.");
-        ok = false;
-    }
-    u8* data = ok ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(size.QuadPart),
-                                                  MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
-                  : nullptr;
-    u32 read_total = 0;
-    while (data && read_total < size.QuadPart) {
-        DWORD read = 0;
-        if (!ReadFile(file, data + read_total, static_cast<DWORD>(size.QuadPart - read_total), &read, nullptr) ||
-            !read)
-            break;
-        read_total += read;
-    }
-    CloseHandle(file);
-    if (!data || read_total != size.QuadPart) {
-        if (data)
-            VirtualFree(data, 0, MEM_RELEASE);
-        return false;
-    }
     release_picked(out);
     out->data = data;
-    out->bytes = out->capacity = read_total;
+    out->bytes = out->capacity = bytes;
     return true;
 }
 // Validates through the account module; the same preparation runs at submit.
@@ -885,10 +853,7 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
     auto& p = *owner;
     Bank bank{p.popup_text, sizeof(p.popup_text), 0};
     u32 count = 0;
-    p.popup_items[count] = {};
-    p.popup_items[count].label = none;
-    p.popup_items[count].action = kMenuChoiceBase;
-    p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (!current ? popup_item_checked : 0));
+    popup_row(count, none, 0, !current ? popup_item_checked : 0);
     p.menu_channel[count++] = 0;
     const auto& s = state();
     const u32 first = count;
@@ -902,14 +867,11 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
         if (channel.id != current && channel.permissions_resolved &&
             (channel.effective_permissions & required) != required)
             continue;
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         if (channel.type != 2 && channel.type != 13)
             bank.add(utf8_literal("#"));
         bank.add(chat_state_store_channel_name(s, channel));
-        p.popup_items[count] = {};
-        p.popup_items[count].label = bank.since(start);
-        p.popup_items[count].flags =
-            static_cast<u16>(popup_item_enabled | (channel.id == current ? popup_item_checked : 0));
+        popup_row(count, bank.since(start), 0, channel.id == current ? popup_item_checked : 0);
         p.menu_channel[count++] = channel.id;
     }
     // The invite picker lists text-like channels before voice; the others
@@ -937,8 +899,6 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
 namespace {
 
 void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const auto target = activation.value.target;
     switch (target.kind) {
@@ -964,7 +924,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         return;
     }
     case UiSettingsTargetKind::reset:
-        if (busy() && mutation_pending())
+        if (mutation_pending())
             return;
         p.failed = false;
         p.status = {};
@@ -998,8 +958,6 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
 }
 
 void choose(SettingsLayer*, u32 action) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const Menu menu = p.menu;
     p.menu = Menu::none;
@@ -1009,8 +967,6 @@ void choose(SettingsLayer*, u32 action) noexcept {
 }
 
 bool edited(SettingsLayer*, u64 control) noexcept {
-    if (!owner)
-        return false;
     auto& p = *owner;
     const Editor editor = editor_of(control);
     const auto text = editor_text(editor);
@@ -1048,7 +1004,7 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     return true;
 }
 bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept {
-    const Editor editor = owner ? editor_of(control) : editor_count;
+    const Editor editor = editor_of(control);
     if (editor == editor_count)
         return false;
     *model = &owner->models[editor];
@@ -1069,11 +1025,11 @@ void drop(SettingsLayer*, u64 dragged, u64 target, bool after) noexcept {
     roles_drop(dragged, target, after);
 }
 void context_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (owner && editable() && ops().context)
+    if (editable() && ops().context)
         ops().context(activation);
 }
 void editor_enter_hook(SettingsLayer*, u64 control) noexcept {
-    if (owner && editable() && control == control_search)
+    if (editable() && control == control_search)
         bans_editor_enter();
 }
 constexpr SettingsLayerHooks kHooks{editor_hook, edited,        activate,    choose,
@@ -1111,13 +1067,8 @@ void select_page(Page page) noexcept {
     p.profile_requested = false;
     p.failed = false;
     p.status = {};
-    release_picked(&p.icon);
-    release_picked(&p.banner);
-    release_picked(&p.splash);
+    release_images();
     release_picked(&p.role_icon);
-    release_uri(&p.icon_uri, &p.icon_uri_bytes);
-    release_uri(&p.banner_uri, &p.banner_uri_bytes);
-    release_uri(&p.splash_uri, &p.splash_uri_bytes);
     set_editor(editor_search, {});
     if (ops().load)
         ops().load();
@@ -1139,12 +1090,52 @@ void request_close() noexcept {
     application_guild_settings_close();
 }
 
-// Store reconciliation: rebaseline clean drafts, flag dirty ones.
-
 } // namespace maicord::app_detail::server_settings
 
 namespace maicord::app_detail {
 using namespace server_settings;
+
+bool application_image_file_read(ConstSlice<wchar_t> path, u8** data, u32* bytes, Utf8View* error) noexcept {
+    *error = utf8_literal("Couldn't read that file.");
+    if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
+        return false;
+    auto* name = static_cast<wchar_t*>(
+        VirtualAlloc(nullptr, (path.count + 1) * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!name)
+        return false;
+    copy_bytes(name, path.data, path.count * sizeof(wchar_t));
+    name[path.count] = 0;
+    const HANDLE file = CreateFileW(name, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+    VirtualFree(name, 0, MEM_RELEASE);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    Win32LargeInteger size{};
+    bool ok = GetFileSizeEx(file, size.native()) && size.QuadPart > 0;
+    if (ok && size.QuadPart > kGuildImageSourceMaximumBytes) {
+        *error = utf8_literal("Choose a file of 16 MB or less.");
+        ok = false;
+    }
+    u8* contents = ok ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(size.QuadPart),
+                                                      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                      : nullptr;
+    u32 total = 0;
+    while (contents && total < size.QuadPart) {
+        DWORD read = 0;
+        if (!ReadFile(file, contents + total, static_cast<DWORD>(size.QuadPart - total), &read, nullptr) || !read)
+            break;
+        total += read;
+    }
+    CloseHandle(file);
+    if (!contents || total != size.QuadPart) {
+        if (contents)
+            VirtualFree(contents, 0, MEM_RELEASE);
+        return false;
+    }
+    *data = contents;
+    *bytes = total;
+    return true;
+}
 
 bool application_guild_settings_available(u64 guild_id) noexcept {
     if (!g_app.account_ui)
@@ -1203,7 +1194,6 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.profile_id = g_app.account.status.profile_id;
     p.self_user_id = state().self_user_id;
     p.access = guild_settings_access(state(), guild_id);
-    p.previous_focus = g_app.context_focus;
     p.counts = 0;
     p.counts_requested = p.bans_requested = p.bans_failed = false;
     p.invite_count = p.audit_count = p.audit_user_count = 0;
@@ -1227,14 +1217,9 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.ban_search_count = p.ban_search_bytes = 0;
     p.bulk_notice = {};
     p.selected_count = 0;
-    release_picked(&p.icon);
-    release_picked(&p.banner);
-    release_picked(&p.splash);
+    release_images();
     release_picked(&p.role_icon);
     release_picked(&p.upload);
-    release_uri(&p.icon_uri, &p.icon_uri_bytes);
-    release_uri(&p.banner_uri, &p.banner_uri_bytes);
-    release_uri(&p.splash_uri, &p.splash_uri_bytes);
     p.pick = Pick::none;
     p.sticker_count = 0;
     p.stickers_requested = p.stickers_loaded = false;
@@ -1247,8 +1232,8 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         return false;
     for (u32 i = 0; i < kPageCount; ++i) {
         const auto& definition = kPages[i];
-        p.content[i] = {definition.title, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-        if (!ui_page_registry_register(&p.registry, {page_key(definition.page), definition.title, &p.content[i]}).ok())
+        p.content[i] = {definition.label, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
+        if (!ui_page_registry_register(&p.registry, {page_key(definition.page), definition.label, &p.content[i]}).ok())
             return false;
     }
     p.page = requested_page && requested_page <= kPageCount && page_allowed(static_cast<Page>(requested_page))
@@ -1294,7 +1279,6 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     return false;
 }
 
-
 void application_guild_settings_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
@@ -1311,13 +1295,8 @@ void application_guild_settings_close(bool restore_focus) noexcept {
     release_picked(&owner->role_icon);
     // Images and data URIs of a save in flight stay until its reply.
     if (!owner->request_id) {
-        release_picked(&owner->icon);
-        release_picked(&owner->banner);
-        release_picked(&owner->splash);
+        release_images();
         release_picked(&owner->upload);
-        release_uri(&owner->icon_uri, &owner->icon_uri_bytes);
-        release_uri(&owner->banner_uri, &owner->banner_uri_bytes);
-        release_uri(&owner->splash_uri, &owner->splash_uri_bytes);
     }
     next_form = 0;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
@@ -1348,16 +1327,11 @@ void application_guild_settings_release() noexcept {
         native_file_picker_release(&owner->picker, 5'000);
     }
     release_picked(&owner->upload);
-    release_picked(&owner->icon);
-    release_picked(&owner->banner);
-    release_picked(&owner->splash);
-    release_uri(&owner->icon_uri, &owner->icon_uri_bytes);
-    release_uri(&owner->banner_uri, &owner->banner_uri_bytes);
-    release_uri(&owner->splash_uri, &owner->splash_uri_bytes);
+    release_images();
     ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }
@@ -1476,7 +1450,6 @@ bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8
     return false;
 }
 
-
 bool application_guild_settings_submit(u64 now) noexcept {
     if (creation.queued && !creation.request_id && (!creation.retry_at || creation.retry_at <= now) &&
         g_app.details_request_owner == MessageHistoryRequestOwner::none && connected()) {
@@ -1489,9 +1462,7 @@ bool application_guild_settings_submit(u64 now) noexcept {
         request.operation = GuildAdminOperation::channel_create;
         request.guild_id = creation.guild_id;
         request.channel = &patch;
-        u64 id = ++g_app.account_ui->message_history_request_id;
-        if (!id)
-            id = ++g_app.account_ui->message_history_request_id;
+        const u64 id = application_next_request_id();
         const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
         if (submitted.error == RestClientSubmitError::busy) {
             creation.retry_at = deadline_after(now, 50);
@@ -1616,7 +1587,7 @@ bool application_guild_settings_submit(u64 now) noexcept {
         break;
     case Op::profile_update:
         request.operation = GuildAdminOperation::profile_update;
-        valid = can_manage_guild() && profile_patch(&guild_patch, &profile_write, {profile_traits, 5});
+        valid = can_manage_guild() && profile_patch(&guild_patch, &profile_write, {profile_traits, kGuildAdminProfileTraits});
         request.guild = &guild_patch;
         break;
     case Op::vanity_get:
@@ -1705,10 +1676,8 @@ bool application_guild_settings_submit(u64 now) noexcept {
         repaint();
         return false;
     }
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
-    const auto submitted = assets          ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
+    const u64 id = application_next_request_id();
+    const auto submitted = assets         ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
                            : moderation_op ? g_app.account.api.guild_moderation(g_app.account.instance, &moderation, id)
                                            : g_app.account.api.guild_admin(g_app.account.instance, &request, id);
     if (submitted.error == RestClientSubmitError::busy) {
@@ -1738,11 +1707,9 @@ bool application_guild_settings_submit(u64 now) noexcept {
     return true;
 }
 
-
 bool application_guild_settings_owns_response(u64 request_id) noexcept {
     return request_id && ((owner && owner->request_id == request_id) || creation.request_id == request_id);
 }
-
 
 bool application_guild_settings_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!application_guild_settings_owns_response(response.request_id))
@@ -2006,7 +1973,6 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     repaint();
     return true;
 }
-
 
 void application_guild_settings_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
     if (!owner || event.kind != GatewayClientEventKind::dispatch)

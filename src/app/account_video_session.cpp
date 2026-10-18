@@ -4,7 +4,7 @@
 #include "maicord/media/opus_decoder.hpp"
 #include "maicord/media/encoded_audio.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -156,8 +156,8 @@ u32 delay(i64 duration) noexcept {
     return static_cast<u32>(minimum(ms, u64{INFINITE - 1}));
 }
 bool qpc(u64* now) noexcept {
-    LARGE_INTEGER value{};
-    if (!QueryPerformanceCounter(&value) || value.QuadPart < 0)
+    Win32LargeInteger value{};
+    if (!QueryPerformanceCounter(value.native()) || value.QuadPart < 0)
         return false;
     *now = static_cast<u64>(value.QuadPart);
     return true;
@@ -237,6 +237,22 @@ bool opus_window(AccountVideoSession& s, OpusWorkspace& w) noexcept {
     s.video_seek_ready = false; // Even EOF must start a new audio epoch.
     return true;
 }
+// Opens the audio transport at the session's current epoch and start position.
+bool start_audio(AccountVideoSession& s, MediaAudio* audio, float* ring, u32 channels,
+                 u32 sample_rate) noexcept {
+    MediaAudioConfig config{};
+    config.pcm = {ring, 8192u * channels};
+    config.sample_rate = sample_rate;
+    config.channels = channels;
+    config.initial_epoch = s.playback_epoch;
+    config.source_origin_100ns = s.seek_target;
+    config.volume = s.status.muted ? 0 : s.status.desired_volume;
+    config.refill_event = config.status_event = s.lane_event;
+    const auto started = media_audio_initialize(audio, config);
+    if (!started.ok())
+        terminal(s, AccountVideoError::audio, started.native_error);
+    return started.ok();
+}
 bool opus_workspace(AccountVideoSession& s) noexcept {
     const auto* source = opus_source(s);
     const u32 state_bytes = opus_decoder_storage_bytes(source->channels);
@@ -262,19 +278,8 @@ bool opus_workspace(AccountVideoSession& s) noexcept {
         terminal(s, AccountVideoError::decoder, static_cast<u32>(decoded.native_status));
         return false;
     }
-    MediaAudioConfig config{};
-    config.pcm = {w->ring, 8192u * source->channels};
-    config.sample_rate = kOggOpusSampleRate;
-    config.channels = source->channels;
-    config.initial_epoch = s.playback_epoch;
-    config.source_origin_100ns = s.seek_target;
-    config.volume = s.status.muted ? 0 : s.status.desired_volume;
-    config.refill_event = config.status_event = s.lane_event;
-    const auto audio = media_audio_initialize(&w->audio, config);
-    if (!audio.ok()) {
-        terminal(s, AccountVideoError::audio, audio.native_error);
+    if (!start_audio(s, &w->audio, w->ring, source->channels, kOggOpusSampleRate))
         return false;
-    }
     if (!opus_window(s, *w)) {
         if (s.status.error == AccountVideoError::none)
             terminal(s, AccountVideoError::timestamp);
@@ -339,19 +344,8 @@ bool pcm_workspace(AccountVideoSession& s) noexcept {
             return false;
         }
     }
-    MediaAudioConfig config{};
-    config.channels = encoded_audio_channels(*s.encoded_metadata);
-    config.sample_rate = source_rate(s);
-    config.pcm = {w->ring, 8192u * config.channels};
-    config.initial_epoch = s.playback_epoch;
-    config.source_origin_100ns = s.seek_target;
-    config.volume = s.status.muted ? 0 : s.status.desired_volume;
-    config.refill_event = config.status_event = s.lane_event;
-    const auto audio = media_audio_initialize(&w->audio, config);
-    if (!audio.ok()) {
-        terminal(s, AccountVideoError::audio, audio.native_error);
+    if (!start_audio(s, &w->audio, w->ring, encoded_audio_channels(*s.encoded_metadata), source_rate(s)))
         return false;
-    }
     if (!pcm_window(s, *w)) {
         if (s.status.error == AccountVideoError::none)
             terminal(s, AccountVideoError::timestamp);
@@ -379,19 +373,8 @@ bool workspace(AccountVideoSession& s) noexcept {
         terminal(s, AccountVideoError::decoder, static_cast<u32>(decoder.native_status));
         return false;
     }
-    MediaAudioConfig config{};
-    config.pcm = {w->ring, 8192u * s.audio_metadata.channels};
-    config.sample_rate = s.audio_metadata.sample_rate;
-    config.channels = s.audio_metadata.channels;
-    config.initial_epoch = s.playback_epoch;
-    config.source_origin_100ns = s.seek_target;
-    config.volume = s.status.muted ? 0 : s.status.desired_volume;
-    config.refill_event = config.status_event = s.lane_event;
-    const auto audio = media_audio_initialize(&w->audio, config);
-    if (!audio.ok()) {
-        terminal(s, AccountVideoError::audio, audio.native_error);
+    if (!start_audio(s, &w->audio, w->ring, s.audio_metadata.channels, s.audio_metadata.sample_rate))
         return false;
-    }
     if (!audio_window(s, *w)) {
         terminal(s, AccountVideoError::timestamp);
         return false;
@@ -1083,8 +1066,8 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
             return result(AccountVideoError::timestamp);
         duration = maximum(duration, window.duration_100ns);
     }
-    LARGE_INTEGER frequency{};
-    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+    Win32LargeInteger frequency{};
+    if (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0)
         return result(AccountVideoError::clock);
     const auto identity = id;
     *s = {};
@@ -1121,8 +1104,8 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
     case MediaAttachmentFormat::m4a: kind = AccountPlaybackKind::mp4; break;
     default: return result(AccountVideoError::invalid_input);
     }
-    LARGE_INTEGER frequency{};
-    if (kind == AccountPlaybackKind::mp4 && (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0))
+    Win32LargeInteger frequency{};
+    if (kind == AccountPlaybackKind::mp4 && (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0))
         return result(AccountVideoError::clock);
     const auto identity = id;
     *s = {};

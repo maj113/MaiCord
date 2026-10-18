@@ -5,6 +5,7 @@
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/app/message_timeline.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationSearch;

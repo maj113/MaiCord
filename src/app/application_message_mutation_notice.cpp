@@ -189,9 +189,7 @@ Utf8View application_message_mutation_notice_text() noexcept {
     if (required.bytes)
         return required;
     if (unread)
-        return value.status_code == 403
-                   ? utf8_literal("Couldn't mark as unread. Try again.")
-                   : utf8_literal("Couldn't mark as unread. Try again.");
+        return utf8_literal("Couldn't mark as unread. Try again.");
     if (value.kind == ApplicationMessageMutationKind::navigate_message)
         return navigation_text(value.navigation_stage, true, value.status_code);
     if (value.kind == ApplicationMessageMutationKind::attachment_open)

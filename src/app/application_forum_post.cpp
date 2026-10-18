@@ -3,6 +3,7 @@
 #include "application_content_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_thread_browser.hpp"
+#include "application_thread_creation.hpp"
 #include "application_settings.hpp"
 #include "application_friends.hpp"
 #include "application_forum_attachments.hpp"
@@ -12,7 +13,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -75,15 +76,11 @@ static_assert(sizeof(ForumOwner) <= 32768);
 ForumOwner* forum_owner{};
 u64 forum_serial{};
 u32 forum_publication{};
-const ChannelRecord* forum_channel(u64 id) noexcept {
-    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id)
-                            : nullptr;
-}
 ForumParentAuthority forum_parent_authority(const ChannelRecord& parent) noexcept {
     return {parent.effective_permissions, parent.flags, parent.actions};
 }
 bool forum_parent_authority_current(u64 id, const ForumParentAuthority& authority) noexcept {
-    const auto* parent = forum_channel(id);
+    const auto* parent = application_channel_record(id);
     return parent && authority.permissions == parent->effective_permissions &&
         authority.flags == parent->flags && authority.actions == parent->actions;
 }
@@ -94,7 +91,7 @@ bool forum_actor_current(const ForumSource& source) noexcept {
            source.self == g_app.account_ui->chat_state.self_user_id;
 }
 bool forum_parent_authorized(u64 id) noexcept {
-    const auto* parent = forum_channel(id);
+    const auto* parent = application_channel_record(id);
     if (!parent || !parent->occupied || (parent->type != 15 && parent->type != 16) || !parent->guild_id ||
         !parent->permissions_resolved || (parent->flags & kChannelObfuscatedFlag))
         return false;
@@ -106,7 +103,7 @@ bool forum_parent_authorized(u64 id) noexcept {
            chat_state_store_channel_visible(state, *parent);
 }
 bool forum_source_current(const ForumSource& source) noexcept {
-    const auto* parent = forum_actor_current(source) ? forum_channel(source.parent) : nullptr;
+    const auto* parent = forum_actor_current(source) ? application_channel_record(source.parent) : nullptr;
     return parent && forum_parent_authorized(source.parent) &&
            parent->generation == source.parent_generation && parent->type == source.parent_type && parent->guild_id == source.guild &&
            g_app.account_ui->active_channel_id == source.origin_active &&
@@ -116,7 +113,7 @@ bool forum_source_current(const ForumSource& source) noexcept {
 bool forum_owner_current(const ForumOwner& owner) noexcept {
     if (forum_source_current(owner.source))
         return true;
-    const auto* parent = forum_actor_current(owner.source) ? forum_channel(owner.source.parent) : nullptr;
+    const auto* parent = forum_actor_current(owner.source) ? application_channel_record(owner.source.parent) : nullptr;
     return owner.navigating && owner.known_created && parent && forum_parent_authorized(parent->id) &&
            parent->generation == owner.source.parent_generation && parent->type == owner.source.parent_type && parent->guild_id == owner.source.guild &&
            g_app.account_ui->chat_state.selected_guild_id == owner.source.guild &&
@@ -206,10 +203,10 @@ void forum_free() noexcept {
     if (!forum_owner)
         return;
     if (forum_owner->flight.attachment_bank) {
-        SecureZeroMemory(forum_owner->flight.attachment_bank, forum_owner->flight.attachment_bank_bytes);
+        secure_clear_bytes(forum_owner->flight.attachment_bank, forum_owner->flight.attachment_bank_bytes);
         VirtualFree(forum_owner->flight.attachment_bank, 0, MEM_RELEASE);
     }
-    SecureZeroMemory(forum_owner, sizeof(*forum_owner));
+    secure_clear_bytes(forum_owner, sizeof(*forum_owner));
     VirtualFree(forum_owner, 0, MEM_RELEASE);
     forum_owner = nullptr;
 }
@@ -229,14 +226,14 @@ struct ForumPin {
 struct ForumFlightBank {
     u8* data;
     u32 bytes;
-    ~ForumFlightBank() noexcept { if (data) { SecureZeroMemory(data, bytes); VirtualFree(data, 0, MEM_RELEASE); } }
+    ~ForumFlightBank() noexcept { if (data) { secure_clear_bytes(data, bytes); VirtualFree(data, 0, MEM_RELEASE); } }
 };
 bool forum_metadata_fresh(const ForumOwner& owner) noexcept {
     return owner.metadata_ready && forum_parent_authority_current(owner.source.parent, owner.metadata_parent_authority) &&
            owner.metadata_checked_epoch == owner.metadata_epoch;
 }
 bool forum_manage_threads(const ForumOwner& owner) noexcept {
-    const auto* parent = forum_channel(owner.source.parent);
+    const auto* parent = application_channel_record(owner.source.parent);
     return parent && (parent->actions & channel_action_manage_threads);
 }
 void forum_tags(ForumOwner& owner) noexcept {
@@ -299,7 +296,7 @@ bool forum_draft_text(Utf8View value, u32 bytes, u32 scalars, bool single_line) 
     return true;
 }
 bool forum_known_created(const ForumOwner& owner) noexcept {
-    const auto* row = forum_channel(owner.known_created);
+    const auto* row = application_channel_record(owner.known_created);
     return row && row->occupied && row->type == 11 && row->parent_id == owner.source.parent &&
            row->guild_id == owner.source.guild && row->thread_archived_known && row->thread_locked_known &&
            chat_state_store_channel_name(g_app.account_ui->chat_state, *row).bytes &&
@@ -379,7 +376,7 @@ bool forum_navigate(ForumOwner& owner) noexcept {
 bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept {
     const auto& receipt = owner.candidate.thread;
     auto& state = g_app.account_ui->chat_state;
-    const auto* old = forum_channel(receipt.id);
+    const auto* old = application_channel_record(receipt.id);
     bool changed = flight.changed_all;
     for (u64 id : flight.changed_threads)
         changed = changed || id == receipt.id;
@@ -393,27 +390,14 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
             return false;
         owner.known_created = receipt.id;
     } else {
-        ChannelInput input{
-            receipt.id, receipt.guild_id, receipt.parent_id, thread_creation_name_view(receipt), 0,
-            0,          receipt.type};
-        input.name_known = true;
-        input.last_message_known = (receipt.fields & thread_creation_last_message_known) != 0;
-        input.last_message_id = receipt.last_message_id;
-        input.thread_archived_known = input.thread_locked_known = true;
-        input.thread_archived = (receipt.fields & thread_creation_archived) != 0;
-        input.thread_locked = (receipt.fields & thread_creation_locked) != 0;
-        input.thread_active_known = true;
-        input.thread_listed_active = !input.thread_archived;
-        input.thread_self_joined_known = (receipt.fields & thread_creation_self_joined) != 0;
-        input.thread_self_joined = input.thread_self_joined_known;
-        if (input.thread_self_joined)
-            input.thread_join_seconds = thread_join_seconds_from_ms(receipt.self_join_timestamp_ms);
-        if (chat_state_store_preflight_channel(state, input) != ChatStateStoreError::none ||
+        ChannelInput input{};
+        if (!application_thread_creation_receipt_input(receipt, application_channel_record(receipt.id), &input) ||
+            chat_state_store_preflight_channel(state, input) != ChatStateStoreError::none ||
             !chat_state_store_upsert_channel(&state, input).ok())
             return false;
         chat_state_store_recompute_guild_permissions(&state, owner.source.guild);
     }
-    const auto* parent = forum_channel(receipt.parent_id);
+    const auto* parent = application_channel_record(receipt.parent_id);
     const u64 previous_parent_cursor = parent ? parent->last_read_message_id : 0;
     if (chat_state_store_note_thread(&state, receipt.parent_id, receipt.id, state.self_user_id) &&
         parent && parent->last_read_message_id > previous_parent_cursor &&
@@ -433,7 +417,7 @@ bool application_forum_post_available(u64 id) noexcept {
         return false;
     if (!id)
         id = g_app.account_ui->chat_state.selected_channel_id;
-    const auto* parent = forum_channel(id);
+    const auto* parent = application_channel_record(id);
     return parent && forum_parent_authorized(id) &&
            g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
 }
@@ -463,7 +447,7 @@ bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) no
         owner.uncertain_all = false;
         owner.actor_floor = 0;
     }
-    const auto* parent = forum_channel(id);
+    const auto* parent = application_channel_record(id);
     owner.source = {g_app.plugin_account_scope_serial,
                     g_app.account.status.profile_id,
                     g_app.account_ui->chat_state.self_user_id,
@@ -475,15 +459,7 @@ bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) no
                     g_app.account_ui,
                     parent->generation, parent->type};
     const auto name = chat_state_store_channel_name(g_app.account_ui->chat_state, *parent);
-    owner.parent_name_bytes = 0;
-    while (owner.parent_name_bytes < name.bytes) {
-        const auto scalar =
-            utf8_decode_one(name.data + owner.parent_name_bytes, name.bytes - owner.parent_name_bytes);
-        if (!scalar.valid || owner.parent_name_bytes + scalar.width > sizeof(owner.parent_name))
-            break;
-        owner.parent_name_bytes += scalar.width;
-    }
-    copy_bytes(owner.parent_name, name.data, owner.parent_name_bytes);
+    owner.parent_name_bytes = utf8_copy_truncated(owner.parent_name, name);
     owner.serial = ++forum_serial;
     owner.publication = ++forum_publication;
     owner.title_bytes = owner.body_bytes = owner.selected_count = 0;
@@ -738,7 +714,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
     admitted.publication = owner.publication;
     admitted.metadata_epoch = owner.metadata_epoch;
     admitted.draft_revision = owner.draft_revision;
-    admitted.parent_authority = forum_parent_authority(*forum_channel(owner.source.parent));
+    admitted.parent_authority = forum_parent_authority(*application_channel_record(owner.source.parent));
     admitted.active = true;
     admitted.attachment_id = attachment_id;
     if (operation == ForumOperation::create) {
@@ -766,7 +742,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
     }
     const auto result = g_app.account.api.forum_post(g_app.account.instance, &admitted.request, id);
     if (!result.ok()) {
-        if (admitted.attachment_bank) { SecureZeroMemory(admitted.attachment_bank, admitted.attachment_bank_bytes); VirtualFree(admitted.attachment_bank, 0, MEM_RELEASE); }
+        if (admitted.attachment_bank) { secure_clear_bytes(admitted.attachment_bank, admitted.attachment_bank_bytes); VirtualFree(admitted.attachment_bank, 0, MEM_RELEASE); }
         if (operation == ForumOperation::attachment_url) application_forum_attachments_url_unadmitted(forum_ticket(owner), attachment_id);
         if (owner.serial != admitted.serial || owner.retired)
             return false;
@@ -995,7 +971,7 @@ void application_forum_post_message_deleted(u64 channel_id, u64 message_id) noex
     if (!flight.active || flight.retired || flight.request.operation != ForumOperation::create ||
         !forum_actor_current(flight.source))
         return;
-    const auto* channel = forum_channel(channel_id);
+    const auto* channel = application_channel_record(channel_id);
     if (channel && (channel->type != 11 || channel->parent_id != flight.source.parent ||
                     channel->guild_id != flight.source.guild))
         return;

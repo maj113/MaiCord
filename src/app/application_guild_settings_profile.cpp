@@ -5,7 +5,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -76,7 +76,7 @@ void project(Bank& bank) noexcept {
         d.icon == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
         : d.icon == GuildProfileImageEdit::replace
             ? [&]() noexcept {
-                  const u32 start = bank.mark();
+                  const u32 start = bank.used;
                   bank.add(utf8_literal("New: "));
                   bank.number(p.icon_info.width);
                   bank.add(utf8_literal("×"));

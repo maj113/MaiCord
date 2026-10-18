@@ -54,12 +54,17 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/unread_context.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 
 bool refresh_popup_text() noexcept;
 
 namespace {
+const MessageRecord* resident_message(u64 message_id) noexcept {
+    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
+    return found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+}
 UnreadContextTarget unread_popup;
 struct ThreadMenuScope {
     ApplicationThreadActionTicket ticket;
@@ -343,9 +348,7 @@ bool retry_failed_message(u64 nonce) noexcept {
     if (!g_app.account_ui || nonce == 0) {
         return false;
     }
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, nonce);
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const MessageRecord* record = resident_message(nonce);
     if (!record || record->delivery != MessageDeliveryState::failed) {
         return false;
     }
@@ -399,9 +402,7 @@ bool open_message_media_context_popup(u64 message_id, UiRect anchor, ConstSlice<
     if (!g_app.account_ui || g_app.login.visible || message_id == 0) {
         return false;
     }
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const MessageRecord* record = resident_message(message_id);
     if (!record) {
         return false;
     }
@@ -516,11 +517,6 @@ bool activate_message_link_action(u32 action) noexcept {
 }
 
 namespace {
-const MessageRecord* resident_message(u64 message_id) noexcept {
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
-    return found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-}
-
 bool copy_message_link(u64 message_id) noexcept {
     const MessageRecord* record = g_app.account_ui ? resident_message(message_id) : nullptr;
     const ChannelRecord* channel =
@@ -649,9 +645,7 @@ bool open_reaction_viewer(u64 message_id) noexcept {
     if (!g_app.account_ui || g_app.login.visible || message_id == 0) {
         return false;
     }
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const MessageRecord* record = resident_message(message_id);
     const MessageRichRecord* rich =
         record ? message_rich_store_find(g_app.account_ui->message_rich_store, message_id) : nullptr;
     const ChannelRecord* channel =
@@ -1040,7 +1034,7 @@ bool open_context_popup(i32 client_x, i32 client_y) noexcept {
     return dismiss_popup();
 }
 
-bool activate_popup_action(u32 action, bool /*alt_pressed*/, bool shift_pressed) noexcept {
+bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     if (application_plugins_popover_action(action))
         return application_plugins_popover_activate(action);
     if (application_profile_menu_action(action))
@@ -1212,9 +1206,7 @@ bool activate_popup_action(u32 action, bool /*alt_pressed*/, bool shift_pressed)
         applied = discard_failed_message(owner_id);
     } else if (action == static_cast<u32>(MessageContextAction::message_author) &&
                g_app.popup_owner_kind == PopupOwnerKind::message) {
-        const auto found = message_store_find(g_app.message_view.store, owner_id);
-        const auto* record =
-            found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        const auto* record = resident_message(owner_id);
         applied =
             record && queue_private_conversation(PrivateConversationOperation::open, record->author_id);
     } else if (action == popup_action_message_user && g_app.popup_owner_kind == PopupOwnerKind::member) {
@@ -1425,9 +1417,7 @@ bool handle_popup_hover(LPARAM lparam) noexcept {
     if (g_app.popup_scene.kind == PopupKind::autocomplete && g_app.message_composer_pointer_selection)
         return false;
     bool changed = false;
-    if (!popup_scene_set_hover(&g_app.popup_scene,
-                               static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-                               static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale, &changed)) {
+    if (!popup_scene_set_hover(&g_app.popup_scene, x, y, &changed)) {
         return false;
     }
 
@@ -1442,22 +1432,16 @@ bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept {
         return false;
     }
     const float scale = 96.0f / static_cast<float>(maximum(g_app.renderer.dpi, 1u));
-    if (application_voice_menu_pointer(static_cast<short>(LOWORD(lparam)) * scale,
-                                       static_cast<short>(HIWORD(lparam)) * scale, true) ||
-        application_stream_menu_pointer(static_cast<short>(LOWORD(lparam)) * scale,
-                                        static_cast<short>(HIWORD(lparam)) * scale, true))
+    const float x = static_cast<short>(LOWORD(lparam)) * scale;
+    const float y = static_cast<short>(HIWORD(lparam)) * scale;
+    if (application_voice_menu_pointer(x, y, true) || application_stream_menu_pointer(x, y, true))
         return true;
     // A scrollable menu's bar drags like every other list's.
-    if (const float x = static_cast<short>(LOWORD(lparam)) * scale, y = static_cast<short>(HIWORD(lparam)) * scale;
-        ui_rect_contains(g_app.popup_scene.rectangle, x, y) && handle_scrollbar_begin(x, y))
+    if (ui_rect_contains(g_app.popup_scene.rectangle, x, y) && handle_scrollbar_begin(x, y))
         return true;
-    const PopupHit hit = popup_scene_hit_test(
-        g_app.popup_scene, static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
-        static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale);
+    const PopupHit hit = popup_scene_hit_test(g_app.popup_scene, x, y);
     if (hit.enabled) {
-        const bool alt_pressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
-        const bool shift_pressed = (wparam & MK_SHIFT) != 0;
-        if (!activate_popup_action(hit.action, alt_pressed, shift_pressed))
+        if (!activate_popup_action(hit.action, (wparam & MK_SHIFT) != 0))
             log_write(LogLevel::warning, "ui", "popup_action_failed");
         return true;
     }
@@ -1469,9 +1453,7 @@ bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept {
     const bool profile = g_app.profile && g_app.profile->scene.active;
     const bool autocomplete = g_app.popup_scene.kind == PopupKind::autocomplete;
     if (autocomplete && !profile &&
-        message_composer_scene_hit_test(
-            g_app.message_composer_scene, static_cast<short>(LOWORD(lparam)) * scale,
-            static_cast<short>(HIWORD(lparam)) * scale) == MessageComposerControl::edit)
+        message_composer_scene_hit_test(g_app.message_composer_scene, x, y) == MessageComposerControl::edit)
         return false;
     dismiss_popup();
     return profile || !autocomplete;
@@ -1504,9 +1486,7 @@ bool handle_popup_key(WPARAM key) noexcept {
         if (action && (g_app.popup_owner_kind == PopupOwnerKind::composer_edit ||
                        g_app.popup_owner_kind == PopupOwnerKind::account_menu))
             g_app.composer_menu_held_key = static_cast<u32>(key);
-        const bool alt_pressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
-        const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        return action == 0 || activate_popup_action(action, alt_pressed, shift_pressed);
+        return action == 0 || activate_popup_action(action, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
     }
     if ((key == VK_PRIOR || key == VK_NEXT) && (g_app.popup_scene.kind == PopupKind::context_menu ||
                                                 g_app.popup_scene.kind == PopupKind::autocomplete ||

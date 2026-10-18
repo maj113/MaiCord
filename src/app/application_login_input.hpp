@@ -14,7 +14,6 @@ bool application_login_position_edit(LoginControl control, i32 client_x, i32 cli
                                      bool extend_selection) noexcept;
 void application_login_end_pointer_selection() noexcept;
 bool application_login_handle_drag(WPARAM buttons, LPARAM position) noexcept;
-bool application_login_handle_hover(LPARAM position) noexcept;
 bool application_login_handle_character(WPARAM character) noexcept;
 
 } // namespace maicord::app_detail

@@ -6,7 +6,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/random.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -34,7 +35,7 @@ struct Worker {
     PluginBrowserWorkerOptions options;
     wchar_t base[kPluginManagerBaseMaximumCharacters + 1];
     u32 base_count;
-    SRWLOCK lock;
+    SrwLock lock;
     HANDLE thread, wake, stop, notify;
     // Guarded by lock.
     PluginBrowserWorkerView view;
@@ -58,10 +59,10 @@ Worker* g_worker;
 u64 now_unix(const Worker* w) noexcept { return w->options.clock ? w->options.clock() : clock_unix_milliseconds() / 1000; }
 u32 random32() noexcept { u32 value = 0; secure_random_u32(&value); return value; }
 template <typename F> void publish(Worker* w, F&& change) noexcept {
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     change(w->view);
     ++w->view.revision;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     SetEvent(w->notify);
 }
 template <typename T> T* allocate() noexcept {
@@ -131,12 +132,12 @@ void build_snapshot(Worker* w) noexcept {
     }
     close_operation(w, op);
     if (!snapshot) return;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     plugin_catalog_snapshot_release(w->snapshot);
     w->snapshot = snapshot;
     ++w->view.snapshot_serial;
     ++w->view.revision;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     SetEvent(w->notify);
 }
 
@@ -150,15 +151,13 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
         close_operation(w, op);
         ++w->failures;
         w->next_check = w->catalog_used ? update_next_check(now, w->failures, 0, random32()) : 0;
-        publish(w, [](PluginBrowserWorkerView& v) noexcept { v.phase = PluginBrowserPhase::idle; v.check_error = PluginIndexCheckError::storage; });
+        publish(w, [](PluginBrowserWorkerView& v) noexcept { v.phase = PluginBrowserPhase::idle; });
         return;
     }
     const PluginHost host = plugin_index_current_host();
     bool reached = false;
     u32 failed = 0;
     u64 retry_at = 0;
-    PluginIndexCheckError first_error = PluginIndexCheckError::none;
-    UpdateFetchError first_fetch = UpdateFetchError::none;
     u64 changed_keys[kPluginProviderMaximum]{};
     u32 changed_count = 0, cleared_count = 0;
     u64 cleared[kPluginProviderMaximum]{};
@@ -179,7 +178,6 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
                 if (!is_official && cleared_count < kPluginProviderMaximum) cleared[cleared_count++] = source.provider;
             } else {
                 ++failed;
-                if (first_error == PluginIndexCheckError::none) { first_error = r.error; first_fetch = r.fetch_error; }
                 retry_at = maximum(retry_at, r.retry_at_unix);
                 if (r.error == PluginIndexCheckError::key_changed && changed_count < kPluginProviderMaximum) changed_keys[changed_count++] = source.provider;
             }
@@ -214,43 +212,29 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
     else if (failed) ++w->failures;
     w->next_check = w->catalog_used ? update_next_check(now, w->failures, retry_at, random32()) : 0;
     const PluginEvaluation& ev = op->evaluation;
-    struct Facts {
-        const PluginEvaluation& ev;
-        bool reached;
-        u64 now, retry_at;
-        u32 staged, changed_count, cleared_count;
-        PluginIndexCheckError error;
-        UpdateFetchError fetch;
-        const u64* changed;
-        const u64* cleared;
-    } facts{ev, reached, now, retry_at, staged, changed_count, cleared_count, first_error, first_fetch, changed_keys, cleared};
-    publish(w, [&facts](PluginBrowserWorkerView& v) noexcept {
+    publish(w, [&](PluginBrowserWorkerView& v) noexcept {
         v.phase = PluginBrowserPhase::idle;
-        if (facts.reached) v.checked_unix = facts.now;
-        v.check_error = facts.error;
-        v.fetch_error = facts.fetch;
-        v.retry_at_unix = facts.retry_at;
-        v.offers = facts.ev.offers;
-        v.reviews = facts.ev.reviews;
-        v.staged = facts.staged;
-        for (u32 i = 0; i < facts.cleared_count; ++i) forget_key_change(v, facts.cleared[i]);
-        for (u32 i = 0; i < facts.changed_count; ++i) {
+        if (reached) v.checked_unix = now;
+        v.offers = ev.offers;
+        v.staged = staged;
+        for (u32 i = 0; i < cleared_count; ++i) forget_key_change(v, cleared[i]);
+        for (u32 i = 0; i < changed_count; ++i) {
             bool known = false;
-            for (u32 k = 0; k < v.key_changed_count; ++k) known = known || v.key_changed[k] == facts.changed[i];
-            if (!known && v.key_changed_count < kPluginProviderMaximum) v.key_changed[v.key_changed_count++] = facts.changed[i];
+            for (u32 k = 0; k < v.key_changed_count; ++k) known = known || v.key_changed[k] == changed_keys[i];
+            if (!known && v.key_changed_count < kPluginProviderMaximum) v.key_changed[v.key_changed_count++] = changed_keys[i];
         }
-        if (facts.ev.revoked_count) {
-            v.revoked_count = facts.ev.revoked_count;
-            copy_bytes(v.revoked, facts.ev.revoked, facts.ev.revoked_count * static_cast<u32>(sizeof(PluginRevokedPlugin)));
+        if (ev.revoked_count) {
+            v.revoked_count = ev.revoked_count;
+            copy_bytes(v.revoked, ev.revoked, ev.revoked_count * static_cast<u32>(sizeof(PluginRevokedPlugin)));
             ++v.revoked_serial;
         }
     });
     UpdateLog("plugins", "check_done").field("manual", manual).field("reached", reached).field("failed", failed)
         .field("offers", ev.offers).field("staged", staged).field("next", w->next_check).write();
     close_operation(w, op);
-    AcquireSRWLockShared(&w->lock);
+    AcquireSRWLockShared(w->lock.native());
     const bool want = w->want_snapshot;
-    ReleaseSRWLockShared(&w->lock);
+    ReleaseSRWLockShared(w->lock.native());
     if (want) build_snapshot(w);
 }
 
@@ -381,37 +365,26 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
     case Kind::none: break;
     }
     close_operation(w, op);
-    struct Result {
-        u64 serial;
-        Kind kind;
-        const PluginManagerResult& manager;
-        const PluginManagerSettled& settled;
-        const AcceptanceRecordResult& record;
-        PluginProviderAddressError address_error;
-        const PluginProviderAddResult& add;
-        const Worker* w;
-    } r{serial, cmd.kind, manager, settled, record, address_error, add, w};
-    publish(w, [w, &r](PluginBrowserWorkerView& v) noexcept {
+    publish(w, [&](PluginBrowserWorkerView& v) noexcept {
         w->command_running = false;
         v.phase = PluginBrowserPhase::idle;
-        v.command_serial = r.serial;
-        v.command = r.kind;
-        v.manager = r.manager;
-        v.prepared = r.w->prepared;
-        v.settled = r.settled;
-        v.record = r.record;
-        v.address_error = r.address_error;
-        v.address = r.w->probe_address;
-        v.probe = r.w->probe;
-        v.add = r.add;
+        v.command_serial = serial;
+        v.manager = manager;
+        v.prepared = w->prepared;
+        v.settled = settled;
+        v.record = record;
+        v.address_error = address_error;
+        v.address = w->probe_address;
+        v.probe = w->probe;
+        v.add = add;
     });
     UpdateLog("plugins", "command").field("kind", static_cast<u8>(cmd.kind)).field("op", static_cast<u8>(cmd.operation))
         .hex("owner", cmd.owner).field("manager", static_cast<u8>(manager.error)).field("record", static_cast<u8>(record.error))
         .field("address", static_cast<u8>(address_error)).field("probe", static_cast<u8>(w->probe.error))
         .field("add", static_cast<u8>(add.error)).write(manager.ok() && record.ok() ? LogLevel::info : LogLevel::warning);
-    AcquireSRWLockShared(&w->lock);
+    AcquireSRWLockShared(w->lock.native());
     const bool want = w->want_snapshot;
-    ReleaseSRWLockShared(&w->lock);
+    ReleaseSRWLockShared(w->lock.native());
     if (want && changed) build_snapshot(w);
 }
 
@@ -438,7 +411,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         HANDLE handles[]{w->stop, w->wake};
         const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, timeout);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) break;
-        AcquireSRWLockExclusive(&w->lock);
+        AcquireSRWLockExclusive(w->lock.native());
         const bool command = w->command_pending;
         const PluginBrowserCommand cmd = w->command;
         const u64 serial = w->command_serial;
@@ -449,7 +422,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         w->check_requested = w->manual_check = w->browse_opened = w->snapshot_dirty = false;
         w->check_provider = 0;
         const u64 checked = w->view.checked_unix;
-        ReleaseSRWLockExclusive(&w->lock);
+        ReleaseSRWLockExclusive(w->lock.native());
         if (command) run_command(w, cmd, serial);
         const u64 at = now_unix(w);
         bool due = check || (w->next_check && at >= w->next_check);
@@ -468,7 +441,7 @@ bool plugin_browser_worker_start(const PluginBrowserConfig& config, const Plugin
     if (!w) return false;
     w->config = config;
     w->options = options;
-    InitializeSRWLock(&w->lock);
+    InitializeSRWLock(w->lock.native());
     if (options.base && options.base_count && options.base_count <= kPluginManagerBaseMaximumCharacters) {
         copy_bytes(w->base, options.base, options.base_count * static_cast<u32>(sizeof(wchar_t)));
         w->base_count = options.base_count;
@@ -476,15 +449,14 @@ bool plugin_browser_worker_start(const PluginBrowserConfig& config, const Plugin
         const DataPathResult built = data_path(w->base, kPluginManagerBaseMaximumCharacters + 1, L"");
         w->base_count = built.ok() ? built.length : 0;
     }
-    w->view.located = w->base_count != 0;
+    const bool located = w->base_count != 0;
     w->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     w->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     w->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (w->view.located && w->wake && w->stop && w->notify)
+    if (located && w->wake && w->stop && w->notify)
         w->thread = CreateThread(nullptr, 256 * 1024, worker_main, w, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    w->view.started = w->thread != nullptr;
     UpdateLog("plugins", "worker").field("configured", config.key_count != 0).field("keys", config.key_count)
-        .field("located", w->view.located).field("started", w->view.started).write();
+        .field("located", located).field("started", w->thread != nullptr).write();
     if (!w->thread) {
         const HANDLE events[]{w->wake, w->stop, w->notify};
         for (HANDLE h : events) if (h) CloseHandle(h);
@@ -515,56 +487,56 @@ HANDLE plugin_browser_worker_notification() noexcept { return g_worker ? g_worke
 bool plugin_browser_worker_view(PluginBrowserWorkerView* view, u64 seen) noexcept {
     Worker* w = g_worker;
     if (!w || !view) return false;
-    AcquireSRWLockShared(&w->lock);
+    AcquireSRWLockShared(w->lock.native());
     const bool changed = w->view.revision != seen;
     if (changed) *view = w->view;
-    ReleaseSRWLockShared(&w->lock);
+    ReleaseSRWLockShared(w->lock.native());
     return changed;
 }
 bool plugin_browser_worker_check(bool manual, u64 provider) noexcept {
     Worker* w = g_worker;
     if (!w) return false;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     w->check_requested = true;
     w->manual_check = w->manual_check || manual;
     w->check_provider = provider;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     return SetEvent(w->wake) != FALSE;
 }
 void plugin_browser_worker_browse() noexcept {
     Worker* w = g_worker;
     if (!w) return;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     w->browse_opened = true;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     SetEvent(w->wake);
 }
 void plugin_browser_worker_want_snapshot(bool want) noexcept {
     Worker* w = g_worker;
     if (!w) return;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     const bool request = want && !w->want_snapshot;
     w->want_snapshot = want;
     if (request) w->snapshot_dirty = true;
     PluginCatalogSnapshot* stale = want ? nullptr : w->snapshot;
     if (!want) w->snapshot = nullptr;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     plugin_catalog_snapshot_release(stale);
     if (request) SetEvent(w->wake);
 }
 PluginCatalogSnapshot* plugin_browser_worker_take_snapshot() noexcept {
     Worker* w = g_worker;
     if (!w) return nullptr;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     PluginCatalogSnapshot* snapshot = w->snapshot;
     w->snapshot = nullptr;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     return snapshot;
 }
 bool plugin_browser_worker_command(const PluginBrowserCommand& command, u64* serial) noexcept {
     Worker* w = g_worker;
     if (!w || command.kind == Kind::none) return false;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     const bool accepted = !w->command_pending && !w->command_running;
     if (accepted) {
         w->command = command;
@@ -572,16 +544,16 @@ bool plugin_browser_worker_command(const PluginBrowserCommand& command, u64* ser
         w->command_pending = true;
         if (serial) *serial = w->command_serial;
     }
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     if (accepted) SetEvent(w->wake);
     return accepted;
 }
 bool plugin_browser_worker_busy() noexcept {
     Worker* w = g_worker;
     if (!w) return false;
-    AcquireSRWLockShared(&w->lock);
+    AcquireSRWLockShared(w->lock.native());
     const bool busy = w->command_pending || w->command_running || w->view.phase != PluginBrowserPhase::idle;
-    ReleaseSRWLockShared(&w->lock);
+    ReleaseSRWLockShared(w->lock.native());
     return busy;
 }
 

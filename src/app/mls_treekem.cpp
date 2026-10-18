@@ -2,7 +2,7 @@
 #include "maicord/app/mls_hpke.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -66,7 +66,7 @@ void truncate_private(MlsTreeKemPrivate& state, u32 node_count) noexcept {
     }
     for (u32 i = kept; i != kMaxPrivateNodes; ++i) {
         state.path_nodes[i] = 0;
-        SecureZeroMemory(state.path_secrets[i], kMlsHashBytes);
+        secure_clear_bytes(state.path_secrets[i], kMlsHashBytes);
     }
     state.path_count = kept;
 }
@@ -248,7 +248,7 @@ MlsStatus mls_treekem_carry_forward(KdfSha256Workspace& kdf, MlsTreeKemPrivate* 
         status = verify_state(kdf, *next, index);
     }
     if (status != MlsStatus::ok)
-        SecureZeroMemory(next, sizeof(*next));
+        secure_clear_bytes(next, sizeof(*next));
     return status;
 }
 MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
@@ -351,9 +351,9 @@ MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate*
     if (status == MlsStatus::ok)
         status = verify_state(kdf, candidate, index);
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(stub.data, minimum(writer.used, stub.count));
+        secure_clear_bytes(stub.data, minimum(writer.used, stub.count));
         if (*tree_bytes)
-            SecureZeroMemory(tree_output.data, *tree_bytes);
+            secure_clear_bytes(tree_output.data, *tree_bytes);
         *stub_bytes = *tree_bytes = 0;
         *stub_path = {};
         *merged = {};
@@ -471,7 +471,7 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
                 break;
             }
             const auto sealed =
-                mls_encrypt_with_label(kdf, {recipient, kMlsPointBytes}, mls_text("UpdatePathNode"),
+                mls_encrypt_with_label(kdf, {recipient, kMlsPointBytes}, text_bytes("UpdatePathNode"),
                                        group_context, {prepared.path_secrets[path_index], kMlsHashBytes},
                                        {kem_output, kMlsPointBytes}, {ciphertext, sizeof(ciphertext)});
             if (!sealed.ok() || sealed.bytes != sizeof(ciphertext)) {
@@ -494,7 +494,7 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
     if (status == MlsStatus::ok && consumed != required)
         status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(output.data, minimum(writer.used, output.count));
+        secure_clear_bytes(output.data, minimum(writer.used, output.count));
         *path = {};
         return status;
     }
@@ -595,7 +595,7 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
     status = private_key(kdf, candidate, decrypt_node, public_key, &key);
     if (status == MlsStatus::ok) {
         const auto opened = mls_decrypt_with_label(
-            kdf, key, mls_text("UpdatePathNode"), group_context, {ciphertext.kem_output, kMlsPointBytes},
+            kdf, key, text_bytes("UpdatePathNode"), group_context, {ciphertext.kem_output, kMlsPointBytes},
             {ciphertext.ciphertext, kMlsPathSecretCiphertextBytes}, {path_secret, kMlsHashBytes});
         if (!opened.ok())
             status = MlsStatus::crypto_failure;

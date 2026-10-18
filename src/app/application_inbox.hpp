@@ -2,6 +2,7 @@
 #include "maicord/app/rest_client.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/scroll_host.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Inbox popout from the header toolbar: recent mentions (paged with Load more,
@@ -11,7 +12,7 @@ bool application_inbox_active() noexcept;
 bool application_inbox_toggle() noexcept;
 void application_inbox_close() noexcept;
 void application_inbox_release() noexcept;
-// Releases the popout's storage (~290 KB) once it is closed with no request in
+// Releases the popout's storage once it is closed with no request in
 // flight; tab, filters, open count and scroll position carry to the next open.
 void application_inbox_trim() noexcept;
 bool application_inbox_synchronize() noexcept;

@@ -1,37 +1,32 @@
 #include "maicord/app/plugin_settings_projection.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
 using Error = NativePluginSettingsError;
 using Prefix = NativePluginSettingsPage;
-bool range(const void* data, usize bytes) noexcept {
-    return !bytes || (data && reinterpret_cast<usize>(data) <= ~usize{0} - bytes);
-}
-bool overlaps(const void* a, usize an, const void* b, usize bn) noexcept {
-    const auto av = reinterpret_cast<usize>(a), bv = reinterpret_cast<usize>(b);
-    return an && bn && (av <= bv ? bv - av < an : av - bv < bn);
+bool controls_valid(ConstSlice<NativePluginSettingsControl> controls) noexcept {
+    return controls.count <= kNativePluginSettingsMaximumControls &&
+        byte_range_valid(controls.data, static_cast<usize>(controls.count) * sizeof(NativePluginSettingsControl));
 }
 }
 NativePluginSettingsError native_plugin_settings_snapshot(const void* context,
     NativePluginSettingsSnapshot* output) noexcept {
-    if (!output || !range(context, sizeof(Prefix)) ||
-        overlaps(context, sizeof(Prefix), output, sizeof(*output))) return Error::invalid_argument;
+    if (!output || !byte_range_valid(context, sizeof(Prefix)) ||
+        byte_ranges_overlap(context, sizeof(Prefix), output, sizeof(*output)))
+        return Error::invalid_argument;
     Prefix prefix{};
     copy_bytes(&prefix, context, sizeof(prefix));
     if (prefix.format != kNativePluginSettingsFormatHost) return Error::unsupported;
     NativePluginSettingsSnapshot candidate{prefix.title, prefix.description, prefix.controls, prefix.revision};
-    if (candidate.controls.count > kNativePluginSettingsMaximumControls ||
-        !range(candidate.controls.data, static_cast<usize>(candidate.controls.count) * sizeof(NativePluginSettingsControl)))
-        return Error::invalid_argument;
+    if (!controls_valid(candidate.controls)) return Error::invalid_argument;
     *output = candidate;
     return Error::none;
 }
 NativePluginSettingsError native_plugin_settings_control(const NativePluginSettingsSnapshot& snapshot,
     u32 index, NativePluginSettingsControl* output) noexcept {
-    if (!output || index >= snapshot.controls.count ||
-        snapshot.controls.count > kNativePluginSettingsMaximumControls ||
-        !range(snapshot.controls.data, static_cast<usize>(snapshot.controls.count) * sizeof(NativePluginSettingsControl)))
+    if (!output || index >= snapshot.controls.count || !controls_valid(snapshot.controls))
         return Error::invalid_argument;
     NativePluginSettingsControl candidate{};
     // The stride belongs to this host DTO, never sizeof a native widget.
@@ -41,27 +36,25 @@ NativePluginSettingsError native_plugin_settings_control(const NativePluginSetti
          candidate.kind != NativePluginSettingsKind::category && candidate.kind != NativePluginSettingsKind::notice) ||
         candidate.editor) return Error::unsupported;
     if (!candidate.id) return Error::invalid_argument;
-    if (candidate.kind == NativePluginSettingsKind::slider &&
-        (candidate.choices.count < 2 || candidate.choices.count > kNativePluginSettingsMaximumChoices ||
-        !range(candidate.choices.data, static_cast<usize>(candidate.choices.count) * sizeof(Utf8View)) ||
-        candidate.selected_choice >= candidate.choices.count)) return Error::invalid_argument;
-    if (candidate.kind == NativePluginSettingsKind::choice &&
-        (!candidate.choices.count || candidate.choices.count > kNativePluginSettingsMaximumChoices ||
-        !range(candidate.choices.data, static_cast<usize>(candidate.choices.count) * sizeof(Utf8View)) ||
-        candidate.selected_choice >= candidate.choices.count)) return Error::invalid_argument;
+    if (candidate.kind == NativePluginSettingsKind::slider || candidate.kind == NativePluginSettingsKind::choice) {
+        const u32 minimum_choices = candidate.kind == NativePluginSettingsKind::slider ? 2 : 1;
+        if (candidate.choices.count < minimum_choices || candidate.choices.count > kNativePluginSettingsMaximumChoices ||
+            !byte_range_valid(candidate.choices.data, static_cast<usize>(candidate.choices.count) * sizeof(Utf8View)) ||
+            candidate.selected_choice >= candidate.choices.count) return Error::invalid_argument;
+    }
     *output = candidate;
     return Error::none;
 }
 NativePluginSettingsError native_plugin_settings_project(const NativePluginSettingsSnapshot& snapshot,
     Slice<UiSettingsControl> controls, UiSettingsPageContent* output) noexcept {
-    if (!output || !range(controls.data, static_cast<usize>(controls.count) * sizeof(UiSettingsControl)) ||
-        overlaps(output, sizeof(*output), controls.data, static_cast<usize>(controls.count) * sizeof(UiSettingsControl)) ||
-        overlaps(snapshot.controls.data, static_cast<usize>(snapshot.controls.count) * sizeof(NativePluginSettingsControl),
-            controls.data, static_cast<usize>(controls.count) * sizeof(UiSettingsControl)) ||
-        overlaps(snapshot.controls.data, static_cast<usize>(snapshot.controls.count) * sizeof(NativePluginSettingsControl),
-            output, sizeof(*output)) ||
-        overlaps(&snapshot, sizeof(snapshot), controls.data, static_cast<usize>(controls.count) * sizeof(UiSettingsControl)) ||
-        overlaps(&snapshot, sizeof(snapshot), output, sizeof(*output))) return Error::invalid_argument;
+    const usize output_bytes = static_cast<usize>(controls.count) * sizeof(UiSettingsControl);
+    const usize source_bytes = static_cast<usize>(snapshot.controls.count) * sizeof(NativePluginSettingsControl);
+    if (!output || !byte_range_valid(controls.data, output_bytes) ||
+        byte_ranges_overlap(output, sizeof(*output), controls.data, output_bytes) ||
+        byte_ranges_overlap(snapshot.controls.data, source_bytes, controls.data, output_bytes) ||
+        byte_ranges_overlap(snapshot.controls.data, source_bytes, output, sizeof(*output)) ||
+        byte_ranges_overlap(&snapshot, sizeof(snapshot), controls.data, output_bytes) ||
+        byte_ranges_overlap(&snapshot, sizeof(snapshot), output, sizeof(*output))) return Error::invalid_argument;
     if (controls.count < snapshot.controls.count) return Error::capacity;
     if (!snapshot.title.bytes || !utf8_validate(snapshot.title).valid ||
         !utf8_validate(snapshot.description).valid)

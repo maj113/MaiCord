@@ -4,6 +4,7 @@
 #include "maicord/app/plugin_host.hpp"
 #include "maicord/ui/scroll_host.hpp"
 #include "maicord/ui/settings_scene.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Settings avatar rows: the cached user's avatar key and hash, or an empty

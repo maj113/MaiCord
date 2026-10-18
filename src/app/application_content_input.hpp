@@ -7,6 +7,7 @@
 #include "maicord/ui/cursor.hpp"
 #include "maicord/app/received_attachment_open.hpp"
 #include "maicord/app/navigation_shortcuts.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 

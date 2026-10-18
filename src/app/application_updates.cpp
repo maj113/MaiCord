@@ -6,7 +6,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/random.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -20,7 +21,7 @@ struct Worker {
     UpdateHttpsTransport https;
     UpdateServiceConfig config;
     UpdatePaths paths;
-    SRWLOCK lock;
+    SrwLock lock;
     HANDLE thread, wake, stop, notify;
     ApplicationUpdatesView view; // guarded by lock
     u64 revision;                // guarded by lock
@@ -34,13 +35,17 @@ ApplicationUpdatesText g_text[4];
 u64 g_seen_revision;
 bool g_quit_reported;
 
+bool busy_state(State state) noexcept {
+    return state == State::checking || state == State::downloading || state == State::installing ||
+           state == State::restarting;
+}
 u64 now_unix() noexcept { return clock_unix_milliseconds() / 1000; }
 u32 random32() noexcept { u32 value = 0; secure_random_u32(&value); return value; }
 void publish(Worker* w, void (*change)(Worker*, void*), void* context) noexcept {
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     change(w, context);
     ++w->revision;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     SetEvent(w->notify);
 }
 void set_state(Worker* w, State state, UpdateServiceError error = UpdateServiceError::none) noexcept {
@@ -128,12 +133,12 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         HANDLE handles[]{w->stop, w->wake};
         const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, timeout);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) break;
-        AcquireSRWLockExclusive(&w->lock);
+        AcquireSRWLockExclusive(w->lock.native());
         const bool check = w->check_requested, restart = w->restart_requested, revert = w->revert_requested;
         const bool channel_changed = w->channel_requested;
         const UpdateChannel channel = w->view.channel;
         w->check_requested = w->restart_requested = w->revert_requested = w->channel_requested = false;
-        ReleaseSRWLockExclusive(&w->lock);
+        ReleaseSRWLockExclusive(w->lock.native());
         if (channel_changed) update_channel_save(w->paths, channel);
         if (revert || restart) {
             set_state(w, State::restarting);
@@ -168,8 +173,7 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
     Text label{{text->label, sizeof(text->label), 0}};
     Text description{{text->description, sizeof(text->description), 0}};
     const bool disabled = v.state == State::disabled;
-    const bool busy = v.state == State::checking || v.state == State::downloading || v.state == State::installing ||
-        v.state == State::restarting;
+    const bool busy = busy_state(v.state);
     switch (binding) {
     case SettingBinding::update_status: {
         description.add(utf8_literal("MaiCord ")); description.version(v.own_version);
@@ -234,7 +238,7 @@ bool application_updates_initialize(const UpdateServiceConfig& config) noexcept 
     auto* w = static_cast<Worker*>(VirtualAlloc(nullptr, sizeof(Worker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!w) return false;
     w->config = config;
-    InitializeSRWLock(&w->lock);
+    InitializeSRWLock(w->lock.native());
     w->view.own_version = config.own_version;
     w->view.state = config.configured ? State::idle : State::disabled;
     const bool located = update_paths_default(&w->paths);
@@ -276,11 +280,11 @@ HANDLE application_updates_notification() noexcept { return g_worker ? g_worker-
 bool application_updates_poll() noexcept {
     Worker* w = g_worker;
     if (!w) return false;
-    AcquireSRWLockShared(&w->lock);
+    AcquireSRWLockShared(w->lock.native());
     const u64 revision = w->revision;
     const bool quit = w->quit;
     if (revision != g_seen_revision) g_view = w->view;
-    ReleaseSRWLockShared(&w->lock);
+    ReleaseSRWLockShared(w->lock.native());
     if (revision != g_seen_revision) { g_seen_revision = revision; application_settings_refresh_pages(); }
     if (quit && !g_quit_reported) { g_quit_reported = true; return true; }
     return false;
@@ -293,10 +297,9 @@ bool application_updates_project(SettingBinding binding, UiSettingsControl* cont
 bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
     Worker* w = g_worker;
     if (!w || !w->thread) return false;
-    AcquireSRWLockExclusive(&w->lock);
+    AcquireSRWLockExclusive(w->lock.native());
     const auto state = w->view.state;
-    const bool busy = state == State::checking || state == State::downloading || state == State::installing || state == State::restarting;
-    bool accepted = !busy;
+    bool accepted = !busy_state(state);
     if (accepted) {
         if (binding == SettingBinding::update_status) {
             if (state == State::ready) w->restart_requested = true; else w->check_requested = true;
@@ -305,7 +308,7 @@ bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
             w->view.channel = static_cast<UpdateChannel>(choice); w->channel_requested = true; ++w->revision;
         } else accepted = false;
     }
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockExclusive(w->lock.native());
     if (accepted) { SetEvent(w->wake); SetEvent(w->notify); }
     return accepted;
 }

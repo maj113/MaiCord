@@ -23,14 +23,6 @@ using RE = AcceptanceRecordError;
 constexpr u8 kStateMagic[8]{'M','A','I','P','S','T','A','T'};
 constexpr u8 kJournalMagic[8]{'M','A','I','P','J','R','N','L'};
 AcceptanceRecordResult fail(RE error) noexcept { return {error, 0}; }
-bool zero(const void* data, u32 bytes) noexcept {
-    const auto* p = static_cast<const u8*>(data);
-    for (u32 i = 0; i < bytes; ++i) if (p[i]) return false;
-    return true;
-}
-bool disjoint(ConstSlice<u8> a, ConstSlice<u8> b) noexcept {
-    return byte_range_valid(a) && byte_range_valid(b) && !byte_ranges_overlap(a, b);
-}
 // Empty, or the index slug grammar [a-z0-9][a-z0-9-]* followed only by zero bytes.
 bool slug_valid(const char* slug) noexcept {
     u32 n = 0;
@@ -40,11 +32,11 @@ bool slug_valid(const char* slug) noexcept {
         if (!alnum && (c != '-' || !n)) return false;
         ++n;
     }
-    return zero(slug + n, kPluginManagerSlugCapacity - n);
+    return bytes_zero(slug + n, kPluginManagerSlugCapacity - n);
 }
 bool entry_valid(const PluginManagerEntry& e) noexcept {
     return e.owner > 1 && !(e.flags & ~kPluginStateKnownFlags) && e.max_host_abi <= 0xFFFF &&
-        (e.previous_code || zero(e.previous_sha256, 32)) && slug_valid(e.slug);
+        (e.previous_code || bytes_zero(e.previous_sha256, 32)) && slug_valid(e.slug);
 }
 // Header shared by both records; the caller validates count.
 bool header(ConstSlice<u8> record, const u8* magic, u32 version, u32 bytes, RE* error) noexcept {
@@ -71,7 +63,7 @@ void seal(Slice<u8> record) noexcept {
 bool plugin_manager_paths_build(ConstSlice<wchar_t> base, PluginManagerPaths* paths) noexcept {
     if (!paths || !base.data || !base.count || base.count > kPluginManagerBaseMaximumCharacters || !acceptance_record_path_valid(base) ||
         base[base.count - 1] == L'\\' || base[base.count - 1] == L'/' ||
-        !disjoint({reinterpret_cast<const u8*>(base.data), base.count * static_cast<u32>(sizeof(wchar_t))},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(base.data), base.count * static_cast<u32>(sizeof(wchar_t))},
             {reinterpret_cast<const u8*>(paths), static_cast<u32>(sizeof(*paths))}))
         return false;
     clear_bytes(paths, sizeof(*paths));
@@ -123,13 +115,13 @@ bool plugin_manager_state_valid(const PluginManagerState& state) noexcept {
     }
     static_assert(sizeof(PluginManagerEntry) == kPluginManagerStateEntryBytes, "no padding: unused entries compare as bytes");
     for (u32 i = state.count; i < kPluginManagerStateMaximumEntries; ++i)
-        if (!zero(&state.entries[i], sizeof(PluginManagerEntry))) return false;
+        if (!bytes_zero(&state.entries[i], sizeof(PluginManagerEntry))) return false;
     return true;
 }
 
 AcceptanceRecordResult plugin_manager_state_encode(const PluginManagerState& state, Slice<u8> record) noexcept {
     if (record.count != kPluginManagerStateRecordBytes || !record.data || !plugin_manager_state_valid(state) ||
-        !disjoint({record.data, record.count}, {reinterpret_cast<const u8*>(&state), sizeof(state)}))
+        !byte_ranges_disjoint({record.data, record.count}, {reinterpret_cast<const u8*>(&state), sizeof(state)}))
         return fail(RE::invalid_input);
     begin(record, kStateMagic, kPluginManagerStateVersion, state.count);
     for (u32 i = 0; i < state.count; ++i) {
@@ -152,7 +144,7 @@ AcceptanceRecordResult plugin_manager_state_encode(const PluginManagerState& sta
 }
 
 AcceptanceRecordResult plugin_manager_state_decode(ConstSlice<u8> record, PluginManagerState* state) noexcept {
-    if (!state || !record.data || !disjoint(record, {reinterpret_cast<const u8*>(state), sizeof(*state)})) return fail(RE::invalid_input);
+    if (!state || !record.data || !byte_ranges_disjoint(record, {reinterpret_cast<const u8*>(state), sizeof(*state)})) return fail(RE::invalid_input);
     RE error{};
     if (!header(record, kStateMagic, kPluginManagerStateVersion, kPluginManagerStateRecordBytes, &error)) return fail(error);
     PluginManagerState candidate{};
@@ -193,14 +185,14 @@ AcceptanceRecordResult plugin_manager_state_save(ConstSlice<wchar_t> path, const
 bool plugin_journal_valid(const PluginJournal& j) noexcept {
     if (j.operation == PluginJournalOperation::none)
         return j.phase == PluginJournalPhase::none && !j.enable_after && !j.had_trust && !j.owner && !j.provider && !j.to_code &&
-            !j.approved_permissions && zero(j.from_sha256, 32) && zero(j.to_sha256, 32);
+            !j.approved_permissions && bytes_zero(j.from_sha256, 32) && bytes_zero(j.to_sha256, 32);
     return j.operation <= PluginJournalOperation::uninstall && j.phase != PluginJournalPhase::none &&
         j.phase <= PluginJournalPhase::committed && j.owner > 1 && !(j.approved_permissions & ~kNativePluginPermissionsAll);
 }
 
 AcceptanceRecordResult plugin_journal_encode(const PluginJournal& journal, Slice<u8> record) noexcept {
     if (record.count != kPluginJournalRecordBytes || !record.data || !plugin_journal_valid(journal) ||
-        !disjoint({record.data, record.count}, {reinterpret_cast<const u8*>(&journal), sizeof(journal)}))
+        !byte_ranges_disjoint({record.data, record.count}, {reinterpret_cast<const u8*>(&journal), sizeof(journal)}))
         return fail(RE::invalid_input);
     const bool active = journal.operation != PluginJournalOperation::none;
     begin(record, kJournalMagic, kPluginJournalVersion, active ? 1 : 0);
@@ -220,12 +212,12 @@ AcceptanceRecordResult plugin_journal_encode(const PluginJournal& journal, Slice
 }
 
 AcceptanceRecordResult plugin_journal_decode(ConstSlice<u8> record, PluginJournal* journal) noexcept {
-    if (!journal || !record.data || !disjoint(record, {reinterpret_cast<const u8*>(journal), sizeof(*journal)})) return fail(RE::invalid_input);
+    if (!journal || !record.data || !byte_ranges_disjoint(record, {reinterpret_cast<const u8*>(journal), sizeof(*journal)})) return fail(RE::invalid_input);
     RE error{};
     if (!header(record, kJournalMagic, kPluginJournalVersion, kPluginJournalRecordBytes, &error)) return fail(error);
     const u8* body = record.data + 32;
     const u32 count = byte_load_le32(record.data + 16);
-    if (count > 1 || body[2] > 1 || body[3] > 1 || !zero(body + 4, 4) || !zero(body + 104, 24) ||
+    if (count > 1 || body[2] > 1 || body[3] > 1 || !bytes_zero(body + 4, 4) || !bytes_zero(body + 104, 24) ||
         body[0] > static_cast<u8>(PluginJournalOperation::uninstall) || body[1] > static_cast<u8>(PluginJournalPhase::committed))
         return fail(RE::format);
     PluginJournal candidate{};
@@ -267,7 +259,7 @@ PluginRecoveryAction plugin_manager_recovery_plan(const PluginJournal& journal, 
     if (journal.phase == PluginJournalPhase::intent) return PluginRecoveryAction::discard;
     if (manifest && bytes_equal(manifest, journal.to_sha256, 32)) return PluginRecoveryAction::finish;
     if (journal.phase == PluginJournalPhase::staged) {
-        const bool fresh = zero(journal.from_sha256, 32);
+        const bool fresh = bytes_zero(journal.from_sha256, 32);
         if (fresh ? !manifest : manifest && bytes_equal(manifest, journal.from_sha256, 32)) return PluginRecoveryAction::discard;
     }
     return PluginRecoveryAction::clear;

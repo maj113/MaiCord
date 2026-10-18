@@ -121,7 +121,6 @@ bool make_room(MessageSnapshotCache* cache, u32 bytes, const MessageSnapshotEntr
         if (!evicted)
             return false;
         remove_entry(cache, evicted);
-        ++cache->evictions;
     }
 }
 
@@ -364,10 +363,8 @@ bool message_snapshot_cache_capture(MessageSnapshotCache* cache, const MessageTi
         return false;
     MessageSnapshotEntry* entry = free_entry(cache);
     const u32 offset = cache->used;
-    if (!entry || !pool_reserve(cache, offset + static_cast<u32>(total))) {
-        ++cache->failures;
+    if (!entry || !pool_reserve(cache, offset + static_cast<u32>(total)))
         return false;
-    }
     u32 cursor = offset;
     for (u32 index = 0; index < store.count; ++index) {
         const MessageHandle handle = message_store_ordered_handle(store, index);
@@ -379,10 +376,8 @@ bool message_snapshot_cache_capture(MessageSnapshotCache* cache, const MessageTi
         const Utf8View content = message_store_content(store, handle);
         const u32 bytes = row_bytes(content.bytes, rich_bytes);
         if (!write_row(cache->pool.base + cursor, bytes, *record, content, rich, rich_bytes,
-                       ui_variable_list_item_units(*timeline.list, index))) {
-            ++cache->failures;
+                       ui_variable_list_item_units(*timeline.list, index)))
             return false;
-        }
         cursor += bytes;
     }
     *entry = MessageSnapshotEntry{};
@@ -414,7 +409,6 @@ bool message_snapshot_cache_capture(MessageSnapshotCache* cache, const MessageTi
         if (!entry->anchor_id)
             entry->follow_bottom = true;
     }
-    ++cache->captures;
     return true;
 }
 
@@ -448,7 +442,6 @@ bool message_snapshot_cache_capture_page(MessageSnapshotCache* cache, u64 channe
         u32 rich_bytes = 0;
         if (!stage(messages[index], &rich_bytes)) {
             scratch_clear(value);
-            ++cache->failures;
             return false;
         }
         total += row_bytes(message_store_content(value->store, message_store_ordered_handle(value->store, 0)).bytes,
@@ -474,7 +467,6 @@ bool message_snapshot_cache_capture_page(MessageSnapshotCache* cache, u64 channe
             !write_row(cache->pool.base + cursor, bytes, *message_store_resolve(value->store, handle), content,
                        &value->rich, rich_bytes, default_item_units)) {
             scratch_clear(value);
-            ++cache->failures;
             return false;
         }
         cursor += bytes;
@@ -494,7 +486,6 @@ bool message_snapshot_cache_capture_page(MessageSnapshotCache* cache, u64 channe
     entry->older_exhausted = exhausted;
     entry->speculative = true;
     cache->used = offset + static_cast<u32>(total);
-    ++cache->captures;
     return true;
 }
 
@@ -509,7 +500,6 @@ MessageSnapshotRestoreResult message_snapshot_cache_restore(MessageSnapshotCache
     const bool missed_tail = entry->live_edge && !entry->creates && channel_last_message_id > entry->newest_id;
     if (entry->creates >= gap_limit || missed_tail) {
         remove_entry(cache, entry);
-        ++cache->gaps;
         result.status = MessageSnapshotRestoreStatus::gap;
         return result;
     }
@@ -519,7 +509,6 @@ MessageSnapshotRestoreResult message_snapshot_cache_restore(MessageSnapshotCache
         if (timeline && timeline->store && timeline->list)
             message_timeline_reset(timeline);
         remove_entry(cache, entry);
-        ++cache->failures;
         return result;
     }
     MessageStore& store = *timeline->store;
@@ -559,7 +548,6 @@ MessageSnapshotRestoreResult message_snapshot_cache_restore(MessageSnapshotCache
     if (!ok) {
         message_timeline_reset(timeline);
         remove_entry(cache, entry);
-        ++cache->failures;
         return result;
     }
     result.status = MessageSnapshotRestoreStatus::restored;
@@ -569,7 +557,6 @@ MessageSnapshotRestoreResult message_snapshot_cache_restore(MessageSnapshotCache
     result.live_edge = entry->live_edge;
     // The live timeline now owns this channel; a later capture replaces it.
     remove_entry(cache, entry);
-    ++cache->restores;
     return result;
 }
 
@@ -632,15 +619,7 @@ void message_snapshot_cache_observe(MessageSnapshotCache* cache, const GatewayCl
         u32 offset = 0;
         if (!entry || !find_row(*cache, *entry, reaction.message_id, &offset))
             return;
-        const MessageRichReactionMutationKind kind =
-            reaction.kind == GatewayMessageReactionEventKind::add      ? MessageRichReactionMutationKind::add
-            : reaction.kind == GatewayMessageReactionEventKind::remove ? MessageRichReactionMutationKind::remove
-            : reaction.kind == GatewayMessageReactionEventKind::remove_all
-                ? MessageRichReactionMutationKind::remove_all
-                : MessageRichReactionMutationKind::remove_emoji;
-        const MessageRichReactionMutation mutation{reaction.emoji_id, reaction.name, reaction.type, kind,
-                                                   reaction.user_id != 0 && reaction.user_id == self_user_id,
-                                                   reaction.animated};
+        const MessageRichReactionMutation mutation = message_reaction_mutation(reaction, self_user_id);
         MessageSnapshotScratch* value = scratch(cache);
         bool applied = value && scratch_load(value, *row_at(*cache, offset), entry->channel_id);
         if (applied) {
@@ -722,7 +701,6 @@ void channel_prefetch_submitted(ChannelPrefetch* prefetch, u64 channel_id, u64 r
             slot = index;
     prefetch->recent_channel_ids[slot] = channel_id;
     prefetch->recent_at_ms[slot] = now_ms;
-    ++prefetch->submitted;
 }
 
 bool channel_prefetch_adopt(ChannelPrefetch* prefetch, u64 request_id, u64 channel_id) noexcept {

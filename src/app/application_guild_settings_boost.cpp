@@ -3,7 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -52,16 +52,12 @@ void load() noexcept {
     set_editor(editor_vanity, {p.vanity_base, p.vanity_base_bytes});
 }
 
-// "Unlocked" when the feature is present, else the boost level that brings it.
-Utf8View badge(u64 feature, Utf8View level) noexcept {
-    return (guild_features() & feature) ? utf8_literal("Unlocked") : level;
-}
-
 void image_rows(Bank& bank, u64 id, u64 remove_id, Utf8View label, Utf8View description, u64 feature, Utf8View level,
                 GuildProfileImageEdit edit, const Picked& picked, bool stored_image, Utf8View* chip) noexcept {
     const bool unlocked = guild_features() & feature;
     const bool allowed = editable() && can_manage_guild();
-    *chip = badge(feature, level);
+    // "Unlocked" when the feature is present, else the boost level that brings it.
+    *chip = unlocked ? utf8_literal("Unlocked") : level;
     push({id, label,
           edit == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
                                                 : picked_text(bank, picked, description),
@@ -114,7 +110,7 @@ void project(Bank& bank) noexcept {
         push(loading(utf8_literal("Loading the custom invite link…")));
         return;
     }
-    const u32 start = bank.mark();
+    const u32 start = bank.used;
     bank.add(utf8_literal("https://discord.gg/"));
     bank.add(editor_text(editor_vanity));
     if (p.vanity_base_bytes) {
@@ -268,7 +264,7 @@ bool prepare_splash() noexcept {
 
 void release_uri(u8** uri, u32* bytes) noexcept {
     if (*uri) {
-        SecureZeroMemory(*uri, *bytes);
+        secure_clear_bytes(*uri, *bytes);
         VirtualFree(*uri, 0, MEM_RELEASE);
     }
     *uri = nullptr;

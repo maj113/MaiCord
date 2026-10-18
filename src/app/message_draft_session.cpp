@@ -5,7 +5,8 @@
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
 
 namespace maicord {
 namespace {
@@ -25,7 +26,7 @@ u32 retry_delay(u32 failures) noexcept {
 // One process-wide single-slot writer: the UI thread submits only when no
 // save is in flight, so the slot never queues stale snapshots.
 struct DraftWriter {
-    SRWLOCK lock;
+    SrwLock lock;
     HANDLE work_event;
     HANDLE done_event;
     HANDLE thread;
@@ -43,20 +44,20 @@ DWORD WINAPI draft_writer_main(void* context) noexcept {
     auto* writer = static_cast<DraftWriter*>(context);
     for (;;) {
         if (WaitForSingleObject(writer->work_event, INFINITE) != WAIT_OBJECT_0) return 1;
-        AcquireSRWLockExclusive(&writer->lock);
+        AcquireSRWLockExclusive(writer->lock.native());
         const bool ready = writer->job_ready;
         MessageDraftImage image = writer->image;
         writer->image = MessageDraftImage{};
-        ReleaseSRWLockExclusive(&writer->lock);
+        ReleaseSRWLockExclusive(writer->lock.native());
         if (!ready) continue;
         // The UI thread does not touch path while a job is outstanding.
         const MessageDraftPersistenceResult result = message_drafts_commit(writer->path, &image, false);
-        AcquireSRWLockExclusive(&writer->lock);
+        AcquireSRWLockExclusive(writer->lock.native());
         writer->result = result;
         writer->job_ready = false;
         writer->job_done = true;
         SetEvent(writer->done_event);
-        ReleaseSRWLockExclusive(&writer->lock);
+        ReleaseSRWLockExclusive(writer->lock.native());
     }
 }
 
@@ -106,14 +107,14 @@ bool collect(MessageDraftSession& session, const MessageDraftStore& drafts, u64 
     if (!session.persist_in_flight) return true;
     DraftWriter* writer = g_writer;
     if (timeout_ms && WaitForSingleObject(writer->done_event, timeout_ms) != WAIT_OBJECT_0) return false;
-    AcquireSRWLockExclusive(&writer->lock);
+    AcquireSRWLockExclusive(writer->lock.native());
     const bool done = writer->job_done;
     const MessageDraftPersistenceResult saved = writer->result;
     if (done) {
         writer->job_done = false;
         ResetEvent(writer->done_event);
     }
-    ReleaseSRWLockExclusive(&writer->lock);
+    ReleaseSRWLockExclusive(writer->lock.native());
     if (!done) return false;
     session.persist_in_flight = false;
     apply_result(session, drafts, session.inflight_revision, saved, now_ms);
@@ -163,10 +164,10 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
         }
         u32 characters = 0;
         while (session.path[characters] != 0) ++characters;
-        AcquireSRWLockExclusive(&writer->lock);
+        AcquireSRWLockExclusive(writer->lock.native());
         if (writer->job_ready) {
             // Only reachable when a discarded session's commit is still running.
-            ReleaseSRWLockExclusive(&writer->lock);
+            ReleaseSRWLockExclusive(writer->lock.native());
             message_drafts_image_release(&image);
             session.persist_at_ms = now_ms + kPersistPollMs;
             return;
@@ -179,7 +180,7 @@ void message_draft_session_persist(MessageDraftSession& session, const MessageDr
         writer->job_done = false;
         ResetEvent(writer->done_event);
         SetEvent(writer->work_event);
-        ReleaseSRWLockExclusive(&writer->lock);
+        ReleaseSRWLockExclusive(writer->lock.native());
         session.persist_in_flight = true;
         session.inflight_revision = drafts.revision;
         session.persist_at_ms = now_ms + kPersistPollMs;

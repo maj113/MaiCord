@@ -2,6 +2,7 @@
 #include "maicord/app/rest_client.hpp"
 #include "maicord/protocol/user_social.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 struct SettingsLayer;

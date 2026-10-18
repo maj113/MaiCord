@@ -57,13 +57,8 @@ struct MessageSnapshotCache {
     u64 tick;
     u32 used;
     u32 budget;
-    u32 captures;
-    u32 restores;
-    u32 evictions;
-    u32 gaps;
     u32 event_updates;
     u32 event_drops;
-    u32 failures;
 };
 
 struct MessageSnapshotCaptureInput {
@@ -141,7 +136,6 @@ struct ChannelPrefetch {
     u64 last_submit_ms;
     u64 recent_channel_ids[kChannelPrefetchRecent];
     u64 recent_at_ms[kChannelPrefetchRecent];
-    u32 submitted;
     u32 deduplicated;
     u32 cancelled;
     u32 adopted;

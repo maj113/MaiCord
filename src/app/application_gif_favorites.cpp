@@ -2,6 +2,7 @@
 #include "application_state.hpp"
 #include "application_channel_authority.hpp"
 #include "application_media_picker.hpp"
+#include "application_settings_envelope.hpp"
 #include "rest_rate_retry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/json_reader.hpp"
@@ -9,7 +10,6 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/media_catalog.hpp"
 
-#include <Windows.h>
 
 namespace maicord::app_detail {
 namespace {
@@ -29,16 +29,10 @@ struct FavoriteAction {
 bool equal(Utf8View a, Utf8View b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
-[[maybe_unused]] bool usable_text(Utf8View text) noexcept {
+bool usable_text(Utf8View text) noexcept {
     return text.data && text.bytes && text.bytes <= kUrlBytes && utf8_validate(text).valid;
 }
-void dispose(void* data, u32 bytes) noexcept {
-    if (data) {
-        SecureZeroMemory(data, bytes);
-        VirtualFree(data, 0, MEM_RELEASE);
-    }
-}
-void dispose(FavoriteBank* bank) noexcept {
+void release_bank(FavoriteBank* bank) noexcept {
     if (bank)
         dispose(bank, bank->bytes);
 }
@@ -50,8 +44,7 @@ FavoriteBank* decode(Utf8View settings) noexcept {
     const u32 index_offset =
         records_offset + measure.entry_count * static_cast<u32>(sizeof(GifFavoriteRecord));
     const u32 bytes = index_offset + measure.index_words * static_cast<u32>(sizeof(u32));
-    auto* bank =
-        static_cast<FavoriteBank*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* bank = committed_allocate<FavoriteBank>(bytes);
     if (!bank)
         return nullptr;
     bank->bytes = bytes;
@@ -62,7 +55,7 @@ FavoriteBank* decode(Utf8View settings) noexcept {
                                                     {bank->records, measure.entry_count},
                                                     {bank->index, measure.index_words});
     if (!result.ok() || !result.versions_present) {
-        dispose(bank);
+        release_bank(bank);
         return nullptr;
     }
     bank->group_bytes = result.group_bytes;
@@ -72,47 +65,14 @@ FavoriteBank* decode(Utf8View settings) noexcept {
     bank->entry_count = result.entry_count;
     return bank;
 }
-struct Envelope {
-    JsonString settings;
-    bool settings_seen, out_of_date_seen, out_of_date;
-};
-bool member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& envelope = *static_cast<Envelope*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("settings"))) {
-        if (envelope.settings_seen || !json_value_as_string(value, &envelope.settings))
-            return false;
-        envelope.settings_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("out_of_date"))) {
-        if (envelope.out_of_date_seen || !json_value_to_bool(value, &envelope.out_of_date))
-            return false;
-        envelope.out_of_date_seen = true;
-    }
-    return true;
-}
 FavoriteBank* decode_response(Utf8View body, bool* conflict) noexcept {
-    if (!body.data || !body.bytes || body.bytes > kRestClientMaximumResponseBytes)
-        return nullptr;
-    u32 indexes[256]{};
-    const auto scanned = json_scan_structurals_avx1(body, {indexes, 256});
-    Envelope envelope{};
-    if (!scanned.ok() ||
-        !json_visit_root_object(body, {indexes, scanned.count}, 16, member, &envelope).ok() ||
-        !envelope.settings_seen)
-        return nullptr;
-    *conflict = envelope.out_of_date;
-    if (!envelope.settings.has_escapes)
-        return decode(envelope.settings.encoded);
-    const auto measured = json_string_decode_utf8(envelope.settings, {});
-    if (measured.error != JsonStringDecodeError::output_too_small || !measured.bytes ||
-        measured.bytes > kRestClientMaximumResponseBytes)
-        return nullptr;
-    auto* temporary =
-        static_cast<char*>(VirtualAlloc(nullptr, measured.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!temporary)
-        return nullptr;
-    const auto decoded = json_string_decode_utf8(envelope.settings, {temporary, measured.bytes});
-    FavoriteBank* bank = decoded.ok() ? decode({temporary, decoded.bytes}) : nullptr;
-    dispose(temporary, measured.bytes);
+    FavoriteBank* bank = nullptr;
+    application_settings_envelope(
+        body, conflict,
+        [](void* context, Utf8View settings) noexcept {
+            return (*static_cast<FavoriteBank**>(context) = decode(settings)) != nullptr;
+        },
+        &bank);
     return bank;
 }
 } // namespace
@@ -175,7 +135,7 @@ void drop_action(ApplicationGifFavorites& p) noexcept {
     --p.queue_count;
     if (p.queue_count)
         memmove(p.queue, p.queue + 1, p.queue_count * sizeof(FavoriteAction));
-    SecureZeroMemory(p.queue + p.queue_count, sizeof(FavoriteAction));
+    secure_clear_bytes(p.queue + p.queue_count, sizeof(FavoriteAction));
     if (!p.queue_count) {
         dispose(p.queue, kQueueCapacity * sizeof(FavoriteAction));
         p.queue = nullptr;
@@ -197,7 +157,7 @@ void replace_bank(ApplicationGifFavorites& p, FavoriteBank* bank) noexcept {
         bytes_equal(old->group, bank->group, bank->group_bytes)) {
         // Only the conditional version/authority changed. Preserve immutable
         // record borrows and visible preview identities for identical data.
-        dispose(bank);
+        release_bank(bank);
         p.authoritative = true;
         changed(p);
         return;
@@ -206,7 +166,7 @@ void replace_bank(ApplicationGifFavorites& p, FavoriteBank* bank) noexcept {
     p.authoritative = bank != nullptr;
     // Refresh borrowed picker records before disposing any previous bank.
     changed(p, true);
-    dispose(old);
+    release_bank(old);
 }
 void clear_scope(ApplicationGifFavorites& p) noexcept {
     if (!++p.generation)
@@ -264,15 +224,12 @@ void schedule(ApplicationGifFavorites& p) noexcept {
         return;
     p.due_at = (p.queue_count || (interested(p) && p.fetch_wanted)) ? 1 : 0;
 }
-} // namespace
 
-namespace {
 bool open_interest(bool hover) noexcept {
     if (!online())
         return false;
     if (!g_app.gif_favorites) {
-        g_app.gif_favorites = static_cast<ApplicationGifFavorites*>(VirtualAlloc(
-            nullptr, sizeof(ApplicationGifFavorites), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_app.gif_favorites = committed_allocate<ApplicationGifFavorites>(sizeof(ApplicationGifFavorites));
         if (!g_app.gif_favorites)
             return false;
         g_app.gif_favorites->generation = 1;
@@ -340,7 +297,7 @@ void application_gif_favorites_release() noexcept {
         return;
     g_app.gif_favorites = nullptr;
     application_media_picker_favorites_changed();
-    dispose(p->bank);
+    release_bank(p->bank);
     dispose(p->queue, kQueueCapacity * sizeof(FavoriteAction));
     dispose(p->response_body, kRestClientMaximumResponseBytes);
     dispose(p, sizeof(ApplicationGifFavorites));
@@ -438,8 +395,7 @@ bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32
         return false;
     }
     if (!p.queue) {
-        p.queue = static_cast<FavoriteAction*>(VirtualAlloc(
-            nullptr, sizeof(FavoriteAction) * kQueueCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        p.queue = committed_allocate<FavoriteAction>(sizeof(FavoriteAction) * kQueueCapacity);
         if (!p.queue) {
             mark_failure(p, utf8_literal("Couldn't update favorites. Try again."));
             changed(p);
@@ -497,8 +453,7 @@ bool application_gif_favorites_submit(u64 id, u64 now_ms) noexcept {
         const u32 json_bytes =
             minimum(kGifFavoritesMaximumPatchBytes, base64_encoded_size(group_bound + 6) + 128);
         write_bytes = scratch_bytes + json_bytes;
-        write =
-            static_cast<u8*>(VirtualAlloc(nullptr, write_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        write = committed_allocate<u8>(write_bytes);
         if (!write) {
             mark_failure(p, utf8_literal("Couldn't update favorites. Try again."), true);
             schedule(p);
@@ -527,8 +482,7 @@ bool application_gif_favorites_submit(u64 id, u64 now_ms) noexcept {
         }
         patch = {write + scratch_bytes, encoded.bytes};
     }
-    p.response_body = static_cast<u8*>(VirtualAlloc(nullptr, kRestClientMaximumResponseBytes,
-                                                    MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    p.response_body = committed_allocate<u8>(kRestClientMaximumResponseBytes);
     if (!p.response_body) {
         dispose(write, write_bytes);
         mark_failure(p, utf8_literal("Couldn't load favorites. Try again."),

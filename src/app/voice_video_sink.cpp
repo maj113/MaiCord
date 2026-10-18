@@ -1,6 +1,7 @@
 #include "maicord/app/voice_video_sink.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -22,23 +23,17 @@ void end_stream(VoiceVideoSink& sink, u32 index) noexcept {
     const u32 ssrc = sink.ended[index];
     sink.ended[index] = sink.ended[--sink.ended_count];
     sink.ended[sink.ended_count] = 0;
-    ++sink.stats.streams_ended;
     if (sink.frames.end_stream)
         sink.frames.end_stream(sink.frames.context, ssrc);
 }
 void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     auto& sink = *static_cast<VoiceVideoSink*>(context);
-    ++sink.stats.frames;
-    if (!sink.decrypt || !frame.annex_b.count || frame.annex_b.count > kVideoRtpFrameBytes) {
-        ++sink.stats.dropped;
+    if (!sink.decrypt || !frame.annex_b.count || frame.annex_b.count > kVideoRtpFrameBytes)
         return;
-    }
     if (!sink.buffer) {
         sink.buffer = static_cast<u8*>(VirtualAlloc(nullptr, kBufferBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!sink.buffer) {
-            ++sink.stats.dropped;
+        if (!sink.buffer)
             return;
-        }
     }
     const auto opened = sink.decrypt(sink.decrypt_context, frame.user_id, frame.ssrc, frame.annex_b,
                                      {sink.buffer + kVideoRtpFrameBytes, kVideoRtpFrameBytes},
@@ -59,8 +54,6 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
         sink.frames.push_frame(sink.frames.context, frame.ssrc, {sink.buffer, opened.bytes}, frame.rtp_timestamp,
                                frame.keyframe, !frame.references_lost))
         ++sink.stats.delivered;
-    else
-        ++sink.stats.dropped;
 }
 bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
     if (sink.rtp_ready)
@@ -109,25 +102,18 @@ bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& pa
     const auto& layout = packet.transport.layout;
     if (!packet.transport.ok() || layout.kind != MediaPacketKind::rtp || !voice_video_source(packet.source) ||
         packet.member.user_id != packet.source.user_id || !packet.source.primary_ssrc ||
-        !ensure_rtp(*sink, sink->rtp.local_ssrc)) {
-        ++sink->stats.ignored;
+        !ensure_rtp(*sink, sink->rtp.local_ssrc))
         return false;
-    }
     ++sink->stats.packets;
     const VideoRtpSource source{packet.source.user_id, packet.source.primary_ssrc,
                                 packet.source.kind == VoiceSourceKind::rtx};
     const auto pushed = video_rtp_receive(&sink->rtp, source, layout, plaintext, now_us);
-    if (pushed == VideoRtpPush::ignored || pushed == VideoRtpPush::invalid) {
-        ++sink->stats.ignored;
-        return false;
-    }
-    return true;
+    return pushed != VideoRtpPush::ignored && pushed != VideoRtpPush::invalid;
 }
 
 void voice_video_sink_rtcp(VoiceVideoSink* sink, ConstSlice<u8> plaintext, u64 now_us) noexcept {
     if (!sink || !sink->rtp_ready)
         return;
-    ++sink->stats.rtcp;
     video_rtp_receive_rtcp(&sink->rtp, plaintext, now_us);
 }
 
@@ -171,11 +157,8 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
         if (sink->feedback_bytes) {
             const auto sent = voice_connection_media_send(connection, connection->ready_revision,
                                                           {sink->feedback, sink->feedback_bytes});
-            if (sent != VoiceUdpMediaSend::busy) {
-                if (sent == VoiceUdpMediaSend::accepted)
-                    ++sink->stats.feedback_sent;
+            if (sent != VoiceUdpMediaSend::busy)
                 sink->feedback_bytes = 0;
-            }
         }
     }
     // Busy feedback retries shortly; otherwise wake for the RTP core's timers.
@@ -194,7 +177,7 @@ void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
     if (sink->rtp_ready)
         video_rtp_release(&sink->rtp);
     if (sink->buffer) {
-        SecureZeroMemory(sink->buffer, kBufferBytes);
+        secure_clear_bytes(sink->buffer, kBufferBytes);
         VirtualFree(sink->buffer, 0, MEM_RELEASE);
     }
     sink->buffer = nullptr;

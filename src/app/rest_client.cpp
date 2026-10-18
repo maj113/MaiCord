@@ -12,10 +12,11 @@
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/media/deflate.hpp"
 
-#include <Windows.h>
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
 
 namespace maicord {
-static_assert(sizeof(SrwLock) == sizeof(SRWLOCK) && alignof(SrwLock) == alignof(SRWLOCK));
 namespace {
 
 RestTraceFunction g_trace = nullptr;
@@ -43,19 +44,6 @@ inline constexpr u32 kCancelSignalValue = 0x43414E43u;
 inline constexpr u32 kRateSignalValue = 0x52415445u;
 inline constexpr u32 kMaximumRequestTimeoutMs = 10 * 60 * 1000;
 inline constexpr u32 kMaximumCredentialBytes = 2 * 1024;
-inline constexpr u64 kUserAuthPasswordRoute = 0x415554480001ull;
-inline constexpr u64 kUserAuthTotpRoute = 0x415554480002ull;
-inline constexpr u64 kUserAuthSmsRoute = 0x415554480003ull;
-inline constexpr u64 kUserAuthBackupRoute = 0x415554480004ull;
-inline constexpr u64 kUserAuthSmsSendRoute = 0x415554480005ull;
-inline constexpr u64 kUserAuthWebauthnRoute = 0x415554480006ull;
-inline constexpr u64 kUserAuthRemoteTicketRoute = 0x415554480007ull;
-inline constexpr u64 kUserAuthVerificationRoute = 0x415554480008ull;
-inline constexpr u64 kUserAuthRecoveryRoute = 0x415554480009ull;
-inline constexpr u64 kUserAuthResetRoute = 0x41555448000Aull;
-inline constexpr u64 kUserAuthPhoneResendRoute = 0x41555448000Bull;
-inline constexpr u64 kUserAuthPhoneVerifyRoute = 0x41555448000Cull;
-inline constexpr u64 kUserAuthBrowserHandoffRoute = 0x41555448000Dull;
 
 enum RequestState : LONG {
     request_state_empty = 0,
@@ -329,10 +317,10 @@ void cancel_rate_lease(RestClientRuntime* runtime) noexcept {
 }
 
 bool authentication_rejected(const RestClient* client) noexcept {
-    return ReadAcquire(&client->authentication_rejected) !=
+    return read_acquire(&client->authentication_rejected) !=
                0 ||
            (client->shared &&
-            ReadAcquire(&client->shared->authentication_rejected) != 0);
+            read_acquire(&client->shared->authentication_rejected) != 0);
 }
 
 AccountRequirement required_action(RestClient* client) noexcept {
@@ -359,7 +347,7 @@ inline u32 page_rounded_bytes(u64 raw) noexcept {
     return rounded <= ~0u ? static_cast<u32>(rounded) : 0;
 }
 
-u32 user_auth_secure_bytes(u32 response_capacity, u32 request_capacity = kUserAuthMaximumRequestBodyBytes) noexcept {
+u32 user_auth_secure_bytes(u32 response_capacity, u32 request_capacity) noexcept {
     if (response_capacity < kRestClientMinimumResponseBytes ||
         response_capacity > kUserAuthMaximumResponseBytes ||
         (request_capacity != kUserAuthMaximumRequestBodyBytes &&
@@ -455,12 +443,12 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullpt
 
 RestClientPhase load_phase(const RestClient* client) noexcept {
     return static_cast<RestClientPhase>(
-        ReadAcquire(&client->phase));
+        read_acquire(&client->phase));
 }
 
 RestClientError load_error(const RestClient* client) noexcept {
     return static_cast<RestClientError>(
-        ReadAcquire(&client->error));
+        read_acquire(&client->error));
 }
 
 void publish_phase(RestClient* client, RestClientPhase phase) noexcept {
@@ -522,25 +510,39 @@ void trace_busy(RestClient* client, RestClientRuntime* runtime,
     g_trace(line.text);
 }
 
-RestClientResult client_result(const RestClient* client) noexcept {
+RestClientResult invalid_result() noexcept {
     RestClientResult value{};
-    if (!client) {
-        value.error = RestClientError::invalid_input;
-        return value;
-    }
+    value.error = RestClientError::invalid_input;
+    return value;
+}
+
+RestClientRuntime* runtime_of(RestClient* client) noexcept {
+    return client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+}
+
+bool worker_ending(const RestClient* client) noexcept {
+    const RestClientPhase phase = load_phase(client);
+    return phase == RestClientPhase::stopping || phase == RestClientPhase::stopped ||
+           phase == RestClientPhase::failed;
+}
+
+RestClientResult client_result(const RestClient* client) noexcept {
+    if (!client)
+        return invalid_result();
+    RestClientResult value{};
     value.authentication_rejected = authentication_rejected(client);
     value.phase = load_phase(client);
     value.error = load_error(client);
     value.native_error = static_cast<u32>(
-        ReadAcquire(&client->native_error));
+        read_acquire(&client->native_error));
     value.connections = static_cast<u64>(
-        ReadAcquire64(&client->connections));
+        read_acquire(&client->connections));
     value.requests = static_cast<u64>(
-        ReadAcquire64(&client->requests));
+        read_acquire(&client->requests));
     value.reused_requests = static_cast<u64>(
-        ReadAcquire64(&client->reused_requests));
+        read_acquire(&client->reused_requests));
     value.responses = static_cast<u64>(
-        ReadAcquire64(&client->responses));
+        read_acquire(&client->responses));
     return value;
 }
 
@@ -667,79 +669,59 @@ Utf8View locked_utf8(const SecureBuffer* value) noexcept {
     return value ? Utf8View{reinterpret_cast<const char*>(value->data), value->bytes} : Utf8View{};
 }
 
+// Rate-limit identity per operation; the two reset operations share one.
 RestRouteKey user_auth_route(UserAuthOperation operation) noexcept {
     u64 route_id = 0;
     switch (operation) {
-    case UserAuthOperation::password:
-        route_id = kUserAuthPasswordRoute;
-        break;
-    case UserAuthOperation::mfa_totp:
-        route_id = kUserAuthTotpRoute;
-        break;
-    case UserAuthOperation::mfa_sms:
-        route_id = kUserAuthSmsRoute;
-        break;
-    case UserAuthOperation::mfa_backup:
-        route_id = kUserAuthBackupRoute;
-        break;
-    case UserAuthOperation::mfa_webauthn:
-        route_id = kUserAuthWebauthnRoute;
-        break;
-    case UserAuthOperation::mfa_sms_send:
-        route_id = kUserAuthSmsSendRoute;
-        break;
-    case UserAuthOperation::remote_auth_ticket:
-        route_id = kUserAuthRemoteTicketRoute;
-        break;
-    case UserAuthOperation::verification:
-        route_id = kUserAuthVerificationRoute;
-        break;
-    case UserAuthOperation::recovery:
-        route_id = kUserAuthRecoveryRoute;
-        break;
-    case UserAuthOperation::phone_resend: route_id = kUserAuthPhoneResendRoute; break;
-      case UserAuthOperation::phone_verify: route_id = kUserAuthPhoneVerifyRoute; break;
-      case UserAuthOperation::browser_handoff_exchange: route_id = kUserAuthBrowserHandoffRoute; break;
+    case UserAuthOperation::password: route_id = 0x415554480001ull; break;
+    case UserAuthOperation::mfa_totp: route_id = 0x415554480002ull; break;
+    case UserAuthOperation::mfa_sms: route_id = 0x415554480003ull; break;
+    case UserAuthOperation::mfa_backup: route_id = 0x415554480004ull; break;
+    case UserAuthOperation::mfa_sms_send: route_id = 0x415554480005ull; break;
+    case UserAuthOperation::mfa_webauthn: route_id = 0x415554480006ull; break;
+    case UserAuthOperation::remote_auth_ticket: route_id = 0x415554480007ull; break;
+    case UserAuthOperation::verification: route_id = 0x415554480008ull; break;
+    case UserAuthOperation::recovery: route_id = 0x415554480009ull; break;
     case UserAuthOperation::reset_password:
-    case UserAuthOperation::reset_mfa:
-        route_id = kUserAuthResetRoute;
-        break;
-    default:
-        break;
+    case UserAuthOperation::reset_mfa: route_id = 0x41555448000Aull; break;
+    case UserAuthOperation::phone_resend: route_id = 0x41555448000Bull; break;
+    case UserAuthOperation::phone_verify: route_id = 0x41555448000Cull; break;
+    case UserAuthOperation::browser_handoff_exchange: route_id = 0x41555448000Dull; break;
+    default: break;
     }
     return RestRouteKey{route_id, 0, RestMethod::post, RestMajorParameter::none};
 }
 
 void erase_command(RestClientRuntime* runtime, bool erase_body = true) noexcept {
     if (runtime->command.target_bytes != 0) {
-        SecureZeroMemory(runtime->request_target, runtime->command.target_bytes);
+        secure_clear_bytes(runtime->request_target, runtime->command.target_bytes);
     }
     if (erase_body && runtime->command.body_bytes != 0) {
-        SecureZeroMemory(runtime->request_body, runtime->command.body_bytes);
+        secure_clear_bytes(runtime->request_body, runtime->command.body_bytes);
     }
     if (runtime->command.head_bytes != 0) {
-        SecureZeroMemory(runtime->request_head, runtime->command.head_bytes);
+        secure_clear_bytes(runtime->request_head, runtime->command.head_bytes);
     }
     if (runtime->command.audit_reason_bytes != 0)
-        SecureZeroMemory(runtime->audit_reason, runtime->command.audit_reason_bytes);
+        secure_clear_bytes(runtime->audit_reason, runtime->command.audit_reason_bytes);
     if (runtime->command.extra_headers_bytes != 0)
-        SecureZeroMemory(runtime->extra_headers, runtime->command.extra_headers_bytes);
+        secure_clear_bytes(runtime->extra_headers, runtime->command.extra_headers_bytes);
     if (runtime->command.multipart_boundary_bytes != 0)
-        SecureZeroMemory(runtime->multipart_boundary, runtime->command.multipart_boundary_bytes);
+        secure_clear_bytes(runtime->multipart_boundary, runtime->command.multipart_boundary_bytes);
     runtime->command = RestClientCommand{};
 }
 
 void erase_response_storage(RestClientRuntime* runtime) noexcept {
-    SecureZeroMemory(runtime->response_input, kRestMaximumHeaderBytes);
+    secure_clear_bytes(runtime->response_input, kRestMaximumHeaderBytes);
     if (runtime->response.http.body_bytes != 0) {
-        SecureZeroMemory(runtime->response_body, runtime->response.http.body_bytes);
+        secure_clear_bytes(runtime->response_body, runtime->response.http.body_bytes);
     }
     runtime->response = RestResponse{};
 }
 
 void release_decompression(RestClientRuntime* runtime) noexcept {
     if (runtime->decompression) {
-        SecureZeroMemory(runtime->decompression, runtime->decompression_capacity);
+        secure_clear_bytes(runtime->decompression, runtime->decompression_capacity);
         if (runtime->decompression != runtime->handshake_output)
             VirtualFree(runtime->decompression, 0, MEM_RELEASE);
     }
@@ -751,7 +733,7 @@ void release_decompression(RestClientRuntime* runtime) noexcept {
 // bank while TLS still borrows an outgoing span or while a response is ready.
 void release_extended_body(RestClientRuntime* runtime) noexcept {
     if (!runtime->extended_body) return;
-    SecureZeroMemory(runtime->extended_body, runtime->extended_body_bytes);
+    secure_clear_bytes(runtime->extended_body, runtime->extended_body_bytes);
     VirtualFree(runtime->extended_body, 0, MEM_RELEASE);
     runtime->extended_body = nullptr;
     runtime->extended_body_bytes = 0;
@@ -770,9 +752,9 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime,
         line.field("ready_hold_us", clock_microseconds(runtime->clock, runtime->ready_counter, clock_now()));
         g_trace(line.text);
     }
-    SecureZeroMemory(runtime->response_input, kRestMaximumHeaderBytes);
+    secure_clear_bytes(runtime->response_input, kRestMaximumHeaderBytes);
     if (body_bytes != 0) {
-        SecureZeroMemory(runtime->response_body, body_bytes);
+        secure_clear_bytes(runtime->response_body, body_bytes);
     }
     runtime->response = RestResponse{};
     runtime->completed = RestClientResponse{};
@@ -797,22 +779,26 @@ void close_transport(RestClientRuntime* runtime) noexcept {
     runtime->connection_request_count = 0;
 }
 
+bool transaction_in_progress(const RestTransaction& transaction) noexcept {
+    return transaction.phase == RestTransactionPhase::acquired ||
+           transaction.phase == RestTransactionPhase::sending ||
+           transaction.phase == RestTransactionPhase::receiving;
+}
+
+bool end_transaction(RestTransaction* transaction, RestTransactionPhase phase) noexcept {
+    if (!transaction || !transaction_in_progress(*transaction))
+        return false;
+    transaction->phase = phase;
+    return true;
+}
+
 u32 next_wait(const RestClientRuntime* runtime, u64 now_ms) noexcept {
     if (runtime->stopping || runtime->draining) {
         return INFINITE;
     }
-    u64 deadline = 0;
-    if (runtime->rate_wait_until_ms != 0) {
-        deadline = runtime->rate_wait_until_ms;
-    }
-    if (runtime->transaction.phase != RestTransactionPhase::idle &&
-        runtime->transaction.phase != RestTransactionPhase::complete &&
-        runtime->transaction.phase != RestTransactionPhase::cancelled &&
-        runtime->transaction.phase != RestTransactionPhase::failed &&
-        runtime->transaction.deadline_ms != 0 &&
-        (deadline == 0 || runtime->transaction.deadline_ms < deadline)) {
-        deadline = runtime->transaction.deadline_ms;
-    }
+    u64 deadline = runtime->rate_wait_until_ms;
+    if (transaction_in_progress(runtime->transaction))
+        deadline = earliest_deadline(deadline, runtime->transaction.deadline_ms);
     return deadline == 0 ? INFINITE : wait_milliseconds_until(now_ms, deadline);
 }
 
@@ -874,7 +860,7 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
     }
     runtime->completed = response;
     runtime->rate_wait_until_ms = 0;
-    SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
+    secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
     // The outgoing request storage is reused as the incoming response storage.
     // Every committed request span was already erased by
     // request_plaintext_committed(). Once a transport-clean
@@ -947,7 +933,7 @@ void request_plaintext_committed(void* opaque, ConstSlice<u8> committed) noexcep
         runtime->write_commit_failed = true;
     }
     if (committed.data && committed.count != 0) {
-        SecureZeroMemory(const_cast<u8*>(committed.data), committed.count);
+        secure_clear_bytes(const_cast<u8*>(committed.data), committed.count);
     }
 }
 
@@ -1061,7 +1047,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
                             runtime->command.send_empty_audit_reason},
             Slice<u8>{runtime->request_head, runtime->request_head_capacity});
         if (!written.ok()) {
-            SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
+            secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
             return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
         }
         head_bytes = written.bytes;
@@ -1069,7 +1055,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     if (head_bytes == 0 || head_bytes > runtime->request_head_capacity ||
         !rest_transaction_begin_send(&runtime->transaction,
                                      head_bytes + runtime->command.body_bytes)) {
-        SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
+        secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
         return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
     }
     runtime->write_commit_failed = false;
@@ -1172,11 +1158,11 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
             gzip_inflate({runtime->response_body, runtime->wire_body_bytes},
                          {runtime->decompression, runtime->response_capacity}, &runtime->inflate_workspace);
         if (!inflated.ok()) {
-            SecureZeroMemory(runtime->decompression, runtime->response_capacity);
+            secure_clear_bytes(runtime->decompression, runtime->response_capacity);
             return false;
         }
         copy_bytes(runtime->response_body, runtime->decompression, inflated.output_bytes);
-        SecureZeroMemory(runtime->decompression, inflated.output_bytes);
+        secure_clear_bytes(runtime->decompression, inflated.output_bytes);
         runtime->response.http.body_bytes = inflated.output_bytes;
         runtime->response.parsed_head.representation.content_encoding =
             RestContentEncoding::identity;
@@ -1526,10 +1512,7 @@ NetworkWorkerStep worker_handler(void* opaque, NetworkLoop* loop,
             } else
                 acquire_request(client, runtime, loop, event.now_ms);
         }
-        if (runtime->transaction.phase != RestTransactionPhase::idle &&
-            runtime->transaction.phase != RestTransactionPhase::complete &&
-            runtime->transaction.phase != RestTransactionPhase::cancelled &&
-            runtime->transaction.phase != RestTransactionPhase::failed &&
+        if (transaction_in_progress(runtime->transaction) &&
             event.now_ms >= runtime->transaction.deadline_ms) {
             begin_drain(client, runtime, RestClientError::timeout, WAIT_TIMEOUT, false);
             return finish_drain(client, runtime);
@@ -1600,9 +1583,17 @@ void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept 
     release_extended_body(runtime);
     release_decompression(runtime);
     const u32 bytes = runtime->allocation_bytes;
-    SecureZeroMemory(runtime, bytes);
+    secure_clear_bytes(runtime, bytes);
     VirtualFree(runtime, 0, MEM_RELEASE);
     client->runtime = nullptr;
+}
+
+// Releases the storage of a start that failed after allocating it and records the error.
+RestClientResult fail_start(RestClient* client, RestClientError error, u32 native_error) noexcept {
+    destroy_client_storage(client, nullptr);
+    InterlockedExchange(&client->error, static_cast<LONG>(error));
+    InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
+    return client_result(client);
 }
 
 RestClientResult start_client(RestClient* client, SecureBuffer* credential,
@@ -1623,18 +1614,13 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         (user_configuration && !valid_user_configuration(*user_configuration)) ||
         (credential && (!credential->data || !credential->locked || credential->bytes == 0 ||
                         credential->bytes > kMaximumCredentialBytes))) {
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
+        return invalid_result();
     }
     if (credential) {
         const ConstSlice<u8> bytes_view = secure_buffer_view(*credential);
         for (u32 index = 0; index < bytes_view.count; ++index) {
-            if (bytes_view[index] < 0x21 || bytes_view[index] > 0x7E) {
-                RestClientResult invalid{};
-                invalid.error = RestClientError::invalid_input;
-                return invalid;
-            }
+            if (bytes_view[index] < 0x21 || bytes_view[index] > 0x7E)
+                return invalid_result();
         }
     }
     *client = RestClient{};
@@ -1658,22 +1644,15 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         const u32 secure_bytes = user_auth_secure_bytes(response_capacity, request_capacity);
         const SecureBufferResult initialized =
             secure_buffer_initialize(&runtime->secret_storage, secure_bytes);
-        if (!initialized.ok()) {
-            const u32 native_error = initialized.native_error;
-            destroy_client_storage(client, nullptr);
-            InterlockedExchange(&client->error, static_cast<LONG>(RestClientError::memory));
-            InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
-            return client_result(client);
-        }
+        if (!initialized.ok())
+            return fail_start(client, RestClientError::memory, initialized.native_error);
     }
     assign_storage(runtime, shared);
     runtime->default_body = runtime->request_body;
     if ((user_configuration && !copy_user_configuration(runtime, *user_configuration)) ||
         (user_auth_mode && !initialize_auth_user_configuration(runtime))) {
         destroy_client_storage(client, nullptr);
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
+        return invalid_result();
     }
     if (!tls_stream_initialize(
             &runtime->transport, kApiHostWide,
@@ -1684,25 +1663,16 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
                              Slice<u8>{runtime->record_output, user_auth_mode ? kUserAuthRecordOutputBytes
                                                                               : kRecordOutputBytes}})) {
         destroy_client_storage(client, nullptr);
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
+        return invalid_result();
     }
     client->response_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!client->response_event) {
-        const u32 native_error = thread_last_error();
-        destroy_client_storage(client, nullptr);
-        InterlockedExchange(&client->error, static_cast<LONG>(RestClientError::event));
-        InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
-        return client_result(client);
-    }
+    if (!client->response_event)
+        return fail_start(client, RestClientError::event, thread_last_error());
     if (credential && !secure_buffer_transfer(&runtime->credential, credential)) {
         CloseHandle(client->response_event);
         client->response_event = nullptr;
         destroy_client_storage(client, nullptr);
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
+        return invalid_result();
     }
     publish_phase(client, RestClientPhase::starting);
     const i64 worker_start = g_trace ? clock_now() : 0;
@@ -1713,11 +1683,9 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
         }
         CloseHandle(client->response_event);
         client->response_event = nullptr;
-        destroy_client_storage(client, nullptr);
-        InterlockedExchange(&client->error, static_cast<LONG>(RestClientError::worker));
-        InterlockedExchange(&client->native_error, static_cast<LONG>(started.native_error));
+        return fail_start(client, RestClientError::worker, started.native_error);
     }
-    if (started.ok() && g_trace) {
+    if (g_trace) {
         TraceRecord line("worker_online");
         trace_identity(line, runtime, 0);
         line.field("startup_us", clock_microseconds(runtime->clock, worker_start, clock_now()));
@@ -1778,23 +1746,11 @@ bool rest_transaction_complete(RestTransaction* transaction) noexcept {
 }
 
 bool rest_transaction_cancel(RestTransaction* transaction) noexcept {
-    if (!transaction || (transaction->phase != RestTransactionPhase::acquired &&
-                         transaction->phase != RestTransactionPhase::sending &&
-                         transaction->phase != RestTransactionPhase::receiving)) {
-        return false;
-    }
-    transaction->phase = RestTransactionPhase::cancelled;
-    return true;
+    return end_transaction(transaction, RestTransactionPhase::cancelled);
 }
 
 bool rest_transaction_fail(RestTransaction* transaction) noexcept {
-    if (!transaction || (transaction->phase != RestTransactionPhase::acquired &&
-                         transaction->phase != RestTransactionPhase::sending &&
-                         transaction->phase != RestTransactionPhase::receiving)) {
-        return false;
-    }
-    transaction->phase = RestTransactionPhase::failed;
-    return true;
+    return end_transaction(transaction, RestTransactionPhase::failed);
 }
 
 void rest_client_set_trace(RestTraceFunction trace) noexcept { g_trace = trace; }
@@ -1828,8 +1784,7 @@ void rest_client_set_required_action(RestClient* client,
 static RestClientSubmitResult submit_request(RestClient* client, const RestClientRequest& request,
                                              u32 extended_response_capacity, bool large = false,
                                              u8** owned_body = nullptr) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = runtime_of(client);
     const bool logout = runtime && runtime->authorization == RestAuthorization::normal_user &&
                         account_logout_request_valid(request);
     if (runtime) {
@@ -1838,10 +1793,9 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
         if (reserved && (!logout || request.request_id != reserved))
             return {RestClientSubmitError::busy};
     }
-    if (!client || !runtime || runtime->user_auth_mode || !client->worker.thread ||
+    if (!runtime || runtime->user_auth_mode || !client->worker.thread ||
         (authentication_rejected(client) && !logout) || request.request_id == 0 ||
         !valid_route(request.route) || !valid_target(request.target) ||
-        (!request.target.data && request.target.count != 0) || request.target.count == 0 ||
         (!request.body.data && request.body.count != 0) ||
         (!request.json_body && request.body.count != 0) || request.timeout_ms > kMaximumRequestTimeoutMs ||
         !rest_audit_reason_valid(request.audit_reason) ||
@@ -1851,9 +1805,7 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
         (!request.multipart_boundary.data && request.multipart_boundary.count) ||
         (request.multipart_boundary.count &&
          (!request.json_body || !rest_multipart_boundary_valid(request.multipart_boundary))) ||
-        load_phase(client) == RestClientPhase::stopping ||
-        load_phase(client) == RestClientPhase::stopped ||
-        load_phase(client) == RestClientPhase::failed) {
+        worker_ending(client)) {
         return RestClientSubmitResult{RestClientSubmitError::invalid_input};
     }
     const auto required = required_action(client);
@@ -1946,7 +1898,7 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
     }
     if (armed) {
         // One retry only: the solved challenge never outlives its request.
-        SecureZeroMemory(runtime->armed_headers, runtime->armed_headers_bytes);
+        secure_clear_bytes(runtime->armed_headers, runtime->armed_headers_bytes);
         runtime->armed_headers_bytes = 0;
         runtime->armed_request_id = 0;
     }
@@ -2030,22 +1982,18 @@ RestClientResult rest_client_start_user_auth_capacity(
 
 RestClientSubmitResult rest_client_submit_user_auth(
     RestClient* client, const RestUserAuthRequest& request) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = runtime_of(client);
     const RestRouteKey route = user_auth_route(request.operation);
     const bool has_captcha = request.captcha_key != nullptr;
     const bool handoff_headers = request.operation == UserAuthOperation::browser_handoff_exchange &&
         (request.captcha_key || request.captcha_rqtoken || request.captcha_session_id);
-    if (!client || !runtime || !runtime->user_auth_mode || !client->worker.thread ||
+    if (!runtime || !runtime->user_auth_mode || !client->worker.thread ||
         request.request_id == 0 || !valid_route(route) || handoff_headers || !valid_locked_value(request.body, ~0u, true) ||
         !valid_locked_value(request.captcha_key, kUserAuthMaximumCaptchaKeyBytes, false) ||
         !valid_locked_value(request.captcha_rqtoken, kUserAuthMaximumCaptchaTokenBytes, false) ||
         !valid_locked_value(request.captcha_session_id, kUserAuthMaximumCaptchaSessionBytes, false) ||
         (!has_captcha && (request.captcha_rqtoken || request.captcha_session_id)) ||
-        request.timeout_ms > kMaximumRequestTimeoutMs ||
-        load_phase(client) == RestClientPhase::stopping ||
-        load_phase(client) == RestClientPhase::stopped ||
-        load_phase(client) == RestClientPhase::failed) {
+        request.timeout_ms > kMaximumRequestTimeoutMs || worker_ending(client)) {
         return RestClientSubmitResult{RestClientSubmitError::invalid_input};
     }
     if (request.body->bytes > runtime->request_body_capacity) {
@@ -2068,8 +2016,8 @@ RestClientSubmitResult rest_client_submit_user_auth(
     const ConstSlice<u8> body = secure_buffer_view(*request.body);
     if (!head.ok() || !copy_bytes(runtime->request_body, runtime->request_body_capacity, body.data,
                                   body.count)) {
-        SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
-        SecureZeroMemory(runtime->request_body, runtime->request_body_capacity);
+        secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
+        secure_clear_bytes(runtime->request_body, runtime->request_body_capacity);
         InterlockedExchange(&client->request_state, request_state_empty);
         return RestClientSubmitResult{head.error == UserAuthWriteError::output_too_small
                                                  ? RestClientSubmitError::target_capacity
@@ -2103,11 +2051,10 @@ RestClientSubmitResult rest_client_submit_user_auth(
 }
 
 bool rest_client_arm_headers(RestClient* client, u64 request_id, ConstSlice<u8> headers) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = runtime_of(client);
     if (!runtime || runtime->user_auth_mode || !rest_extra_headers_valid(headers))
         return false;
-    SecureZeroMemory(runtime->armed_headers, runtime->armed_headers_bytes);
+    secure_clear_bytes(runtime->armed_headers, runtime->armed_headers_bytes);
     runtime->armed_headers_bytes = 0;
     runtime->armed_request_id = 0;
     if (!request_id || !headers.count)
@@ -2119,10 +2066,10 @@ bool rest_client_arm_headers(RestClient* client, u64 request_id, ConstSlice<u8> 
 }
 
 bool rest_client_cancel(RestClient* client, u64 request_id) noexcept {
-    if (!client || !client->runtime || request_id == 0) {
+    auto* runtime = runtime_of(client);
+    if (!runtime || request_id == 0) {
         return false;
     }
-    auto* runtime = static_cast<RestClientRuntime*>(client->runtime);
     LONG claimed_state = request_state_empty;
     for (;;) {
         const LONG state = InterlockedCompareExchange(&client->request_state, 0, 0);
@@ -2154,11 +2101,8 @@ bool rest_client_cancel(RestClient* client, u64 request_id) noexcept {
 
 RestClientResult rest_client_wait_response(RestClient* client,
                                            u32 timeout_ms) noexcept {
-    if (!client || !client->response_event) {
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
-    }
+    if (!client || !client->response_event)
+        return invalid_result();
     const DWORD waited = WaitForSingleObject(client->response_event, timeout_ms);
     RestClientResult value = client_result(client);
     if (waited != WAIT_OBJECT_0 && value.error == RestClientError::none) {
@@ -2172,10 +2116,8 @@ RestClientResult rest_client_wait_response(RestClient* client,
 RestClientTakeResult rest_client_take_response(RestClient* client,
                                                RestClientResponse* response,
                                                Slice<u8> body_output) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
-    if (!client || !runtime || runtime->user_auth_mode || !response ||
-        (!body_output.data && body_output.count != 0)) {
+    auto* runtime = runtime_of(client);
+    if (!runtime || runtime->user_auth_mode || !response || (!body_output.data && body_output.count != 0)) {
         return RestClientTakeResult{0, RestClientTakeError::invalid_input};
     }
     if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready) {
@@ -2196,13 +2138,10 @@ RestClientTakeResult rest_client_take_response(RestClient* client,
 
 RestClientSubmitResult rest_client_prepare_logout(RestClient* client,
                                                   u64 request_id) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = runtime_of(client);
     if (!runtime || !request_id || runtime->user_auth_mode ||
         runtime->authorization != RestAuthorization::normal_user || !client->worker.thread ||
-        load_phase(client) == RestClientPhase::stopping ||
-        load_phase(client) == RestClientPhase::stopped ||
-        load_phase(client) == RestClientPhase::failed)
+        worker_ending(client))
         return {RestClientSubmitError::invalid_input};
     const auto reserved = static_cast<u64>(
         InterlockedCompareExchange64(&runtime->logout_reservation_id, static_cast<LONG64>(request_id), 0));
@@ -2235,8 +2174,7 @@ RestClientSubmitResult rest_client_prepare_logout(RestClient* client,
 }
 
 bool rest_client_cancel_logout(RestClient* client, u64 request_id) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = runtime_of(client);
     if (!runtime || runtime->authorization != RestAuthorization::normal_user || !request_id ||
         static_cast<u64>(InterlockedCompareExchange64(&runtime->logout_reservation_id, 0, 0)) != request_id)
         return false;
@@ -2254,8 +2192,7 @@ bool rest_client_cancel_logout(RestClient* client, u64 request_id) noexcept {
 
 RestClientTakeResult rest_client_take_logout_response(
     RestClient* client, u64 request_id, RestClientResponse* response) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
+    auto* runtime = runtime_of(client);
     if (!runtime || !response || !request_id || runtime->user_auth_mode ||
         runtime->authorization != RestAuthorization::normal_user)
         return {0, RestClientTakeError::invalid_input};
@@ -2274,9 +2211,8 @@ RestClientTakeResult rest_client_take_logout_response(
 RestClientTakeResult rest_client_consume_user_auth_response(
     RestClient* client, RestClientResponse* response,
     RestUserAuthConsumeFunction consumer, void* context) noexcept {
-    auto* runtime =
-        client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
-    if (!client || !runtime || !runtime->user_auth_mode || !response || !consumer) {
+    auto* runtime = runtime_of(client);
+    if (!runtime || !runtime->user_auth_mode || !response || !consumer) {
         return RestClientTakeResult{0, RestClientTakeError::invalid_input};
     }
     if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready) {
@@ -2316,11 +2252,8 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
                                     RestClientResponse* receipt) noexcept {
     if (receipt)
         *receipt = {};
-    if (!client || !client->worker.thread) {
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
-    }
+    if (!client || !client->worker.thread)
+        return invalid_result();
     if (client->shared) {
         AcquireSRWLockExclusive(client->shared->lock.native());
         for (auto*& peer : client->shared->clients)
@@ -2345,20 +2278,8 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
         CloseHandle(client->response_event);
     }
     destroy_client_storage(client, nullptr);
-    const RestClientError final_error = value.error;
-    const u32 final_native_error = value.native_error;
-    const u64 connections = value.connections;
-    const u64 requests = value.requests;
-    const u64 reused_requests = value.reused_requests;
-    const u64 responses = value.responses;
     *client = RestClient{};
-    value.phase = final_error == RestClientError::none ? RestClientPhase::stopped : RestClientPhase::failed;
-    value.error = final_error;
-    value.native_error = final_native_error;
-    value.connections = connections;
-    value.requests = requests;
-    value.reused_requests = reused_requests;
-    value.responses = responses;
+    value.phase = value.error == RestClientError::none ? RestClientPhase::stopped : RestClientPhase::failed;
     return value;
 }
 
@@ -2386,9 +2307,8 @@ u32 rest_client_user_auth_capacity_runtime_bytes(u32 response_capacity, u32 requ
 }
 
 u32 rest_client_user_auth_runtime_bytes(u32 response_capacity) noexcept {
-    const u32 ordinary = allocation_bytes(response_capacity, true, false);
-    const u32 secure = user_auth_secure_bytes(response_capacity);
-    return ordinary != 0 && secure <= ~0u - ordinary ? ordinary + secure : 0;
+    return rest_client_user_auth_capacity_runtime_bytes(response_capacity,
+                                                        kUserAuthMaximumRequestBodyBytes);
 }
 
 } // namespace maicord

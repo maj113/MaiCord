@@ -135,6 +135,12 @@ void remember_retry(AccountMediaWorker* worker, MediaAssetKey key, u64 now_ms, u
         retry_at_ms != 0 ? retry_at_ms : deadline_after(now_ms, kAccountMediaFailureRetryMs);
 }
 
+AccountMediaRequestResult retry_wait_until(u64 retry_at_ms) noexcept {
+    AccountMediaRequestResult waiting = request_result(AccountMediaRequestState::retry_wait);
+    waiting.retry_at_ms = retry_at_ms;
+    return waiting;
+}
+
 bool same_work(const AccountMediaWorkItem& left, const AccountMediaWorkItem& right) noexcept {
     if (left.kind != right.kind || !media_asset_key_equal(left.key, right.key)) {
         return false;
@@ -444,12 +450,8 @@ void publish(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& completed
     lane->completed = completed;
     lane->completed_result = result;
     store_phase(lane, AccountMediaWorkerPhase::output_ready);
-    InterlockedIncrement64(&lane->owner->counters.completed);
-    if (result.state == AccountMediaRequestState::ready) {
+    if (result.state == AccountMediaRequestState::ready)
         InterlockedIncrement64(&lane->owner->counters.ready);
-    } else {
-        InterlockedIncrement64(&lane->owner->counters.failed);
-    }
     SetEvent(lane->owner->output_event);
 }
 
@@ -597,11 +599,8 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     AccountMediaWorkerRetry* retry = find_retry(worker, work.key);
     const u64 retry_now_ms =
         retry && work.monotonic_now_ms == 0 ? clock_monotonic_milliseconds() : work.monotonic_now_ms;
-    if (retry && retry_now_ms < retry->retry_at_ms) {
-        AccountMediaRequestResult waiting = request_result(AccountMediaRequestState::retry_wait);
-        waiting.retry_at_ms = retry->retry_at_ms;
-        return waiting;
-    }
+    if (retry && retry_now_ms < retry->retry_at_ms)
+        return retry_wait_until(retry->retry_at_ms);
     if (retry) {
         *retry = AccountMediaWorkerRetry{};
     }
@@ -682,19 +681,15 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
             if (!account_media_video_matches(&lane.media, work.key, work.cache_generation)) {
                 continue;
             }
-            if (load_phase(&lane) != AccountMediaWorkerPhase::idle) {
-                InterlockedIncrement64(&worker->counters.busy);
+            if (load_phase(&lane) != AccountMediaWorkerPhase::idle)
                 return request_result(AccountMediaRequestState::busy);
-            }
             if (const auto started = start_lane(worker, lane); !started.ok())
                 return started;
             lane.command = work;
             if (InterlockedCompareExchange(&lane.phase, phase_value(AccountMediaWorkerPhase::command_ready),
                                            phase_value(AccountMediaWorkerPhase::idle)) !=
-                phase_value(AccountMediaWorkerPhase::idle)) {
-                InterlockedIncrement64(&worker->counters.busy);
+                phase_value(AccountMediaWorkerPhase::idle))
                 return request_result(AccountMediaRequestState::busy);
-            }
             if (!SetEvent(lane.command_event)) {
                 store_phase(&lane, AccountMediaWorkerPhase::failed);
                 return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
@@ -737,11 +732,8 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     // Its newly preserved cooldown must apply to this request as well.
     if (reclaimed_at_ms) {
         retry = find_retry(worker, work.key);
-        if (retry && reclaimed_at_ms < retry->retry_at_ms) {
-            AccountMediaRequestResult waiting = request_result(AccountMediaRequestState::retry_wait);
-            waiting.retry_at_ms = retry->retry_at_ms;
-            return waiting;
-        }
+        if (retry && reclaimed_at_ms < retry->retry_at_ms)
+            return retry_wait_until(retry->retry_at_ms);
     }
 
     const bool animation = work.kind == AccountMediaWorkKind::animation_advance ||
@@ -772,10 +764,8 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                 video_lane = index;
             }
         }
-        if (video_lane == kAccountMediaDecodeLaneCount) {
-            InterlockedIncrement64(&worker->counters.busy);
+        if (video_lane == kAccountMediaDecodeLaneCount)
             return request_result(AccountMediaRequestState::busy);
-        }
     }
     for (u32 affinity = 0; affinity < 2; ++affinity)
         for (u32 order = 0; order < lane_count; ++order) {
@@ -820,7 +810,6 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
             InterlockedIncrement64(&worker->counters.queued);
             return request_result(AccountMediaRequestState::queued);
         }
-    InterlockedIncrement64(&worker->counters.busy);
     return request_result(AccountMediaRequestState::busy);
 }
 

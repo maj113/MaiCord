@@ -3,7 +3,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -46,12 +46,8 @@ bool actor_current(const ApplicationThreadActionTicket& source) noexcept {
            source.self_user_id == g_app.account_ui->chat_state.self_user_id &&
            source.account_instance == reinterpret_cast<usize>(g_app.account.instance);
 }
-const ChannelRecord* channel(u64 id) noexcept {
-    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id)
-                            : nullptr;
-}
 const ChannelRecord* source_current(const ApplicationThreadActionTicket& source) noexcept {
-    const auto* value = actor_current(source) ? channel(source.thread_id) : nullptr;
+    const auto* value = actor_current(source) ? application_channel_record(source.thread_id) : nullptr;
     return value && value->occupied && thread(value->type) && value->generation == source.channel_generation
                ? value
                : nullptr;
@@ -72,7 +68,7 @@ bool fetchable(const ChannelRecord& value) noexcept {
     if (!thread(value.type) || !value.guild_id || !value.parent_id ||
         (value.flags & kChannelObfuscatedFlag))
         return false;
-    const auto* parent = channel(value.parent_id);
+    const auto* parent = application_channel_record(value.parent_id);
     const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, value.guild_id);
     constexpr u32 required = channel_action_view | channel_action_read_history;
     return parent && parent->occupied && parent->guild_id == value.guild_id &&
@@ -165,7 +161,7 @@ void free_owner() noexcept {
 }
 Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* output) noexcept {
     application_thread_actions_synchronize();
-    const auto* value = actor_live() ? channel(id) : nullptr;
+    const auto* value = actor_live() ? application_channel_record(id) : nullptr;
     if (!value || !thread(value->type))
         return Admission::stale;
     if (!flag(operation))
@@ -230,7 +226,7 @@ bool channel_receipt(const Flight& flight, const ChannelRecord& current, Utf8Vie
 
 ApplicationThreadActionView application_thread_actions_view(u64 id) noexcept {
     ApplicationThreadActionView result{};
-    const auto* value = actor_live() ? channel(id) : nullptr;
+    const auto* value = actor_live() ? application_channel_record(id) : nullptr;
     if (!value || !thread(value->type)) {
         result.membership = Membership::stale;
         return result;
@@ -371,12 +367,12 @@ bool application_thread_actions_synchronize() noexcept {
             free_owner();
         return true; // A canceled in-flight request must still be consumable by the shared worker queue.
     }
-    if (owner->phase == Phase::submitting && !fetchable(*channel(owner->source.thread_id))) {
+    if (owner->phase == Phase::submitting && !fetchable(*application_channel_record(owner->source.thread_id))) {
         cancel_flight();
         invalidate_uncertain_membership(owner->flight);
         publish(utf8_literal("Your access to this thread changed."), Phase::failed, true);
     }
-    if (queued() && !(available(*channel(owner->source.thread_id)) & flag(owner->operation)))
+    if (queued() && !(available(*application_channel_record(owner->source.thread_id)) & flag(owner->operation)))
         publish(utf8_literal("Your access to this thread changed."), Phase::failed,
                 true);
     return true;
@@ -389,7 +385,7 @@ bool application_thread_actions_pending(u64 now) noexcept {
 bool application_thread_actions_submit(u64 id, u64 now) noexcept {
     if (!id || !application_thread_actions_pending(now))
         return false;
-    const auto* value = channel(owner->source.thread_id);
+    const auto* value = application_channel_record(owner->source.thread_id);
     if (!value || !(available(*value) & flag(owner->operation)))
         return false;
     ThreadActionRequest request{value->id, owner->source.self_user_id, owner->operation, {}};
@@ -548,18 +544,18 @@ u32 application_thread_actions_publication_revision() noexcept {
 ApplicationThreadActionMetrics application_thread_actions_metrics() noexcept {
     if (!owner)
         return {};
-    MEMORY_BASIC_INFORMATION memory{};
-    const auto bytes = VirtualQuery(owner, &memory, sizeof(memory));
+    Win32MemoryInformation memory{};
+    const auto bytes = VirtualQuery(owner, memory.native(), sizeof(memory));
     return {sizeof(ThreadOwner),
             bytes && memory.State == MEM_COMMIT ? static_cast<u32>(memory.RegionSize) : 0, 1,
             owner->revision, owner->flight.active};
 }
 bool application_thread_actions_channel_readable(u64 id) noexcept {
-    const auto* value = actor_live() ? channel(id) : nullptr;
+    const auto* value = actor_live() ? application_channel_record(id) : nullptr;
     return value && readable(*value);
 }
 bool application_thread_actions_channel_sendable(u64 id) noexcept {
-    const auto* value = actor_live() ? channel(id) : nullptr;
+    const auto* value = actor_live() ? application_channel_record(id) : nullptr;
     constexpr u32 required = channel_action_view | channel_action_send_messages;
     if (!value || !value->occupied || !channel_is_message_capable(value->type) ||
         (value->flags & kChannelObfuscatedFlag) || (value->actions & required) != required ||

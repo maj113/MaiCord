@@ -23,6 +23,7 @@
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/private_channel_title.hpp"
 
+#include <Windows.h>
 #include <d3d11.h>
 
 namespace maicord::app_detail {
@@ -56,10 +57,6 @@ struct CallView {
 // scope before it can tick, so its stored style is never read before that.
 CallView view{.scene = {.morph = {.style = {0, UiMotionCurve::linear}}}};
 
-void repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
 const GatewayClientVoiceSnapshot* session() noexcept {
     return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
 }
@@ -85,7 +82,7 @@ void set_fullscreen(bool on) noexcept {
         return;
     view.fullscreen = on;
     set_window_fullscreen(on);
-    repaint();
+    application_repaint();
 }
 void release_pointer() noexcept {
     view.pressed = UiCallControl::none;
@@ -305,8 +302,7 @@ bool chat_showing() noexcept {
 }
 void relayout() noexcept {
     synchronize_shell_layout();
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
+    application_repaint();
 }
 void set_chat(bool open) noexcept {
     if (open) {
@@ -426,7 +422,7 @@ u64 channel_guild(u64 channel_id) noexcept {
 }
 void toggle_focus(u64 user_id) noexcept {
     view.focus_user = view.focus_user == user_id ? 0 : user_id;
-    repaint();
+    application_repaint();
 }
 void activate(UiCallControl control, u64 user_id) noexcept {
     switch (control) {
@@ -502,7 +498,7 @@ void activate(UiCallControl control, u64 user_id) noexcept {
     default:
         break; // Camera and screen share stay disabled until sending exists.
     }
-    repaint();
+    application_repaint();
 }
 UiPoint wheel_point(LPARAM lparam) noexcept {
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
@@ -513,7 +509,7 @@ UiPoint wheel_point(LPARAM lparam) noexcept {
 bool clear_hover() noexcept {
     if (!ui_call_scene_set_hover(&view.scene, -1e7f, -1e7f))
         return false;
-    repaint();
+    application_repaint();
     return true;
 }
 // Keys that would edit or send through the hidden composer.
@@ -557,7 +553,7 @@ bool application_call_open(u64 channel_id, u64 focus_user) noexcept {
     view.focus_user = focus_user;
     view.intent_revision = g_app.account_ui->chat_state.navigation_intent_revision;
     view.intent_pending = true;
-    repaint();
+    application_repaint();
     return true;
 }
 
@@ -577,7 +573,7 @@ void application_call_close() noexcept {
         g_app.renderer.call_scene = nullptr;
     if (split)
         relayout();
-    repaint();
+    application_repaint();
 }
 
 bool application_call_visible() noexcept {
@@ -652,7 +648,7 @@ bool application_call_synchronize() noexcept {
         // Too small to lay out (a tiny window): leave the content visible.
         if (g_app.renderer.call_scene == &view.scene) {
             g_app.renderer.call_scene = nullptr;
-            repaint();
+            application_repaint();
         }
         return true;
     }
@@ -700,7 +696,7 @@ void application_call_voice_pump() noexcept {
     if (result.visible && !view.next_poll_ms)
         view.next_poll_ms = GetTickCount64() + kVideoPollMs;
     if (result.changed)
-        repaint();
+        application_repaint();
 }
 
 u64 application_call_next_wake() noexcept {
@@ -726,7 +722,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
             view.pressed = UiCallControl::none;
             view.pressed_user = 0;
             if (ui_call_scene_set_pressed(&view.scene, UiCallControl::none))
-                repaint();
+                application_repaint();
         }
         return false;
     }
@@ -771,7 +767,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
     case WM_MOUSEMOVE: {
         const float x = client_dip_x(lparam), y = client_dip_y(lparam);
         if (ui_call_scene_set_hover(&scene, x, y))
-            repaint();
+            application_repaint();
         return view.captured || ui_call_scene_contains(scene, x, y);
     }
     case WM_SETCURSOR: {
@@ -804,7 +800,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
             ui_call_scene_set_pressed(&scene, hit.control);
             SetCapture(g_app.window);
             view.captured = true;
-            repaint();
+            application_repaint();
         }
         return true;
     }
@@ -821,7 +817,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
             activate(control, user);
         else if (control == UiCallControl::none && user && hit.user_id == user && hit.control == UiCallControl::none)
             toggle_focus(user);
-        repaint();
+        application_repaint();
         return true;
     }
     case WM_MOUSEWHEEL: {
@@ -830,7 +826,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
             return false;
         const float delta = -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80;
         if (ui_call_scene_scroll(&scene, point.x, point.y, delta))
-            repaint();
+            application_repaint();
         return true;
     }
     case WM_MOUSEHWHEEL: {
@@ -838,7 +834,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         if (!ui_call_scene_contains(scene, point.x, point.y))
             return false;
         if (ui_call_scene_scroll(&scene, point.x, point.y, static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80))
-            repaint();
+            application_repaint();
         return true;
     }
     case WM_RBUTTONDOWN:

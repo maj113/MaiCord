@@ -1,4 +1,5 @@
 #include "application_reply_draft.hpp"
+#include "text_edit_keys.hpp"
 #include "application_media_picker.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
@@ -28,6 +29,8 @@
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/splitter.hpp"
 
+#include <Windows.h>
+
 #include <limits.h>
 
 namespace maicord::app_detail {
@@ -43,33 +46,8 @@ struct CatalogBank {
 bool preview_admitted(const CatalogBank& bank, u32 index) noexcept {
     return index < bank.count && bank.preview_mask && (bank.preview_mask[index >> 3] & (1u << (index & 7)));
 }
-bool contains(Utf8View text, Utf8View query) noexcept {
-    if (!query.bytes)
-        return true;
-    if (query.bytes > text.bytes)
-        return false;
-    for (u32 start = 0; start + query.bytes <= text.bytes; ++start) {
-        u32 i = 0;
-        for (; i < query.bytes; ++i) {
-            auto a = static_cast<u8>(text.data[start + i]);
-            auto b = static_cast<u8>(query.data[i]);
-            if (a >= 'A' && a <= 'Z')
-                a += 'a' - 'A';
-            if (b >= 'A' && b <= 'Z')
-                b += 'a' - 'A';
-            if (a != b)
-                break;
-        }
-        if (i == query.bytes)
-            return true;
-    }
-    return false;
-}
 bool favorite_contains(Utf8View text, Utf8View query) noexcept {
     const auto ignored = [](char c) noexcept { return c == '-' || c == '_' || c == ' '; };
-    const auto folded = [](char c) noexcept {
-        return c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c;
-    };
     u32 first = 0;
     while (first < query.bytes && ignored(query.data[first]))
         ++first;
@@ -86,7 +64,7 @@ bool favorite_contains(Utf8View text, Utf8View query) noexcept {
                 return true;
             while (at < text.bytes && ignored(text.data[at]))
                 ++at;
-            if (at == text.bytes || folded(text.data[at]) != folded(query.data[needle]))
+            if (at == text.bytes || ascii_lower(text.data[at]) != ascii_lower(query.data[needle]))
                 break;
             ++at;
             ++needle;
@@ -544,8 +522,9 @@ bool projection(ApplicationMediaPicker& p) noexcept {
         const auto* bank = p.guild && i < p.guild->count ? p.guild : p.packs;
         const u32 local = p.guild && i < p.guild->count ? i : i - (p.guild ? p.guild->count : 0);
         const auto& item = bank->items[local];
-        if (!contains(item.name, query) && !contains(item.tags, query) &&
-            !contains(item.description, query))
+        if (!ascii_contains_ignore_case(item.name, query) &&
+            !ascii_contains_ignore_case(item.tags, query) &&
+            !ascii_contains_ignore_case(item.description, query))
             continue;
         const u64 section = item.guild_id ? item.guild_id : item.pack_id;
         if (section != previous && p.section_count < kUiMediaPickerMaximumSections) {
@@ -832,8 +811,7 @@ bool activate(ApplicationMediaPicker& p, UiMediaPickerTarget target) noexcept {
     application_media_picker_close();
     return refresh_message_composer_ui() && pump_message_history();
 }
-} // namespace
-namespace {
+
 ApplicationMediaPicker* ensure_owner() noexcept {
     if (g_app.media_picker)
         return g_app.media_picker;
@@ -1617,6 +1595,12 @@ void focus_selected(ApplicationMediaPicker& p) noexcept {
     }
     g_app.context_focus = &p.scene.widgets;
 }
+// Moves keyboard focus from the search field to the first result.
+void focus_results(ApplicationMediaPicker& p) noexcept {
+    focus(p, false);
+    ui_media_picker_scene_edge_selection(&p.scene, false);
+    focus_selected(p);
+}
 bool edit_pointer(ApplicationMediaPicker& p, float x, float y, bool extend) noexcept {
     u32 position = 0, byte = 0;
     if (!text_edit_layout_hit_test(g_app.renderer.media_picker_layout, x, y, &position) ||
@@ -1696,21 +1680,12 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
             request(*p, p->operation);
             repaint();
         } else if (p->focused) {
-            if (p->kind == UiMediaPickerKind::gif && p->favorites_view) {
-                focus(*p, false);
-                ui_media_picker_scene_edge_selection(&p->scene, false);
-                focus_selected(*p);
-                repaint();
-            } else if (p->kind == UiMediaPickerKind::gif) {
+            if (p->kind == UiMediaPickerKind::gif && !p->favorites_view)
                 request(*p, p->edit.bytes ? MediaCatalogOperation::gif_search
                                           : MediaCatalogOperation::gif_categories);
-                repaint();
-            } else {
-                focus(*p, false);
-                ui_media_picker_scene_edge_selection(&p->scene, false);
-                focus_selected(*p);
-                repaint();
-            }
+            else
+                focus_results(*p);
+            repaint();
         } else
             activate(*p, focused_target(*p));
         return true;
@@ -1744,9 +1719,7 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         message_composer_enable_history(&p->edit, 2048);
     const u32 revision = p->edit.text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && key == 'A')
-        result = message_composer_select_all(&p->edit);
-    else if (control && (key == 'C' || key == 'X')) {
+    if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(p->edit.anchor, p->edit.caret),
                   last = maximum(p->edit.anchor, p->edit.caret);
         if (last > first && clipboard_write_utf8(g_app.window, {p->edit.text + first, last - first}) &&
@@ -1766,33 +1739,14 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         }
         if (valid)
             result = message_composer_insert_utf8(&p->edit, {text, read.bytes});
-    } else if (control && key == 'Z')
-        result = shift ? message_composer_redo(&p->edit) : message_composer_undo(&p->edit);
-    else if (control && key == 'Y')
-        result = message_composer_redo(&p->edit);
-    else if (key == VK_BACK) {
-        p->held_key = key;
-        result =
-            control ? message_composer_delete_word(&p->edit, false) : message_composer_backspace(&p->edit);
-    } else if (key == VK_DELETE)
-        result = control ? message_composer_delete_word(&p->edit, true)
-                         : message_composer_delete_forward(&p->edit);
-    else if (key == VK_LEFT || key == VK_RIGHT)
-        result = message_composer_move(
-            &p->edit,
-            control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
-                    : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next),
-            shift);
-    else if (key == VK_HOME || key == VK_END)
-        result = message_composer_move(
-            &p->edit,
-            key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
-    else if (key == VK_DOWN) {
-        focus(*p, false);
-        ui_media_picker_scene_edge_selection(&p->scene, false);
-        focus_selected(*p);
+    } else if (key == VK_DOWN) {
+        focus_results(*p);
         repaint();
         return true;
+    } else {
+        if (key == VK_BACK)
+            p->held_key = key;
+        message_composer_edit_key(&p->edit, key, control, shift, &result);
     }
     if (result == MessageComposerResult::changed)
         application_media_picker_edit_changed(revision != p->edit.text_revision);

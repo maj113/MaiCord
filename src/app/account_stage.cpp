@@ -1,6 +1,6 @@
 #include "maicord/app/account_stage.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 static_assert(kStageMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -27,7 +27,7 @@ RestClientSubmitResult account_stage_submit(RestClient* rest, const StageRequest
                                            stage_route(*request),
                                            request_id,
                                            written.bytes != 0);
-    SecureZeroMemory(body, written.bytes);
+    secure_clear_bytes(body, written.bytes);
     return result;
 }
 

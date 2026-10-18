@@ -73,6 +73,8 @@
 #include "application_load_trace.hpp"
 #include "application_perf_mark.hpp"
 #include "application_voice_message.hpp"
+
+#include <Windows.h>
 #if defined(MAICORD_PERF_PROBE)
 #include "../../tools/perf/perf_probe.hpp"
 #endif
@@ -329,33 +331,26 @@ int application_run() noexcept {
                 : account_host_notification_handles(&g_app.account, wait_handles,
                                                     kAccountHostNotificationHandleCapacity);
         u32 wait_handle_count = account_handle_count;
+        const auto push_handle = [&](HANDLE handle) noexcept {
+            if (handle)
+                wait_handles[wait_handle_count++] = handle;
+        };
         if (!application_account_logout_blocked()) {
-            if (HANDLE picker = application_attachment_notification())
-                wait_handles[wait_handle_count++] = picker;
-            if (HANDLE picker = application_forum_attachments_notification())
-                wait_handles[wait_handle_count++] = picker;
-            if (HANDLE picker = application_guild_settings_notification())
-                wait_handles[wait_handle_count++] = picker;
+            push_handle(application_attachment_notification());
+            push_handle(application_forum_attachments_notification());
+            push_handle(application_guild_settings_notification());
         }
-        if (HANDLE preferences = application_preferences_notification())
-            wait_handles[wait_handle_count++] = preferences;
-        if (HANDLE theme = application_custom_theme_notification())
-            wait_handles[wait_handle_count++] = theme;
-        if (HANDLE plugins = application_plugins_notification())
-            wait_handles[wait_handle_count++] = plugins;
-        if (HANDLE downloads = application_downloads_notification())
-            wait_handles[wait_handle_count++] = downloads;
-        if (HANDLE logout = application_account_logout_notification())
-            wait_handles[wait_handle_count++] = logout;
-        if (HANDLE switching = application_account_switch_notification())
-            wait_handles[wait_handle_count++] = switching;
-        if (HANDLE updates = application_updates_notification())
-            wait_handles[wait_handle_count++] = updates;
-        if (HANDLE catalog = application_plugin_browser_notification())
-            wait_handles[wait_handle_count++] = catalog;
+        push_handle(application_preferences_notification());
+        push_handle(application_custom_theme_notification());
+        push_handle(application_plugins_notification());
+        push_handle(application_downloads_notification());
+        push_handle(application_account_logout_notification());
+        push_handle(application_account_switch_notification());
+        push_handle(application_updates_notification());
+        push_handle(application_plugin_browser_notification());
         u32 frame_handle_index = 0xFFFFFFFFu;
         const u64 wait_now_ms = clock_monotonic_milliseconds();
-        const u64 wait_now_us = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
+        const u64 wait_now_us = application_now_us();
         // A minimized or hidden window has no display slots: DXGI stops
         // signaling and the watchdog would tick a synthetic 16 ms clock for
         // frames nobody sees. Suspend the frame clock and visual timers; the
@@ -463,7 +458,7 @@ int application_run() noexcept {
             application_desktop_request_quit();
             PostMessageW(g_app.window, WM_CLOSE, 0, 0);
         }
-        u64 restart_now_us = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
+        u64 restart_now_us = application_now_us();
         const bool account_signal = account_handle_count != 0 && waited >= WAIT_OBJECT_0 &&
                                     waited < WAIT_OBJECT_0 + account_handle_count;
         bool frame_signal = retained_frame_permit || (frame_handle_index != 0xFFFFFFFFu &&
@@ -552,7 +547,7 @@ int application_run() noexcept {
         // DispatchMessage can spend seconds in DefWindowProc's sizing modal
         // loop. Work below must sample the resumed clock, not the pre-drag time.
         restart_now_ms = clock_monotonic_milliseconds();
-        restart_now_us = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
+        restart_now_us = application_now_us();
         application_account_logout_pump();
         application_account_switch_pump();
         const bool logout_blocked = application_account_logout_blocked();
@@ -580,10 +575,9 @@ int application_run() noexcept {
         // to quit: the scroll keeps its position and the next frame rebuilds
         // the projection (presentation recovery relayouts persistent failures).
         if (application_smooth_scroll_active() && (begin_frame || !frame_clock_available) &&
-            !tick_smooth_scrolls(clock_microseconds(g_app.clock, g_app.process_start, clock_now()))) {
+            !tick_smooth_scrolls(application_now_us())) {
             application_record_presentation_failure("smooth_scroll_tick_failed");
-            g_app.renderer.retained_presentation.valid = false;
-            application_request_frame();
+            application_repaint();
         }
         // One bounded notification/history continuation after native dispatch.
         // Its wake schedules the next outer iteration, never recursive draining.
@@ -731,7 +725,7 @@ int application_run() noexcept {
         application_present_pending_frame();
         // Shell integration (taskbar button state, notification-area icon)
         // follows the frame: its first COM activation and Shell_NotifyIcon
-        // round trips (~15 ms) would otherwise delay the first image.
+        // round trips would otherwise delay the first image.
 #if !defined(MAICORD_STARTUP_PROBE)
         if (!logout_blocked)
             application_taskbar_attention_tick(restart_now_ms);
@@ -743,7 +737,7 @@ int application_run() noexcept {
         if (perf::probe_step(&exit_code))
             break;
 #endif
-        application_update_frame_rate(clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+        application_update_frame_rate(application_now_us());
     }
 
     g_app.frame_loop_active = false;

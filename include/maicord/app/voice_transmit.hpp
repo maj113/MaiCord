@@ -9,7 +9,7 @@ namespace maicord {
 inline constexpr u32 kVoiceFrameSamples = 960; // 20 ms of 48 kHz mono.
 inline constexpr u64 kVoiceFrameUs = 20'000;
 inline constexpr u32 kVoiceRtpHeaderBytes = 12;
-inline constexpr u8 kVoiceRtpOpusType = 120;
+inline constexpr u8 kVoiceOpusPayloadType = 120;
 inline constexpr u8 kVoiceSilenceFrame[3]{0xf8, 0xff, 0xfe};
 inline constexpr u32 kVoiceSilenceTailFrames = 5;
 inline constexpr u32 kVoiceActivityHangoverFrames = 15; // 300 ms.

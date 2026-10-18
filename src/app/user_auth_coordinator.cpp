@@ -7,7 +7,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -44,7 +44,6 @@ static_assert(kSuspendedOffset + kSuspendedCapacity == kUserAuthCoordinatorSecre
 struct UserAuthCoordinatorRuntime {
     SecureBuffer secrets;
     UserAuthState flow;
-    UserAuthResponse last_response;
     u64 active_generation;
     u64 active_request_id;
     u32 retained_request_bytes;
@@ -112,11 +111,11 @@ const u8* secret(const UserAuthCoordinatorRuntime* runtime, u32 offset) noexcept
 }
 
 void clear_secret(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 capacity) noexcept {
-    SecureZeroMemory(secret(runtime, offset), capacity);
+    secure_clear_bytes(secret(runtime, offset), capacity);
 }
 
 void clear_retained(UserAuthCoordinatorRuntime* runtime) noexcept {
-    SecureZeroMemory(secret(runtime, kTokenOffset), kUserAuthCoordinatorSecretBytes - kTokenOffset);
+    secure_clear_bytes(secret(runtime, kTokenOffset), kUserAuthCoordinatorSecretBytes - kTokenOffset);
     runtime->token_bytes = 0;
     runtime->ticket_bytes = 0;
     runtime->mfa_capabilities = 0;
@@ -130,11 +129,10 @@ void clear_retained(UserAuthCoordinatorRuntime* runtime) noexcept {
     runtime->captcha_flow_bytes = 0;
     runtime->captcha_invisible = false;
     runtime->suspended_bytes = 0;
-    runtime->last_response = UserAuthResponse{};
 }
 
 void clear_request(UserAuthCoordinatorRuntime* runtime) noexcept {
-    SecureZeroMemory(secret(runtime, kScratchOffset), runtime->request_capacity);
+    secure_clear_bytes(secret(runtime, kScratchOffset), runtime->request_capacity);
     runtime->retained_request_bytes = 0;
     runtime->active_body_offset = 0;
     runtime->continuation_base_bytes = 0;
@@ -148,7 +146,7 @@ void clear_request(UserAuthCoordinatorRuntime* runtime) noexcept {
 void restore_phone_base(UserAuthCoordinatorRuntime* runtime) noexcept {
     if (!runtime->continuation_base_bytes || runtime->continuation_base_bytes > kPhoneTokenOffset) return;
     const u32 end = runtime->continuation_base_bytes - 1;
-    SecureZeroMemory(runtime->secrets.data + end, kPhoneTokenOffset - end);
+    secure_clear_bytes(runtime->secrets.data + end, kPhoneTokenOffset - end);
     runtime->secrets.data[end] = '}';
     runtime->retained_request_bytes = 0;
     runtime->active_body_offset = 0;
@@ -165,7 +163,7 @@ bool overlaps_auth_owner(const UserAuthCoordinator* coordinator, const UserAuthC
 void restore_reset_base(UserAuthCoordinatorRuntime* runtime) noexcept {
     if (runtime->continuation_base_bytes) {
         const u32 end = runtime->continuation_base_bytes - 1;
-        SecureZeroMemory(runtime->secrets.data + end, runtime->request_capacity - end);
+        secure_clear_bytes(runtime->secrets.data + end, runtime->request_capacity - end);
         runtime->secrets.data[end] = '}';
     }
     runtime->active_body_offset = 0;
@@ -173,7 +171,7 @@ void restore_reset_base(UserAuthCoordinatorRuntime* runtime) noexcept {
 }
 
 void preserve_reset_prefix(UserAuthCoordinatorRuntime* runtime) noexcept {
-    SecureZeroMemory(runtime->secrets.data + runtime->continuation_token_bytes,
+    secure_clear_bytes(runtime->secrets.data + runtime->continuation_token_bytes,
                      runtime->request_capacity - runtime->continuation_token_bytes);
     runtime->continuation_base_bytes = 0;
     runtime->retained_request_bytes = 0;
@@ -215,7 +213,7 @@ void clear_suspended(UserAuthCoordinatorRuntime* runtime) noexcept {
 
 void clear_tail(UserAuthCoordinatorRuntime* runtime, u32 offset, u32 bytes, u32 capacity) noexcept {
     if (bytes < capacity) {
-        SecureZeroMemory(secret(runtime, offset) + bytes, capacity - bytes);
+        secure_clear_bytes(secret(runtime, offset) + bytes, capacity - bytes);
     }
 }
 
@@ -285,6 +283,12 @@ UserAuthCoordinatorResult fail(UserAuthCoordinator* coordinator, UserAuthCoordin
         result.phase = UserAuthCoordinatorPhase::failed;
         coordinator->state = result;
     }
+    return result;
+}
+
+UserAuthCoordinatorResult submit_failed(UserAuthCoordinator* coordinator, RestClientSubmitError error) noexcept {
+    UserAuthCoordinatorResult result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
+    result.submit_error = error;
     return result;
 }
 
@@ -423,6 +427,26 @@ struct ConsumeContext {
     UserAuthCoordinatorEvent* event;
 };
 
+// Ends the flow on a transport, decode or state failure and discards every retained secret.
+bool fail_flow(UserAuthCoordinator* coordinator, UserAuthCoordinatorRuntime* runtime,
+               UserAuthCoordinatorEvent& event, UserAuthCoordinatorEventKind kind,
+               UserAuthCoordinatorError error) noexcept {
+    event.kind = kind;
+    coordinator->state.error = error;
+    coordinator->state.phase = UserAuthCoordinatorPhase::failed;
+    clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
+    return true;
+}
+
+void record_decode(UserAuthCoordinator* coordinator, UserAuthCoordinatorEvent& event,
+                   const UserAuthDecodeResult& decode) noexcept {
+    event.decode_error = decode.error;
+    coordinator->state.decode_error = decode.error;
+    coordinator->state.decode_error_offset = decode.error_offset;
+    coordinator->state.scan_error = decode.scan_error;
+    coordinator->state.read_error = decode.read_error;
+}
+
 // All reset responses are accepted by request id/generation before this path.
 // Classify first so auth-shaped SMS failures cannot overwrite session storage.
 bool consume_reset_response(UserAuthCoordinator* coordinator, UserAuthCoordinatorRuntime* runtime,
@@ -463,19 +487,11 @@ bool consume_reset_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
         }
     }
     runtime->active_request_id = 0;
-    event.decode_error = decode.error;
-    coordinator->state.decode_error = decode.error;
-    coordinator->state.decode_error_offset = decode.error_offset;
-    coordinator->state.scan_error = decode.scan_error;
-    coordinator->state.read_error = decode.read_error;
+    record_decode(coordinator, event, decode);
     coordinator->state.response_kind = decoded.kind;
-    if (transport.error != RestClientError::none) {
-        event.kind = UserAuthCoordinatorEventKind::transport_error;
-        coordinator->state.error = UserAuthCoordinatorError::transport;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
-        return true;
-    }
+    if (transport.error != RestClientError::none)
+        return fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::transport_error,
+                         UserAuthCoordinatorError::transport);
     // A 429 is a definitive rejection, including a body the categorical
     // decoder cannot understand. Only a transport-bound deadline permits retry.
     if (transport.status_code == 429 && transport.retry_at_ms != 0) {
@@ -489,15 +505,10 @@ bool consume_reset_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
         coordinator->state.phase = UserAuthCoordinatorPhase::reset_rate_limited;
         return true;
     }
-    if (!decode.ok()) {
-        event.kind = UserAuthCoordinatorEventKind::protocol_error;
-        coordinator->state.error = UserAuthCoordinatorError::decode;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
-        return true;
-    }
+    if (!decode.ok())
+        return fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                         UserAuthCoordinatorError::decode);
     event.response = decoded;
-    runtime->last_response = decoded;
     runtime->continuation_retry_at_ms = 0;
     if (sms_success) {
         restore_reset_base(runtime); clear_captcha(runtime);
@@ -545,11 +556,8 @@ bool consume_reset_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
             UserAuthCoordinatorPhase::reset_rejected;
         return true;
     }
-    event.kind = UserAuthCoordinatorEventKind::protocol_error;
-    coordinator->state.error = UserAuthCoordinatorError::decode;
-    coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-    clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
-    return true;
+    return fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                     UserAuthCoordinatorError::decode);
 }
 
 bool consume_phone_response(UserAuthCoordinator* coordinator, UserAuthCoordinatorRuntime* runtime,
@@ -558,11 +566,8 @@ bool consume_phone_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
     const bool verify = runtime->active_operation == UserAuthOperation::phone_verify;
     if (transport.error != RestClientError::none) {
         runtime->active_request_id = 0;
-        event.kind = UserAuthCoordinatorEventKind::transport_error;
-        coordinator->state.error = UserAuthCoordinatorError::transport;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
-        return true;
+        return fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::transport_error,
+                         UserAuthCoordinatorError::transport);
     }
     UserAuthResponse decoded{};
     auto storage = response_storage(runtime);
@@ -570,23 +575,14 @@ bool consume_phone_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
     const auto decode = user_auth_decode_phone_response(transport.status_code,
         {reinterpret_cast<const char*>(locked_body.data), locked_body.count},
         {runtime->structurals, kStructuralCount}, 16, storage, &decoded, verify);
-    event.decode_error = decode.error;
-    coordinator->state.decode_error = decode.error;
-    coordinator->state.decode_error_offset = decode.error_offset;
-    coordinator->state.scan_error = decode.scan_error;
-    coordinator->state.read_error = decode.read_error;
+    record_decode(coordinator, event, decode);
     runtime->active_request_id = 0;
-    if (!decode.ok() && transport.status_code != 429) {
-        event.kind = UserAuthCoordinatorEventKind::protocol_error;
-        coordinator->state.error = UserAuthCoordinatorError::decode;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
-        return true;
-    }
+    if (!decode.ok() && transport.status_code != 429)
+        return fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                         UserAuthCoordinatorError::decode);
     if (transport.status_code == 429 || decoded.kind == UserAuthResponseKind::rejected) {
         event.kind = UserAuthCoordinatorEventKind::phone_rejected;
         event.response = decoded;
-        runtime->last_response = decoded;
         clear_retained(runtime);
         restore_phone_base(runtime);
         runtime->flow.phase = UserAuthPhase::recovery_phone_required;
@@ -599,12 +595,9 @@ bool consume_phone_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
     }
     const auto applied = user_auth_state_apply(&runtime->flow, runtime->active_generation, decoded);
     if (!applied.ok()) {
-        event.kind = UserAuthCoordinatorEventKind::protocol_error;
-        coordinator->state.error = UserAuthCoordinatorError::state;
         coordinator->state.transition_error = applied.error;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
-        return true;
+        return fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                         UserAuthCoordinatorError::state);
     }
     coordinator->state.response_kind = decoded.kind;
     runtime->continuation_retry_at_ms = 0;
@@ -616,9 +609,9 @@ bool consume_phone_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
         // A reset credential lives only in its dedicated request-tail stage.
         clear_retained(runtime);
         runtime->continuation_token_bytes = decoded.token_bytes;
-        SecureZeroMemory(runtime->secrets.data + kPhoneTokenOffset + decoded.token_bytes,
+        secure_clear_bytes(runtime->secrets.data + kPhoneTokenOffset + decoded.token_bytes,
             kUserAuthPhoneResetTokenBytes - decoded.token_bytes);
-        SecureZeroMemory(runtime->secrets.data, kPhoneTokenOffset);
+        secure_clear_bytes(runtime->secrets.data, kPhoneTokenOffset);
         runtime->continuation_base_bytes = 0;
         runtime->retained_request_bytes = 0;
         runtime->active_body_offset = 0;
@@ -629,7 +622,6 @@ bool consume_phone_response(UserAuthCoordinator* coordinator, UserAuthCoordinato
         event.kind = UserAuthCoordinatorEventKind::phone_code_sent;
         coordinator->state.phase = UserAuthCoordinatorPhase::recovery_phone_required;
     }
-    runtime->last_response = decoded;
     event.response = decoded;
     return true;
 }
@@ -671,8 +663,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     if (runtime->phone_context_active)
         return consume_phone_response(coordinator, runtime, event, transport_response, locked_body);
 
-    if (transport_response.request_id != runtime->active_request_id ||
-        transport_response.error != RestClientError::none) {
+    if (transport_response.error != RestClientError::none) {
         event.kind = UserAuthCoordinatorEventKind::transport_error;
         coordinator->state.error = UserAuthCoordinatorError::transport;
         coordinator->state.phase = UserAuthCoordinatorPhase::failed;
@@ -721,11 +712,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     if (!invalid_mfa_retry)
         decode = decode_response(transport_response.status_code, response_body,
             {runtime->structurals, kStructuralCount}, 16, response_storage(runtime), &decoded);
-    event.decode_error = decode.error;
-    coordinator->state.decode_error = decode.error;
-    coordinator->state.decode_error_offset = decode.error_offset;
-    coordinator->state.scan_error = decode.scan_error;
-    coordinator->state.read_error = decode.read_error;
+    record_decode(coordinator, event, decode);
     if (!decode.ok()) {
         if (runtime->active_operation == UserAuthOperation::recovery && transport_response.status_code == 429) {
             event.kind = UserAuthCoordinatorEventKind::recovery_rejected;
@@ -757,7 +744,6 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
         decoded.mfa_capabilities = runtime->mfa_capabilities;
         decoded.user_id = 0;
         decoded.has_user_id = false;
-        runtime->last_response = decoded;
         event.response = decoded;
         event.kind = UserAuthCoordinatorEventKind::rejected;
         coordinator->state.error = UserAuthCoordinatorError::none;
@@ -768,7 +754,6 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
 
     const UserAuthPhase prior_phase = runtime->flow.phase;
     if (runtime->active_operation == UserAuthOperation::mfa_sms_send) {
-        runtime->last_response = decoded;
         event.response = decoded;
         if (decoded.kind == UserAuthResponseKind::captcha_required) {
             retain_decoded(runtime, decoded, UserAuthPhase::mfa_pending);
@@ -807,7 +792,6 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
         return true;
     }
     retain_decoded(runtime, decoded, prior_phase);
-    runtime->last_response = decoded;
     event.response = decoded;
     event.kind = event_kind(decoded.kind);
     coordinator->state = UserAuthCoordinatorResult{};
@@ -833,16 +817,14 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     if (decoded.kind == UserAuthResponseKind::recovery_phone_required) {
         const auto base = user_auth_recovery_phone_base({runtime->secrets.data, kPhoneTokenOffset}, runtime->retained_request_bytes);
         if (!base.ok() || runtime->reset_owner) {
-            event.kind = UserAuthCoordinatorEventKind::protocol_error;
-            coordinator->state.error = UserAuthCoordinatorError::request_write;
-            coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-            clear_request(runtime); clear_retained(runtime); user_auth_state_cancel(&runtime->flow);
+            fail_flow(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                      UserAuthCoordinatorError::request_write);
         } else {
             runtime->phone_context_active = true;
             runtime->continuation_base_bytes = base.bytes;
             runtime->continuation_token_bytes = 0;
             restore_phone_base(runtime);
-            SecureZeroMemory(runtime->secrets.data + kPhoneTokenOffset, kUserAuthPhoneResetTokenBytes);
+            secure_clear_bytes(runtime->secrets.data + kPhoneTokenOffset, kUserAuthPhoneResetTokenBytes);
         }
         return true;
     }
@@ -871,7 +853,7 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
         secure_buffer_initialize(&runtime->secrets, reset ? kUserAuthResetCoordinatorSecretBytes : kUserAuthCoordinatorSecretBytes);
     if (!secret_result.ok()) {
         const u32 native_error = secret_result.native_error;
-        SecureZeroMemory(runtime, bytes);
+        secure_clear_bytes(runtime, bytes);
         VirtualFree(runtime, 0, MEM_RELEASE);
         coordinator->runtime = nullptr;
         return fail(coordinator, UserAuthCoordinatorError::memory, native_error);
@@ -883,7 +865,7 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
         rest_client_start_user_auth(&coordinator->transport, kUserAuthMaximumResponseBytes);
     if (!started.ok()) {
         secure_buffer_release(&runtime->secrets);
-        SecureZeroMemory(runtime, bytes);
+        secure_clear_bytes(runtime, bytes);
         VirtualFree(runtime, 0, MEM_RELEASE);
         coordinator->runtime = nullptr;
         return fail(coordinator, UserAuthCoordinatorError::transport_start, started.native_error);
@@ -940,8 +922,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_reset(UserAuthCoordinator
         bytes, nullptr, claim_request_id(coordinator));
     if (!submitted.ok()) {
         if (retry) preserve_reset_prefix(runtime); else clear_request(runtime);
-        auto result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error; return result;
+        return submit_failed(coordinator, submitted.error);
     }
     runtime->continuation_base_bytes = bytes;
     runtime->continuation_token_bytes = prefix;
@@ -987,8 +968,7 @@ static UserAuthCoordinatorResult submit_reset_mfa(UserAuthCoordinator* coordinat
         offset + written.bytes, nullptr, claim_request_id(coordinator));
     if (!submitted.ok()) {
         restore_reset_base(runtime);
-        auto result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error; return result;
+        return submit_failed(coordinator, submitted.error);
     }
     runtime->continuation_retry_at_ms = 0;
     clear_captcha(runtime);
@@ -1019,7 +999,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_password(
                                 kUserAuthDefaultLoginSource, input.undelete},
         Slice<u8>{secret(runtime, kScratchOffset), runtime->request_capacity});
     if (!written.ok()) {
-        SecureZeroMemory(secret(runtime, kScratchOffset), runtime->request_capacity);
+        secure_clear_bytes(secret(runtime, kScratchOffset), runtime->request_capacity);
         return fail(coordinator, UserAuthCoordinatorError::request_write);
     }
     const u64 request_id = claim_request_id(coordinator);
@@ -1028,9 +1008,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_password(
                         input.captcha_key, request_id);
     if (!submitted.ok()) {
         clear_request(runtime);
-        UserAuthCoordinatorResult result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     if (!retry) {
         clear_retained(runtime);
@@ -1056,9 +1034,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_recovery(
         written.bytes, nullptr, claim_request_id(coordinator));
     if (!submitted.ok()) {
         clear_request(runtime);
-        auto result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     clear_retained(runtime);
     return coordinator->state;
@@ -1091,9 +1067,7 @@ static UserAuthCoordinatorResult submit_phone(UserAuthCoordinator* coordinator, 
         verify ? UserAuthOperation::phone_verify : UserAuthOperation::phone_resend, bytes, nullptr, claim_request_id(coordinator));
     if (!submitted.ok()) {
         restore_phone_base(runtime);
-        auto result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     runtime->continuation_retry_at_ms = 0;
     clear_retained(runtime);
@@ -1149,9 +1123,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_verification(
         nullptr, claim_request_id(coordinator));
     if (!submitted.ok()) {
         clear_request(runtime);
-        UserAuthCoordinatorResult result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     clear_retained(runtime);
     return coordinator->state;
@@ -1184,9 +1156,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_browser_handoff_exchange(
     // success nor failure retains a credential for a later implicit replay.
     clear_request(runtime);
     if (!submitted.ok()) {
-        auto result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     clear_retained(runtime);
     return coordinator->state;
@@ -1245,7 +1215,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_mfa(UserAuthCoordinator* 
         secure_buffer_clear(&normalized_code);
     }
     if (!written.ok()) {
-        SecureZeroMemory(secret(runtime, kScratchOffset), runtime->request_capacity);
+        secure_clear_bytes(secret(runtime, kScratchOffset), runtime->request_capacity);
         return fail(coordinator, UserAuthCoordinatorError::request_write);
     }
     const UserAuthOperation operation = input.type == UserAuthMfaType::totp  ? UserAuthOperation::mfa_totp
@@ -1258,9 +1228,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_mfa(UserAuthCoordinator* 
         coordinator, runtime, next, operation, written.bytes, input.captcha_key, request_id);
     if (!submitted.ok()) {
         clear_request(runtime);
-        UserAuthCoordinatorResult result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     if (retry) {
         clear_captcha(runtime);
@@ -1286,8 +1254,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_sms_send(UserAuthCoordina
         UserAuthOperation::mfa_sms_send, written.bytes, nullptr, claim_request_id(coordinator), offset);
     if (!submitted.ok()) {
         if (runtime->reset_context_active) restore_reset_base(runtime); else clear_request(runtime);
-        auto result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error; return result;
+        return submit_failed(coordinator, submitted.error);
     }
     runtime->continuation_retry_at_ms = 0;
     return coordinator->state;
@@ -1318,9 +1285,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_captcha(UserAuthCoordinat
         submit_prepared(coordinator, runtime, next, runtime->active_operation,
                         runtime->retained_request_bytes, solution, request_id, runtime->active_body_offset);
     if (!submitted.ok()) {
-        UserAuthCoordinatorResult result = fail(coordinator, UserAuthCoordinatorError::transport_submit);
-        result.submit_error = submitted.error;
-        return result;
+        return submit_failed(coordinator, submitted.error);
     }
     clear_captcha(runtime);
     runtime->active_captcha_revision = runtime->captcha_revision;
@@ -1540,7 +1505,7 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
     }
     const u32 bytes = page_round(sizeof(UserAuthCoordinatorRuntime));
     secure_buffer_release(&runtime->secrets);
-    SecureZeroMemory(runtime, bytes);
+    secure_clear_bytes(runtime, bytes);
     VirtualFree(runtime, 0, MEM_RELEASE);
     UserAuthCoordinatorResult stopped{};
     stopped.phase = UserAuthCoordinatorPhase::stopped;

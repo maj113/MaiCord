@@ -1,17 +1,12 @@
 #include "maicord/app/dave_welcome.hpp"
 #include "maicord/app/dave_key_derivation.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
-template <u32 N> ConstSlice<u8> label(const char (&value)[N]) noexcept {
-    return {reinterpret_cast<const u8*>(value), N - 1};
-}
 DaveWelcomeResult failure(DaveWelcomeError error, i32 status = 0, MlsDecodeResult wire = {}) noexcept {
     return {0, status, 0, wire, error};
 }
@@ -21,13 +16,13 @@ KdfResult welcome_key_nonce(KdfSha256Workspace& workspace, ConstSlice<u8> joiner
     u8 member[32]{}, welcome[32]{};
     auto result = hkdf_sha256_extract(workspace, joiner, {zero, 32}, {member, 32});
     if (result.ok())
-        result = mls_expand_label(workspace, {member, 32}, label("welcome"), {}, {welcome, 32});
+        result = mls_expand_label(workspace, {member, 32}, text_bytes("welcome"), {}, {welcome, 32});
     if (result.ok())
-        result = mls_expand_label(workspace, {welcome, 32}, label("key"), {}, {key, 16});
+        result = mls_expand_label(workspace, {welcome, 32}, text_bytes("key"), {}, {key, 16});
     if (result.ok())
-        result = mls_expand_label(workspace, {welcome, 32}, label("nonce"), {}, {nonce, 12});
-    SecureZeroMemory(member, sizeof(member));
-    SecureZeroMemory(welcome, sizeof(welcome));
+        result = mls_expand_label(workspace, {welcome, 32}, text_bytes("nonce"), {}, {nonce, 12});
+    secure_clear_bytes(member, sizeof(member));
+    secure_clear_bytes(welcome, sizeof(welcome));
     return result;
 }
 DaveWelcomeResult open_candidate(KdfSha256Workspace& workspace, const P256Key& key,
@@ -72,9 +67,9 @@ DaveWelcomeResult open_candidate(KdfSha256Workspace& workspace, const P256Key& k
     const auto allocated = secure_buffer_initialize(&candidate.storage, secrets_bytes + info_bytes);
     if (!allocated.ok())
         return {0, 0, allocated.native_error, {}, DaveWelcomeError::storage_failure};
-    const auto hpke = mls_decrypt_with_label(workspace, key, label("Welcome"), welcome.encrypted_group_info,
-                                             selected.kem_output, selected.ciphertext,
-                                             {candidate.storage.data, secrets_bytes});
+    const auto hpke = mls_decrypt_with_label(workspace, key, text_bytes("Welcome"),
+                                             welcome.encrypted_group_info, selected.kem_output,
+                                             selected.ciphertext, {candidate.storage.data, secrets_bytes});
     if (!hpke.ok())
         return failure(hpke.error == HpkeError::authentication_failed
                            ? DaveWelcomeError::hpke_authentication_failed
@@ -100,8 +95,8 @@ DaveWelcomeResult open_candidate(KdfSha256Workspace& workspace, const P256Key& k
                                {welcome.encrypted_group_info.data + info_bytes, 16},
                                {candidate.storage.data + secrets_bytes, info_bytes});
     aes_gcm_release(&cipher);
-    SecureZeroMemory(aes_key, sizeof(aes_key));
-    SecureZeroMemory(nonce, sizeof(nonce));
+    secure_clear_bytes(aes_key, sizeof(aes_key));
+    secure_clear_bytes(nonce, sizeof(nonce));
     if (!result.ok())
         return failure(DaveWelcomeError::kdf_failure, result.native_status);
     if (!aead.ok())
@@ -123,23 +118,22 @@ void dave_welcome_release(DaveWelcomeCandidate* candidate) noexcept {
     if (!candidate)
         return;
     secure_buffer_release(&candidate->storage);
-    SecureZeroMemory(candidate, sizeof(*candidate));
+    secure_clear_bytes(candidate, sizeof(*candidate));
 }
 DaveWelcomeResult dave_welcome_decrypt(KdfSha256Workspace& workspace, const P256Key& key,
                                        ConstSlice<u8> reference, ConstSlice<u8> input,
                                        DaveWelcomeCandidate* output) noexcept {
-    if (!output || !byte_range_valid(bytes(*output)) || reference.count != 32 ||
+    if (!output || !byte_range_valid(object_bytes(*output)) || reference.count != 32 ||
         !byte_range_valid(reference) || !byte_range_valid(input) ||
-        byte_ranges_overlap(bytes(*output), input) || byte_ranges_overlap(bytes(*output), reference) ||
-        byte_ranges_overlap(input, reference))
+        byte_ranges_overlap(object_bytes(*output), input) ||
+        byte_ranges_overlap(object_bytes(*output), reference) || byte_ranges_overlap(input, reference))
         return failure(DaveWelcomeError::invalid_input);
-    const ConstSlice<u8> spans[]{input, reference, bytes(*output), bytes(key)};
+    const ConstSlice<u8> spans[]{input, reference, object_bytes(*output), object_bytes(key)};
     for (const auto span : spans)
-        if (byte_ranges_overlap(span, bytes(workspace)) ||
-            byte_ranges_overlap(span, {workspace.storage.data, workspace.storage.capacity}))
+        if (aliases_workspace(workspace, span))
             return failure(DaveWelcomeError::invalid_input);
     for (u32 i = 0; i != 3; ++i)
-        if (byte_ranges_overlap(spans[i], bytes(key)))
+        if (byte_ranges_overlap(spans[i], object_bytes(key)))
             return failure(DaveWelcomeError::invalid_input);
     if (!workspace.storage.data || !workspace.storage.locked)
         return failure(DaveWelcomeError::not_initialized);
@@ -151,7 +145,7 @@ DaveWelcomeResult dave_welcome_decrypt(KdfSha256Workspace& workspace, const P256
     const auto result = open_candidate(workspace, key, reference, input, candidate);
     if (result.ok()) {
         *output = candidate; // Explicit transfer: allocation and its stable borrowed views.
-        SecureZeroMemory(&candidate, sizeof(candidate));
+        secure_clear_bytes(&candidate, sizeof(candidate));
     } else
         dave_welcome_release(&candidate);
     return result;

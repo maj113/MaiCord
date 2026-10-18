@@ -1,6 +1,7 @@
 #include "maicord/app/game_detection.hpp"
 #include "maicord/app/account_profile.hpp"
 #include "maicord/app/file_persistence.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -101,12 +102,10 @@ bool game_detection_normalize(Utf8View basename, char* output, u8* bytes) noexce
         !utf8_validate(basename).valid)
         return false;
     for (u32 i = 0; i < basename.bytes; ++i) {
-        char c = basename.data[i];
+        const char c = basename.data[i];
         if (c == '\\' || c == '/' || c == ':' || c == '|' || static_cast<u8>(c) < 0x20)
             return false;
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + 'a');
-        output[i] = c;
+        output[i] = ascii_lower(c);
     }
     *bytes = static_cast<u8>(basename.bytes);
     return true;
@@ -115,10 +114,8 @@ u32 game_detection_display_name(Utf8View basename, Slice<char> output) noexcept 
     if (!output.data || !basename.bytes)
         return 0;
     u32 bytes = basename.bytes;
-    if (bytes > 4 && (basename.data[bytes - 4] == '.') &&
-        (basename.data[bytes - 3] == 'e' || basename.data[bytes - 3] == 'E') &&
-        (basename.data[bytes - 2] == 'x' || basename.data[bytes - 2] == 'X') &&
-        (basename.data[bytes - 1] == 'e' || basename.data[bytes - 1] == 'E'))
+    if (bytes > 4 && basename.data[bytes - 4] == '.' && ascii_lower(basename.data[bytes - 3]) == 'e' &&
+        ascii_lower(basename.data[bytes - 2]) == 'x' && ascii_lower(basename.data[bytes - 1]) == 'e')
         bytes -= 4;
     bytes = utf8_copy_truncated(output.data, output.count, {basename.data, bytes});
     if (bytes && output.data[0] >= 'a' && output.data[0] <= 'z')

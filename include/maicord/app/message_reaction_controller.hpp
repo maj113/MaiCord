@@ -90,9 +90,7 @@ enum class MessageReactionError : u8 {
     none,
     invalid_input,
     capacity,
-    serial_exhausted,
-    busy,
-    stale
+    serial_exhausted
 };
 enum class MessageReactionCompletion : u8 {
     success,

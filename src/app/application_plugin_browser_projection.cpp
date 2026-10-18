@@ -29,16 +29,6 @@ void index_text(PluginBrowserBank& bank, Utf8View document, PluginIndexText text
     if (result.ok()) add(bank, {decoded, result.bytes});
 }
 Utf8View since(const PluginBrowserBank& bank, u32 start) noexcept { return {bank.text + start, bank.used - start}; }
-bool ascii_contains(Utf8View haystack, Utf8View needle) noexcept {
-    const auto lower = [](char c) noexcept { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c; };
-    if (!needle.bytes) return true;
-    for (u32 i = 0; i + needle.bytes <= haystack.bytes; ++i) {
-        u32 j = 0;
-        while (j < needle.bytes && lower(haystack.data[i + j]) == lower(needle.data[j])) ++j;
-        if (j == needle.bytes) return true;
-    }
-    return false;
-}
 const PluginCatalogProviderView& provider_of(const PluginCatalogSnapshot& s, const PluginCatalogEntryView& e) noexcept {
     return s.providers[e.provider];
 }
@@ -64,7 +54,7 @@ bool matches(const PluginCatalogSnapshot& s, const PluginCatalogEntryView& e, co
     const PluginIndexText fields[]{e.name, e.summary, e.author, e.slug};
     for (const auto& field : fields) {
         const auto decoded = plugin_index_text_decode(document, field, {text, sizeof(text)});
-        if (decoded.ok() && ascii_contains({text, decoded.bytes}, query)) return true;
+        if (decoded.ok() && ascii_contains_ignore_case({text, decoded.bytes}, query)) return true;
     }
     return false;
 }
@@ -441,8 +431,7 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
     start = bank.used; bytes_text(bank, shown->bytes); detail_row(utf8_literal("Size"), start);
     start = bank.used; index_text(bank, document, e.license); detail_row(utf8_literal("License"), start);
     start = bank.used;
-    constexpr char digits[] = "0123456789abcdef";
-    for (u32 i = 0; i < 8; ++i) { const char pair[2]{digits[shown->sha256[i] >> 4], digits[shown->sha256[i] & 15]}; add(bank, {pair, 2}); }
+    for (u32 i = 0; i < 8; ++i) { const char pair[2]{ascii_hex_digit(shown->sha256[i] >> 4), ascii_hex_digit(shown->sha256[i])}; add(bank, {pair, 2}); }
     detail_row(utf8_literal("SHA-256"), start);
     if (e.homepage.bytes) {
         start = bank.used;

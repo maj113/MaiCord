@@ -7,7 +7,8 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {
@@ -200,10 +201,6 @@ bool query_matches(Utf8View query, const Utf8View* texts, u32 count) noexcept {
     return words != 0;
 }
 
-void store16(u8* output, u16 value) noexcept {
-    output[0] = static_cast<u8>(value);
-    output[1] = static_cast<u8>(value >> 8);
-}
 constexpr u8 kMagic[8]{'M', 'A', 'I', 'K', 'E', 'Y', 'S', '1'};
 constexpr u32 kChecksumOffset = 24;
 u64 checksum(ConstSlice<u8> record) noexcept {
@@ -498,7 +495,7 @@ u32 custom_keybinds_encode(const CustomKeybinds& keybinds, Slice<u8> output) noe
     copy_bytes(r, kMagic, 8);
     byte_store_le32(r + 8, kCustomKeybindsVersion);
     byte_store_le32(r + 12, bytes);
-    store16(r + 16, static_cast<u16>(keybinds.count));
+    byte_store_le16(r + 16, static_cast<u16>(keybinds.count));
     for (u32 i = 0; i < keybinds.count; ++i) {
         u8* entry = r + kCustomKeybindsHeaderBytes + i * kCustomKeybindBytes;
         entry[0] = static_cast<u8>(keybinds.items[i].action);
@@ -538,9 +535,9 @@ bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds* keybinds) no
     if (file == INVALID_HANDLE_VALUE)
         return false;
     u8 record[kCustomKeybindsMaximumBytes]{};
-    LARGE_INTEGER size{};
+    Win32LargeInteger size{};
     u32 native = 0;
-    const bool read = GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= sizeof(record) &&
+    const bool read = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= sizeof(record) &&
                       file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native);
     CloseHandle(file);
     return read && custom_keybinds_decode({record, static_cast<u32>(size.QuadPart)}, keybinds);

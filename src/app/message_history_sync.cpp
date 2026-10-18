@@ -265,8 +265,113 @@ bool history_message_mentions_current_member(const ChatStateStore& state,
     return false;
 }
 
-bool apply_history_mention_flags(MessageTimeline* timeline, const ChatStateStore* state,
-                                 ConstSlice<GatewayMessageEvent> messages) noexcept {
+MessageHistoryDecodeResult decode_page(Utf8View body, const MessageHistoryDecodeScratch& scratch) noexcept {
+    return decode_message_history_page(body, scratch.page_structurals, scratch.message_structurals,
+                                       scratch.maximum_depth, scratch.content, scratch.messages,
+                                       scratch.mention_users, scratch.rich);
+}
+
+// Retry, tick and fail serve both paged loads: each is a state machine over awaiting_page,
+// waiting_retry, request_required and failed.
+template <class State, class Machine>
+bool page_retry(Machine* machine, MessageHistoryCatchupFailure failure, u64 retry_at_ms) noexcept {
+    if (!machine || machine->state != State::awaiting_page || failure == MessageHistoryCatchupFailure::none ||
+        failure == MessageHistoryCatchupFailure::apply || retry_at_ms == 0) {
+        return false;
+    }
+    machine->last_failure = failure;
+    machine->retry_at_ms = retry_at_ms;
+    machine->state = State::waiting_retry;
+    ++machine->failures;
+    return true;
+}
+
+template <class State, class Machine>
+bool page_tick(Machine* machine, u64 now_ms) noexcept {
+    if (!machine || machine->state != State::waiting_retry || now_ms < machine->retry_at_ms) {
+        return false;
+    }
+    machine->retry_at_ms = 0;
+    machine->state = State::request_required;
+    return true;
+}
+
+template <class State, class Machine>
+bool page_fail(Machine* machine, MessageHistoryCatchupFailure failure) noexcept {
+    if (!machine || machine->state != State::awaiting_page || failure == MessageHistoryCatchupFailure::none) {
+        return false;
+    }
+    machine->last_failure = failure;
+    machine->state = State::failed;
+    ++machine->failures;
+    return true;
+}
+
+// Shared REST completion of a catch-up or older page: transient failures retry, other failures
+// end the load, and a decoded page goes through apply_page.
+template <class State, class Machine, class Apply>
+MessageHistoryRestResult accept_page_rest(Machine* machine, const RestClientResponse& response,
+                                          const MessageHistoryDecodeScratch& scratch, u64 now_ms,
+                                          UserStore* users, GuildMemberStore* members, ChatStateStore* state,
+                                          MessageTimeline* timeline, Apply apply_page, Utf8View body) noexcept {
+    MessageHistoryRestResult result{};
+    result.disposition = MessageHistoryRestDisposition::failed;
+    if (history_transient_failure(response)) {
+        page_retry<State>(machine,
+                          response.transport_ok() ? MessageHistoryCatchupFailure::http_status
+                                                  : MessageHistoryCatchupFailure::transport,
+                          history_retry_deadline(&machine->transient_retries, response, now_ms));
+        result.disposition = MessageHistoryRestDisposition::retry_scheduled;
+        return result;
+    }
+    if (!response.transport_ok()) {
+        page_fail<State>(machine, MessageHistoryCatchupFailure::transport);
+        result.error = MessageHistoryRestError::transport;
+        return result;
+    }
+    if (response.status_code == 429) {
+        if (api_rejection_requires_action(response.rejection) || !response.rate_limited ||
+            response.retry_at_ms == 0 ||
+            !page_retry<State>(machine, MessageHistoryCatchupFailure::rate_limited, response.retry_at_ms)) {
+            page_fail<State>(machine, MessageHistoryCatchupFailure::rate_limited);
+            result.error = MessageHistoryRestError::rate_limit;
+            return result;
+        }
+        result.disposition = MessageHistoryRestDisposition::retry_scheduled;
+        return result;
+    }
+    if (response.status_code != 200) {
+        page_fail<State>(machine, MessageHistoryCatchupFailure::http_status);
+        result.error = MessageHistoryRestError::http_status;
+        return result;
+    }
+    result.decode = decode_page(body, scratch);
+    const ConstSlice<GatewayMessageEvent> decoded{scratch.messages.data, result.decode.page.count};
+    if (!result.decode.ok() || !observe_history_users(users, decoded) ||
+        !observe_history_members(members, state, decoded)) {
+        page_fail<State>(machine, MessageHistoryCatchupFailure::decode);
+        result.error = MessageHistoryRestError::decode;
+        return result;
+    }
+    result.apply = apply_page(result.decode.page, decoded);
+    if (!result.apply.ok() || !message_history_apply_mention_flags(timeline, state, decoded)) {
+        result.error = MessageHistoryRestError::apply;
+        return result;
+    }
+    result.disposition = MessageHistoryRestDisposition::applied;
+    return result;
+}
+
+} // namespace
+
+bool message_history_observe_page(UserStore* users, GuildMemberStore* members,
+                                  ChatStateStore* state,
+                                  ConstSlice<GatewayMessageEvent> messages) noexcept {
+    return observe_history_users(users, messages) && observe_history_members(members, state, messages);
+}
+
+bool message_history_apply_mention_flags(MessageTimeline* timeline, const ChatStateStore* state,
+                                         ConstSlice<GatewayMessageEvent> messages) noexcept {
     if (!timeline || !timeline->store) {
         return false;
     }
@@ -288,19 +393,6 @@ bool apply_history_mention_flags(MessageTimeline* timeline, const ChatStateStore
         }
     }
     return true;
-}
-
-} // namespace
-
-bool message_history_observe_page(UserStore* users, GuildMemberStore* members,
-                                  ChatStateStore* state,
-                                  ConstSlice<GatewayMessageEvent> messages) noexcept {
-    return observe_history_users(users, messages) && observe_history_members(members, state, messages);
-}
-
-bool message_history_apply_mention_flags(MessageTimeline* timeline, const ChatStateStore* state,
-                                         ConstSlice<GatewayMessageEvent> messages) noexcept {
-    return apply_history_mention_flags(timeline, state, messages);
 }
 
 MessageHistoryApplyResult message_timeline_apply_history_page(
@@ -357,11 +449,9 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
 
     u32 selected_begin = 0;
     u32 selected_count = kept_count;
-    const MessageRecord* first_authoritative = authoritative_edge(store, false);
-    if (first_authoritative) {
-        const MessageRecord* first = first_authoritative;
+    if (const MessageRecord* first = authoritative_edge(store, false)) {
         const MessageRecord* last = authoritative_edge(store, true);
-        if (!first || !last) {
+        if (!last) {
             return apply_error(MessageHistoryApplyError::reconcile);
         }
         if (direction == MessageHistoryDirection::newer) {
@@ -618,9 +708,7 @@ MessageHistoryRestResult message_history_jump_accept_rest(
         result.error = MessageHistoryRestError::http_status;
         return result;
     }
-    result.decode = decode_message_history_page(
-        body, scratch.page_structurals, scratch.message_structurals, scratch.maximum_depth, scratch.content,
-        scratch.messages, scratch.mention_users, scratch.rich);
+    result.decode = decode_page(body, scratch);
     const ConstSlice<GatewayMessageEvent> decoded{scratch.messages.data, result.decode.page.count};
     bool target_present = false;
     for (u32 index = 0; result.decode.ok() && index < decoded.count; ++index) {
@@ -758,9 +846,7 @@ MessageHistoryRestResult message_history_attachment_accept_rest(
         message_history_attachment_reset(refresh);
         return result;
     }
-    result.decode = decode_message_history_page(
-        body, scratch.page_structurals, scratch.message_structurals, scratch.maximum_depth, scratch.content,
-        scratch.messages, scratch.mention_users, scratch.rich);
+    result.decode = decode_page(body, scratch);
     if (!result.decode.ok() || result.decode.page.count != 1) {
         result.error = MessageHistoryRestError::decode;
         message_history_attachment_reset(refresh);
@@ -827,9 +913,7 @@ MessageHistoryRestResult message_history_reply_accept_rest(
     refresh->state = AttachmentRefreshState::idle;
     refresh->completed_through_id = maximum(refresh->completed_through_id, refresh->message_id);
     if (!response.transport_ok() || response.status_code != 200) return result;
-    result.decode = decode_message_history_page(
-        body, scratch.page_structurals, scratch.message_structurals, scratch.maximum_depth,
-        scratch.content, scratch.messages, scratch.mention_users, scratch.rich);
+    result.decode = decode_page(body, scratch);
     if (!result.decode.ok()) { result.error = MessageHistoryRestError::decode; return result; }
     for (u32 i = 0; i < result.decode.page.count; ++i) {
         const auto& source = scratch.messages[i];
@@ -907,38 +991,16 @@ bool message_history_catchup_take_query(MessageHistoryCatchup* catchup,
 
 bool message_history_catchup_retry(MessageHistoryCatchup* catchup, MessageHistoryCatchupFailure failure,
                                    u64 retry_at_ms) noexcept {
-    if (!catchup || catchup->state != MessageHistoryCatchupState::awaiting_page ||
-        failure == MessageHistoryCatchupFailure::none || failure == MessageHistoryCatchupFailure::apply ||
-        retry_at_ms == 0) {
-        return false;
-    }
-    catchup->last_failure = failure;
-    catchup->retry_at_ms = retry_at_ms;
-    catchup->state = MessageHistoryCatchupState::waiting_retry;
-    ++catchup->failures;
-    return true;
+    return page_retry<MessageHistoryCatchupState>(catchup, failure, retry_at_ms);
 }
 
 bool message_history_catchup_tick(MessageHistoryCatchup* catchup, u64 now_ms) noexcept {
-    if (!catchup || catchup->state != MessageHistoryCatchupState::waiting_retry ||
-        now_ms < catchup->retry_at_ms) {
-        return false;
-    }
-    catchup->retry_at_ms = 0;
-    catchup->state = MessageHistoryCatchupState::request_required;
-    return true;
+    return page_tick<MessageHistoryCatchupState>(catchup, now_ms);
 }
 
 bool message_history_catchup_fail(MessageHistoryCatchup* catchup,
                                   MessageHistoryCatchupFailure failure) noexcept {
-    if (!catchup || catchup->state != MessageHistoryCatchupState::awaiting_page ||
-        failure == MessageHistoryCatchupFailure::none) {
-        return false;
-    }
-    catchup->last_failure = failure;
-    catchup->state = MessageHistoryCatchupState::failed;
-    ++catchup->failures;
-    return true;
+    return page_fail<MessageHistoryCatchupState>(catchup, failure);
 }
 
 MessageHistoryApplyResult message_history_catchup_apply_page(
@@ -949,11 +1011,7 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
         catchup->state != MessageHistoryCatchupState::awaiting_page ||
         !page_matches_summary(page, messages) ||
         (messages.count != 0 && page.channel_id != catchup->channel_id)) {
-        if (catchup && catchup->state == MessageHistoryCatchupState::awaiting_page) {
-            catchup->last_failure = MessageHistoryCatchupFailure::decode;
-            catchup->state = MessageHistoryCatchupState::failed;
-            ++catchup->failures;
-        }
+        page_fail<MessageHistoryCatchupState>(catchup, MessageHistoryCatchupFailure::decode);
         return apply_error(MessageHistoryApplyError::invalid_page);
     }
     // Browsing forward extends the loaded window without jumping to its new
@@ -964,9 +1022,7 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
     const MessageHistoryApplyResult applied = message_timeline_apply_history_page(
         pump->timeline, messages, MessageHistoryDirection::newer, empty_content_availability);
     if (!applied.ok()) {
-        catchup->last_failure = MessageHistoryCatchupFailure::apply;
-        catchup->state = MessageHistoryCatchupState::failed;
-        ++catchup->failures;
+        page_fail<MessageHistoryCatchupState>(catchup, MessageHistoryCatchupFailure::apply);
         if (applied.destructive_failure) {
             pump->resync_required = true;
         }
@@ -1037,7 +1093,7 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
     }
     const MessageRecord* first = authoritative_edge(store, false);
     if (!first) { older->state = MessageHistoryOlderState::idle; older->cursor_before = 0; return true; }
-    if (!first || first->channel_id != channel_id || first->id == 0) {
+    if (first->channel_id != channel_id || first->id == 0) {
         older->state = MessageHistoryOlderState::failed;
         older->last_failure = MessageHistoryCatchupFailure::apply;
         ++older->failures;
@@ -1063,36 +1119,15 @@ bool message_history_older_take_query(MessageHistoryOlder* older,
 
 bool message_history_older_retry(MessageHistoryOlder* older, MessageHistoryCatchupFailure failure,
                                  u64 retry_at_ms) noexcept {
-    if (!older || older->state != MessageHistoryOlderState::awaiting_page ||
-        failure == MessageHistoryCatchupFailure::none || failure == MessageHistoryCatchupFailure::apply ||
-        retry_at_ms == 0) {
-        return false;
-    }
-    older->last_failure = failure;
-    older->retry_at_ms = retry_at_ms;
-    older->state = MessageHistoryOlderState::waiting_retry;
-    ++older->failures;
-    return true;
+    return page_retry<MessageHistoryOlderState>(older, failure, retry_at_ms);
 }
 
 bool message_history_older_tick(MessageHistoryOlder* older, u64 now_ms) noexcept {
-    if (!older || older->state != MessageHistoryOlderState::waiting_retry || now_ms < older->retry_at_ms) {
-        return false;
-    }
-    older->retry_at_ms = 0;
-    older->state = MessageHistoryOlderState::request_required;
-    return true;
+    return page_tick<MessageHistoryOlderState>(older, now_ms);
 }
 
 bool message_history_older_fail(MessageHistoryOlder* older, MessageHistoryCatchupFailure failure) noexcept {
-    if (!older || older->state != MessageHistoryOlderState::awaiting_page ||
-        failure == MessageHistoryCatchupFailure::none) {
-        return false;
-    }
-    older->last_failure = failure;
-    older->state = MessageHistoryOlderState::failed;
-    ++older->failures;
-    return true;
+    return page_fail<MessageHistoryOlderState>(older, failure);
 }
 
 MessageHistoryApplyResult message_history_older_apply_page(
@@ -1103,19 +1138,13 @@ MessageHistoryApplyResult message_history_older_apply_page(
         !page_matches_summary(page, messages) || messages.count > older->request_limit ||
         (messages.count != 0 &&
          (page.channel_id != older->channel_id || page.newest_id >= older->cursor_before))) {
-        if (older && older->state == MessageHistoryOlderState::awaiting_page) {
-            older->last_failure = MessageHistoryCatchupFailure::decode;
-            older->state = MessageHistoryOlderState::failed;
-            ++older->failures;
-        }
+        page_fail<MessageHistoryOlderState>(older, MessageHistoryCatchupFailure::decode);
         return apply_error(MessageHistoryApplyError::invalid_page);
     }
     const MessageHistoryApplyResult applied = message_timeline_apply_history_page(
         timeline, messages, MessageHistoryDirection::older, empty_content_availability);
     if (!applied.ok()) {
-        older->last_failure = MessageHistoryCatchupFailure::apply;
-        older->state = MessageHistoryOlderState::failed;
-        ++older->failures;
+        page_fail<MessageHistoryOlderState>(older, MessageHistoryCatchupFailure::apply);
         return applied;
     }
     ++older->pages;
@@ -1144,72 +1173,20 @@ MessageHistoryRestResult message_history_catchup_accept_rest(
     MessageHistoryCatchup* catchup, MessageEventPump* pump, const RestClientResponse& response,
     Utf8View body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
-    MessageHistoryRestResult result{};
-    result.disposition = MessageHistoryRestDisposition::failed;
     if (!catchup || !pump || !pump->timeline ||
         catchup->state != MessageHistoryCatchupState::awaiting_page || (!body.data && body.bytes != 0) ||
         response.body_bytes != body.bytes) {
-        result.error = MessageHistoryRestError::invalid_input;
-        return result;
+        MessageHistoryRestResult invalid{};
+        invalid.disposition = MessageHistoryRestDisposition::failed;
+        invalid.error = MessageHistoryRestError::invalid_input;
+        return invalid;
     }
-    if (history_transient_failure(response)) {
-        message_history_catchup_retry(
-            catchup,
-            response.transport_ok() ? MessageHistoryCatchupFailure::http_status
-                                    : MessageHistoryCatchupFailure::transport,
-            history_retry_deadline(&catchup->transient_retries, response, now_ms));
-        result.disposition = MessageHistoryRestDisposition::retry_scheduled;
-        return result;
-    }
-    if (!response.transport_ok()) {
-        message_history_catchup_fail(catchup, MessageHistoryCatchupFailure::transport);
-        result.error = MessageHistoryRestError::transport;
-        return result;
-    }
-    if (response.status_code == 429) {
-        if (api_rejection_requires_action(response.rejection) || !response.rate_limited ||
-            response.retry_at_ms == 0 ||
-            !message_history_catchup_retry(catchup, MessageHistoryCatchupFailure::rate_limited,
-                                           response.retry_at_ms)) {
-            message_history_catchup_fail(catchup, MessageHistoryCatchupFailure::rate_limited);
-            result.error = MessageHistoryRestError::rate_limit;
-            return result;
-        }
-        result.disposition = MessageHistoryRestDisposition::retry_scheduled;
-        return result;
-    }
-    if (response.status_code != 200) {
-        message_history_catchup_fail(catchup, MessageHistoryCatchupFailure::http_status);
-        result.error = MessageHistoryRestError::http_status;
-        return result;
-    }
-    result.decode = decode_message_history_page(
-        body, scratch.page_structurals, scratch.message_structurals, scratch.maximum_depth, scratch.content,
-        scratch.messages, scratch.mention_users, scratch.rich);
-    if (!result.decode.ok()) {
-        message_history_catchup_fail(catchup, MessageHistoryCatchupFailure::decode);
-        result.error = MessageHistoryRestError::decode;
-        return result;
-    }
-    const ConstSlice<GatewayMessageEvent> decoded_messages{scratch.messages.data, result.decode.page.count};
-    if (!observe_history_users(pump->users, decoded_messages) ||
-        !observe_history_members(pump->members, pump->state, decoded_messages)) {
-        message_history_catchup_fail(catchup, MessageHistoryCatchupFailure::decode);
-        result.error = MessageHistoryRestError::decode;
-        return result;
-    }
-    result.apply = message_history_catchup_apply_page(catchup, pump, result.decode.page, decoded_messages,
-                                                      empty_content_availability);
-    if (!result.apply.ok()) {
-        result.error = MessageHistoryRestError::apply;
-        return result;
-    }
-    if (!apply_history_mention_flags(pump->timeline, pump->state, decoded_messages)) {
-        result.error = MessageHistoryRestError::apply;
-        return result;
-    }
-    result.disposition = MessageHistoryRestDisposition::applied;
-    return result;
+    return accept_page_rest<MessageHistoryCatchupState>(
+        catchup, response, scratch, now_ms, pump->users, pump->members, pump->state, pump->timeline,
+        [&](const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
+            return message_history_catchup_apply_page(catchup, pump, page, messages, empty_content_availability);
+        },
+        body);
 }
 
 MessageHistoryRestResult message_history_older_accept_rest(
@@ -1217,70 +1194,19 @@ MessageHistoryRestResult message_history_older_accept_rest(
     ChatStateStore* state, GuildMemberStore* members, const RestClientResponse& response,
     Utf8View body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
-    MessageHistoryRestResult result{};
-    result.disposition = MessageHistoryRestDisposition::failed;
     if (!older || !timeline || older->state != MessageHistoryOlderState::awaiting_page ||
         (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
-        result.error = MessageHistoryRestError::invalid_input;
-        return result;
+        MessageHistoryRestResult invalid{};
+        invalid.disposition = MessageHistoryRestDisposition::failed;
+        invalid.error = MessageHistoryRestError::invalid_input;
+        return invalid;
     }
-    if (history_transient_failure(response)) {
-        message_history_older_retry(older,
-                                    response.transport_ok() ? MessageHistoryCatchupFailure::http_status
-                                                            : MessageHistoryCatchupFailure::transport,
-                                    history_retry_deadline(&older->transient_retries, response, now_ms));
-        result.disposition = MessageHistoryRestDisposition::retry_scheduled;
-        return result;
-    }
-    if (!response.transport_ok()) {
-        message_history_older_fail(older, MessageHistoryCatchupFailure::transport);
-        result.error = MessageHistoryRestError::transport;
-        return result;
-    }
-    if (response.status_code == 429) {
-        if (api_rejection_requires_action(response.rejection) || !response.rate_limited ||
-            response.retry_at_ms == 0 ||
-            !message_history_older_retry(older, MessageHistoryCatchupFailure::rate_limited,
-                                         response.retry_at_ms)) {
-            message_history_older_fail(older, MessageHistoryCatchupFailure::rate_limited);
-            result.error = MessageHistoryRestError::rate_limit;
-            return result;
-        }
-        result.disposition = MessageHistoryRestDisposition::retry_scheduled;
-        return result;
-    }
-    if (response.status_code != 200) {
-        message_history_older_fail(older, MessageHistoryCatchupFailure::http_status);
-        result.error = MessageHistoryRestError::http_status;
-        return result;
-    }
-    result.decode = decode_message_history_page(
-        body, scratch.page_structurals, scratch.message_structurals, scratch.maximum_depth, scratch.content,
-        scratch.messages, scratch.mention_users, scratch.rich);
-    if (!result.decode.ok()) {
-        message_history_older_fail(older, MessageHistoryCatchupFailure::decode);
-        result.error = MessageHistoryRestError::decode;
-        return result;
-    }
-    const ConstSlice<GatewayMessageEvent> decoded_messages{scratch.messages.data, result.decode.page.count};
-    if (!observe_history_users(users, decoded_messages) ||
-        !observe_history_members(members, state, decoded_messages)) {
-        message_history_older_fail(older, MessageHistoryCatchupFailure::decode);
-        result.error = MessageHistoryRestError::decode;
-        return result;
-    }
-    result.apply = message_history_older_apply_page(older, timeline, result.decode.page, decoded_messages,
-                                                    empty_content_availability);
-    if (!result.apply.ok()) {
-        result.error = MessageHistoryRestError::apply;
-        return result;
-    }
-    if (!apply_history_mention_flags(timeline, state, decoded_messages)) {
-        result.error = MessageHistoryRestError::apply;
-        return result;
-    }
-    result.disposition = MessageHistoryRestDisposition::applied;
-    return result;
+    return accept_page_rest<MessageHistoryOlderState>(
+        older, response, scratch, now_ms, users, members, state, timeline,
+        [&](const MessageHistoryPage& page, ConstSlice<GatewayMessageEvent> messages) noexcept {
+            return message_history_older_apply_page(older, timeline, page, messages, empty_content_availability);
+        },
+        body);
 }
 
 } // namespace maicord

@@ -71,6 +71,10 @@ bool retryable(const MessageAttachmentDraft& record) noexcept {
            record.failure != MessageAttachmentDraftFailure::source_changed &&
            record.failure != MessageAttachmentDraftFailure::size_limit;
 }
+// The picker is still preparing files for channel_id.
+bool preparing(const ApplicationAttachments* state, u64 channel_id) noexcept {
+    return state->picker.runtime && !state->picker_consumed && state->picker_channel == channel_id;
+}
 // Sentinel id for the picker's preparing tile; draft ids never use it.
 inline constexpr u64 kPreparingTileId = ~0ull;
 ApplicationAttachments* ensure() noexcept {
@@ -186,7 +190,7 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         tile.can_retry = retryable(*record);
         tile.duration_ms = application_attachment_probe_duration(ids[i]);
     }
-    if (state->picker.runtime && !state->picker_consumed && state->picker_channel == g_app.account_ui->active_channel_id &&
+    if (preparing(state, g_app.account_ui->active_channel_id) &&
         state->tile_count < kUiComposerAttachmentMaximum) {
         auto& tile = state->tiles[state->tile_count++];
         tile = {};
@@ -198,7 +202,7 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         input.tiles = {state->tiles, state->tile_count};
         return input;
     }
-    if (!count) { state->label_bytes = 0; return input; }
+    if (!count) return input;
     u32 ready = 0, failed = 0, changed_sources = 0; double bytes = 0, total = 0;
     for (u32 i = 0; i < count; ++i) {
         const auto* record = message_attachment_drafts_get(&state->drafts, ids[i]);
@@ -222,7 +226,6 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         const u64 percent = total ? static_cast<u64>(static_cast<double>(bytes) * 100.0 / static_cast<double>(total)) : 0;
         protocol_writer_append_u64(&writer, minimum<u64>(percent, 100)); protocol_writer_append_literal(&writer, "%");
     }
-    state->label_bytes = writer.used;
     input.label = {state->label, writer.used}; input.ready = ready == count;
     input.tiles = {state->tiles, state->tile_count};
     return input;
@@ -267,7 +270,7 @@ bool application_paste_attachments() noexcept {
         return application_manage_attachments();
     }
     ClipboardAttachmentData input{};
-    if (!clipboard_attachment_capture(g_app.window, &input)) {
+    if (!clipboard_attachment_capture(&input)) {
         notice(state, utf8_literal("Could not read the clipboard attachment. Try pasting again."));
         return application_manage_attachments();
     }
@@ -315,7 +318,7 @@ bool application_manage_attachments() noexcept {
         items[used++] = {{state->menu_labels[i], writer.used}, popup_action_attachment_file_first + i, popup_item_enabled, 0};
     }
     items[used++] = {utf8_literal("Retry failed uploads"), popup_action_attachment_retry, popup_item_enabled, 0};
-    if (state->picker.runtime && !state->picker_consumed && state->picker_channel == g_app.account_ui->active_channel_id)
+    if (preparing(state, g_app.account_ui->active_channel_id))
         items[used++] = {utf8_literal("Cancel"), popup_action_attachment_cancel_selection, popup_item_enabled, 0};
     items[used++] = {utf8_literal("Dismiss"), popup_action_attachment_dismiss, popup_item_enabled, 0};
     return open_menu({items, used});
@@ -392,7 +395,7 @@ bool application_attachment_action(u32 action) noexcept {
             }
         }
     } else if (action == popup_action_attachment_cancel_selection) {
-        if (state->picker.runtime && !state->picker_consumed && state->picker_channel == g_app.account_ui->active_channel_id) {
+        if (preparing(state, g_app.account_ui->active_channel_id)) {
             state->picker_cancel_requested = true; native_file_picker_cancel(&state->picker);
         }
     } else if (action != popup_action_attachment_dismiss) return false;
@@ -599,7 +602,7 @@ bool application_attachments_defer_close() noexcept {
 bool application_attachment_prepare_send(u64 channel_id, Slice<UploadedAttachment> references, Slice<u64> ids, u32* count, Slice<u64> sizes) noexcept {
     if (!count) return false; *count = 0;
     auto* state = g_app.attachments; if (!current(state)) return true;
-    if (state->picker.runtime && !state->picker_consumed && state->picker_channel == channel_id) return false;
+    if (preparing(state, channel_id)) return false;
     const u32 found = message_attachment_drafts_channel(&state->drafts, channel_id, ids);
     if (found > references.count || found > ids.count || (sizes.count && (!sizes.data || found > sizes.count))) return false;
     for (u32 i = 0; i < found; ++i) {
@@ -617,7 +620,7 @@ void application_attachment_did_queue(ConstSlice<u64> ids, u64 nonce) noexcept {
 bool application_attachment_channel_pending(u64 channel_id) noexcept {
     const auto* state = g_app.attachments;
     return current(state) && channel_id &&
-           ((state->picker.runtime && !state->picker_consumed && state->picker_channel == channel_id) ||
+           (preparing(state, channel_id) ||
             message_attachment_drafts_channel(&state->drafts, channel_id, {}) != 0);
 }
 bool application_attachment_add_voice(u64 channel_id, UploadSource content, Utf8View waveform, u32 duration_ms,
@@ -690,7 +693,7 @@ UiRect tile_button(u32 index, UiComposerAttachmentPart part) noexcept {
     return geometry.card;
 }
 bool cancel_preparing(ApplicationAttachments* state) noexcept {
-    if (state->picker.runtime && !state->picker_consumed && state->picker_channel == g_app.account_ui->active_channel_id) {
+    if (preparing(state, g_app.account_ui->active_channel_id)) {
         state->picker_cancel_requested = true; native_file_picker_cancel(&state->picker);
     }
     return refresh_message_composer_ui();

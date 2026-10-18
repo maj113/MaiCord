@@ -1,7 +1,8 @@
 #include "maicord/app/voice_udp_media.hpp"
 #include "maicord/core/byte_range.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -17,8 +18,8 @@ void finish(VoiceUdpMedia* media) noexcept {
         return;
     // A canceled read can contain bytes without a successful completion. Clear
     // the entire borrowed buffers once on retirement, never while kernel-owned.
-    SecureZeroMemory(media->receive_buffer.data, media->receive_buffer.count);
-    SecureZeroMemory(media->send_buffer.data, media->send_buffer.count);
+    secure_clear_bytes(media->receive_buffer.data, media->receive_buffer.count);
+    secure_clear_bytes(media->send_buffer.data, media->send_buffer.count);
     media->receive_buffer = media->send_buffer = {};
     media->discovery = nullptr;
     media->crypto = nullptr;
@@ -146,7 +147,7 @@ void voice_udp_media_completion(VoiceUdpMedia* media, const NetworkCompletion& c
             fail(media, VoiceUdpMediaError::send, static_cast<u32>(completion.native_error));
             return;
         }
-        SecureZeroMemory(media->send_buffer.data, media->send_bytes);
+        secure_clear_bytes(media->send_buffer.data, media->send_bytes);
         media->send_bytes = 0;
         ++media->sent_packets;
         return;
@@ -160,7 +161,7 @@ void voice_udp_media_completion(VoiceUdpMedia* media, const NetworkCompletion& c
     if (!completion.succeeded) {
         if (completion.native_error == ERROR_MORE_DATA || completion.native_error == WSAEMSGSIZE) {
             ++media->rejected_packets;
-            SecureZeroMemory(buffer.data, buffer.count);
+            secure_clear_bytes(buffer.data, buffer.count);
             read(media, slot);
         } else
             fail(media, VoiceUdpMediaError::receive, static_cast<u32>(completion.native_error));
@@ -184,7 +185,7 @@ void voice_udp_media_completion(VoiceUdpMedia* media, const NetworkCompletion& c
     }
     // Borrowed plaintext never persists between packets, even if the consumer
     // stopped the owner inside the callback. Retirement defers until it returns.
-    SecureZeroMemory(buffer.data, completion.transferred);
+    secure_clear_bytes(buffer.data, completion.transferred);
     // A datagram that does not open (malformed, unauthenticated, or one the
     // AEAD refuses, such as an empty body) is one lost packet. Only a local
     // key/generation fault ends the transport.

@@ -96,15 +96,7 @@ struct MessageSendTracker {
     u32 completion_write;
     u32 completion_count;
     u32 active_count;
-    u32 peak_active;
-    u32 begun;
-    u32 completed;
-    u32 expired;
-    u32 retries;
     u32 unmatched_gateway;
-    u32 rejected;
-    u64 total_api_elapsed_ms;
-    u64 total_gateway_elapsed_ms;
     bool initialized;
 };
 

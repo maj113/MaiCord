@@ -8,6 +8,9 @@
 
 #include "maicord/app/login_mfa_policy.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 
@@ -76,7 +79,7 @@ bool text_store_point(void*, POINT point, bool round, u32* position, bool* insid
         text_edit_layout_point_geometry(layout, point.x*scale, point.y*scale, round, &relative, inside) &&
         utf8_utf16_position_for_codepoint(
             {reinterpret_cast<const char*>(edit->storage.data), edit->storage.bytes}, window.first_codepoint, &first);
-    SecureZeroMemory(visible, sizeof(visible));
+    secure_clear_bytes(visible, sizeof(visible));
     if (valid) *position = first + relative;
     return valid;
 }
@@ -103,31 +106,33 @@ bool text_store_range(void*, u32 first, u32 last, RECT* output, bool* clipped) n
 
 void text_store_changed(void*) noexcept {
     Application& application = g_app;
-    const bool phone = login_phone_editable(application.login.status) &&
-        application_active_login_edit() == &application.login.mfa;
-    if (phone && (application.login.status == LoginStatus::recovery_phone_input_invalid ||
-        application.login.status == LoginStatus::recovery_phone_code_rejected)) application.login.status = LoginStatus::recovery_phone_required;
-    if (application.login.status == RendererLoginStatus::mfa_input_invalid &&
-        application_active_login_edit() == &application.login.mfa) {
-        application.login.status = RendererLoginStatus::mfa_required;
-    }
+    const bool code_edit = application_active_login_edit() == &application.login.mfa;
+    const bool phone = code_edit && login_phone_editable(application.login.status);
+    if (code_edit)
+        application_login_code_edited(&application.login.status);
     if (!application_refresh_login_view()) {
         log_write(LogLevel::error, "ui", "login_text_refresh_failed");
         if (application.window) {
             application_request_frame();
         }
     }
-    if (phone && application_phone_tsf_mutation_stamp() == static_cast<u64>(application.login.mfa.revision) + 1 &&
-        login_phone_code_valid({reinterpret_cast<const char*>(application.login.mfa.storage.data), application.login.mfa.storage.bytes})) {
-        SecureTextComposition composition{};
-        if (secure_text_store_composition(application.login.text_store, &composition) && !composition.active &&
-            PostMessageW(application.window, kApplicationPhoneVerifyMessage,
-                static_cast<WPARAM>(application.login.application_auth_epoch), static_cast<LPARAM>(application.login.mfa.revision)))
-            application_phone_tsf_mutation_stamp() = 0;
-    }
+    if (phone)
+        application_login_post_phone_verify();
 }
 
 } // namespace
+
+void application_login_post_phone_verify() noexcept {
+    LoginRuntime& login = g_app.login;
+    if (application_phone_tsf_mutation_stamp() != static_cast<u64>(login.mfa.revision) + 1 ||
+        !login_phone_code_valid({reinterpret_cast<const char*>(login.mfa.storage.data), login.mfa.storage.bytes}))
+        return;
+    SecureTextComposition composition{};
+    if (secure_text_store_composition(login.text_store, &composition) && !composition.active &&
+        PostMessageW(g_app.window, kApplicationPhoneVerifyMessage, static_cast<WPARAM>(login.application_auth_epoch),
+                     static_cast<LPARAM>(login.mfa.revision)))
+        application_phone_tsf_mutation_stamp() = 0;
+}
 
 bool application_synchronize_login_view() noexcept {
     Application& application = g_app;
@@ -187,16 +192,10 @@ bool application_synchronize_login_view() noexcept {
                                   Slice<char>{secret_display, static_cast<u32>(sizeof(secret_display))},
                                   &secret_display_bytes, &secret_window);
     if (rendered_login != SecureEditResult::unchanged || rendered_secret != SecureEditResult::unchanged) {
-        SecureZeroMemory(login_display, sizeof(login_display));
-        SecureZeroMemory(secret_display, sizeof(secret_display));
+        secure_clear_bytes(login_display, sizeof(login_display));
+        secure_clear_bytes(secret_display, sizeof(secret_display));
         return false;
     }
-    const bool mfa_visible = application.login.status == RendererLoginStatus::mfa_required ||
-                             application.login.status == RendererLoginStatus::mfa_backup_acknowledgement ||
-                             application.login.status == RendererLoginStatus::mfa_code_rejected ||
-                             application.login.status == RendererLoginStatus::mfa_input_invalid ||
-                             application.login.status == RendererLoginStatus::webauthn_required ||
-                             application.login.status == RendererLoginStatus::webauthn_failed;
     const u8 selected_mfa_capability = login_mfa_capability(application.login.mfa_type);
     SecureEdit* focused_edit = application_active_login_edit();
     const bool edit_active = focused_edit != nullptr;
@@ -214,8 +213,8 @@ bool application_synchronize_login_view() noexcept {
                            edit_active,
                            application.login.focus,
                            application.login.status,
-                           mfa_visible ? application.login.mfa_capabilities : static_cast<u8>(0),
-                           mfa_visible ? selected_mfa_capability : static_cast<u8>(0),
+                           mfa_presented ? application.login.mfa_capabilities : static_cast<u8>(0),
+                           mfa_presented ? selected_mfa_capability : static_cast<u8>(0),
                            application.login.backup_acknowledgement_seconds,
                            mfa_code_ready,
                            application.login.qr_ready ? &application.login.qr_code : nullptr,
@@ -324,8 +323,8 @@ bool application_synchronize_login_view() noexcept {
         synchronized = renderer_set_login_view(&application.renderer, view.visible ? &scene : nullptr, view,
                                                application_theme());
     }
-    SecureZeroMemory(login_display, sizeof(login_display));
-    SecureZeroMemory(secret_display, sizeof(secret_display));
+    secure_clear_bytes(login_display, sizeof(login_display));
+    secure_clear_bytes(secret_display, sizeof(secret_display));
     if (application.login.pointer_selection != LoginControl::none &&
         (!application.login.visible || !scene.widgets.captured.generation)) {
         application_login_end_pointer_selection();

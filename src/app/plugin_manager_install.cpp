@@ -1,3 +1,4 @@
+#include "plugin_manager_common.hpp"
 #include "maicord/app/plugin_manager_install.hpp"
 #include "maicord/app/update_log.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -8,31 +9,15 @@
 
 namespace maicord {
 namespace {
+using namespace plugin_manager_detail;
 using ME = PluginManagerError;
 using Op = PluginJournalOperation;
 using Phase = PluginJournalPhase;
 using Action = PluginRecoveryAction;
 using Path = wchar_t[kPluginManagerPathCapacity];
-constexpr wchar_t kManifestSuffix[] = L".maicord-plugin.json";
 constexpr wchar_t kPreviousSuffix[] = L".previous.json"; // staged next rollback snapshot
 constexpr wchar_t kDownloadSuffix[] = L".download";
-constexpr u32 kInstallerTimeoutMs = 30000;
 
-PluginManagerResult failure(ME error) noexcept {
-    PluginManagerResult r{};
-    r.error = error;
-    return r;
-}
-PluginManagerResult record_failure(AcceptanceRecordResult result) noexcept {
-    PluginManagerResult r = failure(ME::records);
-    r.record_error = result.error;
-    r.native_error = result.native_error;
-    return r;
-}
-bool zero(const u8* data, u32 bytes) noexcept {
-    for (u32 i = 0; i < bytes; ++i) if (data[i]) return false;
-    return true;
-}
 bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
 // "<owner16>-<sha64>.dll", the installer's managed DLL name.
 void managed_leaf(u64 owner, const u8* sha256, wchar_t (&leaf)[86]) noexcept {
@@ -139,38 +124,11 @@ AcceptanceRecordResult load_journal(const PluginManagerPaths& paths, PluginJourn
 AcceptanceRecordResult save_journal(const PluginManagerPaths& paths, const PluginJournal& journal) noexcept {
     return plugin_journal_save({paths.journal, paths.journal_count}, journal);
 }
-AcceptanceRecordResult load_state(const PluginManagerPaths& paths, PluginManagerState* state) noexcept {
-    *state = {};
-    const auto loaded = plugin_manager_state_load({paths.state, paths.state_count}, state);
-    return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
-}
-PluginManagerEntry* state_entry(PluginManagerState& state, u64 owner) noexcept {
-    for (u32 i = 0; i < state.count && i < kPluginManagerStateMaximumEntries; ++i)
-        if (state.entries[i].owner == owner) return &state.entries[i];
-    return nullptr;
-}
-NativePluginPreferencesResult load_trust(const PluginManagerPaths& paths, NativePluginPreferences* trust) noexcept {
-    NativePluginPreferencesIo io{};
-    const auto loaded = native_plugin_preferences_load_file(&io, paths.trust, trust);
-    const auto released = native_plugin_preferences_release(&io);
-    return loaded.ok() ? released : loaded;
-}
-NativePluginPreferencesResult save_trust(const PluginManagerPaths& paths, const NativePluginPreferences& trust) noexcept {
-    NativePluginPreferencesIo io{};
-    const auto saved = native_plugin_preferences_save_file(&io, paths.trust, trust);
-    const auto released = native_plugin_preferences_release(&io);
-    return saved.ok() ? released : saved;
-}
 PluginManagerResult trust_failure(NativePluginPreferencesResult result) noexcept {
     PluginManagerResult r = failure(ME::trust);
     r.trust_error = result.error;
     r.native_error = result.win32_error;
     return r;
-}
-const NativePluginPreference* trusted_owner(const NativePluginPreferences& trust, u64 owner) noexcept {
-    for (u32 i = 0; i < trust.count && i < kNativePluginPreferencesMaximumEntries; ++i)
-        if (trust.entries[i].owner_id == owner) return &trust.entries[i];
-    return nullptr;
 }
 
 // The owner's manifest in plugins\: absent when the directory or the manifest
@@ -227,14 +185,15 @@ ME stage_manifest(const PluginManagerPaths& paths, const NativePluginManifest& m
     return write_file(path, work->record, bytes, native) ? ME::none : ME::storage;
 }
 bool prepared_manifest_path(const PluginManagerPaths& paths, u64 owner, PluginManagerPrepared* prepared) noexcept {
-    prepared->manifest_count = plugin_manager_id_path(paths.staging, paths.staging_count, owner, kManifestSuffix, prepared->manifest);
+    prepared->manifest_count = plugin_manager_id_path(paths.staging, paths.staging_count, owner,
+        kNativePluginManifestSuffix, prepared->manifest);
     return prepared->manifest_count != 0;
 }
 
 // ---- settling --------------------------------------------------------------------------
 NativePluginBundleRecoveryResult trim(const PluginManagerPaths& paths, u64 owner, const u8* keep) noexcept {
     NativePluginBundleKeep kept{};
-    if (keep && !zero(keep, 32)) { copy_bytes(kept.sha256[0], keep, 32); kept.count = 1; }
+    if (keep && !bytes_zero(keep, 32)) { copy_bytes(kept.sha256[0], keep, 32); kept.count = 1; }
     if (!exists(paths.plugins)) return {};
     return native_plugin_bundle_recover(owner, {paths.plugins, paths.plugins_count}, kept);
 }
@@ -279,7 +238,8 @@ PluginManagerResult settle_commit(const PluginManagerPaths& paths, const PluginJ
     // The rollback snapshot follows the retained previous version.
     Path staged{}, snapshot{};
     if (!plugin_manager_id_path(paths.staging, paths.staging_count, journal.owner, kPreviousSuffix, staged) ||
-        !plugin_manager_id_path(paths.rollback, paths.rollback_count, journal.owner, kManifestSuffix, snapshot)) return failure(ME::storage);
+        !plugin_manager_id_path(paths.rollback, paths.rollback_count, journal.owner, kNativePluginManifestSuffix,
+            snapshot)) return failure(ME::storage);
     if (journal.operation == Op::install) DeleteFileW(snapshot);
     else if (exists(staged) && !MoveFileExW(staged, snapshot, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         r = failure(ME::storage); r.native_error = GetLastError(); return r;
@@ -310,7 +270,7 @@ PluginManagerResult settle_commit(const PluginManagerPaths& paths, const PluginJ
             next.max_host_abi = facts->max_host_abi;
             next.admitted_sequence = facts->admitted_sequence;
         }
-        const bool replaced_known = old && bytes_equal(old->installed_sha256, journal.from_sha256, 32) && !zero(journal.from_sha256, 32);
+        const bool replaced_known = old && bytes_equal(old->installed_sha256, journal.from_sha256, 32) && !bytes_zero(journal.from_sha256, 32);
         if (journal.operation != Op::install && replaced_known) {
             next.previous_code = old->installed_code;
             copy_bytes(next.previous_sha256, journal.from_sha256, 32);
@@ -368,7 +328,9 @@ PluginManagerResult settle_uninstall(const PluginManagerPaths& paths, const Plug
     out->removed_dlls = trimmed.removed_dlls;
     out->removed_manifests = trimmed.removed_manifests;
     Path snapshot{};
-    if (plugin_manager_id_path(paths.rollback, paths.rollback_count, journal.owner, kManifestSuffix, snapshot)) DeleteFileW(snapshot);
+    if (plugin_manager_id_path(paths.rollback, paths.rollback_count, journal.owner, kNativePluginManifestSuffix,
+            snapshot))
+        DeleteFileW(snapshot);
     const auto state_loaded = load_state(paths, &work->state);
     if (!state_loaded.ok()) return record_failure(state_loaded);
     if (PluginManagerEntry* entry = state_entry(work->state, journal.owner)) {
@@ -414,7 +376,6 @@ PluginManagerResult settle(const PluginManagerPaths& paths, const PluginJournal&
                                                                           : NativePluginBundleInstallResult{};
         if (!ran.committed) {
             r = failure(ME::installer);
-            r.install_error = started != NativePluginBundleInstallError::none ? started : ran.error;
             log_operation("recover_failed", journal, static_cast<u32>(r.error));
             return r;
         }
@@ -453,7 +414,7 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
     const auto cached = plugin_index_load_cache(paths, source, workspace, index_work, now);
     if (!cached.installable) {
         auto r = failure(ME::cache);
-        r.cache_error = cached.error; r.index_error = cached.index_error; r.record_error = cached.record_error;
+        r.index_error = cached.index_error; r.record_error = cached.record_error;
         return r;
     }
     const PluginIndex& index = index_work->index;
@@ -467,9 +428,8 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
     if (version == kPluginIndexNoVersion) return failure(ME::not_listed);
     const PluginIndexVersion& listed = index.versions[index.plugins[plugin].first_version + version];
     const PluginHost host = plugin_index_current_host();
+    if (plugin_index_compatibility(listed, host) != PluginCompatibility::compatible) return failure(ME::incompatible);
     auto r = failure(ME::none);
-    r.compatibility = plugin_index_compatibility(listed, host);
-    if (r.compatibility != PluginCompatibility::compatible) { r.error = ME::incompatible; return r; }
     const PluginIndexFile& file = *plugin_index_file(listed, host.arch);
     const auto revocation = plugin_index_revocation(&index, official, request.owner, file.sha256);
     if (revocation.revoked || revocation.blocked) return failure(ME::revoked);
@@ -543,7 +503,7 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
     CloseHandle(sink.file);
     if (!fetched.ok() || !flushed) {
         r = failure(fetched.ok() ? ME::storage : ME::fetch);
-        r.fetch_error = fetched.error; r.status = fetched.status; r.native_error = fetched.native_error; r.retry_at_unix = fetched.retry_at_unix;
+        r.fetch_error = fetched.error; r.native_error = fetched.native_error;
         return abandon(paths, r, journal);
     }
     UpdateLog("plugins", "downloaded").hex("owner", request.owner).field("bytes", fetched.bytes).field("redirects", fetched.redirects).write();
@@ -556,7 +516,7 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
         r = failure(ME::storage); r.native_error = GetLastError(); return abandon(paths, r, journal);
     }
     u32 native = 0;
-    ME staged_error = stage_manifest(paths, manifest, kManifestSuffix, work, &native);
+    ME staged_error = stage_manifest(paths, manifest, kNativePluginManifestSuffix, work, &native);
     // The replaced manifest becomes the rollback snapshot at commit.
     if (staged_error == ME::none && !install) staged_error = stage_manifest(paths, current, kPreviousSuffix, work, &native);
     if (staged_error != ME::none) { r = failure(staged_error); r.native_error = native; return abandon(paths, r, journal); }
@@ -588,7 +548,8 @@ PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const Plug
     managed_leaf(request.owner, entry.previous_sha256, leaf);
     u32 bytes = 0;
     NativePluginManifest previous{};
-    if (!plugin_manager_id_path(paths.rollback, paths.rollback_count, request.owner, kManifestSuffix, snapshot) ||
+    if (!plugin_manager_id_path(paths.rollback, paths.rollback_count, request.owner, kNativePluginManifestSuffix,
+            snapshot) ||
         !read_file(snapshot, work->record, sizeof(work->record), &bytes) ||
         !native_plugin_manifest_parse({work->record, bytes}, &previous).ok() || previous.owner_id != request.owner ||
         !bytes_equal(previous.sha256, entry.previous_sha256, 32) || previous.dll_bytes != 85) return failure(ME::rollback);
@@ -627,7 +588,7 @@ PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const Plug
     const ME verified = verify_staged(paths, leaf, entry.previous_sha256, 0, true);
     if (verified != ME::none) return abandon(paths, failure(verified), journal);
     u32 native = 0;
-    ME staged_error = stage_manifest(paths, previous, kManifestSuffix, work, &native);
+    ME staged_error = stage_manifest(paths, previous, kNativePluginManifestSuffix, work, &native);
     if (staged_error == ME::none) staged_error = stage_manifest(paths, current, kPreviousSuffix, work, &native);
     if (staged_error != ME::none) { r = failure(staged_error); r.native_error = native; return abandon(paths, r, journal); }
     journal.phase = Phase::staged;

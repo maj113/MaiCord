@@ -5,6 +5,7 @@
 #include "maicord/ui/poll_controls.hpp"
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Capture beside the native card action. An action never resolves a retired
@@ -20,14 +21,11 @@ struct ApplicationPollSource {
     u32 source_publication, source_index;
     UiPollSourceSurface surface;
 };
+// Loaded voter page of the open inspector.
 struct ApplicationPollView {
-    ApplicationPollSource source;
-    UiPollState poll;
-    Utf8View status;
     ConstSlice<ReactionUser> voters;
-    u64 publication;
-    u32 revision, voter_answer_id, voter_page;
-    bool active, voters_active, voters_loading, voters_error, voters_more;
+    u32 voter_page;
+    bool voters_more;
 };
 // The scene owns its answer projection; this read-only query never allocates a
 // selected owner merely to display a received card.

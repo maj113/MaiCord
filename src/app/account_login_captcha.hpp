@@ -2,6 +2,7 @@
 
 #include "account_login_handoff.hpp"
 #include "maicord/app/captcha_bridge.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // CAPTCHA continuation for the TU-local login owner: secret copy, replay and
 // the loopback browser bridge. Shared by the account DLL and native tests.
@@ -37,11 +38,8 @@ SecureBufferResult WINAPI module_login_copy_captcha_secret(void* instance, Captc
 // ticket request with the solution; the solution is copied synchronously.
 AccountLoginStatus WINAPI module_login_submit_captcha(void* instance, const SecureBuffer* solution) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !solution || login_status(runtime).phase != AccountLoginPhase::captcha_required) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime || !solution || login_status(runtime).phase != AccountLoginPhase::captcha_required)
+        return login_invalid_input();
     if (runtime->remote_mode) {
         runtime->remote_status = remote_auth_client_submit_captcha(&runtime->remote_auth, solution);
         if (!runtime->remote_status.ok())
@@ -63,9 +61,7 @@ AccountLoginStatus WINAPI module_login_start_captcha_bridge(void* instance, u64 
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !generation || runtime->captcha_bridge.runtime || runtime->browser_mode ||
         runtime->error == AccountLoginError::stop || timeout_ms < 1000 || timeout_ms > kCaptchaBridgeDefaultTimeoutMs) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
+        return login_invalid_input();
     }
     const AccountLoginStatus current = login_status(runtime);
     if (current.phase != AccountLoginPhase::captcha_required) {
@@ -73,43 +69,16 @@ AccountLoginStatus WINAPI module_login_start_captcha_bridge(void* instance, u64 
         status.error = AccountLoginError::invalid_input;
         return status;
     }
-    SecureBuffer sitekey{}, rqdata{}, user_flow{};
-    const bool copied =
-        secure_buffer_initialize(&sitekey, kCaptchaChallengeSitekeyBytes + kCaptchaChallengeUserFlowBytes)
-            .ok() &&
-        secure_buffer_initialize(&rqdata, kCaptchaChallengeRqdataBytes).ok() &&
-        module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::sitekey, &sitekey).ok();
-    // user_flow borrows the locked tail; only sitekey owns/releases the arena.
-    if (sitekey.data)
-        user_flow = {sitekey.data + kCaptchaChallengeSitekeyBytes, kCaptchaChallengeUserFlowBytes, 0,
-                     sitekey.locked};
-    // Optional values stay empty when absent, including an omitted action.
-    if (copied &&
-        !module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::rqdata, &rqdata).ok())
-        secure_buffer_clear(&rqdata);
-    if (copied &&
-        !module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::user_flow, &user_flow).ok())
-        secure_buffer_clear(&user_flow);
-    runtime->captcha_status =
-        copied ? captcha_bridge_start(&runtime->captcha_bridge, generation, timeout_ms,
-                                      {{reinterpret_cast<const char*>(sitekey.data), sitekey.bytes},
-                                       {reinterpret_cast<const char*>(rqdata.data), rqdata.bytes},
-                                       current.captcha_provider,
-                                       current.captcha_invisible,
-                                       {reinterpret_cast<const char*>(user_flow.data), user_flow.bytes}})
-               : CaptchaBridgeStatus{generation,
-                                     0,
-                                     ERROR_INVALID_DATA,
-                                     0,
-                                     CaptchaBridgePhase::failed,
-                                     CaptchaBridgeError::invalid_input,
-                                     false};
+    runtime->captcha_status = captcha_bridge_start_copied(
+        &runtime->captcha_bridge, generation, timeout_ms, current.captcha_provider, current.captcha_invisible,
+        [runtime](CaptchaChallengeSecretKind kind, SecureBuffer* output) noexcept {
+            return module_login_copy_captcha_secret(runtime, kind, output);
+        },
+        ERROR_INVALID_DATA);
     if (!runtime->captcha_status.ok()) {
         runtime->captcha_status.generation = generation;
         runtime->captcha_status.phase = CaptchaBridgePhase::failed;
     }
-    secure_buffer_release(&sitekey);
-    secure_buffer_release(&rqdata);
     return login_status(runtime);
 }
 
@@ -131,11 +100,8 @@ SecureBufferResult WINAPI module_login_copy_captcha_bridge_url(void* instance, u
 // Stops only the bridge; the CAPTCHA challenge stays available for a retry.
 AccountLoginStatus WINAPI module_login_cancel_captcha_bridge(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime)
+        return login_invalid_input();
     if (runtime->captcha_bridge.runtime) runtime->captcha_status = captcha_bridge_stop(&runtime->captcha_bridge, 5'000);
     AccountLoginStatus status = login_status(runtime);
     if (runtime->captcha_bridge.runtime) status.error = AccountLoginError::stop;

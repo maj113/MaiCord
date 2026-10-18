@@ -127,7 +127,6 @@ struct AccessibilityRuntime {
     u64 listen_sampled_ms;
     u32 pending_text_bytes;
     u32 pending_count;
-    u32 builds;
     bool initialized;
     bool dirty;
     bool posted;
@@ -142,10 +141,6 @@ AccessibilityRuntime g_access;
 using NameBuilder = UiAccessNameBuilder;
 
 NameBuilder g_name;
-
-bool handle_equal(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.slot == b.slot && a.generation == b.generation;
-}
 
 float access_scale(void*) noexcept {
     return static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u) / 96.0f;
@@ -180,19 +175,17 @@ UiAccessScrollState scroll_state(float offset, float content, float viewport) no
     return {minimum(100.0f, maximum(0.0f, offset * 100.0f / range)), viewport * 100.0f / content};
 }
 
-// ---- describers ----------------------------------------------------------
-
 void describe_guild(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                     UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.guild_rail_scene;
-    if (handle_equal(handle, scene.root)) {
+    if (ui_widget_handle_equal(handle, scene.root)) {
         info->role = UiAccessRole::list;
         info->name = utf8_literal("Servers");
         info->actions = ui_access_action_scroll;
         info->scroll = scroll_state(scene.scroll_dips, scene.content_height, ui_rect_height(scene.viewport));
         return;
     }
-    if (handle_equal(handle, scene.add_button)) {
+    if (ui_widget_handle_equal(handle, scene.add_button)) {
         info->leaf = true;
         info->role = UiAccessRole::button;
         info->name = utf8_literal("Add a server");
@@ -248,7 +241,7 @@ Utf8View channel_kind(u8 type) noexcept {
 void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                       UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.shell_navigation_scene;
-    if (handle_equal(handle, scene.root)) {
+    if (ui_widget_handle_equal(handle, scene.root)) {
         info->role = UiAccessRole::list;
         info->name = utf8_literal("Channels");
         info->actions = ui_access_action_scroll;
@@ -296,7 +289,7 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
 void describe_message(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                       UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.message_scene;
-    if (handle_equal(handle, scene.root)) {
+    if (ui_widget_handle_equal(handle, scene.root)) {
         info->role = UiAccessRole::list;
         g_name.bytes = 0;
         const auto* state = chat_state();
@@ -317,7 +310,7 @@ void describe_message(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
         return;
     }
     const auto* row = message_scene_resolve(scene, handle);
-    if (!row || !handle_equal(row->widget, handle))
+    if (!row || !ui_widget_handle_equal(row->widget, handle))
         return;
     info->key = row->message_id;
     info->item = row->message_id;
@@ -331,7 +324,7 @@ void describe_message(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
 void describe_member(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                      UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.member_list_scene;
-    if (handle_equal(handle, scene.root)) {
+    if (ui_widget_handle_equal(handle, scene.root)) {
         info->role = UiAccessRole::list;
         info->name = utf8_literal("Members");
         info->actions = ui_access_action_scroll;
@@ -339,7 +332,7 @@ void describe_member(void*, const UiWidgetManager&, UiWidgetHandle handle, const
         return;
     }
     const auto* row = member_list_scene_resolve(scene, handle);
-    if (!row || !handle_equal(row->widget, handle))
+    if (!row || !ui_widget_handle_equal(row->widget, handle))
         return;
     info->leaf = true;
     if (row->kind == MemberListRowKind::group) {
@@ -360,12 +353,12 @@ void describe_member(void*, const UiWidgetManager&, UiWidgetHandle handle, const
 void describe_composer(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                        UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.message_composer_scene;
-    if (handle_equal(handle, scene.root)) {
+    if (ui_widget_handle_equal(handle, scene.root)) {
         info->role = UiAccessRole::group;
         info->name = utf8_literal("Message composer");
         return;
     }
-    if (handle_equal(handle, scene.edit)) {
+    if (ui_widget_handle_equal(handle, scene.edit)) {
         info->role = UiAccessRole::edit;
         info->state |= ui_access_multiline | ui_access_focusable;
         if (g_app.message_composer.focused)
@@ -387,11 +380,11 @@ void describe_composer(void*, const UiWidgetManager&, UiWidgetHandle handle, con
         info->value = message_composer_text(g_app.message_composer);
         return;
     }
-    if (handle_equal(handle, scene.typing_indicator)) {
+    if (ui_widget_handle_equal(handle, scene.typing_indicator)) {
         info->role = UiAccessRole::status;
         info->leaf = true;
     }
-    if (handle_equal(handle, scene.reply_mention)) {
+    if (ui_widget_handle_equal(handle, scene.reply_mention)) {
         // A role="switch", as in the official client: its @ icon is labelled "Mention"; checked pings.
         info->role = UiAccessRole::toggle_button;
         info->name = utf8_literal("Mention");
@@ -414,18 +407,18 @@ Utf8View popup_name(PopupKind kind) noexcept {
 void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                     UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.popup_scene;
-    if (handle_equal(handle, scene.root)) {
+    if (ui_widget_handle_equal(handle, scene.root)) {
         info->transparent = true;
         return;
     }
-    if (handle_equal(handle, scene.panel)) {
+    if (ui_widget_handle_equal(handle, scene.panel)) {
         info->role = scene.kind == PopupKind::context_menu ? UiAccessRole::menu : UiAccessRole::list;
         info->name = popup_name(scene.kind);
         return;
     }
     for (u32 index = 0; index < scene.rows.count; ++index) {
         const auto& row = scene.rows[index];
-        if (!handle_equal(row.widget, handle) || row.source_index >= scene.item_count)
+        if (!ui_widget_handle_equal(row.widget, handle) || row.source_index >= scene.item_count)
             continue;
         const auto& item = scene.items[row.source_index];
         info->leaf = true;
@@ -459,23 +452,21 @@ void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
     }
 }
 
-void describe_shell(void* context, const UiWidgetManager& manager, UiWidgetHandle handle, const UiWidget& widget,
-                    const UiLayoutNode& layout, UiAccessWidgetInfo* info) noexcept;
+// Adds a scene whose keyboard focus is the application's.
+void add_scene(UiAccessTree* tree, u32 parent, const UiWidgetManager& widgets, UiAccessDescribe describe,
+               u8 surface) noexcept {
+    ui_access_add_widgets(tree, parent, widgets,
+                          {describe, nullptr, surface, g_app.context_focus == &widgets});
+}
 
 void mount_guilds(void*, UiAccessTree* tree, u32 node) noexcept {
-    if (!g_app.guild_rail_scene.active)
-        return;
-    ui_access_add_widgets(tree, node, g_app.guild_rail_scene.widgets,
-                          {describe_guild, nullptr, surface_guilds,
-                           g_app.context_focus == &g_app.guild_rail_scene.widgets});
+    if (g_app.guild_rail_scene.active)
+        add_scene(tree, node, g_app.guild_rail_scene.widgets, describe_guild, surface_guilds);
 }
 
 void mount_channels(void*, UiAccessTree* tree, u32 node) noexcept {
-    if (!g_app.shell_navigation_scene.active)
-        return;
-    ui_access_add_widgets(tree, node, g_app.shell_navigation_scene.widgets,
-                          {describe_channel, nullptr, surface_channels,
-                           g_app.context_focus == &g_app.shell_navigation_scene.widgets});
+    if (g_app.shell_navigation_scene.active)
+        add_scene(tree, node, g_app.shell_navigation_scene.widgets, describe_channel, surface_channels);
 }
 
 void describe_friends(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
@@ -488,32 +479,20 @@ void describe_friends(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
 
 void mount_messages(void*, UiAccessTree* tree, u32 node) noexcept {
     const auto* friends = g_app.renderer.friends_scene;
-    if (application_friends_active() && friends && friends->active) {
-        ui_access_add_widgets(tree, node, friends->widgets,
-                              {describe_friends, nullptr, surface_friends, g_app.context_focus == &friends->widgets});
-        return;
-    }
-    if (!g_app.message_scene.active)
-        return;
-    ui_access_add_widgets(tree, node, g_app.message_scene.widgets,
-                          {describe_message, nullptr, surface_messages,
-                           g_app.context_focus == &g_app.message_scene.widgets});
+    if (application_friends_active() && friends && friends->active)
+        add_scene(tree, node, friends->widgets, describe_friends, surface_friends);
+    else if (g_app.message_scene.active)
+        add_scene(tree, node, g_app.message_scene.widgets, describe_message, surface_messages);
 }
 
 void mount_composer(void*, UiAccessTree* tree, u32 node) noexcept {
-    if (!g_app.message_composer_scene.active || application_friends_active())
-        return;
-    ui_access_add_widgets(tree, node, g_app.message_composer_scene.widgets,
-                          {describe_composer, nullptr, surface_composer,
-                           g_app.context_focus == &g_app.message_composer_scene.widgets});
+    if (g_app.message_composer_scene.active && !application_friends_active())
+        add_scene(tree, node, g_app.message_composer_scene.widgets, describe_composer, surface_composer);
 }
 
 void mount_members(void*, UiAccessTree* tree, u32 node) noexcept {
-    if (!g_app.member_list_scene.active || application_friends_active())
-        return;
-    ui_access_add_widgets(tree, node, g_app.member_list_scene.widgets,
-                          {describe_member, nullptr, surface_members,
-                           g_app.context_focus == &g_app.member_list_scene.widgets});
+    if (g_app.member_list_scene.active && !application_friends_active())
+        add_scene(tree, node, g_app.member_list_scene.widgets, describe_member, surface_members);
 }
 
 void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidget& widget, const UiLayoutNode&,
@@ -680,7 +659,7 @@ void mount_settings_radio(void*, UiAccessTree* tree, u32 node) noexcept {
     }
 }
 
-void describe_settings(void*, const UiWidgetManager& manager, UiWidgetHandle handle, const UiWidget& widget,
+void describe_settings(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget& widget,
                        const UiLayoutNode& layout, UiAccessWidgetInfo* info) noexcept {
     const auto* scene = g_app.renderer.settings_scene;
     if (!scene)
@@ -699,7 +678,6 @@ void describe_settings(void*, const UiWidgetManager& manager, UiWidgetHandle han
     const UiSettingsTarget focused = ui_settings_scene_focused(*scene);
     const bool is_focused = ui_settings_target_equal(target, focused) && target.kind != UiSettingsTargetKind::none;
     const bool button_like = widget.kind == UiWidgetKind::button || widget.kind == UiWidgetKind::text_field;
-    (void)manager;
     switch (target.kind) {
     case UiSettingsTargetKind::control: {
         UiSettingsControlGeometry geometry{};
@@ -853,7 +831,7 @@ void describe_login(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
     const auto& scene = g_app.login_scene;
     u32 element = static_cast<u32>(LoginElement::count);
     for (u32 index = 0; index < static_cast<u32>(LoginElement::count); ++index)
-        if (handle_equal(scene.elements[index], handle)) {
+        if (ui_widget_handle_equal(scene.elements[index], handle)) {
             element = index;
             break;
         }
@@ -928,8 +906,6 @@ void describe_login(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         break;
     }
 }
-
-// ---- snapshot ------------------------------------------------------------
 
 void attribute_message_bodies(UiAccessTree* tree) noexcept {
     const auto* presentation = g_app.renderer.message_text;
@@ -1029,9 +1005,7 @@ void build_account(UiAccessTree* tree) noexcept {
         ui_access_add_widgets(tree, 0, g_app.renderer.settings_scene->widgets,
                               {describe_settings, nullptr, surface_settings, false});
     } else if (g_app.shell_scene.count) {
-        ui_access_add_widgets(tree, 0, g_app.shell_scene.widgets,
-                              {describe_shell, nullptr, surface_shell,
-                               g_app.context_focus == &g_app.shell_scene.widgets});
+        add_scene(tree, 0, g_app.shell_scene.widgets, describe_shell, surface_shell);
     }
     build_overlays(tree, settings);
     if (g_app.popup_scene.active && g_app.popup_scene.widgets.count)
@@ -1080,37 +1054,29 @@ bool commit_range(u8* base, usize offset, usize bytes) noexcept {
 bool grow_exhausted() noexcept {
     auto& tree = g_access.tree;
     auto* base = static_cast<u8*>(g_access.storage);
-    bool grown = false;
-    if ((tree.exhausted & ui_access_exhausted_nodes) && tree.nodes.count < kNodeCapacity) {
-        const u32 count = minimum(tree.nodes.count * 2, kNodeCapacity);
-        if (commit_range(base, kNodeOffset, sizeof(UiAccessNode) * count)) {
-            tree.nodes.count = count;
-            grown = true;
-        }
-    }
-    if ((tree.exhausted & ui_access_exhausted_slots) && tree.slot_map.count < kSlotCapacity) {
-        const u32 count = minimum(tree.slot_map.count * 2, kSlotCapacity);
-        if (commit_range(base, kSlotOffset, sizeof(u32) * count)) {
-            tree.slot_map.count = count;
-            grown = true;
-        }
-    }
-    if ((tree.exhausted & ui_access_exhausted_text) && tree.text.count < kTextCapacity) {
-        const u32 count = minimum(tree.text.count * 2, kTextCapacity);
-        if (commit_range(base, kTextOffset, count)) {
-            tree.text.count = count;
-            grown = true;
-        }
-    }
-    if (grown)
-        g_access.committed_bytes = kNodeOffset + sizeof(UiAccessNode) * tree.nodes.count +
-                                   sizeof(u32) * tree.slot_map.count + tree.text.count;
-    return grown;
+    const auto grow = [&](u32 region, u32& count, u32 capacity, usize offset, usize unit) noexcept {
+        if (!(tree.exhausted & region) || count >= capacity)
+            return false;
+        const u32 next = minimum(count * 2, capacity);
+        if (!commit_range(base, offset, unit * next))
+            return false;
+        count = next;
+        return true;
+    };
+    const bool nodes = grow(ui_access_exhausted_nodes, tree.nodes.count, kNodeCapacity, kNodeOffset,
+                            sizeof(UiAccessNode));
+    const bool slots = grow(ui_access_exhausted_slots, tree.slot_map.count, kSlotCapacity, kSlotOffset,
+                            sizeof(u32));
+    const bool text = grow(ui_access_exhausted_text, tree.text.count, kTextCapacity, kTextOffset, 1);
+    if (!nodes && !slots && !text)
+        return false;
+    g_access.committed_bytes = kNodeOffset + sizeof(UiAccessNode) * tree.nodes.count +
+                               sizeof(u32) * tree.slot_map.count + tree.text.count;
+    return true;
 }
 
 void build_tree() noexcept {
     g_access.dirty = false;
-    ++g_access.builds;
     // A snapshot that ran out of committed storage is rebuilt after growing,
     // so the published tree matches one built at full capacity.
     do
@@ -1192,20 +1158,12 @@ bool access_act(void*, u64 key, UiAccessAction action, double number, Utf8View t
     return true;
 }
 
-// ---- actions -------------------------------------------------------------
-
-LPARAM client_lparam(float x, float y) noexcept {
-    const float scale = access_scale(nullptr);
-    const int px = static_cast<int>(x * scale);
-    const int py = static_cast<int>(y * scale);
-    return static_cast<LPARAM>(static_cast<u32>(static_cast<u16>(px)) | (static_cast<u32>(static_cast<u16>(py)) << 16));
-}
-
 // Activates through the same pointer route a mouse click takes.
 bool click_at(float x, float y) noexcept {
     if (!g_app.window)
         return false;
-    const LPARAM point = client_lparam(x, y);
+    const float scale = access_scale(nullptr);
+    const LPARAM point = MAKELPARAM(static_cast<int>(x * scale), static_cast<int>(y * scale));
     SendMessageW(g_app.window, WM_MOUSEMOVE, 0, point);
     SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, point);
     SendMessageW(g_app.window, WM_LBUTTONUP, 0, point);
@@ -1213,9 +1171,7 @@ bool click_at(float x, float y) noexcept {
     RECT client{};
     if (GetCursorPos(&cursor) && ScreenToClient(g_app.window, &cursor) && GetClientRect(g_app.window, &client) &&
         cursor.x >= client.left && cursor.y >= client.top && cursor.x < client.right && cursor.y < client.bottom)
-        SendMessageW(g_app.window, WM_MOUSEMOVE, 0,
-                     static_cast<LPARAM>(static_cast<u32>(static_cast<u16>(cursor.x)) |
-                                         (static_cast<u32>(static_cast<u16>(cursor.y)) << 16)));
+        SendMessageW(g_app.window, WM_MOUSEMOVE, 0, MAKELPARAM(cursor.x, cursor.y));
     application_request_frame();
     return true;
 }
@@ -1225,10 +1181,6 @@ bool click_node(const UiAccessNode& node) noexcept {
         return false;
     const UiPoint point = center(node.visible);
     return click_at(point.x, point.y);
-}
-
-bool needs_reveal(const UiAccessNode& node) noexcept {
-    return ui_access_needs_reveal(node);
 }
 
 template <typename T> T* mutable_scene(const T* scene) noexcept {
@@ -1446,10 +1398,7 @@ bool wheel_node(const UiAccessNode& node, UiAccessScroll amount) noexcept {
     const float scale = access_scale(nullptr);
     POINT screen{static_cast<LONG>(point.x * scale), static_cast<LONG>(point.y * scale)};
     ClientToScreen(g_app.window, &screen);
-    const WPARAM wparam = static_cast<WPARAM>(static_cast<u32>(static_cast<u16>(static_cast<i16>(delta))) << 16);
-    const LPARAM lparam = static_cast<LPARAM>(static_cast<u32>(static_cast<u16>(screen.x)) |
-                                              (static_cast<u32>(static_cast<u16>(screen.y)) << 16));
-    SendMessageW(g_app.window, WM_MOUSEWHEEL, wparam, lparam);
+    SendMessageW(g_app.window, WM_MOUSEWHEEL, MAKEWPARAM(0, delta), MAKELPARAM(screen.x, screen.y));
     application_request_frame();
     return true;
 }
@@ -1546,7 +1495,7 @@ void run_action(const PendingAction& pending) noexcept {
         if (!locked && row && select_overlay_item(node))
             return;
         if (edit) {
-            if (needs_reveal(node) && !reveal_and_resolve(&node))
+            if (ui_access_needs_reveal(node) && !reveal_and_resolve(&node))
                 return;
             click_node(node);
         }
@@ -1567,7 +1516,8 @@ void run_action(const PendingAction& pending) noexcept {
         if (!locked && pending.action == UiAccessAction::select && select_overlay_item(node))
             return;
         // Offscreen (or mostly clipped) items scroll into view before the click.
-        if (needs_reveal(node) && (!(node.actions & ui_access_action_scroll_item) || !reveal_and_resolve(&node)))
+        if (ui_access_needs_reveal(node) &&
+            (!(node.actions & ui_access_action_scroll_item) || !reveal_and_resolve(&node)))
             return;
         click_node(node);
         return;
@@ -1645,8 +1595,6 @@ u32 access_text_bounds(void*, u64 key, u32 start, u32 end, UiRect* rectangles, u
 }
 
 
-// ---- events --------------------------------------------------------------
-
 u64 event_key(const UiAccessTree& tree, u32 node) noexcept {
     return node == 0 || node >= tree.count ? 0 : tree.nodes[node].key;
 }
@@ -1680,7 +1628,7 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
         for (u32 index = 0; index < presentation->command_count && index < presentation->commands.count; ++index) {
             const auto& command = presentation->commands[index];
             if (command.message_id == record->id && command.owner.manager == &scene.widgets &&
-                handle_equal(command.owner.handle, scene.rows[row].content))
+                ui_widget_handle_equal(command.owner.handle, scene.rows[row].content))
                 g_name.add(command.text).add(utf8_literal(" "));
         }
         break;
@@ -1695,8 +1643,6 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
                                 UiaNotificationKind::item_added, UiaNotificationProcessing::all, g_name.view(),
                                 utf8_literal("MaiCord.NewMessage"));
 }
-
-// ---- status announcements --------------------------------------------------
 
 void announce(Utf8View text, bool assertive, Utf8View activity = utf8_literal("MaiCord.Status")) noexcept {
     if (!ui_access_announce_admit(&g_access.announcer, text,
@@ -1867,8 +1813,6 @@ void observe_status(u64 now_ms) noexcept {
     observe_mentions(status, now_ms);
     status.primed = true;
 }
-
-// ---- event publication -----------------------------------------------------
 
 void publish_events() noexcept {
     const UiAccessTree* tree = access_tree(nullptr);

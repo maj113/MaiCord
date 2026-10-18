@@ -25,14 +25,19 @@
 namespace maicord::app_detail {
 namespace {
 
+// The composer's channel is the active one and accepts a send.
+bool composer_can_send_now() noexcept {
+    const MessageComposer& composer = g_app.message_composer;
+    return g_app.account_ui && g_app.account.instance && composer.channel_id != 0 &&
+           composer.channel_id == g_app.account_ui->active_channel_id &&
+           application_thread_actions_channel_sendable(composer.channel_id) &&
+           message_composer_scene_can_send(g_app.message_composer_scene);
+}
+
 bool queue_composer_message(bool mention_confirmed) noexcept {
-    MessageComposer& composer = g_app.message_composer;
-    if (!g_app.account_ui || !g_app.account.instance || composer.channel_id == 0 ||
-        composer.channel_id != g_app.account_ui->active_channel_id ||
-        !application_thread_actions_channel_sendable(composer.channel_id) ||
-        !message_composer_scene_can_send(g_app.message_composer_scene)) {
+    if (!composer_can_send_now())
         return true;
-    }
+    MessageComposer& composer = g_app.message_composer;
     UploadedAttachment attachments[kAttachmentUploadMaximumCount];
     u64 attachment_ids[kAttachmentUploadMaximumCount];
     u64 attachment_sizes[kAttachmentUploadMaximumCount];
@@ -81,13 +86,8 @@ bool queue_message_send() noexcept {
     if (g_app.message_edit.editor_active) {
         return queue_message_edit();
     }
-    MessageComposer& composer = g_app.message_composer;
-    if (!g_app.account_ui || !g_app.account.instance || composer.channel_id == 0 ||
-        composer.channel_id != g_app.account_ui->active_channel_id ||
-        !application_thread_actions_channel_sendable(composer.channel_id) ||
-        !message_composer_scene_can_send(g_app.message_composer_scene)) {
+    if (!composer_can_send_now())
         return true;
-    }
     bool prepared_handled = false;
     if (!application_composer_prepare_send(&prepared_handled)) return false;
     if (prepared_handled) return refresh_message_composer_ui();

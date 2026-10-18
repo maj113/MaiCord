@@ -23,9 +23,6 @@ bool directory_valid(ConstSlice<wchar_t> path) noexcept {
     }
     return true;
 }
-bool disjoint(ConstSlice<u8> a, ConstSlice<u8> b) noexcept {
-    return byte_range_valid(a) && byte_range_valid(b) && !byte_ranges_overlap(a, b);
-}
 // Every directory component is opened without following its own reparse point,
 // then pinned while descendants are opened. Root-to-leaf pinning prevents a
 // checked ancestor from being renamed/replaced between hash and DLL entry.
@@ -159,7 +156,7 @@ NativePluginCatalogResult read_manifest(const NativePluginCatalog& catalog, Nati
 bool catalog_valid(const NativePluginCatalog& catalog) noexcept {
     return catalog.entries.data && catalog.entries.count && catalog.entries.count <= kNativePluginCatalogMaximumEntries &&
         directory_valid({catalog.directory, catalog.directory_characters}) && catalog.count <= catalog.entries.count &&
-        disjoint({reinterpret_cast<const u8*>(&catalog), sizeof(catalog)},
+        byte_ranges_disjoint({reinterpret_cast<const u8*>(&catalog), sizeof(catalog)},
             {reinterpret_cast<const u8*>(catalog.entries.data), catalog.entries.count * static_cast<u32>(sizeof(*catalog.entries.data))});
 }
 } // namespace
@@ -198,7 +195,7 @@ NativePluginCatalogResult native_plugin_catalog_initialize(NativePluginCatalog* 
     const ConstSlice<u8> object{reinterpret_cast<const u8*>(catalog), sizeof(*catalog)};
     const ConstSlice<u8> entries{reinterpret_cast<const u8*>(storage.data), storage.count * static_cast<u32>(sizeof(*storage.data))};
     const ConstSlice<u8> path{reinterpret_cast<const u8*>(directory.data), directory.count * 2};
-    if (!disjoint(object, entries) || !disjoint(object, path) || !disjoint(entries, path)) return result(NativePluginCatalogError::invalid_input);
+    if (!byte_ranges_disjoint(object, entries) || !byte_ranges_disjoint(object, path) || !byte_ranges_disjoint(entries, path)) return result(NativePluginCatalogError::invalid_input);
     *catalog = {};
     catalog->entries = storage;
     catalog->directory_characters = directory.count;
@@ -294,7 +291,7 @@ NativePluginCatalogResult native_plugin_declared_file_verify(ConstSlice<wchar_t>
     const ConstSlice<u8> ranges[]{
         {reinterpret_cast<const u8*>(directory.data), directory.count * 2},
         {reinterpret_cast<const u8*>(&manifest), sizeof(manifest)}, {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    for (u32 i = 0; i < 3; ++i) for (u32 j = 0; j < i; ++j) if (!disjoint(ranges[i], ranges[j])) return result(NativePluginCatalogError::invalid_input);
+    for (u32 i = 0; i < 3; ++i) for (u32 j = 0; j < i; ++j) if (!byte_ranges_disjoint(ranges[i], ranges[j])) return result(NativePluginCatalogError::invalid_input);
     Guard guard;
     auto outcome = pin_directory(directory, &guard.held);
     wchar_t filename[kNativePluginDllNameCapacity];
@@ -311,7 +308,7 @@ NativePluginCatalogResult native_plugin_declared_file_verify(ConstSlice<wchar_t>
 }
 NativePluginCatalogResult native_plugin_verified_file_hash(NativePluginVerifiedFile* file, ConstSlice<u8> expected) noexcept {
     if (!file || !file->file || file->hash || file->algorithm || !expected.data || expected.count != 32 ||
-        !disjoint({reinterpret_cast<const u8*>(file),sizeof(*file)},expected)) return result(NativePluginCatalogError::invalid_input);
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(file),sizeof(*file)},expected)) return result(NativePluginCatalogError::invalid_input);
     if (!file->bytes || file->bytes > kNativePluginDllMaximumBytes) return result(NativePluginCatalogError::size);
     LARGE_INTEGER zero{};
     if (!SetFilePointerEx(file->file,zero,nullptr,FILE_BEGIN)) return result(NativePluginCatalogError::read,GetLastError());
@@ -365,7 +362,7 @@ NativePluginCatalogResult native_plugin_verified_file_hash(NativePluginVerifiedF
 NativePluginCatalogResult native_plugin_directory_pin(ConstSlice<wchar_t> directory,
     NativePluginVerifiedFile* output,u32 create_tail) noexcept {
     if(!output || output->file || output->scan || output->hash || output->algorithm || output->ancestor_count ||
-        !directory_valid(directory) || !disjoint({reinterpret_cast<const u8*>(directory.data),directory.count*2},
+        !directory_valid(directory) || !byte_ranges_disjoint({reinterpret_cast<const u8*>(directory.data),directory.count*2},
             {reinterpret_cast<const u8*>(output),sizeof(*output)}))return result(NativePluginCatalogError::invalid_input);
     return pin_directory(directory,output,create_tail);
 }
@@ -380,7 +377,7 @@ NativePluginCatalogResult native_plugin_pinned_file_open(const NativePluginVerif
         (sharing&FILE_SHARE_WRITE))return result(NativePluginCatalogError::invalid_input);
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(&directory),sizeof(directory)},
         {reinterpret_cast<const u8*>(basename.data),basename.count*2},{reinterpret_cast<const u8*>(output),sizeof(*output)}};
-    for(u32 i=0;i<3;++i)for(u32 j=0;j<i;++j)if(!disjoint(ranges[i],ranges[j]))return result(NativePluginCatalogError::invalid_input);
+    for(u32 i=0;i<3;++i)for(u32 j=0;j<i;++j)if(!byte_ranges_disjoint(ranges[i],ranges[j]))return result(NativePluginCatalogError::invalid_input);
     for(u32 i=0;i<directory.path_characters;++i)output->path[i]=directory.path[i];
     output->path_characters=directory.path_characters;
     if(!append(output,basename))return result(NativePluginCatalogError::path);
@@ -391,11 +388,11 @@ NativePluginCatalogResult native_plugin_pinned_manifest_read(const NativePluginV
     if(!manifest || !output || !basename.data || !basename.count || basename.count>=kNativePluginCatalogFilenameCapacity ||
         (sharing!=FILE_SHARE_READ && sharing!=(FILE_SHARE_READ|FILE_SHARE_DELETE)) ||
         !suffix(basename.data,basename.count) ||
-        !disjoint({reinterpret_cast<const u8*>(manifest),sizeof(*manifest)},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(manifest),sizeof(*manifest)},
             {reinterpret_cast<const u8*>(output),sizeof(*output)}) ||
-        !disjoint({reinterpret_cast<const u8*>(manifest),sizeof(*manifest)},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(manifest),sizeof(*manifest)},
             {reinterpret_cast<const u8*>(&directory),sizeof(directory)}) ||
-        !disjoint({reinterpret_cast<const u8*>(manifest),sizeof(*manifest)},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(manifest),sizeof(*manifest)},
             {reinterpret_cast<const u8*>(basename.data),basename.count*2}))return result(NativePluginCatalogError::invalid_input);
     auto checked=native_plugin_pinned_file_open(directory,basename,output,GENERIC_READ,sharing);
     if(!checked.ok())return checked;
@@ -410,7 +407,7 @@ NativePluginCatalogResult native_plugin_pinned_manifest_read(const NativePluginV
 NativePluginCatalogResult native_plugin_pinned_dll_verify(const NativePluginVerifiedFile& directory,
     const NativePluginManifest& manifest,NativePluginVerifiedFile* output) noexcept {
     if(!output || !directory.ancestor_count || directory.ancestor_count>kNativePluginPathMaximumAncestors || directory.file ||
-        !disjoint({reinterpret_cast<const u8*>(&directory),sizeof(directory)},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(&directory),sizeof(directory)},
             {reinterpret_cast<const u8*>(output),sizeof(*output)}))return result(NativePluginCatalogError::invalid_input);
     // Reuse the accepted hash walker and its full retryable ownership gate.
     // This verifier also retains independent ancestor pins through the copy.

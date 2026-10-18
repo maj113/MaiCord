@@ -10,7 +10,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -54,6 +54,9 @@ bool online() noexcept {
            !g_app.account.status.failed && g_app.account.status.required_action == AccountRequirement::none &&
            g_app.account.api.account_settings;
 }
+bool mutation_pending() noexcept {
+    return g_owner.queued != Mutation::none || g_owner.inflight != Mutation::none;
+}
 void changed() noexcept {
     ++g_owner.revision;
     application_settings_refresh_pages();
@@ -61,7 +64,7 @@ void changed() noexcept {
 void release_bank() noexcept {
     if (!g_owner.bank)
         return;
-    SecureZeroMemory(g_owner.bank, sizeof(Bank));
+    secure_clear_bytes(g_owner.bank, sizeof(Bank));
     VirtualFree(g_owner.bank, 0, MEM_RELEASE);
     g_owner.bank = nullptr;
 }
@@ -138,7 +141,7 @@ bool form_valid(TextFormOwnerKey key) noexcept {
     return key.scope == g_owner.lifetime && g_owner.bank && online();
 }
 bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
-    if (!form_valid(key) || g_owner.queued != Mutation::none || g_owner.inflight != Mutation::none)
+    if (!form_valid(key) || mutation_pending())
         return false;
     auto& b = *g_owner.bank;
     const auto mutation = static_cast<Mutation>(key.collection);
@@ -244,7 +247,7 @@ void build_session_row(Row& row, const AccountSession& session, bool current) no
 bool project_notice(SettingsPanel panel, u8 loads, UiSettingsControl* control,
                     UiSettingsControlPresentation* presentation) noexcept {
     control->action_label = {};
-    if (g_owner.queued != Mutation::none || g_owner.inflight != Mutation::none) {
+    if (mutation_pending()) {
         const Mutation pending = g_owner.inflight != Mutation::none ? g_owner.inflight : g_owner.queued;
         if (mutation_panel(pending) != panel)
             return false;
@@ -323,7 +326,7 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     const auto* b = g_owner.bank;
     const bool self = b && (g_owner.loaded & load_self);
     const bool profile = b && (g_owner.loaded & load_profile);
-    const bool idle = online() && g_owner.queued == Mutation::none && g_owner.inflight == Mutation::none;
+    const bool idle = online() && !mutation_pending();
     switch (binding) {
     case SettingBinding::account_card:
         control->label = self_name(false);
@@ -407,7 +410,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
     const u8 load = devices ? load_sessions : load_tokens;
     if (!b || !(g_owner.loaded & load) || !controls.data || !presentation.data)
         return 0;
-    const bool idle = online() && g_owner.queued == Mutation::none && g_owner.inflight == Mutation::none;
+    const bool idle = online() && !mutation_pending();
     u32 count = 0;
     const u32 total = devices ? g_owner.session_count : g_owner.app_count;
     const u32 row_base = devices ? 0 : kAccountSessionMaximum;
@@ -647,7 +650,7 @@ bool application_account_settings_response(const RestClientResponse& response, U
         }
         b->text_bytes = 0;
         b->hash_bytes = 0;
-        SecureZeroMemory(b->text, sizeof(b->text));
+        secure_clear_bytes(b->text, sizeof(b->text));
         changed();
         return true;
     }

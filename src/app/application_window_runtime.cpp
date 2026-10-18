@@ -68,6 +68,16 @@ static_assert(kWindowMessageApp == WM_APP);
 namespace {
 // Whether this window holds a TME_LEAVE request; cleared by WM_MOUSELEAVE.
 bool g_pointer_leave_armed = false;
+
+void update_keyboard_focus_visible(UINT message, WPARAM wparam) noexcept {
+    const bool shift_f10 = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_F10 &&
+                           (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool visible = keyboard_focus_after_message(g_app.keyboard_focus_visible, message, wparam, shift_f10);
+    if (visible != g_app.keyboard_focus_visible) {
+        g_app.keyboard_focus_visible = visible;
+        application_request_frame();
+    }
+}
 } // namespace
 
 LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
@@ -105,14 +115,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
                               : message == WM_SYSKEYDOWN                      ? UiInputKind::system_key_down
                               : message == WM_SYSCHAR ? UiInputKind::system_character
                                                       : UiInputKind::character;
-            const bool focus_visible =
-                keyboard_focus_after_message(g_app.keyboard_focus_visible, message, wparam,
-                                             (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) &&
-                                                 wparam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000) != 0);
-            if (focus_visible != g_app.keyboard_focus_visible) {
-                g_app.keyboard_focus_visible = focus_visible;
-                application_request_frame();
-            }
+            update_keyboard_focus_visible(message, wparam);
             const bool repeated =
                 (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && (lparam & (1ll << 30)) != 0;
             if (application_text_form_input(kind, static_cast<u32>(wparam), repeated))
@@ -186,14 +189,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             message == WM_CHAR || message == WM_LBUTTONUP || message == WM_RBUTTONUP ||
             message == WM_MBUTTONUP || message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL)
             application_read_state_activity();
-        const bool shift_f10 = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_F10 &&
-                               (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        const bool focus_visible =
-            keyboard_focus_after_message(g_app.keyboard_focus_visible, message, wparam, shift_f10);
-        if (focus_visible != g_app.keyboard_focus_visible) {
-            g_app.keyboard_focus_visible = focus_visible;
-            application_request_frame();
-        }
+        update_keyboard_focus_visible(message, wparam);
         // Typing, focus loss or another button ends a multi-click sequence.
         if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN || message == WM_CHAR || message == WM_KILLFOCUS ||
             message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN)
@@ -430,56 +426,23 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (application_profile_pointer(UiButtonPointerEvent::move,
                                         {client_dip_x(lparam), client_dip_y(lparam)}))
             return 0;
-        if (g_app.renderer_ready)
-            update_scrollbar_hover(client_dip_x(lparam), client_dip_y(lparam));
-        if (g_app.renderer_ready &&
-            handle_reaction_viewer_hover(client_dip_x(lparam), client_dip_y(lparam))) {
+        if (!g_app.renderer_ready)
+            break;
+        update_scrollbar_hover(client_dip_x(lparam), client_dip_y(lparam));
+        if (handle_reaction_viewer_hover(client_dip_x(lparam), client_dip_y(lparam)) ||
+            handle_message_text_selection_drag(wparam, lparam) ||
+            handle_scrollbar_drag(wparam, client_dip_y(lparam)) || handle_pane_resize_drag(wparam, lparam) ||
+            handle_popup_hover(lparam) || application_login_handle_drag(wparam, lparam) ||
+            handle_composer_drag(wparam, lparam))
             return 0;
-        }
-        if (g_app.renderer_ready && handle_message_text_selection_drag(wparam, lparam)) {
+        handle_message_hover(lparam);
+        if (message_action_bar_hit_test(g_app.message_action_bar, client_dip_x(lparam), client_dip_y(lparam))
+                .inside)
             return 0;
-        }
-        if (g_app.renderer_ready && handle_scrollbar_drag(wparam, client_dip_y(lparam))) {
+        if (g_app.login.visible || handle_shell_hover(lparam) ||
+            handle_navigation_hover(lparam) || handle_composer_hover(lparam) || handle_member_hover(lparam))
             return 0;
-        }
-        if (g_app.renderer_ready && handle_pane_resize_drag(wparam, lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_popup_hover(lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && application_login_handle_drag(wparam, lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_composer_drag(wparam, lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready) {
-            handle_message_hover(lparam);
-            const MessageActionBarHit action_bar = message_action_bar_hit_test(
-                g_app.message_action_bar, client_dip_x(lparam), client_dip_y(lparam));
-            if (action_bar.inside) {
-                return 0;
-            }
-        }
-        if (g_app.renderer_ready && application_login_handle_hover(lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_shell_hover(lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_navigation_hover(lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_composer_hover(lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_member_hover(lparam)) {
-            return 0;
-        }
-        if (g_app.renderer_ready) {
-            handle_content_hover(lparam);
-        }
+        handle_content_hover(lparam);
         break;
 
     case WM_LBUTTONUP:
@@ -533,48 +496,27 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (g_app.message_text_selection.valid && !clear_message_text_selection(true)) {
             log_write(LogLevel::warning, "ui", "message_text_selection_clear_failed");
         }
-        if (g_app.renderer_ready && handle_popup_click(wparam, lparam)) {
+        if (!g_app.renderer_ready)
+            break;
+        if (handle_popup_click(wparam, lparam) || handle_message_action_bar_click(lparam) ||
+            application_login_handle_click(lparam) ||
+            handle_scrollbar_begin(client_dip_x(lparam), client_dip_y(lparam))) {
             SetFocus(window);
             return 0;
         }
-        if (g_app.renderer_ready && handle_message_action_bar_click(lparam)) {
+        focus_context_at(client_dip_x(lparam), client_dip_y(lparam));
+        application_request_frame();
+        if (handle_shell_click(lparam) || handle_composer_click(lparam)) {
             SetFocus(window);
             return 0;
         }
-        if (g_app.renderer_ready && application_login_handle_click(lparam)) {
-            SetFocus(window);
+        if (application_gif_favorite_star_press(client_dip_x(lparam), client_dip_y(lparam)) ||
+            application_message_media_reveal_at(client_dip_x(lparam), client_dip_y(lparam)) ||
+            application_image_viewer_open_at(client_dip_x(lparam), client_dip_y(lparam)) ||
+            handle_member_click(lparam) || handle_message_click(lparam) || handle_content_click(lparam) ||
+            handle_navigation_click(lparam))
             return 0;
-        }
-        if (g_app.renderer_ready && handle_scrollbar_begin(client_dip_x(lparam), client_dip_y(lparam))) {
-            SetFocus(window);
-            return 0;
-        }
-        if (g_app.renderer_ready) {
-            focus_context_at(client_dip_x(lparam), client_dip_y(lparam));
-            application_request_frame();
-        }
-        if (g_app.renderer_ready && handle_shell_click(lparam)) {
-            SetFocus(window);
-            return 0;
-        }
-        if (g_app.renderer_ready && handle_composer_click(lparam)) {
-            SetFocus(window);
-            return 0;
-        }
-        if (g_app.renderer_ready &&
-            application_gif_favorite_star_press(client_dip_x(lparam), client_dip_y(lparam)))
-            return 0;
-        if (g_app.renderer_ready &&
-            application_message_media_reveal_at(client_dip_x(lparam), client_dip_y(lparam)))
-            return 0;
-        if (g_app.renderer_ready &&
-            application_image_viewer_open_at(client_dip_x(lparam), client_dip_y(lparam)))
-            return 0;
-        if (g_app.renderer_ready && (handle_member_click(lparam) || handle_message_click(lparam) ||
-                                     handle_content_click(lparam) || handle_navigation_click(lparam))) {
-            return 0;
-        }
-        if (g_app.renderer_ready && begin_message_text_selection(lparam)) {
+        if (begin_message_text_selection(lparam)) {
             SetFocus(window);
             return 0;
         }

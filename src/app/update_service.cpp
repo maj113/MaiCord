@@ -181,10 +181,8 @@ void log_handoff(const char* event, const UpdateHandoffResult& h) noexcept {
         .field("outcome", static_cast<u8>(h.outcome)).write(h.ok() ? LogLevel::info : LogLevel::warning);
 }
 void stage_path(const UpdatePaths& paths, const u8* digest, wchar_t* out) noexcept {
-    wchar_t name[80]{}; constexpr wchar_t hex[] = L"0123456789abcdef";
-    copy_bytes(name, L"maicord-", 8 * sizeof(wchar_t));
-    for (u32 i = 0; i < 32; ++i) { name[8 + i * 2] = hex[digest[i] >> 4]; name[9 + i * 2] = hex[digest[i] & 15]; }
-    copy_bytes(name + 72, L".stage", 7 * sizeof(wchar_t));
+    wchar_t name[kUpdatePreparedStageFilenameCharacters + 1]{};
+    update_prepare_stage_name(digest, name);
     join(out, paths.work, paths.work_count, name);
 }
 void release_work(UpdateService* s) noexcept {

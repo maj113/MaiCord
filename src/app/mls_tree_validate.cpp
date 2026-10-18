@@ -144,7 +144,7 @@ MlsStatus insert_identity(const Validation& v, u32 index, u64 identity) noexcept
 // each present intermediate parent between them.
 MlsStatus validate_unmerged(const Validation& v, u32 parent_index, const MlsParentNode& parent) noexcept {
     for (u32 i = 0; i != parent.unmerged.count; i += 4) {
-        const u32 leaf = mls_load_be32(parent.unmerged.data + i);
+        const u32 leaf = byte_load_be32(parent.unmerged.data + i);
         if (leaf > 0x7fffffffu)
             return MlsStatus::malformed;
         const u32 leaf_node = leaf * 2;
@@ -180,7 +180,7 @@ MlsStatus filtered_parent_hash(const Validation& v, const MlsParentNode& parent,
                                const u8* left_hash, const u8* right_hash, u8* hash) noexcept {
     u32 remaining = 0;
     for (u32 i = 0; i != parent.unmerged.count; i += 4)
-        if (!mls_u32_list_contains(excluded, mls_load_be32(parent.unmerged.data + i)))
+        if (!mls_u32_list_contains(excluded, byte_load_be32(parent.unmerged.data + i)))
             ++remaining;
     MlsWriter writer{{v.filtered, v.filtered_capacity}};
     writer.integer(kMlsNodeParent, 1);
@@ -189,7 +189,7 @@ MlsStatus filtered_parent_hash(const Validation& v, const MlsParentNode& parent,
     writer.vector(parent.parent_hash, parent.parent_hash_bytes);
     writer.varint(remaining * 4);
     for (u32 i = 0; i != parent.unmerged.count; i += 4)
-        if (!mls_u32_list_contains(excluded, mls_load_be32(parent.unmerged.data + i)))
+        if (!mls_u32_list_contains(excluded, byte_load_be32(parent.unmerged.data + i)))
             writer.bytes(parent.unmerged.data + i, 4);
     writer.vector(left_hash, kMlsHashBytes);
     writer.vector(right_hash, kMlsHashBytes);
@@ -270,7 +270,7 @@ MlsStatus relation_walk(const Validation& v, u32 child, u32 index, u32 candidate
             status = parent_at(v, index, &parent);
             for (u32 i = 0; status == MlsStatus::ok && i != parent.unmerged.count; i += 4)
                 status = relation_item(child, candidate, parent_unmerged,
-                                       mls_load_be32(parent.unmerged.data + i) * 2, remaining);
+                                       byte_load_be32(parent.unmerged.data + i) * 2, remaining);
         }
         return status;
     }
@@ -286,7 +286,7 @@ MlsStatus relation_valid(const Validation& v, u32 child, u32 candidate, ConstSli
     u32 intersection = 0, remaining = 0;
     *valid = false;
     for (u32 i = 0; i != parent_unmerged.count; i += 4)
-        if (mls_tree_is_below(mls_load_be32(parent_unmerged.data + i) * 2, child))
+        if (mls_tree_is_below(byte_load_be32(parent_unmerged.data + i) * 2, child))
             ++intersection;
     const auto status = relation_walk(v, child, child, candidate, parent_unmerged, &remaining);
     if (status == MlsStatus::ok)
@@ -314,7 +314,7 @@ MlsStatus resolution_matches(const Validation& v, u32 child, u32 index, ConstSli
             MlsParentNode parent{};
             status = parent_at(v, index, &parent);
             for (u32 i = 0; status == MlsStatus::ok && i != parent.unmerged.count; i += 4)
-                status = candidate_matches(v, child, mls_load_be32(parent.unmerged.data + i) * 2,
+                status = candidate_matches(v, child, byte_load_be32(parent.unmerged.data + i) * 2,
                                            parent_unmerged, expected, matches);
         }
         return status;

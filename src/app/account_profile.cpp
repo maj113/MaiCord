@@ -3,7 +3,8 @@
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -108,20 +109,20 @@ AccountProfileResult account_profile_save(const wchar_t* path, const AccountProf
         credential, ConstSlice<u8>{entropy, kProfileEntropyBytes}, Slice<u8>{nullptr, 0});
     if (required.error != SecureBufferError::output_too_small || required.bytes == 0 ||
         required.bytes > kAccountProfileMaximumFileBytes - kProfileHeaderBytes) {
-        SecureZeroMemory(entropy, sizeof(entropy));
+        secure_clear_bytes(entropy, sizeof(entropy));
         return failure(AccountProfileError::protect, required.native_error, required.bytes);
     }
     const u32 allocation_bytes = kProfileHeaderBytes + required.bytes;
     auto* file_bytes =
         static_cast<u8*>(VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!file_bytes) {
-        SecureZeroMemory(entropy, sizeof(entropy));
+        secure_clear_bytes(entropy, sizeof(entropy));
         return failure(AccountProfileError::memory, thread_last_error());
     }
     const SecureBufferResult protected_result =
         secure_buffer_protect_user_bound(credential, ConstSlice<u8>{entropy, kProfileEntropyBytes},
                                          Slice<u8>{file_bytes + kProfileHeaderBytes, required.bytes});
-    SecureZeroMemory(entropy, sizeof(entropy));
+    secure_clear_bytes(entropy, sizeof(entropy));
     if (!protected_result.ok() || protected_result.bytes == 0 || protected_result.bytes > required.bytes) {
         const AccountProfileResult result =
             failure(AccountProfileError::protect, protected_result.native_error, protected_result.bytes);
@@ -157,8 +158,8 @@ AccountProfileResult account_profile_load(const wchar_t* path, AccountProfile* p
     if (file == INVALID_HANDLE_VALUE) {
         return failure(AccountProfileError::open, thread_last_error());
     }
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart < kProfileHeaderBytes ||
+    Win32LargeInteger size{};
+    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kProfileHeaderBytes ||
         size.QuadPart > kAccountProfileMaximumFileBytes) {
         const u32 native_error = thread_last_error();
         CloseHandle(file);
@@ -202,7 +203,7 @@ AccountProfileResult account_profile_load(const wchar_t* path, AccountProfile* p
     const SecureBufferResult unprotected = secure_buffer_unprotect_user_bound(
         ConstSlice<u8>{file_bytes + kProfileHeaderBytes, protected_bytes},
         ConstSlice<u8>{entropy, kProfileEntropyBytes}, &credential);
-    SecureZeroMemory(entropy, sizeof(entropy));
+    secure_clear_bytes(entropy, sizeof(entropy));
     file_persistence_secure_release(file_bytes, file_size);
     if (!unprotected.ok() || !valid_credential(credential)) {
         const u32 error = unprotected.native_error;

@@ -2,7 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -26,8 +26,8 @@ PluginCallLedgerEntry* entry(PluginCallLedger* ledger, u64 owner, bool create) n
     return empty;
 }
 void initialize_timing(PluginCallLedger* ledger) noexcept {
-    LARGE_INTEGER frequency{};
-    QueryPerformanceFrequency(&frequency);
+    Win32LargeInteger frequency{};
+    QueryPerformanceFrequency(frequency.native());
     ledger->frequency = frequency.QuadPart > 0 ? frequency.QuadPart : 1;
     if (!ledger->budget_us) ledger->budget_us = kPluginCallBudgetUs;
     if (!ledger->lifecycle_budget_us) ledger->lifecycle_budget_us = kPluginCallLifecycleBudgetUs;
@@ -132,16 +132,16 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
         for (u32 i = 0; i < 9; ++i) ledger->view[8 + i] = record[i];
         ledger->view[20] = 1;
     }
-    LARGE_INTEGER now{};
-    QueryPerformanceCounter(&now);
+    Win32LargeInteger now{};
+    QueryPerformanceCounter(now.native());
     ticket.started = now.QuadPart;
     return ticket;
 }
 
 bool plugin_call_end(PluginCallLedger* ledger, PluginCallTicket ticket) noexcept {
     if (!ledger) return false;
-    LARGE_INTEGER now{};
-    QueryPerformanceCounter(&now);
+    Win32LargeInteger now{};
+    QueryPerformanceCounter(now.native());
     if (ledger->depth) --ledger->depth;
     if (ticket.outer && ledger->view) ledger->view[20] = 0;
     if (!ticket.owner_id) return false;

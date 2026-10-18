@@ -2,9 +2,8 @@
 #include "application_state.hpp"
 #include "application_settings.hpp"
 #include "application_theme_editor.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/background_animation.hpp"
-
-#include <Windows.h>
 
 namespace maicord::app_detail {
 inline bool application_background_animate() noexcept {

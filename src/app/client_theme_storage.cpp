@@ -1,4 +1,5 @@
 #include "maicord/app/client_theme_storage.hpp"
+#include "client_gradient_record.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
@@ -54,18 +55,6 @@ bool path_length(const wchar_t* path, u32* length) noexcept {
 u64 checksum(ConstSlice<u8> record) noexcept {
     return hash64_bytes(hash64_bytes(kHash64Seed, record.data, kChecksumOffset),
                         record.data + kChecksumOffset + 8, record.count - kChecksumOffset - 8);
-}
-void gradient_write(u8* record, const BackgroundTheme& value) noexcept {
-    for (u32 i = 0; i < 5; ++i)
-        byte_store_le32(record + 20 + i * 4, value.colors[i]);
-    record[40] = static_cast<u8>(value.angle_degrees);
-    record[41] = static_cast<u8>(value.angle_degrees >> 8);
-    record[42] = value.color_count;
-    record[43] = value.intensity;
-    record[44] = static_cast<u8>(value.effect);
-    record[45] = value.speed;
-    record[46] = value.strength;
-    record[47] = value.density;
 }
 bool reserved_zero(ConstSlice<u8> record, u32 start, u32 end) noexcept {
     for (u32 i = start; i < end; ++i)
@@ -224,12 +213,7 @@ ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSna
     byte_store_le32(header + 12, total);
     header[16] = static_cast<u8>((snapshot.custom_present ? 1 : 0) | (snapshot.custom_active ? 2 : 0));
     header[17] = static_cast<u8>(snapshot.builtin_theme);
-    gradient_write(header, snapshot.gradient);
-    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i) {
-        header[48 + i * 3] = snapshot.effect_profiles[i].speed;
-        header[49 + i * 3] = snapshot.effect_profiles[i].strength;
-        header[50 + i * 3] = snapshot.effect_profiles[i].density;
-    }
+    gradient_record_store(header, snapshot.gradient, snapshot.effect_profiles);
     byte_store_le32(header + 68, document_bytes);
     copy_bytes(record.data, header, sizeof(header));
     byte_store_le64(record.data + kChecksumOffset, checksum({record.data, total}));
@@ -264,26 +248,7 @@ ClientThemeStorageResult client_theme_storage_decode(ConstSlice<u8> record, Slic
     candidate.custom_present = (record[16] & 1) != 0;
     candidate.custom_active = (record[16] & 2) != 0;
     candidate.builtin_theme = static_cast<ClientTheme>(record[17]);
-    for (u32 i = 0; i < 5; ++i)
-        candidate.gradient.colors[i] = byte_load_le32(record.data + 20 + i * 4);
-    candidate.gradient.angle_degrees = byte_load_le16(record.data + 40);
-    candidate.gradient.color_count = record[42];
-    candidate.gradient.intensity = record[43];
-    if (background_effect_known(record[44])) {
-        candidate.gradient.effect = static_cast<BackgroundEffect>(record[44]);
-        candidate.gradient.speed = record[45];
-        candidate.gradient.strength = record[46];
-        candidate.gradient.density = record[47];
-    } else {
-        // A removed effect restores "none" with its default tuning.
-        const auto defaults = background_effect_settings_defaults(BackgroundEffect::none);
-        candidate.gradient.effect = BackgroundEffect::none;
-        candidate.gradient.speed = defaults.speed;
-        candidate.gradient.strength = defaults.strength;
-        candidate.gradient.density = defaults.density;
-    }
-    for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i)
-        candidate.effect_profiles[i] = {record[48 + i * 3], record[49 + i * 3], record[50 + i * 3]};
+    gradient_record_load(record.data, &candidate.gradient, candidate.effect_profiles);
     ClientThemeStorageResult result{};
     if (json_bytes) {
         const auto parsed = client_theme_document_parse(

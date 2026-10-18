@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/user_client_configuration.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/client_user_agent.hpp"
@@ -15,19 +16,14 @@ using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*) noexcept;
 SRWLOCK launch_lock = SRWLOCK_INIT;
 char launch_id[kGatewayUserLaunchIdBytes + 1]{};
 
-u8 hexadecimal(u8 value) noexcept {
-    return value < 10 ? static_cast<u8>('0' + value)
-                      : static_cast<u8>('a' + value - 10);
-}
-
 void write_uuid(const u8* source, char* output) noexcept {
     u32 destination = 0;
     for (u32 index = 0; index < 16; ++index) {
         if (index == 4 || index == 6 || index == 8 || index == 10) {
             output[destination++] = '-';
         }
-        output[destination++] = static_cast<char>(hexadecimal(source[index] >> 4));
-        output[destination++] = static_cast<char>(hexadecimal(source[index] & 0x0F));
+        output[destination++] = ascii_hex_digit(source[index] >> 4);
+        output[destination++] = ascii_hex_digit(source[index]);
     }
     output[destination] = 0;
 }

@@ -35,8 +35,6 @@ struct AccountSessionStoreResult {
 
 // Stores the profile-bound normal-user Resume state and authenticated user ID.
 // Version 1 loads with unknown user identity and is upgraded on the next save.
-// The magic, version,
-// entropy, and payload have no application quota, intents, or shard fields.
 AccountSessionStoreResult account_user_session_store_save(
     const wchar_t* path, const GatewayUserSessionSnapshot& snapshot) noexcept;
 AccountSessionStoreResult account_user_session_store_load(

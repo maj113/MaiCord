@@ -49,10 +49,9 @@ enum class VideoRtpPush : u8 {
     invalid
 };
 struct VideoRtpFrame {
-    u64 user_id, frame_id, first_arrival_us, complete_us;
+    u64 user_id;
     ConstSlice<u8> annex_b; // Borrowed until the sink returns.
     u32 ssrc, rtp_timestamp;
-    VideoRtpCodec codec;
     bool keyframe;        // Contains an IDR (H.264) / IRAP (H.265) picture.
     bool references_lost; // Loss since the last delivered keyframe (or none yet).
 };
@@ -73,9 +72,7 @@ struct VideoRtpConfig {
 };
 VideoRtpConfig video_rtp_default_config() noexcept;
 struct VideoRtpStreamStats {
-    u64 packets, bytes, rtx_packets, padding, duplicates, late, oversized;
-    u64 discarded_packets, frames, keyframes, damaged_frames, losses;
-    u64 nacked_packets, nack_packets, keyframe_requests;
+    u64 rtx_packets, late, oversized, discarded_packets, frames, damaged_frames, losses;
 };
 struct VideoRtpSlot {
     u64 sequence; // Extended sequence of the entry (valid unless empty).
@@ -93,7 +90,7 @@ struct VideoRtpStream {
     u64 first, base, highest; // Extended sequences; base is the next to assemble.
     u64 received, expected_prior, received_prior;
     u64 last_packet_us, last_sender_report_us, keyframe_request_us;
-    u64 next_nack_us, oldest_missing_us, frame_count;
+    u64 next_nack_us, oldest_missing_us;
     u32 ssrc, rtx_ssrc, missing;
     u32 last_sender_report, prev_timestamp, last_timestamp, last_transit, jitter_timestamp;
     u32 consecutive_late;
@@ -110,7 +107,7 @@ struct VideoRtpReceiver {
     VideoRtpFrameSink sink;
     void* sink_context;
     u8* frame; // kVideoRtpFrameBytes assembly buffer shared by all streams.
-    u64 next_report_us, ignored_packets;
+    u64 next_report_us;
     u32 codec_count, local_ssrc;
 };
 // Zero-initialize, then initialize. local_ssrc is the RTCP sender SSRC (the

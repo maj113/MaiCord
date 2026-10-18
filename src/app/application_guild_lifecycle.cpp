@@ -6,6 +6,7 @@
 #include "application_content_input.hpp"
 #include "application_guild_folders.hpp"
 #include "application_guild_invite.hpp"
+#include "application_guild_settings.hpp"
 #include "application_media_picker.hpp"
 #include "application_message_history.hpp"
 #include "application_message_interaction.hpp"
@@ -33,7 +34,7 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/message_markdown.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -103,7 +104,6 @@ struct Owner {
     PopupItem popup_items[kGuildInviteExpiryCount];
     Utf8View color_labels[1 + kGuildRoleColorCount];
     u64 palette_revision;
-    UiWidgetManager* previous_focus;
     char title[192];
     Mode mode;
     Menu menu;
@@ -147,7 +147,7 @@ struct Background {
     char leave_title[192], leave_context[512];
     u16 leave_title_bytes, leave_context_bytes;
     Utf8View leave_status;
-    bool leave_queued, leave_owner, leave_dialog, leave_done, leave_failed;
+    bool leave_queued, leave_owner, leave_dialog, leave_done;
     u64 reorder_guild, reorder_request, reorder_retry;
     GuildAdminPosition positions[kGuildAdminMaximumPositions];
     u32 position_count;
@@ -160,9 +160,6 @@ struct Background {
 };
 Background g_background{};
 
-bool available() noexcept {
-    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready;
 }
@@ -178,12 +175,6 @@ bool background_scope() noexcept {
     }
     return true;
 }
-u64 next_request_id() noexcept {
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
-    return id;
-}
 bool lane_free() noexcept {
     return g_app.details_request_owner == MessageHistoryRequestOwner::none;
 }
@@ -192,7 +183,7 @@ void claim_lane(u64 id) noexcept {
     g_app.details_request_id = id;
 }
 bool scope_current() noexcept {
-    if (!owner || !available() || owner->account_scope != g_app.plugin_account_scope_serial ||
+    if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
         owner->profile_id != g_app.account.status.profile_id)
         return false;
     if (owner->mode == Mode::invite || owner->mode == Mode::privacy) {
@@ -214,8 +205,6 @@ bool editable() noexcept {
 
 using Bank = TextBank;
 
-// Editor ------------------------------------------------------------------
-
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return owner && owner->lifetime == identity && editable() &&
@@ -232,8 +221,6 @@ void load_editor(Utf8View text, u32 limit) noexcept {
 Utf8View editor_text() noexcept {
     return message_composer_text(owner->model);
 }
-
-// Invite People -------------------------------------------------------------
 
 Utf8View invite_link(Bank& bank) noexcept {
     const u32 start = bank.used;
@@ -274,11 +261,9 @@ void queue(Op op) noexcept {
     pump_message_history();
 }
 
-// Create a server -----------------------------------------------------------
-
 void release_icon() noexcept {
     if (owner->icon.data) {
-        SecureZeroMemory(owner->icon.data, owner->icon.bytes);
+        secure_clear_bytes(owner->icon.data, owner->icon.bytes);
         VirtualFree(owner->icon.data, 0, MEM_RELEASE);
     }
     owner->icon = {};
@@ -293,42 +278,10 @@ Utf8View image_error(GuildImageError error) noexcept {
     }
 }
 bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
-    *error = utf8_literal("Couldn't read that file.");
-    if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
-        return false;
-    wchar_t* name = static_cast<wchar_t*>(
-        VirtualAlloc(nullptr, (path.count + 1) * sizeof(wchar_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!name)
-        return false;
-    copy_bytes(name, path.data, path.count * static_cast<u32>(sizeof(wchar_t)));
-    name[path.count] = 0;
-    const HANDLE file = CreateFileW(name, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    VirtualFree(name, 0, MEM_RELEASE);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > kGuildImageSourceMaximumBytes) {
-        CloseHandle(file);
-        if (size.QuadPart > kGuildImageSourceMaximumBytes)
-            *error = utf8_literal("Choose a file of 16 MB or less.");
-        return false;
-    }
-    auto* data = static_cast<u8*>(
-        VirtualAlloc(nullptr, static_cast<SIZE_T>(size.QuadPart), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    u8* data = nullptr;
     u32 total = 0;
-    while (data && total < size.QuadPart) {
-        DWORD read = 0;
-        if (!ReadFile(file, data + total, static_cast<DWORD>(size.QuadPart - total), &read, nullptr) || !read)
-            break;
-        total += read;
-    }
-    CloseHandle(file);
-    if (!data || total != size.QuadPart) {
-        if (data)
-            VirtualFree(data, 0, MEM_RELEASE);
+    if (!application_image_file_read(path, &data, &total, error))
         return false;
-    }
     // The module prepares (crops/resizes) the image the same way at submit.
     Picked picked{data, total, {}};
     GuildAssetRequest probe{};
@@ -341,7 +294,7 @@ bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
                             : RestClientSubmitResult{RestClientSubmitError::invalid_input};
     if (!probed.ok() || picked.info.error != GuildImageError::none) {
         *error = image_error(picked.info.error);
-        SecureZeroMemory(data, total);
+        secure_clear_bytes(data, total);
         VirtualFree(data, 0, MEM_RELEASE);
         return false;
     }
@@ -392,8 +345,6 @@ void default_server_name(Bank& bank) noexcept {
     } else
         bank.add(utf8_literal("My server"));
 }
-
-// Projection ------------------------------------------------------------------
 
 void push(const UiSettingsControl& control,
           UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
@@ -591,8 +542,6 @@ bool repaint() noexcept {
     return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-// Actions ---------------------------------------------------------------------
-
 void open_menu(Menu menu, UiRect anchor) noexcept {
     auto& p = *owner;
     const bool expiry = menu == Menu::expiry;
@@ -641,8 +590,6 @@ void save_folder() noexcept {
     p.status = utf8_literal("This folder couldn't be saved.");
 }
 void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const auto target = activation.value.target;
     switch (target.kind) {
@@ -719,8 +666,6 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     repaint();
 }
 void choose(SettingsLayer*, u32 action) noexcept {
-    if (!owner)
-        return;
     auto& p = *owner;
     const Menu menu = p.menu;
     p.menu = Menu::none;
@@ -736,14 +681,14 @@ void choose(SettingsLayer*, u32 action) noexcept {
     repaint();
 }
 bool edited(SettingsLayer*, u64 control) noexcept {
-    if (!owner || control != control_name)
+    if (control != control_name)
         return false;
     owner->failed = false;
     return true;
 }
 bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
                  bool* multiline) noexcept {
-    if (!owner || control != control_name || owner->mode == Mode::invite)
+    if (control != control_name || owner->mode == Mode::invite)
         return false;
     *model = &owner->model;
     *binding = &owner->binding;
@@ -775,7 +720,7 @@ bool ensure_owner() noexcept {
     return true;
 }
 bool can_open() noexcept {
-    return available() && g_app.renderer_ready && !g_app.text_form && !application_channel_overview_active() &&
+    return application_account_available() && g_app.renderer_ready && !g_app.text_form && !application_channel_overview_active() &&
            ensure_owner() && !busy();
 }
 // Callers check can_open() and fill their mode's fields first.
@@ -794,7 +739,6 @@ bool open_modal(Mode mode, Utf8View title, u64 focus) noexcept {
     p.menu = Menu::none;
     p.account_scope = g_app.plugin_account_scope_serial;
     p.profile_id = g_app.account.status.profile_id;
-    p.previous_focus = g_app.context_focus;
     p.queued = p.failed = false;
     p.op = Op::none;
     p.status = {};
@@ -828,8 +772,6 @@ bool open_modal(Mode mode, Utf8View title, u64 focus) noexcept {
     return false;
 }
 
-// Leave server ----------------------------------------------------------------
-
 bool leave_valid(TextFormOwnerKey key) noexcept {
     return background_scope() && key.scope == g_background.account_scope && g_background.leave_dialog &&
            key.item == g_background.leave_guild;
@@ -844,7 +786,6 @@ bool leave_save(TextFormOwnerKey key, Utf8View) noexcept {
     if (b.leave_queued || b.leave_request)
         return false;
     b.leave_queued = true;
-    b.leave_failed = false;
     b.leave_status = utf8_literal("Leaving\xE2\x80\xA6");
     ++b.leave_revision;
     pump_message_history();
@@ -867,8 +808,6 @@ void leave_closed(TextFormOwnerKey) noexcept {
     // An unsent leave is dropped with its dialog; one in flight finishes.
     g_background.leave_queued = false;
 }
-
-// Join a server -----------------------------------------------------------------
 
 bool join_valid(TextFormOwnerKey key) noexcept {
     return background_scope() && key.scope == g_background.account_scope && g_background.join_dialog;
@@ -930,8 +869,6 @@ void join_closed(TextFormOwnerKey) noexcept {
     g_background.join_dialog = false;
 }
 
-// Responses ---------------------------------------------------------------------
-
 struct IdParse {
     u64 id;
     bool seen;
@@ -962,10 +899,8 @@ Utf8View failure(const RestClientResponse& response) noexcept {
 }
 } // namespace
 
-// Public entry points -----------------------------------------------------------
-
 bool application_guild_lifecycle_open_invite(u64 guild_id) noexcept {
-    if (!available() || !g_app.account.api.guild_admin)
+    if (!application_account_available() || !g_app.account.api.guild_admin)
         return false;
     const auto& s = state();
     const auto* guild = chat_state_store_find_guild(s, guild_id);
@@ -1023,7 +958,7 @@ bool application_guild_lifecycle_open_folder(u64 folder_id) noexcept {
 }
 
 bool application_guild_lifecycle_open_privacy(u64 guild_id) noexcept {
-    const auto* guild = available() ? chat_state_store_find_guild(state(), guild_id) : nullptr;
+    const auto* guild = application_account_available() ? chat_state_store_find_guild(state(), guild_id) : nullptr;
     if (!guild || guild->unavailable || !can_open())
         return false;
     owner->guild_id = guild_id;
@@ -1035,7 +970,7 @@ bool application_guild_lifecycle_open_privacy(u64 guild_id) noexcept {
 }
 
 bool application_guild_lifecycle_open_join() noexcept {
-    if (!available() || !background_scope() || g_app.text_form || application_channel_overview_active())
+    if (!application_account_available() || !background_scope() || g_app.text_form || application_channel_overview_active())
         return false;
     auto& b = g_background;
     b.join_status = {};
@@ -1062,7 +997,7 @@ bool application_guild_lifecycle_open_join() noexcept {
 }
 
 bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
-    if (!available() || !background_scope() || g_app.text_form || !g_app.account.api.guild_admin)
+    if (!application_account_available() || !background_scope() || g_app.text_form || !g_app.account.api.guild_admin)
         return false;
     const auto& s = state();
     const auto* guild = chat_state_store_find_guild(s, guild_id);
@@ -1073,7 +1008,7 @@ bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
         return false;
     b.leave_guild = guild_id;
     b.leave_owner = guild_context_owner(s, guild_id);
-    b.leave_done = b.leave_failed = b.leave_queued = false;
+    b.leave_done = b.leave_queued = false;
     b.leave_status = {};
     ++b.leave_revision;
     const Utf8View name = chat_state_store_guild_name(s, *guild);
@@ -1116,7 +1051,7 @@ bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
 }
 
 bool application_guild_lifecycle_reorder_channels(u64 guild_id, ConstSlice<GuildAdminPosition> positions) noexcept {
-    if (!available() || !background_scope() || !guild_id || !positions.data || !positions.count ||
+    if (!application_account_available() || !background_scope() || !guild_id || !positions.data || !positions.count ||
         positions.count > kGuildAdminMaximumPositions || !g_app.account.api.guild_admin)
         return false;
     auto& b = g_background;
@@ -1176,7 +1111,7 @@ void application_guild_lifecycle_close(bool restore_focus) noexcept {
     owner->layer.entrance_started = 0;
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
     ui_settings_scene_close(&owner->scene);
-    if (restore_focus && available())
+    if (restore_focus && application_account_available())
         g_app.context_focus = &g_app.shell_scene.widgets;
     application_sync_attachment_drop_target();
     if (g_app.renderer_ready)
@@ -1209,7 +1144,7 @@ void application_guild_lifecycle_release() noexcept {
     release_icon();
     ui_settings_scene_release(&owner->scene);
     message_composer_release(&owner->model);
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }
@@ -1280,7 +1215,7 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         GuildAdminRequest request{};
         request.operation = GuildAdminOperation::guild_leave;
         request.guild_id = b.leave_guild;
-        const u64 id = next_request_id();
+        const u64 id = application_next_request_id();
         const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
         if (submitted.error == RestClientSubmitError::busy) {
             b.leave_retry = deadline_after(now, 50);
@@ -1289,7 +1224,6 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         b.leave_queued = false;
         if (!submitted.ok()) {
             b.leave_status = utf8_literal("Couldn't leave this server. Try again.");
-            b.leave_failed = true;
             ++b.leave_revision;
             return false;
         }
@@ -1302,7 +1236,7 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         request.operation = GuildAdminOperation::channel_reorder;
         request.guild_id = b.reorder_guild;
         request.positions = {b.positions, b.position_count};
-        const u64 id = next_request_id();
+        const u64 id = application_next_request_id();
         const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
         if (submitted.error == RestClientSubmitError::busy) {
             b.reorder_retry = deadline_after(now, 50);
@@ -1327,7 +1261,7 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         repaint();
         return false;
     }
-    const u64 id = next_request_id();
+    const u64 id = application_next_request_id();
     RestClientSubmitResult submitted{RestClientSubmitError::invalid_input};
     if (p.op == Op::invite) {
         InviteCreate options{kGuildInviteExpirySeconds[p.expiry], kGuildInviteUses[p.uses], p.temporary, false};
@@ -1380,7 +1314,6 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
         } else {
             const auto text = failure(response);
             b.leave_status = text.bytes ? text : utf8_literal("Couldn't leave this server. Try again.");
-            b.leave_failed = true;
         }
         ++b.leave_revision;
         application_request_frame();

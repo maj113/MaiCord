@@ -3,7 +3,8 @@
 
 #include "maicord/app/account_profile.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -75,7 +76,7 @@ file_persistence_write_atomic(const wchar_t* path, u32 path_characters,
 
 __declspec(noinline) void file_persistence_secure_release(u8* bytes, u32 count) noexcept {
     if (bytes) {
-        SecureZeroMemory(bytes, count);
+        secure_clear_bytes(bytes, count);
         VirtualFree(bytes, 0, MEM_RELEASE);
     }
 }

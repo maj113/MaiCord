@@ -2,12 +2,12 @@
 #include "maicord/app/voice_transmit.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
 struct Layout {
-    u32 encoder, levels, stream, total;
+    u32 levels, stream, total;
 };
 constexpr u32 align(u32 value, u32 alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
@@ -15,7 +15,6 @@ constexpr u32 align(u32 value, u32 alignment) noexcept {
 Layout layout() noexcept {
     Layout l{};
     const u32 encoder = opus_encoder_storage_bytes(1);
-    l.encoder = 0;
     l.levels = align(encoder, 64);
     l.stream = align(l.levels + kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames, 64);
     const u64 stream = ogg_opus_writer_capacity(kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames,
@@ -86,7 +85,7 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     r->frame_levels = r->block + l.levels;
     r->gain_q16 = (minimum<u32>(gain_percent, 200) << 16) / 100;
     u32 lookahead = 0;
-    if (!opus_encoder_initialize(&r->encoder, {r->block + l.encoder, l.levels}, 1).ok() ||
+    if (!opus_encoder_initialize(&r->encoder, {r->block, l.levels}, 1).ok() ||
         !opus_encoder_bitrate(&r->encoder, kVoiceMessageBitrate).ok() ||
         !opus_encoder_vbr_constraint(&r->encoder, true).ok() || !opus_encoder_inband_fec(&r->encoder, false).ok() ||
         !opus_encoder_packet_loss(&r->encoder, 0).ok() || !opus_encoder_complexity(&r->encoder, 10).ok() ||
@@ -186,7 +185,7 @@ void voice_message_recorder_release(VoiceMessageRecorder* r) noexcept {
                                 ? static_cast<u32>(r->writer.output.data - r->block) + r->writer.used +
                                       kOggOpusWriterPageHeaderBytes + 255 + r->writer.staged
                                 : r->block_bytes;
-        SecureZeroMemory(r->block, minimum(touched, r->block_bytes));
+        secure_clear_bytes(r->block, minimum(touched, r->block_bytes));
         VirtualFree(r->block, 0, MEM_RELEASE);
     }
     const auto error = r->error;

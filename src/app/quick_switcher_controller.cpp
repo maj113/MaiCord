@@ -7,9 +7,6 @@
 
 namespace maicord {
 namespace {
-bool same_scope(QuickSwitcherScope a, QuickSwitcherScope b) noexcept {
-    return a.account_serial == b.account_serial && a.profile_key == b.profile_key && a.self_user_id == b.self_user_id;
-}
 QuickSwitcherSourceStamp stamp(QuickSwitcherSources sources, QuickSwitcherMode mode = QuickSwitcherMode::navigation) noexcept {
     QuickSwitcherSourceStamp value{}; value.sources = sources;
     if (sources.state) {
@@ -295,9 +292,9 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
     const bool valid = valid_scope(scope, sources) && query.bytes <= kQuickSwitcherQueryMaximumBytes &&
         (!query.bytes || query.data) && utf8_validate(query).valid;
     if (c->initialized && c->mode == mode && c->forwarding_age_restricted == forwarding_age_restricted &&
-        valid && same_scope(c->scope, scope) && same_stamp(c->stamp, versions) &&
+        valid && quick_switcher_scope_equal(c->scope, scope) && same_stamp(c->stamp, versions) &&
         c->query_bytes == query.bytes && bytes_equal(c->query, query.data, query.bytes)) return false;
-    if (!same_scope(c->scope, scope)) c->recent_count = 0;
+    if (!quick_switcher_scope_equal(c->scope, scope)) c->recent_count = 0;
     c->scope = scope; c->stamp = versions; c->initialized = true;
     c->mode = mode;
     c->forwarding_age_restricted = forwarding_age_restricted;
@@ -381,7 +378,7 @@ bool quick_switcher_visit(QuickSwitcherController* c, QuickSwitcherScope scope,
     if (!c || !valid_scope(scope, sources)) return false;
     const auto* channel = chat_state_store_find_channel(*sources.state, channel_id);
     if (!channel || !selectable(*sources.state, *channel)) return false;
-    if (!same_scope(c->scope, scope)) {
+    if (!quick_switcher_scope_equal(c->scope, scope)) {
         c->scope = scope; c->recent_count = 0; c->count = 0; c->initialized = false;
     }
     if (c->recent_count && c->recent_channels[0] == channel_id) return false;
@@ -397,7 +394,7 @@ bool quick_switcher_visit(QuickSwitcherController* c, QuickSwitcherScope scope,
 bool quick_switcher_current(const QuickSwitcherController& c, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u32 revision) noexcept {
     return c.initialized && revision == c.revision &&
-        valid_scope(scope, sources) && same_scope(c.scope, scope) && same_stamp(c.stamp, stamp(sources, c.mode));
+        valid_scope(scope, sources) && quick_switcher_scope_equal(c.scope, scope) && same_stamp(c.stamp, stamp(sources, c.mode));
 }
 bool quick_switcher_resolve(const QuickSwitcherController& c, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u32 index, u32 revision, QuickSwitcherTarget* target) noexcept {

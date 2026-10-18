@@ -5,11 +5,15 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Server Settings: a full-window layer over the shell with permission-gated
 // pages. Shares the channel settings lane and text input routing through
 // application_channel_overview, which forwards while this layer is active.
+// Reads a picked image file whole into a fresh VirtualAlloc allocation the caller frees; on failure
+// *error says why.
+bool application_image_file_read(ConstSlice<wchar_t> path, u8** data, u32* bytes, Utf8View* error) noexcept;
 bool application_guild_settings_available(u64 guild_id) noexcept;
 // page: 0 opens the first permitted page, else a submenu page value (falls
 // back to the first permitted page when that one is not allowed).

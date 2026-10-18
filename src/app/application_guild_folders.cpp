@@ -8,7 +8,9 @@
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -27,7 +29,6 @@ struct ApplicationGuildFolders {
     bool pending;
     bool dirty;    // settings holds an edit not yet sent
     bool edited;   // settings differs from server (sent or not)
-    bool failed;
 };
 ApplicationGuildFolders* g_folders;
 
@@ -109,6 +110,18 @@ void restore_server(ApplicationGuildFolders& folders) noexcept {
     copy_settings(folders.settings, folders.server);
     folders.dirty = folders.edited = false;
     invalidate(folders);
+}
+// Keeps a successful edit for sending; a refused one leaves the layout as the server last confirmed it.
+GuildFolderEditError commit_edit(ApplicationGuildFolders& folders, GuildFolderEditError result) noexcept {
+    if (result != GuildFolderEditError::none) {
+        if (!folders.edited)
+            copy_settings(folders.settings, folders.server);
+        return result;
+    }
+    folders.dirty = folders.edited = true;
+    folders.attempts = 0;
+    invalidate(folders);
+    return GuildFolderEditError::none;
 }
 } // namespace
 
@@ -231,17 +244,7 @@ GuildFolderEditError application_guild_folders_move(GuildFolderItem source, Guil
     const u64 folder_id = drop == GuildFolderDrop::combine && !target.folder
                               ? guild_folders_new_id(folders->settings, seed)
                               : 0;
-    const auto moved = guild_folders_move(&folders->settings, source, target, drop, folder_id);
-    if (moved != GuildFolderEditError::none) {
-        if (!folders->edited)
-            copy_settings(folders->settings, folders->server);
-        return moved;
-    }
-    folders->dirty = folders->edited = true;
-    folders->failed = false;
-    folders->attempts = 0;
-    invalidate(*folders);
-    return GuildFolderEditError::none;
+    return commit_edit(*folders, guild_folders_move(&folders->settings, source, target, drop, folder_id));
 }
 
 GuildFolderEditError application_guild_folders_edit(u64 folder_id, Utf8View name, u32 color, bool has_color) noexcept {
@@ -250,17 +253,7 @@ GuildFolderEditError application_guild_folders_edit(u64 folder_id, Utf8View name
         return GuildFolderEditError::input;
     if (!editable_layout(*folders))
         return GuildFolderEditError::capacity;
-    const auto edited = guild_folders_edit(&folders->settings, folder_id, name, color, has_color);
-    if (edited != GuildFolderEditError::none) {
-        if (!folders->edited)
-            copy_settings(folders->settings, folders->server);
-        return edited;
-    }
-    folders->dirty = folders->edited = true;
-    folders->failed = false;
-    folders->attempts = 0;
-    invalidate(*folders);
-    return GuildFolderEditError::none;
+    return commit_edit(*folders, guild_folders_edit(&folders->settings, folder_id, name, color, has_color));
 }
 
 bool application_guild_folders_pending(u64 now_ms) noexcept {
@@ -275,7 +268,6 @@ bool application_guild_folders_submit(u64 request_id, u64 now_ms) noexcept {
     const u32 bytes = guild_folders_encode_settings_patch(folders.settings, {folders.partial, sizeof(folders.partial)});
     if (!bytes) {
         log_write(LogLevel::warning, "guild_folders", "encode_failed");
-        folders.failed = true;
         restore_server(folders);
         return false;
     }
@@ -283,7 +275,7 @@ bool application_guild_folders_submit(u64 request_id, u64 now_ms) noexcept {
     request.operation = AccountSettingsOperation::settings_patch;
     request.payload = {folders.partial, bytes};
     const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
-    SecureZeroMemory(folders.partial, bytes);
+    secure_clear_bytes(folders.partial, bytes);
     if (!admitted.ok()) {
         folders.retry_at_ms = now_ms + 500;
         return false;
@@ -322,7 +314,6 @@ bool application_guild_folders_response(const RestClientResponse& response, Utf8
         return true;
     }
     log_u64(LogLevel::warning, "guild_folders", "save_failed", response.status_code);
-    folders.failed = true;
     restore_server(folders);
     return true;
 }

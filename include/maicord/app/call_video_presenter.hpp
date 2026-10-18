@@ -48,7 +48,7 @@ struct CallVideoStream {
 struct CallVideoPresenter {
     CallVideoStream streams[kCallVideoStreams];
     u32 count;
-    u64 acquired, released, presented, polled, want_changes;
+    u64 acquired, released;
 };
 struct CallVideoPumpResult {
     bool presented;    // A new picture went to the renderer.

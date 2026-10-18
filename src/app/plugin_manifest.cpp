@@ -15,30 +15,6 @@ bool text_valid(Utf8View text, u32 capacity, bool required) noexcept {
     }
     return true;
 }
-bool dll_valid(Utf8View name) noexcept {
-    if (name.bytes < 5 || name.bytes >= kNativePluginDllNameCapacity || name.data[0] == '.' ||
-        name.data[name.bytes - 4] != '.' || ascii_lower(name.data[name.bytes - 3]) != 'd' ||
-        ascii_lower(name.data[name.bytes - 2]) != 'l' || ascii_lower(name.data[name.bytes - 1]) != 'l') return false;
-    u32 stem = 0;
-    for (u32 i = 0; i < name.bytes; ++i) {
-        const char c = ascii_lower(name.data[i]);
-        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) return false;
-        if (c == '.' && i && name.data[i - 1] == '.') return false;
-        if (!stem && c == '.') stem = i;
-    }
-    const Utf8View base{name.data, stem};
-    constexpr Utf8View reserved[]{utf8_literal("con"), utf8_literal("prn"), utf8_literal("aux"), utf8_literal("nul")};
-    for (auto word : reserved) {
-        if (base.bytes != word.bytes) continue;
-        bool match = true;
-        for (u32 i = 0; i < base.bytes; ++i) if (ascii_lower(base.data[i]) != word.data[i]) match = false;
-        if (match) return false;
-    }
-    if (base.bytes == 4 && base.data[3] >= '1' && base.data[3] <= '9' &&
-        ((ascii_lower(base.data[0]) == 'c' && ascii_lower(base.data[1]) == 'o' && ascii_lower(base.data[2]) == 'm') ||
-         (ascii_lower(base.data[0]) == 'l' && ascii_lower(base.data[1]) == 'p' && ascii_lower(base.data[2]) == 't'))) return false;
-    return true;
-}
 constexpr u32 kManifestSchema = 3;
 constexpr u32 kManifestAbi = 5;
 enum Field : u32 { schema, owner, abi, name, version, description, dll, digest, permissions, min_host, publisher,
@@ -132,7 +108,7 @@ bool visit(void* context, JsonString key, JsonValue value) noexcept {
     }
     case dll:
         if (!decode(value, output.dll, sizeof(output.dll), &output.dll_bytes, true, parse)) return false;
-        if (!dll_valid({output.dll, output.dll_bytes})) { parse.error = NativePluginManifestError::dll_name; return false; }
+        if (!native_plugin_dll_name_valid({output.dll, output.dll_bytes})) { parse.error = NativePluginManifestError::dll_name; return false; }
         return true;
     case digest: {
         JsonString string{};
@@ -150,6 +126,30 @@ bool visit(void* context, JsonString key, JsonValue value) noexcept {
     }
 }
 } // namespace
+bool native_plugin_dll_name_valid(Utf8View name) noexcept {
+    if (name.bytes < 5 || name.bytes >= kNativePluginDllNameCapacity || name.data[0] == '.' ||
+        name.data[name.bytes - 4] != '.' || ascii_lower(name.data[name.bytes - 3]) != 'd' ||
+        ascii_lower(name.data[name.bytes - 2]) != 'l' || ascii_lower(name.data[name.bytes - 1]) != 'l') return false;
+    u32 stem = 0;
+    for (u32 i = 0; i < name.bytes; ++i) {
+        const char c = ascii_lower(name.data[i]);
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) return false;
+        if (c == '.' && i && name.data[i - 1] == '.') return false;
+        if (!stem && c == '.') stem = i;
+    }
+    const Utf8View base{name.data, stem};
+    constexpr Utf8View reserved[]{utf8_literal("con"), utf8_literal("prn"), utf8_literal("aux"), utf8_literal("nul")};
+    for (auto word : reserved) {
+        if (base.bytes != word.bytes) continue;
+        bool match = true;
+        for (u32 i = 0; i < base.bytes; ++i) if (ascii_lower(base.data[i]) != word.data[i]) match = false;
+        if (match) return false;
+    }
+    if (base.bytes == 4 && base.data[3] >= '1' && base.data[3] <= '9' &&
+        ((ascii_lower(base.data[0]) == 'c' && ascii_lower(base.data[1]) == 'o' && ascii_lower(base.data[2]) == 'm') ||
+         (ascii_lower(base.data[0]) == 'l' && ascii_lower(base.data[1]) == 'p' && ascii_lower(base.data[2]) == 't'))) return false;
+    return true;
+}
 bool native_plugin_path_component_valid(ConstSlice<wchar_t> part) noexcept {
     if (!part.count || part[0] == L'.' || part[part.count - 1] == L'.' || part[part.count - 1] == L' ') return false;
     u32 stem = 0;
@@ -186,7 +186,7 @@ bool native_plugin_manifest_valid(const NativePluginManifest& manifest) noexcept
         text_valid({manifest.name, manifest.name_bytes}, sizeof(manifest.name), true) &&
         text_valid({manifest.version, manifest.version_bytes}, sizeof(manifest.version), true) &&
         text_valid({manifest.description, manifest.description_bytes}, sizeof(manifest.description), false) &&
-        manifest.dll_bytes < sizeof(manifest.dll) && dll_valid({manifest.dll, manifest.dll_bytes});
+        manifest.dll_bytes < sizeof(manifest.dll) && native_plugin_dll_name_valid({manifest.dll, manifest.dll_bytes});
 }
 NativePluginManifestResult native_plugin_manifest_parse(Utf8View document, NativePluginManifest* output) noexcept {
     const ConstSlice<u8> input{reinterpret_cast<const u8*>(document.data), document.bytes};

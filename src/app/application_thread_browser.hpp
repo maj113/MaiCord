@@ -3,6 +3,7 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/scroll_host.hpp"
 #include "maicord/ui/thread_browser_scene.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationThreadBrowser;

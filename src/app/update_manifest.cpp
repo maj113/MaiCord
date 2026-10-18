@@ -103,12 +103,7 @@ UpdateManifestResult verify_manifest(Utf8View document, ConstSlice<u8> signature
         {workspace.storage.data, workspace.storage.capacity},
         {reinterpret_cast<const u8*>(admission), admission ? static_cast<u32>(sizeof(*admission)) : 0u}};
     if (structural_scratch.count > ~u32{0} / sizeof(u32)) return {UpdateManifestError::invalid_input};
-    const u32 range_count = admission ? 8u : 7u;
-    for (u32 i = 0; i < range_count; ++i) {
-        if (!byte_range_valid(ranges[i])) return {UpdateManifestError::invalid_input};
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(ranges[i], ranges[j])) return {UpdateManifestError::invalid_input};
-    }
+    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return {UpdateManifestError::invalid_input};
     const ConstSlice<u8> parts[]{
         {reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},
         {reinterpret_cast<const u8*>(document.data), document.bytes}};

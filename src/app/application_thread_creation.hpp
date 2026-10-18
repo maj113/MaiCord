@@ -1,8 +1,38 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/protocol/thread_creation.hpp"
 
 namespace maicord::app_detail {
+// The channel record a created thread's receipt describes; false when it conflicts with the stored channel
+// `old` (null when unknown).
+inline bool application_thread_creation_receipt_input(const ThreadCreationSnapshot& receipt,
+                                                      const ChannelRecord* old, ChannelInput* output) noexcept {
+    if (old && (old->parent_id != receipt.parent_id || old->guild_id != receipt.guild_id ||
+                old->type != receipt.type))
+        return false;
+    *output = {receipt.id,
+               receipt.guild_id,
+               receipt.parent_id,
+               thread_creation_name_view(receipt),
+               old ? old->position : 0,
+               old ? old->flags : 0,
+               receipt.type};
+    output->name_known = true;
+    output->last_message_known = (receipt.fields & thread_creation_last_message_known) != 0;
+    output->last_message_id = receipt.last_message_id;
+    output->thread_archived_known = output->thread_locked_known = true;
+    output->thread_archived = (receipt.fields & thread_creation_archived) != 0;
+    output->thread_locked = (receipt.fields & thread_creation_locked) != 0;
+    output->thread_active_known = true;
+    output->thread_listed_active = !output->thread_archived;
+    output->thread_self_joined_known = (receipt.fields & thread_creation_self_joined) != 0;
+    output->thread_self_joined = output->thread_self_joined_known;
+    if (output->thread_self_joined)
+        output->thread_join_seconds = thread_join_seconds_from_ms(receipt.self_join_timestamp_ms);
+    return true;
+}
 enum class ApplicationThreadCreationPhase : u8 {
     editing, queued, creating, reconcile_queued, reconciling, settled, failed, cancelled
 };

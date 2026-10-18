@@ -11,7 +11,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/render/background_fx.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -32,9 +32,6 @@ struct EffectState {
 };
 EffectState g_effects;
 
-NativePluginSdkRuntime* runtime() noexcept {
-    return g_app.plugins && g_app.plugins->sdk ? &g_app.plugins->sdk->runtime : nullptr;
-}
 bool same(BackgroundFxChoice a, BackgroundFxChoice b) noexcept {
     return a.owner_id == b.owner_id && a.effect_id == b.effect_id;
 }
@@ -85,7 +82,7 @@ bool save(BackgroundFxChoice choice) noexcept {
 u32 list(u64* signature = nullptr) noexcept {
     g_effects.count = 0;
     u64 hash = 0xcbf29ce484222325ull;
-    if (const auto* rt = runtime()) {
+    if (const auto* rt = application_plugins_runtime()) {
         NativePluginSdkEffectView views[kEffectRows]{};
         const u32 count = native_plugin_sdk_effects(*rt, {views, kEffectRows});
         for (u32 i = 0; i < count && i < kEffectRows; ++i) {
@@ -141,7 +138,7 @@ void apply_guard() noexcept {
     if (!fx.tripped)
         return;
     fx.tripped = false;
-    turn_off(runtime(), {fx.tripped_owner_id, fx.tripped_effect_id},
+    turn_off(application_plugins_runtime(), {fx.tripped_owner_id, fx.tripped_effect_id},
              utf8_literal(" was turned off because it slowed down drawing"));
 }
 
@@ -165,7 +162,7 @@ void application_plugins_fx_poll(ApplicationPluginsSdk& sdk) noexcept {
 
 void application_plugins_fx_synchronize() noexcept {
     apply_guard();
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (!g_app.renderer_ready)
         return;
     load();

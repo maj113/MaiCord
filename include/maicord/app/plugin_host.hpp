@@ -26,7 +26,6 @@ enum class NativePluginError : u8 {
 
 struct NativePluginResult {
     NativePluginError error;
-    UiPageError page_error;
     bool changed;
     constexpr bool ok() const noexcept { return error == NativePluginError::none; }
 };

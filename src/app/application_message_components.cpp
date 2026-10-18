@@ -18,7 +18,7 @@
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -84,10 +84,6 @@ struct Owner {
     bool advance;
 };
 Owner* owner{};
-
-u64 account_scope() noexcept {
-    return g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial : g_app.account.status.profile_id;
-}
 
 bool ensure_owner() noexcept {
     if (owner)
@@ -170,7 +166,7 @@ bool queue_component(const Resolved& message, u16 index, ConstSlice<Utf8View> va
     request.type = MessageInteractionType::message_component;
     if (!message_interaction_request_valid(request))
         return false;
-    owner->account_scope = account_scope();
+    owner->account_scope = application_account_scope();
     owner->message_id = message.record->id;
     owner->channel_id = message.record->channel_id;
     owner->nonce = request.nonce;
@@ -263,17 +259,8 @@ void collect_choices(const Resolved& message, u16 index) noexcept {
     }
 }
 
-bool open_select(const Resolved& message, u16 index, UiRect anchor) noexcept {
-    if (!ensure_owner())
-        return false;
-    const auto& component = message.rich->components[index];
-    owner->select_message_id = message.record->id;
-    owner->select_revision = message.record->revision;
-    owner->select_index = index;
-    owner->select_type = component.type;
-    owner->select_minimum = component.min_values;
-    owner->select_maximum = maximum<u8>(1, component.max_values);
-    collect_choices(message, index);
+// Lists the open select's choices, checked ones marked for a multiple select, with a Done row.
+bool open_select_menu(UiRect anchor, float width) noexcept {
     PopupItem items[kSelectMaximumChoices + 1]{};
     u32 count = 0;
     const bool multiple = owner->select_maximum > 1;
@@ -285,13 +272,26 @@ bool open_select(const Resolved& message, u16 index, UiRect anchor) noexcept {
     else if (multiple)
         items[count++] = {utf8_literal("Done"), kSelectDoneAction,
                           static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
-    const float width = maximum(200.0f, ui_rect_width(anchor));
-    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, message.record->id, {items, count}, anchor,
-                          application_viewport_dips(), width)
+    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, owner->select_message_id, {items, count},
+                          anchor, application_viewport_dips(), width)
              .ok())
         return false;
     set_popup_owner(PopupOwnerKind::message_components);
-    return refresh_popup_text();
+    return true;
+}
+
+bool open_select(const Resolved& message, u16 index, UiRect anchor) noexcept {
+    if (!ensure_owner())
+        return false;
+    const auto& component = message.rich->components[index];
+    owner->select_message_id = message.record->id;
+    owner->select_revision = message.record->revision;
+    owner->select_index = index;
+    owner->select_type = component.type;
+    owner->select_minimum = component.min_values;
+    owner->select_maximum = maximum<u8>(1, component.max_values);
+    collect_choices(message, index);
+    return open_select_menu(anchor, maximum(200.0f, ui_rect_width(anchor))) && refresh_popup_text();
 }
 
 bool submit_select() noexcept {
@@ -314,7 +314,7 @@ bool submit_select() noexcept {
 // Modal flow: each field is one native text form, then a type 5 submit.
 bool modal_valid(TextFormOwnerKey key) noexcept {
     return owner && owner->modal_active && key.scope == owner->account_scope && key.item == owner->modal_serial &&
-           account_scope() == owner->account_scope;
+           application_account_scope() == owner->account_scope;
 }
 bool modal_save(TextFormOwnerKey key, Utf8View text) noexcept {
     if (!modal_valid(key) || owner->modal_step >= owner->modal.field_count)
@@ -375,9 +375,8 @@ bool open_modal_step() noexcept {
         context = append_context(context, field.placeholder);
     while (context && owner->context[context - 1] == '\n')
         --context;
-    u32 title = 0;
     const Utf8View base = modal.title.bytes ? modal.title : utf8_literal("Form");
-    title = minimum<u32>(base.bytes, sizeof(owner->step_title) - 16u);
+    u32 title = minimum<u32>(base.bytes, sizeof(owner->step_title) - 16u);
     copy_bytes(owner->step_title, base.data, title);
     if (modal.field_count > 1) {
         char suffix[16] = {' ', '(', static_cast<char>('1' + owner->modal_step), ' ', 'o', 'f', ' ',
@@ -493,7 +492,7 @@ struct MediaPolicyInputs {
 };
 MediaPolicyInputs media_policy_inputs() noexcept {
     MediaPolicyInputs inputs{};
-    inputs.account_scope = account_scope();
+    inputs.account_scope = application_account_scope();
     inputs.channels = g_app.account_ui ? &g_app.account_ui->chat_state : nullptr;
     if (inputs.channels) {
         inputs.self_user_id = inputs.channels->self_user_id;
@@ -667,9 +666,9 @@ MessageMediaPolicy application_message_media_policy() noexcept {
 void application_age_gate_synchronize() noexcept {
     if (!g_app.account_ui)
         return;
-    if (age_gate.account_scope != account_scope()) {
+    if (age_gate.account_scope != application_account_scope()) {
         age_gate = {};
-        age_gate.account_scope = account_scope();
+        age_gate.account_scope = application_account_scope();
     }
     const auto* channel = age_gate_channel();
     const bool gated = channel && !age_gate_accepted(age_gate_key(*channel));
@@ -749,26 +748,14 @@ bool application_message_components_popup_action(u32 action) noexcept {
         selected.chosen = !selected.chosen;
     // Rebuild the menu with the updated checks.
     Resolved message{};
-    if (!resolve_message(owner->select_message_id, &message))
+    if (!resolve_message(owner->select_message_id, &message) ||
+        !open_select_menu(g_app.popup_scene.anchor, ui_rect_width(g_app.popup_scene.rectangle)))
         return dismiss_popup();
-    PopupItem items[kSelectMaximumChoices + 1]{};
-    u32 count = 0;
-    for (u32 i = 0; i < owner->choice_count; ++i)
-        items[count++] = {owner->choices[i].label, kSelectActionBase + i,
-                          static_cast<u16>(popup_item_enabled | (owner->choices[i].chosen ? popup_item_checked : 0))};
-    items[count++] = {utf8_literal("Done"), kSelectDoneAction,
-                      static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
-    const UiRect anchor = g_app.popup_scene.anchor;
-    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, owner->select_message_id, {items, count},
-                          anchor, application_viewport_dips(), ui_rect_width(g_app.popup_scene.rectangle))
-             .ok())
-        return dismiss_popup();
-    set_popup_owner(PopupOwnerKind::message_components);
     return refresh_popup_text();
 }
 
 void application_message_components_gateway(GatewayClientDispatchKind kind, Utf8View body) noexcept {
-    if (!owner || !g_app.account_ui || account_scope() != owner->account_scope)
+    if (!owner || !g_app.account_ui || application_account_scope() != owner->account_scope)
         return;
     if (kind == GatewayClientDispatchKind::interaction_modal_create) {
         open_modal(body);
@@ -798,7 +785,7 @@ void application_message_components_message(u64 message_id) noexcept {
 
 bool application_message_components_pending(u64 now_ms) noexcept {
     return owner && owner->phase == Phase::queued && owner->retry_at_ms <= now_ms && g_app.account_ui &&
-           g_app.account.api.message_interaction && account_scope() == owner->account_scope;
+           g_app.account.api.message_interaction && application_account_scope() == owner->account_scope;
 }
 
 bool application_message_components_submit(u64 request_id, u64 now_ms) noexcept {
@@ -842,7 +829,7 @@ void application_message_components_tick(u64 now_ms) noexcept {
     }
     if (!owner)
         return;
-    if (account_scope() != owner->account_scope && (owner->phase != Phase::idle || owner->modal_active)) {
+    if (application_account_scope() != owner->account_scope && (owner->phase != Phase::idle || owner->modal_active)) {
         owner->modal_active = false;
         finish(false);
         return;
@@ -880,7 +867,7 @@ void application_message_components_release() noexcept {
     if (!owner)
         return;
     message_scene_set_interaction(&g_app.message_scene, {});
-    SecureZeroMemory(owner, sizeof(Owner));
+    secure_clear_bytes(owner, sizeof(Owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }

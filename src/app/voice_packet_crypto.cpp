@@ -3,7 +3,6 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -94,7 +93,7 @@ VoicePacketResult voice_packet_seal(VoicePacketCrypto& crypto, u64 generation, C
               {plaintext.data + layout.clear_bytes, body}, {packet.data + layout.clear_bytes, body},
               packet.data + plaintext.count, true);
     if (!encrypted.ok()) {
-        SecureZeroMemory(packet.data, required);
+        secure_clear_bytes(packet.data, required);
         return failure(VoicePacketError::crypto, encrypted);
     }
     if (packet.data != plaintext.data)
@@ -122,14 +121,14 @@ VoicePacketResult voice_packet_open(VoicePacketCrypto& crypto, u64 generation, C
         crypto, {nonce, 24}, {packet.data, header.clear_bytes}, {packet.data + header.clear_bytes, body},
         {plaintext.data + header.clear_bytes, body}, const_cast<u8*>(packet.data + bytes), false);
     if (!decrypted.ok()) {
-        SecureZeroMemory(plaintext.data, bytes);
+        secure_clear_bytes(plaintext.data, bytes);
         return failure(VoicePacketError::crypto, decrypted);
     }
     if (plaintext.data != packet.data)
         copy_bytes(plaintext.data, packet.data, header.clear_bytes);
     MediaPacketLayout layout{};
     if (!media_packet_plaintext({plaintext.data, bytes}, &layout)) {
-        SecureZeroMemory(plaintext.data, bytes);
+        secure_clear_bytes(plaintext.data, bytes);
         return failure(VoicePacketError::malformed_packet);
     }
     return {bytes, counter, layout, {}, VoicePacketError::none};

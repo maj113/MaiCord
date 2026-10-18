@@ -8,9 +8,6 @@
 
 namespace maicord::app_detail {
 namespace {
-bool logout_blocks_captcha() noexcept {
-    return application_account_logout_blocked() || application_account_logout_host_owned();
-}
 // The replayed request is pending again; show the state of the original flow.
 void present_submitted() noexcept {
     auto& login = g_app.login;
@@ -46,7 +43,7 @@ void application_captcha_auth_reset() noexcept {
 }
 
 bool application_login_begin_captcha_bridge() noexcept {
-    if (logout_blocks_captcha())
+    if (application_account_logout_locked())
         return false;
     if (application_login_auth_cooldown_active())
         return true;
@@ -83,7 +80,7 @@ bool application_login_begin_captcha_bridge() noexcept {
 }
 
 bool application_captcha_auth_pump() noexcept {
-    if (logout_blocks_captcha())
+    if (application_account_logout_locked())
         return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
@@ -131,7 +128,7 @@ bool application_captcha_auth_pump() noexcept {
         const bool copied = secure_buffer_initialize(&url, kCaptchaBridgeMaximumUrlBytes).ok() &&
                             host.api.login_copy_captcha_bridge_url(instance, epoch, &url).ok();
         const auto current = [&]() noexcept {
-            return !logout_blocks_captcha() && !application_login_auth_cooldown_active() &&
+            return !application_account_logout_locked() && !application_login_auth_cooldown_active() &&
                    epoch == login.captcha_generation && host.module == module &&
                    host.login_instance == instance && login.visible && login.status != LoginStatus::cancelling;
         };
@@ -154,7 +151,7 @@ bool application_captcha_auth_pump() noexcept {
 
 u64 application_login_captcha_deadline() noexcept {
     const auto& login = g_app.login;
-    return !logout_blocks_captcha() && login.visible && login.captcha_generation && g_app.account.login_instance &&
+    return !application_account_logout_locked() && login.visible && login.captcha_generation && g_app.account.login_instance &&
                    !g_app.account.stop_failed
                ? login.captcha_deadline_ms
                : 0;

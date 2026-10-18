@@ -1,7 +1,7 @@
 #include "maicord/app/message_attachment_drafts.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {
 constexpr u32 kPayloadBytes = ((kNativeFilePickerMaximumPathUnits + 1) * sizeof(wchar_t) +
@@ -150,7 +150,7 @@ bool message_attachment_drafts_uploaded(MessageAttachmentDraftStore* store, u64 
     if (!commit(store, record, id, offset + uploaded_filename.bytes)) return false;
     copy_bytes(payload(store, id) + offset, uploaded_filename.data, uploaded_filename.bytes);
     if (uploaded_filename.bytes < record->uploaded_filename_bytes)
-        SecureZeroMemory(payload(store, id) + offset + uploaded_filename.bytes, record->uploaded_filename_bytes - uploaded_filename.bytes);
+        secure_clear_bytes(payload(store, id) + offset + uploaded_filename.bytes, record->uploaded_filename_bytes - uploaded_filename.bytes);
     record->uploaded_filename_bytes = static_cast<u16>(uploaded_filename.bytes);
     record->uploaded_bytes = record->source.bytes;
     record->phase = MessageAttachmentDraftPhase::ready; ++store->revision;
@@ -180,7 +180,7 @@ bool message_attachment_drafts_describe(MessageAttachmentDraftStore* store, u64 
     if (description.bytes && !commit(store, record, id, offset + description.bytes)) return false;
     if (description.bytes) copy_bytes(payload(store, id) + offset, description.data, description.bytes);
     if (description.bytes < record->description_bytes)
-        SecureZeroMemory(payload(store, id) + offset + description.bytes, record->description_bytes - description.bytes);
+        secure_clear_bytes(payload(store, id) + offset + description.bytes, record->description_bytes - description.bytes);
     record->description_bytes = static_cast<u16>(description.bytes); record->spoiler = spoiler; ++store->revision;
     return true;
 }
@@ -206,13 +206,13 @@ bool message_attachment_drafts_rename(MessageAttachmentDraftStore* store, u64 id
     const u32 new_end = filename.bytes + (description_bytes ? kAttachmentUploadMaximumUploadedFilenameBytes + description_bytes : uploaded_bytes);
     bool ok = commit(store, record, id, name_offset(*record) + new_end);
     if (ok) {
-        SecureZeroMemory(strings, old_end);
+        secure_clear_bytes(strings, old_end);
         copy_bytes(strings, filename.data, filename.bytes);
         copy_bytes(strings + filename.bytes, uploaded, uploaded_bytes);
         copy_bytes(strings + filename.bytes + kAttachmentUploadMaximumUploadedFilenameBytes, description, description_bytes);
         record->filename_bytes = static_cast<u16>(filename.bytes); ++store->revision;
     }
-    SecureZeroMemory(uploaded, sizeof(uploaded)); SecureZeroMemory(description, sizeof(description));
+    secure_clear_bytes(uploaded, sizeof(uploaded)); secure_clear_bytes(description, sizeof(description));
     return ok;
 }
 bool message_attachment_drafts_mark_queued(MessageAttachmentDraftStore* store, ConstSlice<u64> ids, u64 nonce) noexcept {
@@ -243,7 +243,7 @@ u32 message_attachment_drafts_remove_nonce(MessageAttachmentDraftStore* store, u
 bool message_attachment_drafts_remove(MessageAttachmentDraftStore* store, u64 id) noexcept {
     auto* record = message_attachment_drafts_get(store, id);
     if (!record) return false;
-    SecureZeroMemory(payload(store, id), record->committed_bytes);
+    secure_clear_bytes(payload(store, id), record->committed_bytes);
     if (!VirtualFree(payload(store, id), record->committed_bytes, MEM_DECOMMIT)) return false;
     store->committed_bytes -= record->committed_bytes;
     const u32 generation = record->generation;

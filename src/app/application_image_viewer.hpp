@@ -4,6 +4,7 @@
 #include "maicord/media/asset.hpp"
 #include "application_search.hpp"
 #include "maicord/ui/message_scene.hpp"
+#include "maicord/core/win32_types.hpp"
 namespace maicord::app_detail {
 // One previewable message item. Video keys are bound when the item becomes
 // current, because the playback session owns their decode identity.

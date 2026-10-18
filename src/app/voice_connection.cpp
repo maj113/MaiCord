@@ -13,12 +13,20 @@ void fail(VoiceConnection* connection, VoiceConnectionError error, const char* r
     voice_log(kError, reason, "error", static_cast<u64>(error), "detail", detail, "stream",
               connection->stream_context);
 }
+void abort_call(VoiceConnection* connection, VoiceConnectionError error, const char* reason,
+                u64 detail = 0) noexcept {
+    fail(connection, error, reason, detail);
+    voice_connection_stop(connection);
+}
+// The gateway socket is identified, open and not closing.
+bool socket_live(const VoiceConnection& connection) noexcept {
+    return connection.identify_submitted && connection.socket.phase == VoiceSocketPhase::open &&
+           !connection.socket.pending_close && !connection.socket.stop_requested;
+}
 bool current_media_transport(const VoiceConnection& connection, u64 setup_generation,
                              u64 ready_revision) noexcept {
-    return setup_generation && ready_revision && connection.identify_submitted &&
-           connection.media.has_description && connection.socket.phase == VoiceSocketPhase::open &&
-           !connection.socket.pending_close && !connection.socket.stop_requested &&
-           setup_generation == connection.socket.setup_generation &&
+    return setup_generation && ready_revision && socket_live(connection) &&
+           connection.media.has_description && setup_generation == connection.socket.setup_generation &&
            ready_revision == connection.ready_revision && connection.udp_revision == ready_revision &&
            connection.media.packets.generation == ready_revision &&
            connection.udp.phase == VoiceUdpPhase::ready && connection.udp.socket.open;
@@ -298,9 +306,7 @@ u32 offered_cipher(const VoiceConnection& connection) noexcept {
                : 0;
 }
 bool can_select(const VoiceConnection& connection) noexcept {
-    return connection.identify_submitted && connection.socket.phase == VoiceSocketPhase::open &&
-           !connection.socket.pending_close && !connection.socket.stop_requested &&
-           connection.media.has_ready && !connection.media.selected_mode &&
+    return socket_live(connection) && connection.media.has_ready && !connection.media.selected_mode &&
            !connection.media.has_description && connection.ready_revision &&
            connection.udp_revision == connection.ready_revision &&
            connection.udp.phase == VoiceUdpPhase::ready && connection.udp.socket.open;
@@ -335,9 +341,7 @@ bool voice_connection_protocol_submitted(VoiceConnection* connection, const Voic
 VoiceMediaSetupError voice_connection_description(VoiceConnection* connection, JsonValue data,
                                                   Slice<u32> scratch, u32 maximum_depth,
                                                   u64 now_ms) noexcept {
-    if (!connection || !connection->identify_submitted ||
-        connection->socket.phase != VoiceSocketPhase::open || connection->socket.pending_close ||
-        connection->socket.stop_requested || !connection->ready_revision ||
+    if (!connection || !socket_live(*connection) || !connection->ready_revision ||
         connection->udp_revision != connection->ready_revision ||
         connection->udp.phase != VoiceUdpPhase::ready || !connection->udp.socket.open ||
         deadline_due(now_ms, connection->protocol_deadline_ms))
@@ -363,9 +367,7 @@ bool voice_connection_owns(const VoiceConnection& connection,
 }
 VoiceParticipantsResult voice_connection_participant(VoiceConnection* connection, u8 opcode, JsonValue data,
                                                      Slice<u32> scratch, u32 maximum_depth) noexcept {
-    if (!connection || !connection->identify_submitted ||
-        connection->socket.phase != VoiceSocketPhase::open || connection->socket.pending_close ||
-        connection->socket.stop_requested)
+    if (!connection || !socket_live(*connection))
         return {VoiceParticipantsError::invalid_input};
     return voice_participants_event(&connection->participants, connection->socket.setup_generation, opcode,
                                     data, scratch, maximum_depth);
@@ -373,9 +375,8 @@ VoiceParticipantsResult voice_connection_participant(VoiceConnection* connection
 bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive_buffer,
                                   Slice<u8> send_buffer, VoiceMappedMediaReceive receive,
                                   void* context, u32 receive_slots) noexcept {
-    if (!connection || !receive || !connection->identify_submitted || !connection->media.has_description ||
-        connection->socket.phase != VoiceSocketPhase::open || connection->socket.pending_close ||
-        connection->socket.stop_requested || connection->ready_revision != connection->udp_revision)
+    if (!connection || !receive || !socket_live(*connection) || !connection->media.has_description ||
+        connection->ready_revision != connection->udp_revision)
         return false;
     const bool started = voice_udp_media_begin(&connection->media_io, &connection->udp,
                                                &connection->media.packets, connection->ready_revision,
@@ -387,11 +388,9 @@ bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive
         connection->unannounced_rtp_packets = 0;
         voice_log(kInfo, "media_started", "slots", receive_slots, "stream", connection->stream_context);
     }
-    if (!started && connection->media_io.error != VoiceUdpMediaError::none) {
-        fail(connection, VoiceConnectionError::datagram, "media_start_failed",
-             static_cast<u64>(connection->media_io.error));
-        voice_connection_stop(connection);
-    }
+    if (!started && connection->media_io.error != VoiceUdpMediaError::none)
+        abort_call(connection, VoiceConnectionError::datagram, "media_start_failed",
+                   static_cast<u64>(connection->media_io.error));
     return started;
 }
 bool voice_connection_media_current(const VoiceConnection& connection,
@@ -412,17 +411,13 @@ bool voice_connection_media_current(const VoiceConnection& connection,
 }
 VoiceUdpMediaSend voice_connection_media_send(VoiceConnection* connection, u64 ready_revision,
                                               ConstSlice<u8> plaintext) noexcept {
-    if (!connection || !connection->identify_submitted || !connection->media.has_description ||
-        connection->socket.phase != VoiceSocketPhase::open || connection->socket.pending_close ||
-        connection->socket.stop_requested || connection->ready_revision != ready_revision ||
-        connection->udp_revision != ready_revision)
+    if (!connection || !socket_live(*connection) || !connection->media.has_description ||
+        connection->ready_revision != ready_revision || connection->udp_revision != ready_revision)
         return VoiceUdpMediaSend::invalid;
     const auto result = voice_udp_media_send(&connection->media_io, ready_revision, plaintext);
-    if (result == VoiceUdpMediaSend::failed) {
-        fail(connection, VoiceConnectionError::datagram, "media_send_failed",
-             static_cast<u64>(connection->media_io.error));
-        voice_connection_stop(connection);
-    }
+    if (result == VoiceUdpMediaSend::failed)
+        abort_call(connection, VoiceConnectionError::datagram, "media_send_failed",
+                   static_cast<u64>(connection->media_io.error));
     return result;
 }
 namespace {
@@ -582,8 +577,7 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
     }
     if (connection->socket.setup_generation == credentials.generation &&
         deadline_due(now_ms, connection->protocol_deadline_ms)) {
-        fail(connection, VoiceConnectionError::protocol_timeout, "select_protocol_timeout");
-        voice_connection_stop(connection);
+        abort_call(connection, VoiceConnectionError::protocol_timeout, "select_protocol_timeout");
         return;
     }
     if (connection->socket.setup_generation != credentials.generation) {
@@ -607,8 +601,7 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
         connection->reconnect_deadline_ms = 0;
         GatewayEndpoint endpoint{};
         if (voice_gateway_endpoint(credentials.endpoint, &endpoint) != GatewayEndpointError::none) {
-            fail(connection, VoiceConnectionError::endpoint, "endpoint_invalid");
-            voice_connection_stop(connection);
+            abort_call(connection, VoiceConnectionError::endpoint, "endpoint_invalid");
             return;
         }
         if (!prepare(connection, credentials, true)) {
@@ -617,8 +610,7 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
         }
         if (!voice_socket_begin(&connection->socket, loop, endpoint, credentials.generation, 128 * 1024,
                                 event, connection, now_ms, true)) {
-            fail(connection, VoiceConnectionError::socket, "socket_begin_failed", 1);
-            voice_connection_stop(connection);
+            abort_call(connection, VoiceConnectionError::socket, "socket_begin_failed", 1);
             return;
         }
         connection->resumed = true;
@@ -652,8 +644,7 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
             return;
         if (!voice_socket_begin(&connection->socket, loop, endpoint, credentials.generation, 128 * 1024,
                                 event, connection, now_ms)) {
-            fail(connection, VoiceConnectionError::socket, "socket_begin_failed");
-            voice_connection_stop(connection);
+            abort_call(connection, VoiceConnectionError::socket, "socket_begin_failed");
             return;
         }
     }
@@ -678,30 +669,27 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
             if (!voice_udp_begin(
                     &connection->udp, loop, reinterpret_cast<const sockaddr*>(&connection->media.endpoint),
                     static_cast<i32>(connection->media.endpoint_bytes), connection->media.ssrc, now_ms)) {
-                fail(connection, VoiceConnectionError::datagram, "udp_begin_failed");
-                voice_connection_stop(connection);
+                abort_call(connection, VoiceConnectionError::datagram, "udp_begin_failed");
                 return;
             }
         }
         voice_udp_tick(&connection->udp, now_ms);
         if (connection->udp.error != VoiceUdpError::none) {
-            fail(connection, VoiceConnectionError::datagram, "udp_discovery_failed",
-                 static_cast<u64>(connection->udp.error));
-            voice_connection_stop(connection);
+            abort_call(connection, VoiceConnectionError::datagram, "udp_discovery_failed",
+                       static_cast<u64>(connection->udp.error));
             return;
         }
         if (connection->udp.phase == VoiceUdpPhase::ready && !connection->media.has_description) {
             if (!connection->media.selected_mode && !offered_cipher(*connection)) {
-                fail(connection, VoiceConnectionError::protocol, "no_supported_cipher",
-                     connection->media.offered_modes);
-                voice_connection_stop(connection);
+                abort_call(connection, VoiceConnectionError::protocol, "no_supported_cipher",
+                           connection->media.offered_modes);
                 return;
             }
             if (!connection->protocol_deadline_ms)
                 connection->protocol_deadline_ms = deadline_after(now_ms, 20'000);
             if (now_ms >= connection->protocol_deadline_ms) {
-                fail(connection, VoiceConnectionError::protocol_timeout, "session_description_timeout");
-                voice_connection_stop(connection);
+                abort_call(connection, VoiceConnectionError::protocol_timeout,
+                           "session_description_timeout");
                 return;
             }
             // Avoid re-encoding during backpressure; socket completion/timers
@@ -711,22 +699,17 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
                 const auto command =
                     voice_connection_protocol_command(*connection, {payload, sizeof(payload)});
                 if (!command.ready_revision || !command.write.ok()) {
-                    fail(connection, VoiceConnectionError::protocol, "select_protocol_encode_failed");
-                    voice_connection_stop(connection);
+                    abort_call(connection, VoiceConnectionError::protocol, "select_protocol_encode_failed");
                     return;
                 }
                 const auto sent = voice_socket_send(&connection->socket, WebSocketOpcode::text,
                                                     {payload, command.write.bytes}, now_ms);
                 if (sent == VoiceSocketSend::accepted) {
-                    if (!voice_connection_protocol_submitted(connection, command, now_ms)) {
-                        fail(connection, VoiceConnectionError::protocol, "select_protocol_rejected");
-                        voice_connection_stop(connection);
-                    }
-                } else if (sent != VoiceSocketSend::busy) {
-                    fail(connection, VoiceConnectionError::socket, "select_protocol_send_failed",
-                         static_cast<u64>(sent));
-                    voice_connection_stop(connection);
-                }
+                    if (!voice_connection_protocol_submitted(connection, command, now_ms))
+                        abort_call(connection, VoiceConnectionError::protocol, "select_protocol_rejected");
+                } else if (sent != VoiceSocketSend::busy)
+                    abort_call(connection, VoiceConnectionError::socket, "select_protocol_send_failed",
+                               static_cast<u64>(sent));
             }
         }
     }
@@ -742,15 +725,12 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
         if (sent == VoiceSocketSend::accepted) {
             connection->identify_submitted = true;
             secure_buffer_release(&connection->command);
-        } else if (sent != VoiceSocketSend::busy) {
-            fail(connection, VoiceConnectionError::socket, "identify_send_failed", static_cast<u64>(sent));
-            voice_connection_stop(connection);
-        }
+        } else if (sent != VoiceSocketSend::busy)
+            abort_call(connection, VoiceConnectionError::socket, "identify_send_failed",
+                       static_cast<u64>(sent));
     } else if (connection->identify_submitted && connection->socket.phase == VoiceSocketPhase::open &&
-               (!voice_connection_dave_flush(connection, now_ms) || !flush_sink_wants(connection, now_ms))) {
-        fail(connection, VoiceConnectionError::socket, "signaling_send_failed");
-        voice_connection_stop(connection);
-    }
+               (!voice_connection_dave_flush(connection, now_ms) || !flush_sink_wants(connection, now_ms)))
+        abort_call(connection, VoiceConnectionError::socket, "signaling_send_failed");
 }
 void voice_connection_completion(VoiceConnection* connection, const VoiceConnectionSetup& setup,
                                  NetworkLoop* loop, const NetworkCompletion& completion,
@@ -759,10 +739,8 @@ void voice_connection_completion(VoiceConnection* connection, const VoiceConnect
         return;
     // A queued late response must not install a key before the next drive sees
     // the expired negotiation deadline. Retire first, then drain completion.
-    if (deadline_due(now_ms, connection->protocol_deadline_ms)) {
-        fail(connection, VoiceConnectionError::protocol_timeout, "select_protocol_timeout", 1);
-        voice_connection_stop(connection);
-    }
+    if (deadline_due(now_ms, connection->protocol_deadline_ms))
+        abort_call(connection, VoiceConnectionError::protocol_timeout, "select_protocol_timeout", 1);
     // Poll has already retired resolver.pending. Stop may therefore finish
     // synchronously; do not begin a new resolver in the same owner until this
     // old completion has been delivered/discarded.

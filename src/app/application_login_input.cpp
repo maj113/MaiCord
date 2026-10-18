@@ -8,6 +8,8 @@
 #include "maicord/app/login_continuations.hpp"
 #include "maicord/ui/clipboard.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 
 namespace {
@@ -30,17 +32,10 @@ bool grow_identifier() noexcept {
 }
 bool phone_input_changed(SecureEditResult result) noexcept {
     if (result != SecureEditResult::changed) return true;
-    if (g_app.login.status == LoginStatus::recovery_phone_input_invalid || g_app.login.status == LoginStatus::recovery_phone_code_rejected)
-        g_app.login.status = LoginStatus::recovery_phone_required;
+    application_login_code_edited(&g_app.login.status);
     if (!application_refresh_login_view()) return false;
-    if (login_phone_editable(g_app.login.status) && application_phone_tsf_mutation_stamp() == static_cast<u64>(g_app.login.mfa.revision) + 1 && login_phone_code_valid(
-        {reinterpret_cast<const char*>(g_app.login.mfa.storage.data), g_app.login.mfa.storage.bytes})) {
-        SecureTextComposition composition{};
-        if (secure_text_store_composition(g_app.login.text_store, &composition) && !composition.active &&
-            PostMessageW(g_app.window, kApplicationPhoneVerifyMessage,
-                static_cast<WPARAM>(g_app.login.application_auth_epoch), static_cast<LPARAM>(g_app.login.mfa.revision)))
-            application_phone_tsf_mutation_stamp() = 0;
-    }
+    if (login_phone_editable(g_app.login.status))
+        application_login_post_phone_verify();
     return true;
 }
 } // namespace
@@ -127,10 +122,8 @@ bool application_login_paste() noexcept {
             secure_edit_insert_utf8(edit, Utf8View{converted, pasted.bytes}) == SecureEditResult::changed;
     }
     SecureZeroMemory(converted, sizeof(converted));
-    if (changed && edit == &g_app.login.mfa &&
-        g_app.login.status == RendererLoginStatus::mfa_input_invalid) {
-        g_app.login.status = RendererLoginStatus::mfa_required;
-    }
+    if (changed && edit == &g_app.login.mfa)
+        application_login_code_edited(&g_app.login.status);
     return changed ? application_refresh_login_view() : true;
 }
 
@@ -231,14 +224,6 @@ bool application_login_handle_drag(WPARAM buttons, LPARAM position) noexcept {
     return true;
 }
 
-bool application_login_handle_hover(LPARAM position) noexcept {
-    if (!g_app.login.visible) {
-        return false;
-    }
-    (void)position;
-    return true;
-}
-
 bool application_login_handle_character(WPARAM character) noexcept {
     if (!g_app.login.visible) {
         return false;
@@ -259,10 +244,8 @@ bool application_login_handle_character(WPARAM character) noexcept {
         MessageBeep(MB_OK);
         return true;
     }
-    if (result == SecureEditResult::changed && edit == &g_app.login.mfa &&
-        g_app.login.status == RendererLoginStatus::mfa_input_invalid) {
-        g_app.login.status = RendererLoginStatus::mfa_required;
-    }
+    if (result == SecureEditResult::changed && edit == &g_app.login.mfa)
+        application_login_code_edited(&g_app.login.status);
     return (result == SecureEditResult::changed || result == SecureEditResult::pending_surrogate) &&
            application_refresh_login_view();
 }

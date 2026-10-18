@@ -130,11 +130,7 @@ UpdateStageResult update_stage_copy(UpdateArtifact* source, const UpdateManifest
         {reinterpret_cast<const u8*>(parent.data), parent.count * static_cast<u32>(sizeof(wchar_t))},
         {reinterpret_cast<const u8*>(name.data), name.count * static_cast<u32>(sizeof(wchar_t))},
         {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    for (u32 index = 0; index < sizeof(ranges) / sizeof(ranges[0]); ++index) {
-        if (!byte_range_valid(ranges[index])) return result(UpdateStageError::invalid_input);
-        for (u32 previous = 0; previous < index; ++previous)
-            if (byte_ranges_overlap(ranges[index], ranges[previous])) return result(UpdateStageError::invalid_input);
-    }
+    if (!byte_ranges_all_disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])})) return result(UpdateStageError::invalid_input);
     if (!source->file || source->file == INVALID_HANDLE_VALUE || output->file || !approved.version ||
         !approved.artifact_bytes || approved.artifact_bytes > kUpdateArtifactMaximumBytes ||
         !approved.artifact_name_bytes || approved.artifact_name_bytes >= kUpdateArtifactNameCapacity ||

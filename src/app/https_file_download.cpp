@@ -7,7 +7,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/cdn_url.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
 
 namespace maicord {
 namespace {
@@ -18,7 +19,7 @@ struct Runtime {
     HttpResponseStream response;
     AttachmentDownloadResponsePolicy policy;
     HttpsFileDownloadResult result;
-    SRWLOCK result_lock;
+    SrwLock result_lock;
     Clock clock;
     i64 started;
     u64 deadline, expected_bytes, notify_at;
@@ -87,7 +88,7 @@ NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
     if (r->draining || r->published) {
         const auto discarded = staged_file_discard(&r->staged);
         const u32 cleanup = discarded.ok() ? 0 : discarded.native_error;
-        AcquireSRWLockExclusive(&r->result_lock);
+        AcquireSRWLockExclusive(r->result_lock.native());
         const bool cleanup_changed = r->result.cleanup_pending != r->staged.stage_owned ||
             r->result.cleanup_native_error != cleanup;
         r->result.cleanup_pending = r->staged.stage_owned;
@@ -99,11 +100,11 @@ NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
             r->result.phase = HttpsFileDownloadPhase::complete;
             if (cleanup && r->result.error == HttpsFileDownloadError::none) r->result.error = HttpsFileDownloadError::file_cleanup;
         }
-        ReleaseSRWLockExclusive(&r->result_lock);
+        ReleaseSRWLockExclusive(r->result_lock.native());
         if (!r->published) {
             r->published = true; r->draining = false;
-            SecureZeroMemory(r->head, sizeof(r->head));
-            SecureZeroMemory(r->plaintext, sizeof(r->plaintext));
+            secure_clear_bytes(r->head, sizeof(r->head));
+            secure_clear_bytes(r->plaintext, sizeof(r->plaintext));
             phase(owner, HttpsFileDownloadPhase::complete); SetEvent(owner->notification);
         } else if (cleanup_changed) SetEvent(owner->notification);
     }
@@ -273,7 +274,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
 }
 void destroy(HttpsFileDownload* owner) noexcept {
     if (owner->notification) CloseHandle(owner->notification);
-    if (owner->runtime) { SecureZeroMemory(owner->runtime, sizeof(Runtime)); VirtualFree(owner->runtime, 0, MEM_RELEASE); }
+    if (owner->runtime) { secure_clear_bytes(owner->runtime, sizeof(Runtime)); VirtualFree(owner->runtime, 0, MEM_RELEASE); }
     *owner = {};
 }
 bool valid_path(ConstSlice<wchar_t> path) noexcept {
@@ -331,7 +332,7 @@ HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owne
     const auto current = static_cast<HttpsFileDownloadPhase>(InterlockedCompareExchange(const_cast<volatile LONG*>(&owner->phase), 0, 0));
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (current == HttpsFileDownloadPhase::complete) {
-        AcquireSRWLockShared(&r->result_lock); const auto result = r->result; ReleaseSRWLockShared(&r->result_lock); return result;
+        AcquireSRWLockShared(r->result_lock.native()); const auto result = r->result; ReleaseSRWLockShared(r->result_lock.native()); return result;
     }
     HttpsFileDownloadResult result{};
     result.phase = current;

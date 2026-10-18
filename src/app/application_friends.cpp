@@ -15,6 +15,7 @@
 #include "application_image_viewer.hpp"
 #include "application_friends_search.hpp"
 #include "application_friends_storage.hpp"
+#include "text_edit_keys.hpp"
 #include "application_plugins.hpp"
 #include "application_user_actions.hpp"
 #include "maicord/model/active_now.hpp"
@@ -147,7 +148,7 @@ void sort_snapshot(ApplicationFriends& friends) noexcept {
     friends.snapshot_sorted = true;
 }
 bool resolve_record(const ApplicationFriends& friends, u32 index, UiFriendsRow* row, bool hidden) noexcept {
-    if (!row || !g_app.account_ui || index >= friends.store.count) return false;
+    if (!g_app.account_ui || index >= friends.store.count) return false;
     const auto& record = friends.records[index];
     const auto& users = g_app.account_ui->user_store;
     const auto* user = user_store_find(users, record.user_id);
@@ -181,7 +182,6 @@ bool requests_resolve(void* opaque, u32 index, UiFriendsRow* row) noexcept {
 }
 bool find(void* opaque, u64 id, u32* index) noexcept {
     const auto& friends = *static_cast<const ApplicationFriends*>(opaque);
-    if (!index) return false;
     for (u32 i = 0; i < friends.source.count; ++i) if (friends.records[friends.indices[i]].user_id == id) {
         *index = i; return true;
     }
@@ -189,7 +189,6 @@ bool find(void* opaque, u64 id, u32* index) noexcept {
 }
 bool requests_find(void* opaque, u64 id, u32* index) noexcept {
     const auto& friends = *static_cast<const ApplicationFriends*>(opaque);
-    if (!index) return false;
     const auto* indices = stable_storage_data<u32>(friends.requests_indices);
     for (u32 i = 0; i < friends.requests_source.count; ++i) if (friends.records[indices[i]].user_id == id) {
         *index = i;return true;
@@ -493,12 +492,12 @@ bool more(ApplicationFriends& friends, UiFriendsTarget target, UiRect anchor = {
     if (relationship->type == RelationshipType::friend_)
         items[count++] = {utf8_literal("Remove friend"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::remove),
             static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before)};
-    if (relationship->type != RelationshipType::blocked)
+    if (relationship->type != RelationshipType::blocked) {
         items[count++] = {utf8_literal("Block"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::block),
             static_cast<u16>(popup_item_enabled | popup_item_danger)};
-    if (relationship->type != RelationshipType::blocked)
         items[count++] = {relationship->ignored ? utf8_literal("Unignore") : utf8_literal("Ignore"),
             friends_popup_action_base + static_cast<u32>(relationship->ignored ? UiFriendsAction::unignore : UiFriendsAction::ignore), popup_item_enabled};
+    }
     const u32 builtins = count;
     count += application_plugins_menu_items(ApplicationPluginMenuSurface::friends, target.user_id,
         {items + count, kApplicationPluginMenuRows});
@@ -527,19 +526,22 @@ u64 captcha_subject(RelationshipOperation operation, u64 id, Utf8View username) 
         hash = (hash ^ static_cast<u8>(username.data[i])) * 1099511628211ull;
     return hash | 1;
 }
+u64 captcha_subject(const FriendsRequest& request) noexcept {
+    return captcha_subject(request.operation, request.user_id, {request.username, request.username_bytes});
+}
 // Set once a solved CAPTCHA requeued the request; its submit arms the retry.
 bool captcha_retry;
 bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, bool allow_hidden = false,
            bool unknown_target = false) noexcept {
-    const auto captcha = application_action_captcha_phase(ApplicationActionCaptchaKind::friend_request,
-                                                         captcha_subject(operation, id, username));
+    const u64 subject = captcha_subject(operation, id, username);
+    const auto captcha =
+        application_action_captcha_phase(ApplicationActionCaptchaKind::friend_request, subject);
     if (g_app.friends && (captcha == ApplicationActionCaptchaPhase::captured ||
                           captcha == ApplicationActionCaptchaPhase::failed)) {
         // Sending the same request again opens the browser challenge.
-        application_action_captcha_verify(ApplicationActionCaptchaKind::friend_request,
-                                          captcha_subject(operation, id, username));
-        g_app.friends->status = application_action_captcha_status(application_action_captcha_phase(
-            ApplicationActionCaptchaKind::friend_request, captcha_subject(operation, id, username)));
+        application_action_captcha_verify(ApplicationActionCaptchaKind::friend_request, subject);
+        g_app.friends->status = application_action_captcha_status(
+            application_action_captcha_phase(ApplicationActionCaptchaKind::friend_request, subject));
         project(*g_app.friends, true);
         repaint();
         return true;
@@ -771,7 +773,7 @@ bool search_begin(const TextInputTarget& target) noexcept {
 void search_end(const TextInputTarget& target) noexcept { text_input_end_group(search_delegate(target)); }
 constexpr TextInputOperations search_operations{search_ready, search_revision, search_length, search_selection, search_select,
     search_copy, search_replace, search_cancel, search_begin, search_end};
-bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key, bool repeated) noexcept {
+bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcept {
     auto* model = friends_search_document(&friends.search, friends.tab);
     const bool raw_control = (GetKeyState(VK_CONTROL) & 0x8000) != 0, alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
     const bool control = raw_control && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -797,8 +799,8 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key, bool re
     }
     const u32 text_revision = model->text_revision;
     MessageComposerResult result = MessageComposerResult::unchanged;
-    if (control && key == 'A') result = message_composer_select_all(model);
-    else if (control && (key == 'C' || key == 'X')) {
+    if (key == VK_BACK) friends.held_key = key;
+    if (control && (key == 'C' || key == 'X')) {
         const u32 first = minimum(model->anchor, model->caret), last = maximum(model->anchor, model->caret);
         if (last > first && clipboard_write_utf8(g_app.window, {model->text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(model, first, last, {});
@@ -812,17 +814,7 @@ bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key, bool re
             if (line) i += scalar.width;
         }
         if (line) result = message_composer_insert_utf8(model, {text, read.bytes});
-    } else if (control && key == 'Z') result = shift ? message_composer_redo(model) : message_composer_undo(model);
-    else if (control && key == 'Y') result = message_composer_redo(model);
-    else if (key == VK_BACK) { friends.held_key = key;result = control ? message_composer_delete_word(model, false) : message_composer_backspace(model); }
-    else if (key == VK_DELETE) result = control ? message_composer_delete_word(model, true) : message_composer_delete_forward(model);
-    else if (key == VK_LEFT || key == VK_RIGHT)
-        result = message_composer_move(model, control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word) :
-            (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next), shift);
-    else if (key == VK_HOME || key == VK_END)
-        result = message_composer_move(model, key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
-    else return false;
-    (void)repeated;
+    } else if (!message_composer_edit_key(model, key, control, shift, &result)) return false;
     if (result == MessageComposerResult::changed) application_friends_search_changed(text_revision != model->text_revision);
     return true;
 }
@@ -855,7 +847,7 @@ bool application_friends_search_changed(bool content) noexcept {
 }
 bool application_friends_user_relation(u64 user_id, u8* relation) noexcept {
     const auto* store = application_friends_relationships();
-    if (!store || !relation)
+    if (!store)
         return false;
     const auto* current = relationship_store_find(*store, user_id);
     *relation = !current ? 0 : current->type == RelationshipType::friend_ ? 1 : current->type == RelationshipType::incoming ? 2 :
@@ -995,8 +987,8 @@ bool application_friends_synchronize() noexcept {
 bool application_friends_pending(u64 now) noexcept {
     if (g_app.friends && g_app.friends->request.phase == FriendsRequestPhase::failed) {
         auto& request = g_app.friends->request;
-        const u64 subject = captcha_subject(request.operation, request.user_id, {request.username, request.username_bytes});
-        const auto phase = application_action_captcha_phase(ApplicationActionCaptchaKind::friend_request, subject);
+        const auto phase = application_action_captcha_phase(ApplicationActionCaptchaKind::friend_request,
+                                                            captcha_subject(request));
         if (phase == ApplicationActionCaptchaPhase::solved) {
             request.phase = FriendsRequestPhase::queued;
             captcha_retry = true;
@@ -1030,7 +1022,7 @@ bool application_friends_submit(u64 id, u64 now) noexcept {
     if (captcha_retry) {
         captcha_retry = false;
         application_action_captcha_arm(ApplicationActionCaptchaKind::friend_request,
-            captcha_subject(request.operation, request.user_id, {request.username, request.username_bytes}), id, false);
+                                       captcha_subject(request), id, false);
     }
     const auto result = g_app.account.api.relationships(g_app.account.instance, request.operation, request.user_id,
         {request.username, request.username_bytes}, id);
@@ -1116,7 +1108,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
     }
     request.phase = ok ? FriendsRequestPhase::idle : FriendsRequestPhase::failed;
     const bool captcha = !ok && application_action_captcha_capture(ApplicationActionCaptchaKind::friend_request,
-        captcha_subject(request.operation, request.user_id, {request.username, request.username_bytes}), response, body);
+        captcha_subject(request), response, body);
     friends->status = ok ? Utf8View{} :
         captcha ? utf8_literal("Discord needs a CAPTCHA first. Send again to verify in your browser.") :
         api_rejection_requires_action(response.rejection) ? utf8_literal("Verify your account to continue.") :
@@ -1228,7 +1220,7 @@ bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcep
         (g_app.profile && g_app.profile->scene.active) || g_app.reaction_viewer.active || g_app.image_viewer.scene.active) return false;
     auto& scene = input_scene(*friends);
     const bool modal = friends->requests_visible;
-    if (!modal && search_keys(*friends, kind, key, repeated)) return true;
+    if (!modal && search_keys(*friends, kind, key)) return true;
     if (modal && kind == UiInputKind::key_down && key == VK_ESCAPE) {
         friends->held_key = key;close_requests(*friends);return repaint();
     }

@@ -106,7 +106,7 @@ void project_audit(Bank& bank) noexcept {
     for (u32 i = 0; i < p.audit_count; ++i) {
         const auto& entry = p.audit[i];
         const auto* action = audit_action(entry.action_type);
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         const auto actor = user_label(entry.user_id);
         bank.add(actor.bytes ? actor : utf8_literal("Someone"));
         bank.add(utf8_literal(" "));
@@ -132,7 +132,7 @@ void project_audit(Bank& bank) noexcept {
             bank.add(utf8_literal(")"));
         }
         const auto label = bank.since(start);
-        const u32 detail = bank.mark();
+        const u32 detail = bank.used;
         relative_time(bank, (entry.id >> 22) + kSnowflakeEpochMilliseconds, now, false);
         if (entry.reason_bytes) {
             bank.add(utf8_literal(" · "));
@@ -168,11 +168,8 @@ void open_audit_menu(Menu menu, UiRect anchor) noexcept {
     auto& p = *owner;
     u32 count = 0;
     const auto item = [&](Utf8View label, bool checked) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + count;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (checked ? popup_item_checked : 0) |
-                                                      (count == 1 ? popup_item_separator_before : 0));
+        popup_row(count, label, count,
+                  (checked ? popup_item_checked : 0) | (count == 1 ? popup_item_separator_before : 0));
         ++count;
     };
     if (menu == Menu::audit_user) {
@@ -182,8 +179,7 @@ void open_audit_menu(Menu menu, UiRect anchor) noexcept {
         for (u32 i = 0; i < p.audit_user_count && count < kPopupCapacity; ++i) {
             const auto& u = p.audit_users[i];
             p.menu_users[count] = u.id;
-            item(bank.add(u.display_bytes ? Utf8View{u.display, u.display_bytes} : Utf8View{u.username, u.username_bytes}),
-                 u.id == p.audit_filter_user);
+            item(bank.add(user_name(u)), u.id == p.audit_filter_user);
         }
     } else {
         item(utf8_literal("All actions"), !p.audit_filter_action_set);

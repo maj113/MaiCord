@@ -4,7 +4,7 @@
 #include "maicord/app/voice_playback.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kSoundboardMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -56,7 +56,7 @@ __declspec(noinline) RestClientSubmitResult submit_create(RestClient* rest,
                                        reason};
         result = large ? rest_client_submit_large(rest, submit) : rest_client_submit(rest, submit);
     }
-    SecureZeroMemory(body, bytes);
+    secure_clear_bytes(body, bytes);
     VirtualFree(body, 0, MEM_RELEASE);
     return result;
 }
@@ -96,7 +96,7 @@ RestClientSubmitResult account_soundboard_submit(RestClient* rest, const Soundbo
         if (soundboard_has_body(request->operation)) {
             written = soundboard_write_body(*request, {body, sizeof(body)});
             if (!written.ok()) {
-                SecureZeroMemory(reason, encoded.bytes);
+                secure_clear_bytes(reason, encoded.bytes);
                 return {RestClientSubmitError::body_capacity};
             }
         }
@@ -109,9 +109,9 @@ RestClientSubmitResult account_soundboard_submit(RestClient* rest, const Soundbo
                                            written.bytes != 0,
                                            false,
                                            {reason, encoded.bytes}});
-        SecureZeroMemory(body, written.bytes);
+        secure_clear_bytes(body, written.bytes);
     }
-    SecureZeroMemory(reason, encoded.bytes);
+    secure_clear_bytes(reason, encoded.bytes);
     return result;
 }
 

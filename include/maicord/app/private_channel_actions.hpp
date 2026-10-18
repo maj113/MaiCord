@@ -5,7 +5,7 @@
 namespace maicord {
 struct RestClientResponse;
 enum class PrivateChannelActionPhase : u8 { idle, queued, awaiting, retry_wait, failed };
-enum class PrivateChannelActionError : u8 { none, transport, http, response, capacity };
+enum class PrivateChannelActionError : u8 { none, transport, http, response };
 // One group DM request at a time. Adding several people queues one PUT per
 // person; the gateway's CHANNEL_RECIPIENT_ADD/REMOVE and CHANNEL_UPDATE events
 // remain the authority for membership and names.

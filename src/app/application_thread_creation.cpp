@@ -11,7 +11,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -51,23 +51,20 @@ struct CreationOwner {
     u32 publication, revision, name_bytes, parent_name_bytes, checked_source_revision, busy_count;
     Phase phase;
     Operation operation;
-    bool retired, error, uncertain, reconcile_all, fix_name, terminal, release_pending, form_bound;
+    bool retired, error, uncertain, reconcile_all, fix_name, terminal, release_pending;
 };
 static_assert(sizeof(CreationOwner) <= 4096);
 CreationOwner* creation_owner{};
 u64 creation_serial{};
 u32 creation_publication{};
 
-const ChannelRecord* channel(u64 id) noexcept {
-    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id) : nullptr;
-}
 bool actor_current(const CreationSource& source) noexcept {
     return g_app.account_ui && !g_app.login.visible && source.ui == g_app.account_ui &&
         source.instance == g_app.account.instance && source.account_scope == g_app.plugin_account_scope_serial &&
         source.profile == g_app.account.status.profile_id && source.self == g_app.account_ui->chat_state.self_user_id;
 }
 bool parent_authorized(u64 id) noexcept {
-    const auto* parent = channel(id);
+    const auto* parent = application_channel_record(id);
     if (!parent || !parent->occupied || (parent->type != 0 && parent->type != 5) || !parent->guild_id ||
         !parent->permissions_resolved || (parent->flags & kChannelObfuscatedFlag)) return false;
     constexpr u32 required = channel_action_view | channel_action_read_history |
@@ -90,7 +87,7 @@ u64 content_signature(MessageHandle handle) noexcept {
     return hash64_counted_bytes(kHash64Seed, content.data, content.bytes);
 }
 bool scope_current(const CreationSource& source) noexcept {
-    const auto* parent = actor_current(source) ? channel(source.parent) : nullptr;
+    const auto* parent = actor_current(source) ? application_channel_record(source.parent) : nullptr;
     return parent && parent_authorized(source.parent) && parent->generation == source.parent_generation &&
         parent->guild_id == source.guild && source.store == &g_app.message_view.store &&
         g_app.account_ui->active_channel_id == source.parent &&
@@ -99,8 +96,8 @@ bool scope_current(const CreationSource& source) noexcept {
 }
 const ChannelRecord* known_thread(const CreationSource& source) noexcept {
     if (!actor_current(source) || !parent_authorized(source.parent)) return nullptr;
-    const auto* parent = channel(source.parent);
-    const auto* thread = channel(source.message);
+    const auto* parent = application_channel_record(source.parent);
+    const auto* thread = application_channel_record(source.message);
     return parent && parent->generation == source.parent_generation && parent->guild_id == source.guild &&
         thread && thread->occupied && thread->guild_id == source.guild && thread->parent_id == source.parent &&
         thread->type == source.thread_type && thread->thread_archived_known && thread->thread_locked_known &&
@@ -175,7 +172,6 @@ void retire(CreationOwner& owner) noexcept {
     owner.retired = true;
     publish(owner, Phase::cancelled);
     application_text_form_cancel_owner(form_valid);
-    owner.form_bound = false;
 }
 void fail(CreationOwner& owner, Utf8View status, bool uncertain = false, bool terminal = false, bool fix_name = false) noexcept {
     owner.uncertain = uncertain;
@@ -186,7 +182,7 @@ void fail(CreationOwner& owner, Utf8View status, bool uncertain = false, bool te
 }
 void free_owner() noexcept {
     if (!creation_owner) return;
-    SecureZeroMemory(creation_owner, sizeof(*creation_owner));
+    secure_clear_bytes(creation_owner, sizeof(*creation_owner));
     VirtualFree(creation_owner, 0, MEM_RELEASE);
     creation_owner = nullptr;
 }
@@ -212,7 +208,6 @@ ApplicationTextFormProgress form_progress(TextFormOwnerKey key) noexcept {
 }
 void form_closed(TextFormOwnerKey key) noexcept {
     if (!creation_owner || !form_key(*creation_owner, key)) return;
-    creation_owner->form_bound = false;
     if (creation_owner->phase != Phase::settled && creation_owner->phase != Phase::cancelled)
         retire(*creation_owner);
 }
@@ -229,28 +224,8 @@ bool settle(CreationOwner& owner) noexcept {
         ledger_remove(owner, source.message);
     }
     application_text_form_cancel_owner(form_valid);
-    owner.form_bound = false;
     if (scope_current(source) && known_thread(source))
         application_navigate_known_message(source.message, 0);
-    return true;
-}
-bool receipt_input(const ThreadCreationSnapshot& receipt, ChannelInput* output) noexcept {
-    const auto* old = channel(receipt.id);
-    if (old && (old->parent_id != receipt.parent_id || old->guild_id != receipt.guild_id || old->type != receipt.type)) return false;
-    *output = {receipt.id, receipt.guild_id, receipt.parent_id, thread_creation_name_view(receipt),
-        old ? old->position : 0, old ? old->flags : 0, receipt.type};
-    output->name_known = true;
-    output->last_message_known = (receipt.fields & thread_creation_last_message_known) != 0;
-    output->last_message_id = receipt.last_message_id;
-    output->thread_archived_known = output->thread_locked_known = true;
-    output->thread_archived = (receipt.fields & thread_creation_archived) != 0;
-    output->thread_locked = (receipt.fields & thread_creation_locked) != 0;
-    output->thread_active_known = true;
-    output->thread_listed_active = !output->thread_archived;
-    output->thread_self_joined_known = (receipt.fields & thread_creation_self_joined) != 0;
-    output->thread_self_joined = output->thread_self_joined_known;
-    if (output->thread_self_joined)
-        output->thread_join_seconds = thread_join_seconds_from_ms(receipt.self_join_timestamp_ms);
     return true;
 }
 CreationSource capture(const ChannelRecord& parent, const MessageRecord& message, MessageHandle handle) noexcept {
@@ -281,8 +256,8 @@ bool application_thread_creation_available(u64 id) noexcept {
     const auto* message = resident(id);
     if (!message || !message->occupied || message->delivery != MessageDeliveryState::authoritative || !message->author_id ||
         !user_message(message->type) || (message->flags & has_thread) || !parent_authorized(message->channel_id)) return false;
-    const auto* parent = channel(message->channel_id);
-    const auto* existing = channel(message->id);
+    const auto* parent = application_channel_record(message->channel_id);
+    const auto* existing = application_channel_record(message->id);
     return !existing && parent && g_app.account_ui->active_channel_id == parent->id &&
         g_app.account_ui->chat_state.selected_channel_id == parent->id &&
         g_app.account_ui->chat_state.selected_guild_id == parent->guild_id;
@@ -301,7 +276,7 @@ bool application_thread_creation_begin(u64 id, ApplicationThreadCreationTicket* 
     }
     MessageHandle handle{};
     const auto* message = resident(id, &handle);
-    const auto* parent = message ? channel(message->channel_id) : nullptr;
+    const auto* parent = message ? application_channel_record(message->channel_id) : nullptr;
     if (!parent || !message) return false;
     // The form retains context across frames. Detach an older form before
     // replacing the controller, then copy its origin label out of mutable Core banks.
@@ -314,13 +289,7 @@ bool application_thread_creation_begin(u64 id, ApplicationThreadCreationTicket* 
     }
     owner.source = capture(*parent, *message, handle);
     const auto parent_name = chat_state_store_channel_name(g_app.account_ui->chat_state, *parent);
-    owner.parent_name_bytes = 0;
-    while (owner.parent_name_bytes < parent_name.bytes) {
-        const auto scalar = utf8_decode_one(parent_name.data + owner.parent_name_bytes, parent_name.bytes - owner.parent_name_bytes);
-        if (!scalar.valid || owner.parent_name_bytes + scalar.width > sizeof(owner.parent_name)) break;
-        owner.parent_name_bytes += scalar.width;
-    }
-    copy_bytes(owner.parent_name, parent_name.data, owner.parent_name_bytes);
+    owner.parent_name_bytes = utf8_copy_truncated(owner.parent_name, parent_name);
     owner.serial = ++creation_serial;
     owner.publication = ++creation_publication;
     owner.checked_source_revision = message->revision;
@@ -328,7 +297,6 @@ bool application_thread_creation_begin(u64 id, ApplicationThreadCreationTicket* 
     owner.name[0] = 0;
     owner.retired = owner.error = owner.terminal = owner.fix_name = owner.release_pending = false;
     owner.uncertain = ledger_contains(owner, id);
-    owner.form_bound = false;
     owner.form = {owner.source.account_scope, owner.source.parent, owner.serial};
     ++owner.revision;
     publish(owner, Phase::editing, owner.uncertain ? utf8_literal("Your thread may already exist. Checking first.") : Utf8View{});
@@ -347,7 +315,6 @@ bool application_thread_creation_open(u64 id) noexcept {
     request.progress = form_progress;
     request.closed = form_closed;
     if (!application_text_form_open(request)) { retire(owner); return false; }
-    owner.form_bound = true;
     return true;
 }
 bool application_thread_creation_current(const ApplicationThreadCreationTicket& value) noexcept {
@@ -357,7 +324,7 @@ ApplicationThreadCreationView application_thread_creation_view() noexcept {
     if (!creation_owner) return {};
     auto& owner = *creation_owner;
     const bool current = !owner.retired && source_current(owner);
-    const auto* parent = current ? channel(owner.source.parent) : nullptr;
+    const auto* parent = current ? application_channel_record(owner.source.parent) : nullptr;
     // A replacement intent can hold its name/queued choice while the older
     // canceled request still holds DETAILS. Enqueueing stays guarded by
     // pending(), which requires the older response to be consumed first.
@@ -529,7 +496,7 @@ bool application_thread_creation_response(const RestClientResponse& response, Ut
         }
         ChannelInput input{};
         auto& state = g_app.account_ui->chat_state;
-        if (receipt_input(owner.candidate, &input) &&
+        if (application_thread_creation_receipt_input(owner.candidate, application_channel_record(owner.candidate.id), &input) &&
             chat_state_store_preflight_channel(state, input) == ChatStateStoreError::none &&
             chat_state_store_upsert_channel(&state, input).ok()) {
             chat_state_store_recompute_guild_permissions(&state, owner.source.guild);

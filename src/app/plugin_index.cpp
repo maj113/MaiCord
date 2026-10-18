@@ -1,5 +1,6 @@
 #include "maicord/app/plugin_index.hpp"
 #include "maicord/app/update_fetch.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -71,7 +72,6 @@ bool array(Parse& p, JsonValue value, JsonArrayVisitor visitor, void* context, u
 
 // ---- value grammars ----------------------------------------------------------
 bool lower_alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'); }
-bool alnum(char c) noexcept { return lower_alnum(c) || (c >= 'A' && c <= 'Z'); }
 bool banned(u32 c) noexcept {
     return c < 32 || (c >= 127 && c <= 159) || c == 0x061C || (c >= 0x200B && c <= 0x200F) ||
         (c >= 0x202A && c <= 0x202E) || (c >= 0x2060 && c <= 0x2064) || (c >= 0x2066 && c <= 0x2069) || c == 0xFEFF;
@@ -100,14 +100,14 @@ bool license_valid(const Decoded& d) noexcept {
     if (!d.fits || !d.text.bytes || d.text.bytes > kPluginIndexLicenseMaximumBytes) return false;
     for (u32 i = 0; i < d.text.bytes; ++i) {
         const char c = d.text.data[i];
-        if (!alnum(c) && c != '.' && c != '+' && c != '-') return false;
+        if (!ascii_is_alnum(c) && c != '.' && c != '+' && c != '-') return false;
     }
     return true;
 }
 bool github_valid(const Decoded& d) noexcept {
     const Utf8View t = d.text;
     if (!d.fits || !t.bytes || t.bytes > kPluginIndexGithubLoginMaximumBytes || t.data[0] == '-' || t.data[t.bytes - 1] == '-') return false;
-    for (u32 i = 0; i < t.bytes; ++i) if (!alnum(t.data[i]) && t.data[i] != '-') return false;
+    for (u32 i = 0; i < t.bytes; ++i) if (!ascii_is_alnum(t.data[i]) && t.data[i] != '-') return false;
     return true;
 }
 bool hex_digest(const Decoded& d, u8* output, u32 bytes) noexcept {
@@ -130,7 +130,7 @@ bool url_valid(const Decoded& d) noexcept {
     if (!update_origin_host_valid({t.data + scheme.bytes, end - scheme.bytes})) return false;
     for (u32 i = end; i < t.bytes; ++i) {
         const char c = t.data[i];
-        bool allowed = alnum(c);
+        bool allowed = ascii_is_alnum(c);
         for (const char* a = "-._~!$&'()*+,;=:@/?%#"; *a && !allowed; ++a) allowed = c == *a;
         if (!allowed) return false;
     }
@@ -147,7 +147,7 @@ bool path_valid(const Decoded& d) noexcept {
         if (i == t.bytes || t.data[i] == '/') {
             if (i == start || dot_segment(t.data + start, i - start)) return false;
             start = i + 1;
-        } else if (!alnum(t.data[i]) && t.data[i] != '.' && t.data[i] != '_' && t.data[i] != '-') return false;
+        } else if (!ascii_is_alnum(t.data[i]) && t.data[i] != '.' && t.data[i] != '_' && t.data[i] != '-') return false;
     }
     return true;
 }
@@ -157,7 +157,7 @@ bool release_name_valid(const Decoded& d, u32 maximum) noexcept {
     if (!d.fits || !t.bytes || t.bytes > maximum || dot_segment(t.data, t.bytes)) return false;
     for (u32 i = 0; i < t.bytes; ++i) {
         const char c = t.data[i];
-        if (!alnum(c) && c != '.' && c != '_' && c != '+' && c != '-') return false;
+        if (!ascii_is_alnum(c) && c != '.' && c != '_' && c != '+' && c != '-') return false;
     }
     return true;
 }
@@ -238,9 +238,7 @@ bool provider_member(void* context, JsonString name, JsonValue value) noexcept {
         out.provider_name = d.ref;
         return true;
     case pr_homepage:
-        if (!url_valid(d)) return fail(p, E::url);
-        out.provider_homepage = d.ref;
-        return true;
+        return url_valid(d) || fail(p, E::url);
     default: { // key
         u8 key[65]{};
         if (p.policy->kind != PluginProviderKind::custom_signed || !d.fits || !update_public_key_from_hex(d.text, {key, 65}))
@@ -492,7 +490,8 @@ bool details_member(void* context, JsonString name, JsonValue value) noexcept {
     if (field == de_sha256) {
         Decoded d{};
         if (!decode(p, value, &d)) return false;
-        return hex_digest(d, c.plugin->details_sha256, 32) || fail(p, E::digest);
+        u8 digest[32];
+        return hex_digest(d, digest, 32) || fail(p, E::digest);
     }
     u64 bytes = 0;
     if (!number(p, value, &bytes)) return false;

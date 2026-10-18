@@ -9,21 +9,13 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 namespace {
 using RE = AcceptanceRecordError;
 constexpr u8 kMagic[8]{'M','A','I','P','P','R','O','V'};
 AcceptanceRecordResult fail(RE error, DWORD native = 0) noexcept { return {error, native}; }
-bool zero(const void* data, u32 bytes) noexcept {
-    const auto* p = static_cast<const u8*>(data);
-    for (u32 i = 0; i < bytes; ++i) if (p[i]) return false;
-    return true;
-}
-bool disjoint(ConstSlice<u8> a, ConstSlice<u8> b) noexcept {
-    return byte_range_valid(a) && byte_range_valid(b) && !byte_ranges_overlap(a, b);
-}
 // "/" or "/segment/.../" of RFC 3986 path characters, without empty, "." or ".." segments.
 bool base_path_valid(const char* path, u32 bytes) noexcept {
     if (!bytes || bytes > kPluginProviderPathCapacity || path[0] != '/' || path[bytes - 1] != '/') return false;
@@ -36,7 +28,7 @@ bool base_path_valid(const char* path, u32 bytes) noexcept {
             start = i + 1;
             continue;
         }
-        bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        bool allowed = ascii_is_alnum(c);
         for (const char* a = "-._~!$&'()*+,;=:@%"; *a && !allowed; ++a) allowed = c == *a;
         if (!allowed) return false;
     }
@@ -44,9 +36,9 @@ bool base_path_valid(const char* path, u32 bytes) noexcept {
 }
 // Field by field: the struct has tail padding.
 bool entry_empty(const PluginProviderRecord& e) noexcept {
-    return !e.id && !e.added && !e.flags && !e.host_bytes && !e.path_bytes && !e.name_bytes && zero(e.host, sizeof(e.host)) &&
-        zero(e.path, sizeof(e.path)) && zero(e.key, sizeof(e.key)) && zero(e.fingerprint, sizeof(e.fingerprint)) &&
-        zero(e.name, sizeof(e.name));
+    return !e.id && !e.added && !e.flags && !e.host_bytes && !e.path_bytes && !e.name_bytes && bytes_zero(e.host, sizeof(e.host)) &&
+        bytes_zero(e.path, sizeof(e.path)) && bytes_zero(e.key, sizeof(e.key)) && bytes_zero(e.fingerprint, sizeof(e.fingerprint)) &&
+        bytes_zero(e.name, sizeof(e.name));
 }
 bool entry_valid(const PluginProviderRecord& e) noexcept {
     if (e.id <= kPluginProviderOfficial || (e.flags & ~kPluginProviderKnownFlags) || !e.host_bytes ||
@@ -56,30 +48,19 @@ bool entry_valid(const PluginProviderRecord& e) noexcept {
     if (!update_origin_host_valid({e.host, e.host_bytes}) || !base_path_valid(e.path, e.path_bytes) ||
         !plugin_index_display_text_valid({e.name, e.name_bytes}, kPluginProviderNameCapacity, true)) return false;
     const bool signed_provider = e.flags & kPluginProviderSigned;
-    if (signed_provider ? e.key[0] != 4 || zero(e.fingerprint, 32) : !zero(e.key, 65) || !zero(e.fingerprint, 32)) return false;
-    return zero(e.host + e.host_bytes, kPluginProviderHostCapacity - e.host_bytes) &&
-        zero(e.path + e.path_bytes, kPluginProviderPathCapacity - e.path_bytes) &&
-        zero(e.name + e.name_bytes, kPluginProviderNameCapacity - e.name_bytes);
+    if (signed_provider ? e.key[0] != 4 || bytes_zero(e.fingerprint, 32) : !bytes_zero(e.key, 65) || !bytes_zero(e.fingerprint, 32)) return false;
+    return bytes_zero(e.host + e.host_bytes, kPluginProviderHostCapacity - e.host_bytes) &&
+        bytes_zero(e.path + e.path_bytes, kPluginProviderPathCapacity - e.path_bytes) &&
+        bytes_zero(e.name + e.name_bytes, kPluginProviderNameCapacity - e.name_bytes);
 }
 
 // ---- addresses -------------------------------------------------------------------
 using AE = PluginProviderAddressError;
-bool alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); }
 // RFC 3986 pchar without percent-encoding: provider bases are plain paths.
 bool path_char(char c) noexcept {
-    if (alnum(c)) return true;
+    if (ascii_is_alnum(c)) return true;
     for (const char* a = "-._~!$&'()*+,;=:@"; *a; ++a) if (c == *a) return true;
     return false;
-}
-i32 hex_value(char c) noexcept {
-    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-}
-bool overlap_free(ConstSlice<ConstSlice<u8>> ranges) noexcept {
-    for (u32 i = 0; i < ranges.count; ++i) {
-        if (!byte_range_valid(ranges[i])) return false;
-        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return false;
-    }
-    return true;
 }
 bool sha256_parts(KdfSha256Workspace& workspace, Utf8View domain, ConstSlice<u8> data, u8* digest) noexcept {
     const ConstSlice<u8> parts[]{{reinterpret_cast<const u8*>(domain.data), domain.bytes}, data};
@@ -110,7 +91,7 @@ PluginProviderAddressError plugin_provider_address_parse(Utf8View text, KdfSha25
     if (!output || (!text.data && text.bytes)) return AE::invalid_input;
     const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(text.data), text.bytes},
         {reinterpret_cast<const u8*>(output), sizeof(*output)}, {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)}};
-    if (!overlap_free({ranges, 3})) return AE::invalid_input;
+    if (!byte_ranges_all_disjoint({ranges, 3})) return AE::invalid_input;
     if (text.bytes > kPluginProviderAddressMaximumBytes) return AE::length;
     u32 begin = 0, end = text.bytes;
     while (begin < end && (text.data[begin] == ' ' || text.data[begin] == '\t')) ++begin;
@@ -164,7 +145,7 @@ PluginProviderAddressError plugin_provider_address_parse(Utf8View text, KdfSha25
         if (fragment_bytes < pin.bytes || !bytes_equal(fragment, pin.data, pin.bytes)) return AE::fragment;
         if (fragment_bytes != pin.bytes + 64) return AE::pin;
         for (u32 i = 0; i < 64; ++i) {
-            const i32 v = hex_value(fragment[pin.bytes + i]);
+            const i32 v = ascii_hex_value(fragment[pin.bytes + i]);
             if (v < 0) return AE::pin;
             a.pin[i / 2] = static_cast<u8>(i % 2 ? (a.pin[i / 2] << 4) | v : v);
         }
@@ -315,7 +296,7 @@ u64 plugin_record_checksum(ConstSlice<u8> record) noexcept {
 
 AcceptanceRecordResult plugin_record_read(ConstSlice<wchar_t> path, Slice<u8> record) noexcept {
     if (!record.data || !acceptance_record_path_valid(path) ||
-        !disjoint({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}, {record.data, record.count}))
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}, {record.data, record.count}))
         return fail(RE::invalid_input);
     wchar_t terminated[kAcceptanceRecordMaximumPathCharacters + 1];
     acceptance_record_terminate(path, terminated);
@@ -352,7 +333,7 @@ bool plugin_providers_valid(const PluginProviders& providers) noexcept {
 
 AcceptanceRecordResult plugin_providers_encode(const PluginProviders& providers, Slice<u8> record) noexcept {
     if (record.count != kPluginProvidersRecordBytes || !record.data || !plugin_providers_valid(providers) ||
-        !disjoint({record.data, record.count}, {reinterpret_cast<const u8*>(&providers), sizeof(providers)}))
+        !byte_ranges_disjoint({record.data, record.count}, {reinterpret_cast<const u8*>(&providers), sizeof(providers)}))
         return fail(RE::invalid_input);
     clear_bytes(record.data, record.count);
     copy_bytes(record.data, kMagic, 8);
@@ -378,7 +359,7 @@ AcceptanceRecordResult plugin_providers_encode(const PluginProviders& providers,
 }
 
 AcceptanceRecordResult plugin_providers_decode(ConstSlice<u8> record, PluginProviders* providers) noexcept {
-    if (!providers || !record.data || !disjoint(record, {reinterpret_cast<const u8*>(providers), sizeof(*providers)}))
+    if (!providers || !record.data || !byte_ranges_disjoint(record, {reinterpret_cast<const u8*>(providers), sizeof(*providers)}))
         return fail(RE::invalid_input);
     if (record.count != kPluginProvidersRecordBytes) return fail(RE::size);
     if (!bytes_equal(record.data, kMagic, 8) || byte_load_le32(record.data + 12) != record.count) return fail(RE::format);
@@ -390,7 +371,7 @@ AcceptanceRecordResult plugin_providers_decode(ConstSlice<u8> record, PluginProv
     for (u32 i = 0; i < kPluginProviderMaximum; ++i) {
         const u8* row = record.data + 32 + i * kPluginProvidersEntryBytes;
         PluginProviderRecord& e = candidate.entries[i];
-        if (row[23] || !zero(row + 345, 3) || !zero(row + 444, 4)) return fail(RE::format);
+        if (row[23] || !bytes_zero(row + 345, 3) || !bytes_zero(row + 444, 4)) return fail(RE::format);
         e.id = byte_load_le64(row);
         e.added = byte_load_le64(row + 8);
         e.flags = byte_load_le32(row + 16);

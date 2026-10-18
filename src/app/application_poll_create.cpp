@@ -18,7 +18,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -455,7 +455,7 @@ void application_poll_create_release() noexcept {
     ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    SecureZeroMemory(owner, sizeof(*owner));
+    secure_clear_bytes(owner, sizeof(*owner));
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
 }
@@ -508,9 +508,7 @@ bool application_poll_create_submit(u64 now) noexcept {
         repaint();
         return false;
     }
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
+    const u64 id = application_next_request_id();
     const auto submitted = g_app.account.api.poll_create(g_app.account.instance, p.channel_id, p.nonce, &p.poll, id);
     if (submitted.error == RestClientSubmitError::busy) {
         p.retry_at = deadline_after(now, 50);

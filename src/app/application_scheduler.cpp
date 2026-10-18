@@ -60,107 +60,108 @@
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
 
+// Bounds `timeout` by a wake time; zero means no wake.
+void limit_timeout(u32& timeout, u64 now_ms, u64 wake) noexcept {
+    if (wake)
+        timeout = minimum(timeout, wait_milliseconds_until(now_ms, wake));
+}
+// The frame-rate title refreshes when its next sample is due.
+void limit_frame_rate(u32& timeout, u64 now_us) noexcept {
+    const u64 next = g_app.frame_rate.next_update_us;
+    if (next)
+        timeout = minimum(timeout, static_cast<u32>(((next > now_us ? next - now_us : 0) + 999) / 1'000));
+}
+
 u64 application_next_wake_at_ms() noexcept {
     if (application_account_logout_blocked())
         return application_account_logout_next_wake();
-    u64 wake_at = earliest_deadline(application_profile_next_wake(), application_commands_next_wake());
-    wake_at = earliest_deadline(wake_at, application_friends_next_wake());
-    wake_at = earliest_deadline(wake_at, application_forum_preview_next_wake());
-    wake_at = earliest_deadline(wake_at, application_composer_preview_next_wake());
-    wake_at = earliest_deadline(wake_at, composer_spellcheck_next_wake(g_app.composer_spellcheck));
-    wake_at = earliest_deadline(wake_at, application_search_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_pinned_messages_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_thread_browser_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_thread_creation_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_forum_post_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_poll_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_member_moderation_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_account_settings_next_wake());
-    wake_at = earliest_deadline(wake_at, application_media_picker_next_wake());
-    wake_at = earliest_deadline(wake_at, application_gif_favorites_next_wake());
-    wake_at = earliest_deadline(wake_at, application_emoji_preferences_next_wake());
-    wake_at = earliest_deadline(wake_at, application_action_captcha_next_wake());
-    wake_at = earliest_deadline(wake_at, application_self_status_next_wake());
-    wake_at = earliest_deadline(wake_at, application_user_settings_next_wake());
-    wake_at = earliest_deadline(wake_at, application_guild_folders_request_wake());
-    wake_at = earliest_deadline(wake_at, application_custom_status_next_wake());
-    wake_at = earliest_deadline(wake_at, application_activity_next_wake());
-    wake_at = earliest_deadline(wake_at, application_notification_controls_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_inbox_next_wake());
-    if (g_app.details_request_owner == MessageHistoryRequestOwner::none)
-        wake_at = earliest_deadline(wake_at, application_stream_preview_next_wake());
-    wake_at = earliest_deadline(
-        wake_at, application_stage_next_wake(g_app.details_request_owner == MessageHistoryRequestOwner::none));
-    wake_at = earliest_deadline(
-        wake_at, application_soundboard_next_wake(g_app.details_request_owner == MessageHistoryRequestOwner::none));
-    wake_at = earliest_deadline(wake_at, application_message_components_next_wake());
-    wake_at = earliest_deadline(wake_at, application_invite_cards_next_wake());
-    wake_at = earliest_deadline(wake_at, application_channel_overview_next_wake());
-    wake_at = earliest_deadline(wake_at, application_read_state_next_wake());
-    wake_at = earliest_deadline(wake_at, application_scoped_read_next_wake());
-    wake_at = earliest_deadline(wake_at, application_notifications_next_wake(&g_app));
-    wake_at = earliest_deadline(wake_at, application_voice_next_wake());
-    wake_at = earliest_deadline(wake_at, application_presence_next_wake());
+    u64 wake_at = 0;
+    const auto add = [&](u64 wake) noexcept { wake_at = earliest_deadline(wake_at, wake); };
+    const bool details_idle = g_app.details_request_owner == MessageHistoryRequestOwner::none;
+    add(application_profile_next_wake());
+    add(application_commands_next_wake());
+    add(application_friends_next_wake());
+    add(application_forum_preview_next_wake());
+    add(application_composer_preview_next_wake());
+    add(composer_spellcheck_next_wake(g_app.composer_spellcheck));
+    add(application_search_next_wake());
+    if (details_idle) {
+        add(application_pinned_messages_next_wake());
+        add(application_thread_browser_next_wake());
+        add(application_thread_creation_next_wake());
+        add(application_forum_post_next_wake());
+        add(application_poll_next_wake());
+        add(application_member_moderation_next_wake());
+        add(application_account_settings_next_wake());
+    }
+    add(application_media_picker_next_wake());
+    add(application_gif_favorites_next_wake());
+    add(application_emoji_preferences_next_wake());
+    add(application_action_captcha_next_wake());
+    add(application_self_status_next_wake());
+    add(application_user_settings_next_wake());
+    add(application_guild_folders_request_wake());
+    add(application_custom_status_next_wake());
+    add(application_activity_next_wake());
+    add(application_notification_controls_next_wake());
+    if (details_idle) {
+        add(application_inbox_next_wake());
+        add(application_stream_preview_next_wake());
+    }
+    add(application_stage_next_wake(details_idle));
+    add(application_soundboard_next_wake(details_idle));
+    add(application_message_components_next_wake());
+    add(application_invite_cards_next_wake());
+    add(application_channel_overview_next_wake());
+    add(application_read_state_next_wake());
+    add(application_scoped_read_next_wake());
+    add(application_notifications_next_wake(&g_app));
+    add(application_voice_next_wake());
+    add(application_presence_next_wake());
     if (!application_thread_browser_read_blocked())
-        wake_at = earliest_deadline(wake_at, media_url_next_wake(g_app.media_urls));
+        add(media_url_next_wake(g_app.media_urls));
     if (g_app.account_ui) {
-        wake_at = earliest_deadline(wake_at, application_account_text_retry_wake());
+        add(application_account_text_retry_wake());
         const auto& request = g_app.account_ui->private_conversation;
         if (g_app.message_history_request_owner == MessageHistoryRequestOwner::none) {
             if (request.phase == PrivateConversationPhase::queued)
-                wake_at = earliest_deadline(wake_at, 1);
+                add(1);
             if (request.phase == PrivateConversationPhase::retry_wait)
-                wake_at = earliest_deadline(wake_at, request.retry_at_ms);
+                add(request.retry_at_ms);
         }
-        wake_at = earliest_deadline(wake_at, g_app.account_ui->chat_state.restore_deadline_ms);
-        wake_at = earliest_deadline(wake_at, g_app.account_ui->message_draft_session.persist_at_ms);
-        wake_at = earliest_deadline(wake_at, message_composer_controller_next_wake_at(
-                                                 g_app.account_ui->message_composer_controller));
-        wake_at =
-            earliest_deadline(wake_at, typing_store_next_wake_at(g_app.account_ui->typing_store));
+        add(g_app.account_ui->chat_state.restore_deadline_ms);
+        add(g_app.account_ui->message_draft_session.persist_at_ms);
+        add(message_composer_controller_next_wake_at(g_app.account_ui->message_composer_controller));
+        add(typing_store_next_wake_at(g_app.account_ui->typing_store));
     }
-    if (g_app.message_catchup.state == MessageHistoryCatchupState::waiting_retry) {
-        wake_at = earliest_deadline(wake_at, g_app.message_catchup.retry_at_ms);
-    }
-    if (g_app.message_older.state == MessageHistoryOlderState::waiting_retry) {
-        wake_at = earliest_deadline(wake_at, g_app.message_older.retry_at_ms);
-    }
-    if (g_app.attachment_refresh.state == AttachmentRefreshState::waiting_retry) {
-        wake_at = earliest_deadline(wake_at, g_app.attachment_refresh.retry_at_ms);
-    }
+    if (g_app.message_catchup.state == MessageHistoryCatchupState::waiting_retry)
+        add(g_app.message_catchup.retry_at_ms);
+    if (g_app.message_older.state == MessageHistoryOlderState::waiting_retry)
+        add(g_app.message_older.retry_at_ms);
+    if (g_app.attachment_refresh.state == AttachmentRefreshState::waiting_retry)
+        add(g_app.attachment_refresh.retry_at_ms);
     if (g_app.reply_refresh.state == AttachmentRefreshState::waiting_retry)
-        wake_at = earliest_deadline(wake_at, g_app.reply_refresh.retry_at_ms);
-    if (g_app.message_delete.message_id != 0) {
-        wake_at = earliest_deadline(wake_at, g_app.message_delete.retry_at_ms);
-    }
-    if (g_app.message_edit.message_id != 0 &&
-        g_app.message_edit.phase == MessageEditRequestPhase::retry_wait) {
-        wake_at = earliest_deadline(wake_at, g_app.message_edit.retry_at_ms);
-    }
-    wake_at = earliest_deadline(wake_at, application_message_reaction_next_wake());
-    wake_at = earliest_deadline(wake_at, application_thread_actions_next_wake());
-    wake_at = earliest_deadline(wake_at, application_channel_prefetch_next_wake());
-    wake_at = earliest_deadline(wake_at, g_app.member_list_subscription.retry_at_ms);
-    wake_at = earliest_deadline(wake_at, application_author_hydration_next_wake());
-    wake_at = earliest_deadline(wake_at, application_mention_member_query_next_wake());
-    wake_at = earliest_deadline(wake_at, g_app.thread_member_list_subscription.retry_at_ms);
-    wake_at = earliest_deadline(wake_at,
-                                reaction_viewer_controller_next_wake_at(g_app.reaction_viewer_controller));
-    return application_thread_browser_read_blocked()
-               ? wake_at
-               : earliest_deadline(wake_at, g_app.message_media.retry_at_ms);
+        add(g_app.reply_refresh.retry_at_ms);
+    if (g_app.message_delete.message_id != 0)
+        add(g_app.message_delete.retry_at_ms);
+    if (g_app.message_edit.message_id != 0 && g_app.message_edit.phase == MessageEditRequestPhase::retry_wait)
+        add(g_app.message_edit.retry_at_ms);
+    add(application_message_reaction_next_wake());
+    add(application_thread_actions_next_wake());
+    add(application_channel_prefetch_next_wake());
+    add(g_app.member_list_subscription.retry_at_ms);
+    add(application_author_hydration_next_wake());
+    add(application_mention_member_query_next_wake());
+    add(g_app.thread_member_list_subscription.retry_at_ms);
+    add(reaction_viewer_controller_next_wake_at(g_app.reaction_viewer_controller));
+    if (!application_thread_browser_read_blocked())
+        add(g_app.message_media.retry_at_ms);
+    return wake_at;
 }
 
 } // namespace
@@ -169,20 +170,12 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     frame_clock_armed = frame_clock_armed || visual_suspended;
     if (application_account_logout_blocked()) {
         u32 timeout = INFINITE;
-        const u64 operation_wakes[] = {application_account_logout_next_wake(),
-                                       application_text_form_next_wake(),
-                                       application_downloads_next_wake()};
-        for (const u64 wake : operation_wakes) {
-            if (wake)
-                timeout = minimum(timeout, wait_milliseconds_until(now_ms, wake));
-        }
+        limit_timeout(timeout, now_ms, application_account_logout_next_wake());
+        limit_timeout(timeout, now_ms, application_text_form_next_wake());
+        limit_timeout(timeout, now_ms, application_downloads_next_wake());
         if (!frame_clock_armed) {
-            const u64 visual_wakes[] = {application_background_next_wake(now_ms),
-                                        application_surface_motion_next_wake(now_ms)};
-            for (const u64 wake : visual_wakes) {
-                if (wake)
-                    timeout = minimum(timeout, wait_milliseconds_until(now_ms, wake));
-            }
+            limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));
+            limit_timeout(timeout, now_ms, application_surface_motion_next_wake(now_ms));
             if (application_effect_frame_due(now_ms))
                 timeout = 0;
             else if (g_app.renderer.text_effect_animated)
@@ -191,11 +184,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
             if (g_app.frame_pending)
                 timeout = 0;
         }
-        if (g_app.frame_rate.next_update_us) {
-            const u64 remaining =
-                g_app.frame_rate.next_update_us > now_us ? g_app.frame_rate.next_update_us - now_us : 0;
-            timeout = minimum(timeout, static_cast<u32>((remaining + 999) / 1'000));
-        }
+        limit_frame_rate(timeout, now_us);
         return timeout;
     }
     if (g_app.account_ui) {
@@ -203,16 +192,10 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         message_draft_session_observe(ui.message_draft_session, ui.message_drafts, now_ms);
     }
     u32 timeout = account_host_wait_timeout(&g_app.account, now_ms);
-    const u64 browser_deadline = application_login_browser_deadline();
-    if (browser_deadline)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, browser_deadline));
+    limit_timeout(timeout, now_ms, application_login_browser_deadline());
     // One wake per media upload burst: the idle atlas/frame-cache trim.
-    if (const u64 media_trim = renderer_media_next_trim_ms(g_app.renderer))
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, media_trim));
-    const u64 account_wake_at = application_next_wake_at_ms();
-    if (account_wake_at != 0) {
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, account_wake_at));
-    }
+    limit_timeout(timeout, now_ms, renderer_media_next_trim_ms(g_app.renderer));
+    limit_timeout(timeout, now_ms, application_next_wake_at_ms());
     const MessageTextPresentation* text = g_app.account_ui ? &g_app.account_ui->message_text : nullptr;
     if (text && !visual_suspended && text->next_timestamp_update_unix_seconds != 0 &&
         application_account_timestamp_refresh_eligible(now_ms)) {
@@ -221,28 +204,15 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         const u64 wait = next <= now_seconds ? 0 : minimum<u64>((next - now_seconds) * 1'000, INFINITE - 1);
         timeout = minimum(timeout, static_cast<u32>(wait));
     }
-    if (g_app.message_media.scan_pending && !application_thread_browser_read_blocked()) {
+    if (g_app.message_media.scan_pending && !application_thread_browser_read_blocked())
         timeout = 0;
-    }
     if (!frame_clock_armed) {
-        const u64 background_wake = application_background_next_wake(now_ms);
-        if (background_wake)
-            timeout = minimum(timeout, wait_milliseconds_until(now_ms, background_wake));
-        const u64 video_wake = application_video_next_wake();
-        if (video_wake)
-            timeout = minimum(timeout, wait_milliseconds_until(now_ms, video_wake));
-        const u64 tooltip_wake = application_tooltip_next_wake();
-        if (tooltip_wake)
-            timeout = minimum(timeout, wait_milliseconds_until(now_ms, tooltip_wake));
-        const u64 banner_wake = application_guild_banner_next_wake();
-        if (banner_wake)
-            timeout = minimum(timeout, wait_milliseconds_until(now_ms, banner_wake));
-        const u64 surface_wake = application_surface_motion_next_wake(now_ms);
-        if (surface_wake)
-            timeout = minimum(timeout, wait_milliseconds_until(now_ms, surface_wake));
-        const u64 spinner_wake = application_loading_spinner_wake();
-        if (spinner_wake)
-            timeout = minimum(timeout, wait_milliseconds_until(now_ms, spinner_wake));
+        limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));
+        limit_timeout(timeout, now_ms, application_video_next_wake());
+        limit_timeout(timeout, now_ms, application_tooltip_next_wake());
+        limit_timeout(timeout, now_ms, application_guild_banner_next_wake());
+        limit_timeout(timeout, now_ms, application_surface_motion_next_wake(now_ms));
+        limit_timeout(timeout, now_ms, application_loading_spinner_wake());
         // Once a visual frame is due, DXGI paces it. An overdue visual timer
         // must not turn the display-slot wait into a zero-timeout polling loop.
         if (g_app.renderer.text_effect_animated ||
@@ -250,29 +220,13 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
             timeout = minimum(timeout, wait_milliseconds_until(now_ms, g_app.renderer.text_effect_next_ms));
         timeout = minimum(timeout, animation_timeline_wait_timeout_ms(&g_app.animations.timeline, now_us));
     }
-    if (g_app.frame_rate.next_update_us != 0) {
-        const u64 remaining =
-            g_app.frame_rate.next_update_us > now_us ? g_app.frame_rate.next_update_us - now_us : 0;
-        timeout = minimum(timeout, static_cast<u32>((remaining + 999) / 1'000));
-    }
-    if (g_app.login.remote_restart_at_ms != 0) {
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, g_app.login.remote_restart_at_ms));
-    }
-    const u64 auth_wake = application_login_auth_deadline();
-    if (auth_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, auth_wake));
-    const u64 recovery_wake = application_login_recovery_deadline();
-    if (recovery_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, recovery_wake));
-    const u64 phone_wake = application_login_phone_deadline();
-    if (phone_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, phone_wake));
-    const u64 reset_wake = application_login_reset_deadline();
-    if (reset_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, reset_wake));
-    const u64 captcha_wake = application_login_captcha_deadline();
-    if (captcha_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, captcha_wake));
+    limit_frame_rate(timeout, now_us);
+    limit_timeout(timeout, now_ms, g_app.login.remote_restart_at_ms);
+    limit_timeout(timeout, now_ms, application_login_auth_deadline());
+    limit_timeout(timeout, now_ms, application_login_recovery_deadline());
+    limit_timeout(timeout, now_ms, application_login_phone_deadline());
+    limit_timeout(timeout, now_ms, application_login_reset_deadline());
+    limit_timeout(timeout, now_ms, application_login_captcha_deadline());
     if (g_app.login.status == RendererLoginStatus::mfa_backup_acknowledgement &&
         g_app.login.backup_acknowledgement_at_ms != 0) {
         const u64 remaining = g_app.login.backup_acknowledgement_at_ms <= now_ms
@@ -281,46 +235,22 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         const u64 next_second = remaining == 0 ? 0 : remaining % 1'000 == 0 ? 1'000 : remaining % 1'000;
         timeout = minimum(timeout, next_second >= INFINITE ? INFINITE - 1 : static_cast<u32>(next_second));
     }
-    if (g_app.login.caret_blink_at_ms != 0) {
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, g_app.login.caret_blink_at_ms));
-    }
-    if (g_app.message_composer_caret_blink_at_ms != 0) {
-        timeout =
-            minimum(timeout, wait_milliseconds_until(now_ms, g_app.message_composer_caret_blink_at_ms));
-    }
-    if (application_smooth_scroll_active() && !frame_clock_armed) {
+    limit_timeout(timeout, now_ms, g_app.login.caret_blink_at_ms);
+    limit_timeout(timeout, now_ms, g_app.message_composer_caret_blink_at_ms);
+    if (application_smooth_scroll_active() && !frame_clock_armed)
         timeout = minimum(timeout, 16u);
+    limit_timeout(timeout, now_ms, application_text_form_next_wake());
+    limit_timeout(timeout, now_ms, application_message_interaction_next_wake(now_ms));
+    limit_timeout(timeout, now_ms, application_forum_form_next_wake());
+    limit_timeout(timeout, now_ms, application_downloads_next_wake());
+    if (!frame_clock_armed) {
+        limit_timeout(timeout, now_ms, application_friends_search_next_wake());
+        limit_timeout(timeout, now_ms, application_search_edit_next_wake());
+        limit_timeout(timeout, now_ms, application_media_picker_caret_wake());
+        limit_timeout(timeout, now_ms, application_message_forward_caret_wake());
+        limit_timeout(timeout, now_ms, application_quick_switcher_caret_wake());
+        limit_timeout(timeout, now_ms, application_channel_overview_caret_wake());
     }
-    const u64 form_wake = application_text_form_next_wake();
-    if (form_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, form_wake));
-    const u64 interaction_wake = application_message_interaction_next_wake(now_ms);
-    if (interaction_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, interaction_wake));
-    const u64 forum_form_wake = application_forum_form_next_wake();
-    if (forum_form_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, forum_form_wake));
-    const u64 search_wake = application_friends_search_next_wake();
-    if (search_wake && !frame_clock_armed)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, search_wake));
-    const u64 message_search_caret = application_search_edit_next_wake();
-    if (message_search_caret && !frame_clock_armed)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, message_search_caret));
-    const u64 picker_caret = application_media_picker_caret_wake();
-    if (picker_caret && !frame_clock_armed)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, picker_caret));
-    const u64 downloads_wake = application_downloads_next_wake();
-    if (downloads_wake)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, downloads_wake));
-    const u64 forward_caret = application_message_forward_caret_wake();
-    if (forward_caret && !frame_clock_armed)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, forward_caret));
-    const u64 quick_caret = application_quick_switcher_caret_wake();
-    if (quick_caret && !frame_clock_armed)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, quick_caret));
-    const u64 overview_caret = application_channel_overview_caret_wake();
-    if (overview_caret && !frame_clock_armed)
-        timeout = minimum(timeout, wait_milliseconds_until(now_ms, overview_caret));
     // A dirty frame must also run when no DXGI waitable clock is available.
     if (g_app.frame_pending && !frame_clock_armed)
         timeout = 0;

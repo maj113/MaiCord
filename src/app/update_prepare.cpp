@@ -1,7 +1,7 @@
 #include "maicord/app/update_prepare.hpp"
 #include "maicord/core/byte_range.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -37,7 +37,9 @@ bool fresh(const UpdatePreparationContext& context) noexcept {
     for (auto byte : context.artifact.manifest_sha256) if (byte) return false;
     return true;
 }
-void stage_name(const u8* digest, wchar_t* name) noexcept {
+} // namespace
+
+void update_prepare_stage_name(const u8* digest, wchar_t* name) noexcept {
     constexpr wchar_t prefix[] = L"maicord-", hex[] = L"0123456789abcdef", suffix[] = L".stage";
     for (u32 i = 0; i < 8; ++i) name[i] = prefix[i];
     for (u32 i = 0; i < 32; ++i) {
@@ -46,7 +48,6 @@ void stage_name(const u8* digest, wchar_t* name) noexcept {
     }
     for (u32 i = 0; i < 7; ++i) name[72 + i] = suffix[i];
 }
-} // namespace
 
 UpdatePreparationResult update_prepare_stage(UpdatePreparationContext* context,
     const UpdatePreparationRequest& request, const P256Key& key, KdfSha256Workspace& workspace,
@@ -100,7 +101,7 @@ UpdatePreparationResult update_prepare_stage(UpdatePreparationContext* context,
         return result;
     }
     wchar_t name[kUpdatePreparedStageFilenameCharacters + 1];
-    stage_name(approved.manifest_sha256, name);
+    update_prepare_stage_name(approved.manifest_sha256, name);
     result.stage = update_stage_copy(&context->artifact, approved, request.stage_parent,
         {name, kUpdatePreparedStageFilenameCharacters}, output);
     if (!result.stage.ok()) {
@@ -126,7 +127,7 @@ UpdatePreparationResult update_preparation_release(UpdatePreparationContext* con
         result.phase = UpdatePreparationPhase::release_acceptance;
         return result;
     }
-    SecureZeroMemory(context, sizeof(*context));
+    secure_clear_bytes(context, sizeof(*context));
     return result;
 }
 } // namespace maicord

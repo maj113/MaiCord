@@ -38,7 +38,6 @@ MessageMentionWarningPlace mention_place(const ChatStateStore& state, const Chan
                                                                 : MessageMentionWarningPlace::thread;
 }
 
-// Opens the large @everyone/@here confirmation when the gate requires it.
 } // namespace
 
 bool application_mention_confirmation_request(bool* opened) noexcept {

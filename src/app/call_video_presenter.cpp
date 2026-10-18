@@ -63,10 +63,9 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
         }
         const auto want = target.visible ? CallVideoWant::wanted : CallVideoWant::unwanted;
         if (stream->want != want) {
-            if (host.wanted && host.wanted(host.context, target.user_id, target.visible)) {
+            if (host.wanted && host.wanted(host.context, target.user_id, target.visible))
                 stream->want = want;
-                ++presenter->want_changes;
-            } else
+            else
                 result.want_pending = true;
         }
         if (!target.visible)
@@ -75,7 +74,6 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
         if (!poll || !host.frame)
             continue;
         VideoStreamFrame frame{};
-        ++presenter->polled;
         if (!host.frame(host.context, target.ssrc, &frame))
             continue;
         if (frame.gpu.texture)
@@ -88,7 +86,6 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
                            !resident;
         if (fresh && frame.gpu.texture && host.present &&
             host.present(host.context, target.user_id, target.ssrc, frame, extent)) {
-            ++presenter->presented;
             result.presented = true;
             if (!stream->ready || stream->display_width != width || stream->display_height != height)
                 result.changed = true;

@@ -27,7 +27,6 @@ struct Runtime {
     SOCKET listener, client;
     u64 client_deadline;
     u32 wire_bytes, response_bytes, response_sent, token_bytes;
-    bool winsock_started;
 };
 Runtime* runtime_of(const BrowserSignInReceiver* receiver) noexcept {
     return receiver ? static_cast<Runtime*>(receiver->runtime) : nullptr;
@@ -182,7 +181,6 @@ DWORD WINAPI receiver_main(void* opaque) noexcept {
     WSADATA winsock{};
     const int started = WSAStartup(MAKEWORD(2, 2), &winsock);
     if (started) { terminal(runtime, BrowserSignInReceiverPhase::failed, BrowserSignInReceiverError::network, static_cast<u32>(started)); return 1; }
-    runtime->winsock_started = true;
     runtime->listener_event = WSACreateEvent(); runtime->client_event = WSACreateEvent();
     if (runtime->listener_event == WSA_INVALID_EVENT || runtime->client_event == WSA_INVALID_EVENT) terminal(runtime, BrowserSignInReceiverPhase::failed, BrowserSignInReceiverError::event, static_cast<u32>(WSAGetLastError()));
     else if (live(snapshot(runtime).phase) && bind_listener(runtime)) {
@@ -215,7 +213,7 @@ DWORD WINAPI receiver_main(void* opaque) noexcept {
     if (runtime->listener != INVALID_SOCKET) { closesocket(runtime->listener); runtime->listener = INVALID_SOCKET; }
     if (runtime->listener_event != WSA_INVALID_EVENT) { WSACloseEvent(runtime->listener_event); runtime->listener_event = WSA_INVALID_EVENT; }
     if (runtime->client_event != WSA_INVALID_EVENT) { WSACloseEvent(runtime->client_event); runtime->client_event = WSA_INVALID_EVENT; }
-    WSACleanup(); runtime->winsock_started = false; return 0;
+    WSACleanup(); return 0;
 }
 BrowserSignInReceiverStatus invalid(BrowserSignInReceiverError error = BrowserSignInReceiverError::invalid_input) noexcept {
     BrowserSignInReceiverStatus result{}; result.error = error; result.native_error = ERROR_INVALID_PARAMETER; return result;

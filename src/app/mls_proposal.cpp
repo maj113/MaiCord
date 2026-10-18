@@ -1,7 +1,7 @@
 #include "maicord/app/mls_group.hpp"
 #include "mls_wire.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -52,12 +52,12 @@ void remove(MlsProposalCache& cache, u32 index) noexcept {
     for (u32 i = index; i + 1 < cache.entry_count; ++i)
         cache.entries[i] = cache.entries[i + 1];
     --cache.entry_count;
-    SecureZeroMemory(&cache.entries[cache.entry_count], sizeof(MlsProposalCacheEntry));
+    secure_clear_bytes(&cache.entries[cache.entry_count], sizeof(MlsProposalCacheEntry));
     u32 used = 0;
     for (u32 i = 0; i != cache.entry_count; ++i)
         used = maximum(used, entry_offset(cache.entries[i]) + entry_bytes(cache.entries[i]));
     if (used < cache.storage_used)
-        SecureZeroMemory(cache.storage + used, cache.storage_used - used);
+        secure_clear_bytes(cache.storage + used, cache.storage_used - used);
     cache.storage_used = used;
 }
 MlsStatus parse_entry(KdfSha256Workspace& kdf, const MlsProposalCache& cache, u32 index,
@@ -114,14 +114,14 @@ MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, cons
     if (reader.error != MlsWireError::none || signature.count < 8 || signature.count > kMlsSignatureMaximum)
         return MlsStatus::malformed;
     if (sender)
-        if (const auto status = mls_verify_point(kdf, sender->signature_key, mls_text("FramedContentTBS"),
+        if (const auto status = mls_verify_point(kdf, sender->signature_key, text_bytes("FramedContentTBS"),
                                                  {input.data, tbs_bytes}, {}, signature);
             status != MlsStatus::ok)
             return status;
     // RFC 9420 5.2: the reference hashes AuthenticatedContent, which starts
     // after the MLSMessage protocol version.
-    if (!mls_reference_hash(kdf, mls_text("MLS 1.0 Proposal Reference"), {input.data + 2, reader.used - 2},
-                            {candidate.reference, kMlsHashBytes})
+    if (!mls_reference_hash(kdf, text_bytes("MLS 1.0 Proposal Reference"),
+                            {input.data + 2, reader.used - 2}, {candidate.reference, kMlsHashBytes})
              .ok())
         return MlsStatus::crypto_failure;
     candidate.verified = true;
@@ -143,8 +143,8 @@ MlsStatus mls_proposal_cache_init(MlsProposalCache* cache, u64 group_id, u64 epo
 void mls_proposal_cache_reset(MlsProposalCache* cache, u64 group_id, u64 epoch) noexcept {
     if (!cache || !cache->storage || !cache->entries)
         return;
-    SecureZeroMemory(cache->storage, cache->storage_used);
-    SecureZeroMemory(cache->entries, cache->entry_count * sizeof(MlsProposalCacheEntry));
+    secure_clear_bytes(cache->storage, cache->storage_used);
+    secure_clear_bytes(cache->entries, cache->entry_count * sizeof(MlsProposalCacheEntry));
     cache->storage_used = cache->entry_count = 0;
     cache->group_id = group_id;
     cache->epoch = epoch;
@@ -153,9 +153,9 @@ void mls_proposal_cache_clear(MlsProposalCache* cache) noexcept {
     if (!cache)
         return;
     if (cache->storage)
-        SecureZeroMemory(cache->storage, cache->storage_used);
+        secure_clear_bytes(cache->storage, cache->storage_used);
     if (cache->entries)
-        SecureZeroMemory(cache->entries, cache->entry_count * sizeof(MlsProposalCacheEntry));
+        secure_clear_bytes(cache->entries, cache->entry_count * sizeof(MlsProposalCacheEntry));
     *cache = {};
 }
 MlsStatus mls_proposal_cache_apply(KdfSha256Workspace& kdf, MlsProposalCache* cache, ConstSlice<u8> input,
@@ -220,8 +220,8 @@ MlsStatus mls_proposal_cache_apply(KdfSha256Workspace& kdf, MlsProposalCache* ca
         offset += consumed;
     }
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(cache->storage + saved_used, cache->storage_used - saved_used);
-        SecureZeroMemory(cache->entries + saved_count,
+        secure_clear_bytes(cache->storage + saved_used, cache->storage_used - saved_used);
+        secure_clear_bytes(cache->entries + saved_count,
                          (cache->entry_count - saved_count) * sizeof(MlsProposalCacheEntry));
         cache->storage_used = saved_used;
         cache->entry_count = saved_count;
@@ -271,7 +271,7 @@ MlsStatus mls_proposal_cache_resolve(KdfSha256Workspace& kdf, const MlsProposalC
             ++used;
     }
     if (status != MlsStatus::ok) {
-        SecureZeroMemory(proposals.data, used * sizeof(MlsProposal));
+        secure_clear_bytes(proposals.data, used * sizeof(MlsProposal));
         return status;
     }
     *count = used;
@@ -287,7 +287,7 @@ MlsStatus mls_proposal_cache_resolve_all(KdfSha256Workspace& kdf, const MlsPropo
     *count = 0;
     for (u32 i = 0; i != cache.entry_count; ++i)
         if (const auto status = parse_entry(kdf, cache, i, &proposals[i]); status != MlsStatus::ok) {
-            SecureZeroMemory(proposals.data, i * sizeof(MlsProposal));
+            secure_clear_bytes(proposals.data, i * sizeof(MlsProposal));
             return status;
         }
     *count = cache.entry_count;

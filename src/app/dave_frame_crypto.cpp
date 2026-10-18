@@ -1,14 +1,12 @@
 #include "maicord/app/dave_frame_crypto.hpp"
 #include "maicord/app/dave_key_derivation.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> object_bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
 DaveOpenResult failure(DaveOpenError error, u32 scratch = 0, DaveFrameError frame = DaveFrameError::none,
                        AeadResult crypto = {}, bool attempted = false) noexcept {
     return {0, 0, scratch, error, frame, crypto, attempted};
@@ -100,7 +98,7 @@ DaveOpenResult dave_frame_open(const DaveFrameView& view, const DaveFrameKey& ke
                           {view.frame.data + view.body_bytes, kDaveFrameTagBytes}, plaintext);
     if (!crypto.ok()) {
         if (needed)
-            SecureZeroMemory(scratch.data, needed);
+            secure_clear_bytes(scratch.data, needed);
         return failure(crypto.error == AeadError::authentication_failed
                            ? DaveOpenError::authentication_failed
                            : DaveOpenError::crypto_failure,
@@ -110,15 +108,15 @@ DaveOpenResult dave_frame_open(const DaveFrameView& view, const DaveFrameKey& ke
     // Still fail closed if that contract is violated: no plaintext is returned.
     if (!dave_replay_commit(replay, counter.value)) {
         if (!staged && view.body_bytes)
-            SecureZeroMemory(output.data, view.body_bytes);
+            secure_clear_bytes(output.data, view.body_bytes);
         if (needed)
-            SecureZeroMemory(scratch.data, needed);
+            secure_clear_bytes(scratch.data, needed);
         return failure(DaveOpenError::replay_rejected, needed, DaveFrameError::none, crypto, true);
     }
     const auto rebuilt = staged ? dave_frame_reconstruct(view, {plaintext.data, plaintext.count}, output)
                                 : DaveFrameError::none;
     if (needed)
-        SecureZeroMemory(scratch.data, needed);
+        secure_clear_bytes(scratch.data, needed);
     if (rebuilt != DaveFrameError::none)
         return failure(DaveOpenError::invalid_frame, needed, rebuilt, crypto, true);
     return {counter.value,        view.body_bytes, needed, DaveOpenError::none,
@@ -138,7 +136,7 @@ void dave_frame_sealer_release(DaveFrameSealer* sealer) noexcept {
     if (!sealer)
         return;
     dave_frame_key_release(&sealer->key);
-    SecureZeroMemory(sealer, sizeof(*sealer));
+    secure_clear_bytes(sealer, sizeof(*sealer));
 }
 DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& workspace,
                                ConstSlice<u8> plaintext, Slice<u8> output) noexcept {
@@ -177,15 +175,15 @@ DaveSealResult dave_frame_seal(DaveFrameSealer& sealer, KdfSha256Workspace& work
                 ++sealer.next_generation;
             }
         }
-        SecureZeroMemory(next, sizeof(next));
+        secure_clear_bytes(next, sizeof(next));
         if (!derived.ok() || sealer.next_generation != generation + 1) {
-            SecureZeroMemory(key, sizeof(key));
+            secure_clear_bytes(key, sizeof(key));
             return {0, 0, 0, DaveSealError::derivation};
         }
         dave_frame_key_release(&sealer.key);
         sealer.key_ready = false;
         const auto imported = dave_frame_key_initialize(&sealer.key, generation, {key, 16});
-        SecureZeroMemory(key, sizeof(key));
+        secure_clear_bytes(key, sizeof(key));
         if (!imported.ok())
             return {0, 0, 0, DaveSealError::crypto_failure};
         sealer.key_ready = true;

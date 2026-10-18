@@ -3,12 +3,13 @@
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/win32_process.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
 
 namespace maicord {
 
 struct ClientPreferencesWriter {
-    SRWLOCK lock;
+    SrwLock lock;
     HANDLE work_event;
     HANDLE completion_event;
     HANDLE thread;
@@ -43,16 +44,16 @@ DWORD WINAPI write_preferences(void* context) noexcept {
     for (;;) {
         ClientPreferences preferences{};
         u64 revision = 0;
-        AcquireSRWLockExclusive(&writer->lock);
+        AcquireSRWLockExclusive(writer->lock.native());
         if (writer->pending_ready) {
             preferences = writer->pending;
             revision = writer->requested_revision;
             writer->pending_ready = false;
         } else if (writer->stopping) {
-            ReleaseSRWLockExclusive(&writer->lock);
+            ReleaseSRWLockExclusive(writer->lock.native());
             return 0;
         }
-        ReleaseSRWLockExclusive(&writer->lock);
+        ReleaseSRWLockExclusive(writer->lock.native());
         if (revision == 0) {
             if (WaitForSingleObject(writer->work_event, INFINITE) != WAIT_OBJECT_0) return 1;
             continue;
@@ -63,12 +64,12 @@ DWORD WINAPI write_preferences(void* context) noexcept {
         const ClientPreferencesResult result = writer->explicit_path
             ? client_preferences_save_file(writer->path, preferences)
             : client_preferences_save(preferences);
-        AcquireSRWLockExclusive(&writer->lock);
+        AcquireSRWLockExclusive(writer->lock.native());
         writer->completed_revision = revision;
         writer->completed_result = result;
         writer->completion_ready = true;
         SetEvent(writer->completion_event);
-        ReleaseSRWLockExclusive(&writer->lock);
+        ReleaseSRWLockExclusive(writer->lock.native());
     }
 }
 } // namespace
@@ -108,17 +109,17 @@ bool client_preferences_writer_submit(ClientPreferencesWriter* writer,
                                       u64* revision) noexcept {
     if (!writer || !revision || !client_preferences_valid(preferences))
         return reject(ERROR_INVALID_PARAMETER);
-    AcquireSRWLockExclusive(&writer->lock);
+    AcquireSRWLockExclusive(writer->lock.native());
     if (writer->stopping || writer->requested_revision == ~u64{0}) {
         const u32 error = writer->stopping ? ERROR_OPERATION_ABORTED : ERROR_ARITHMETIC_OVERFLOW;
-        ReleaseSRWLockExclusive(&writer->lock);
+        ReleaseSRWLockExclusive(writer->lock.native());
         return reject(error);
     }
     writer->pending = preferences;
     writer->pending_ready = true;
     *revision = ++writer->requested_revision;
     SetEvent(writer->work_event);
-    ReleaseSRWLockExclusive(&writer->lock);
+    ReleaseSRWLockExclusive(writer->lock.native());
     return true;
 }
 
@@ -132,7 +133,7 @@ bool client_preferences_writer_poll(ClientPreferencesWriter* writer,
                                     bool* ready) noexcept {
     if (!writer || !completed_revision || !result || !ready)
         return reject(ERROR_INVALID_PARAMETER);
-    AcquireSRWLockExclusive(&writer->lock);
+    AcquireSRWLockExclusive(writer->lock.native());
     *ready = writer->completion_ready;
     if (*ready) {
         *completed_revision = writer->completed_revision;
@@ -140,7 +141,7 @@ bool client_preferences_writer_poll(ClientPreferencesWriter* writer,
         writer->completion_ready = false;
     }
     ResetEvent(writer->completion_event);
-    ReleaseSRWLockExclusive(&writer->lock);
+    ReleaseSRWLockExclusive(writer->lock.native());
     return true;
 }
 
@@ -148,10 +149,10 @@ bool client_preferences_writer_stop(ClientPreferencesWriter** output, u32 timeou
     if (!output) return reject(ERROR_INVALID_PARAMETER);
     auto* writer = *output;
     if (!writer) return true;
-    AcquireSRWLockExclusive(&writer->lock);
+    AcquireSRWLockExclusive(writer->lock.native());
     writer->stopping = true;
     SetEvent(writer->work_event);
-    ReleaseSRWLockExclusive(&writer->lock);
+    ReleaseSRWLockExclusive(writer->lock.native());
     const DWORD waited = WaitForSingleObject(writer->thread, timeout_ms);
     if (waited != WAIT_OBJECT_0)
         return reject(waited == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT);

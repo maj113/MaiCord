@@ -30,6 +30,8 @@
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"
 
+#include <Windows.h>
+
 #include <stddef.h>
 
 namespace maicord::app_detail {
@@ -152,10 +154,9 @@ struct Owner {
     ImageCropState crop;
     bool crop_dragging, zoom_dragging;
     float drag_x, drag_y, drag_offset_x, drag_offset_y;
-    Utf8View dialog_status;
     // Requests: GET loads, then the two sequential PATCHes of a save.
     Op op;
-    bool queued, failed, saving, account_failed;
+    bool queued, failed, saving;
     u64 request_id, retry_at, lifetime, account_scope, profile_id, self_user_id;
     UserPatch user_patch;
     MemberEditPatch member_patch;
@@ -170,25 +171,14 @@ struct Owner {
 Owner* owner;
 u64 lifetime_serial;
 
-// Scope -------------------------------------------------------------------------
-
-bool available() noexcept {
-    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.gateway_ready;
 }
 ChatStateStore& state() noexcept {
     return g_app.account_ui->chat_state;
 }
-u64 next_request_id() noexcept {
-    u64 id = ++g_app.account_ui->message_history_request_id;
-    if (!id)
-        id = ++g_app.account_ui->message_history_request_id;
-    return id;
-}
 bool scope_current() noexcept {
-    if (!owner || !available() || owner->account_scope != g_app.plugin_account_scope_serial ||
+    if (!owner || !application_account_available() || owner->account_scope != g_app.plugin_account_scope_serial ||
         owner->profile_id != g_app.account.status.profile_id || state().self_user_id != owner->self_user_id)
         return false;
     if (owner->tab != ProfileEditorTab::guild || !owner->guild_id)
@@ -221,6 +211,14 @@ ProfileEditorGate gate() noexcept {
                                can_change_nickname());
 }
 
+// The drafted decoration or effect SKU, else the saved one.
+u64 current_sku(bool decoration) noexcept {
+    const auto& d = owner->draft;
+    const auto& b = owner->base;
+    return decoration ? (d.decoration_set ? d.decoration_sku : b.decoration_sku)
+                      : (d.effect_set ? d.effect_sku : b.effect_sku);
+}
+
 struct Bank {
     char* data;
     u32 capacity, used;
@@ -251,18 +249,9 @@ struct Bank {
         return {data + start, used - start};
     }
 };
-u32 copy_text(char* output, u32 capacity, Utf8View text) noexcept {
-    u32 bytes = minimum(text.bytes, capacity);
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xC0) == 0x80)
-        --bytes;
-    copy_bytes(output, text.data, bytes);
-    return bytes;
-}
 template <u32 N> void assign(ProfileString<N>* to, Utf8View from) noexcept {
-    to->bytes = static_cast<u16>(copy_text(to->data, N, from));
+    to->bytes = static_cast<u16>(utf8_copy_truncated(to->data, from));
 }
-
-// Editors -------------------------------------------------------------------------
 
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
@@ -285,7 +274,7 @@ u32 editor_limit(u32 index) noexcept {
 }
 void load_editor(u32 index, Utf8View text) noexcept {
     auto& model = owner->models[index];
-    const u32 bytes = copy_text(editor_buffer(index), editor_capacity(index), text);
+    const u32 bytes = utf8_copy_truncated(editor_buffer(index), editor_capacity(index), text);
     message_composer_refresh_borrowed(&model, bytes);
     message_composer_set_selection(&model, bytes, bytes);
     bounded_edit_bind(&owner->bindings[index], &model, editor_limit(index), index == editor_bio, owner->lifetime,
@@ -300,8 +289,6 @@ u32 editor_of(u64 control) noexcept {
            : control == control_bio      ? editor_bio
                                          : editor_count;
 }
-
-// Saved values and the draft --------------------------------------------------------
 
 void release_uri(Picked& picked) noexcept {
     if (picked.uri) {
@@ -416,8 +403,6 @@ void discard() noexcept {
     p.status = {};
 }
 
-// Preview card ------------------------------------------------------------------------
-
 u32 effective_theme(u32* out) noexcept {
     const auto& d = owner->draft;
     const auto& b = owner->base;
@@ -492,7 +477,7 @@ void compose_preview() noexcept {
     appearance.decoration = decorated ? p.decoration_asset : ProfileString<64>{};
     if (decorated)
         appearance.fields |= appearance_decoration;
-    const u64 effect = d.effect_set ? d.effect_sku : p.base.effect_sku;
+    const u64 effect = current_sku(false);
     if (guild)
         v.guild_effect_sku_id = effect;
     else
@@ -545,8 +530,6 @@ bool layout_preview(UiRect anchor, UiRect visible) noexcept {
     return profile_scene_layout(&s, viewport, true);
 }
 
-// Local previews of picked images ------------------------------------------------------
-
 MediaAttachmentFormat format_of(GuildImageKind kind) noexcept {
     switch (kind) {
     case GuildImageKind::png:
@@ -570,7 +553,7 @@ bool request_preview(Picked& picked, FileSnapshot snapshot) noexcept {
     picked.request.key = key;
     picked.request.snapshot = snapshot;
     picked.request.path = {picked.path, picked.path_units};
-    picked.request.owner_scope = 0x5052000000000000ull | (owner->profile_id & 0xffffffffffffull);
+    picked.request.owner_scope = kPreviewIdBase | (owner->profile_id & 0xffffffffffffull);
     picked.request.owner_generation = generation;
     picked.instance = g_app.account.instance;
     picked.ready = picked.failed = picked.admitted = false;
@@ -618,14 +601,10 @@ bool pump_previews(u64 now) noexcept {
     return changed;
 }
 
-// Owned collectibles ---------------------------------------------------------------------
-
-u64 hash_url(Utf8View url) noexcept {
-    return hash64_bytes(kHash64Seed, url.data, url.bytes);
-}
 void item_media(UiProfileDialogItem* item, Utf8View url, bool png) noexcept {
     assign(&item->url, url);
-    item->key = media_asset_embed(hash_url(url), 1, 0, MediaEmbedResource::image,
+    item->key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
+                                  MediaEmbedResource::image,
                                   png ? MediaAttachmentFormat::png : MediaAttachmentFormat::webp, false,
                                   MediaResolutionTier::px512);
     item->key.kind = MediaAssetKind::profile_image;
@@ -647,8 +626,7 @@ void build_items(Dialog kind) noexcept {
     none = {};
     const auto type = kind == Dialog::decoration ? ProfileCollectibleType::avatar_decoration
                                                  : ProfileCollectibleType::profile_effect;
-    const u64 current = kind == Dialog::decoration ? (p.draft.decoration_set ? p.draft.decoration_sku : p.base.decoration_sku)
-                                                   : (p.draft.effect_set ? p.draft.effect_sku : p.base.effect_sku);
+    const u64 current = current_sku(kind == Dialog::decoration);
     for (u32 i = 0; i < p.owned_count && p.item_count < kUiProfileDialogItemCapacity; ++i) {
         const auto& owned = p.owned[i];
         if (owned.type != type)
@@ -677,8 +655,6 @@ const ProfileCollectible* owned_item(u64 sku, ProfileCollectibleType type) noexc
             return &owner->owned[i];
     return nullptr;
 }
-
-// Projection -----------------------------------------------------------------------------
 
 void push(const UiSettingsControl& control,
           UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
@@ -713,7 +689,7 @@ bool palette_resolve(void*, u64 control, u32 choice, BackgroundTheme* out) noexc
         if (effective_theme(colors) == 2)
             rgb = colors[choice ? 1 : 0];
         else
-            rgb = choice ? 0x41434A : 0x41434A;
+            rgb = 0x41434A;
     } else if (control == control_accent)
         rgb = owner->draft.accent_set ? owner->draft.accent : owner->base.has_accent ? owner->base.accent : 0x41434A;
     else
@@ -795,7 +771,7 @@ bool project_controls(Bank& bank) noexcept {
     push_error(control_avatar_error, ProfileEditErrorField::avatar);
     // Avatar Decoration and Profile Effect: owned collectibles.
     const bool decoration_allowed = (g.enabled & profile_editor_decoration) != 0;
-    const u64 decoration = p.draft.decoration_set ? p.draft.decoration_sku : p.base.decoration_sku;
+    const u64 decoration = current_sku(true);
     p.decoration_buttons[0] = utf8_literal("Change Decoration");
     p.decoration_buttons[1] = guild && p.saved.decoration_sku ? utf8_literal("Use Default") : utf8_literal("Remove Decoration");
     push({control_decoration, utf8_literal("Avatar Decoration"),
@@ -803,7 +779,7 @@ bool project_controls(Bank& bank) noexcept {
           edit && decoration_allowed, false, {p.decoration_buttons, decoration ? 2u : 1u}, kUiSettingsNoChoice, {},
           nullptr});
     const bool effect_allowed = (g.enabled & profile_editor_effect) != 0;
-    const u64 effect = p.draft.effect_set ? p.draft.effect_sku : p.base.effect_sku;
+    const u64 effect = current_sku(false);
     p.effect_buttons[0] = utf8_literal("Change Effect");
     p.effect_buttons[1] = guild ? utf8_literal("Use Default") : utf8_literal("Remove Effect");
     push({control_effect, utf8_literal("Profile Effect"), profile_editor_gate_reason(p.tab, g, profile_editor_effect),
@@ -905,8 +881,6 @@ bool repaint() noexcept {
     return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-// Requests ---------------------------------------------------------------------------------
-
 void queue(Op op) noexcept {
     owner->op = op;
     owner->queued = true;
@@ -917,8 +891,6 @@ void queue_fetch() noexcept {
     owner->load_failed = false;
     queue(Op::fetch);
 }
-
-// Dialogs ---------------------------------------------------------------------------------
 
 bool dialog_update() noexcept {
     auto& p = *owner;
@@ -948,8 +920,7 @@ bool dialog_update() noexcept {
         content.apply_label = utf8_literal("Apply");
         content.items = {p.items, p.item_count};
         content.selected = p.item_selected;
-        const u64 current = decoration ? (p.draft.decoration_set ? p.draft.decoration_sku : p.base.decoration_sku)
-                                       : (p.draft.effect_set ? p.draft.effect_sku : p.base.effect_sku);
+        const u64 current = current_sku(decoration);
         const u64 chosen = p.item_selected < p.item_count ? p.items[p.item_selected].sku : 0;
         content.can_apply = chosen != current;
         content.preview_label = p.item_selected < p.item_count && p.items[p.item_selected].sku
@@ -1032,8 +1003,6 @@ void apply_dialog() noexcept {
     }
     close_dialog();
 }
-
-// Picking images ---------------------------------------------------------------------------
 
 Utf8View image_error(ProfileImageError error) noexcept {
     switch (error) {
@@ -1154,8 +1123,7 @@ void start_pick(Pick pick) noexcept {
         return;
     p.picker_consumed = false;
     p.picking = pick;
-    if (native_file_picker_start(&p.picker, g_app.window, 1,
-                                 pick == Pick::avatar ? utf8_literal("Select an Image") : utf8_literal("Select an Image")) !=
+    if (native_file_picker_start(&p.picker, g_app.window, 1, utf8_literal("Select an Image")) !=
         NativeFilePickerError::none) {
         p.picking = Pick::none;
         p.status = utf8_literal("Couldn't open the file picker.");
@@ -1283,8 +1251,6 @@ void edit_color(ColorSlot slot) noexcept {
         g_color_preview = {};
 }
 
-// Navigation away from the page --------------------------------------------------------------
-
 bool guard() noexcept {
     // Unsaved changes hold the page, as the official client's settings do.
     if (owner && changes() && !saving()) {
@@ -1354,8 +1320,6 @@ void collect_guilds() noexcept {
     }
 }
 
-// Settings layer hooks -------------------------------------------------------------------------
-
 void save() noexcept {
     auto& p = *owner;
     if (!p.footer.can_save)
@@ -1376,7 +1340,6 @@ void save() noexcept {
     p.errors = {};
     p.failed = false;
     p.status = {};
-    p.account_failed = false;
     p.saving = true;
     const bool account = p.tab == ProfileEditorTab::main ? p.user_patch.fields != 0 : p.member_patch.fields != 0;
     queue(account ? Op::save_account : Op::save_profile);
@@ -1564,8 +1527,6 @@ bool register_pages() noexcept {
     return ui_page_registry_select(&p.registry, kProfilesPage).ok();
 }
 
-// Responses ------------------------------------------------------------------------------------------
-
 Utf8View failure(const RestClientResponse& response, Utf8View body) noexcept {
     auto& p = *owner;
     if (!response.transport_ok())
@@ -1598,10 +1559,8 @@ void load_profile(Utf8View body) noexcept {
 }
 } // namespace
 
-// Public entry points ------------------------------------------------------------------------------------
-
 bool application_profile_editor_open(ProfileEditorTab tab, u64 guild_id) noexcept {
-    if (!available() || !g_app.renderer_ready || g_app.text_form || !g_app.account.api.profile_edit ||
+    if (!application_account_available() || !g_app.renderer_ready || g_app.text_form || !g_app.account.api.profile_edit ||
         !g_app.account.api.profile_image)
         return false;
     if (application_profile_editor_active()) {
@@ -1711,7 +1670,7 @@ void application_profile_editor_close(bool restore_focus) noexcept {
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
     ui_settings_scene_close(&p.scene);
-    if (restore_focus && available())
+    if (restore_focus && application_account_available())
         g_app.context_focus = &g_app.shell_scene.widgets;
     application_sync_attachment_drop_target();
     if (g_app.renderer_ready)
@@ -1770,8 +1729,6 @@ bool application_profile_editor_synchronize() noexcept {
     return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
            renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
-
-// Dialog input ----------------------------------------------------------------------------------------
 
 namespace {
 float client_x(LPARAM lparam) noexcept {
@@ -1866,8 +1823,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         return true;
     }
     const auto hit = ui_profile_dialog_hit_test(d, x, y);
-    u32 source = 0;
-    const auto action = ui_profile_dialog_action(d, hit, &source);
+    const auto action = ui_profile_dialog_action(d, hit);
     if (message == WM_LBUTTONDOWN && !ui_rect_contains(d.rectangle, x, y)) {
         // A click on the scrim closes the dialog like Cancel.
         close_dialog();
@@ -1912,8 +1868,6 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
         TrackMouseEvent(&track);
     }
-    (void)action;
-    (void)source;
     return true;
 }
 bool dialog_key(UiInputKind kind, u32 key, bool repeated) noexcept {
@@ -2045,7 +1999,7 @@ bool application_profile_editor_submit(u64 now) noexcept {
         p.queued = false;
         return false;
     }
-    const u64 id = next_request_id();
+    const u64 id = application_next_request_id();
     const auto submitted = g_app.account.api.profile_edit(g_app.account.instance, &request, id);
     if (submitted.error == RestClientSubmitError::busy) {
         p.retry_at = deadline_after(now, 50);
@@ -2120,8 +2074,6 @@ bool application_profile_editor_response(const RestClientResponse& response, Utf
         if (!ok) {
             p.failed = true;
             p.status = failure(response, body);
-            if (p.op == Op::save_account)
-                p.account_failed = true;
         }
         // The official client sends the profile PATCH even when the account PATCH fails.
         if (p.op == Op::save_account && p.profile_patch.fields) {

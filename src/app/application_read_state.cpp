@@ -85,7 +85,7 @@ const ChannelRecord* readable(u64 id, bool unread = false) noexcept {
         if (!guild || guild->unavailable || !c->permissions_resolved)
             return nullptr;
     }
-    if (unread && (c->type == 10 || c->type == 11 || c->type == 12)) {
+    if (unread && channel_is_thread(c->type)) {
         if (!c->thread_archived_known || c->thread_archived || !c->thread_self_joined_known ||
             !c->thread_self_joined)
             return nullptr;
@@ -273,6 +273,14 @@ ApplicationReadState* ensure_owner() noexcept {
     g_app.read_state = owner;
     return owner;
 }
+// Whole days since the Snowflake epoch, rounded up: the ACK "last viewed" field.
+u32 viewed_day() noexcept {
+    const u64 unix_ms = clock_unix_milliseconds();
+    const u64 day = unix_ms > kSnowflakeEpochMilliseconds
+                        ? (unix_ms - kSnowflakeEpochMilliseconds + 86'399'999ull) / 86'400'000ull
+                        : 0;
+    return static_cast<u32>(minimum<u64>(day, ~u32{0}));
+}
 void clear_token(ApplicationReadState& owner) noexcept {
     if (owner.token_bytes)
         SecureZeroMemory(owner.token.arena.base, owner.token_bytes);
@@ -439,17 +447,13 @@ void application_read_state_ready() noexcept {
         return;
     auto& owner = *g_app.read_state;
     const auto& ui = *g_app.account_ui;
-    if (owner.account_ui == g_app.account_ui && owner.account_instance == g_app.account.instance &&
-        owner.account_serial == g_app.plugin_account_scope_serial &&
-        owner.profile_id == g_app.account.status.profile_id &&
-        owner.read_generation == ui.read_state_store.generation &&
-        owner.user_id == ui.chat_state.self_user_id)
-        return;
     const bool same_actor = owner.account_ui == g_app.account_ui &&
                             owner.account_instance == g_app.account.instance &&
                             owner.account_serial == g_app.plugin_account_scope_serial &&
                             owner.profile_id == g_app.account.status.profile_id &&
                             owner.user_id == ui.chat_state.self_user_id;
+    if (same_actor && owner.read_generation == ui.read_state_store.generation)
+        return;
     read_ack_controller_reset(&owner.queue);
     clear_token(owner);
     if (!same_actor) {
@@ -494,15 +498,8 @@ bool application_read_state_mark(u64 channel_id, bool immediate) noexcept {
         return false;
     if (tracked && !action_capacity(*owner, channel_id))
         return false;
-    const u64 unix_ms = clock_unix_milliseconds();
-    const u64 day = unix_ms > 1'420'070'400'000ull
-                        ? (unix_ms - 1'420'070'400'000ull + 86'399'999ull) / 86'400'000ull
-                        : 0;
-    const u32 flags = (channel->type == 10 || channel->type == 11 || channel->type == 12) ? 2u
-                      : channel->guild_id                                                 ? 1u
-                                                                                          : 0u;
-    const ReadAckIntent desired{channel_id, channel->last_message_id,
-                                static_cast<u32>(minimum<u64>(day, ~u32{0})), flags, 0};
+    const u32 flags = channel_is_thread(channel->type) ? 2u : channel->guild_id ? 1u : 0u;
+    const ReadAckIntent desired{channel_id, channel->last_message_id, viewed_day(), flags, 0};
     if (!read_ack_controller_queue(&owner->queue, desired, clock_monotonic_milliseconds(),
                                    immediate || channel->mention_count != 0))
         return false;
@@ -530,9 +527,7 @@ bool application_read_state_mark(u64 channel_id, bool immediate) noexcept {
 bool application_read_state_message_unread_available(u64 message_id) noexcept {
     if (!account_live() || !message_id)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     return record && record->delivery == MessageDeliveryState::authoritative &&
            readable(record->channel_id, true) && record->channel_id == g_app.account_ui->active_channel_id;
 }
@@ -665,7 +660,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
         captured = action(owner, intent.channel_id);
     }
     const ApplicationReadEchoProof proof{intent.channel_id, intent.message_id, captured->serial};
-    if (captured && !application_read_state_echo_prepare({&proof, 1})) {
+    if (!application_read_state_echo_prepare({&proof, 1})) {
         if (manual)
             manual_failed(owner, *captured, 507);
         if (captured->scoped)
@@ -708,7 +703,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
             read_ack_controller_cancel(&owner.queue, intent.channel_id);
             if (manual)
                 manual_failed(owner, *captured, 400);
-            if (captured && captured->scoped)
+            if (captured->scoped)
                 application_scoped_read_individual_result(intent.channel_id, captured->serial, false,
                                                           false);
         }
@@ -716,14 +711,11 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
     }
     if (!read_ack_controller_admit(&owner.queue, intent, request_id, &owner.ticket))
         return false;
-    owner.submitted_manual = {};
-    if (captured) {
-        auto* latest = action(owner, intent.channel_id);
-        if (latest->attempts != 255)
-            ++latest->attempts;
-        owner.submitted_manual = *latest;
-        application_read_state_echo_admitted({&proof, 1}, request_id);
-    }
+    auto* latest = action(owner, intent.channel_id);
+    if (latest->attempts != 255)
+        ++latest->attempts;
+    owner.submitted_manual = *latest;
+    application_read_state_echo_admitted({&proof, 1}, request_id);
     owner.submitted_user_id = owner.user_id;
     owner.submitted_token_generation = owner.token_generation;
     owner.submit_retry_at_ms = 0;
@@ -1004,11 +996,7 @@ bool application_read_state_scoped_commit(ConstSlice<ReadScopeTarget> targets, b
         if (!source_current(*o, source, false))
             return false;
     }
-    const u64 unix_ms = clock_unix_milliseconds();
-    const u64 day = unix_ms > 1'420'070'400'000ull
-                        ? (unix_ms - 1'420'070'400'000ull + 86'399'999ull) / 86'400'000ull
-                        : 0;
-    const u32 viewed = static_cast<u32>(minimum<u64>(day, ~u32{0}));
+    const u32 viewed = viewed_day();
     for (u32 i = 0; i < targets.count; ++i) {
         const auto& t = targets[i];
         const u32 flags = channel_is_thread(t.type) ? 2u : 1u;

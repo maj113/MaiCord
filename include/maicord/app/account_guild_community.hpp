@@ -9,6 +9,4 @@ namespace maicord {
 // session_id is the Gateway session a guild_join names (empty omits it).
 RestClientSubmitResult account_guild_community_submit(RestClient*, const GuildCommunityRequest*,
                                                       u64 request_id, Utf8View session_id = {}) noexcept;
-// Exact request ID only; a published response remains available for rest_take.
-RestClientSubmitResult account_guild_community_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

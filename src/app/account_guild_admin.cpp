@@ -121,9 +121,6 @@ RestClientSubmitResult account_guild_admin_submit(RestClient* rest, const GuildA
 }
 
 RestClientSubmitResult account_guild_admin_cancel(RestClient* rest, u64 request_id) noexcept {
-    if (!rest || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    return {rest_client_cancel(rest, request_id) ? RestClientSubmitError::none
-                                                         : RestClientSubmitError::busy};
+    return rest_client_cancel_result(rest, request_id);
 }
 } // namespace maicord

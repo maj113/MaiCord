@@ -57,23 +57,8 @@ void clear_launch_environment() noexcept {
     SetEnvironmentVariableW(kLaunchStartupVariable, nullptr);
 }
 
-u32 argb(const Color& color) noexcept {
-    const auto byte = [](float v) noexcept {
-        return static_cast<u32>((v < 0 ? 0 : v > 1 ? 1 : v) * 255.f + .5f);
-    };
-    return 0xFF000000u | (byte(color.red) << 16) | (byte(color.green) << 8) | byte(color.blue);
-}
-TrayIconPalette palette() noexcept {
-    const auto& tokens = application_theme().tokens;
-    const auto& brand = tokens.accent.brand;
-    // The lower edge of the tile is the brand colour at 78% brightness.
-    const Color shade{brand.red * .78f, brand.green * .78f, brand.blue * .78f, 1};
-    return {argb(brand), argb(shade), argb(tokens.accent.success), argb(tokens.accent.danger),
-            argb(tokens.text.on_accent)};
-}
 bool same_palette(const TrayIconPalette& a, const TrayIconPalette& b) noexcept {
-    return a.brand == b.brand && a.brand_shade == b.brand_shade && a.success == b.success && a.danger == b.danger &&
-           a.glyph == b.glyph;
+    return bytes_equal(&a, &b, sizeof(a));
 }
 TrayInput tray_input() noexcept {
     TrayInput input{};
@@ -118,7 +103,7 @@ void tick_tray(u64 now_ms) noexcept {
     if (!g_desktop.tray_initialized || now_ms < g_desktop.tray_retry_ms)
         return;
     const auto input = tray_input();
-    const auto colors = palette();
+    const auto colors = application_tray_palette();
     update_window_icons(colors);
     auto plan = tray_plan(&g_desktop.tray.model, input, true);
     wchar_t tooltip[128];

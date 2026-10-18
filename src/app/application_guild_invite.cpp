@@ -8,10 +8,10 @@
 #include "application_text_form.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/guild_invite.hpp"
 #include "maicord/ui/message_markdown.hpp"
-
 
 namespace maicord::app_detail {
 namespace {
@@ -63,63 +63,58 @@ bool member_of(u64 guild_id) noexcept {
 bool scope_current() noexcept {
     return g_app.account_ui && g_app.account.instance && g_invite.scope == g_app.plugin_account_scope_serial;
 }
-void append(u32* used, Utf8View text) noexcept {
-    const u32 bytes = minimum<u32>(text.bytes, sizeof(g_invite.status) - *used);
-    copy_bytes(g_invite.status + *used, text.data, bytes);
-    *used += bytes;
-}
-void append_count(u32* used, u32 value) noexcept {
+void add_count(TextBank& status, u32 value) noexcept {
     char digits[16];
-    append(used, {digits, decimal_write_grouped(digits, value)});
+    status.add({digits, decimal_write_grouped(digits, value)});
 }
 // Status copy mirrors the official client's invite card: name, then online/member counts.
 void publish(InviteState state) noexcept {
     g_invite.state = state;
-    u32 used = 0;
+    TextBank status{g_invite.status, sizeof(g_invite.status), 0};
     const auto& invite = g_invite.invite;
     switch (state) {
     case InviteState::resolve_queued:
     case InviteState::resolving:
-        append(&used, utf8_literal("Resolving invite\xE2\x80\xA6"));
+        status.add(utf8_literal("Resolving invite\xE2\x80\xA6"));
         break;
     case InviteState::resolved:
     case InviteState::accept_queued:
     case InviteState::accepting:
     case InviteState::awaiting_guild:
-        append(&used, {invite.name, invite.name_bytes});
+        status.add({invite.name, invite.name_bytes});
         if (invite.counts_known) {
-            append(&used, utf8_literal("\n"));
-            append_count(&used, invite.presence_count);
-            append(&used, utf8_literal(" online \xC2\xB7 "));
-            append_count(&used, invite.member_count);
-            append(&used, invite.member_count == 1 ? utf8_literal(" member") : utf8_literal(" members"));
+            status.add(utf8_literal("\n"));
+            add_count(status, invite.presence_count);
+            status.add(utf8_literal(" online \xC2\xB7 "));
+            add_count(status, invite.member_count);
+            status.add(invite.member_count == 1 ? utf8_literal(" member") : utf8_literal(" members"));
         }
         if (state == InviteState::accepting || state == InviteState::accept_queued)
-            append(&used, utf8_literal("\nJoining\xE2\x80\xA6"));
+            status.add(utf8_literal("\nJoining\xE2\x80\xA6"));
         else if (state == InviteState::awaiting_guild)
-            append(&used, utf8_literal("\nJoined. Opening the server\xE2\x80\xA6"));
+            status.add(utf8_literal("\nJoined. Opening the server\xE2\x80\xA6"));
         break;
     case InviteState::unknown:
-        append(&used, utf8_literal("Invalid invite. It may have expired. Ask for a new invite."));
+        status.add(utf8_literal("Invalid invite. It may have expired. Ask for a new invite."));
         break;
     case InviteState::captcha: {
         const auto phase = invite_captcha_phase();
         g_invite.captcha_phase = phase;
-        append(&used, phase != ApplicationActionCaptchaPhase::none
-                          ? application_action_captcha_status(phase)
-                          : utf8_literal("Discord wants a CAPTCHA before you can join. Open the invite in your browser."));
+        status.add(phase != ApplicationActionCaptchaPhase::none
+                       ? application_action_captcha_status(phase)
+                       : utf8_literal("Discord wants a CAPTCHA before you can join. Open the invite in your browser."));
         break;
     }
     case InviteState::banned:
-        append(&used, utf8_literal("You're banned from this server."));
+        status.add(utf8_literal("You're banned from this server."));
         break;
     case InviteState::failed:
-        append(&used, utf8_literal("Couldn't load this invite. Try again."));
+        status.add(utf8_literal("Couldn't load this invite. Try again."));
         break;
     case InviteState::idle:
         break;
     }
-    g_invite.status_bytes = static_cast<u16>(used);
+    g_invite.status_bytes = static_cast<u16>(status.used);
     ++g_invite.revision;
     application_request_frame();
 }

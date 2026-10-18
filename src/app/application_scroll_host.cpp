@@ -16,6 +16,8 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/scroll_host.hpp"
 
+#include <Windows.h>
+
 #include <limits.h>
 
 namespace maicord::app_detail {
@@ -170,39 +172,31 @@ bool read_surface(void*, u64 key, UiScrollRange* range) noexcept {
     }
 }
 
+// Scrolls a panel with its own range accessors; reports whether the position moved.
+bool scroll_panel(bool (*scroll_to)(double) noexcept, bool (*read_range)(UiScrollRange*) noexcept, double offset,
+                  double before, bool* changed) noexcept {
+    UiScrollRange after{};
+    if (!scroll_to(offset) || !read_range(&after))
+        return false;
+    *changed = before != after.offset;
+    return true;
+}
+
 bool write_surface(void*, u64 key, double offset, bool* changed) noexcept {
     UiScrollRange before{};
     if (!read_surface(nullptr, key, &before))
         return false;
     *changed = false;
     switch (key) {
-    case inbox: {
-        if (!application_inbox_scroll_to(offset))
-            return false;
-        UiScrollRange after{};
-        if (!application_inbox_scroll_range(&after))
-            return false;
-        *changed = before.offset != after.offset;
-        return true;
-    }
-    case thread_browser: {
-        if (!application_thread_browser_scroll_to(offset))
-            return false;
-        UiScrollRange after{};
-        if (!application_thread_browser_scroll_range(&after))
-            return false;
-        *changed = before.offset != after.offset;
-        return true;
-    }
-    case pinned_messages: {
-        if (!application_pinned_messages_scroll_to(offset))
-            return false;
-        UiScrollRange after{};
-        if (!application_pinned_messages_scroll_range(&after))
-            return false;
-        *changed = before.offset != after.offset;
-        return true;
-    }
+    case inbox:
+        return scroll_panel(application_inbox_scroll_to, application_inbox_scroll_range, offset, before.offset,
+                            changed);
+    case thread_browser:
+        return scroll_panel(application_thread_browser_scroll_to, application_thread_browser_scroll_range,
+                            offset, before.offset, changed);
+    case pinned_messages:
+        return scroll_panel(application_pinned_messages_scroll_to, application_pinned_messages_scroll_range,
+                            offset, before.offset, changed);
     case profile_details:
     case profile_peers: {
         const auto binding = profile_scene_scroll_binding(&g_app.profile->scene, key == profile_peers);
@@ -289,18 +283,23 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
     UINT lines = 3;
     SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
     const i32 delta = static_cast<short>(HIWORD(wparam));
-    const u64 now = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
+    const u64 now = application_now_us();
+    const auto wheel = [&](u64 surface) noexcept {
+        return ui_scroll_host_wheel(&g_app.scroll_host, {nullptr, surface, read_surface, write_surface}, point,
+                                    delta, lines, lines == WHEEL_PAGESCROLL, now, scale);
+    };
+    const auto finish = [&](UiScrollDispatch result, const char* failure, bool messages_changed) noexcept {
+        if (result == UiScrollDispatch::failed)
+            log_write(LogLevel::error, "ui", failure);
+        if (!finish_immediate_scroll(messages_changed))
+            log_write(LogLevel::error, "ui", "immediate_scroll_refresh_failed");
+    };
     // The inbox popout floats above every pane. Its body takes the same
     // animated wheel policy as the timeline; the rest of the panel absorbs
     // wheel input so nothing scrolls underneath it.
     if (const auto* popout = g_app.renderer.inbox_scene;
         popout && application_inbox_active() && ui_inbox_scene_contains(*popout, point.x, point.y)) {
-        const auto result = ui_scroll_host_wheel(&g_app.scroll_host, {nullptr, inbox, read_surface, write_surface},
-                                                 point, delta, lines, lines == WHEEL_PAGESCROLL, now, scale);
-        if (result == UiScrollDispatch::failed)
-            log_write(LogLevel::error, "ui", "inbox_scroll_dispatch_failed");
-        if (!finish_immediate_scroll(false))
-            log_write(LogLevel::error, "ui", "immediate_scroll_refresh_failed");
+        finish(wheel(inbox), "inbox_scroll_dispatch_failed", false);
         return true;
     }
     // The browser owns the entire main-content panel, including headers and
@@ -309,26 +308,15 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
         ui_rect_contains(application_thread_browser_viewport(), point.x, point.y) &&
         !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
         !(g_app.profile && g_app.profile->scene.active)) {
-        const auto browser = ui_scroll_host_wheel(
-            &g_app.scroll_host, {nullptr, thread_browser, read_surface, write_surface}, point,
-            delta, lines, lines == WHEEL_PAGESCROLL, now, scale);
-        if (browser == UiScrollDispatch::failed)
-            log_write(LogLevel::error, "ui", "thread_browser_scroll_dispatch_failed");
-        if (!finish_immediate_scroll(false))
-            log_write(LogLevel::error, "ui", "immediate_scroll_refresh_failed");
+        finish(wheel(thread_browser), "thread_browser_scroll_dispatch_failed", false);
         return true;
     }
     // The pin panel covers timeline/member descendants. Route its virtual
     // body first, including when it has no scroll extent, so wheel input cannot
     // reach a covered retained child underneath it.
-    const auto pins = ui_scroll_host_wheel(
-        &g_app.scroll_host, {nullptr, pinned_messages, read_surface, write_surface}, point,
-        delta, lines, lines == WHEEL_PAGESCROLL, now, scale);
+    const auto pins = wheel(pinned_messages);
     if (pins != UiScrollDispatch::unhandled) {
-        if (pins == UiScrollDispatch::failed)
-            log_write(LogLevel::error, "ui", "pinned_scroll_dispatch_failed");
-        if (!finish_immediate_scroll(false))
-            log_write(LogLevel::error, "ui", "immediate_scroll_refresh_failed");
+        finish(pins, "pinned_scroll_dispatch_failed", false);
         return true;
     }
     // Retained descendants route before their virtualized parent surfaces.
@@ -373,11 +361,9 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
         const auto result =
             ui_scroll_host_wheel_widgets(&g_app.scroll_host, tree.manager, point, delta, lines,
                                          lines == WHEEL_PAGESCROLL, now, scale, tree.virtual_owner);
-        if (result == UiScrollDispatch::failed)
-            log_write(LogLevel::error, "ui", "retained_scroll_dispatch_failed");
         if (result != UiScrollDispatch::unhandled) {
-            if (!finish_immediate_scroll(g_app.message_view.timeline.scroll_units != message_scroll_before))
-                log_write(LogLevel::error, "ui", "immediate_scroll_refresh_failed");
+            finish(result, "retained_scroll_dispatch_failed",
+                   g_app.message_view.timeline.scroll_units != message_scroll_before);
             return true;
         }
     }
@@ -386,14 +372,10 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
                                  thread_browser, pinned_messages,    composer,       guilds,             channels, members,
                                  messages};
     for (const auto surface : order) {
-        const auto result =
-            ui_scroll_host_wheel(&g_app.scroll_host, {nullptr, surface, read_surface, write_surface}, point,
-                                 delta, lines, lines == WHEEL_PAGESCROLL, now, scale);
-        if (result == UiScrollDispatch::failed)
-            log_write(LogLevel::error, "ui", "virtual_scroll_dispatch_failed");
+        const auto result = wheel(surface);
         if (result != UiScrollDispatch::unhandled) {
-            if (!finish_immediate_scroll(g_app.message_view.timeline.scroll_units != message_scroll_before))
-                log_write(LogLevel::error, "ui", "immediate_scroll_refresh_failed");
+            finish(result, "virtual_scroll_dispatch_failed",
+                   g_app.message_view.timeline.scroll_units != message_scroll_before);
             return true;
         }
     }
@@ -412,8 +394,7 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
 
 bool reveal_command_row(float top, float bottom) noexcept {
     return ui_scroll_host_reveal(&g_app.scroll_host, {nullptr, suggestions, read_surface, write_surface},
-                                 top, bottom,
-                                 clock_microseconds(g_app.clock, g_app.process_start, clock_now()),
+                                 top, bottom, application_now_us(),
                                  96.0 / maximum(g_app.renderer.dpi, 1u)) != UiScrollDispatch::failed;
 }
 
@@ -424,8 +405,7 @@ bool queue_profile_scroll(bool right, i32 delta) noexcept {
         return false;
     const UiPoint point{range.viewport.left + 1, range.viewport.top + 1};
     return ui_scroll_host_wheel(&g_app.scroll_host, {nullptr, surface, read_surface, write_surface}, point,
-                                delta, 1, false,
-                                clock_microseconds(g_app.clock, g_app.process_start, clock_now()),
+                                delta, 1, false, application_now_us(),
                                 96.0 / maximum(g_app.renderer.dpi, 1u)) != UiScrollDispatch::failed;
 }
 
@@ -439,8 +419,8 @@ bool animate_guild_rail_scroll_from(float before) noexcept {
     if (!guild_rail_scene_update(&rail, view, rail.viewport, before).ok())
         return false;
     const auto result = ui_scroll_host_scroll_to(
-        &g_app.scroll_host, {nullptr, guilds, read_surface, write_surface}, after,
-        clock_microseconds(g_app.clock, g_app.process_start, clock_now()), 96.0 / maximum(g_app.renderer.dpi, 1u));
+        &g_app.scroll_host, {nullptr, guilds, read_surface, write_surface}, after, application_now_us(),
+        96.0 / maximum(g_app.renderer.dpi, 1u));
     if (result == UiScrollDispatch::handled)
         return refresh_retained_projection(false);
     // A covering surface owns scrolling right now: keep the jump.
@@ -459,8 +439,8 @@ bool animate_popup_scroll_from(float before) noexcept {
     if (!popup_scene_scroll(&popup, before - after, &changed))
         return true;
     const auto result = ui_scroll_host_scroll_to(
-        &g_app.scroll_host, {nullptr, suggestions, read_surface, write_surface}, after,
-        clock_microseconds(g_app.clock, g_app.process_start, clock_now()), 96.0 / maximum(g_app.renderer.dpi, 1u));
+        &g_app.scroll_host, {nullptr, suggestions, read_surface, write_surface}, after, application_now_us(),
+        96.0 / maximum(g_app.renderer.dpi, 1u));
     if (result == UiScrollDispatch::handled)
         return true;
     return popup_scene_scroll(&popup, after - popup.scroll_offset, &changed) && result != UiScrollDispatch::failed;
@@ -492,14 +472,14 @@ bool tick_smooth_scrolls(u64 now_us) noexcept {
     const bool popup_glide_tick = changed && g_app.popup_scene.active && !application_settings_active();
     if (!popup_glide_tick)
         popup_glide_settled();
-    const u64 refresh_start = popup_glide_tick ? clock_microseconds(g_app.clock, g_app.process_start, clock_now()) : 0;
+    const u64 refresh_start = popup_glide_tick ? application_now_us() : 0;
     struct PopupGlideSample {
         bool active;
         u64 start;
         ~PopupGlideSample() {
             if (!active)
                 return;
-            const u64 elapsed = clock_microseconds(g_app.clock, g_app.process_start, clock_now()) - start;
+            const u64 elapsed = application_now_us() - start;
             ++popup_glide.ticks;
             popup_glide.total_us += elapsed;
             popup_glide.max_us = maximum(popup_glide.max_us, elapsed);

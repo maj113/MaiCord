@@ -36,13 +36,6 @@ struct VoiceUi {
 VoiceUi voice{};
 
 // Voice visuals are not part of the renderer's presentation stamp.
-void repaint() noexcept {
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
-}
-AccountHost& host() noexcept {
-    return g_app.account;
-}
 const GatewayClientVoiceSnapshot* session() noexcept {
     return g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
 }
@@ -73,7 +66,7 @@ void ensure_loaded() noexcept {
 }
 // Desired self state for the current call (or the next join).
 bool request(u64 guild_id, u64 channel_id) noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     // A stage connection may run without DAVE; the module needs the kind.
     const auto* channel = g_app.account_ui && channel_id
                               ? chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id)
@@ -92,7 +85,7 @@ void apply_self_state() noexcept {
         request(s->guild_id, s->channel_id);
 }
 void push() noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     if (!h.instance || !h.api.voice_audio_configure)
         return;
     VoiceAudioSettings settings = voice.preferences.audio;
@@ -171,36 +164,12 @@ void refresh_view() noexcept {
         voice.view = next;
         if (layout)
             synchronize_shell_layout();
-        repaint();
+        application_repaint();
     }
 }
 UiVoiceControl hit(float x, float y) noexcept {
     const UiRect* rectangle = footer();
     return rectangle ? ui_voice_hit(*rectangle, voice.view, x, y) : UiVoiceControl::none;
-}
-// The voice card opens the call view over the content column.
-bool show_call() noexcept {
-    const auto* s = session();
-    return s && in_call(*s) && application_call_open(s->channel_id, 0);
-}
-// The connected user drawn under a voice channel row at (x, y).
-u64 participant_at(float x, float y, u64* guild_id) noexcept {
-    const auto& scene = g_app.shell_navigation_scene;
-    if (!scene.active || !g_app.account_ui || !ui_rect_contains(scene.viewport, x, y))
-        return 0;
-    for (u32 i = 0; i < scene.count; ++i) {
-        const auto& row = scene.rows[i];
-        const auto* layout = row.view.voice_count ? shell_navigation_scene_layout_node(scene, row) : nullptr;
-        UiVoiceParticipantRow user{};
-        for (u32 j = 0; layout && ui_voice_participant_row(row.view, layout->rectangle,
-                                                           g_app.account_ui->voice_states, j, &user);
-             ++j)
-            if (ui_rect_contains(user.row, x, y)) {
-                *guild_id = user.state->guild_id;
-                return user.state->user_id;
-            }
-    }
-    return 0;
 }
 // The participant row under the pointer of the message being handled (a
 // click on a voice channel row), when that user has their camera on.
@@ -210,13 +179,12 @@ u64 camera_user_at_message_point() noexcept {
     if (!g_app.window || !ScreenToClient(g_app.window, &point))
         return 0;
     const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
-    u64 guild_id = 0;
-    const u64 user = participant_at(static_cast<float>(point.x) * scale, static_cast<float>(point.y) * scale, &guild_id);
-    const auto* state = user ? voice_state_store_find(g_app.account_ui->voice_states, guild_id, user) : nullptr;
-    return state && (state->flags & voice_self_video) ? user : 0;
+    const auto* state = application_voice_participant_at(
+        static_cast<float>(point.x) * scale, static_cast<float>(point.y) * scale, nullptr, nullptr);
+    return state && (state->flags & voice_self_video) ? state->user_id : 0;
 }
 void set_user(u64 user_id, u32 gain, bool muted) noexcept {
-    auto& h = host();
+    auto& h = g_app.account;
     voice_preferences_set_user(&voice.preferences, user_id, gain, muted);
     voice.users_dirty = true;
     if (h.instance && h.api.voice_user_audio)
@@ -240,7 +208,7 @@ void application_voice_pump() noexcept {
     if (g_app.account_ui)
         g_app.account_ui->navigation_view.voice_panel = &voice.view;
     push();
-    auto& h = host();
+    auto& h = g_app.account;
     const auto* s = session();
     const u64 now = GetTickCount64();
     if (h.instance && h.api.voice_audio_status && ((s && in_call(*s)) || voice.monitor) &&
@@ -349,7 +317,8 @@ bool application_voice_shell_click(float x, float y) noexcept {
     case UiVoiceControl::disconnect:
         return application_voice_leave();
     case UiVoiceControl::channel:
-        show_call();
+        if (const auto* s = session(); s && in_call(*s))
+            application_call_open(s->channel_id, 0); // The voice card opens the call view.
         return true;
     default:
         return false;
@@ -385,7 +354,7 @@ bool application_voice_shell_hover(float x, float y) noexcept {
     const auto control = hit(x, y);
     if (control != voice.view.hovered) {
         voice.view.hovered = control;
-        repaint();
+        application_repaint();
     }
     return control != UiVoiceControl::none;
 }
@@ -432,10 +401,10 @@ Utf8View application_voice_tooltip(float x, float y, UiRect* anchor, u32* identi
 }
 
 bool application_voice_context_at(float x, float y, UiRect anchor) noexcept {
-    u64 guild_id = 0;
-    const u64 user_id = participant_at(x, y, &guild_id);
-    if (!user_id)
+    const auto* participant = application_voice_participant_at(x, y, nullptr, nullptr);
+    if (!participant)
         return false;
+    const u64 guild_id = participant->guild_id, user_id = participant->user_id;
     ensure_loaded();
     const bool self = user_id == g_app.account_ui->chat_state.self_user_id;
     const auto audio = voice_preferences_user(voice.preferences, user_id);
@@ -498,7 +467,7 @@ bool application_voice_menu_pointer(float x, float y, bool press) noexcept {
         popup_scene_set_feedback(&g_app.popup_scene,
                                  {voice.menu_label, voice.menu_label_bytes});
         refresh_popup_text();
-        repaint();
+        application_repaint();
     }
     return true;
 }

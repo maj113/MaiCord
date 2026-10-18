@@ -66,6 +66,8 @@
 #include "../render/d3d11_renderer_interaction_state.hpp"
 #include "maicord/core/decimal.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 namespace {
 
@@ -138,8 +140,7 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
 void record_first_present() noexcept {
     if (!g_app.first_present_recorded) {
         g_app.first_present_recorded = true;
-        log_u64(LogLevel::info, "startup", "first_present_us",
-                clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+        log_u64(LogLevel::info, "startup", "first_present_us", application_now_us());
         log_u64(LogLevel::info, "render", "first_frame_quads", g_app.renderer.paint_stream.count);
         log_u64(LogLevel::info, "render", "first_frame_draw_calls", g_app.renderer.draw_calls_last_frame);
         log_u64(LogLevel::info, "render", "first_frame_glyph_quads",
@@ -158,6 +159,20 @@ bool application_loading_spinner_due(u64 now_ms) noexcept {
 }
 
 namespace {
+// Re-run WM_SETCURSOR after a frame changed the scene under a still pointer.
+// Captured drags own their cursor until release.
+inline void application_cursor_refresh(HWND window) noexcept {
+    if (!g_application_cursor_refresh)
+        return;
+    g_application_cursor_refresh = false;
+    POINT cursor{};
+    if (!window || GetCapture() || !GetCursorPos(&cursor) || WindowFromPoint(cursor) != window)
+        return;
+    const LRESULT hit = SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(cursor.x, cursor.y));
+    SendMessageW(window, WM_SETCURSOR, reinterpret_cast<WPARAM>(window),
+                 MAKELPARAM(static_cast<WORD>(hit), WM_MOUSEMOVE));
+}
+
 // The step that rejected the last frame, logged with the failure count.
 const char* g_present_rejected_stage = "";
 bool present_rejected(const char* stage) noexcept {
@@ -306,8 +321,7 @@ bool application_present_frame() noexcept {
     // Only the diagnostic title consumes the counter; without it, its two
     // trailing samples would add wakes after every presented burst.
     if (after != before && frame_rate_title_enabled()) {
-        frame_rate_presented(g_app.frame_rate,
-                             clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+        frame_rate_presented(g_app.frame_rate, application_now_us());
     }
     record_first_present();
     // A click or key may have moved a different target under a still pointer.
@@ -379,8 +393,7 @@ void application_record_presentation_failure(const char* stage) noexcept {
                 dismiss_popup();
             if (profile)
                 application_profile_close();
-            g_app.renderer.retained_presentation.valid = false;
-            application_request_frame();
+            application_repaint();
         }
     }
 }

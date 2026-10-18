@@ -12,7 +12,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -24,6 +24,11 @@ struct ThreadHeaderKeyboardCapture {
     bool armed;
 };
 ThreadHeaderKeyboardCapture thread_header_keyboard;
+// The Friends / server-menu button that leads the channel list.
+bool channel_header_button(const UiWidget* widget) noexcept {
+    return widget && (widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
+                      widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u);
+}
 u32 current_pane() noexcept {
     const auto* owner = g_app.context_focus;
     if (owner == &g_app.shell_scene.widgets) {
@@ -31,10 +36,7 @@ u32 current_pane() noexcept {
         const auto* widget = ui_widget_manager_resolve(*owner, owner->focused);
         if (widget && widget->id == static_cast<u32>(UiSemantic::threads_toggle) + 1u)
             return thread_header;
-        return widget && (widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
-                          widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u)
-                   ? channels
-                   : guilds;
+        return channel_header_button(widget) ? channels : guilds;
     }
     if (owner == &g_app.guild_rail_scene.widgets) return guilds;
     if (g_app.renderer.friends_scene && owner == &g_app.renderer.friends_scene->widgets) return messages;
@@ -69,9 +71,7 @@ UiWidgetManager* focus_navigation(bool guild, UiListMove move, bool entering) no
         const auto header = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::guild_menu)];
         const auto button = friends.generation ? friends : header;
         const auto* owner = ui_widget_manager_resolve(g_app.shell_scene.widgets, g_app.shell_scene.widgets.focused);
-        const bool on_button = g_app.context_focus == &g_app.shell_scene.widgets && owner &&
-            (owner->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
-             owner->id == static_cast<u32>(UiSemantic::guild_menu) + 1u);
+        const bool on_button = g_app.context_focus == &g_app.shell_scene.widgets && channel_header_button(owner);
         const auto first = navigation_focus_target(view, false, focused, UiListMove::first);
         if (button.generation && ((friends.generation && (entering || move == UiListMove::first)) ||
             (move == UiListMove::previous && (on_button || focused == first.id))))
@@ -103,8 +103,7 @@ UiWidgetManager* focus_pane(u32 pane, UiListMove move, bool entering) noexcept {
         const UiWidgetHandle candidates[]{browser, header.widgets.primary, header.widgets.overflow, header.widgets.cancel};
         u32 current = kUiListNoSelection;
         for (u32 i = 0; !entering && i < 4; ++i)
-            if (candidates[i].slot == g_app.shell_scene.widgets.focused.slot &&
-                candidates[i].generation == g_app.shell_scene.widgets.focused.generation) current = i;
+            if (ui_widget_handle_equal(candidates[i], g_app.shell_scene.widgets.focused)) current = i;
         struct Eligible { const UiThreadHeader* header; const UiWidgetHandle* candidates; } eligible{&header, candidates};
         const u32 index = ui_list_move(4, current, move,
             [](void* opaque, u32 i) noexcept {
@@ -164,7 +163,7 @@ void move_tab_focus(u32 pane, bool reverse) noexcept {
     if (pane == thread_header) {
         const auto previous = g_app.shell_scene.widgets.focused;
         if (auto* owner = focus_pane(thread_header, reverse ? UiListMove::previous : UiListMove::next, false))
-            if (owner->focused.slot != previous.slot || owner->focused.generation != previous.generation) {
+            if (!ui_widget_handle_equal(owner->focused, previous)) {
                 finish_or_log(owner); return;
             }
     }
@@ -237,7 +236,7 @@ bool handle_thread_header_key(u32 key, bool down, bool repeated) noexcept {
         return application_thread_header_activate(
             application_thread_header_activation_source(&g_app.thread_header, captured.ticket), captured.target).handled;
     }
-    if (!down || (logical == UiButtonKey::enter && down)) thread_header_keyboard = {};
+    if (!down || logical == UiButtonKey::enter) thread_header_keyboard = {};
     return result.handled || focused;
 }
 
@@ -253,9 +252,7 @@ bool handle_content_focus_key(u32 key) noexcept {
     if (key == VK_SPACE) {
         const auto* widget = g_app.context_focus == &g_app.shell_scene.widgets ?
             ui_widget_manager_resolve(g_app.shell_scene.widgets, g_app.shell_scene.widgets.focused) : nullptr;
-        return widget && (widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
-                          widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u) &&
-               activate_focused_navigation();
+        return channel_header_button(widget) && activate_focused_navigation();
     }
     if (key == VK_TAB) {
         move_tab_focus(pane, reverse);

@@ -1,6 +1,6 @@
 #include "maicord/app/account_private_channel.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_private_channel_submit(RestClient* rest,
@@ -16,7 +16,7 @@ RestClientSubmitResult account_private_channel_submit(RestClient* rest,
         private_channel_action_route(*request),
         request_id,
         written.body_bytes != 0);
-    SecureZeroMemory(body, sizeof(body));
+    secure_clear_bytes(body, sizeof(body));
     return submitted;
 }
 RestClientSubmitResult account_private_channel_cancel(RestClient* rest, u64 request_id) noexcept {

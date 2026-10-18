@@ -1,7 +1,8 @@
 #include "maicord/app/account_settings_rest.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 RestClientSubmitResult account_settings_submit(RestClient* rest, const AccountSettingsRequest& request,
@@ -27,11 +28,8 @@ RestClientSubmitResult account_settings_submit(RestClient* rest, const AccountSe
                                     request_id,
                                     written.body_bytes != 0);
     }
-    SecureZeroMemory(body, body_bytes);
+    secure_clear_bytes(body, body_bytes);
     VirtualFree(body, 0, MEM_RELEASE);
     return result;
-}
-RestClientSubmitResult account_settings_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
 }
 } // namespace maicord

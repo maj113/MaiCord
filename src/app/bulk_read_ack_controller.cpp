@@ -47,11 +47,7 @@ bool bulk_read_ack_initialize(BulkReadAckController* c, Slice<BulkReadAckIntent>
                               Slice<BulkReadAckIntent> flight, BulkReadAckReserve pending_reserve,
                               BulkReadAckReserve flight_reserve, void* context) noexcept {
     if (!c || !pending.data || !pending.count || pending.count > kBulkReadAckMaximumTargets ||
-        !flight.data || flight.count < kBulkReadAckMaximumBatch ||
-        overlap(pending.data, usize{pending.count} * sizeof(BulkReadAckIntent), flight.data,
-                usize{flight.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(c, sizeof(*c), pending.data, usize{pending.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(c, sizeof(*c), flight.data, usize{flight.count} * sizeof(BulkReadAckIntent)))
+        !flight.data || flight.count < kBulkReadAckMaximumBatch)
         return false;
     *c = {};
     c->pending = pending;
@@ -70,8 +66,7 @@ bool bulk_read_ack_prepare(BulkReadAckController* c, ConstSlice<BulkReadAckInten
     if (overlap(entries.data, usize{entries.count} * sizeof(BulkReadAckIntent), c->pending.data,
                 usize{c->pending.count} * sizeof(BulkReadAckIntent)) ||
         overlap(entries.data, usize{entries.count} * sizeof(BulkReadAckIntent), c->flight.data,
-                usize{c->flight.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(entries.data, usize{entries.count} * sizeof(BulkReadAckIntent), c, sizeof(*c)))
+                usize{c->flight.count} * sizeof(BulkReadAckIntent)))
         return false;
     u32 required = c->count;
     for (u32 i = 0; i < entries.count; ++i) {
@@ -125,13 +120,7 @@ bool bulk_read_ack_peek(BulkReadAckController* c, u64 now, Slice<BulkReadAckInte
         overlap(output.data, usize{output.count} * sizeof(BulkReadAckIntent), c->pending.data,
                 usize{c->pending.count} * sizeof(BulkReadAckIntent)) ||
         overlap(output.data, usize{output.count} * sizeof(BulkReadAckIntent), c->flight.data,
-                usize{c->flight.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(output.data, usize{output.count} * sizeof(BulkReadAckIntent), c, sizeof(*c)) ||
-        overlap(output.data, usize{output.count} * sizeof(BulkReadAckIntent), count, sizeof(*count)) ||
-        overlap(count, sizeof(*count), c, sizeof(*c)) ||
-        overlap(count, sizeof(*count), c->pending.data,
-                usize{c->pending.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(count, sizeof(*count), c->flight.data, usize{c->flight.count} * sizeof(BulkReadAckIntent)))
+                usize{c->flight.count} * sizeof(BulkReadAckIntent)))
         return false;
     u32 found{};
     for (u32 i = 0; i < c->count && found < kBulkReadAckMaximumBatch; ++i)
@@ -149,13 +138,7 @@ bool bulk_read_ack_admit(BulkReadAckController* c, ConstSlice<BulkReadAckIntent>
         overlap(entries.data, usize{entries.count} * sizeof(BulkReadAckIntent), c->pending.data,
                 usize{c->pending.count} * sizeof(BulkReadAckIntent)) ||
         overlap(entries.data, usize{entries.count} * sizeof(BulkReadAckIntent), c->flight.data,
-                usize{c->flight.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(ticket, sizeof(*ticket), c, sizeof(*c)) ||
-        overlap(ticket, sizeof(*ticket), c->pending.data,
-                usize{c->pending.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(ticket, sizeof(*ticket), c->flight.data,
-                usize{c->flight.count} * sizeof(BulkReadAckIntent)) ||
-        overlap(ticket, sizeof(*ticket), entries.data, usize{entries.count} * sizeof(BulkReadAckIntent)))
+                usize{c->flight.count} * sizeof(BulkReadAckIntent)))
         return false;
     for (u32 i = 0; i < entries.count; ++i) {
         const u32 at = position(*c, entries[i].channel_id);

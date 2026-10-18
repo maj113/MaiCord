@@ -45,6 +45,9 @@ struct ApplicationMediaPump {
     bool request_catalog_previews(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
                                   bool* repaint) noexcept;
     bool media_key_is_current(MediaAssetKey key) noexcept;
+    // True when an animated key is resident and its timeline is observed (play) or merely present (held
+    // frame). Otherwise force_request says whether the request must bypass its residency check.
+    bool animation_resident(MediaAssetKey key, u64 now_us, bool* force_request, bool play = true) noexcept;
     bool avatar_key_is_current(MediaAssetKey key) noexcept;
     // Custom group DM icons on visible conversation rows or the DM header.
     bool channel_icon_key_is_current(MediaAssetKey key) noexcept;
@@ -119,6 +122,16 @@ struct ApplicationMediaPump {
                                                           u64 now_seconds, u32* uploads, bool* repaint,
                                                           bool* stop_scan,
                                                           bool force_request = false) noexcept;
+    // Finishes a request for one image: uploads a ready frame (the scan stops on a deferred upload or
+    // the upload budget) and records the retry time of anything else. A busy lane stops the scan if
+    // stop_on_busy.
+    __declspec(noinline) bool settle_media_request(const AccountMediaRequestResult& requested,
+                                                   MediaAssetKey key, u32* uploads, bool* repaint,
+                                                   bool* stop_scan, bool stop_on_busy) noexcept;
+    // The same for message attachments and embeds, whose frames must belong to the shown message.
+    __declspec(noinline) bool settle_message_media(const AccountMediaRequestResult& requested,
+                                                   MediaAssetKey key, u64 message_id, u32* uploads,
+                                                   bool* repaint, bool* stop_scan) noexcept;
     __declspec(noinline) void log_message_media_failure(const char* item,
                                                         const AccountMediaRequestResult& failure,
                                                         MediaAssetKey key) noexcept;

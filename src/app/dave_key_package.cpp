@@ -1,17 +1,12 @@
 #include "maicord/app/dave_key_package.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
+#include "byte_views.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
-template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
-    return {reinterpret_cast<const u8*>(&value), sizeof(value)};
-}
-template <u32 N> ConstSlice<u8> label(const char (&value)[N]) noexcept {
-    return {reinterpret_cast<const u8*>(value), N - 1};
-}
 DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing, u64 user_id,
                           DaveKeyPackage& candidate) noexcept {
     u8 init[65], leaf[65], signature_key[65], identity[8];
@@ -47,7 +42,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
     if (!encoded.ok())
         return {0, 0, DavePackageError::encode_failure};
     u8 signature[72];
-    auto signed_result = mls_sign_with_label(workspace, signing, label("LeafNodeTBS"),
+    auto signed_result = mls_sign_with_label(workspace, signing, text_bytes("LeafNodeTBS"),
                                              {candidate.wire, encoded.bytes}, {}, {signature, 72});
     if (!signed_result.ok())
         return {0, signed_result.native_status,
@@ -60,7 +55,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
         return {0, 0, DavePackageError::encode_failure};
     // The leaf signature is already in the package TBS. Reuse its temporary
     // buffer for the outer signature rather than retaining a second scratch.
-    signed_result = mls_sign_with_label(workspace, signing, label("KeyPackageTBS"),
+    signed_result = mls_sign_with_label(workspace, signing, text_bytes("KeyPackageTBS"),
                                         {candidate.wire, encoded.bytes}, {}, {signature, 72});
     if (!signed_result.ok())
         return {0, signed_result.native_status,
@@ -75,7 +70,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
     copy_bytes(candidate.wire + encoded.bytes, prefix, prefix_bytes);
     copy_bytes(candidate.wire + encoded.bytes + prefix_bytes, signature, signed_result.bytes);
     candidate.bytes = encoded.bytes + prefix_bytes + signed_result.bytes;
-    const auto hashed = mls_reference_hash(workspace, label("MLS 1.0 KeyPackage Reference"),
+    const auto hashed = mls_reference_hash(workspace, text_bytes("MLS 1.0 KeyPackage Reference"),
                                            {candidate.wire, candidate.bytes}, {candidate.reference, 32});
     if (!hashed.ok())
         return {0, hashed.native_status, DavePackageError::hash_failure};
@@ -88,18 +83,19 @@ void dave_key_package_release(DaveKeyPackage* package) noexcept {
         return;
     p256_release(&package->init_key);
     p256_release(&package->leaf_key);
-    SecureZeroMemory(package, sizeof(*package));
+    secure_clear_bytes(package, sizeof(*package));
 }
 DavePackageResult dave_key_package_create(KdfSha256Workspace& workspace, const P256Key& signing,
                                           u64 user_id, DaveKeyPackage* output) noexcept {
-    if (!output || !user_id || byte_ranges_overlap(bytes(*output), bytes(signing)) ||
-        byte_ranges_overlap(bytes(*output), bytes(workspace)) ||
-        byte_ranges_overlap(bytes(signing), bytes(workspace)))
+    if (!output || !user_id || byte_ranges_overlap(object_bytes(*output), object_bytes(signing)) ||
+        byte_ranges_overlap(object_bytes(*output), object_bytes(workspace)) ||
+        byte_ranges_overlap(object_bytes(signing), object_bytes(workspace)))
         return {0, 0, DavePackageError::invalid_input};
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, DavePackageError::not_initialized};
     const ConstSlice<u8> storage{workspace.storage.data, workspace.storage.capacity};
-    if (byte_ranges_overlap(bytes(*output), storage) || byte_ranges_overlap(bytes(signing), storage))
+    if (byte_ranges_overlap(object_bytes(*output), storage) ||
+        byte_ranges_overlap(object_bytes(signing), storage))
         return {0, 0, DavePackageError::invalid_input};
     if (output->init_key.handle || output->leaf_key.handle || output->bytes || output->user_id)
         return {0, 0, DavePackageError::already_initialized};
@@ -110,7 +106,7 @@ DavePackageResult dave_key_package_create(KdfSha256Workspace& workspace, const P
     if (result.ok()) {
         *output = candidate;
         // Transfer handles, then erase only the local descriptor/public bytes.
-        SecureZeroMemory(&candidate, sizeof(candidate));
+        secure_clear_bytes(&candidate, sizeof(candidate));
     } else
         dave_key_package_release(&candidate);
     return result;

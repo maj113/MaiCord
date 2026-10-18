@@ -1,9 +1,9 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/core/win32_records.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/cursor.hpp"
-
-#include <Windows.h>
 
 namespace maicord::app_detail {
 
@@ -45,8 +45,9 @@ inline void application_set_cursor(UiCursor cursor) noexcept {
 // WM_SETCURSOR carries a hit-test code, not coordinates. Resolve the client
 // pointer in DIPs, for the client area only.
 inline bool application_cursor_point(HWND window, u32 dpi, LPARAM lparam, UiPoint* point) noexcept {
-    POINT cursor{};
-    if (!point || LOWORD(lparam) != HTCLIENT || !GetCursorPos(&cursor) || !ScreenToClient(window, &cursor))
+    Win32Point cursor{};
+    if (!point || LOWORD(lparam) != HTCLIENT || !GetCursorPos(cursor.native()) ||
+        !ScreenToClient(window, cursor.native()))
         return false;
     const float scale = 96.f / static_cast<float>(dpi ? dpi : 96u);
     *point = {static_cast<float>(cursor.x) * scale, static_cast<float>(cursor.y) * scale};
@@ -55,20 +56,6 @@ inline bool application_cursor_point(HWND window, u32 dpi, LPARAM lparam, UiPoin
 
 inline void application_cursor_invalidate() noexcept {
     g_application_cursor_refresh = true;
-}
-
-// Re-run WM_SETCURSOR after a frame changed the scene under a still pointer.
-// Captured drags own their cursor until release.
-inline void application_cursor_refresh(HWND window) noexcept {
-    if (!g_application_cursor_refresh)
-        return;
-    g_application_cursor_refresh = false;
-    POINT cursor{};
-    if (!window || GetCapture() || !GetCursorPos(&cursor) || WindowFromPoint(cursor) != window)
-        return;
-    const LRESULT hit = SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(cursor.x, cursor.y));
-    SendMessageW(window, WM_SETCURSOR, reinterpret_cast<WPARAM>(window),
-                 MAKELPARAM(static_cast<WORD>(hit), WM_MOUSEMOVE));
 }
 
 } // namespace maicord::app_detail

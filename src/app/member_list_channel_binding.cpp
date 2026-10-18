@@ -44,6 +44,12 @@ struct ListHash {
     }
 };
 
+// Doubling retry delay after `failures` (at least one) consecutive failures.
+u32 retry_delay(u32 failures) noexcept {
+    return minimum(kMemberListSubscriptionRetryMaximumMs,
+                   kMemberListSubscriptionRetryMinimumMs << minimum(failures - 1u, 4u));
+}
+
 } // namespace
 
 u64 member_list_channel_id(const ChatStateStore& state, u64 channel_id) noexcept {
@@ -139,10 +145,7 @@ bool member_list_subscription_fail(MemberListSubscriptionRetry* retry, u64 now_m
         return false;
     }
     saturating_increment(retry->failures);
-    const u32 shift = minimum(retry->failures != 0 ? retry->failures - 1u : 0u, 4u);
-    const u32 delay =
-        minimum(kMemberListSubscriptionRetryMaximumMs, kMemberListSubscriptionRetryMinimumMs << shift);
-    retry->retry_at_ms = deadline_after(now_ms, delay);
+    retry->retry_at_ms = deadline_after(now_ms, retry_delay(retry->failures));
     return true;
 }
 
@@ -242,18 +245,6 @@ void member_list_subscription_refresh(MemberListSubscriptionRetry* retry, u64 no
     retry->failures = 0;
 }
 
-namespace {
-bool same_channel_ranges(const GatewayChannelSubscription& channel, const GatewayMemberSubscriptionRange* ranges,
-                         u32 count) noexcept {
-    if (channel.range_count != count)
-        return false;
-    for (u32 i = 0; i < count; ++i)
-        if (channel.ranges[i].first != ranges[i].first || channel.ranges[i].last != ranges[i].last)
-            return false;
-    return true;
-}
-} // namespace
-
 bool member_list_channel_memory_subscribe(MemberListChannelMemory* memory, u64 guild_id, u64 channel_id,
                                           const GatewayMemberSubscriptionRange* ranges, u32 range_count,
                                           bool list_lost, GatewayGuildSubscription* frame) noexcept {
@@ -283,7 +274,8 @@ bool member_list_channel_memory_subscribe(MemberListChannelMemory* memory, u64 g
         if (guild->channels[i].channel_id == channel_id)
             at = i;
     const bool remembered = at < guild->count;
-    const bool equal = remembered && same_channel_ranges(guild->channels[at], ranges, range_count);
+    const bool equal = remembered && same_ranges(guild->channels[at].ranges,
+                                                 guild->channels[at].range_count, ranges, range_count);
     if (remembered && !list_lost)
         guild->lost[at] = false;
     const bool resend_lost = remembered && list_lost && !guild->lost[at];
@@ -356,10 +348,7 @@ bool thread_member_list_subscription_fail(ThreadMemberListSubscriptionRetry* ret
     ThreadMemberListSubscriptionCommand command{};
     if (!retry || !now_ms || !thread_member_list_subscription_command(*retry, now_ms, &command)) return false;
     saturating_increment(retry->failures);
-    const u32 shift = minimum(retry->failures - 1u, 4u);
-    const u32 delay = minimum(kMemberListSubscriptionRetryMaximumMs,
-        kMemberListSubscriptionRetryMinimumMs << shift);
-    retry->retry_at_ms = deadline_after(now_ms, delay);
+    retry->retry_at_ms = deadline_after(now_ms, retry_delay(retry->failures));
     return true;
 }
 

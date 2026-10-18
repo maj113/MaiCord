@@ -1,9 +1,9 @@
 #include "maicord/app/dave_key_derivation.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "byte_views.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 KdfResult mls_expand_label(KdfSha256Workspace& workspace, ConstSlice<u8> secret, ConstSlice<u8> label,
@@ -30,11 +30,9 @@ KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, 
     if (key.count < 16 || next_secret.count < 32)
         return {0, 0, KdfError::output_capacity};
     const ConstSlice<u8> key_prefix{key.data, 16}, next_prefix{next_secret.data, 32};
-    const ConstSlice<u8> owner{reinterpret_cast<const u8*>(&workspace), sizeof(workspace)};
-    const ConstSlice<u8> storage{workspace.storage.data, workspace.storage.capacity};
     const ConstSlice<u8> spans[]{seed, key_prefix, next_prefix};
     for (auto span : spans)
-        if (byte_ranges_overlap(span, owner) || byte_ranges_overlap(span, storage))
+        if (aliases_workspace(workspace, span))
             return {0, 0, KdfError::invalid_input};
     if (byte_ranges_overlap(key_prefix, next_prefix))
         return {0, 0, KdfError::invalid_input};
@@ -52,8 +50,8 @@ KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, 
         copy_bytes(next_secret.data, next, 32);
         result.bytes = 48;
     }
-    SecureZeroMemory(derived_key, sizeof(derived_key));
-    SecureZeroMemory(next, sizeof(next));
+    secure_clear_bytes(derived_key, sizeof(derived_key));
+    secure_clear_bytes(next, sizeof(next));
     return result;
 }
 } // namespace maicord

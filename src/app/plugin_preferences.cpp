@@ -24,26 +24,13 @@ namespace {
 using Error = NativePluginPreferencesError;
 constexpr u8 kMagic[8]{'M','A','I','P','L','U','G','S'};
 NativePluginPreferencesResult fail(Error error, DWORD native = 0) noexcept { return {error, native, false}; }
-bool disjoint(ConstSlice<u8> a, ConstSlice<u8> b) noexcept {
-    return byte_range_valid(a) && byte_range_valid(b) && !byte_ranges_overlap(a,b);
-}
 bool same_leaf(const NativePluginPreference& a, const NativePluginPreference& b) noexcept {
     return a.dll_bytes == b.dll_bytes && bytes_equal(a.dll, b.dll, a.dll_bytes);
 }
+// Stored leaves are lowercase.
 bool leaf_valid(const char* dll, u32 count) noexcept {
-    if (count < 5 || count >= kNativePluginDllNameCapacity || dll[0] == '.' ||
-        dll[count - 4] != '.' || dll[count - 3] != 'd' || dll[count - 2] != 'l' || dll[count - 1] != 'l') return false;
-    u32 stem = 0;
-    for (u32 i = 0; i < count; ++i) {
-        const char c = dll[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') ||
-            (c == '.' && i && dll[i - 1] == '.')) return false;
-        if (!stem && c == '.') stem = i;
-    }
-    if (stem == 3 && (bytes_equal(dll,"con",3) || bytes_equal(dll,"prn",3) ||
-        bytes_equal(dll,"aux",3) || bytes_equal(dll,"nul",3))) return false;
-    if (stem == 4 && dll[3] >= '1' && dll[3] <= '9' &&
-        (bytes_equal(dll,"com",3) || bytes_equal(dll,"lpt",3))) return false;
+    if (count >= kNativePluginDllNameCapacity || !native_plugin_dll_name_valid({dll, count})) return false;
+    for (u32 i = 0; i < count; ++i) if (dll[i] >= 'A' && dll[i] <= 'Z') return false;
     return true;
 }
 bool preference_valid(const NativePluginPreference& entry) noexcept {
@@ -115,7 +102,7 @@ NativePluginPreferencesResult begin(NativePluginPreferencesIo* io,const wchar_t*
     if(io->cleanup) return fail(Error::busy);
     u32 count=0;
     if(!path_valid(path,&count,parent)) return fail(Error::path);
-    if(!disjoint({reinterpret_cast<const u8*>(io),sizeof(*io)},
+    if(!byte_ranges_disjoint({reinterpret_cast<const u8*>(io),sizeof(*io)},
         {reinterpret_cast<const u8*>(path),(count+1)*2})) return fail(Error::invalid_input);
     io->cleanup=static_cast<NativePluginPreferencesCleanup*>(VirtualAlloc(nullptr,sizeof(NativePluginPreferencesCleanup),
         MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
@@ -148,10 +135,10 @@ NativePluginPreferencesResult user_path(wchar_t* path) noexcept {
 NativePluginPreferencesResult save_file(NativePluginPreferencesIo* io,const wchar_t* path,
     const NativePluginPreferences& preferences,bool create) noexcept {
     if(!io || !native_plugin_preferences_valid(preferences) ||
-        !disjoint({reinterpret_cast<const u8*>(io),sizeof(*io)},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(io),sizeof(*io)},
             {reinterpret_cast<const u8*>(&preferences),sizeof(preferences)})) return fail(Error::invalid_input);
     const u32 path_count=wide_length(path,1024);
-    if(!path || path_count>=1024 || !disjoint({reinterpret_cast<const u8*>(path),(path_count+1)*2},
+    if(!path || path_count>=1024 || !byte_ranges_disjoint({reinterpret_cast<const u8*>(path),(path_count+1)*2},
         {reinterpret_cast<const u8*>(&preferences),sizeof(preferences)})) return fail(Error::invalid_input);
     u32 parent=0; auto outcome=begin(io,path,&parent); if(!outcome.ok()) return outcome;
     auto& held=*io->cleanup;
@@ -240,7 +227,7 @@ bool native_plugin_preferences_set_flags(NativePluginPreferences* preferences,u6
 }
 NativePluginPreferencesResult native_plugin_preferences_enable(NativePluginPreferences* preferences,const NativePluginManifest& manifest,u64 permissions) noexcept {
     if(!preferences || !native_plugin_preferences_valid(*preferences) || !native_plugin_manifest_valid(manifest) ||
-        !disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
+        !byte_ranges_disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
             {reinterpret_cast<const u8*>(&manifest),sizeof(manifest)})) return fail(Error::invalid_input);
     if(permissions & ~manifest.permissions) return fail(Error::invalid_input);
     auto key=identity(manifest);key.permissions=static_cast<u32>(permissions);u32 index=preferences->count;
@@ -262,7 +249,7 @@ bool native_plugin_preferences_remove_owner(NativePluginPreferences* preferences
 }
 NativePluginPreferencesResult native_plugin_preferences_encode(const NativePluginPreferences& preferences,Slice<u8> record) noexcept {
     if(record.count!=kNativePluginPreferencesRecordBytes || !record.data || !native_plugin_preferences_valid(preferences) ||
-        !disjoint({record.data,record.count},{reinterpret_cast<const u8*>(&preferences),sizeof(preferences)})) return fail(Error::invalid_input);
+        !byte_ranges_disjoint({record.data,record.count},{reinterpret_cast<const u8*>(&preferences),sizeof(preferences)})) return fail(Error::invalid_input);
     clear_bytes(record.data,record.count);copy_bytes(record.data,kMagic,8);
     byte_store_le32(record.data+8,kNativePluginPreferencesVersion);byte_store_le32(record.data+12,record.count);
     byte_store_le32(record.data+16,preferences.count);
@@ -275,7 +262,7 @@ NativePluginPreferencesResult native_plugin_preferences_encode(const NativePlugi
     byte_store_le64(record.data+24,checksum({record.data,record.count}));return {};
 }
 NativePluginPreferencesResult native_plugin_preferences_decode(ConstSlice<u8> record,NativePluginPreferences* preferences) noexcept {
-    if(!preferences || !record.data || !disjoint(record,{reinterpret_cast<const u8*>(preferences),sizeof(*preferences)})) return fail(Error::invalid_input);
+    if(!preferences || !record.data || !byte_ranges_disjoint(record,{reinterpret_cast<const u8*>(preferences),sizeof(*preferences)})) return fail(Error::invalid_input);
     if(record.count!=kNativePluginPreferencesRecordBytes) return fail(Error::size);
     if(!bytes_equal(record.data,kMagic,8) || byte_load_le32(record.data+12)!=record.count ||
         byte_load_le32(record.data+20)) return fail(Error::format);
@@ -312,10 +299,10 @@ NativePluginPreferencesResult native_plugin_preferences_release(NativePluginPref
     io->cleanup=nullptr;return {};
 }
 NativePluginPreferencesResult native_plugin_preferences_load_file(NativePluginPreferencesIo* io,const wchar_t* path,NativePluginPreferences* preferences) noexcept {
-    if(!preferences || !io || !disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
+    if(!preferences || !io || !byte_ranges_disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
         {reinterpret_cast<const u8*>(io),sizeof(*io)})) return fail(Error::invalid_input);
     u32 length=0,parent=0;
-    if(!path_valid(path,&length,&parent) || !disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
+    if(!path_valid(path,&length,&parent) || !byte_ranges_disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
         {reinterpret_cast<const u8*>(path),(length+1)*2})) {*preferences={};return fail(Error::path);}
     *preferences={};auto outcome=begin(io,path,&parent);if(!outcome.ok()) return outcome;
     auto& held=*io->cleanup;outcome=pin(held,parent,false);

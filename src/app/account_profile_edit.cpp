@@ -1,6 +1,7 @@
 #include "maicord/app/account_profile_edit.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kProfileEditMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -44,16 +45,13 @@ RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const Profi
                             ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
                         : large ? rest_client_submit_large(rest, submit)
                                 : rest_client_submit(rest, submit);
-    SecureZeroMemory(body, written.ok ? written.bytes : 0);
+    secure_clear_bytes(body, written.ok ? written.bytes : 0);
     VirtualFree(body, 0, MEM_RELEASE);
     return result;
 }
 
 RestClientSubmitResult account_profile_edit_cancel(RestClient* rest, u64 request_id) noexcept {
-    if (!rest || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    return {rest_client_cancel(rest, request_id) ? RestClientSubmitError::none
-                                                         : RestClientSubmitError::busy};
+    return rest_client_cancel_result(rest, request_id);
 }
 
 bool account_profile_image(ProfileImageRequest* request) noexcept {

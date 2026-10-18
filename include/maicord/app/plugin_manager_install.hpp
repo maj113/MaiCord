@@ -32,9 +32,9 @@ enum class PluginManagerError : u8 {
     records,       // state.bin or journal.bin could not be read or written (record_error)
     trust,         // plugins.bin could not be read or written (trust_error)
     inventory,     // the plugins directory could not be read, or holds a conflicting manifest for the owner
-    cache,         // no admitted, unexpired cached index for the provider (cache_error, index_error)
+    cache,         // no admitted, unexpired cached index for the provider (index_error, record_error)
     not_listed,    // the owner or version is not in the index
-    incompatible,  // the version does not run on this host (compatibility)
+    incompatible,  // the version does not run on this host
     revoked,       // revoked by its provider or on the official blocklist
     reserved,      // an unofficial provider lists an owner the official index reserves
     conflict,      // the index re-lists a known version code with other bytes
@@ -44,25 +44,20 @@ enum class PluginManagerError : u8 {
     not_installed, // update, rollback or uninstall: no matching manifest and state entry
     current,       // update: that version is already installed
     provider,      // the plugin is bound to another provider
-    fetch,         // the download failed (fetch_error, status, retry_at_unix)
+    fetch,         // the download failed (fetch_error)
     integrity,     // the downloaded or copied bytes do not hash to the signed SHA-256
     image,         // not an AMD64 DLL
     manifest,      // the manifest could not be synthesized, read or written
     rollback,      // no retained previous version, or its snapshot or DLL no longer matches
-    installer,     // the bundle installer failed during recovery (install_error)
+    installer,     // the bundle installer failed during recovery
 };
 struct PluginManagerResult {
     PluginManagerError error;
     UpdateFetchError fetch_error;
     AcceptanceRecordError record_error;
-    PluginIndexCheckError cache_error;
     PluginIndexError index_error;
     NativePluginPreferencesError trust_error;
-    NativePluginBundleInstallError install_error;
-    PluginCompatibility compatibility;
-    u16 status;
     u32 native_error;
-    u64 retry_at_unix;
     PluginPermissionDiff permissions; // review: added, removed and kept against the approved mask
     constexpr bool ok() const noexcept { return error == PluginManagerError::none; }
 };

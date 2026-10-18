@@ -1,7 +1,8 @@
 #include "maicord/app/account_guild_assets.hpp"
 #include "maicord/app/guild_image.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kGuildAssetMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -58,7 +59,7 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
                        : rest_client_submit(rest, submit);
     }
     if (body) {
-        SecureZeroMemory(body, bytes);
+        secure_clear_bytes(body, bytes);
         VirtualFree(body, 0, MEM_RELEASE);
     }
     return result;
@@ -96,7 +97,7 @@ RestClientSubmitResult account_guild_assets_submit(RestClient* rest, const Guild
                                                {reason, encoded.bytes}});
     }
     guild_image_release(&buffer);
-    SecureZeroMemory(reason, encoded.bytes);
+    secure_clear_bytes(reason, encoded.bytes);
     return result;
 }
 
@@ -118,7 +119,7 @@ bool account_guild_assets_probe(const GuildAssetRequest* request) noexcept {
         ok = needed && needed == request->data_uri.count &&
              guild_image_write_data_uri(image.kind, image.bytes, request->data_uri) == needed;
         if (!ok)
-            SecureZeroMemory(request->data_uri.data, request->data_uri.count);
+            secure_clear_bytes(request->data_uri.data, request->data_uri.count);
     }
     guild_image_release(&buffer);
     report(*request, info);

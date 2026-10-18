@@ -13,18 +13,17 @@ void project_invites(Bank& bank) noexcept {
         push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else if (!p.invites_loaded)
         push(loading(utf8_literal("Loading invites…")));
-    const u32 heading = bank.mark();
+    const u32 heading = bank.used;
     bank.add(utf8_literal("Active invites — "));
     bank.number(p.invite_count);
     push(category(control_list_category, bank.since(heading)));
     if (p.invites_loaded && !p.invite_count)
         push(notice({}, utf8_literal("No active invites.")));
     const u64 now = clock_unix_milliseconds();
-    p.row_count = 0;
     for (u32 i = 0; i < p.invite_count; ++i) {
         const auto& invite = p.invites[i];
         const auto code = bank.add({invite.code, invite.code_bytes});
-        const u32 start = bank.mark();
+        const u32 start = bank.used;
         if (const auto* channel = chat_state_store_find_channel(state(), invite.channel_id)) {
             bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
             bank.add(chat_state_store_channel_name(state(), *channel));
@@ -51,7 +50,6 @@ void project_invites(Bank& bank) noexcept {
         push({kRowBase + i, code, description, UiSettingsControlKind::action, editable(), false, {}, 0,
               utf8_literal("Revoke"), nullptr},
              {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-        ++p.row_count;
     }
 }
 

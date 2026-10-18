@@ -6,7 +6,7 @@
 #include "maicord/media/png.hpp"
 #include "../media/png_common.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -16,21 +16,6 @@ struct Shape {
     bool animated, ok;
 };
 
-u32 be32(const u8* p) noexcept {
-    return static_cast<u32>(p[0]) << 24 | static_cast<u32>(p[1]) << 16 | static_cast<u32>(p[2]) << 8 | p[3];
-}
-u32 be16(const u8* p) noexcept {
-    return static_cast<u32>(p[0]) << 8 | p[1];
-}
-u32 le16(const u8* p) noexcept {
-    return static_cast<u32>(p[0]) | static_cast<u32>(p[1]) << 8;
-}
-u32 le24(const u8* p) noexcept {
-    return le16(p) | static_cast<u32>(p[2]) << 16;
-}
-u32 le32(const u8* p) noexcept {
-    return le24(p) | static_cast<u32>(p[3]) << 24;
-}
 bool starts(ConstSlice<u8> s, u32 at, const char* text, u32 bytes) noexcept {
     return s.count >= at + bytes && bytes_equal(s.data + at, text, bytes);
 }
@@ -38,16 +23,16 @@ bool starts(ConstSlice<u8> s, u32 at, const char* text, u32 bytes) noexcept {
 // IHDR dimensions; an acTL chunk before the first IDAT marks APNG.
 Shape probe_png(ConstSlice<u8> s, bool* apng) noexcept {
     *apng = false;
-    if (s.count < 45 || be32(s.data + 8) != 13 || !starts(s, 12, "IHDR", 4))
+    if (s.count < 45 || byte_load_be32(s.data + 8) != 13 || !starts(s, 12, "IHDR", 4))
         return {};
-    Shape shape{be32(s.data + 16), be32(s.data + 20), false, true};
+    Shape shape{byte_load_be32(s.data + 16), byte_load_be32(s.data + 20), false, true};
     u64 at = 8;
     while (at + 12 <= s.count) {
-        const u32 length = be32(s.data + at);
+        const u32 length = byte_load_be32(s.data + at);
         const u8* type = s.data + at + 4;
         if (bytes_equal(type, "acTL", 4) && length >= 8 && at + 16 <= s.count) {
             *apng = true;
-            shape.animated = be32(s.data + at + 8) > 1;
+            shape.animated = byte_load_be32(s.data + at + 8) > 1;
         }
         if (bytes_equal(type, "IDAT", 4) || bytes_equal(type, "IEND", 4))
             break;
@@ -60,7 +45,7 @@ Shape probe_png(ConstSlice<u8> s, bool* apng) noexcept {
 Shape probe_gif(ConstSlice<u8> s) noexcept {
     if (s.count < 14)
         return {};
-    Shape shape{le16(s.data + 6), le16(s.data + 8), false, false};
+    Shape shape{byte_load_le16(s.data + 6), byte_load_le16(s.data + 8), false, false};
     u64 at = 13;
     if (s[10] & 0x80)
         at += 3ull << ((s[10] & 7) + 1);
@@ -122,14 +107,14 @@ Shape probe_jpeg(ConstSlice<u8> s) noexcept {
         }
         if (marker == 0xD9 || marker == 0xDA)
             return {};
-        const u32 length = be16(s.data + at + 2);
+        const u32 length = byte_load_be16(s.data + at + 2);
         if (length < 2)
             return {};
         const bool frame = marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
         if (frame) {
             if (at + 9 > s.count || length < 7)
                 return {};
-            Shape shape{be16(s.data + at + 7), be16(s.data + at + 5), false, true};
+            Shape shape{byte_load_be16(s.data + at + 7), byte_load_be16(s.data + at + 5), false, true};
             return shape.width && shape.height ? shape : Shape{};
         }
         at += 2ull + length;
@@ -144,16 +129,16 @@ Shape probe_webp(ConstSlice<u8> s) noexcept {
     if (starts(s, 12, "VP8 ", 4)) {
         if (data[3] != 0x9D || data[4] != 0x01 || data[5] != 0x2A)
             return {};
-        return {le16(data + 6) & 0x3FFF, le16(data + 8) & 0x3FFF, false, true};
+        return {byte_load_le16(data + 6) & 0x3FFFu, byte_load_le16(data + 8) & 0x3FFFu, false, true};
     }
     if (starts(s, 12, "VP8L", 4)) {
         if (data[0] != 0x2F)
             return {};
-        const u32 bits = le32(data + 1);
+        const u32 bits = byte_load_le32(data + 1);
         return {(bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1, false, true};
     }
     if (starts(s, 12, "VP8X", 4))
-        return {le24(data + 4) + 1, le24(data + 7) + 1, (data[0] & 0x02) != 0, true};
+        return {byte_load_le24(data + 4) + 1, byte_load_le24(data + 7) + 1, (data[0] & 0x02) != 0, true};
     return {};
 }
 
@@ -203,7 +188,7 @@ void pixel(const PngImage& image, const u8* scanlines, u32 x, u32 y, u32 rgba[4]
     };
     // Sample `index` at full depth, and scaled to 8 bits.
     const auto raw = [&](u32 index) noexcept {
-        return depth == 16 ? be16(row + index * 2) : depth == 8 ? row[index] : packed(index);
+        return depth == 16 ? byte_load_be16(row + index * 2) : depth == 8 ? row[index] : packed(index);
     };
     const auto eight = [&](u32 index) noexcept {
         return depth == 16 ? static_cast<u32>(row[index * 2])
@@ -347,6 +332,20 @@ void aspect(GuildImageProfile profile, u64* aw, u64* ah) noexcept {
     *ah = profile == GuildImageProfile::banner ? 9 : profile == GuildImageProfile::profile_banner ? 6 : 1;
 }
 
+// Largest re-encoded size of each use.
+void maximum_size(GuildImageProfile profile, u32* width, u32* height) noexcept {
+    *width = *height = 0;
+    switch (profile) {
+    case GuildImageProfile::icon: *width = *height = 1'024; break;
+    case GuildImageProfile::banner: *width = 1'280, *height = 720; break;
+    case GuildImageProfile::profile_banner: *width = 1'360, *height = 480; break;
+    case GuildImageProfile::emoji:
+    case GuildImageProfile::role_icon: *width = *height = 128; break;
+    case GuildImageProfile::sticker: *width = *height = kGuildStickerDimension; break;
+    default: break;
+    }
+}
+
 bool aspect_matches(GuildImageProfile profile, u32 width, u32 height) noexcept {
     u64 aw = 1, ah = 1;
     aspect(profile, &aw, &ah);
@@ -382,28 +381,11 @@ GuildImageKind guild_image_sniff(ConstSlice<u8> s) noexcept {
     return lottie(s) ? GuildImageKind::lottie : GuildImageKind::none;
 }
 
-void guild_image_maximum(GuildImageProfile profile, u32* width, u32* height) noexcept {
-    u32 w = 0, h = 0;
-    switch (profile) {
-    case GuildImageProfile::icon: w = h = 1'024; break;
-    case GuildImageProfile::banner: w = 1'280, h = 720; break;
-    case GuildImageProfile::profile_banner: w = 1'360, h = 480; break;
-    case GuildImageProfile::emoji:
-    case GuildImageProfile::role_icon: w = h = 128; break;
-    case GuildImageProfile::sticker: w = h = kGuildStickerDimension; break;
-    default: break;
-    }
-    if (width)
-        *width = w;
-    if (height)
-        *height = h;
-}
-
 void guild_image_release(GuildImageBuffer* buffer) noexcept {
     if (!buffer)
         return;
     if (buffer->data) {
-        SecureZeroMemory(buffer->data, buffer->capacity);
+        secure_clear_bytes(buffer->data, buffer->capacity);
         release(buffer->data);
     }
     *buffer = {};
@@ -446,7 +428,7 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
     if (shape.width < minimum_side || shape.height < minimum_side)
         return fail(info, GuildImageError::dimensions);
     u32 max_width = 0, max_height = 0;
-    guild_image_maximum(profile, &max_width, &max_height);
+    maximum_size(profile, &max_width, &max_height);
     const bool exact_sticker = shape.width == kGuildStickerDimension && shape.height == kGuildStickerDimension;
     const bool static_png = kind == GuildImageKind::png;
     const bool needs = static_png && (!aspect_matches(profile, shape.width, shape.height) ||
@@ -503,7 +485,7 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
         resample(image, scanlines, cx, cy, cw, ch, width, height, rgba);
     release(scanlines);
     const u64 written = decoded.ok() ? encode_stored_png(rgba, width, height, output) : 0;
-    SecureZeroMemory(rgba, static_cast<SIZE_T>(static_cast<u64>(width) * height * 4));
+    secure_clear_bytes(rgba, static_cast<SIZE_T>(static_cast<u64>(width) * height * 4));
     release(rgba);
     if (!written) {
         release(output);

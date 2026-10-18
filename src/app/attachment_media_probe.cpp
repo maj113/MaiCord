@@ -1,13 +1,8 @@
 #include "maicord/app/attachment_media_probe.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 namespace {
-u32 load32(const u8* p) noexcept {
-    return static_cast<u32>(p[0]) << 24 | static_cast<u32>(p[1]) << 16 | static_cast<u32>(p[2]) << 8 | p[3];
-}
-u64 load64(const u8* p) noexcept {
-    return static_cast<u64>(load32(p)) << 32 | load32(p + 4);
-}
 bool type_is(const u8* header, const char* type) noexcept {
     return header[4] == static_cast<u8>(type[0]) && header[5] == static_cast<u8>(type[1]) &&
            header[6] == static_cast<u8>(type[2]) && header[7] == static_cast<u8>(type[3]);
@@ -20,12 +15,12 @@ bool find_box(u64 begin, u64 end, const char* type, AttachmentProbeRead read, vo
         u8 header[16];
         if (!read(context, offset, {header, 8}))
             return false;
-        u64 size = load32(header);
+        u64 size = byte_load_be32(header);
         u64 header_bytes = 8;
         if (size == 1) {
             if (offset + 16 > end || !read(context, offset + 8, {header + 8, 8}))
                 return false;
-            size = load64(header + 8);
+            size = byte_load_be64(header + 8);
             header_bytes = 16;
         } else if (size == 0) {
             size = end - offset;
@@ -60,11 +55,11 @@ bool attachment_mp4_duration(u64 file_bytes, AttachmentProbeRead read, void* con
     if (body[0] == 1) {
         if (available < 32)
             return false;
-        timescale = load32(body + 20);
-        duration = load64(body + 24);
+        timescale = byte_load_be32(body + 20);
+        duration = byte_load_be64(body + 24);
     } else if (body[0] == 0) {
-        timescale = load32(body + 12);
-        duration = load32(body + 16);
+        timescale = byte_load_be32(body + 12);
+        duration = byte_load_be32(body + 16);
     } else {
         return false;
     }

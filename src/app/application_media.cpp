@@ -71,7 +71,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
         !application.account.api.media_attachment_request || !application.account.api.media_take) {
         return true;
     }
-    const u64 now_ms = clock_monotonic_milliseconds();
+    const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1'000;
     flush_media_success_diagnostics(now_ms);
     // Interaction-only chat animations play for the hovered, else focused, message.
     message_media_controller_set_interaction(&application.message_media,
@@ -125,8 +125,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
     }
     if (!shell_hidden && !application.login.visible) {
         visibility_only = true;
-        const bool observed = scan_visible_media(now_ms, clock_unix_milliseconds() / 1'000,
-                                                 visibility_now_us, uploads, nullptr);
+        const bool observed = scan_visible_media(now_ms, now_seconds, visibility_now_us, uploads, nullptr);
         visibility_only = false;
         if (!observed)
             return false;
@@ -138,14 +137,12 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
     // Queue cold picker sources before frame advances can occupy the download
     // workers. This limits first-paint latency while existing animations play.
     if (!shell_hidden && !application.login.visible &&
-        (!application_forum_preview_request(now_ms, clock_unix_milliseconds() / 1'000) ||
-         !application_composer_preview_request(now_ms, clock_unix_milliseconds() / 1'000)))
+        (!application_forum_preview_request(now_ms, now_seconds) ||
+         !application_composer_preview_request(now_ms, now_seconds)))
         return false;
     if (!shell_hidden && !application.login.visible &&
-        (!request_catalog_previews(now_ms, clock_unix_milliseconds() / 1000, visibility_now_us, &uploads,
-                                   repaint) ||
-         !request_picker_emoji(now_ms, clock_unix_milliseconds() / 1000, visibility_now_us, &uploads,
-                               repaint)))
+        (!request_catalog_previews(now_ms, now_seconds, visibility_now_us, &uploads, repaint) ||
+         !request_picker_emoji(now_ms, now_seconds, visibility_now_us, &uploads, repaint)))
         return false;
     if (!pump_due_animations(repaint)) {
         return false;
@@ -225,14 +222,12 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
         }
     }
     if (settings_visible && !application.login.visible &&
-        (!request_inline_flags(now_ms, clock_unix_milliseconds() / 1'000, &uploads, repaint) ||
-         !request_settings_avatars(now_ms, clock_unix_milliseconds() / 1'000, &uploads, repaint)))
+        (!request_inline_flags(now_ms, now_seconds, &uploads, repaint) ||
+         !request_settings_avatars(now_ms, now_seconds, &uploads, repaint)))
         return false;
-    if (shell_hidden && !application.login.visible)
+    if (application.login.visible || shell_hidden)
         return true;
-    if (application.login.visible)
-        return true;
-    return scan_visible_media(now_ms, clock_unix_milliseconds() / 1'000,
+    return scan_visible_media(now_ms, now_seconds,
                               clock_microseconds(application.clock, application.process_start, clock_now()),
                               uploads, repaint);
 }
@@ -439,12 +434,10 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             const auto* user = user_store_find(application.account_ui->user_store, composer.command.bot_id);
             const auto key = media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
                                                      composer.command.animated);
-            const bool observed = composer.command.animated &&
-                animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-            bool stop = false;
-            if (user && !(observed && media_atlas_find(application.renderer.media_atlas, key).ok()) &&
-                !request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop,
-                                            composer.command.animated && !observed))
+            bool force = false, stop = false;
+            const bool resident = composer.command.animated && animation_resident(key, now_us, &force);
+            if (user && !resident &&
+                !request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop, force))
                 return false;
             if (stop)
                 return true;
@@ -459,13 +452,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                                  ? media_asset_regional_flag(static_cast<u16>(span.target))
                                  : media_asset_custom_emoji(span.target, span.animated);
             bool force = false;
-            if (span.animated) {
-                const bool observed =
-                    animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-                if (observed && media_atlas_find(application.renderer.media_atlas, key).ok())
-                    continue;
-                force = !observed;
-            }
+            if (span.animated && animation_resident(key, now_us, &force))
+                continue;
             bool stop = false;
             if (!request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint, &stop, force))
                 return false;
@@ -488,14 +476,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 : command.avatar      ? media_asset_user_avatar(item.media_id, item.media_variant, animated)
                                       : media_asset_custom_emoji(item.media_id, animated);
             bool force_request = false;
-            if (animated) {
-                const bool observed =
-                    animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-                if (observed && media_atlas_find(application.renderer.media_atlas, key).ok()) {
-                    continue;
-                }
-                force_request = !observed;
-            }
+            if (animated && animation_resident(key, now_us, &force_request))
+                continue;
             bool stop_scan = false;
             const auto* user =
                 command.avatar
@@ -541,14 +523,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             const MediaAssetKey key = flag ? media_asset_regional_flag(flag)
                                            : media_asset_custom_emoji(aggregate.emoji_id, animated);
             bool force_request = false;
-            if (animated) {
-                const bool observed =
-                    animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-                if (observed && media_atlas_find(application.renderer.media_atlas, key).ok()) {
-                    continue;
-                }
-                force_request = !observed;
-            }
+            if (animated && animation_resident(key, now_us, &force_request))
+                continue;
             bool stop_scan = false;
             if (!request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint, &stop_scan,
                                               force_request)) {
@@ -568,14 +544,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             const MediaAssetKey key =
                 media_asset_user_avatar(user.id, user_avatar_variant(hash), animated);
             bool force_request = false;
-            if (animated && media_asset_key_valid(key)) {
-                const bool observed =
-                    animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-                if (observed && media_atlas_find(application.renderer.media_atlas, key).ok()) {
-                    continue;
-                }
-                force_request = !observed;
-            }
+            if (animated && media_asset_key_valid(key) && animation_resident(key, now_us, &force_request))
+                continue;
             bool stop_scan = false;
             if (!request_visible_user_avatar_value(user.id, hash, now_ms, now_seconds, &uploads, repaint,
                                                    &stop_scan, force_request)) {
@@ -634,13 +604,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (!search_avatar_media_resolve(search, slot, &media))
                 continue;
             bool force = false;
-            if (media.key.flags & media_asset_flag_animated) {
-                const bool observed =
-                    animation_timeline_observe_visible(&application.animations.timeline, media.key, now_us);
-                if (observed && media_atlas_find(application.renderer.media_atlas, media.key).ok())
-                    continue;
-                force = !observed;
-            }
+            if ((media.key.flags & media_asset_flag_animated) &&
+                animation_resident(media.key, now_us, &force))
+                continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
             bool stop = false;
@@ -778,11 +744,11 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (!hovered || !asset_hash_animated(chat_state_store_guild_icon_hash(*guild)))
                 continue;
             const MediaAssetKey key = media_asset_guild_icon(guild->id, guild->icon_variant, true);
-            const bool observed = animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-            if (observed && media_atlas_find(application.renderer.media_atlas, key).ok())
+            bool force = false;
+            if (animation_resident(key, now_us, &force))
                 continue;
-            if (!request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop_scan, !observed,
-                                            true)) {
+            if (!request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop_scan,
+                                            force, true)) {
                 return false;
             }
             if (stop_scan) {
@@ -799,15 +765,10 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         if (!variant)
             return true;
         bool force_request = false;
-        if (asset_hash_animated(hash)) {
-            const auto key = media_asset_user_avatar(user->id, variant, true);
-            const bool observed =
-                play ? animation_timeline_observe_visible(&application.animations.timeline, key, now_us)
-                     : animation_timeline_find(&application.animations.timeline, key).ok();
-            if (observed && media_atlas_find(application.renderer.media_atlas, key).ok())
-                return true;
-            force_request = !observed;
-        }
+        if (asset_hash_animated(hash) &&
+            animation_resident(media_asset_user_avatar(user->id, variant, true), now_us, &force_request,
+                               play))
+            return true;
         return request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, stop_scan,
                                            force_request);
     };
@@ -872,14 +833,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             return true;
         const auto key = media_asset_channel_icon(channel_id, user_avatar_variant(custom), asset_hash_animated(custom));
         bool force_request = false;
-        if (key.flags & media_asset_flag_animated) {
-            const bool observed =
-                play ? animation_timeline_observe_visible(&application.animations.timeline, key, now_us)
-                     : animation_timeline_find(&application.animations.timeline, key).ok();
-            if (observed && media_atlas_find(application.renderer.media_atlas, key).ok())
-                return true;
-            force_request = !observed;
-        }
+        if ((key.flags & media_asset_flag_animated) &&
+            animation_resident(key, now_us, &force_request, play))
+            return true;
         return request_visible_hashed_identity(key, custom, now_ms, now_seconds, &uploads, repaint, stop_scan,
                                                force_request);
     };
@@ -1090,15 +1046,10 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (!member_plain_avatar_place(members, visible, &placed))
                 continue;
             bool force = false;
-            if (placed.key.flags & media_asset_flag_animated) {
-                const bool play = avatar_row_animates(hovered_member == &members.rows[visible]);
-                const bool observed =
-                    play ? animation_timeline_observe_visible(&application.animations.timeline, placed.key, now_us)
-                         : animation_timeline_find(&application.animations.timeline, placed.key).ok();
-                if (observed && media_atlas_find(atlas, placed.key).ok())
-                    continue;
-                force = !observed;
-            }
+            if ((placed.key.flags & media_asset_flag_animated) &&
+                animation_resident(placed.key, now_us, &force,
+                                   avatar_row_animates(hovered_member == &members.rows[visible])))
+                continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
             // request_visible_hashed_identity's own early returns.
@@ -1199,7 +1150,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         !application.account_ui || !application.account.instance || !application.account.api.media_take ||
         !application.account.api.media_advance)
         return true;
-    const u64 now_ms = clock_monotonic_milliseconds();
+    const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1'000;
     const u64 now_us = clock_microseconds(application.clock, application.process_start, clock_now());
     u32 uploads = 0;
     // content_media_visible() is false under the browser, so chat entries are
@@ -1207,8 +1158,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
     // time. Uncovered chrome stays visible and keeps its cadence.
     animation_timeline_begin_visibility(&application.animations.timeline);
     visibility_only = true;
-    const bool observed =
-        scan_visible_media(now_ms, clock_unix_milliseconds() / 1'000, now_us, uploads, nullptr);
+    const bool observed = scan_visible_media(now_ms, now_seconds, now_us, uploads, nullptr);
     visibility_only = false;
     if (!observed)
         return false;
@@ -1243,10 +1193,9 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
         }
     }
     bool forum_stop = false;
-    if (!request_forum_avatars(now_ms, clock_unix_milliseconds() / 1'000, now_us, &uploads, repaint, &forum_stop))
+    if (!request_forum_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &forum_stop))
         return false;
-    return forum_stop ||
-           request_forum_thumbnails(now_ms, clock_unix_milliseconds() / 1'000, &uploads, repaint, &forum_stop);
+    return forum_stop || request_forum_thumbnails(now_ms, now_seconds, &uploads, repaint, &forum_stop);
 }
 
 ApplicationMediaPumpResult application_pump_covered_media(Application* application) noexcept {

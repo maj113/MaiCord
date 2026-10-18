@@ -4,7 +4,7 @@
 #include "maicord/media/ogg_opus.hpp"
 #include "maicord/media/opus_decoder.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -423,7 +423,6 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
         } else
             ++v;
     }
-    mixer->rendered_frames += frames;
     const u32 active = mixer->count;
     ReleaseSRWLockExclusive(mixer->lock.native());
     for (u32 i = 0; i < finished_count; ++i)

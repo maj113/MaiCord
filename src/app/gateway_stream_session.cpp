@@ -26,8 +26,6 @@ u32 volume(const GatewayStreamSession& session) noexcept {
 
 void gateway_stream_session_drive(GatewayStreamSession* session, const GatewayVoiceControl& voice, NetworkLoop* loop,
                                   const VoiceAudioSettings& output, u64 now_ms) noexcept {
-    if (!session)
-        return;
     auto& control = session->control;
     // Watching requires being in the stream's voice channel.
     gateway_stream_voice(&control, voice.setup.channel_id, voice.setup.phase != VoiceSetupPhase::idle);
@@ -61,8 +59,7 @@ bool gateway_stream_session_owns(const GatewayStreamSession& session, const Netw
 
 void gateway_stream_session_completion(GatewayStreamSession* session, NetworkLoop* loop,
                                        const NetworkCompletion& completion, u64 now_ms) noexcept {
-    if (session)
-        voice_connection_completion(&session->connection, session->control.setup, loop, completion, now_ms);
+    voice_connection_completion(&session->connection, session->control.setup, loop, completion, now_ms);
 }
 
 bool gateway_stream_session_busy(const GatewayStreamSession& session) noexcept {
@@ -81,8 +78,6 @@ u64 gateway_stream_session_deadline(const GatewayStreamSession& session) noexcep
 }
 
 void gateway_stream_session_set_target(GatewayStreamSession* session, VideoFrameSink target) noexcept {
-    if (!session)
-        return;
     // Streams delivered to a previous decoder set end there first.
     if (session->target.push_frame && session->target.context != target.context)
         voice_video_sink_stop(&session->receive.video);
@@ -90,15 +85,11 @@ void gateway_stream_session_set_target(GatewayStreamSession* session, VideoFrame
 }
 
 void gateway_stream_session_set_volume(GatewayStreamSession* session, u32 percent) noexcept {
-    if (!session)
-        return;
     session->volume_percent = percent > kGatewayStreamVolumeMaximum ? kGatewayStreamVolumeMaximum : percent;
     session->volume_set = true;
 }
 
 void gateway_stream_session_want_video(GatewayStreamSession* session, u64 owner_id, bool wanted) noexcept {
-    if (!session)
-        return;
     auto& sink = session->receive.video;
     sink.unwanted_count = 0;
     if (!wanted && owner_id) {
@@ -108,24 +99,19 @@ void gateway_stream_session_want_video(GatewayStreamSession* session, u64 owner_
 }
 
 void gateway_stream_session_keyframe(VoiceVideoSink* call, GatewayStreamSession* session, u32 ssrc) noexcept {
-    if (ssrc & kGatewayStreamVideoSsrcTag) {
-        if (session)
-            voice_video_sink_request_keyframe(&session->receive.video, ssrc & ~kGatewayStreamVideoSsrcTag);
-    } else if (call)
+    if (ssrc & kGatewayStreamVideoSsrcTag)
+        voice_video_sink_request_keyframe(&session->receive.video, ssrc & ~kGatewayStreamVideoSsrcTag);
+    else
         voice_video_sink_request_keyframe(call, ssrc);
 }
 
 void gateway_stream_session_reset(GatewayStreamSession* session, GatewayStreamEnd end) noexcept {
-    if (!session)
-        return;
     gateway_stream_reset(&session->control, end);
     voice_connection_stop(&session->connection);
     voice_receive_stop(&session->receive);
 }
 
 void gateway_stream_session_release(GatewayStreamSession* session) noexcept {
-    if (!session)
-        return;
     voice_connection_stop(&session->connection);
     voice_receive_stop(&session->receive);
     gateway_stream_release(&session->control);

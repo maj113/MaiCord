@@ -2,13 +2,15 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/random.hpp"
 
-#include <Windows.h>
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_records.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 struct VoiceSendShared {
-    SRWLOCK control_lock;
+    SrwLock control_lock;
     VoiceSendControl control;
-    VoiceSend* owner;
     bool (*probe)(void*, u8) noexcept;
     void* probe_context;
     volatile LONG write, read, end_lost;
@@ -37,9 +39,9 @@ void wake_worker(const VoiceSend& send) noexcept {
 // state machine and (for voice) the encoder, then into the queue.
 void process(VoiceSend& send, u64 now_us) noexcept {
     auto& s = *send.shared;
-    AcquireSRWLockShared(&s.control_lock);
+    AcquireSRWLockShared(s.control_lock.native());
     const VoiceSendControl c = s.control;
-    ReleaseSRWLockShared(&s.control_lock);
+    ReleaseSRWLockShared(s.control_lock.native());
     const bool down = c.mode == VoiceInputMode::push_to_talk && key_down(s, c.key);
     InterlockedExchange(&send.cells.key_down, down);
     bool queued = false;
@@ -57,8 +59,8 @@ void process(VoiceSend& send, u64 now_us) noexcept {
         InterlockedExchange(&send.cells.announced, s.transmitter.announced);
         if (action == VoiceTransmitAction::idle)
             continue;
-        const u32 write = static_cast<u32>(ReadAcquire(&s.write));
-        if (write - static_cast<u32>(ReadAcquire(&s.read)) >= kVoiceSendQueue) {
+        const u32 write = static_cast<u32>(read_acquire(&s.write));
+        if (write - static_cast<u32>(read_acquire(&s.read)) >= kVoiceSendQueue) {
             // Worker stalled: drop the frame, but never lose Speaking edges.
             if (action == VoiceTransmitAction::start)
                 voice_transmit_reset(&s.transmitter);
@@ -87,7 +89,7 @@ void process(VoiceSend& send, u64 now_us) noexcept {
         wake_worker(send);
 }
 void discard(VoiceSendShared& s) noexcept {
-    InterlockedExchange(&s.read, ReadAcquire(&s.write));
+    InterlockedExchange(&s.read, read_acquire(&s.write));
 }
 bool same_device(const wchar_t* a, const wchar_t* b) noexcept {
     u32 i = 0;
@@ -147,7 +149,6 @@ bool voice_send_open(VoiceSend* send) noexcept {
     if (!block)
         return false;
     auto* shared = reinterpret_cast<VoiceSendShared*>(block);
-    shared->owner = send;
     if (!opus_encoder_initialize(&shared->encoder, {block + kEncoderOffset, encoder_bytes}, 1).ok()) {
         VirtualFree(block, 0, MEM_RELEASE);
         return false;
@@ -171,9 +172,9 @@ void voice_send_close(VoiceSend* send) noexcept {
 void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) noexcept {
     if (!send || !send->shared)
         return;
-    AcquireSRWLockExclusive(&send->shared->control_lock);
+    AcquireSRWLockExclusive(send->shared->control_lock.native());
     send->shared->control = control;
-    ReleaseSRWLockExclusive(&send->shared->control_lock);
+    ReleaseSRWLockExclusive(send->shared->control_lock.native());
 }
 
 void voice_send_set_key_probe(VoiceSend* send, bool (*probe)(void*, u8) noexcept, void* context) noexcept {
@@ -194,8 +195,8 @@ u64 voice_send_tick(void* context, u64 now_us) noexcept {
 }
 
 u32 voice_send_queued(const VoiceSend& send) noexcept {
-    return send.shared ? static_cast<u32>(ReadAcquire(&send.shared->write)) -
-                             static_cast<u32>(ReadAcquire(&send.shared->read))
+    return send.shared ? static_cast<u32>(read_acquire(&send.shared->write)) -
+                             static_cast<u32>(read_acquire(&send.shared->read))
                        : 0;
 }
 
@@ -222,13 +223,13 @@ VoiceAudioStatus voice_send_status(VoiceSend* send) noexcept {
     }
     ReleaseSRWLockShared(send->lock.native());
     if (status.capture == VoiceCaptureState::capturing) {
-        status.level = static_cast<u8>(ReadAcquire(&send->cells.level));
-        status.transmitting = ReadAcquire(&send->cells.transmitting) != 0;
-        status.push_to_talk_down = ReadAcquire(&send->cells.key_down) != 0;
+        status.level = static_cast<u8>(read_acquire(&send->cells.level));
+        status.transmitting = read_acquire(&send->cells.transmitting) != 0;
+        status.push_to_talk_down = read_acquire(&send->cells.key_down) != 0;
     }
-    status.threshold = static_cast<u8>(ReadAcquire(&send->cells.threshold));
-    status.sent_packets = static_cast<u64>(ReadAcquire64(&send->sent_packets));
-    status.round_trip_ms = static_cast<u16>(minimum<LONG>(ReadAcquire(&send->cells.round_trip), 65535));
+    status.threshold = static_cast<u8>(read_acquire(&send->cells.threshold));
+    status.sent_packets = static_cast<u64>(read_acquire(&send->sent_packets));
+    status.round_trip_ms = static_cast<u16>(minimum<LONG>(read_acquire(&send->cells.round_trip), 65535));
     return status;
 }
 
@@ -247,8 +248,8 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
     if (s && InterlockedExchange(&s->end_lost, 0))
         send->speaking_off_pending = send->speaking_on;
     while (s) {
-        const u32 read = static_cast<u32>(ReadAcquire(&s->read));
-        if (read == static_cast<u32>(ReadAcquire(&s->write)))
+        const u32 read = static_cast<u32>(read_acquire(&s->read));
+        if (read == static_cast<u32>(read_acquire(&s->write)))
             break;
         const auto& packet = s->packets[read % kVoiceSendQueue];
         if (!t.ready(t.context)) {
@@ -320,7 +321,7 @@ void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const Gatewa
     InterlockedExchange(&send->cells.round_trip, static_cast<LONG>(round_trip));
     const bool sending = media_ready && !muted;
     // A mute mid-sentence still finishes the silence tail before closing.
-    const bool tail = media_ready && send->shared && ReadAcquire(&send->cells.announced);
+    const bool tail = media_ready && send->shared && read_acquire(&send->cells.announced);
     const bool want = sending || a.monitor || tail;
     const bool running = voice_audio_capture_running(send->capture);
     if (running && (!want || send->capture_processing != a.voice_processing ||
@@ -357,6 +358,6 @@ bool voice_send_active(const VoiceSend& send) noexcept {
 }
 
 bool voice_send_speaking(const VoiceSend& send) noexcept {
-    return send.shared && send.speaking_on && ReadAcquire(&send.cells.transmitting);
+    return send.shared && send.speaking_on && read_acquire(&send.cells.transmitting);
 }
 } // namespace maicord

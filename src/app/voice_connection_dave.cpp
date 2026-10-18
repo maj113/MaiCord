@@ -1,7 +1,7 @@
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/core/byte_order.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -87,7 +87,7 @@ bool prepare_group_key_package(VoiceConnection& connection) noexcept {
         const auto status = dave_session_set_external_sender(
             &connection.dave_session,
             {connection.dave_external_sender, connection.dave_external_sender_bytes});
-        SecureZeroMemory(connection.dave_external_sender, sizeof(connection.dave_external_sender));
+        secure_clear_bytes(connection.dave_external_sender, sizeof(connection.dave_external_sender));
         connection.dave_external_sender_bytes = 0;
         if (status != MlsStatus::ok)
             voice_log(kWarning, "dave_external_sender_rejected", "status", status_value(status));
@@ -191,7 +191,7 @@ void voice_connection_dave_reset(VoiceConnection* connection) noexcept {
     for (auto& buffer : connection->dave_outbox)
         secure_buffer_release(&buffer);
     connection->dave_outbox_head = connection->dave_outbox_count = 0;
-    SecureZeroMemory(connection->dave_external_sender, sizeof(connection->dave_external_sender));
+    secure_clear_bytes(connection->dave_external_sender, sizeof(connection->dave_external_sender));
     connection->dave_external_sender_bytes = 0;
     connection->dave_recovering = false;
     connection->dave_invalid_streak = 0;

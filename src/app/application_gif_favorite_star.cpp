@@ -19,9 +19,6 @@ struct GifStar {
 };
 UiWidgetHandle g_loaded_owner{};
 
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 bool available() noexcept {
     return g_app.account_ui && !g_app.login.visible && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
            !g_app.image_viewer.scene.active && g_app.message_scene.active;
@@ -35,7 +32,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
     const auto& store = g_app.account_ui->message_rich_store;
     const auto hit = [&](UiWidgetHandle widget, const UiLayoutNode& node, UiRect star) noexcept {
         if (owner.generation)
-            return same(widget, owner);
+            return ui_widget_handle_equal(widget, owner);
         const UiRect visible = ui_rect_intersection(star, ui_rect_intersection(node.clip_rectangle, scene.viewport));
         return ui_rect_contains(visible, x, y);
     };
@@ -47,9 +44,8 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 continue;
             const auto* message = message_store_resolve(g_app.message_view.store, row->message);
             const auto* outer_rich = message ? message_rich_store_find(store, message->id) : nullptr;
-            const auto* rich = message ? (content_scope ? message_rich_store_snapshot(store, message->id)
-                                                        : message_rich_store_find(store, message->id))
-                                       : nullptr;
+            const auto* rich =
+                message && content_scope ? message_rich_store_snapshot(store, message->id) : outer_rich;
             if (!rich || message->channel_id != g_app.account_ui->active_channel_id ||
                 message->channel_id != g_app.account_ui->chat_state.selected_channel_id ||
                 !application_channel_readable(g_app, message->channel_id) ||
@@ -62,7 +58,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 const auto* node = message_scene_rich_item_layout_node(
                     scene, *row, MessageSceneRichItemKind::attachment, i);
                 float width = 0, height = 0;
-                if (!node || (owner.generation && !same(widget, owner)) ||
+                if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
                     message_rich_attachment_format(store, attachment) != MediaAttachmentFormat::gif ||
                     message_scene_media_obscure(
                         scene, message_media_owner(*message, outer_rich), rich->message_id,
@@ -88,7 +84,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 const auto* node = message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::embed, i);
                 MessageRichEmbedGalleryPlace place{};
                 MessageRichEmbedMediaSelection selected{};
-                if (!node || (owner.generation && !same(widget, owner)) ||
+                if (!node || (owner.generation && !ui_widget_handle_equal(widget, owner)) ||
                     message_rich_embed_gallery_place(store, *rich, i, &place) ||
                     !message_rich_embed_media_select(store, embed, &selected) || !selected.media ||
                     (embed.type != GatewayMessageEmbedType::gifv &&

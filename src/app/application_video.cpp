@@ -21,6 +21,8 @@
 #include "maicord/ui/audio_presentation.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
+
+#include <Windows.h>
 #include <intrin.h>
 
 namespace maicord::app_detail {
@@ -130,6 +132,15 @@ void release_video_pointer_capture() noexcept {
     if (GetCapture() == g_app.window)
         ReleaseCapture();
 }
+// Detaches the audio and video scenes from the renderer; true when one was bound.
+bool unbind_playback_scenes() noexcept {
+    const bool had_scene = g_app.renderer.video_scene != nullptr || g_app.renderer.audio_scene != nullptr;
+    renderer_bind_audio_scene(&g_app.renderer, nullptr);
+    g_app.renderer.video_scene = nullptr;
+    g_app.renderer.video_scene_search_result = false;
+    g_app.renderer.video_scene_viewer = false;
+    return had_scene;
+}
 UiRect clip_video_panel(UiRect clip, UiRect panel) noexcept {
     if (!ui_rect_has_area(ui_rect_intersection(clip, panel)))
         return clip;
@@ -206,7 +217,6 @@ void note_video_pointer(ApplicationVideo& video, UINT message, UiPoint point) no
         application_request_frame();
 }
 bool video_input_focus_current(const ApplicationVideo& video) noexcept {
-
     return video.input_focus && GetFocus() == g_app.window && !g_app.context_focus &&
            !g_app.message_composer.focused;
 }
@@ -222,10 +232,6 @@ void acquire_video_focus(ApplicationVideo& video) noexcept {
     g_app.message_composer.focused = false;
     message_action_bar_close(&g_app.message_action_bar);
     SetFocus(g_app.window);
-}
-u64 account_serial() noexcept {
-    return g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
-                                             : g_app.account.status.profile_id;
 }
 UiWidgetReference inline_attachment_owner(const MessageScene& scene, u64 message_id, u8 item,
                                           bool snapshot) noexcept {
@@ -246,7 +252,7 @@ UiWidgetReference inline_attachment_owner(const MessageScene& scene, u64 message
 }
 bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bool embed, u8 item,
                                  bool snapshot, InlineMediaSource* out) noexcept {
-    if (!out || !video_session_available() || !d3d11_renderer_search_visible(g_app.renderer))
+    if (!video_session_available() || !d3d11_renderer_search_visible(g_app.renderer))
         return false;
     ApplicationSearchSourceView source{};
     if (!application_search_source_resolve(ticket, snapshot, &source) || !source.message || !source.rich ||
@@ -318,7 +324,7 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
     if (search_source && search_source->publication_revision)
         return search_source->message_id == message_id && search_source->publication_revision == revision &&
                resolve_search_video_source(*search_source, embed, item, snapshot, out);
-    if (!video_session_available() || !out)
+    if (!video_session_available())
         return false;
     const auto& scene = g_app.message_scene;
     const auto& store = g_app.account_ui->message_rich_store;
@@ -720,7 +726,7 @@ bool start_video_session(const InlineMediaSource& source) noexcept {
         return false;
     }
     video->retiring_identity = retired;
-    video->account_serial = account_serial();
+    video->account_serial = application_account_scope();
     video->session_epoch = ++g_app.video_lifetime_serial;
     video->selecting = true;
     video->requested_play = true;
@@ -815,8 +821,7 @@ void dispatch_audio_event(ApplicationVideo& video, const UiAudioSceneResult& eve
                                       &video.source.search_source) ||
         !current.audio || !media_asset_key_equal(current.key, video.source.key) ||
         current.owner.manager != video.ui.audio.owner.manager ||
-        current.owner.handle.slot != video.ui.audio.owner.handle.slot ||
-        current.owner.handle.generation != video.ui.audio.owner.handle.generation)
+        !ui_widget_handle_equal(current.owner.handle, video.ui.audio.owner.handle))
         return;
     if (inline_media_activation_consumed(current))
         return;
@@ -932,7 +937,7 @@ bool application_video_open_focused() noexcept {
             for (u32 item = 0; item < row->attachment_item_count; ++item) {
                 const auto widget =
                     message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, item);
-                if (widget.slot != focused.slot || widget.generation != focused.generation)
+                if (!ui_widget_handle_equal(widget, focused))
                     continue;
                 InlineMediaSource source{};
                 return resolve_visible_video_source(message->id, message->revision, false,
@@ -992,12 +997,8 @@ void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
     if (!video)
         return;
     application_video_cancel_pointer();
-    const bool had_scene = g_app.renderer.video_scene != nullptr || g_app.renderer.audio_scene != nullptr;
-    renderer_bind_audio_scene(&g_app.renderer, nullptr);
-    g_app.renderer.video_scene = nullptr;
-    g_app.renderer.video_scene_search_result = false;
-    g_app.renderer.video_scene_viewer = false;
-    if (video_session_available() && video->account_serial == account_serial() &&
+    const bool had_scene = unbind_playback_scenes();
+    if (video_session_available() && video->account_serial == application_account_scope() &&
         (video->selected || video->selecting)) {
         AccountVideoFrame frame{};
         if (g_app.account.api.video_take(g_app.account.instance, &frame))
@@ -1133,7 +1134,7 @@ bool application_video_pump(bool* repaint) noexcept {
     const u32 prior_native_error = video->status.playback.native_error;
     const auto prior_rejected_error = video->status.playback.rejected_error;
     const bool searched = media_asset_search(video->source.key);
-    if (!video_session_available() || video->account_serial != account_serial() ||
+    if (!video_session_available() || video->account_serial != application_account_scope() ||
         (!searched && video->source.channel_id != g_app.account_ui->active_channel_id)) {
         application_video_close();
         return true;
@@ -1290,13 +1291,8 @@ bool application_video_pump(bool* repaint) noexcept {
             ui_opacity_transition_reset(&video->ui.video.controls_transition);
             video->ui.video.active = false;
         }
-        const bool had_scene =
-            g_app.renderer.video_scene != nullptr || g_app.renderer.audio_scene != nullptr;
-        renderer_bind_audio_scene(&g_app.renderer, nullptr);
-        g_app.renderer.video_scene = nullptr;
-        g_app.renderer.video_scene_search_result = false;
-        g_app.renderer.video_scene_viewer = false;
-        return !had_scene || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+        return !unbind_playback_scenes() ||
+               renderer_rebuild_content_text(&g_app.renderer, application_theme());
     }
     video->source = positioned;
     if (video->source.audio) {
@@ -1808,8 +1804,7 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
             !current.audio || !media_asset_key_equal(current.key, video->source.key) ||
             !ui_rect_equal(current.preview, scene.projection.geometry.bounds) ||
             !ui_rect_equal(current.clip, scene.clip) || current.owner.manager != scene.owner.manager ||
-            current.owner.handle.slot != scene.owner.handle.slot ||
-            current.owner.handle.generation != scene.owner.handle.generation)
+            !ui_widget_handle_equal(current.owner.handle, scene.owner.handle))
             return false;
         const auto id = keyboard ? scene.focus : ui_audio_scene_hit(scene, point);
         if (keyboard && (!video_input_focus_current(*video) || !scene.keyboard_focus))

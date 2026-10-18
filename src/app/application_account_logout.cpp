@@ -8,7 +8,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -219,11 +219,7 @@ bool save(TextFormOwnerKey key, Utf8View) noexcept {
     if (!g_app.login.application_auth_epoch)
         ++g_app.login.application_auth_epoch;
     g_app.login.remote_restart_at_ms = 0;
-    u64& id = g_app.account_ui->message_history_request_id;
-    ++id;
-    if (!id)
-        ++id;
-    owner->request_id = id;
+    owner->request_id = application_next_request_id();
     const u64 now = clock_monotonic_milliseconds();
     owner->deadline = deadline_after(now, kLogoutDeadlineMilliseconds);
     owner->admission_due = maximum(u64{1}, now);
@@ -285,7 +281,7 @@ bool open_form(ApplicationAccountLogout& owner) noexcept {
 } // namespace
 
 bool application_account_logout_available() noexcept {
-    if (application_account_logout_blocked() || application_account_logout_host_owned())
+    if (application_account_logout_locked())
         return false;
     return g_app.account_ui && !g_app.login.visible && g_app.account.instance &&
            !g_app.account.stop_failed && g_app.account.api.logout && g_app.account.status.profile_id &&

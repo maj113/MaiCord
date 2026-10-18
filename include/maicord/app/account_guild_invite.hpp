@@ -8,5 +8,4 @@ namespace maicord {
 // Accept sends the Gateway session ID and the invite's context header.
 RestClientSubmitResult account_guild_invite_submit(RestClient*, const GuildInviteRequest*,
                                                    u64 request_id, Utf8View session_id = {}) noexcept;
-RestClientSubmitResult account_guild_invite_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

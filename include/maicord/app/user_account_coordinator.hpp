@@ -41,7 +41,6 @@ struct UserAccountCoordinatorResult {
     // credentials and terminal configuration close codes never restart.
     // gateway_error keeps the last such failure for diagnostics.
     u64 gateway_restart_at_ms;
-    u32 gateway_restarts;
     u32 gateway_restart_attempt;
 
     constexpr bool ok() const noexcept {

@@ -16,14 +16,13 @@ struct SearchContentRequest {
 struct SearchContentOwner {
     SearchContentRequest request{};
     ReceivedAttachmentOpen intent{};
-    u64 generation{};
 } content_owner{};
 static_assert(sizeof(SearchContentOwner) <= 192);
 
 u64 account_scope() noexcept { return g_app.plugin_account_scope_serial; }
 bool resolve(const SearchContentRequest& request, bool snapshot,
              ApplicationSearchSourceView* view) noexcept {
-    return view && g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
+    return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
         !g_app.login.visible && request.account && request.account == account_scope() &&
         request.profile == g_app.account.status.profile_id &&
         request.self == g_app.account_ui->chat_state.self_user_id &&
@@ -62,7 +61,7 @@ bool attachment_media_allowed(const SearchContentRequest& owner, bool activate) 
 bool attachment_source(const SearchContentRequest& owner,
                        const ReceivedAttachmentOpenIdentity& identity, Utf8View* source) noexcept {
     ApplicationSearchSourceView view{};
-    if (!source || !resolve(owner, owner.target.snapshot, &view) || !view.rich || !view.rich_store ||
+    if (!resolve(owner, owner.target.snapshot, &view) || !view.rich || !view.rich_store ||
         identity.account_scope != owner.account || identity.message_id != owner.ticket.message_id ||
         identity.message_revision != owner.ticket.publication_revision ||
         identity.channel_id != view.message->channel_id || identity.source_channel_id != view.source_channel_id ||
@@ -82,15 +81,15 @@ bool snapshot_hit(const MessageTextHit& hit) noexcept {
 // trusted_text: the official client's markdown rule; the link's text is its URL (not a
 // masked [label](url) link) outside a DM with someone who is not a friend.
 bool link_source(const SearchContentRequest& owner, const MessageTextHit& hit, Utf8View* source,
-                 bool* trusted_text = nullptr) noexcept {
+                 bool* trusted_text) noexcept {
     ApplicationSearchSourceView view{};
-    if (!source || !hit.valid || hit.message_id != owner.ticket.message_id ||
+    if (!hit.valid || hit.message_id != owner.ticket.message_id ||
         hit.message_revision != owner.ticket.publication_revision ||
         (hit.kind != MessageMarkdownSemanticKind::link && hit.kind != MessageMarkdownSemanticKind::message_link) ||
         !resolve(owner, snapshot_hit(hit), &view) ||
         !application_search_source_link_current(owner.ticket, hit)) return false;
     *source = message_text_presentation_hit_source(*view.store, view.rich_store, hit);
-    if (trusted_text && source->data) {
+    if (source->data) {
         const bool masked = (hit.source_offset & 0xFFFFu) >= 2 && source->data[-1] == '(' && source->data[-2] == ']';
         *trusted_text = !masked && application_link_channel_trusted(view.message->channel_id);
     }
@@ -122,6 +121,22 @@ bool confirm(const SearchContentRequest& owner, Utf8View url, const ReceivedAtta
     application_link_open(url, !attachment && trusted_text);
     return true;
 }
+void reset_owner() noexcept {
+    content_owner.intent = {};
+    content_owner.request = {};
+}
+// A message link jumps to the message; any other link goes through confirm().
+bool open_link(const ApplicationSearchSourceTicket& ticket, const SearchContentRequest& owner,
+               Utf8View source, bool trusted_text) noexcept {
+    reset_owner();
+    MessageLink link{};
+    if (message_markdown_message_link(source, &link)) {
+        if (!application_search_navigation_link(ticket, link))
+            notice(owner, utf8_literal("This message isn't available on this account."));
+        return true;
+    }
+    return confirm(owner, source, nullptr, trusted_text);
+}
 void attachment_ready(const SearchContentRequest& owner, const ReceivedAttachmentOpenIdentity& identity,
                       Utf8View ready) noexcept {
     if (attachment_media_allowed(owner, false))
@@ -145,17 +160,7 @@ bool application_search_content_activate(const ApplicationSearchSourceTicket& ti
         target.channel_id != view.message->channel_id || !view.rich || !view.rich_store) return true;
     if (target.rich_kind == MessageSceneRichItemKind::embed) {
         Utf8View source{};
-        if (!embed_source(owner, &source)) return true;
-        content_owner.intent = {};
-        content_owner.request = {};
-        ++content_owner.generation;
-        MessageLink link{};
-        if (message_markdown_message_link(source, &link)) {
-            if (!application_search_navigation_link(ticket, link))
-                notice(owner, utf8_literal("This message isn't available on this account."));
-            return true;
-        }
-        return confirm(owner, source, nullptr, false);
+        return !embed_source(owner, &source) || open_link(ticket, owner, source, false);
     }
     if (target.rich_kind != MessageSceneRichItemKind::attachment ||
         target.rich_index >= view.rich->attachment_count) return true;
@@ -166,7 +171,6 @@ bool application_search_content_activate(const ApplicationSearchSourceTicket& ti
     if (!attachment_source(owner, identity, &source)) return true;
     if (!attachment_media_allowed(owner, true)) return true;
     content_owner.request = owner;
-    ++content_owner.generation;
     const auto result = received_attachment_open_begin(&content_owner.intent, identity, source, &g_app.media_urls,
         clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, &ready);
     attachment_notice(owner, result);
@@ -177,17 +181,8 @@ bool application_search_content_link(const ApplicationSearchSourceTicket& ticket
     const auto owner = capture_request(ticket);
     Utf8View source{};
     bool trusted_text = false;
-    if (!link_source(owner, hit, &source, &trusted_text)) return true;
-    content_owner.intent = {};
-    content_owner.request = {};
-    ++content_owner.generation;
-    MessageLink link{};
-    if (message_markdown_message_link(source, &link)) {
-        if (!application_search_navigation_link(ticket, link))
-            notice(owner, utf8_literal("This message isn't available on this account."));
-        return true;
-    }
-    return confirm(owner, source, nullptr, trusted_text);
+    return !link_source(owner, hit, &source, &trusted_text) ||
+           open_link(ticket, owner, source, trusted_text);
 }
 void application_search_content_pump() noexcept {
     if (!content_owner.intent.pending) return;
@@ -205,8 +200,6 @@ void application_search_content_pump() noexcept {
     if (result == ReceivedAttachmentOpenResult::ready) attachment_ready(owner, identity, ready);
 }
 void application_search_content_release() noexcept {
-    ++content_owner.generation;
-    content_owner.intent = {};
-    content_owner.request = {};
+    reset_owner();
 }
 } // namespace maicord::app_detail

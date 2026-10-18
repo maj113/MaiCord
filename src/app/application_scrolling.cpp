@@ -9,7 +9,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/scrollbar.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -231,8 +231,6 @@ void end_scrollbar_drag() noexcept {
     }
 }
 
-
-
 bool handle_message_key(WPARAM key) noexcept {
     const u64 viewport = g_app.message_view.timeline.viewport_units;
     const u64 page = viewport > g_app.message_view.timeline.default_item_units
@@ -256,7 +254,6 @@ bool handle_message_key(WPARAM key) noexcept {
         return false;
     }
 }
-
 
 } // namespace maicord::app_detail
 

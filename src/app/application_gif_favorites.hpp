@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/app/account_gif_favorites.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationGifFavorites;
@@ -29,16 +30,7 @@ inline GifFavoriteFormat application_gif_favorites_format(Utf8View src) noexcept
     while (end < src.bytes && src.data[end] != '?' && src.data[end] != '#')
         ++end;
     const auto ends = [&](const char* suffix, u32 bytes) noexcept {
-        if (end < bytes)
-            return false;
-        for (u32 i = 0; i < bytes; ++i) {
-            char c = src.data[end - bytes + i];
-            if (c >= 'A' && c <= 'Z')
-                c = static_cast<char>(c + ('a' - 'A'));
-            if (c != suffix[i])
-                return false;
-        }
-        return true;
+        return end >= bytes && ascii_equal_ignore_case({src.data + end - bytes, bytes}, {suffix, bytes});
     };
     return ends(".mp4", 4) || ends(".webm", 5) ? GifFavoriteFormat::video : GifFavoriteFormat::image;
 }

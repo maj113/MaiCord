@@ -48,27 +48,18 @@ struct PresenceObject {
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MemberObject*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("user"))) {
-        if (context->user_seen || value.kind != JsonValueKind::object) {
-            return reject(&context->error, context->user_seen ? GatewayEventDecodeError::duplicate_field
-                                                              : GatewayEventDecodeError::invalid_data);
-        }
-        context->user = value;
-        context->user_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("roles"))) {
-        if (context->roles_seen || value.kind != JsonValueKind::array) {
-            return reject(&context->error, context->roles_seen ? GatewayEventDecodeError::duplicate_field
-                                                               : GatewayEventDecodeError::invalid_data);
-        }
-        context->roles = value;
-        context->roles_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("presence"))) {
-        if (context->presence_seen || value.kind != JsonValueKind::object) {
-            return reject(&context->error, context->presence_seen ? GatewayEventDecodeError::duplicate_field
-                                                                  : GatewayEventDecodeError::invalid_data);
-        }
-        context->presence = value;
-        context->presence_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("nick"))) {
+        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
+                                   value.kind == JsonValueKind::object);
+    }
+    if (json_string_equals_ascii(name, utf8_literal("roles"))) {
+        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
+                                   value.kind == JsonValueKind::array);
+    }
+    if (json_string_equals_ascii(name, utf8_literal("presence"))) {
+        return gateway_keep_member(&context->error, &context->presence_seen, &context->presence, value,
+                                   value.kind == JsonValueKind::object);
+    }
+    if (json_string_equals_ascii(name, utf8_literal("nick"))) {
         if (context->nickname_seen) {
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         }
@@ -87,10 +78,8 @@ bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
         if (context->user_seen || value.kind != JsonValueKind::object) return reject(&context->error);
         context->user = value; context->user_seen = true;
     } else if (json_string_equals_ascii(name, utf8_literal("status"))) {
-        if (context->status_seen || !json_value_as_string(value, &context->status)) {
-            return reject(&context->error, context->status_seen ? GatewayEventDecodeError::duplicate_field
-                                                                : GatewayEventDecodeError::invalid_data);
-        }
+        if (context->status_seen || !json_value_as_string(value, &context->status))
+            return reject(&context->error, gateway_field_error(context->status_seen));
         context->status_seen = true;
     } else if (json_string_equals_ascii(name, utf8_literal("client_status"))) {
         if (context->client_status_seen) return reject(&context->error, GatewayEventDecodeError::duplicate_field);
@@ -351,14 +340,7 @@ bool gateway_client_event_thread_member_record(const GatewayClientEvent& event,
     *global_extra = {payload.data + at, m->user_appearance_bytes}; at += m->user_appearance_bytes;
     *guild_extra = {payload.data + at, m->member_appearance_bytes}; at += m->member_appearance_bytes;
     if (!utf8_validate(*nickname).valid || !utf8_validate(*name).valid || !utf8_validate(*avatar).valid || !utf8_validate(*username).valid) return false;
-    if (avatar->bytes) {
-        const u32 start = avatar->bytes == 34 && avatar->data[0] == 'a' && avatar->data[1] == '_' ? 2u : 0u;
-        if (avatar->bytes - start != 32) return false;
-        for (u32 i = start; i < avatar->bytes; ++i) {
-            const char c = avatar->data[i];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;
-        }
-    }
+    if (!gateway_avatar_hash_valid(*avatar)) return false;
     UserAppearance decoded{};
     if (!user_appearance_read(*global_extra, m->user_id, 0, &decoded) || !user_appearance_read(*guild_extra, m->user_id, event.thread_members.guild_id, &decoded)) return false;
     for (u32 i = 0; i < m->role_count; ++i) {

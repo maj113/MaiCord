@@ -4,6 +4,7 @@
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/attachment_menu.hpp"
 #include "maicord/app/message_attachment_drafts.hpp"
+#include "maicord/core/win32_types.hpp"
 namespace maicord::app_detail {
 bool application_pick_attachments() noexcept;
 // Upload a file or Create poll; the file picker directly when polls are unavailable.

@@ -23,7 +23,4 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
                                    GuildPreparedImage* prepared) noexcept;
 void guild_image_release(GuildImageBuffer* buffer) noexcept;
 
-// Largest re-encoded width/height for each use (banner 16:9, profile banner 17:6).
-void guild_image_maximum(GuildImageProfile profile, u32* width, u32* height) noexcept;
-
 } // namespace maicord

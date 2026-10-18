@@ -4,7 +4,7 @@
 #include "application_state.hpp"
 #include "maicord/ui/splitter.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

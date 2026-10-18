@@ -1,5 +1,6 @@
 #include "application_emoji_preferences.hpp"
 #include "application_media_picker.hpp"
+#include "application_settings_envelope.hpp"
 #include "application_state.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/time.hpp"
@@ -7,7 +8,6 @@
 #include "maicord/protocol/emoji_preferences.hpp"
 #include "maicord/ui/reaction_picker.hpp"
 
-#include <Windows.h>
 
 namespace maicord::app_detail {
 namespace {
@@ -37,15 +37,6 @@ struct Broker {
 };
 Broker* broker;
 
-void dispose(void* data, u32 bytes) noexcept {
-    if (data) {
-        SecureZeroMemory(data, bytes);
-        VirtualFree(data, 0, MEM_RELEASE);
-    }
-}
-template <class T> T* allocate(u32 bytes) noexcept {
-    return static_cast<T*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-}
 ReactionPreferenceStore* store() noexcept {
     return g_app.account_ui ? &g_app.account_ui->reaction_preferences : nullptr;
 }
@@ -88,34 +79,13 @@ void bind_scope(Broker& p) noexcept {
 }
 Broker* ensure() noexcept {
     if (!broker) {
-        broker = allocate<Broker>(sizeof(Broker));
+        broker = committed_allocate<Broker>(sizeof(Broker));
         if (broker)
             broker->generation = 1;
     }
     return broker;
 }
-void preferences_changed() noexcept {
-    application_media_picker_emoji_preferences_changed();
-    application_request_frame();
-}
 
-struct Envelope {
-    JsonString settings;
-    bool settings_seen, out_of_date_seen, out_of_date;
-};
-bool member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& envelope = *static_cast<Envelope*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("settings"))) {
-        if (envelope.settings_seen || !json_value_as_string(value, &envelope.settings))
-            return false;
-        envelope.settings_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("out_of_date"))) {
-        if (envelope.out_of_date_seen || !json_value_to_bool(value, &envelope.out_of_date))
-            return false;
-        envelope.out_of_date_seen = true;
-    }
-    return true;
-}
 // Base64 settings to an owned group bank; false on any malformed input.
 bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPreferencesSnapshot* snapshot) noexcept {
     const auto measured = base64_decode(settings, {});
@@ -131,7 +101,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     }
     if (measured.bytes > kRestClientMaximumResponseBytes)
         return false;
-    u8* raw = allocate<u8>(measured.bytes);
+    u8* raw = committed_allocate<u8>(measured.bytes);
     if (!raw)
         return false;
     bool ok = base64_decode(settings, {raw, measured.bytes}).ok();
@@ -139,7 +109,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     EmojiPreferencesSnapshot measure{};
     const auto size = ok ? emoji_preferences_decode(proto, {}, &measure) : EmojiPreferencesResult{};
     ok = ok && size.ok();
-    u8* bank = ok && size.group_bytes ? allocate<u8>(size.group_bytes) : nullptr;
+    u8* bank = ok && size.group_bytes ? committed_allocate<u8>(size.group_bytes) : nullptr;
     ok = ok && (bank || !size.group_bytes) &&
          emoji_preferences_decode(proto, {bank, size.group_bytes}, snapshot).ok();
     if (ok && !bank) {
@@ -156,33 +126,23 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
 }
 bool decode_response(Utf8View body, bool* out_of_date, u8** groups, u32* group_bytes,
                      EmojiPreferencesSnapshot* snapshot) noexcept {
-    if (!body.data || !body.bytes || body.bytes > kRestClientMaximumResponseBytes)
-        return false;
-    u32 indexes[256]{};
-    const auto scanned = json_scan_structurals_avx1(body, {indexes, 256});
-    Envelope envelope{};
-    if (!scanned.ok() || !json_visit_root_object(body, {indexes, scanned.count}, 16, member, &envelope).ok() ||
-        !envelope.settings_seen)
-        return false;
-    *out_of_date = envelope.out_of_date;
-    if (!envelope.settings.has_escapes)
-        return decode_settings(envelope.settings.encoded, groups, group_bytes, snapshot);
-    const auto measured = json_string_decode_utf8(envelope.settings, {});
-    if (measured.error != JsonStringDecodeError::output_too_small || !measured.bytes ||
-        measured.bytes > kRestClientMaximumResponseBytes)
-        return false;
-    char* temporary = allocate<char>(measured.bytes);
-    if (!temporary)
-        return false;
-    const auto decoded = json_string_decode_utf8(envelope.settings, {temporary, measured.bytes});
-    const bool ok = decoded.ok() && decode_settings({temporary, decoded.bytes}, groups, group_bytes, snapshot);
-    dispose(temporary, measured.bytes);
-    return ok;
+    struct Target {
+        u8** groups;
+        u32* group_bytes;
+        EmojiPreferencesSnapshot* snapshot;
+    } target{groups, group_bytes, snapshot};
+    return application_settings_envelope(
+        body, out_of_date,
+        [](void* context, Utf8View settings) noexcept {
+            const auto& found = *static_cast<Target*>(context);
+            return decode_settings(settings, found.groups, found.group_bytes, found.snapshot);
+        },
+        &target);
 }
 
 bool visit_favorite(void* context, Utf8View key) noexcept {
     auto& p = *static_cast<Broker*>(context);
-    const auto emoji = application_emoji_preference_ref(key);
+    const auto emoji = reaction_emoji_from_settings_key(key);
     if (emoji.valid() && p.remote_favorite_count < kReactionPreferenceFavoriteCapacity)
         p.remote_favorites[p.remote_favorite_count++] = emoji;
     return true;
@@ -194,7 +154,7 @@ struct FrecencyVisit {
 bool visit_frecency(void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
     auto& visit = *static_cast<FrecencyVisit*>(context);
     auto& p = *visit.p;
-    const auto emoji = application_emoji_preference_ref(key);
+    const auto emoji = reaction_emoji_from_settings_key(key);
     if (!emoji.valid())
         return true;
     u32 slot = 0;
@@ -228,13 +188,14 @@ void apply_snapshot(Broker& p) noexcept {
     reaction_preferences_apply_remote(preferences, {p.remote_favorites, p.remote_favorite_count},
                                       {p.remote[0], p.remote_count[0]}, {p.remote[1], p.remote_count[1]},
                                       clock_unix_milliseconds());
-    preferences_changed();
+    application_media_picker_emoji_preferences_changed();
+    application_request_frame();
 }
 
 // Keys match observed entries by emoji, so keys other clients wrote are sent
 // back as received; this client's own key is only used for new entries.
 u64 preference_identity(void*, Utf8View key) noexcept {
-    const auto emoji = application_emoji_preference_ref(key);
+    const auto emoji = reaction_emoji_from_settings_key(key);
     return !emoji.valid() ? 0 : emoji.custom() ? emoji.custom_id : (1ull << 63) | emoji.catalog_index;
 }
 bool use_pending(const ReactionPreferenceStore& preferences, u32 kind, ReactionEmojiRef emoji) noexcept {
@@ -279,14 +240,6 @@ void fail(Broker& p, AccountGifFavoritesOperation operation, bool retry = true) 
     p.fetch_wanted = false;
 }
 } // namespace
-
-u32 application_emoji_preference_key(ReactionEmojiRef emoji, Slice<char> output) noexcept {
-    return reaction_emoji_settings_key(emoji, output);
-}
-
-ReactionEmojiRef application_emoji_preference_ref(Utf8View key) noexcept {
-    return reaction_emoji_from_settings_key(key);
-}
 
 bool application_emoji_preferences_toggle_favorite(ReactionEmojiRef emoji) noexcept {
     auto* preferences = store();
@@ -397,8 +350,8 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
         u32 edit_count = 0;
         const u32 sending = minimum(preferences->favorite_edit_count, kPatchEdits);
         for (u32 i = 0; i < sending; ++i) {
-            const u32 bytes = application_emoji_preference_key(preferences->favorite_edits[i].emoji,
-                                                               {p.edit_keys[edit_count], kKeyBytes});
+            const u32 bytes = reaction_emoji_settings_key(preferences->favorite_edits[i].emoji,
+                                                          {p.edit_keys[edit_count], kKeyBytes});
             if (bytes) {
                 p.edits[edit_count] = {{p.edit_keys[edit_count], bytes}, preferences->favorite_edits[i].favorite};
                 ++edit_count;
@@ -414,8 +367,8 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
                 for (const auto& usage : table.usage) {
                     if (!usage.occupied)
                         continue;
-                    const u32 bytes =
-                        application_emoji_preference_key(usage.emoji, {p.entry_keys[kind][counts[kind]], kKeyBytes});
+                    const u32 bytes = reaction_emoji_settings_key(
+                        usage.emoji, {p.entry_keys[kind][counts[kind]], kKeyBytes});
                     if (!bytes)
                         continue;
                     auto& entry = p.entries[kind][counts[kind]];
@@ -443,7 +396,7 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
             reaction_preferences_commit(preferences, sending, 0);
             return false;
         }
-        write = allocate<u8>(write_bytes);
+        write = committed_allocate<u8>(write_bytes);
         if (!write) {
             p.retry_at = now_ms + kFailureBackoffMs;
             return false;
@@ -462,7 +415,7 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
         p.submitted_edits = sending;
         p.submitted_uses = preferences->pending_use_count;
     }
-    p.response_body = allocate<u8>(kRestClientMaximumResponseBytes);
+    p.response_body = committed_allocate<u8>(kRestClientMaximumResponseBytes);
     if (!p.response_body) {
         dispose(write, write_bytes);
         p.retry_at = now_ms + kFailureBackoffMs;

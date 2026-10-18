@@ -12,7 +12,7 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/navigation_drag.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -66,6 +66,11 @@ NavigationDragRowKind channel_kind(const ChannelViewRow& row, u64 guild_id) noex
         return NavigationDragRowKind::none;
     }
 }
+ChannelReorderDrop reorder_drop(NavigationDropKind drop) noexcept {
+    return drop == NavigationDropKind::into     ? ChannelReorderDrop::into
+           : drop == NavigationDropKind::before ? ChannelReorderDrop::before
+                                                : ChannelReorderDrop::after;
+}
 u32 guild_rows() noexcept {
     const auto& scene = g_app.guild_rail_scene;
     u32 count = 0;
@@ -97,14 +102,12 @@ void publish(const NavigationDragVisual& visual) noexcept {
         g_app.guild_rail_scene.drag = painted;
     else
         g_app.shell_navigation_scene.drag = painted;
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
+    application_repaint();
 }
 void clear_visuals() noexcept {
     g_app.guild_rail_scene.drag = {};
     g_app.shell_navigation_scene.drag = {};
-    g_app.renderer.retained_presentation.valid = false;
-    application_request_frame();
+    application_repaint();
 }
 void retarget() noexcept {
     if (!navigation_drag_dragging(g_drag.drag) || !g_app.account_ui)
@@ -118,13 +121,10 @@ void retarget() noexcept {
         const u32 count = channel_rows();
         target = navigation_drag_channel_target(g_drag.drag, {g_rows, count}, y);
         // Only drops the server accepts get an indicator.
-        if (target.drop != NavigationDropKind::none) {
-            const auto drop = target.drop == NavigationDropKind::into    ? ChannelReorderDrop::into
-                              : target.drop == NavigationDropKind::before ? ChannelReorderDrop::before
-                                                                          : ChannelReorderDrop::after;
-            if (!channel_reorder_valid(g_app.account_ui->chat_state, g_drag.drag.source_id, target.id, drop))
-                target = {};
-        }
+        if (target.drop != NavigationDropKind::none &&
+            !channel_reorder_valid(g_app.account_ui->chat_state, g_drag.drag.source_id, target.id,
+                                   reorder_drop(target.drop)))
+            target = {};
     }
     publish(navigation_drag_update_target(&g_drag.drag, target));
 }
@@ -152,11 +152,8 @@ void commit(const NavigationDragTarget& target, NavigationDragList list, u64 sou
     }
     if (!manage_channels(guild_id))
         return;
-    const auto drop = target.drop == NavigationDropKind::into    ? ChannelReorderDrop::into
-                      : target.drop == NavigationDropKind::before ? ChannelReorderDrop::before
-                                                                  : ChannelReorderDrop::after;
     static GuildAdminPosition positions[kGuildAdminMaximumPositions];
-    const u32 count = channel_reorder_plan(g_app.account_ui->chat_state, source, target.id, drop,
+    const u32 count = channel_reorder_plan(g_app.account_ui->chat_state, source, target.id, reorder_drop(target.drop),
                                            {positions, kGuildAdminMaximumPositions});
     if (count == ~0u) {
         log_write(LogLevel::info, "navigation_drag", "channel_move_refused");
@@ -245,7 +242,6 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
         const u64 source = g_drag.drag.source_id, guild = g_drag.guild_id;
         NavigationDragTarget target{};
         const bool dropped = navigation_drag_release(&g_drag.drag, &target);
-        g_drag.drag = {};
         end_capture();
         g_drag = {};
         clear_visuals();

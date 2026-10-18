@@ -1,5 +1,8 @@
 #include "maicord/app/update_generation.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/app/acceptance_record.hpp"
 #include "maicord/app/file_persistence.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/hash.hpp"
@@ -12,25 +15,21 @@ constexpr u8 magic[8]{'M','A','I','G','E','N','0','2'};
 constexpr u32 reference_bytes = 176, checksum_offset = kUpdateGenerationRecordBytes - 8;
 constexpr const wchar_t* filenames[]{L"MaiCord.exe", L"MaiCordAccount.dll", L"offer.json", L"offer.sig", L"package.zip"};
 UpdateGenerationResult fail(UpdateGenerationError e, DWORD native = 0) noexcept { return {e, native}; }
-bool zero(const u8* p, u32 n) noexcept { for (u32 i = 0; i < n; ++i) if (p[i]) return false; return true; }
 bool identity(const UpdateGenerationIdentity& a, const UpdateGenerationIdentity& b) noexcept { return bytes_equal(a.bytes, b.bytes, 16); }
 bool valid_pair(const UpdatePairDescriptor& p) noexcept {
     return p.version && p.package_bytes && p.package_bytes <= kUpdatePairMaximumPackageBytes &&
         p.channel <= UpdateChannel::preview && p.account_ordinal && // the package DLL's own API ordinal
-        !zero(p.document_sha256, 32) && !zero(p.package_sha256, 32) &&
+        !bytes_zero(p.document_sha256, 32) && !bytes_zero(p.package_sha256, 32) &&
         p.members[0].bytes && p.members[1].bytes && p.members[0].bytes <= p.package_bytes &&
         p.members[1].bytes <= p.package_bytes - p.members[0].bytes &&
-        !zero(p.members[0].sha256, 32) && !zero(p.members[1].sha256, 32);
+        !bytes_zero(p.members[0].sha256, 32) && !bytes_zero(p.members[1].sha256, 32);
 }
 bool empty_pair(const UpdatePairDescriptor& p) noexcept {
-    return !p.version && !p.package_bytes && zero(p.document_sha256, 32) && zero(p.package_sha256, 32) &&
-        !p.members[0].bytes && !p.members[1].bytes && zero(p.members[0].sha256, 32) &&
-        zero(p.members[1].sha256, 32) && p.channel == UpdateChannel::stable && !p.account_ordinal;
+    return !p.version && !p.package_bytes && bytes_zero(p.document_sha256, 32) && bytes_zero(p.package_sha256, 32) &&
+        !p.members[0].bytes && !p.members[1].bytes && bytes_zero(p.members[0].sha256, 32) &&
+        bytes_zero(p.members[1].sha256, 32) && p.channel == UpdateChannel::stable && !p.account_ordinal;
 }
 bool valid_reference(const UpdateGenerationReference& r) noexcept { return r.present ? valid_pair(r.pair) : empty_pair(r.pair); }
-bool same_id(const UpdateGenerationDirectoryIdentity& a, const UpdateGenerationDirectoryIdentity& b) noexcept {
-    return a.volume == b.volume && a.file == b.file;
-}
 bool empty_disposal(const UpdateGenerationDisposalIntent& d) noexcept {
     if (d.target != UpdateGenerationDisposalTarget::none || d.directory.volume || d.directory.file) return false;
     for (auto id : d.files) if (id.volume || id.file) return false;
@@ -40,14 +39,14 @@ bool valid_disposal(const UpdateGenerationDisposalIntent& d) noexcept {
     if (d.target == UpdateGenerationDisposalTarget::none) return empty_disposal(d);
     if (d.target > UpdateGenerationDisposalTarget::candidate || !d.directory.file) return false;
     for (u32 i = 0; i < 5; ++i) {
-        if (!d.files[i].file || d.files[i].volume != d.directory.volume || same_id(d.files[i], d.directory)) return false;
-        for (u32 j = 0; j < i; ++j) if (same_id(d.files[i], d.files[j])) return false;
+        if (!d.files[i].file || d.files[i].volume != d.directory.volume || d.files[i] == d.directory) return false;
+        for (u32 j = 0; j < i; ++j) if (d.files[i] == d.files[j]) return false;
     }
     return true;
 }
 bool disposal_equal(const UpdateGenerationDisposalIntent& a, const UpdateGenerationDisposalIntent& b) noexcept {
-    if (a.target != b.target || !same_id(a.directory, b.directory)) return false;
-    for (u32 i = 0; i < 5; ++i) if (!same_id(a.files[i], b.files[i])) return false;
+    if (a.target != b.target || a.directory != b.directory) return false;
+    for (u32 i = 0; i < 5; ++i) if (a.files[i] != b.files[i]) return false;
     return true;
 }
 const UpdateGenerationReference* disposal_reference(const UpdateGenerationState& s) noexcept {
@@ -55,7 +54,7 @@ const UpdateGenerationReference* disposal_reference(const UpdateGenerationState&
         s.disposal.target == UpdateGenerationDisposalTarget::candidate ? &s.candidate : nullptr;
 }
 bool valid_state(const UpdateGenerationState& s) noexcept {
-    if (zero(s.installation.bytes, 16) || !s.sequence || s.phase > UpdateGenerationPhase::rollback ||
+    if (bytes_zero(s.installation.bytes, 16) || !s.sequence || s.phase > UpdateGenerationPhase::rollback ||
         !s.active.present || !valid_reference(s.active) || !valid_reference(s.previous) || !valid_reference(s.candidate) || !valid_disposal(s.disposal)) return false;
     if (s.disposal.target != UpdateGenerationDisposalTarget::none) {
         const bool previous = s.phase == UpdateGenerationPhase::stable && s.previous.present && s.disposal.target == UpdateGenerationDisposalTarget::previous;
@@ -66,11 +65,11 @@ bool valid_state(const UpdateGenerationState& s) noexcept {
         (s.candidate.present && bytes_equal(s.active.pair.document_sha256, s.candidate.pair.document_sha256, 32)) ||
         (s.previous.present && s.candidate.present)) return false;
     switch (s.phase) {
-    case UpdateGenerationPhase::stable: return zero(s.transaction.bytes, 16) && !s.candidate.present;
+    case UpdateGenerationPhase::stable: return bytes_zero(s.transaction.bytes, 16) && !s.candidate.present;
     case UpdateGenerationPhase::prepared: case UpdateGenerationPhase::rollback:
-        return !zero(s.transaction.bytes, 16) && s.candidate.present && !s.previous.present;
+        return !bytes_zero(s.transaction.bytes, 16) && s.candidate.present && !s.previous.present;
     case UpdateGenerationPhase::pending: case UpdateGenerationPhase::acknowledged:
-        return !zero(s.transaction.bytes, 16) && !s.candidate.present && s.previous.present;
+        return !bytes_zero(s.transaction.bytes, 16) && !s.candidate.present && s.previous.present;
     }
     return false;
 }
@@ -97,7 +96,7 @@ void put_reference(u8* b, const UpdateGenerationReference& r) noexcept {
     b[162] = static_cast<u8>(p.account_ordinal >> 8); b[163] = r.present ? 1 : 0;
 }
 bool get_reference(const u8* b, UpdateGenerationReference* r) noexcept {
-    if (b[163] > 1 || !zero(b + 164, 12)) return false;
+    if (b[163] > 1 || !bytes_zero(b + 164, 12)) return false;
     auto& p = r->pair;
     p.version = byte_load_le64(b); p.package_bytes = byte_load_le64(b + 8);
     copy_bytes(p.document_sha256, b + 16, 32); copy_bytes(p.package_sha256, b + 48, 32);
@@ -117,33 +116,22 @@ void put_disposal(u8* b, const UpdateGenerationDisposalIntent& d) noexcept {
     }
 }
 bool get_disposal(const u8* b, UpdateGenerationDisposalIntent* d) noexcept {
-    if (!zero(b + 1, 7) || !zero(b + 12, 4) || !zero(b + 104, 64)) return false;
+    if (!bytes_zero(b + 1, 7) || !bytes_zero(b + 12, 4) || !bytes_zero(b + 104, 64)) return false;
     d->target = static_cast<UpdateGenerationDisposalTarget>(b[0]);
     d->directory = {byte_load_le32(b + 8), byte_load_le64(b + 16)};
     for (u32 i = 0; i < 5; ++i) {
-        if (!zero(b + 28 + i * 16, 4)) return false;
+        if (!bytes_zero(b + 28 + i * 16, 4)) return false;
         d->files[i] = {byte_load_le32(b + 24 + i * 16), byte_load_le64(b + 32 + i * 16)};
     }
     return valid_disposal(*d);
 }
-wchar_t lower(wchar_t c) noexcept { return c >= L'A' && c <= L'Z' ? static_cast<wchar_t>(c + 32) : c; }
-bool reserved(const wchar_t* p, u32 n) noexcept {
-    u32 stem = 0; while (stem < n && p[stem] != L'.') ++stem;
-    if (stem == 3) return (lower(p[0]) == L'c' && lower(p[1]) == L'o' && lower(p[2]) == L'n') ||
-        (lower(p[0]) == L'p' && lower(p[1]) == L'r' && lower(p[2]) == L'n') ||
-        (lower(p[0]) == L'a' && lower(p[1]) == L'u' && lower(p[2]) == L'x') ||
-        (lower(p[0]) == L'n' && lower(p[1]) == L'u' && lower(p[2]) == L'l');
-    return stem == 4 && p[3] >= L'0' && p[3] <= L'9' &&
-        ((lower(p[0]) == L'c' && lower(p[1]) == L'o' && lower(p[2]) == L'm') ||
-         (lower(p[0]) == L'l' && lower(p[1]) == L'p' && lower(p[2]) == L't'));
-}
 bool path_valid(ConstSlice<wchar_t> p, u32* ancestors) noexcept {
     if (!p.data || p.count < 4 || p.count > kUpdateGenerationMaximumRootCharacters ||
-        lower(p[0]) < L'a' || lower(p[0]) > L'z' || p[1] != L':' || p[2] != L'\\') return false;
+        ascii_lower(p[0]) < L'a' || ascii_lower(p[0]) > L'z' || p[1] != L':' || p[2] != L'\\') return false;
     u32 component = 3, count = 1;
     for (u32 i = 3; i <= p.count; ++i) {
         if (i == p.count || p[i] == L'\\') {
-            if (i == component || p[i - 1] == L'.' || p[i - 1] == L' ' || reserved(p.data + component, i - component)) return false;
+            if (i == component || p[i - 1] == L'.' || p[i - 1] == L' ' || acceptance_record_reserved_name(p.data + component, i - component)) return false;
             ++count; component = i + 1;
         } else {
             const wchar_t c = p[i];
@@ -166,9 +154,6 @@ bool directory_identity(HANDLE h, UpdateGenerationDirectoryIdentity* id) noexcep
     id->volume = info.dwVolumeSerialNumber;
     id->file = static_cast<u64>(info.nFileIndexHigh) << 32 | info.nFileIndexLow;
     return true;
-}
-bool same_directory(const UpdateGenerationDirectoryIdentity& a, const UpdateGenerationDirectoryIdentity& b) noexcept {
-    return a.volume == b.volume && a.file == b.file;
 }
 bool file_valid(HANDLE h) noexcept {
     BY_HANDLE_FILE_INFORMATION info{};
@@ -294,7 +279,7 @@ UpdateGenerationResult validate_disposal_io(UpdateGenerationTransaction* t, cons
         return fail(UpdateGenerationError::open, native);
     }
     UpdateGenerationDirectoryIdentity id{};
-    auto result = directory_identity(h, &id) && same_id(id, state.disposal.directory) ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity);
+    auto result = directory_identity(h, &id) && id == state.disposal.directory ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity);
     result = close_validation(t, h, result); if (!result.ok()) return result;
     if (complete) return fail(UpdateGenerationError::cleanup, ERROR_DIR_NOT_EMPTY);
     for (u32 i = 0; i < 5; ++i) {
@@ -306,10 +291,26 @@ UpdateGenerationResult validate_disposal_io(UpdateGenerationTransaction* t, cons
         BY_HANDLE_FILE_INFORMATION info{};
         const bool regular = file_valid(h) && GetFileInformationByHandle(h, &info);
         id = {info.dwVolumeSerialNumber, static_cast<u64>(info.nFileIndexHigh) << 32 | info.nFileIndexLow};
-        result = close_validation(t, h, regular && same_id(id, state.disposal.files[i]) ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity));
+        result = close_validation(t, h, regular && id == state.disposal.files[i] ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity));
         if (!result.ok()) return result;
     }
     return update_generation_validate(t);
+}
+UpdateGenerationResult read_state(HANDLE file, UpdateGenerationState* state) noexcept {
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size, GetLastError());
+    u8 record[kUpdateGenerationRecordBytes]{}; u32 native = 0;
+    if (!file_persistence_read_complete(file, {record, sizeof(record)}, &native)) return fail(UpdateGenerationError::read, native);
+    return update_generation_decode({record, sizeof(record)}, state);
+}
+// Authenticates the launchable pairs of a proposed journal and the disposal target it begins or finishes.
+UpdateGenerationResult authenticate_transition(UpdateGenerationTransaction* t, const UpdateGenerationState& proposed,
+    const UpdateGenerationAuthenticator& a) noexcept {
+    const auto result = authenticate(t, proposed, a); if (!result.ok()) return result;
+    const bool was = t->state.disposal.target != UpdateGenerationDisposalTarget::none;
+    const bool is = proposed.disposal.target != UpdateGenerationDisposalTarget::none;
+    if (!was && is) return validate_disposal_io(t, proposed, false);
+    return was && !is ? validate_disposal_io(t, t->state, true) : UpdateGenerationResult{};
 }
 bool target_validate(void* opaque, DWORD* native) noexcept {
     const auto r = update_generation_directory_validate(static_cast<UpdateGenerationDirectory*>(opaque));
@@ -348,7 +349,7 @@ UpdateGenerationResult update_generation_decode(ConstSlice<u8> b, UpdateGenerati
     if (!output || !b.data || byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)}, b)) return fail(UpdateGenerationError::invalid_input);
     if (b.count != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size);
     if (!bytes_equal(b.data, magic, 8) || byte_load_le32(b.data + 8) != kUpdateGenerationRecordVersion || byte_load_le32(b.data + 12) != b.count ||
-        !zero(b.data + 57, 7)) return fail(UpdateGenerationError::format);
+        !bytes_zero(b.data + 57, 7)) return fail(UpdateGenerationError::format);
     if (byte_load_le64(b.data + checksum_offset) != hash64_bytes(kHash64Seed, b.data, checksum_offset)) return fail(UpdateGenerationError::checksum);
     UpdateGenerationState s{}; copy_bytes(s.installation.bytes, b.data + 16, 16); copy_bytes(s.transaction.bytes, b.data + 32, 16);
     s.sequence = byte_load_le64(b.data + 48); s.phase = static_cast<UpdateGenerationPhase>(b[56]);
@@ -358,7 +359,7 @@ UpdateGenerationResult update_generation_decode(ConstSlice<u8> b, UpdateGenerati
 }
 UpdateGenerationResult update_generation_prepare(const UpdateGenerationState& s, const UpdateGenerationIdentity& transaction,
     const UpdatePairDescriptor& pair, UpdateGenerationState* out) noexcept {
-    if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || s.previous.present || zero(transaction.bytes, 16) ||
+    if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || s.previous.present || bytes_zero(transaction.bytes, 16) ||
         !valid_pair(pair) || bytes_equal(pair.document_sha256, s.active.pair.document_sha256, 32)) return fail(UpdateGenerationError::state);
     auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::prepared; n.transaction = transaction; n.candidate = {pair, true}; *out = n; return {};
 }
@@ -413,7 +414,7 @@ UpdateGenerationResult update_generation_recovery(const UpdateGenerationState& s
 UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment& e, UpdateGenerationTransaction* t, bool provision) noexcept {
     u32 count = 0;
     if (!t || t->gate || t->ancestor_count || t->record_owner || t->record_temporary || t->validation_owner || t->inventory_owner || !e.explicitly_enrolled ||
-        zero(e.installation.bytes, 16) || zero(e.publisher_inventory_sha256, 32)) return fail(UpdateGenerationError::enrollment);
+        bytes_zero(e.installation.bytes, 16) || bytes_zero(e.publisher_inventory_sha256, 32)) return fail(UpdateGenerationError::enrollment);
     if (!path_valid(e.root, &count) || !e.ancestors.data || e.ancestors.count != count) return fail(UpdateGenerationError::path);
     t->state = {}; t->record_present = false; t->provisioning_admitted = false;
     wchar_t drive[4]{e.root[0], L':', L'\\', 0};
@@ -427,7 +428,7 @@ UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment&
         if (h == INVALID_HANDLE_VALUE) return fail(UpdateGenerationError::open, GetLastError());
         const u32 index = t->ancestor_count++; t->ancestors[index] = h;
         if (!directory_identity(h, &t->identities[index])) return fail(UpdateGenerationError::file, GetLastError());
-        if (!same_directory(t->identities[index], e.ancestors[index])) return fail(UpdateGenerationError::identity);
+        if (t->identities[index] != e.ancestors[index]) return fail(UpdateGenerationError::identity);
     }
     wchar_t canonical[kUpdateGenerationMaximumRootCharacters + 5]{};
     const DWORD canonical_characters = GetFinalPathNameByHandleW(t->ancestors[t->ancestor_count - 1], canonical,
@@ -452,11 +453,7 @@ UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment&
         return fail(UpdateGenerationError::open, native);
     }
     if (!file_valid(t->record_owner)) return fail(UpdateGenerationError::file, GetLastError());
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(t->record_owner, &size) || size.QuadPart != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size, GetLastError());
-    u8 record[kUpdateGenerationRecordBytes]{}; u32 native = 0;
-    if (!file_persistence_read_complete(t->record_owner, {record, sizeof(record)}, &native)) return fail(UpdateGenerationError::read, native);
-    UpdateGenerationState state{}; auto result = update_generation_decode({record, sizeof(record)}, &state); if (!result.ok()) return result;
+    UpdateGenerationState state{}; auto result = read_state(t->record_owner, &state); if (!result.ok()) return result;
     if (!identity(state.installation, t->installation)) return fail(UpdateGenerationError::identity);
     if (!CloseHandle(t->record_owner)) return fail(UpdateGenerationError::release, GetLastError());
     t->record_owner = nullptr; t->state = state; t->record_present = true; return update_generation_validate(t);
@@ -464,11 +461,11 @@ UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment&
 UpdateGenerationResult update_generation_validate(UpdateGenerationTransaction* t) noexcept {
     u32 count = 0;
     if (!t || !t->gate || t->validation_owner || !path_valid({t->root, t->root_characters}, &count) || count != t->ancestor_count ||
-        zero(t->installation.bytes, 16) || zero(t->publisher_inventory_sha256, 32) || !file_valid(t->gate)) return fail(UpdateGenerationError::gate);
+        bytes_zero(t->installation.bytes, 16) || bytes_zero(t->publisher_inventory_sha256, 32) || !file_valid(t->gate)) return fail(UpdateGenerationError::gate);
     for (u32 i = 0; i < t->ancestor_count; ++i) {
         UpdateGenerationDirectoryIdentity actual{};
         if (!directory_identity(t->ancestors[i], &actual)) return fail(UpdateGenerationError::file, GetLastError());
-        if (!same_directory(actual, t->identities[i])) return fail(UpdateGenerationError::identity);
+        if (actual != t->identities[i]) return fail(UpdateGenerationError::identity);
     }
     // Directory handles deny rename/deletion. Reopen each component to ensure
     // the current canonical name still selects the held object.
@@ -478,7 +475,7 @@ UpdateGenerationResult update_generation_validate(UpdateGenerationTransaction* t
         HANDLE h = CreateFileW(t->root, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr); t->root[end] = saved;
         if (h == INVALID_HANDLE_VALUE) return fail(UpdateGenerationError::open, GetLastError());
-        UpdateGenerationDirectoryIdentity actual{}; const bool good = directory_identity(h, &actual) && same_directory(actual, t->identities[index++]);
+        UpdateGenerationDirectoryIdentity actual{}; const bool good = directory_identity(h, &actual) && actual == t->identities[index++];
         if (!CloseHandle(h)) { t->validation_owner = h; return fail(UpdateGenerationError::release, GetLastError()); }
         if (!good) return fail(UpdateGenerationError::identity);
     }
@@ -511,18 +508,9 @@ UpdateGenerationResult update_generation_recover_temporary(UpdateGenerationTrans
         return native == ERROR_FILE_NOT_FOUND ? UpdateGenerationResult{} : fail(UpdateGenerationError::open, native);
     }
     if (!file_valid(t->record_owner)) return fail(UpdateGenerationError::file, GetLastError());
-    LARGE_INTEGER size{};
-    if (!GetFileSizeEx(t->record_owner, &size) || size.QuadPart != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size, GetLastError());
-    u8 record[kUpdateGenerationRecordBytes]{}; u32 native = 0;
-    if (!file_persistence_read_complete(t->record_owner, {record, sizeof(record)}, &native)) return fail(UpdateGenerationError::read, native);
-    UpdateGenerationState proposed{}; result = update_generation_decode({record, sizeof(record)}, &proposed); if (!result.ok()) return result;
+    UpdateGenerationState proposed{}; result = read_state(t->record_owner, &proposed); if (!result.ok()) return result;
     if (!identity(proposed.installation, t->installation) || !legal_transition(t->state, proposed)) return fail(UpdateGenerationError::state);
-    result = authenticate(t, proposed, a); if (!result.ok()) return result;
-    if (t->state.disposal.target == UpdateGenerationDisposalTarget::none && proposed.disposal.target != UpdateGenerationDisposalTarget::none)
-        result = validate_disposal_io(t, proposed, false);
-    else if (t->state.disposal.target != UpdateGenerationDisposalTarget::none && proposed.disposal.target == UpdateGenerationDisposalTarget::none)
-        result = validate_disposal_io(t, t->state, true);
-    if (!result.ok()) return result;
+    result = authenticate_transition(t, proposed, a); if (!result.ok()) return result;
     t->record_temporary = true; return update_generation_cleanup_record(t);
 }
 UpdateGenerationResult update_generation_commit(UpdateGenerationTransaction* t, const UpdateGenerationState& proposed,
@@ -532,12 +520,7 @@ UpdateGenerationResult update_generation_commit(UpdateGenerationTransaction* t, 
         (t->record_present ? !legal_transition(t->state, proposed) :
          (!t->provisioning_admitted || proposed.phase != UpdateGenerationPhase::stable ||
              proposed.sequence != 1 || proposed.previous.present))) return fail(UpdateGenerationError::state);
-    result = authenticate(t, proposed, a); if (!result.ok()) return result;
-    if (t->state.disposal.target == UpdateGenerationDisposalTarget::none && proposed.disposal.target != UpdateGenerationDisposalTarget::none)
-        result = validate_disposal_io(t, proposed, false);
-    else if (t->state.disposal.target != UpdateGenerationDisposalTarget::none && proposed.disposal.target == UpdateGenerationDisposalTarget::none)
-        result = validate_disposal_io(t, t->state, true);
-    if (!result.ok()) return result;
+    result = authenticate_transition(t, proposed, a); if (!result.ok()) return result;
     u8 record[kUpdateGenerationRecordBytes]{}; result = update_generation_encode(proposed, {record, sizeof(record)}); if (!result.ok()) return result;
     wchar_t temporary[kUpdateGenerationMaximumRootCharacters + 32]{}, path[kUpdateGenerationMaximumRootCharacters + 32]{};
     root_suffix(*t, L"install.state.new", temporary); root_suffix(*t, L"install.state", path);
@@ -588,7 +571,7 @@ UpdateGenerationResult update_generation_release(UpdateGenerationTransaction* t)
 UpdateGenerationResult update_generation_directory_open(UpdateGenerationTransaction* t, ConstSlice<u8> digest,
     bool create, UpdateGenerationDirectory* out) noexcept {
     auto result = update_generation_validate(t); if (!result.ok()) return result;
-    if (!out || out->directory || out->created || !digest.data || digest.count != 32 || zero(digest.data, 32)) return fail(UpdateGenerationError::invalid_input);
+    if (!out || out->directory || out->created || !digest.data || digest.count != 32 || bytes_zero(digest.data, 32)) return fail(UpdateGenerationError::invalid_input);
     if (create) { result = bounded_inventory(t); if (!result.ok()) return result; }
     out->transaction = t; copy_bytes(out->document_sha256, digest.data, 32);
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 80]{}; directory_path(*out, path);
@@ -601,11 +584,11 @@ UpdateGenerationResult update_generation_directory_open(UpdateGenerationTransact
     return update_generation_directory_validate(out);
 }
 UpdateGenerationResult update_generation_directory_validate(UpdateGenerationDirectory* d) noexcept {
-    if (!d || !d->directory || !d->identity_captured || zero(d->document_sha256, 32)) return fail(UpdateGenerationError::invalid_input);
+    if (!d || !d->directory || !d->identity_captured || bytes_zero(d->document_sha256, 32)) return fail(UpdateGenerationError::invalid_input);
     auto result = update_generation_validate(d->transaction); if (!result.ok()) return result;
     UpdateGenerationDirectoryIdentity actual{};
     if (!directory_identity(d->directory, &actual)) return fail(UpdateGenerationError::file, GetLastError());
-    if (!same_directory(actual, d->identity)) return fail(UpdateGenerationError::identity);
+    if (actual != d->identity) return fail(UpdateGenerationError::identity);
     return {};
 }
 UpdateGenerationResult update_generation_directory_authorize_disposal(UpdateGenerationDirectory* d,
@@ -615,7 +598,7 @@ UpdateGenerationResult update_generation_directory_authorize_disposal(UpdateGene
     auto* t = d->transaction;
     if (!t->record_present || !valid_state(t->state) || !a.verify_installed) return fail(UpdateGenerationError::state);
     const auto* ref = disposal_reference(t->state);
-    if (ref && ref->present && bytes_equal(ref->pair.document_sha256, d->document_sha256, 32) && same_id(d->identity, t->state.disposal.directory)) {
+    if (ref && ref->present && bytes_equal(ref->pair.document_sha256, d->document_sha256, 32) && d->identity == t->state.disposal.directory) {
         DWORD native = 0;
         if (!a.verify_installed(a.context, t, t->state.active.pair, &native)) return fail(UpdateGenerationError::authenticity, native);
         result = update_generation_directory_validate(d); if (!result.ok()) return result;
@@ -629,7 +612,7 @@ UpdateGenerationResult update_generation_directory_authorize_disposal(UpdateGene
                 OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
             if (h == INVALID_HANDLE_VALUE) return fail(UpdateGenerationError::open, GetLastError());
             d->directory = h; UpdateGenerationDirectoryIdentity actual{};
-            if (!directory_identity(h, &actual) || !same_directory(actual, d->identity)) return fail(UpdateGenerationError::identity);
+            if (!directory_identity(h, &actual) || actual != d->identity) return fail(UpdateGenerationError::identity);
         }
         d->disposal_authorized = true; return {};
     }
@@ -653,13 +636,13 @@ UpdateGenerationResult update_generation_disposal_directory_open(UpdateGeneratio
         }
         return result;
     }
-    if (!same_id(out->identity, t->state.disposal.directory)) return fail(UpdateGenerationError::identity);
+    if (out->identity != t->state.disposal.directory) return fail(UpdateGenerationError::identity);
     *absent = false; return {};
 }
 UpdateGenerationResult update_generation_disposal_inventory(UpdateGenerationDirectory* d) noexcept {
     auto result = update_generation_directory_validate(d); if (!result.ok()) return result;
     auto* t = d->transaction; const auto* ref = disposal_reference(t->state);
-    if (!ref || !ref->present || !d->disposal_authorized || !same_id(d->identity, t->state.disposal.directory) ||
+    if (!ref || !ref->present || !d->disposal_authorized || d->identity != t->state.disposal.directory ||
         !bytes_equal(d->document_sha256, ref->pair.document_sha256, 32) || t->inventory_owner) return fail(UpdateGenerationError::state);
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; directory_path(*d, path);
     u32 n = 0; while (path[n]) ++n; path[n++] = L'\\'; path[n++] = L'*'; path[n] = 0;
@@ -683,7 +666,7 @@ UpdateGenerationResult update_generation_disposal_inventory(UpdateGenerationDire
             if (h == INVALID_HANDLE_VALUE) { result = fail(UpdateGenerationError::open, GetLastError()); break; }
             BY_HANDLE_FILE_INFORMATION info{}; const bool regular = file_valid(h) && GetFileInformationByHandle(h, &info);
             const UpdateGenerationDirectoryIdentity id{info.dwVolumeSerialNumber, static_cast<u64>(info.nFileIndexHigh) << 32 | info.nFileIndexLow};
-            result = close_validation(t, h, regular && same_id(id, t->state.disposal.files[index]) ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity));
+            result = close_validation(t, h, regular && id == t->state.disposal.files[index] ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity));
             if (!result.ok()) break;
         }
         if (!FindNextFileW(t->inventory_owner, &data)) {
@@ -697,7 +680,7 @@ UpdateGenerationResult update_generation_disposal_inventory(UpdateGenerationDire
 }
 UpdateGenerationResult update_generation_path(const UpdateGenerationTransaction& t, ConstSlice<u8> digest,
     UpdateGenerationFile file, Slice<wchar_t> output, u32* characters) noexcept {
-    if (!path_valid({t.root, t.root_characters}, nullptr) || !digest.data || digest.count != 32 || zero(digest.data, 32) ||
+    if (!path_valid({t.root, t.root_characters}, nullptr) || !digest.data || digest.count != 32 || bytes_zero(digest.data, 32) ||
         file > UpdateGenerationFile::package || !output.data || !characters) return fail(UpdateGenerationError::invalid_input);
     const auto* name = filenames[static_cast<u32>(file)]; u32 n = 0; while (name[n]) ++n;
     const u32 required = t.root_characters + 1 + 66 + 1 + n;
@@ -737,7 +720,7 @@ UpdateGenerationResult update_generation_directory_release(UpdateGenerationDirec
         if (d->directory == INVALID_HANDLE_VALUE) { d->directory = nullptr; return fail(UpdateGenerationError::open, GetLastError()); }
         UpdateGenerationDirectoryIdentity actual{};
         if (!directory_identity(d->directory, &actual)) return fail(UpdateGenerationError::file, GetLastError());
-        if (!same_directory(actual, d->identity)) return fail(UpdateGenerationError::identity);
+        if (actual != d->identity) return fail(UpdateGenerationError::identity);
     }
     if (d->directory) {
         if (discard) {

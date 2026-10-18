@@ -3,6 +3,7 @@
 #include "maicord/app/update_service.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "settings_catalog.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 

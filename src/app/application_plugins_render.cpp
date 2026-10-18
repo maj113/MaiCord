@@ -27,9 +27,6 @@ struct RenderState {
 };
 RenderState g_render;
 
-NativePluginSdkRuntime* runtime() noexcept {
-    return g_app.plugins && g_app.plugins->sdk ? &g_app.plugins->sdk->runtime : nullptr;
-}
 bool decorating(const NativePluginSdkRuntime* rt) noexcept {
     return rt && native_plugin_sdk_has_decorators(*rt);
 }
@@ -44,14 +41,14 @@ u64 published(const NativePluginSdkRuntime* rt) noexcept {
     return decorating(rt) ? hash64_mix(hash64_mix(kHash64Seed, rt->render_revision), g_render.reveal_revision)
                           : g_render.reveal_revision;
 }
-void publish() noexcept { g_ui_plugin_render_revision = published(runtime()); }
+void publish() noexcept { g_ui_plugin_render_revision = published(application_plugins_runtime()); }
 
 UiPluginRenderNode node_view(const NativePluginSdkSlotNode& node) noexcept {
     return {node.owner_id, node.action_id, node.text, node.tooltip, node.value, node.icon, node.kind, node.tone};
 }
 // Installed for the UI: cached verdicts only, never a decorator call.
 bool render_query(u64 message_id, u32 revision, UiPluginRenderDecoration* output) noexcept {
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (!output || !decorating(rt))
         return false;
     NativePluginSdkRenderMessage message{};
@@ -83,16 +80,7 @@ bool render_query(u64 message_id, u32 revision, UiPluginRenderDecoration* output
 u32 relationship(u64 user_id) noexcept {
     const auto* store = application_friends_relationships();
     const auto* record = store && user_id ? relationship_store_find(*store, user_id) : nullptr;
-    if (!record)
-        return MC_RELATIONSHIP_NONE;
-    switch (record->type) {
-    case RelationshipType::friend_: return MC_RELATIONSHIP_FRIEND;
-    case RelationshipType::blocked: return MC_RELATIONSHIP_BLOCKED;
-    case RelationshipType::incoming: return MC_RELATIONSHIP_INCOMING;
-    case RelationshipType::outgoing: return MC_RELATIONSHIP_OUTGOING;
-    case RelationshipType::implicit: return MC_RELATIONSHIP_IMPLICIT;
-    default: return MC_RELATIONSHIP_NONE;
-    }
+    return record ? application_plugins_relationship_kind(record->type) : MC_RELATIONSHIP_NONE;
 }
 
 NativePluginSdkRenderMessage render_message(const AccountUiRuntime& ui, const MessageStore& store, MessageHandle handle,
@@ -153,7 +141,7 @@ void application_plugins_render_prepare() noexcept {
     // The query and the scene switch are cheap no-ops without decorators.
     g_ui_plugin_render_query = render_query;
     g_app.message_scene.plugin_decorations = true;
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (!decorating(rt) || !g_app.account_ui || application_plugins_busy()) {
         g_render.pending = false;
         publish();
@@ -183,7 +171,7 @@ void application_plugins_render_prepare() noexcept {
         native_plugin_sdk_decorate(rt, render_message(ui, store, handle, *record), true, &ignored);
         ++evaluated;
         // A decorator may have unloaded its plugin (budget); stop the pass.
-        return decorating(runtime());
+        return decorating(application_plugins_runtime());
     };
     // Laid-out rows first, then the rest of the resident window, newest first.
     bool going = true;
@@ -192,7 +180,7 @@ void application_plugins_render_prepare() noexcept {
         going = visit(scene.rows[i].message);
     for (u32 i = store.count; going && i-- > 0;)
         going = visit(message_store_ordered_handle(store, i));
-    rt = runtime();
+    rt = application_plugins_runtime();
     g_render.pending = more && decorating(rt);
     g_render.prepared_signature = rt ? inputs_signature(*rt, store) : 0;
     publish();
@@ -208,7 +196,7 @@ bool application_plugins_render_stale() noexcept {
 void application_plugins_render_rendered() noexcept { g_render.rendered_revision = g_ui_plugin_render_revision; }
 
 void application_plugins_render_poll() noexcept {
-    const auto* rt = runtime();
+    const auto* rt = application_plugins_runtime();
     if (!g_app.account_ui)
         return;
     // Plugin invalidations (from timers and events) and decorators going away
@@ -251,12 +239,12 @@ bool application_plugins_render_click(const MessageTextHit& hit, UiRect anchor) 
     const UiPluginRenderNode node = decoration.accessories[hit.target - 1];
     if (node.kind == kUiPluginRenderLink)
         return node.value.bytes ? application_open_content_url(node.value) : true;
-    auto* rt = runtime();
+    auto* rt = application_plugins_runtime();
     if (node.kind != kUiPluginRenderButton || !rt || application_plugins_busy())
         return true;
     // A gesture inside input routing, never during layout or paint.
     native_plugin_sdk_render_action(rt, node.owner_id, record->channel_id, record->id, node.action_id);
-    if (runtime() == rt && rt->popover_count > 0)
+    if (application_plugins_runtime() == rt && rt->popover_count > 0)
         application_plugins_popover_open(anchor);
     application_request_frame();
     return true;

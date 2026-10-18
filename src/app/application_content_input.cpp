@@ -57,19 +57,13 @@ namespace {
 
 ReceivedAttachmentOpen received_attachment_open{};
 ReceivedAttachmentOpenResult received_attachment_status{};
-u64 received_attachment_account_scope() noexcept {
-    return g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
-                                             : g_app.account.status.profile_id;
-}
 bool received_attachment_source(const ReceivedAttachmentOpenIdentity& id, Utf8View* source) noexcept {
     if (!source || !g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed ||
-        g_app.login.visible || received_attachment_account_scope() != id.account_scope ||
+        g_app.login.visible || application_account_scope() != id.account_scope ||
         g_app.account_ui->active_channel_id != id.channel_id ||
         !application_channel_readable(g_app, id.channel_id))
         return false;
-    const auto found = message_store_find(g_app.message_view.store, id.message_id);
-    const auto* message =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = application_message_record(id.message_id);
     const auto& store = g_app.account_ui->message_rich_store;
     const auto* outer = message_rich_store_find(store, id.message_id);
     if (id.source_channel_id &&
@@ -117,6 +111,12 @@ void publish_received_attachment_notice(ReceivedAttachmentOpenResult result,
     application_request_frame();
 }
 
+// The generic file card is the leading 420 x 36 DIP strip of its layout node.
+UiRect file_card(const UiLayoutNode& node) noexcept {
+    return {node.rectangle.left, node.rectangle.top, minimum(node.rectangle.right, node.rectangle.left + 420.0f),
+            node.rectangle.top + 36.0f};
+}
+
 bool select_content_channel(u64 channel_id) noexcept {
     if (!g_app.account_ui || channel_id == 0) {
         return false;
@@ -149,6 +149,11 @@ bool select_content_channel(u64 channel_id) noexcept {
     return true;
 }
 
+void clear_pending_jump() noexcept {
+    g_app.pending_message_jump_channel_id = 0;
+    g_app.pending_message_jump_message_id = 0;
+}
+
 bool navigate_content_message(u64 channel_id, u64 message_id) noexcept {
     if (!g_app.account_ui || channel_id == 0) {
         return false;
@@ -162,44 +167,34 @@ bool navigate_content_message(u64 channel_id, u64 message_id) noexcept {
     constexpr u32 read_actions = channel_action_view | channel_action_read_history;
     if (!channel->occupied || !channel_is_message_capable(channel->type) ||
         (channel->flags & kChannelObfuscatedFlag) ||
-        ((channel->type == 10 || channel->type == 11 || channel->type == 12) &&
+        (channel_is_thread(channel->type) &&
          !chat_state_store_thread_accessible(g_app.account_ui->chat_state, *channel)) ||
         (!channel_is_private(channel->type) && !channel->permissions_resolved) ||
         (channel->actions & read_actions) != read_actions)
         return false;
     if (!message_id) {
-        g_app.pending_message_jump_channel_id = 0;
-        g_app.pending_message_jump_message_id = 0;
+        clear_pending_jump();
         return select_content_channel(channel_id) && g_app.account_ui &&
                g_app.account_ui->active_channel_id == channel_id &&
                g_app.account_ui->chat_state.selected_channel_id == channel_id;
     }
     g_app.pending_message_jump_channel_id = channel_id;
     g_app.pending_message_jump_message_id = message_id;
-    if (!select_content_channel(channel_id)) {
-        g_app.pending_message_jump_channel_id = 0;
-        g_app.pending_message_jump_message_id = 0;
-        return false;
-    }
-    if (!g_app.account_ui || g_app.account_ui->active_channel_id != channel_id) {
-        g_app.pending_message_jump_channel_id = 0;
-        g_app.pending_message_jump_message_id = 0;
+    if (!select_content_channel(channel_id) || !g_app.account_ui ||
+        g_app.account_ui->active_channel_id != channel_id) {
+        clear_pending_jump();
         return false;
     }
     if (scroll_to_resident_message(message_id)) {
-        g_app.pending_message_jump_channel_id = 0;
-        g_app.pending_message_jump_message_id = 0;
-        if (!refresh_account_text(true)) {
+        clear_pending_jump();
+        if (!refresh_account_text(true))
             return false;
-        }
-        if (g_app.window) {
+        if (g_app.window)
             application_request_frame();
-        }
         return true;
     }
     if (!pump_message_history()) {
-        g_app.pending_message_jump_channel_id = 0;
-        g_app.pending_message_jump_message_id = 0;
+        clear_pending_jump();
         return false;
     }
     return true;
@@ -255,8 +250,7 @@ bool open_content_url_impl(Utf8View url, const ReceivedAttachmentOpenIdentity* a
 bool content_link_trusted_text(const MessageTextHit& hit, Utf8View url) noexcept {
     if (!g_app.account_ui || !url.bytes)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, hit.message_id);
-    const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = application_message_record(hit.message_id);
     if (!message || message->revision != hit.message_revision ||
         !application_link_channel_trusted(message->channel_id))
         return false;
@@ -564,7 +558,7 @@ static bool begin_received_attachment_open(const MessageRecord& record, u64 atta
                 message_rich_attachment_explicit(attachment)))
             return true;
     }
-    const ReceivedAttachmentOpenIdentity identity{received_attachment_account_scope(),
+    const ReceivedAttachmentOpenIdentity identity{application_account_scope(),
                                                   record.channel_id,
                                                   record.id,
                                                   attachment_id,
@@ -587,9 +581,7 @@ bool application_received_attachment_open(u64 message_id, u64 attachment_id,
                                           u64 snapshot_origin_channel) noexcept {
     if (!g_app.account_ui || g_app.login.visible || !message_id || !attachment_id)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     return record && begin_received_attachment_open(*record, attachment_id, snapshot_origin_channel);
 }
 
@@ -612,14 +604,11 @@ bool handle_message_click(LPARAM lparam) noexcept {
     // Generic received attachments use the same message access check as
     // inline media, while opening only their validated HTTPS download URL.
     const auto* row = message_scene_find_row(g_app.message_scene, hit.source_index);
-    const auto found = hit.message_id ? message_store_find(g_app.message_view.store, hit.message_id)
-                                      : MessageStoreResult{};
-    const auto* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = hit.message_id ? application_message_record(hit.message_id) : nullptr;
     const auto& rich_store = g_app.account_ui->message_rich_store;
     const auto* rich = record ? message_rich_store_find(rich_store, record->id) : nullptr;
     if (row && record && rich && rich->message_revision == record->revision && rich->thread.id &&
-        hit.widget.slot == row->thread.slot && hit.widget.generation == row->thread.generation) {
+        ui_widget_handle_equal(hit.widget, row->thread)) {
         SetFocus(g_app.window);
         return open_thread_starter(record->channel_id, rich->thread.id);
     }
@@ -655,17 +644,14 @@ bool handle_message_click(LPARAM lparam) noexcept {
                 if (message_rich_attachment_audio_supported(rich_store, attachment) ||
                     message_rich_attachment_format(rich_store, attachment) !=
                         MediaAttachmentFormat::unknown ||
-                    hit.widget.slot != widget.slot || hit.widget.generation != widget.generation)
+                    !ui_widget_handle_equal(hit.widget, widget))
                     continue;
                 const auto* node = message_scene_layout_node(g_app.message_scene, hit.widget);
                 const auto* row_node = message_scene_layout_node(g_app.message_scene, row->widget);
                 if (!node || !row_node)
                     return true;
-                const UiRect card{node->rectangle.left, node->rectangle.top,
-                                  minimum(node->rectangle.right, node->rectangle.left + 420.0f),
-                                  node->rectangle.top + 36.0f};
                 const auto clip = ui_rect_intersection(
-                    card, ui_rect_intersection(row_node->rectangle, g_app.message_scene.viewport));
+                    file_card(*node), ui_rect_intersection(row_node->rectangle, g_app.message_scene.viewport));
                 if (!ui_rect_contains(clip, client_dip_x(lparam), client_dip_y(lparam)))
                     return false;
                 begin_received_attachment_open(*record, attachment.id,
@@ -701,7 +687,7 @@ bool application_received_attachment_activate_focused() noexcept {
     const auto* rich = message ? message_rich_store_find(store, message->id) : nullptr;
     if (!rich || rich->message_revision != message->revision)
         return false;
-    if (rich->thread.id && handle.slot == row->thread.slot && handle.generation == row->thread.generation)
+    if (rich->thread.id && ui_widget_handle_equal(handle, row->thread))
         return open_thread_starter(message->channel_id, rich->thread.id);
     const auto* outer_row = row;
     for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
@@ -714,7 +700,7 @@ bool application_received_attachment_activate_focused() noexcept {
         for (u32 i = 0; i < rich->attachment_count; ++i) {
             const auto widget =
                 message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, i);
-            if (widget.slot != handle.slot || widget.generation != handle.generation ||
+            if (!ui_widget_handle_equal(widget, handle) ||
                 message_rich_attachment_audio_supported(store, rich->attachments[i]) ||
                 message_rich_attachment_format(store, rich->attachments[i]) !=
                     MediaAttachmentFormat::unknown)
@@ -723,11 +709,8 @@ bool application_received_attachment_activate_focused() noexcept {
             const auto* row_node = message_scene_layout_node(scene, row->widget);
             if (!node || !row_node)
                 return false;
-            const UiRect card{node->rectangle.left, node->rectangle.top,
-                              minimum(node->rectangle.right, node->rectangle.left + 420.0f),
-                              node->rectangle.top + 36.0f};
-            const auto clip =
-                ui_rect_intersection(card, ui_rect_intersection(row_node->rectangle, scene.viewport));
+            const auto clip = ui_rect_intersection(
+                file_card(*node), ui_rect_intersection(row_node->rectangle, scene.viewport));
             if (!ui_rect_has_area(clip))
                 return false;
             const float scale = static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.f;
@@ -777,8 +760,7 @@ bool application_message_media_reveal_at(float x, float y) noexcept {
             continue;
         const auto same = [&](MessageSceneRichItemKind kind, u32 index) noexcept {
             const auto widget = message_scene_rich_item_widget(*row, kind, index);
-            return widget.generation && widget.slot == hit.widget.slot &&
-                   widget.generation == hit.widget.generation;
+            return ui_widget_handle_matches(widget, hit.widget);
         };
         u64 key = 0;
         bool spoiler = false, explicit_media = false;
@@ -870,8 +852,7 @@ bool handle_content_click(LPARAM lparam) noexcept {
     if (g_app.account_ui && hit.target &&
         (hit.kind == MessageMarkdownSemanticKind::message_link || hit.kind == MessageMarkdownSemanticKind::link ||
          hit.kind == MessageMarkdownSemanticKind::channel_mention)) {
-        const auto found = message_store_find(g_app.message_view.store, hit.message_id);
-        const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        const auto* message = application_message_record(hit.message_id);
         if (message && message->revision == hit.message_revision) {
             constexpr u32 ephemeral_flag = 1u << 6;
             if (hit.kind == MessageMarkdownSemanticKind::message_link && hit.target == message->id &&
@@ -954,7 +935,7 @@ bool application_message_content_cursor(float x, float y, UiCursor* cursor) noex
     if (!row || ui_widget_cursor(scene.widgets, hit.widget) != UiCursor::hand)
         return false;
     const auto same = [&](UiWidgetHandle widget) noexcept {
-        return widget.generation && widget.slot == hit.widget.slot && widget.generation == hit.widget.generation;
+        return ui_widget_handle_matches(widget, hit.widget);
     };
     const auto* record = message_store_resolve(g_app.message_view.store, row->message);
     const auto& store = g_app.account_ui->message_rich_store;
@@ -978,11 +959,7 @@ bool application_message_content_cursor(float x, float y, UiCursor* cursor) noex
                 message_rich_attachment_audio_supported(store, rich->attachments[i]) ||
                 message_rich_attachment_format(store, rich->attachments[i]) != MediaAttachmentFormat::unknown)
                 return false;
-            // The generic file card is the leading 420 x 36 DIP strip.
-            const UiRect card{node->rectangle.left, node->rectangle.top,
-                              minimum(node->rectangle.right, node->rectangle.left + 420.0f),
-                              node->rectangle.top + 36.0f};
-            if (!ui_rect_contains(card, x, y))
+            if (!ui_rect_contains(file_card(*node), x, y))
                 return false;
             *cursor = UiCursor::hand;
             return true;

@@ -57,9 +57,6 @@ struct Owner {
 const ChatStateStore* state() noexcept {
     return g_app.account_ui ? &g_app.account_ui->chat_state : nullptr;
 }
-bool thread(u8 type) noexcept {
-    return type == 10 || type == 11 || type == 12;
-}
 void scope() noexcept {
     if (owner.account_scope == g_app.plugin_account_scope_serial)
         return;
@@ -88,7 +85,7 @@ bool target(u64 guild, u64 channel, u64* guild_out, u8* type) noexcept {
         return record && !record->unavailable;
     }
     const auto* record = chat_state_store_find_channel(*s, channel);
-    if (!record || thread(record->type) || !chat_state_store_channel_visible(*s, *record))
+    if (!record || channel_is_thread(record->type) || !chat_state_store_channel_visible(*s, *record))
         return false;
     *guild_out = record->guild_id;
     *type = record->type;
@@ -236,7 +233,7 @@ void project_channel(const MessageNotificationStore& store, ChatStateStore& s, c
     bool parent = c.parent_id && message_notifications_override_muted(store, c.guild_id, c.parent_id, now);
     bool opted = c.guild_id && (override_opted_in(store, c.guild_id, c.id) ||
                                 override_opted_in(store, c.guild_id, c.parent_id));
-    if (thread(c.type)) {
+    if (channel_is_thread(c.type)) {
         const auto* t = message_notifications_thread(store, c.id);
         own = t && message_notification_muted(t->setting, now);
         const auto* p = chat_state_store_find_channel(s, c.parent_id);

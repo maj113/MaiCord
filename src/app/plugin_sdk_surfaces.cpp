@@ -381,6 +381,9 @@ void fill_output(const NativePluginSdkRuntime& runtime, const NativePluginSdkRen
     for (u32 i = 0; i < entry.badge_count; ++i) output->badges[i] = resolve_arena_node(runtime, entry.badges[i]);
     for (u32 i = 0; i < entry.accessory_count; ++i) output->accessories[i] = resolve_arena_node(runtime, entry.accessories[i]);
 }
+bool decorates(const NativePluginSdkBinding* binding, const NativePluginSdkRuntime& runtime) noexcept {
+    return usable(binding, runtime) && binding->decorator && permitted(*binding, MC_PERM_MESSAGE_RENDER);
+}
 bool entry_decorated(const NativePluginSdkRenderEntry& entry) noexcept {
     return entry.visibility || entry.media || entry.replace_content || entry.prefix_bytes || entry.suffix_bytes ||
            entry.badge_count || entry.accessory_count;
@@ -542,7 +545,7 @@ u16 native_plugin_sdk_icon(Utf8View name) noexcept {
 
 bool native_plugin_sdk_has_decorators(const NativePluginSdkRuntime& runtime) noexcept {
     for (const auto* binding : g_live)
-        if (usable(binding, runtime) && binding->decorator && permitted(*binding, MC_PERM_MESSAGE_RENDER)) return true;
+        if (decorates(binding, runtime)) return true;
     return false;
 }
 
@@ -565,7 +568,7 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
     if (!evaluate || !native_plugin_sdk_has_decorators(*runtime)) return false;
     u32 decorators = 0;
     for (const auto* binding : g_live)
-        decorators += usable(binding, *runtime) && binding->decorator && permitted(*binding, MC_PERM_MESSAGE_RENDER);
+        decorators += decorates(binding, *runtime);
     if (runtime->render_arena_used + decorators * kRenderPluginBytes > kPluginSdkRenderArenaBytes) {
         // Arena exhausted: start over; every message is decorated again on demand.
         for (auto& existing : runtime->render) existing.used = false;
@@ -590,7 +593,7 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
     const u32 content_bytes = utf8_truncated_length(message.content, kPluginSdkInputBytes - 512);
     const u32 author_bytes = utf8_truncated_length(message.author_name, 128);
     for (auto* binding : g_live) {
-        if (!usable(binding, *runtime) || !binding->decorator || !permitted(*binding, MC_PERM_MESSAGE_RENDER)) continue;
+        if (!decorates(binding, *runtime)) continue;
         // Recopy for each decorator so one plugin can't alter what the next one sees.
         copy_bytes(runtime->input, message.content.data, content_bytes);
         copy_bytes(runtime->input + content_bytes, message.author_name.data, author_bytes);

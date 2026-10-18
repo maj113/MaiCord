@@ -10,7 +10,6 @@
 #include "maicord/app/account_relationships.hpp"
 #include "maicord/app/account_message_ack.hpp"
 #include "maicord/app/account_bulk_message_ack.hpp"
-#include "maicord/app/account_self_status.hpp"
 #include "maicord/app/account_thread_actions.hpp"
 #include "maicord/app/account_thread_browser.hpp"
 #include "maicord/app/account_message_poll.hpp"
@@ -39,6 +38,8 @@
 #include "application_command_request.hpp"
 #include "account_login_handoff.hpp"
 #include "account_login_captcha.hpp"
+
+#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -80,11 +81,21 @@ struct AccountModuleRuntime {
     UserClientConfigurationStorage client_configuration;
 };
 
+RestClient* module_rest(void* instance, bool details = false) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    return runtime ? user_account_coordinator_rest(&runtime->coordinator, details) : nullptr;
+}
+
+GatewayClient* module_gateway(void* instance) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+}
+
 bool copy_path(const wchar_t* source, wchar_t* destination) noexcept;
 
 GatewayClientSelfStatusSnapshot WINAPI module_self_status_snapshot(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? account_self_status_snapshot(&runtime->coordinator.gateway)
+    return runtime ? gateway_client_self_status_snapshot(&runtime->coordinator.gateway)
                    : GatewayClientSelfStatusSnapshot{};
 }
 
@@ -94,17 +105,17 @@ RestClientSubmitResult WINAPI module_self_status_submit(void* instance, u64 prof
                                                         GatewayUserStatus status, u64 request_id,
                                                         u64 unix_now_ms) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime ? account_self_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
-                                                profile_id, self_user_id, operation, status, request_id,
-                                                unix_now_ms)
+    return runtime ? gateway_client_self_status_submit(&runtime->coordinator.gateway, &runtime->coordinator.rest,
+                                                       profile_id, self_user_id, operation, status, request_id,
+                                                       unix_now_ms)
                    : RestClientSubmitResult{RestClientSubmitError::invalid_input};
 }
 
 bool WINAPI module_self_status_complete(void* instance, u64 profile_id, u64 self_user_id, u64 request_id,
                                         const RestClientResponse* response, Utf8View body) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return runtime && account_self_status_complete(&runtime->coordinator.gateway, profile_id, self_user_id,
-                                                   request_id, response, body);
+    return runtime && gateway_client_self_status_complete(&runtime->coordinator.gateway, profile_id,
+                                                          self_user_id, request_id, response, body);
 }
 
 AccountModuleStatus module_failure(AccountModuleError error, u32 native_error = 0) noexcept {
@@ -117,11 +128,8 @@ AccountModuleStatus module_failure(AccountModuleError error, u32 native_error = 
 
 AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profile_path,
                                            bool reset) noexcept {
-    if (!instance || *instance || !profile_path) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!instance || *instance || !profile_path)
+        return login_invalid_input();
     auto* runtime = static_cast<AccountLoginRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountLoginRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!runtime) {
@@ -170,9 +178,7 @@ AccountLoginStatus WINAPI module_login_submit_password(void* instance, const Sec
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !login || !password || runtime->remote_mode || runtime->reset_mode ||
         runtime->browser_mode) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
+        return login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime)) {
         return login_status(runtime);
@@ -184,9 +190,8 @@ AccountLoginStatus WINAPI module_login_submit_password(void* instance, const Sec
         &runtime->coordinator, UserAuthPasswordInput{login, password, nullptr, false});
     if (submitted.ok())
         runtime->recovery_mode = false;
-    if (!submitted.ok()) {
+    else
         runtime->error = AccountLoginError::coordinator;
-    }
     return login_status(runtime);
 }
 
@@ -194,9 +199,7 @@ AccountLoginStatus WINAPI module_login_submit_recovery(void* instance, const Sec
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !login || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode ||
         runtime->profile_saved || account_profile_promotion_has_credential(runtime->promotion)) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
+        return login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -218,9 +221,7 @@ AccountLoginStatus WINAPI module_login_start_browser(void* instance, u64 generat
     if (!runtime || !generation || runtime->browser_mode || runtime->remote_mode || runtime->reset_mode ||
         runtime->coordinator_started || runtime->profile_saved || timeout_ms < 1000 ||
         timeout_ms > 300000) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
+        return login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -241,11 +242,8 @@ SecureBufferResult WINAPI module_login_copy_browser_url(void* instance, u64 gene
 AccountLoginStatus WINAPI module_login_submit_verification(void* instance,
                                                            const SecureBuffer* link_token) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !link_token || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime || !link_token || runtime->remote_mode || runtime->reset_mode || runtime->browser_mode)
+        return login_invalid_input();
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
     const UserAuthCoordinatorResult submitted =
@@ -268,9 +266,7 @@ AccountLoginStatus WINAPI module_login_submit_phone_verify(void* instance,
     if (!runtime || !runtime->coordinator_started || !runtime->recovery_mode || runtime->remote_mode ||
         runtime->reset_mode || runtime->profile_saved ||
         account_profile_promotion_has_credential(runtime->promotion)) {
-        AccountLoginStatus result{};
-        result.error = AccountLoginError::invalid_input;
-        return result;
+        return login_invalid_input();
     }
     const auto submitted = user_auth_coordinator_submit_phone_verify(&runtime->coordinator, code);
     runtime->error = submitted.ok() ? AccountLoginError::none : AccountLoginError::coordinator;
@@ -285,9 +281,7 @@ AccountLoginStatus WINAPI module_login_submit_phone_resend(void* instance) noexc
     if (!runtime || !runtime->coordinator_started || !runtime->recovery_mode || runtime->remote_mode ||
         runtime->reset_mode || runtime->profile_saved ||
         account_profile_promotion_has_credential(runtime->promotion)) {
-        AccountLoginStatus result{};
-        result.error = AccountLoginError::invalid_input;
-        return result;
+        return login_invalid_input();
     }
     const auto submitted = user_auth_coordinator_submit_phone_resend(&runtime->coordinator);
     runtime->error = submitted.ok() ? AccountLoginError::none : AccountLoginError::coordinator;
@@ -316,11 +310,8 @@ SecureBufferResult WINAPI module_login_take_phone_reset_token(void* instance, u6
 AccountLoginStatus WINAPI module_login_submit_mfa(void* instance, const SecureBuffer* code,
                                                   UserAuthMfaType type) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !code || runtime->remote_mode || !runtime->coordinator_started) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime || !code || runtime->remote_mode || !runtime->coordinator_started)
+        return login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     runtime->error_code = 0;
     const UserAuthCoordinatorResult submitted =
@@ -336,9 +327,7 @@ AccountLoginStatus WINAPI module_login_submit_reset(void* instance, const Secure
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
     if (!runtime || !password || !runtime->reset_mode || runtime->remote_mode || runtime->profile_saved ||
         account_profile_promotion_has_credential(runtime->promotion)) {
-        AccountLoginStatus invalid{};
-        invalid.error = AccountLoginError::invalid_input;
-        return invalid;
+        return login_invalid_input();
     }
     if (!ensure_user_auth_coordinator(runtime))
         return login_status(runtime);
@@ -355,11 +344,8 @@ AccountLoginStatus WINAPI module_login_submit_reset(void* instance, const Secure
 
 AccountLoginStatus WINAPI module_login_send_sms(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || runtime->remote_mode || !runtime->coordinator_started) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime || runtime->remote_mode || !runtime->coordinator_started)
+        return login_invalid_input();
     runtime->last_event = UserAuthCoordinatorEventKind::none;
     const UserAuthCoordinatorResult submitted =
         user_auth_coordinator_submit_sms_send(&runtime->coordinator);
@@ -375,9 +361,7 @@ AccountLoginStatus WINAPI module_login_start_remote_auth(void* instance) noexcep
         runtime->profile_saved ||
         (runtime->coordinator_started &&
          user_auth_coordinator_status(&runtime->coordinator).phase != UserAuthCoordinatorPhase::idle)) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
+        return login_invalid_input();
     }
     if (runtime->coordinator_started) {
         const UserAuthCoordinatorResult stopped = user_auth_coordinator_stop(&runtime->coordinator, 5'000);
@@ -416,11 +400,8 @@ bool WINAPI module_login_copy_remote_auth_user(void* instance, Slice<char> outpu
 
 AccountLoginStatus WINAPI module_login_cancel_remote_auth(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !runtime->remote_mode || !runtime->remote_active) {
-        AccountLoginStatus status{};
-        status.error = AccountLoginError::invalid_input;
-        return status;
-    }
+    if (!runtime || !runtime->remote_mode || !runtime->remote_active)
+        return login_invalid_input();
     runtime->remote_status = remote_auth_client_cancel(&runtime->remote_auth);
     return login_status(runtime);
 }
@@ -700,8 +681,7 @@ RestClientSubmitResult WINAPI module_private_conversation(void* instance,
                                                           PrivateConversationOperation operation,
                                                           u64 id, u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    auto* rest = module_rest(instance);
     if (!rest || !request_id)
         return invalid;
     u8 target[96]{}, body[64]{};
@@ -719,17 +699,14 @@ RestClientSubmitResult WINAPI module_relationships(void* instance,
                                                    RelationshipOperation operation,
                                                    u64 user_id, Utf8View username,
                                                    u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
-    return account_relationship_submit(rest, operation, user_id, username, request_id);
+    return account_relationship_submit(module_rest(instance), operation, user_id, username, request_id);
 }
 
 RestClientSubmitResult WINAPI module_history_submit(void* instance, u64 channel_id,
                                                     const MessageHistoryQuery* query,
                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || !query || request_id == 0) {
         return invalid;
     }
@@ -867,8 +844,7 @@ AccountDownloadResult WINAPI module_download(void* instance, AccountDownloadOper
 RestClientSubmitResult WINAPI module_attachment_upload(void* instance, u64 channel_id, u32 id,
                                                        Utf8View filename, u64 file_bytes,
                                                        u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || !request_id)
         return {RestClientSubmitError::invalid_input};
     u8 target[96]{}, body[8 * 1024]{};
@@ -890,8 +866,7 @@ module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonc
                       ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sticker_ids,
                       u64 request_id, bool mention_reply_author, u32 flags) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || nonce == 0 || request_id == 0) {
         return invalid;
     }
@@ -919,8 +894,7 @@ RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destina
                                                      Utf8View caption, u64 nonce,
                                                      MessageForwardReference source,
                                                      u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || !destination_channel_id || !nonce || !request_id)
         return {RestClientSubmitError::invalid_input};
     u8 target[96]{};
@@ -947,8 +921,7 @@ RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destina
 RestClientSubmitResult WINAPI module_message_delete(void* instance, u64 channel_id, u64 message_id,
                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return invalid;
     }
@@ -970,8 +943,7 @@ RestClientSubmitResult WINAPI module_message_delete(void* instance, u64 channel_
 RestClientSubmitResult WINAPI module_message_edit(void* instance, u64 channel_id, u64 message_id,
                                                   Utf8View content, u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || (!content.data && content.bytes != 0) ||
         request_id == 0) {
         return invalid;
@@ -1000,8 +972,7 @@ RestClientSubmitResult WINAPI module_message_reaction(void* instance, u64 channe
                                                       MessageReactionType type, bool add,
                                                       u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return invalid;
     }
@@ -1115,8 +1086,7 @@ RestClientSubmitResult WINAPI module_message_interaction(void* instance,
 RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 guild, u64 request_id,
                                                  u8 operation, Utf8View value) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
+    auto* rest = module_rest(instance, true);
     if (!rest || !user || !request_id)
         return invalid;
     if (operation == 4) {
@@ -1204,8 +1174,7 @@ RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_
                                                     u64 after_user_id, u32 limit,
                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return invalid;
     }
@@ -1228,8 +1197,7 @@ RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_
 RestClientSubmitResult WINAPI module_message_typing(void* instance, u64 channel_id,
                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     if (!rest || channel_id == 0 || request_id == 0) {
         return invalid;
     }
@@ -1250,34 +1218,25 @@ RestClientSubmitResult WINAPI module_message_typing(void* instance, u64 channel_
 
 RestClientSubmitResult WINAPI module_message_ack(void* instance, u64 channel_id, u64 message_id,
                                                  ConstSlice<u8> body, u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return account_message_ack_submit(runtime ? user_account_coordinator_rest(&runtime->coordinator)
-                                              : nullptr,
-                                      channel_id, message_id, body, request_id);
+    return account_message_ack_submit(module_rest(instance), channel_id, message_id, body, request_id);
 }
 
 RestClientSubmitResult WINAPI module_bulk_message_ack(void* instance,
                                                       const BulkMessageAckEntry* entries,
                                                       u32 count, u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return account_bulk_message_ack_submit(runtime ? user_account_coordinator_rest(&runtime->coordinator)
-                                                   : nullptr,
-                                           entries, count, request_id);
+    return account_bulk_message_ack_submit(module_rest(instance), entries, count, request_id);
 }
 
 RestClientSubmitResult WINAPI module_media_catalog(void* instance,
                                                    AccountMediaCatalogOperation operation,
                                                    const MediaCatalogQuery* query,
                                                    u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return account_media_catalog(runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr,
-                                 operation, query, request_id);
+    return account_media_catalog(module_rest(instance), operation, query, request_id);
 }
 
 bool WINAPI module_guild_members_request(void* instance,
                                          const GatewayGuildMemberRequest* request) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     if (!gateway)
         return false;
     if (!request) {
@@ -1287,48 +1246,39 @@ bool WINAPI module_guild_members_request(void* instance,
     return gateway_client_request_guild_members(gateway, *request);
 }
 void WINAPI module_guild_members_query_cancel(void* instance) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
-    gateway_client_cancel_guild_member_query(gateway);
+    gateway_client_cancel_guild_member_query(module_gateway(instance));
 }
 RestClientSubmitResult WINAPI module_gif_favorites(void* instance,
                                                    AccountGifFavoritesOperation operation,
                                                    ConstSlice<u8> patch_json,
                                                    u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return account_gif_favorites(runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr,
-                                 operation, patch_json, request_id);
+    return account_gif_favorites(module_rest(instance), operation, patch_json, request_id);
 }
 RestClientSubmitResult WINAPI module_emoji_preferences(void* instance,
                                                        AccountGifFavoritesOperation operation,
                                                        ConstSlice<u8> patch_json,
                                                        u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return account_emoji_preferences(runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr,
-                                     operation, patch_json, request_id);
+    return account_emoji_preferences(module_rest(instance), operation, patch_json, request_id);
 }
 RestClientSubmitResult WINAPI module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id || (request && !account_settings_request_valid(*request)))
+    if (!instance || !request_id || (request && !account_settings_request_valid(*request)))
         return {RestClientSubmitError::invalid_input};
     // Settings share the PRIMARY lane with the self-status settings writer;
     // a cancel without a request tries both lanes.
     if (!request) {
-        const auto primary = account_settings_cancel(user_account_coordinator_rest(&runtime->coordinator), request_id);
+        const auto primary = rest_client_cancel_result(module_rest(instance), request_id);
         return primary.error == RestClientSubmitError::none
                    ? primary
-                   : account_settings_cancel(user_account_coordinator_rest(&runtime->coordinator, true), request_id);
+                   : rest_client_cancel_result(module_rest(instance, true), request_id);
     }
-    return account_settings_submit(
-        user_account_coordinator_rest(&runtime->coordinator, !account_settings_primary(request->operation)), *request,
-        request_id);
+    return account_settings_submit(module_rest(instance, !account_settings_primary(request->operation)), *request,
+                                   request_id);
 }
 RestClientSubmitResult WINAPI module_pinned_messages(void* instance,
                                                      const MessagePinsRequest* request,
                                                      u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
+    auto* rest = module_rest(instance, true);
     return request ? account_pinned_messages_submit(rest, request, request_id)
                    : account_pinned_messages_cancel(rest, request_id);
 }
@@ -1337,10 +1287,8 @@ RestClientSubmitResult WINAPI module_channel_overview(void* instance,
                                                       u64 channel_id,
                                                       const ChannelOverviewPatch* patch,
                                                       u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    return account_channel_overview_submit(
-        runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr, operation,
-        channel_id, patch, request_id);
+    return account_channel_overview_submit(module_rest(instance, true), operation, channel_id, patch,
+                                           request_id);
 }
 RestClientSubmitResult WINAPI module_thread_action(void* instance,
                                                    const ThreadActionRequest* request,
@@ -1535,8 +1483,7 @@ void ensure_video_frames(AccountModuleRuntime* runtime, GatewayClient* gateway) 
         gateway, {video_stream_decoders_sink(&runtime->video), &runtime->video, bind_video_keyframes});
 }
 bool WINAPI module_voice_request(void* instance, const GatewayVoiceStateUpdate* state) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     return gateway && state && gateway_client_request_voice_state(gateway, *state);
 }
 bool WINAPI module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept {
@@ -1567,8 +1514,7 @@ bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame*
     return video_stream_decoders_frame(&runtime->video, ssrc, output);
 }
 bool WINAPI module_voice_video_wanted(void* instance, u64 user_id, bool wanted) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     return gateway && gateway_client_voice_video_wanted(gateway, user_id, wanted);
 }
 bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept {
@@ -1581,13 +1527,11 @@ bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noe
     return gateway_client_stream_watch(gateway, key ? *key : GatewayStreamKey{});
 }
 bool WINAPI module_stream_snapshot(void* instance, GatewayClientStreamSnapshot* output) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     return gateway && gateway_client_stream_snapshot(gateway, output);
 }
 bool WINAPI module_stream_volume(void* instance, u32 percent) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     return gateway && gateway_client_stream_volume(gateway, percent);
 }
 RestClientSubmitResult WINAPI module_stream_preview(void* instance, const GatewayStreamKey* key,
@@ -1629,7 +1573,7 @@ RestClientSubmitResult WINAPI module_guild_community(void* instance, const Guild
     if (!rest)
         return {RestClientSubmitError::invalid_input};
     if (!request)
-        return account_guild_community_cancel(rest, request_id);
+        return rest_client_cancel_result(rest, request_id);
     // A lurking join names this Gateway session, like the official client.
     GatewayUserSessionSnapshot session{};
     const bool known = request->operation == GuildCommunityOperation::guild_join &&
@@ -1653,8 +1597,7 @@ RestClientSubmitResult WINAPI module_user_social(void* instance, const UserSocia
                    : account_user_social_cancel(rest, request_id);
 }
 bool WINAPI module_voice_user_audio(void* instance, u64 user_id, u32 gain_percent, bool muted) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     return gateway && gateway_client_voice_user_audio(gateway, user_id, gain_percent, muted);
 }
 bool WINAPI module_voice_audio_configure(void* instance, const VoiceAudioSettings* settings) noexcept {
@@ -1700,7 +1643,7 @@ RestClientSubmitResult WINAPI module_guild_invite(void* instance, const GuildInv
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     if (!request)
-        return account_guild_invite_cancel(rest, request_id);
+        return rest_client_cancel_result(rest, request_id);
     // Accept carries the Gateway session like the official client.
     GatewayUserSessionSnapshot session{};
     const bool known = request->operation == GuildInviteOperation::accept &&
@@ -1720,8 +1663,7 @@ CaptchaBridgeStatus WINAPI module_action_captcha(void* instance, const AccountAc
                                   user_account_coordinator_rest(&runtime->coordinator, true), *request);
 }
 bool WINAPI module_voice_audio_status(void* instance, VoiceAudioStatus* output) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    auto* gateway = module_gateway(instance);
     return gateway && gateway_client_voice_audio_status(gateway, output);
 }
 AccountMediaRequestResult WINAPI
@@ -1763,15 +1705,12 @@ RestClientSubmitResult WINAPI module_message_search(void* instance,
                                                     AccountMessageSearchOperation operation,
                                                     const MessageSearchQuery* query,
                                                     u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
-    return account_message_search(rest, operation, query, request_id);
+    return account_message_search(module_rest(instance), operation, query, request_id);
 }
 
 RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View source,
                                                        u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
+    RestClient* rest = module_rest(instance);
     u8 body[kCdnMaximumTargetBytes * 2]{};
     const u32 bytes = attachment_refresh_body(source, {body, sizeof(body)});
     if (!rest || request_id == 0 || bytes == 0)
@@ -1789,11 +1728,12 @@ RestClientTakeResult WINAPI module_rest_take(void* instance, RestClientResponse*
                                              Slice<u8> body_output) noexcept {
     RestClientTakeResult invalid{};
     invalid.error = RestClientTakeError::invalid_input;
+    if (!module_rest(instance))
+        return invalid;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    RestClient* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator) : nullptr;
-    if (rest && runtime->logout_request_id)
+    if (runtime->logout_request_id)
         return rest_client_take_response(&runtime->coordinator.details, response, body_output);
-    return rest ? user_account_coordinator_take(&runtime->coordinator, response, body_output) : invalid;
+    return user_account_coordinator_take(&runtime->coordinator, response, body_output);
 }
 
 AccountLogoutResult WINAPI module_logout(void* instance, AccountLogoutOperation operation, u64 request_id,

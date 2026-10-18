@@ -3,6 +3,7 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/render/forum_post_surface.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 inline constexpr u32 kApplicationForumTitleBytes = 400, kApplicationForumTitleScalars = 100;

@@ -99,10 +99,7 @@ bool push_frame(void* context, u32 ssrc, ConstSlice<u8> frame, u32 rtp_timestamp
     H264StreamDecoder* decoder =
         h264_stream_decoder_create({device, ssrc, {decoders, on_frame, on_keyframe}, false});
     device->Release(); // The decoder keeps its own reference.
-    if (!decoder) {
-        ++decoders->refused;
-        return false;
-    }
+    if (!decoder) return false;
     AcquireSRWLockExclusive(decoders->lock.native());
     VideoStreamDecoders::Stream* slot = nullptr;
     for (auto& candidate : decoders->streams)
@@ -114,12 +111,10 @@ bool push_frame(void* context, u32 ssrc, ConstSlice<u8> frame, u32 rtp_timestamp
         *slot = {};
         slot->decoder = decoder;
         slot->ssrc = ssrc;
-        ++decoders->created;
     }
     ReleaseSRWLockExclusive(decoders->lock.native());
     if (!slot) {
         h264_stream_decoder_destroy(decoder);
-        ++decoders->refused;
         return false;
     }
     return h264_stream_decoder_push(decoder, frame, rtp_timestamp);

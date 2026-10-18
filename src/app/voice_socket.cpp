@@ -2,7 +2,8 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/platform/random.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -19,7 +20,7 @@ void finish(VoiceSocket* socket) noexcept {
     voice_heartbeat_disconnect(&heartbeat);
     voice_session_clear(&socket->session);
     if (socket->session.scratch.data)
-        SecureZeroMemory(socket->session.scratch.data, socket->session.scratch.count * sizeof(u32));
+        secure_clear_bytes(socket->session.scratch.data, socket->session.scratch.count * sizeof(u32));
     stable_storage_release(&socket->json_storage);
     socket->session = {};
     socket->session.heartbeat = heartbeat;
@@ -27,7 +28,7 @@ void finish(VoiceSocket* socket) noexcept {
         // TLS already erased its regions after drain, and session_clear erased
         // packet input/fragments. Clear the remaining region once, not the
         // entire allocation a second time.
-        SecureZeroMemory(socket->output.data, socket->output.count);
+        secure_clear_bytes(socket->output.data, socket->output.count);
         VirtualFree(socket->storage.data, 0, MEM_RELEASE);
         socket->storage = {};
     }
@@ -36,7 +37,7 @@ void finish(VoiceSocket* socket) noexcept {
     socket->output_bytes = 0;
     socket->handler = nullptr;
     socket->context = nullptr;
-    SecureZeroMemory(socket->control, sizeof(socket->control));
+    secure_clear_bytes(socket->control, sizeof(socket->control));
     socket->control_bytes = 0;
     socket->pending_close = socket->pending_pong = false;
     socket->phase = VoiceSocketPhase::closed;
@@ -266,7 +267,7 @@ void voice_socket_completion(VoiceSocket* socket, NetworkLoop* loop, const Netwo
         opening(socket);
     } else if (socket->tls_event.kind == TlsStreamEventKind::write_complete) {
         const auto purpose = socket->sending;
-        SecureZeroMemory(socket->output.data, socket->output_bytes);
+        secure_clear_bytes(socket->output.data, socket->output_bytes);
         socket->output_bytes = 0;
         socket->sending = VoiceSocketOutput::none;
         if (purpose == VoiceSocketOutput::close) {
@@ -308,7 +309,7 @@ void voice_socket_tick(VoiceSocket* socket, u64 now_ms) noexcept {
                   {socket->control, socket->control_bytes},
                   close ? VoiceSocketOutput::close : VoiceSocketOutput::pong)) {
             socket->pending_pong = false;
-            SecureZeroMemory(socket->control, sizeof(socket->control));
+            secure_clear_bytes(socket->control, sizeof(socket->control));
             socket->control_bytes = 0;
         }
         return;

@@ -150,6 +150,30 @@ inline SecureEditResult application_phone_erase(SecureEdit* edit, bool backward)
 inline SecureEditResult application_phone_backspace(SecureEdit* edit) noexcept { return application_phone_erase(edit, true); }
 inline SecureEditResult application_phone_delete_forward(SecureEdit* edit) noexcept { return application_phone_erase(edit, false); }
 
+// Editing a code field withdraws the error shown for its previous value.
+inline void application_login_code_edited(LoginStatus* status) noexcept {
+    if (*status == LoginStatus::mfa_input_invalid)
+        *status = LoginStatus::mfa_required;
+    else if (*status == LoginStatus::recovery_phone_input_invalid ||
+             *status == LoginStatus::recovery_phone_code_rejected)
+        *status = LoginStatus::recovery_phone_required;
+}
+
+// Device-pixel rectangle covering a DIP rectangle at `dpi`, offset by `origin`.
+inline RECT application_login_pixel_rect(const UiRect& rectangle, u32 dpi, POINT origin) noexcept {
+    const float scale = static_cast<float>(dpi) / 96.0f;
+    const auto floor_pixel = [](float value) noexcept {
+        const LONG pixel = static_cast<LONG>(value);
+        return pixel - (static_cast<float>(pixel) > value ? 1 : 0);
+    };
+    const auto ceil_pixel = [](float value) noexcept {
+        const LONG pixel = static_cast<LONG>(value);
+        return pixel + (static_cast<float>(pixel) < value ? 1 : 0);
+    };
+    return {origin.x + floor_pixel(rectangle.left * scale), origin.y + floor_pixel(rectangle.top * scale),
+            origin.x + ceil_pixel(rectangle.right * scale), origin.y + ceil_pixel(rectangle.bottom * scale)};
+}
+
 inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect bounds, u32 dpi,
     POINT origin, u32 first, u32 last, RECT* output, bool* clipped, const UiRect* visible_bounds = nullptr) noexcept {
     if (!output || !clipped || !dpi || !application_phone_edit_ready(&edit) || first > last || last > kLoginPhoneCodeDigits) return false;
@@ -158,15 +182,7 @@ inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect boun
     const auto rectangle = ui_rect_intersection(original, visible_bounds ? *visible_bounds : bounds);
     *clipped = !ui_rect_equal(original, rectangle);
     if (!ui_rect_has_area(rectangle)) { *output = {}; *clipped = true; return true; }
-    const float scale = static_cast<float>(dpi) / 96.0f;
-    const auto floor_pixel = [](float value) noexcept {
-        const LONG pixel = static_cast<LONG>(value); return pixel - (static_cast<float>(pixel) > value ? 1 : 0);
-    };
-    const auto ceil_pixel = [](float value) noexcept {
-        const LONG pixel = static_cast<LONG>(value); return pixel + (static_cast<float>(pixel) < value ? 1 : 0);
-    };
-    *output = {origin.x + floor_pixel(rectangle.left * scale), origin.y + floor_pixel(rectangle.top * scale),
-        origin.x + ceil_pixel(rectangle.right * scale), origin.y + ceil_pixel(rectangle.bottom * scale)};
+    *output = application_login_pixel_rect(rectangle, dpi, origin);
     return true;
 }
 
@@ -229,20 +245,9 @@ inline bool application_login_range_geometry(const SecureEdit& edit,
     const auto visible = ui_rect_intersection(rectangle, bounds);
     range_clipped = range_clipped || !ui_rect_equal(rectangle, visible);
     if (!ui_rect_has_area(visible)) { *output = {}; *clipped = true; return true; }
-    const float scale = static_cast<float>(dpi) / 96.0f;
-    const auto floor_pixel = [](float value) noexcept {
-        const LONG integer = static_cast<LONG>(value);
-        return integer - (static_cast<float>(integer) > value ? 1 : 0);
-    };
-    const auto ceil_pixel = [](float value) noexcept {
-        const LONG integer = static_cast<LONG>(value);
-        return integer + (static_cast<float>(integer) < value ? 1 : 0);
-    };
-    const RECT projected{screen_origin.x + floor_pixel(visible.left * scale),
-                         screen_origin.y + floor_pixel(visible.top * scale),
-                         screen_origin.x + ceil_pixel(visible.right * scale),
-                         screen_origin.y + ceil_pixel(visible.bottom * scale)};
-    *output = projected; *clipped = range_clipped; return true;
+    *output = application_login_pixel_rect(visible, dpi, screen_origin);
+    *clipped = range_clipped;
+    return true;
 }
 
 } // namespace maicord::app_detail

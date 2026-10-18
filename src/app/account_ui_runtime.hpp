@@ -59,7 +59,7 @@ inline constexpr u32 kMessageRequestTextCapacity = 64 * 1024;
 
 // Identity media has a 16 MiB budget. The lazy preview texture has 64 MiB
 // capacity, enough for 2048-pixel PNGs plus atlas padding independently.
-// Both textures start small and grow by whole steps (M156): 4 MiB + 2 MiB
+// Both textures start small and grow by whole steps: 4 MiB + 2 MiB
 // steps for identity media, 8 MiB + 8 MiB steps for previews and call video.
 inline constexpr u16 kMediaAtlasExtent = 2'048;
 inline constexpr u16 kPreviewMediaAtlasExtent = 4'096;
@@ -329,21 +329,18 @@ static_assert(kAccountUiReadStateBytes == 152);
 inline constexpr u32 kAccountUiReplyDraftBytes = kMessageDraftCapacity * (sizeof(MessageDraftRecord) - 40) +
                                                  sizeof(MessageComposerReplySnapshot) - sizeof(u64);
 static_assert(kAccountUiReplyDraftBytes == 528);
-// Check the current eager owner directly. Decode DTO growth belongs to the
-// separate lazy bank and must not change this allocation's size calculation.
 // The Markdown cache: its presentation binding (16 bytes), slots and ring.
 inline constexpr u32 kAccountUiMarkdownCacheBytes = 16 + sizeof(MessageMarkdownCache) +
                                                     kMessageMarkdownCacheSlots * sizeof(MessageMarkdownCacheEntry) +
                                                     kMessageMarkdownCacheArenaBytes;
-// The committed owner ends where the demand tail begins.
+// The committed owner ends where the demand tail begins; growth of the lazy decode bank does not
+// change it.
 inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel_record_storage);
-// Measurements were 808 bytes and guild records 120 when the base was taken;
-// the appearance and activity stores were then two StableStorage + 16 each.
-// The base held 4,096 channel records and orders, a 256 KiB name bank, 4,096
-// emojis and 16,384 emoji role IDs, which moved to the demand tail, and a
-// 288-byte chat state store.
+// The literal base predates these members: a text measurement of 808 bytes, a guild record of 120,
+// appearance and activity stores of two StableStorage + 16 each, a 288-byte chat state store, and
+// the channel, name, emoji and emoji-role storage that has since moved to the demand tail.
 static_assert(kAccountUiFixedBytes ==
-              4'261'240 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'168 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

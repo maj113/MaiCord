@@ -22,7 +22,6 @@
 
 namespace maicord::app_detail {
 namespace {
-// Request lane ------------------------------------------------------------
 struct Request {
     SelfCustomStatus desired;
     SelfCustomStatus projected;
@@ -90,7 +89,6 @@ void project_appearance(u64 unix_now) noexcept {
     application_request_frame();
 }
 
-// Dialog ------------------------------------------------------------------
 constexpr u64 kPageOwner = 0x4d41494353544154ull;
 constexpr UiPageKey kPage{kPageOwner, 1};
 constexpr u32 kMenuChoiceBase = 1'000;
@@ -126,12 +124,9 @@ struct Form {
 Form* form;
 u64 lifetime_serial;
 
-bool form_editable() noexcept {
-    return form && form->scene.active;
-}
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
-    return form && form->lifetime == identity && form_editable() &&
+    return form && form->lifetime == identity && form->scene.active &&
            settings_layer_editor(&form->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
 }
 void load_editor(u32 index, u32 bytes) noexcept {
@@ -145,7 +140,7 @@ u32 editor_of(u64 control) noexcept {
     return control == control_emoji ? 0 : control == control_text ? 1 : 2;
 }
 bool project() noexcept {
-    if (!form || !form->scene.active)
+    if (!application_custom_status_active())
         return true;
     auto& f = *form;
     f.editors[0] = settings_layer_editor_view(&f.layer, control_emoji, f.models[0], utf8_literal("😀 or <:name:id>"), true);
@@ -268,7 +263,7 @@ bool repaint_hook(SettingsLayer*) noexcept {
     return repaint();
 }
 bool editable_hook(SettingsLayer*) noexcept {
-    return form_editable();
+    return application_custom_status_active();
 }
 constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, nullptr,
                                     editable_hook};
@@ -487,7 +482,7 @@ bool application_custom_status_active() noexcept {
 }
 
 void application_custom_status_close(bool restore_focus) noexcept {
-    if (!form || !form->scene.active)
+    if (!application_custom_status_active())
         return;
     application_composer_text_input_suspend();
     settings_layer_close_choice(&form->layer);

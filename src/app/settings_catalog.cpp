@@ -602,6 +602,32 @@ constexpr UiSettingsNavEntry navigation[]{
 };
 constexpr u32 kNavigationCount = sizeof(navigation) / sizeof(navigation[0]);
 
+struct LocalToggle {
+    SettingBinding binding;
+    bool ClientPreferences::* field;
+};
+constexpr LocalToggle toggles[]{
+    {SettingBinding::member_list, &ClientPreferences::member_pane_visible},
+    {SettingBinding::reduced_motion, &ClientPreferences::reduced_motion},
+    {SettingBinding::smooth_scroll, &ClientPreferences::smooth_scroll},
+    {SettingBinding::desktop_notifications, &ClientPreferences::desktop_enabled},
+    {SettingBinding::message_sounds, &ClientPreferences::message_sounds_enabled},
+    {SettingBinding::selected_channel_sounds, &ClientPreferences::selected_message_sounds_enabled},
+    {SettingBinding::developer_mode, &ClientPreferences::developer_mode},
+    {SettingBinding::unread_badge, &ClientPreferences::unread_badge},
+    {SettingBinding::taskbar_flash, &ClientPreferences::taskbar_flash},
+    {SettingBinding::start_minimized, &ClientPreferences::start_minimized},
+    {SettingBinding::minimize_to_tray, &ClientPreferences::minimize_to_tray},
+    {SettingBinding::spellcheck, &ClientPreferences::spellcheck},
+    {SettingBinding::game_detection, &ClientPreferences::game_detection},
+};
+bool ClientPreferences::* toggle_field(SettingBinding binding) noexcept {
+    for (const auto& toggle : toggles)
+        if (toggle.binding == binding)
+            return toggle.field;
+    return nullptr;
+}
+
 u32 theme_index(const ClientTheme* values, u32 count, ClientTheme theme) noexcept {
     for (u32 i = 0; i < count; ++i)
         if (values[i] == theme)
@@ -789,6 +815,10 @@ bool settings_store_read(const ClientPreferences& p, SettingBinding binding, Set
     if (!value)
         return false;
     *value = {};
+    if (const auto field = toggle_field(binding)) {
+        value->checked = p.*field;
+        return true;
+    }
     switch (binding) {
     case SettingBinding::theme_base:
         value->choice = theme_index(base_theme_values, 3, p.theme);
@@ -805,47 +835,8 @@ bool settings_store_read(const ClientPreferences& p, SettingBinding binding, Set
     case SettingBinding::gradient_intensity:
         value->choice = p.gradient.intensity;
         return true;
-    case SettingBinding::member_list:
-        value->checked = p.member_pane_visible;
-        return true;
-    case SettingBinding::reduced_motion:
-        value->checked = p.reduced_motion;
-        return true;
-    case SettingBinding::smooth_scroll:
-        value->checked = p.smooth_scroll;
-        return true;
-    case SettingBinding::desktop_notifications:
-        value->checked = p.desktop_enabled;
-        return true;
-    case SettingBinding::message_sounds:
-        value->checked = p.message_sounds_enabled;
-        return true;
-    case SettingBinding::selected_channel_sounds:
-        value->checked = p.selected_message_sounds_enabled;
-        return true;
     case SettingBinding::output_volume:
         value->choice = p.output_volume;
-        return true;
-    case SettingBinding::developer_mode:
-        value->checked = p.developer_mode;
-        return true;
-    case SettingBinding::unread_badge:
-        value->checked = p.unread_badge;
-        return true;
-    case SettingBinding::taskbar_flash:
-        value->checked = p.taskbar_flash;
-        return true;
-    case SettingBinding::start_minimized:
-        value->checked = p.start_minimized;
-        return true;
-    case SettingBinding::minimize_to_tray:
-        value->checked = p.minimize_to_tray;
-        return true;
-    case SettingBinding::spellcheck:
-        value->checked = p.spellcheck;
-        return true;
-    case SettingBinding::game_detection:
-        value->checked = p.game_detection;
         return true;
     case SettingBinding::group_spacing:
         value->choice = p.message_group_spacing ? p.message_group_spacing - 1u : kUiSettingsNoChoice;
@@ -858,6 +849,10 @@ bool settings_store_read(const ClientPreferences& p, SettingBinding binding, Set
 bool settings_store_write(ClientPreferences* p, SettingBinding binding, SettingValue value) noexcept {
     if (!p)
         return false;
+    if (const auto field = toggle_field(binding)) {
+        p->*field = value.checked;
+        return true;
+    }
     switch (binding) {
     case SettingBinding::theme_base:
     case SettingBinding::theme_color:
@@ -896,49 +891,10 @@ bool settings_store_write(ClientPreferences* p, SettingBinding binding, SettingV
                        : ClientTheme::custom_gradient;
         return true;
     }
-    case SettingBinding::member_list:
-        p->member_pane_visible = value.checked;
-        return true;
-    case SettingBinding::reduced_motion:
-        p->reduced_motion = value.checked;
-        return true;
-    case SettingBinding::smooth_scroll:
-        p->smooth_scroll = value.checked;
-        return true;
-    case SettingBinding::desktop_notifications:
-        p->desktop_enabled = value.checked;
-        return true;
-    case SettingBinding::message_sounds:
-        p->message_sounds_enabled = value.checked;
-        return true;
-    case SettingBinding::selected_channel_sounds:
-        p->selected_message_sounds_enabled = value.checked;
-        return true;
     case SettingBinding::output_volume:
         if (value.choice > 200)
             return false;
         p->output_volume = static_cast<u8>(value.choice);
-        return true;
-    case SettingBinding::developer_mode:
-        p->developer_mode = value.checked;
-        return true;
-    case SettingBinding::unread_badge:
-        p->unread_badge = value.checked;
-        return true;
-    case SettingBinding::taskbar_flash:
-        p->taskbar_flash = value.checked;
-        return true;
-    case SettingBinding::start_minimized:
-        p->start_minimized = value.checked;
-        return true;
-    case SettingBinding::minimize_to_tray:
-        p->minimize_to_tray = value.checked;
-        return true;
-    case SettingBinding::spellcheck:
-        p->spellcheck = value.checked;
-        return true;
-    case SettingBinding::game_detection:
-        p->game_detection = value.checked;
         return true;
     case SettingBinding::group_spacing:
         if (value.choice >= kClientPreferencesGroupSpacingCount - 1u)
