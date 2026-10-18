@@ -290,9 +290,11 @@ bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, ID3
     return d3d11_draw_pipeline_update_layer(owner, context, width, height, dpi, opacity, 1, 0, 0);
 }
 
-bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
-                                      u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
-                                      float origin_y) noexcept {
+namespace {
+// reserved: the backdrop surface's top, width and height in the pass's DIPs.
+bool write_frame(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context, u32 width, u32 height,
+                 u32 dpi, float opacity, float scale, float origin_x, float origin_y, float shift_y,
+                 float surface_top, float surface_height) noexcept {
     if (!owner.ui_frame_buffer || !context || width == 0 || height == 0 || dpi == 0) {
         return false;
     }
@@ -306,11 +308,31 @@ bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, ID3D1
     const FrameTransform transform{x_scale * scale,
                                    y_scale * scale,
                                    -1.0f + origin_x * (1.0f - scale) * x_scale,
-                                   1.0f + origin_y * (1.0f - scale) * y_scale,
+                                   1.0f + (origin_y * (1.0f - scale) + shift_y) * y_scale,
                                    opacity >= 0.0f && opacity <= 1.0f ? opacity : 1.0f,
-                                   {}};
+                                   {surface_top, static_cast<float>(width) / dpi_scale, surface_height}};
     context->UpdateSubresource(owner.ui_frame_buffer, 0, nullptr, &transform, 0, 0);
     return true;
+}
+} // namespace
+
+bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+                                      u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
+                                      float origin_y) noexcept {
+    const float dpi_scale = static_cast<float>(dpi ? dpi : 96) / 96.0f;
+    const float caption = static_cast<float>(owner.backdrop_caption) / dpi_scale;
+    return write_frame(owner, context, width, height, dpi, opacity, scale, origin_x, origin_y, 0, -caption,
+                       static_cast<float>(height) / dpi_scale + caption);
+}
+
+bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+                                        u32 width, u32 height, u32 content_height, u32 dpi,
+                                        bool content_space) noexcept {
+    const float dpi_scale = static_cast<float>(dpi ? dpi : 96) / 96.0f;
+    const float caption = static_cast<float>(height) / dpi_scale;
+    return write_frame(owner, context, width, height, dpi, 1, 1, 0, 0, content_space ? caption : 0,
+                       content_space ? -caption : 0,
+                       static_cast<float>(height + content_height) / dpi_scale);
 }
 
 void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {

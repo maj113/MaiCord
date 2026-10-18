@@ -423,8 +423,11 @@ void application_resize_client(HWND window) noexcept {
 }
 
 void application_resize_surface(u32 width, u32 height) noexcept {
+    // A caption height change (DPI, fullscreen) keeps the content size but
+    // needs a taller or shorter target.
     if (!g_app.renderer_ready || !width || !height ||
-        (g_app.renderer.width == width && g_app.renderer.height == height))
+        (g_app.renderer.width == width && g_app.renderer.height == height &&
+         g_app.renderer.graphics.buffer_height >= height + g_app.renderer.caption_height))
         return;
     popup_scene_close(&g_app.popup_scene);
     application_plugins_menu_dismissed();

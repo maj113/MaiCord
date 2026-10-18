@@ -1,10 +1,12 @@
 // Window caption geometry: frame insets for restored, maximized and auto-hide
 // taskbar windows, WM_NCHITTEST results across DPIs (the icon is the window
 // menu), and the caption bar's layout, items, button and badge states,
-// accessible names and pixel-snapped glyphs.
+// accessible names, tooltips, the backdrop band and corner insets.
 #include "test_output.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window_frame.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/caption_bar.hpp"
 #include "maicord/ui/surface_geometry.hpp"
 #include "maicord/core/utf.hpp"
@@ -61,6 +63,71 @@ void frame_insets() noexcept {
     check(tiny.right >= tiny.left && tiny.bottom >= tiny.top, "tiny window keeps an ordered client");
 }
 
+// The client's NCCALCSIZE, as the main window applies it while restored.
+LRESULT CALLBACK frame_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    if (message == WM_NCCALCSIZE) {
+        RECT* rectangle = wparam ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam)->rgrc[0]
+                                 : reinterpret_cast<RECT*>(lparam);
+        const UINT dpi = GetDpiForWindow(window);
+        *rectangle = window_frame_client(*rectangle, window_frame_border(dpi ? dpi : 96), false, {}, 0);
+        return 0;
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+// A real (never shown) restored window: the client sits inside the system
+// resize frame on the left, right and bottom, symmetric, and reaches the top.
+void restored_window_insets() noexcept {
+    // The frame metric is the system's own sizing frame at every DPI.
+    constexpr u32 kDpis[]{96, 120, 144, 168, 192, 240, 288};
+    bool metrics = true;
+    for (u32 dpi : kDpis) {
+        RECT frame{};
+        const i32 border = window_frame_border(dpi);
+        metrics = metrics && AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi) &&
+                  -frame.left == border && frame.right == border && frame.bottom == border;
+    }
+    check(metrics, "resize border equals the system sizing frame at every DPI");
+
+    constexpr wchar_t kClass[] = L"MaiCordWindowCaptionInsetsTest";
+    constexpr DWORD kExtended = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+    WNDCLASSEXW type{};
+    type.cbSize = sizeof(type);
+    type.lpfnWndProc = frame_window_proc;
+    type.hInstance = GetModuleHandleW(nullptr);
+    type.lpszClassName = kClass;
+    const bool registered = RegisterClassExW(&type) != 0;
+    const HWND window = registered
+                            ? CreateWindowExW(kExtended, kClass, kClass, WS_OVERLAPPEDWINDOW, 100, 100, 640,
+                                              480, nullptr, nullptr, type.hInstance, nullptr)
+                            : nullptr;
+    check(window != nullptr, "inset window");
+    const auto insets_match = [&]() noexcept {
+        RECT outer{}, client{};
+        POINT origin{};
+        if (!GetWindowRect(window, &outer) || !GetClientRect(window, &client) ||
+            !ClientToScreen(window, &origin))
+            return false;
+        const UINT dpi = GetDpiForWindow(window);
+        RECT frame{};
+        if (!AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, kExtended, dpi ? dpi : 96))
+            return false;
+        const LONG left = origin.x - outer.left, top = origin.y - outer.top;
+        const LONG right = outer.right - (origin.x + client.right);
+        const LONG bottom = outer.bottom - (origin.y + client.bottom);
+        return left == right && left == -frame.left && right == frame.right && bottom == frame.bottom &&
+               top == 0;
+    };
+    if (window) {
+        check(insets_match(), "created window: client inside the sizing frame, flush with the top");
+        SetWindowPos(window, nullptr, 40, 30, 913, 577, SWP_NOZORDER | SWP_NOACTIVATE);
+        check(insets_match(), "resized window keeps symmetric insets");
+        DestroyWindow(window);
+    }
+    if (registered)
+        UnregisterClassW(kClass, type.hInstance);
+}
+
 struct HitFixture {
     UiCaptionBarLayout layout;
     i32 width, height, caption, border;
@@ -78,29 +145,23 @@ HitFixture fixture(u32 dpi) noexcept {
     const UiCaptionBarState state{
         UiCaptionPart::none, UiCaptionPart::none, true, false, UiCaptionUpdate::ready, true, 1};
     f.layout = ui_caption_bar_layout(kDefaultTheme, static_cast<float>(f.width) / f.scale, state,
-                                     static_cast<float>(f.caption) / f.scale);
+                                     static_cast<float>(f.caption) / f.scale, f.scale);
     return f;
 }
 
 u32 hit(const HitFixture& f, i32 x, i32 y, bool maximized) noexcept {
     WindowFramePart part = WindowFramePart::client;
     if (x >= 0 && y >= 0 && x < f.width && y < f.caption) {
-        switch (ui_caption_bar_part(f.layout, static_cast<float>(x) / f.scale,
-                                    static_cast<float>(y) / f.scale)) {
-        case UiCaptionPart::caption:
+        switch (ui_caption_bar_native(ui_caption_bar_part(f.layout, static_cast<float>(x) / f.scale,
+                                                          static_cast<float>(y) / f.scale))) {
+        case UiCaptionNative::caption:
             part = WindowFramePart::caption;
             break;
-        case UiCaptionPart::icon:
+        case UiCaptionNative::system_menu:
             part = WindowFramePart::system_menu;
             break;
-        case UiCaptionPart::minimize:
-            part = WindowFramePart::minimize;
-            break;
-        case UiCaptionPart::maximize:
+        case UiCaptionNative::maximize:
             part = WindowFramePart::maximize;
-            break;
-        case UiCaptionPart::close:
-            part = WindowFramePart::close;
             break;
         default:
             break;
@@ -111,7 +172,9 @@ u32 hit(const HitFixture& f, i32 x, i32 y, bool maximized) noexcept {
 
 void hit_testing() noexcept {
     constexpr u32 kDpis[]{96, 120, 144, 192};
-    constexpr u32 kButtons[]{HTMINBUTTON, HTMAXBUTTON, HTCLOSE};
+    // Only Maximize is a system button (snap layouts); Minimize and Close are
+    // client controls without the system's caption tooltip.
+    constexpr u32 kButtons[]{HTCLIENT, HTMAXBUTTON, HTCLIENT};
     for (u32 dpi : kDpis) {
         const HitFixture f = fixture(dpi);
         check(f.caption > f.border, "caption is taller than the top resize band");
@@ -129,7 +192,9 @@ void hit_testing() noexcept {
         check(hit(f, 0, 0, false) == HTTOPLEFT && hit(f, f.border - 1, f.border - 1, false) == HTTOPLEFT,
               "top-left corner resizes");
         check(hit(f, f.width - 1, 0, false) == HTTOPRIGHT, "top-right corner wins over close");
-        check(hit(f, f.width - 1, 0, true) == HTCLOSE, "maximized corner is close");
+        check(hit(f, f.width - 1, 0, true) == HTCLIENT &&
+                  ui_caption_bar_part(f.layout, (f.width - 1) / f.scale, 0) == UiCaptionPart::close,
+              "maximized corner is the close control");
         check(hit(f, f.width / 2, 0, true) == HTCAPTION, "maximized top edge drags");
         check(hit(f, f.width / 2, f.caption, false) == HTCLIENT, "content starts below the caption");
         check(hit(f, f.width / 2, f.height - 1, false) == HTCLIENT, "content reaches the bottom frame");
@@ -273,6 +338,109 @@ void items_and_badges(const Theme& theme, PaintStream& paint) noexcept {
               ui_rect_equal(ui_caption_bar_part_rect(all, UiCaptionPart::close), all.buttons[2]) &&
               !ui_rect_has_area(ui_caption_bar_part_rect(all, UiCaptionPart::caption)),
           "part rectangles");
+    check(ui_caption_bar_native(UiCaptionPart::maximize) == UiCaptionNative::maximize &&
+              ui_caption_bar_native(UiCaptionPart::caption) == UiCaptionNative::caption &&
+              ui_caption_bar_native(UiCaptionPart::icon) == UiCaptionNative::system_menu &&
+              ui_caption_bar_native(UiCaptionPart::minimize) == UiCaptionNative::client &&
+              ui_caption_bar_native(UiCaptionPart::close) == UiCaptionNative::client,
+          "only Maximize is a system button");
+    check(ui_caption_bar_part_tooltip(UiCaptionPart::minimize) && ui_caption_bar_part_tooltip(UiCaptionPart::maximize) &&
+              ui_caption_bar_part_tooltip(UiCaptionPart::close) && ui_caption_bar_part_tooltip(UiCaptionPart::update) &&
+              ui_caption_bar_part_tooltip(UiCaptionPart::settings) &&
+              !ui_caption_bar_part_tooltip(UiCaptionPart::icon) && !ui_caption_bar_part_tooltip(UiCaptionPart::caption),
+          "buttons, badge and Settings have tooltips");
+}
+
+// A gradient theme's band samples the shell's global gradient at the app
+// frame's tier, as the guild rail beside it does.
+void backdrop_band(PaintStream& paint) noexcept {
+    Theme theme = kDefaultTheme;
+    theme.background = background_theme_defaults();
+    theme.background.effect = BackgroundEffect::stars;
+    const UiCaptionBarLayout layout = ui_caption_bar_layout(theme, 800, {});
+    PaintStream rail{};
+    const bool painted =
+        paint_stream_reset(&paint, layout.width, layout.height) &&
+        ui_caption_bar_paint(&paint, theme, layout, {UiCaptionPart::close, UiCaptionPart::none, true}, 1) &&
+        paint_stream_initialize(&rail, 2) && paint_stream_reset(&rail, 800, 600) &&
+        ui_background_paint_canvas(&rail, {0, 0, 72, 600}, theme, theme.base_lowest, UiBackgroundTier::app_frame);
+    const PaintQuad& band = paint.quads[0];
+    check(painted && ui_background_canvas_quad(band) && band.border_width == -8 &&
+              near(band.reserved_y, rail.quads[0].reserved_y) && near(band.left, 0) && near(band.top, 0) &&
+              near(band.right, 800) && near(band.bottom, layout.height),
+          "gradient band is the app frame's canvas across the bar");
+    bool overlays = true;
+    for (u32 i = 1; i < paint.count; ++i)
+        overlays = overlays && !ui_background_canvas_quad(paint.quads[i]) &&
+                   !(near(paint.quads[i].left, 0) && near(paint.quads[i].right, 800));
+    check(overlays, "hover and glyphs are overlays, never a second band");
+    paint_stream_release(&rail);
+}
+
+// Fill insets, centring and concentric corners at common DPIs, flush and with
+// the restored window's side border outside the client.
+void corner_geometry(PaintStream& paint) noexcept {
+    const Theme& theme = kDefaultTheme;
+    constexpr u32 kDpis[]{96, 120, 144, 192};
+    for (u32 dpi : kDpis) {
+        const float scale = static_cast<float>(dpi) / 96.0f;
+        const float pixel = 1 / scale;
+        const float height =
+            static_cast<float>(static_cast<i32>(theme.scale.caption_height * scale + .5f)) / scale;
+        const float width = static_cast<float>(static_cast<i32>(1280 * scale)) / scale;
+        for (u32 border = 0; border < 2; ++border) {
+            UiCaptionBarState state{UiCaptionPart::none, UiCaptionPart::none, true, false,
+                                    UiCaptionUpdate::ready, true, 1};
+            state.frame = static_cast<float>(border) * pixel;
+            const UiCaptionBarLayout layout = ui_caption_bar_layout(theme, width, state, height, scale);
+            const UiRect& close = layout.fills[2];
+            // Seen from the visible window edge: the side border adds to the right.
+            const float right = width - close.right + state.frame;
+            check(close.top > 0 && near(close.top, right), "close fill: equal top and right insets");
+            check(near(layout.fill_radius, ui_inner_radius(theme.scale.window_radius, close.top)) &&
+                      near(layout.fill_radius + close.top, theme.scale.window_radius),
+                  "close fill concentric with the window corner");
+            const float pixels = close.top * scale;
+            check(near(pixels, static_cast<float>(static_cast<i32>(pixels + .5f))), "fill inset on whole pixels");
+            bool consistent = true;
+            for (u32 i = 0; i < kUiCaptionButtonCount; ++i) {
+                const UiRect& f = layout.fills[i];
+                consistent = consistent && near(f.top, close.top) && near(f.top + f.bottom, height) &&
+                             near(f.right - f.left, close.right - close.left);
+                if (i)
+                    consistent = consistent && near(f.left - layout.fills[i - 1].right,
+                                                    layout.fills[1].left - layout.fills[0].right);
+            }
+            const UiRect items[]{layout.update_fill, layout.settings_fill};
+            for (const UiRect& f : items)
+                consistent = consistent && near(f.top, close.top) && near(f.top + f.bottom, height);
+            check(consistent, "fills share size, gaps and vertical inset, centred in the band");
+            check(near(layout.icon.left + state.frame, layout.icon.top) &&
+                      near(layout.icon.top + layout.icon.bottom, height),
+                  "icon margin from the visible edge equals its vertical margin");
+            // Glyphs centred in their fills to within half a device pixel.
+            bool centred = paint_stream_reset(&paint, layout.width, layout.height) &&
+                           ui_caption_bar_paint(&paint, theme, layout, state, scale) && !paint.rejected;
+            for (u32 i = 0; centred && i < 2; ++i) {
+                const UiRect& f = layout.fills[i];
+                bool found = false;
+                for (u32 q = 1; q < paint.count; ++q) {
+                    const PaintQuad& glyph = paint.quads[q];
+                    if (glyph.left < f.left || glyph.right > f.right || glyph.border_width < 0)
+                        continue;
+                    found = true;
+                    centred = centred &&
+                              (glyph.left + glyph.right - f.left - f.right) * .5f <= pixel * .5f + .001f &&
+                              (f.left + f.right - glyph.left - glyph.right) * .5f <= pixel * .5f + .001f;
+                    if (i == 1)
+                        centred = centred && (glyph.top + glyph.bottom - height) * .5f <= pixel * .5f + .001f &&
+                                  (height - glyph.top - glyph.bottom) * .5f <= pixel * .5f + .001f;
+                }
+                centred = centred && found;
+            }
+            check(centred, "button glyphs centred in their fills");
+        }
+    }
 }
 
 void layout_and_states() noexcept {
@@ -290,10 +458,9 @@ void layout_and_states() noexcept {
             widths && near(r.right - r.left, button) && near(r.top, 0) && near(r.bottom, layout.height);
     check(widths, "buttons are full height and theme width");
     const float icon = theme.scale.caption_icon;
-    check(near(layout.icon.left, theme.scale.caption_padding) &&
-              near(layout.icon.right - layout.icon.left, icon) &&
+    check(near(layout.icon.left, layout.icon.top) && near(layout.icon.right - layout.icon.left, icon) &&
               near(layout.icon.top + layout.icon.bottom, layout.height),
-          "icon at the padding, vertically centred");
+          "icon vertically centred, as far from the leading edge as from the top");
     check(near(layout.title.left, layout.icon.right + theme.scale.caption_padding) &&
               near(layout.title.right, layout.buttons[0].left - theme.scale.caption_padding),
           "title span between the icon and the buttons");
@@ -319,13 +486,18 @@ void layout_and_states() noexcept {
                ui_caption_bar_paint(&paint, theme, layout, {hovered, pressed, active, maximized}, scale) &&
                !paint.rejected;
     };
-    // Background, minimize line, maximize square and the two strokes of close.
+    // Backdrop, minimize line, maximize square and the two strokes of close.
     check(paint_state(UiCaptionPart::none, UiCaptionPart::none, true, false, 1) && paint.count == 5,
           "idle caption quads");
-    check(same_color(paint.quads[0].fill, tokens.background) && paint.quads[0].fill.alpha == 1,
-          "opaque background token");
+    check(same_color(paint.quads[0].fill, tokens.background) && paint.quads[0].fill.alpha == 1 &&
+              ui_background_canvas_quad(paint.quads[0]),
+          "the band is a backdrop canvas on the background token");
     check(count_color(paint, tokens.icon) == 4 && count_color(paint, tokens.hover) == 0,
           "idle glyph colours");
+    const PaintQuad active_band = paint.quads[0];
+    check(paint_state(UiCaptionPart::none, UiCaptionPart::none, false, false, 1) &&
+              bytes_equal(&paint.quads[0], &active_band, sizeof(PaintQuad)),
+          "focus changes only the ink, not the band");
 
     check(paint_state(UiCaptionPart::minimize, UiCaptionPart::none, true, false, 1) && paint.count == 6,
           "hover adds one fill");
@@ -376,6 +548,8 @@ void layout_and_states() noexcept {
         check(snapped, "glyphs snap to device pixels");
     }
     items_and_badges(theme, paint);
+    backdrop_band(paint);
+    corner_geometry(paint);
     paint_stream_release(&paint);
 }
 
@@ -384,6 +558,7 @@ void layout_and_states() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_window_caption_tests_entry() noexcept {
     maicord::frame_insets();
+    maicord::restored_window_insets();
     maicord::hit_testing();
     maicord::layout_and_states();
     maicord::test_write_metric("window caption failures: ", maicord::failures);

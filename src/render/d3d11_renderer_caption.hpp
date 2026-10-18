@@ -7,6 +7,7 @@ namespace maicord {
 
 struct D3D11Renderer;
 struct Theme;
+struct Color;
 
 // The window caption pass (renderer_set_caption_height): a few paint quads and
 // one shaped title line in their own instance buffers, drawn after the content
@@ -22,6 +23,11 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
 u32 d3d11_renderer_caption_dirty_rect(const D3D11Renderer& renderer, RECT* rectangle) noexcept;
 // After Present: the other back buffer still holds the previous caption.
 void d3d11_renderer_caption_presented(D3D11Renderer* renderer) noexcept;
+// A content draw's full-window scrims (modals, dialogs, the media viewer):
+// begun with each content draw, noted with the layer opacity they draw at.
+// The caption dims its band under the same colour.
+void d3d11_renderer_caption_begin_scrim(D3D11Renderer* renderer) noexcept;
+void d3d11_renderer_caption_note_scrim(D3D11Renderer* renderer, Color color, float opacity) noexcept;
 // The target lost the caption's pixels (resize, clear, height change).
 void d3d11_renderer_caption_invalidate(D3D11Renderer* renderer) noexcept;
 void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept;

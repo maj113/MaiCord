@@ -515,6 +515,10 @@ bool application_friends_requests_active() noexcept {
 UiRect application_viewport_dips() noexcept {
     return tooltip_runtime_test::viewport;
 }
+// The caption's own tooltip has no pending deadline here.
+u64 application_caption_tooltip_wake() noexcept {
+    return 0;
+}
 bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                                       UiTooltipTarget* target) noexcept {
     if (!tooltip_runtime_test::video_ready || keyboard || point.x != 400 || point.y != 200 || !target)

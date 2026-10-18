@@ -1,15 +1,18 @@
 // Window caption through the real renderer: the caption pass draws above a
 // shell whose content moved down by the caption height. Checks the band,
 // app icon, glyph, hover and update badge pixels focused and unfocused, that
-// content pixels keep their place relative to the content origin, and the
-// sign-in screen with its Settings entry. Synthetic data only; frames go to
-// MAICORD_UI_PROBE_CAPTURE_DIR when set.
+// content pixels keep their place relative to the content origin, the
+// sign-in screen with its Settings entry, the bar's own tooltip below it, a
+// content scrim dimming the bar but not its window buttons, and a gradient
+// backdrop continuing across the seam. Synthetic data only; frames
+// go to MAICORD_UI_PROBE_CAPTURE_DIR when set.
 #include "probe_capture.hpp"
 #include "../../src/app/app_icon.hpp"
 #include "../../src/render/d3d11_renderer_caption.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/ui/background_presentation.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
 namespace maicord {
@@ -53,7 +56,8 @@ bool fail(u32 stage) noexcept {
 
 // The full frame as presentation draws it: content stream, then the caption.
 // The fixture shell has no opaque root, so each capture starts from a clear target.
-bool draw(D3D11Renderer& renderer, const Theme& theme) noexcept {
+// `scrim` stands in for an overlay's full-window scrim in the content draw.
+bool draw(D3D11Renderer& renderer, const Theme& theme, const Color* scrim = nullptr) noexcept {
     // Presenting first builds the current view's paint and text.
     if (!renderer_present(&renderer, theme))
         return false;
@@ -61,6 +65,8 @@ bool draw(D3D11Renderer& renderer, const Theme& theme) noexcept {
     renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, black);
     if (!d3d11_renderer_draw_stream(&renderer, theme, true, true, nullptr))
         return false;
+    if (scrim)
+        d3d11_renderer_caption_note_scrim(&renderer, *scrim, 1);
     renderer.present_full = true;
     d3d11_renderer_caption_pending(&renderer, theme);
     const bool drawn = d3d11_renderer_caption_draw(&renderer, theme);
@@ -106,11 +112,11 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
 
     const float width = static_cast<float>(renderer.width) / scale;
     const float height = static_cast<float>(caption) / scale;
-    const UiCaptionBarLayout layout = ui_caption_bar_layout(theme, width, {}, height);
+    const UiCaptionBarLayout layout = ui_caption_bar_layout(theme, width, {}, height, scale);
     const auto px = [&](float dips) noexcept { return static_cast<u32>(dips * scale); };
-    const UiRect minimize = layout.buttons[0], close = layout.buttons[2];
+    const UiRect minimize = layout.buttons[0];
     // A point inside the close hover fill, clear of the X strokes.
-    const u32 fill_x = px(close.left + theme.scale.caption_button_inset) + 2;
+    const u32 fill_x = px(layout.fills[2].left) + 2;
     const u32 fill_y = caption / 2;
     // The minimize glyph's horizontal stroke.
     const u32 glyph_x = px((minimize.left + minimize.right) * .5f);
@@ -171,7 +177,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
         if (shot == 2 && !matches(read(image, fill_x, fill_y), over(tokens.close_hover, background)))
             return fail(60);
         if (shot == 3 &&
-            !matches(read(image, px(layout.buttons[1].left + theme.scale.caption_button_inset) + 2, fill_y),
+            !matches(read(image, px(layout.fills[1].left) + 2, fill_y),
                      over(tokens.pressed, background)))
             return fail(61);
         if (shot < 2) {
@@ -184,7 +190,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
         // The app icon at the leading edge.
         if (ink_pixels(image, layout.icon, scale, background) < icon_extent * icon_extent / 4)
             return fail(62);
-        const UiCaptionBarLayout items = ui_caption_bar_layout(theme, width, state, height);
+        const UiCaptionBarLayout items = ui_caption_bar_layout(theme, width, state, height, scale);
         if (state.update == UiCaptionUpdate::downloading) {
             // Progress fill at 20% of the track, the bare track at 90%.
             const float icon_px = theme.scale.caption_icon;
@@ -197,7 +203,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
                 return fail(63);
         }
         if (state.update == UiCaptionUpdate::ready &&
-            !matches(read(image, px(items.update.left + theme.scale.caption_button_inset) + 2, fill_y),
+            !matches(read(image, px(items.update_fill.left) + 2, fill_y),
                      over(tokens.hover, over(tokens.badge_ready_fill, background)), 6))
             return fail(64);
         if (!probe_write_capture(image, shots[shot].file))
@@ -232,6 +238,109 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
     const u64 partial = renderer.partial_present_draws;
     if (!hover(UiCaptionPart::close) || renderer.partial_present_draws != partial + 1)
         return fail(91);
+
+    // The bar's tooltip hangs into the content below the close button, and
+    // the content repaints those pixels once it hides.
+    {
+        UiCaptionBarState state{UiCaptionPart::close, none, true, false, UiCaptionUpdate::hidden, false, 0};
+        ProbeTargetReadback plain{}, shown{};
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+            probe_target_readback(renderer, &plain))
+            return fail(92);
+        state.tooltip = UiCaptionPart::close;
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+            probe_target_readback(renderer, &shown))
+            return fail(93);
+        // Rows below the close button change; the leading half stays.
+        u32 below = 0, elsewhere = 0;
+        const u32 rows = caption + px(48);
+        for (u32 y = caption; y < rows; ++y) {
+            for (u32 x = renderer.width - px(120); x < renderer.width; ++x)
+                below += equal(read(plain, x, y), read(shown, x, y)) ? 0u : 1u;
+            for (u32 x = 0; x < renderer.width / 2; ++x)
+                elsewhere += equal(read(plain, x, y), read(shown, x, y)) ? 0u : 1u;
+        }
+        // The presented rectangle reaches down over the tooltip.
+        RECT dirty{};
+        if (!d3d11_renderer_caption_dirty_rect(renderer, &dirty) ||
+            dirty.bottom <= static_cast<LONG>(caption + px(16)))
+            return fail(98);
+        if (!probe_write_capture(shown, L"titlebar_tooltip_close.bmp"))
+            return fail(95);
+        if (below < px(40) * px(16) || elsewhere)
+            return fail(94);
+        presentation_damage_commit(&renderer.presentation_damage);
+        state.tooltip = none;
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) ||
+            presentation_damage_empty(renderer.presentation_damage))
+            return fail(96);
+        if (!draw(renderer, theme))
+            return fail(97);
+    }
+
+    // Under a content scrim the band, icon and title dim with it; the window
+    // buttons, their hover fill included, stay above it.
+    {
+        const UiCaptionBarState state{UiCaptionPart::close, none, true, false, UiCaptionUpdate::hidden, false, 0};
+        const Color scrim = theme.tokens.overlay.scrim;
+        ProbeTargetReadback image{};
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme, &scrim) ||
+            probe_target_readback(renderer, &image))
+            return fail(105);
+        Pixel stroke = read(image, glyph_x, 0);
+        i32 contrast = -1;
+        for (u32 y = 0; y < caption; ++y) {
+            const Pixel p = read(image, glyph_x, y);
+            const i32 c = static_cast<i32>(p.r) + p.g + p.b;
+            if (c > contrast)
+                contrast = c, stroke = p;
+        }
+        if (!matches(read(image, 1, caption - 1), over(scrim, background)) ||
+            !matches(read(image, fill_x, fill_y), over(tokens.close_hover, over(scrim, background))) ||
+            !matches(stroke, tokens.icon, 8) ||
+            ink_pixels(image, layout.icon, scale, over(scrim, background)) < icon_extent * icon_extent / 4)
+            return fail(106);
+        if (!probe_write_capture(image, L"titlebar_scrim.bmp"))
+            return fail(107);
+        if (!draw(renderer, theme))
+            return fail(108);
+    }
+
+    // A gradient theme: the band is the shell's backdrop, so the gradient
+    // runs on across the seam into the guild rail below.
+    {
+        Theme gradient = kDefaultTheme;
+        gradient.background = background_theme_defaults();
+        const UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+        ProbeTargetReadback image{};
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, gradient) ||
+            probe_target_readback(renderer, &image))
+            return fail(100);
+        const Color flat = over(gradient.tokens.caption.background, gradient.base_lowest);
+        u32 columns = 0, continuous = 0, tinted = 0;
+        for (u32 x = 2; x < px(64); x += 3) {
+            const Pixel above = read(image, x, caption - 1), below = read(image, x, caption);
+            const auto close_to = [](u8 a, u8 b) noexcept { return (a > b ? a - b : b - a) <= 4; };
+            ++columns;
+            continuous += close_to(above.r, below.r) && close_to(above.g, below.g) && close_to(above.b, below.b);
+            tinted += matches(read(image, x, caption / 2), flat, 6) ? 0u : 1u;
+        }
+        log_u64(LogLevel::info, "probe", "caption_seam_continuous_columns", continuous);
+        if (!columns || continuous * 4 < columns * 3 || tinted * 4 < columns * 3)
+            return fail(101);
+        if (!probe_write_capture(image, L"titlebar_gradient_seam.bmp"))
+            return fail(102);
+        // With Stars, captured for review.
+        gradient.background.effect = BackgroundEffect::stars;
+        ProbeTargetReadback stars{};
+        if (!renderer_set_background_phase(&renderer, 3.5f) || !draw(renderer, gradient) ||
+            probe_target_readback(renderer, &stars) ||
+            !probe_write_capture(stars, L"titlebar_gradient_stars.bmp"))
+            return fail(103);
+        renderer_set_background_phase(&renderer, 0);
+        if (!draw(renderer, theme))
+            return fail(104);
+    }
     log_u64(LogLevel::info, "probe", "caption_height_px", caption);
     return true;
 }

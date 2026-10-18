@@ -14,11 +14,14 @@ inline void application_begin_window_resize() noexcept {
 }
 inline void application_end_window_resize(HWND window) noexcept {
     if (g_app.renderer_ready) {
+        // The renderer's height is the content below the window caption.
         Win32Rect client{};
+        const auto caption = static_cast<LONG>(g_app.renderer.caption_height);
         if (!GetClientRect(window, client.native()) ||
             !renderer_finish_resize(&g_app.renderer,
                                     static_cast<u32>(maximum<LONG>(1, client.right - client.left)),
-                                    static_cast<u32>(maximum<LONG>(1, client.bottom - client.top)))) {
+                                    static_cast<u32>(
+                                        maximum<LONG>(1, client.bottom - client.top - caption)))) {
             renderer_set_live_resize(&g_app.renderer, false);
             application_record_presentation_failure("resize_finish_rejected");
         }

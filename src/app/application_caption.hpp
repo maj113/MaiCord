@@ -33,7 +33,10 @@ void application_caption_synchronize() noexcept;
 void application_caption_set_hidden(bool hidden) noexcept;
 // Minimize, maximize/restore or close, as the caption buttons do.
 bool application_caption_command(UiCaptionPart part) noexcept;
+// The bar state; the hovered part's tooltip shows once its delay passed.
 UiCaptionBarState application_caption_state() noexcept;
+// When the hovered part's tooltip is due, zero when none is pending.
+u64 application_caption_tooltip_wake() noexcept;
 // Caption buttons in content DIPs (negative rows), for accessibility.
 UiCaptionBarLayout application_caption_layout() noexcept;
 

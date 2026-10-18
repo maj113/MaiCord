@@ -157,10 +157,11 @@ MAICORD_THEME_TOKEN(profile, control_icon, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
 MAICORD_THEME_GROUP_END(profile)
 
 // The window caption (ui/caption_bar.hpp): drag band, title and the window
-// buttons. Inactive values apply while another window is active.
+// buttons. The band is the shell's backdrop (background is its flat base);
+// hover and pressed tint over it. Inactive ink applies while another window
+// is active.
 MAICORD_THEME_GROUP(caption)
 MAICORD_THEME_TOKEN(caption, background, P(base_lowest), P(base_lowest))
-MAICORD_THEME_TOKEN(caption, background_inactive, P(base_lowest), P(base_lowest))
 MAICORD_THEME_TOKEN(caption, text, T(text, normal), T(text, normal))
 MAICORD_THEME_TOKEN(caption, text_inactive, T(text, muted), T(text, muted))
 MAICORD_THEME_TOKEN(caption, icon, T(text, muted), T(text, muted))

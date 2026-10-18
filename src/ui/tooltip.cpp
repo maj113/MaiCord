@@ -358,6 +358,25 @@ bool ui_tooltip_visible(const UiTooltipScene& scene) noexcept {
            node->clip_rectangle.right >= scene.rectangle.right &&
            node->clip_rectangle.bottom >= scene.rectangle.bottom;
 }
+namespace {
+bool paint_box(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) noexcept {
+    const auto r = scene.rectangle;
+    return paint_stream_push_rounded(paint, r.left + 1, r.top + 2, r.right + 1, r.bottom + 2,
+                                     theme.tokens.overlay.shadow, scene.style.radius) &&
+           arrow(scene, theme, paint) && ui_surface_paint(paint, r, theme, UiElevation::tooltip, scene.style.radius);
+}
+} // namespace
+bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect rectangle, UiRect anchor,
+                          UiTooltipPlacement placement, const UiTooltipStyle& style) noexcept {
+    if (!paint || !ui_rect_has_area(rectangle))
+        return false;
+    UiTooltipScene scene{};
+    scene.rectangle = rectangle;
+    scene.anchor = anchor;
+    scene.placement = placement;
+    scene.style = style;
+    return paint_box(scene, theme, paint);
+}
 bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!ui_tooltip_visible(scene))
         return true;
@@ -370,10 +389,7 @@ bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStre
         paint_stream_pop_clip(paint);
         return false;
     }
-    const bool painted = paint_stream_push_rounded(paint, r.left + 1, r.top + 2, r.right + 1, r.bottom + 2,
-                                                   theme.tokens.overlay.shadow, scene.style.radius) &&
-                         arrow(scene, theme, paint) &&
-                         ui_surface_paint(paint, r, theme, UiElevation::tooltip, scene.style.radius);
+    const bool painted = paint_box(scene, theme, paint);
     return paint_stream_pop_clip(paint) && painted;
 }
 bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,

@@ -1,5 +1,6 @@
 #include "maicord/ui/caption_bar.hpp"
 
+#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/surface_geometry.hpp"
 
@@ -66,33 +67,50 @@ float ui_caption_bar_height(const Theme& theme) noexcept {
 }
 
 UiCaptionBarLayout ui_caption_bar_layout(const Theme& theme, float width, const UiCaptionBarState& state,
-                                         float height) noexcept {
+                                         float height, float pixel_scale) noexcept {
     UiCaptionBarLayout layout{};
     layout.width = width > 0 ? width : 0;
     if (!(height > 0))
         height = ui_caption_bar_height(theme);
+    if (!(pixel_scale > 0))
+        pixel_scale = 1;
     layout.height = height;
+    // Whole-pixel insets keep the fills centred in the band. The side frame
+    // moves every fill outward so the close fill's right inset, seen from the
+    // visible window edge, equals its top inset.
+    const float inset = maximum(0.0f, snap(theme.scale.caption_button_inset, pixel_scale));
+    const float frame = state.frame > 0 ? minimum(snap(state.frame, pixel_scale), inset) : 0.0f;
+    const auto fill = [&](const UiRect& r) noexcept {
+        return r.right > r.left ? UiRect{r.left + inset + frame, inset, r.right - inset + frame, height - inset}
+                                : UiRect{};
+    };
+    layout.fill_radius = ui_inner_radius(theme.scale.window_radius, inset);
     const float button = theme.scale.caption_button_width;
     float right = layout.width;
     for (u32 i = kUiCaptionButtonCount; i-- > 0;) {
         const float left = maximum(0.0f, right - button);
         layout.buttons[i] = {left, 0, right, height};
+        layout.fills[i] = fill(layout.buttons[i]);
         right = left;
     }
     const float padding = theme.scale.caption_padding;
     const float icon = theme.scale.caption_icon;
+    // As far from the visible left edge as from the top.
     const float icon_top = (height - icon) * .5f;
-    layout.icon = {padding, icon_top, padding + icon, icon_top + icon};
+    const float icon_left = maximum(0.0f, icon_top - (state.frame > 0 ? state.frame : 0.0f));
+    layout.icon = {icon_left, icon_top, icon_left + icon, icon_top + icon};
     layout.icon_target = {0, 0, minimum(layout.icon.right + padding * .5f, right), height};
     // Square trailing items, Settings next to the window buttons.
     if (state.settings || state.update != UiCaptionUpdate::hidden)
         right = maximum(0.0f, right - theme.scale.space_2);
     if (state.settings) {
         layout.settings = {maximum(0.0f, right - height), 0, right, height};
+        layout.settings_fill = fill(layout.settings);
         right = layout.settings.left;
     }
     if (state.update != UiCaptionUpdate::hidden) {
         layout.update = {maximum(0.0f, right - height), 0, right, height};
+        layout.update_fill = fill(layout.update);
         right = layout.update.left;
     }
     const float title_left = minimum(layout.icon.right + padding, right);
@@ -113,6 +131,23 @@ UiCaptionPart ui_caption_bar_part(const UiCaptionBarLayout& layout, float x, flo
     if (x < layout.icon_target.right)
         return UiCaptionPart::icon;
     return UiCaptionPart::caption;
+}
+
+UiCaptionNative ui_caption_bar_native(UiCaptionPart part) noexcept {
+    switch (part) {
+    case UiCaptionPart::caption:
+        return UiCaptionNative::caption;
+    case UiCaptionPart::icon:
+        return UiCaptionNative::system_menu;
+    case UiCaptionPart::maximize:
+        return UiCaptionNative::maximize;
+    default:
+        return UiCaptionNative::client;
+    }
+}
+
+bool ui_caption_bar_part_tooltip(UiCaptionPart part) noexcept {
+    return part >= UiCaptionPart::update && part <= UiCaptionPart::close;
 }
 
 Utf8View ui_caption_bar_part_name(UiCaptionPart part, const UiCaptionBarState& state) noexcept {
@@ -159,23 +194,25 @@ Color ui_caption_bar_title_color(const Theme& theme, const UiCaptionBarState& st
 }
 
 bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptionBarLayout& layout,
-                          const UiCaptionBarState& state, float pixel_scale) noexcept {
+                          const UiCaptionBarState& state, float pixel_scale, u32* buttons_first) noexcept {
     if (!paint || !(pixel_scale > 0))
         return false;
     const auto& tokens = theme.tokens.caption;
-    const Color background =
-        opaque_over(state.active ? tokens.background : tokens.background_inactive, theme.base_lowest);
-    if (!push_box(paint, 0, 0, layout.width, layout.height, background))
+    // The shell's backdrop at the app frame's tier: a gradient and the
+    // background effect continue under the bar. Focus changes only its ink.
+    if (!ui_background_paint_canvas(paint, {0, 0, layout.width, layout.height}, theme,
+                                    opaque_over(tokens.background, theme.base_lowest),
+                                    UiBackgroundTier::app_frame))
         return false;
-    const float inset = theme.scale.caption_button_inset;
-    // Concentric with the window's own corner at the trailing edge.
-    const float radius = ui_inner_radius(theme.scale.window_radius, inset);
+    const float radius = layout.fill_radius;
     const float stroke = maximum(1.0f, snap(1.0f, pixel_scale) * pixel_scale) / pixel_scale;
     const float extent = maximum(stroke * 4, snap(theme.scale.caption_glyph, pixel_scale));
-    const auto fill_for = [&](UiCaptionPart part, bool* lit) noexcept {
-        const bool pressed = state.pressed == part && state.hovered == part;
-        *lit = pressed || (state.hovered == part && state.pressed == UiCaptionPart::none);
-        return pressed ? tokens.pressed : tokens.hover;
+    const auto lit_part = [&](UiCaptionPart part, bool* pressed) noexcept {
+        *pressed = state.pressed == part && state.hovered == part;
+        return *pressed || (state.hovered == part && state.pressed == UiCaptionPart::none);
+    };
+    const auto push_fill = [&](const UiRect& r, Color color) noexcept {
+        return paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, color, radius);
     };
     const auto item_box = [&](const UiRect& item) noexcept {
         const float icon = snap(theme.scale.caption_icon, pixel_scale);
@@ -185,24 +222,21 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
     };
     const Color idle = state.active ? tokens.icon : tokens.icon_inactive;
     if (state.settings && layout.settings.right > layout.settings.left) {
-        bool lit = false;
-        const Color fill = fill_for(UiCaptionPart::settings, &lit);
-        const UiRect& r = layout.settings;
-        if ((lit && !paint_stream_push_rounded(paint, r.left + inset, r.top + inset, r.right - inset,
-                                               r.bottom - inset, fill, radius)) ||
+        bool pressed = false;
+        const bool lit = lit_part(UiCaptionPart::settings, &pressed);
+        const UiRect& r = layout.settings_fill;
+        if ((lit && !push_fill(r, pressed ? tokens.pressed : tokens.hover)) ||
             !ui_icon_paint(paint, UiIcon::settings, item_box(r), lit ? tokens.icon_hover : idle))
             return false;
     }
     if (state.update != UiCaptionUpdate::hidden && layout.update.right > layout.update.left) {
-        bool lit = false;
-        const Color hover = fill_for(UiCaptionPart::update, &lit);
-        const UiRect& r = layout.update;
+        bool pressed = false;
+        const bool lit = lit_part(UiCaptionPart::update, &pressed);
+        const UiRect& r = layout.update_fill;
         const bool ready = state.update == UiCaptionUpdate::ready;
         // A ready update keeps its tint; hover and press layer on top.
-        if ((ready && !paint_stream_push_rounded(paint, r.left + inset, r.top + inset, r.right - inset,
-                                                 r.bottom - inset, tokens.badge_ready_fill, radius)) ||
-            (lit && !paint_stream_push_rounded(paint, r.left + inset, r.top + inset, r.right - inset,
-                                               r.bottom - inset, hover, radius)))
+        if ((ready && !push_fill(r, tokens.badge_ready_fill)) ||
+            (lit && !push_fill(r, pressed ? tokens.pressed : tokens.hover)))
             return false;
         const UiRect box = item_box(r);
         if (!ui_icon_paint(paint, UiIcon::download, box,
@@ -228,26 +262,24 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
                 return false;
         }
     }
+    if (buttons_first)
+        *buttons_first = paint->count;
     for (u32 i = 0; i < kUiCaptionButtonCount; ++i) {
         const UiCaptionPart part = button_part(i);
-        const UiRect& button = layout.buttons[i];
-        if (button.right <= button.left)
+        const UiRect& fill = layout.fills[i];
+        if (fill.right <= fill.left)
             continue;
         const bool close = part == UiCaptionPart::close;
-        const bool pressed = state.pressed == part && state.hovered == part;
-        const bool hovered = state.hovered == part && (state.pressed == UiCaptionPart::none || pressed);
-        if (pressed || hovered) {
-            const Color fill = close ? (pressed ? tokens.close_pressed : tokens.close_hover)
-                                     : (pressed ? tokens.pressed : tokens.hover);
-            if (!paint_stream_push_rounded(paint, button.left + inset, button.top + inset,
-                                           button.right - inset, button.bottom - inset, fill, radius))
-                return false;
-        }
-        const Color ink = close && (pressed || hovered) ? tokens.close_icon
-                          : hovered || pressed          ? tokens.icon_hover
-                          : state.active                ? tokens.icon
-                                                        : tokens.icon_inactive;
-        if (!paint_glyph(paint, part, state.maximized, button, extent, stroke, ink, pixel_scale))
+        bool pressed = false;
+        const bool lit = lit_part(part, &pressed);
+        if (lit && !push_fill(fill, close ? (pressed ? tokens.close_pressed : tokens.close_hover)
+                                          : (pressed ? tokens.pressed : tokens.hover)))
+            return false;
+        const Color ink = close && lit   ? tokens.close_icon
+                          : lit          ? tokens.icon_hover
+                          : state.active ? tokens.icon
+                                         : tokens.icon_inactive;
+        if (!paint_glyph(paint, part, state.maximized, fill, extent, stroke, ink, pixel_scale))
             return false;
     }
     return true;

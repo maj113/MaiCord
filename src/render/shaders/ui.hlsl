@@ -2,7 +2,9 @@ cbuffer UiFrame : register(b0) {
     float2 coordinate_scale;
     float2 coordinate_translation;
     float group_opacity;
-    float3 frame_reserved;
+    // The backdrop surface (window caption and content): top, width and
+    // height in this pass's DIPs.
+    float3 backdrop_surface;
 };
 
 cbuffer UiBackground : register(b1) {
@@ -73,6 +75,13 @@ float3 background_gradient(float2 local, float2 half_size) {
     return lerp(background_colors[first].rgb, background_colors[first + 1u].rgb, selected - first);
 }
 
+// The global gradient spans the whole backdrop surface, so it continues from
+// the window caption into the content.
+float3 backdrop_gradient(float2 dip_position) {
+    const float2 half_size = backdrop_surface.yz * 0.5f;
+    return background_gradient(dip_position - float2(half_size.x, backdrop_surface.x + half_size.y), half_size);
+}
+
 float3 background_dither(float3 color, float2 pixel_position) {
     // Fixed screen-space noise, no phase term or extra texture. At most half
     // an output byte before composition, never animated sparkling.
@@ -108,7 +117,7 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
                              outer_coverage);
     }
     if (input.parameters.y == -3.0f) {
-        return float4(background_dither(background_gradient(local, half_size), input.position.xy) *
+        return float4(background_dither(backdrop_gradient(input.dip_position), input.position.xy) *
                           input.fill.a,
                       input.fill.a);
     }
@@ -170,10 +179,8 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
     float4 surface_fill = input.fill;
     float4 surface_border = input.border;
     if (input.parameters.y == -8.0f) {
-        const float2 global_half_size = abs(1.0f / coordinate_scale);
         if (background_controls.z >= 1.0f) {
-            const float3 gradient =
-                background_gradient(input.dip_position - global_half_size, global_half_size);
+            const float3 gradient = backdrop_gradient(input.dip_position);
             const float mode = background_colors[1].w > 0.5f ? 1.0f : 0.0f;
             surface_fill.rgb = lerp(mode.xxx, gradient, saturate(input.parameters.w));
         }
@@ -182,9 +189,7 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
         surface_fill.rgb = background_dither(surface_fill.rgb, input.position.xy);
     }
     if (input.parameters.y == -7.0f) {
-        const float2 global_half_size = abs(1.0f / coordinate_scale);
-        const float3 gradient =
-            background_gradient(input.dip_position - global_half_size, global_half_size);
+        const float3 gradient = backdrop_gradient(input.dip_position);
         const bool light = background_colors[1].w > 0.5f;
         const float3 mode_color = light ? float3(1, 1, 1) : float3(0, 0, 0);
         surface_fill.rgb =

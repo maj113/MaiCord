@@ -4,14 +4,18 @@
 #include "application_frame_presentation.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
+#include "application_tooltip.hpp"
 #include "application_updates.hpp"
 #include "settings_catalog.hpp"
 
+#include "maicord/core/time.hpp"
+#include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/platform/window_frame.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/ui/tooltip.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -29,7 +33,49 @@ struct CaptionState {
     bool client_tracking;
     // The app icon's pixel size on the renderer, zero until decoded.
     u32 icon_extent;
+    // Visible frame pixels beside the client beyond those above it; stale
+    // after a size change until the next frame measures it.
+    u32 side_frame;
+    bool side_frame_stale;
+    // When the hovered part's tooltip is due; zero while none is pending or
+    // after a press, until the pointer moves to another part.
+    u64 tooltip_at_ms;
+    // When a shown tooltip last hid.
+    u64 tooltip_hidden_ms;
+    bool tooltip_shown;
 } g_caption;
+
+inline constexpr u64 kCaptionTooltipSweepMs = 400;
+
+using GetWindowAttribute = HRESULT(WINAPI*)(HWND, DWORD, void*, DWORD);
+GetWindowAttribute g_get_window_attribute;
+bool g_get_window_attribute_resolved;
+
+// The DWM border of a restored window lies outside the client at the sides
+// but over the client's top row; none while maximized.
+void measure_side_frame(HWND window) noexcept {
+    if (!g_get_window_attribute_resolved) {
+        g_get_window_attribute_resolved = true;
+        if (const HMODULE dwm = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32))
+            g_get_window_attribute =
+                reinterpret_cast<GetWindowAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute"));
+    }
+    constexpr DWORD kExtendedFrameBounds = 9;
+    RECT visible{}, client{};
+    POINT origin{};
+    if (!g_get_window_attribute || IsIconic(window) || !IsWindowVisible(window) ||
+        !GetClientRect(window, &client) || !ClientToScreen(window, &origin) ||
+        FAILED(g_get_window_attribute(window, kExtendedFrameBounds, &visible, sizeof(visible))))
+        return;
+    g_caption.side_frame_stale = false;
+    const LONG side = minimum(origin.x - visible.left, visible.right - origin.x - client.right);
+    const LONG frame = side - (origin.y - visible.top);
+    const u32 pixels = frame > 0 && frame < 8 ? static_cast<u32>(frame) : 0;
+    if (pixels != g_caption.side_frame) {
+        g_caption.side_frame = pixels;
+        application_request_frame();
+    }
+}
 
 u32 window_dpi(HWND window) noexcept {
     const UINT dpi = window ? GetDpiForWindow(window) : 0;
@@ -50,21 +96,18 @@ float to_dips(i32 pixels, u32 dpi) noexcept {
 UiCaptionBarLayout layout_for(LONG client_width, u32 dpi) noexcept {
     return ui_caption_bar_layout(application_theme(), to_dips(client_width, dpi),
                                  application_caption_state(),
-                                 to_dips(static_cast<i32>(g_app.renderer.caption_height), dpi));
+                                 to_dips(static_cast<i32>(g_app.renderer.caption_height), dpi),
+                                 static_cast<float>(dpi) / 96.0f);
 }
 
 WindowFramePart frame_part(UiCaptionPart part) noexcept {
-    switch (part) {
-    case UiCaptionPart::caption:
+    switch (ui_caption_bar_native(part)) {
+    case UiCaptionNative::caption:
         return WindowFramePart::caption;
-    case UiCaptionPart::icon:
+    case UiCaptionNative::system_menu:
         return WindowFramePart::system_menu;
-    case UiCaptionPart::minimize:
-        return WindowFramePart::minimize;
-    case UiCaptionPart::maximize:
+    case UiCaptionNative::maximize:
         return WindowFramePart::maximize;
-    case UiCaptionPart::close:
-        return WindowFramePart::close;
     default:
         return WindowFramePart::client;
     }
@@ -136,6 +179,24 @@ void calculate_client(HWND window, RECT* rectangle) noexcept {
 void set_hover(UiCaptionPart hovered, UiCaptionPart pressed) noexcept {
     if (g_caption.hovered == hovered && g_caption.pressed == pressed)
         return;
+    if (g_caption.hovered != hovered) {
+        // A content tooltip gives way to the bar's.
+        if (g_caption.hovered == UiCaptionPart::none && ui_caption_bar_part_tooltip(hovered))
+            application_tooltip_clear();
+        // Sweeping from one shown tooltip to the next part skips the delay.
+        const u64 now = clock_monotonic_milliseconds();
+        if (g_caption.tooltip_shown)
+            g_caption.tooltip_hidden_ms = now;
+        const bool sweep = g_caption.tooltip_hidden_ms && now - g_caption.tooltip_hidden_ms < kCaptionTooltipSweepMs;
+        g_caption.tooltip_shown = false;
+        g_caption.tooltip_at_ms = !ui_caption_bar_part_tooltip(hovered) ? 0
+                                  : sweep                                ? maximum<u64>(1, now)
+                                                                         : now + kUiTooltipPointerDelayMs;
+    }
+    if (pressed != UiCaptionPart::none) {
+        g_caption.tooltip_shown = false;
+        g_caption.tooltip_at_ms = 0;
+    }
     g_caption.hovered = hovered;
     g_caption.pressed = pressed;
     application_request_frame();
@@ -172,7 +233,8 @@ void synchronize_icon(u32 dpi) noexcept {
 }
 
 bool bar_item(UiCaptionPart part) noexcept {
-    return part == UiCaptionPart::update || part == UiCaptionPart::settings;
+    return part == UiCaptionPart::update || part == UiCaptionPart::settings || part == UiCaptionPart::minimize ||
+           part == UiCaptionPart::close;
 }
 
 // The bar part under a client point, none below the bar.
@@ -214,6 +276,13 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
         set_hover(part, part);
         return true;
     }
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+        // The bar's items take no other buttons; content never sees them.
+        return bar_item(client_part(window, lparam));
     case WM_LBUTTONUP: {
         const UiCaptionPart pressed = g_caption.pressed;
         if (!bar_item(pressed))
@@ -267,6 +336,7 @@ Utf8View caption_title() noexcept {
 void application_caption_enable() noexcept {
     g_caption.enabled = true;
     g_caption.active = true;
+    g_caption.side_frame_stale = true;
 }
 
 u32 application_caption_height() noexcept {
@@ -296,7 +366,16 @@ SIZE application_caption_window_size(HWND window, u32 dpi, LONG content_width,
     return {content_width + 2 * border, content_height + static_cast<LONG>(caption_pixels(dpi)) + border};
 }
 
+u64 application_caption_tooltip_wake() noexcept {
+    return g_caption.tooltip_shown ? 0 : g_caption.tooltip_at_ms;
+}
+
 UiCaptionBarState application_caption_state() noexcept {
+    if (!g_caption.tooltip_shown && g_caption.tooltip_at_ms &&
+        clock_monotonic_milliseconds() >= g_caption.tooltip_at_ms)
+        g_caption.tooltip_shown = true;
+    const bool tooltip = g_caption.tooltip_shown && g_caption.pressed == UiCaptionPart::none &&
+                         ui_caption_bar_part_tooltip(g_caption.hovered);
     const ApplicationUpdatesView updates = application_updates_view();
     return {g_caption.hovered,
             g_caption.pressed,
@@ -304,7 +383,9 @@ UiCaptionBarState application_caption_state() noexcept {
             g_caption.maximized,
             application_update_badge(updates.state),
             g_app.login.visible,
-            application_update_progress(updates)};
+            application_update_progress(updates),
+            to_dips(static_cast<i32>(g_caption.side_frame), window_dpi(g_app.window)),
+            tooltip ? g_caption.hovered : UiCaptionPart::none};
 }
 
 UiCaptionBarLayout application_caption_layout() noexcept {
@@ -371,6 +452,8 @@ void application_caption_synchronize() noexcept {
         renderer_set_caption_height(&g_app.renderer, height);
         application_resize_client(g_app.window);
     }
+    if (g_caption.side_frame_stale)
+        measure_side_frame(g_app.window);
     if (height && renderer_set_caption(&g_app.renderer, application_caption_state(), caption_title()))
         synchronize_icon(window_dpi(g_app.window));
 }
@@ -418,6 +501,10 @@ bool application_caption_window_message(HWND window, UINT message, WPARAM wparam
     case WM_DPICHANGED:
         renderer_set_caption_height(&g_app.renderer, caption_pixels(HIWORD(wparam)));
         return false;
+    case WM_SIZE:
+        // DWM publishes the new frame bounds after the move completes.
+        g_caption.side_frame_stale = true;
+        return false;
     case WM_NCMOUSEMOVE: {
         const UiCaptionPart part = button_part(wparam);
         set_hover(part, g_caption.pressed);
@@ -427,6 +514,12 @@ bool application_caption_window_message(HWND window, UINT message, WPARAM wparam
         *result = 0;
         return true;
     }
+    case WM_NCMOUSEHOVER:
+        // No system tooltip over the maximize button; the bar shows its own.
+        if (button_part(wparam) == UiCaptionPart::none)
+            return false;
+        *result = 0;
+        return true;
     case WM_NCMOUSELEAVE:
         g_caption.tracking = false;
         set_hover(UiCaptionPart::none, UiCaptionPart::none);

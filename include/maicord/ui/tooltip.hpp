@@ -100,5 +100,9 @@ bool ui_tooltip_paint(const UiTooltipScene&, const Theme&, PaintStream*) noexcep
 bool ui_tooltip_text_output(const UiTooltipScene&, const Theme&, UiTextOutput*) noexcept;
 // The leading emoji's square while visible; false without one.
 bool ui_tooltip_emoji(const UiTooltipScene&, UiRect* square) noexcept;
+// A plain label's box for hosts that place, shape and draw the label
+// themselves (the window caption): painted as above, without a text owner.
+bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect rectangle, UiRect anchor,
+                          UiTooltipPlacement placement, const UiTooltipStyle& = UiTooltipStyle{}) noexcept;
 
 } // namespace maicord

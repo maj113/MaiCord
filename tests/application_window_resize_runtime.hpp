@@ -117,6 +117,14 @@ inline void test_window_resize_lifecycle() noexcept {
     check(
         !g_app.renderer.live_resize && g_app.animations.timeline.suspended && g_app.scroll_host.immediate,
         "resize lifecycle: exit preserves the user's reduced motion rather than unconditionally resuming");
+    // Below a window caption the renderer keeps only the content rows.
+    const u32 old_caption = g_app.renderer.caption_height;
+    g_app.renderer.caption_height = 30;
+    SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
+    SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
+    check(g_app.renderer.width == 322 && g_app.renderer.height == 181 - 30,
+          "resize lifecycle: exit sizes the content below the window caption");
+    g_app.renderer.caption_height = old_caption;
     resize_messages_active = false;
     DestroyWindow(window);
     UnregisterClassW(name, type.hInstance);

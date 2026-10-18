@@ -14,6 +14,7 @@ namespace maicord {
 namespace {
 
 bool update_frame_transform(D3D11Renderer* renderer) noexcept {
+    renderer->pipeline.backdrop_caption = renderer->caption_height;
     return d3d11_draw_pipeline_update_transform(renderer->pipeline, renderer->graphics.context, renderer->width,
                                                 renderer->height, renderer->dpi, renderer->target_origin_y);
 }
@@ -809,6 +810,7 @@ void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept {
     if (!renderer || renderer->caption_height == height)
         return;
     renderer->caption_height = height;
+    renderer->pipeline.backdrop_caption = height;
     renderer_bind_target_origin(renderer, height);
     renderer->previous_buffer_damage_valid = true;
     renderer->previous_buffer_damage_full = true;

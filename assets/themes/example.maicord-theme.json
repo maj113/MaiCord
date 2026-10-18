@@ -139,7 +139,6 @@
     },
     "caption": {
       "background": "{colors.base_lowest}",
-      "background_inactive": "{colors.base_lowest}",
       "text": "{semantic.text.normal}",
       "text_inactive": "{semantic.text.muted}",
       "icon": "{semantic.text.muted}",

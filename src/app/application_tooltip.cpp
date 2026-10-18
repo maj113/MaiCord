@@ -1,4 +1,5 @@
 #include "application_tooltip.hpp"
+#include "application_caption.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_settings.hpp"
@@ -735,7 +736,9 @@ void application_tooltip_release() noexcept {
         VirtualFree(owner, 0, MEM_RELEASE);
 }
 u64 application_tooltip_next_wake() noexcept {
-    return g_app.tooltip ? ui_tooltip_next_wake(g_app.tooltip->scene) : 0;
+    const u64 content = g_app.tooltip ? ui_tooltip_next_wake(g_app.tooltip->scene) : 0;
+    const u64 caption = application_caption_tooltip_wake();
+    return !content ? caption : !caption ? content : minimum(content, caption);
 }
 bool application_tooltip_synchronize(u64 now_ms) noexcept {
     return !g_app.tooltip || refresh(*g_app.tooltip, now_ms);

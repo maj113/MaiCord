@@ -437,6 +437,13 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
             continue;
         }
         const PaintClip& clip = renderer->paint_stream.clips[batch.clip_index];
+        // A scrim over the whole content opens its batch (it follows the
+        // overlay's clip); the window caption dims with it.
+        const PaintQuad& lead = renderer->paint_stream.quads[batch.first_quad];
+        if (lead.left <= 0 && lead.top <= 0 && lead.right * pixel_scale >= static_cast<float>(renderer->width) &&
+            lead.bottom * pixel_scale >= static_cast<float>(renderer->height) && lead.radius == 0 &&
+            lead.border_width == 0 && lead.reserved_x != kUiBackgroundCanvasMarker)
+            d3d11_renderer_caption_note_scrim(renderer, lead.fill, renderer->background_fx.layer_opacity);
         RasterClipRect scissor{};
         if (!batch_scissor(*renderer, UiRect{clip.left, clip.top, clip.right, clip.bottom}, pixel_scale, damage,
                            &scissor)) {
@@ -856,6 +863,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                                                       renderer->background_phase_seconds, renderer->width,
                                                       renderer->height, renderer->dpi, frame_ms));
     renderer->text_effect_next_ms = frame_ms + 42;
+    d3d11_renderer_caption_begin_scrim(renderer);
     renderer->draw_calls_last_frame = 0;
     renderer->media_draws_last_frame = 0;
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;

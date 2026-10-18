@@ -102,6 +102,9 @@ struct D3D11DrawPipelineOwner {
     bool background_active;
     bool background_light;
     bool background_source_valid;
+    // Pixels of window caption above the content: the backdrop gradient spans
+    // both, so it continues under the caption.
+    u32 backdrop_caption;
 };
 
 static_assert(sizeof(D3D11DrawPipelineResult) == 8);
@@ -142,6 +145,12 @@ bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, ID3
 bool d3d11_draw_pipeline_update_layer(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
                                       u32 width, u32 height, u32 dpi, float opacity, float scale, float origin_x,
                                       float origin_y) noexcept;
+// The caption band's frame: `height` pixels at the target's top over a
+// `content_height` content. Caption DIPs map to the band; `content_space`
+// maps content DIPs -caption..0 there instead (the background effect pass).
+bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
+                                        u32 width, u32 height, u32 content_height, u32 dpi,
+                                        bool content_space) noexcept;
 void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept;
 // Lazy GPU storage; inactive configurations do not allocate. Copied validated
 // constants update only when configuration or sampled phase changes.
