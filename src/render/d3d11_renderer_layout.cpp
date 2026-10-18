@@ -34,6 +34,7 @@
 
 #include "d3d11_renderer_draw.hpp"
 #include "d3d11_renderer_layout.hpp"
+#include "d3d11_renderer_caption.hpp"
 #include "d3d11_renderer_edit.hpp"
 #include "d3d11_renderer_interaction_state.hpp"
 #include "d3d11_renderer_login_form.hpp"
@@ -419,6 +420,38 @@ bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, U
                                       ui_layout_content_bounds_allow_overlap)))
         return false;
     reveal_media_underlay(*renderer, before, r, placeholder);
+    return true;
+}
+
+// A conversation pinned in the server rail draws what its conversation row
+// draws: a custom group icon, the peer's avatar or the two-member stack.
+bool queue_conversation_pin(D3D11Renderer* renderer, const GuildRailRowWidget& row, UiRect icon,
+                            const Theme& theme) noexcept {
+    const auto* channel = chat_state_store_find_channel(*renderer->chat_state, row.view.id);
+    if (!channel || !renderer->user_store)
+        return true;
+    const UiWidgetReference owner{&renderer->guild_rail_scene->widgets, row.widget};
+    const UiRect clip = renderer->guild_rail_scene->viewport;
+    if (row.view.avatar_shape == 1 && channel->type == 3) {
+        const Utf8View custom = ui_private_row_custom_icon(*renderer->chat_state, channel->id);
+        const MediaAtlasResult allocation = media_atlas_peek(
+            renderer->media_atlas,
+            media_asset_channel_icon(channel->id, user_avatar_variant(custom), asset_hash_animated(custom)));
+        return !allocation.ok() || queue_avatar(renderer, allocation, icon, clip, owner, theme.avatar_placeholder);
+    }
+    u64 people[2]{};
+    const u32 count = ui_private_row_group_members(*renderer->chat_state, channel->id, people);
+    for (u32 j = 0; j < count && renderer->media_quad_count < kRendererMediaQuadCapacity; ++j) {
+        const auto* user = user_store_find(*renderer->user_store, people[j]);
+        MediaAtlasResult allocation{};
+        if (!user || !find_user_avatar(*renderer, *user, &allocation))
+            continue;
+        if (!queue_avatar(renderer, allocation, channel->type == 3 ? ui_private_row_group_avatar(icon, j) : icon,
+                          clip, owner, theme.avatar_placeholder))
+            return false;
+        if (channel->type != 3)
+            break;
+    }
     return true;
 }
 
@@ -1173,6 +1206,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (layout && row.view.folder_role == GuildFolderRole::header && !row.view.folder_expanded &&
                 !queue_folder_preview(renderer, row, guild_rail_icon_rectangle(layout->rectangle)))
                 return layout_step_failed(__LINE__);
+            if (layout && row.view.folder_role == GuildFolderRole::conversation) {
+                if (!queue_conversation_pin(renderer, row, guild_rail_icon_rectangle(layout->rectangle), theme))
+                    return layout_step_failed(__LINE__);
+                continue;
+            }
             const GuildRecord* guild =
                 chat_state_store_find_guild(*renderer->chat_state, row.view.id);
             if (!guild || !layout || guild->icon_variant == 0 || guild->icon_hash_bytes == 0) {
@@ -2706,7 +2744,8 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
         damage =
             presentation_damage_current(renderer->presentation_damage, viewport_width, viewport_height);
     }
-    if (!damage.valid && !renderer->begin_frame_permit) {
+    const bool caption = d3d11_renderer_caption_pending(renderer, theme);
+    if (!damage.valid && !renderer->begin_frame_permit && !caption) {
         // The only outstanding mutations were for non-visible atlas slots.
         // They do not require a swap-chain present and can become baseline;
         // navigation/layout changes already force a complete scene rebuild.
@@ -2757,7 +2796,8 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
     }
     const D3D11_RECT* scissor = renderer->present_full ? nullptr : renderer->present_dirty_rect.native();
     return d3d11_renderer_draw_stream(renderer, theme, !retained, !retained || media_source_changed,
-                                      scissor);
+                                      scissor) &&
+           d3d11_renderer_caption_draw(renderer, theme);
 }
 
 

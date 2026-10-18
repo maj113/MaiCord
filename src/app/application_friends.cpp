@@ -1,4 +1,5 @@
 #include "application_action_captcha.hpp"
+#include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_friends.hpp"
 #include "application_state.hpp"
@@ -1268,7 +1269,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
     }
     if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
         POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        if (!ScreenToClient(g_app.window, &point)) return false;
+        if (!application_screen_to_content(&point)) return false;
         const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);x = point.x * scale;y = point.y * scale;
         if (!ui_rect_contains(scene.viewport, x, y)) return modal;
         if (message == WM_MOUSEWHEEL) {

@@ -957,6 +957,8 @@ bool open_focused_context_popup() noexcept {
         const auto* row = guild_rail_scene_resolve(g_app.guild_rail_scene, focused);
         if (row && row->view.folder_role == GuildFolderRole::header)
             return open_folder_context_popup(row->view.id, anchor);
+        if (row && row->view.folder_role == GuildFolderRole::conversation)
+            return open_channel_context_popup(row->view.id, anchor);
         return !row || open_guild_context_popup(row->view.id, anchor);
     }
     if (g_app.context_focus == &g_app.message_composer_scene.widgets &&

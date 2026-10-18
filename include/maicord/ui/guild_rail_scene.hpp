@@ -116,6 +116,7 @@ struct GuildRailHit {
     bool selectable;
     bool folder; // id is a folder header row id
     bool add_server; // the "Add a server" button after the last row (id is zero)
+    bool conversation; // id is a pinned conversation's channel
 };
 
 struct GuildRailScene {

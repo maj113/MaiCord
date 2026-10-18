@@ -345,6 +345,20 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                        theme.text_primary)) {
         return false;
     }
+    // Friend and message requests badge Home, cut out of the rail like a server badge.
+    if (navigation && navigation->home_badge) {
+        const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1 * 1.5f;
+        const auto badge = ui_mention_badge_guild_rectangle(home->rectangle, navigation->home_badge);
+        if (!paint_stream_push_rounded_border(stream, pixel_truncated(badge.left - cutout),
+                                              pixel_truncated(badge.top - cutout),
+                                              pixel_truncated(badge.right + cutout),
+                                              pixel_truncated(badge.bottom + cutout), theme.notification,
+                                              theme.base_lowest, ui_rect_height(badge) * 0.5f + cutout, cutout) ||
+            !record_content(stream, scene.widgets, home->widget, badge, UiLayoutContentKind::decoration,
+                            static_cast<u16>(ui_layout_content_bounds_allow_overflow |
+                                             ui_layout_content_bounds_allow_overlap)))
+            return false;
+    }
 
     if (guild_scene && guild_scene->active) {
         if (!paint_stream_push_clip(stream, guild_navigation->rectangle.left,
@@ -383,6 +397,15 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     !record_content(stream, guild_scene->widgets, row_widget.widget, rectangle,
                                     UiLayoutContentKind::control))
                     return false;
+            }
+            // A pinned conversation sits on avatar placeholders like its
+            // conversation row; the avatars are media above.
+            if (row.folder_role == GuildFolderRole::conversation) {
+                if (!ui_private_avatar_placeholder_paint(stream, row.avatar_shape, rectangle, theme) ||
+                    !record_content(stream, guild_scene->widgets, row_widget.widget, rectangle,
+                                    UiLayoutContentKind::control))
+                    return false;
+                continue;
             }
             // The fallback tile belongs to guilds without artwork. Painting it
             // below an icon replaces the rail backdrop in transparent pixels.

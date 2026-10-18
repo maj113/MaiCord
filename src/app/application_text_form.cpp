@@ -1,4 +1,5 @@
 #include "application_click_count.hpp"
+#include "application_content_point.hpp"
 #include "application_text_form_state.hpp"
 #include "application_cursor.hpp"
 #include "application_composer_text_input.hpp"
@@ -229,7 +230,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
     const auto bounds = field->content_rectangle;
     POINT origin{};
-    if (!ClientToScreen(g_app.window, &origin) ||
+    if (!application_content_to_screen(&origin) ||
         !GetWindowRect(g_app.window, output->window_screen.native()))
         return false;
     output->text_screen = {origin.x + static_cast<LONG>(bounds.left * scale),
@@ -244,7 +245,7 @@ bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* 
         form->surface.layout.text_signature !=
             text_edit_signature(
                 {reinterpret_cast<const char*>(form->edit.storage.data), form->edit.storage.bytes}) ||
-        !ScreenToClient(g_app.window, &point))
+        !application_screen_to_content(&point))
         return false;
     const float scale = 96.0f / g_app.renderer.dpi;
     return text_edit_layout_point_geometry(form->surface.layout, point.x * scale, point.y * scale, round,
@@ -1005,7 +1006,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
     }
     case WM_MOUSEWHEEL: {
         POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
         const float delta = -static_cast<float>(static_cast<short>(HIWORD(wparam))) / WHEEL_DELTA * 48;
         if (!form->request.confirmation_only &&
             text_form_hit_test(form->scene, point.x * scale, point.y * scale) == TextFormElement::edit)

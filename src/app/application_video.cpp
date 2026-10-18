@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "application_content_point.hpp"
 #include "application_video.hpp"
 #include "application_call.hpp"
 #include "application_video_request.hpp"
@@ -195,7 +196,7 @@ bool video_surface_available() noexcept {
 UiPoint video_pointer_position() noexcept {
     POINT pointer{};
     if (!GetCursorPos(&pointer) || WindowFromPoint(pointer) != g_app.window ||
-        !ScreenToClient(g_app.window, &pointer))
+        !application_screen_to_content(&pointer))
         return {-kMaximumUiCoordinate, -kMaximumUiCoordinate};
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     return {pointer.x * scale, pointer.y * scale};

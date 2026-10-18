@@ -274,6 +274,12 @@ maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_test
     INCLUDES src/app
     TIMEOUT 10
     TEST maicord_layout_consistency)
+# Window caption frame insets, hit testing across DPIs and button states.
+maicord_test(MaiCordWindowCaptionTests ENTRY maicord_window_caption_tests_entry
+    SOURCES tests/window_caption.cpp
+    LIBS maicord_core maicord_platform maicord_ui kernel32 user32
+    TIMEOUT 10
+    TEST maicord_window_caption)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/application_settings_runtime.cpp tests/application_custom_theme.cpp
         tests/application_plugin_catalog_runtime.cpp tests/application_plugin_navigation_runtime.cpp
@@ -497,6 +503,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         src/app/application_attachment_allowance.cpp src/app/application_state.cpp
         tests/private_channel_state.cpp tests/private_membership.cpp tests/private_snapshot.cpp
         tests/gateway_state_recovery.cpp tests/navigation_restore.cpp tests/private_order.cpp
+        tests/private_rail_pins.cpp
         tests/private_conversation.cpp tests/private_channel_actions.cpp tests/media_fixture.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_webauthn maicord_account_paths
         maicord_account_host maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime
@@ -1605,6 +1612,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         src/app/settings_catalog.cpp
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
+        tests/integration/caption_ui_probe.cpp src/app/app_icon.cpp config/maicord.rc
         tests/integration/login_recovery_ui_probe.cpp tests/login_reset_ui_probe.cpp
         tests/integration/login_phone_ui_probe.cpp tests/integration/login_browser_ui_probe.cpp
         tests/integration/member_paging_probe.cpp tests/integration/thread_members_probe.cpp
@@ -1635,6 +1643,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
 # The constinit probe state (renderer plus every scene owner) exceeds the
 # default constant-evaluation step budget.
 set_source_files_properties(tests/integration/ui_probe.cpp PROPERTIES COMPILE_OPTIONS "/constexpr:steps8388608")
+# The caption probe decodes the client's own icon resource.
+add_dependencies(MaiCordUiProbe maicord_app_icon)
 # The single-scene WIN32 probes link the renderer stack and run with GPU metrics.
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model
     maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer
@@ -1746,7 +1756,8 @@ endforeach()
 foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_TITLE CATALOG_APNG_UI INBOX_UI
         LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI NOTIFICATION_SETTINGS_UI PLUGIN_CATALOG_UI
         PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI TOOLTIP_UI TRANSPARENT_GUILD_UI USER_SETTINGS_UI UI_CHANNEL_OVERVIEW
-        UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION UI_INLINE_FLAGS
+        UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
+        UI_INLINE_FLAGS
         UI_MEDIA_UNDERLAY UI_MESSAGE_FORWARD UI_PANE_GLYPH_STRESS UI_PINNED_MESSAGES UI_QUICK_SWITCHER
         UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)

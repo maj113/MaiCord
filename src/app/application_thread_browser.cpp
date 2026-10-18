@@ -1,4 +1,5 @@
 #include "application_thread_browser.hpp"
+#include "application_content_point.hpp"
 #include "rest_rate_retry.hpp"
 #include "application_state.hpp"
 #include "application_composer_text_input.hpp"
@@ -1080,7 +1081,8 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
     }
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
     if (message == WM_CONTEXTMENU && lparam == -1) return g_app.context_focus == &value->scene.widgets;
-    if (message == WM_CONTEXTMENU || message == WM_MOUSEHWHEEL || message == WM_MOUSEWHEEL) ScreenToClient(g_app.window, &point);
+    if (message == WM_CONTEXTMENU || message == WM_MOUSEHWHEEL || message == WM_MOUSEWHEEL)
+        application_screen_to_content(&point);
     const float x = point.x * scale;
     const float y = point.y * scale;
     const bool inside = ui_thread_browser_scene_contains(value->scene, x, y);

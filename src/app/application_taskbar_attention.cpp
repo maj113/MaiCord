@@ -32,8 +32,10 @@ void recount() noexcept {
         const u16 slot = state.guild_order[order];
         if (slot >= state.guild_capacity)
             continue;
+        // Mentions in muted servers still count; their unread channels do not.
         g_owner.mentions += state.guilds[slot].mention_count;
-        g_owner.unread = g_owner.unread || state.guilds[slot].unread_channels != 0;
+        g_owner.unread = g_owner.unread || (state.guilds[slot].unread_channels != 0 &&
+                                            !state.guilds[slot].notification_muted);
     }
     const auto& privates = ui.private_channel_store;
     for (u32 i = 0; i < privates.count; ++i) {

@@ -5,7 +5,7 @@
 #include "maicord/sys/gdi.hpp"
 
 namespace maicord {
-// A mapped CPU copy of the renderer's active viewport.
+// A mapped CPU copy of the renderer's active viewport (and caption rows).
 struct ProbeTargetReadback {
     ID3D11DeviceContext* context = nullptr;
     ID3D11Texture2D* staging = nullptr;
@@ -35,10 +35,11 @@ inline u32 probe_target_readback(D3D11Renderer& r, ProbeTargetReadback* out) noe
         return 1;
     D3D11_TEXTURE2D_DESC description{};
     source->GetDesc(&description);
-    // Resize may retain a larger backing texture; only the active viewport is
-    // read, and each source row follows the mapped pitch.
-    if (!r.width || !r.height || r.width > description.Width || r.height > description.Height ||
-        static_cast<u64>(r.width) * r.height * 4 >
+    // Resize may retain a larger backing texture; only the active viewport and
+    // the caption rows above it are read, each row following the mapped pitch.
+    const u32 rows = r.height + r.caption_height;
+    if (!r.width || !r.height || r.width > description.Width || rows > description.Height ||
+        static_cast<u64>(r.width) * rows * 4 >
             MAXDWORD - sizeof(BITMAPFILEHEADER) - sizeof(BITMAPINFOHEADER)) {
         com_release(source);
         return 2;
@@ -58,7 +59,7 @@ inline u32 probe_target_readback(D3D11Renderer& r, ProbeTargetReadback* out) noe
         return 4;
     }
     out->width = r.width;
-    out->height = r.height;
+    out->height = rows;
     return 0;
 }
 

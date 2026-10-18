@@ -839,6 +839,27 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         return request_visible_hashed_identity(key, custom, now_ms, now_seconds, &uploads, repaint, stop_scan,
                                                force_request);
     };
+    // Conversations pinned in the server rail show still avatars.
+    for (u32 i = 0; application.guild_rail_scene.active && i < application.guild_rail_scene.count; ++i) {
+        const auto& row = application.guild_rail_scene.rows[i];
+        if (row.view.folder_role != GuildFolderRole::conversation)
+            continue;
+        bool custom_icon = false, icon_stop = false;
+        if (!request_group_icon(row.view.id, &custom_icon, &icon_stop, false))
+            return false;
+        if (icon_stop)
+            return true;
+        u64 people[2]{};
+        const u32 count =
+            custom_icon ? 0 : ui_private_row_group_members(application.account_ui->chat_state, row.view.id, people);
+        for (u32 j = 0; j < count; ++j) {
+            bool stop_scan = false;
+            if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]), &stop_scan, false))
+                return false;
+            if (stop_scan)
+                return true;
+        }
+    }
     if (application.shell_navigation_scene.active) {
         const auto& scene = application.shell_navigation_scene;
         const auto* hovered_row = shell_navigation_scene_resolve(scene, scene.widgets.hovered);

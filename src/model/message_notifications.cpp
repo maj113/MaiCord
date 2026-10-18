@@ -31,6 +31,12 @@ template<class T,class U> bool overlaps(ConstSlice<T> a,Slice<U>b) noexcept {
 bool has_guild(ConstSlice<MessageNotificationGuildSetting> s,u64 id) noexcept {
     for(u32 i=0;i<s.count;++i)if(s[i].guild_id==id)return true;return false;
 }
+// Direct messages (guild 0) have no server default: without their own row
+// they use the baseline, so an incomplete marker elsewhere never silences them.
+bool settings_known(const MessageNotificationStore& s,const MessageNotificationGuildSetting* g,u64 guild) noexcept {
+    return g?!g->incomplete:(s.complete||!guild);
+}
+bool private_type(u8 type) noexcept {return type==1||type==3;}
 }
 bool message_notifications_initialize(MessageNotificationStore* s,Slice<MessageNotificationGuildSetting>g,
     Slice<MessageNotificationOverride>o,Slice<MessageNotificationThreadSetting>t,MessageNotificationReserve r,void*c) noexcept {
@@ -135,9 +141,13 @@ MessageNotificationScope message_notification_scope_resolve(const MessageNotific
     const auto fail=[](R reason) noexcept {return MessageNotificationScope{reason,L::inherit,false,false};};
     if(!i.settings||!i.channel_id||static_cast<u8>(mode)>static_cast<u8>(MessageNotificationScopeMode::message_thread))return fail(R::unknown);
     const auto*g=message_notifications_guild(*i.settings,i.guild_id);
-    if((!g&&!i.settings->complete)||(g&&g->incomplete))return fail(R::unknown);
+    if(!settings_known(*i.settings,g,i.guild_id))return fail(R::unknown);
     auto gs=g?g->setting:baseline();
     const auto*c=message_notifications_override(*i.settings,i.guild_id,i.channel_id);
+    // A conversation notifies for every message unless it is muted.
+    if(!i.guild_id&&private_type(i.channel_type))
+        return (message_notification_muted(gs,i.now_ms)||(c&&message_notification_muted(c->setting,i.now_ms)))?
+            fail(R::muted):MessageNotificationScope{R::eligible,L::all,false,false};
     const auto*p=message_notifications_override(*i.settings,i.guild_id,i.parent_id);
     const bool thread=i.channel_type==10||i.channel_type==11||i.channel_type==12||i.channel_type==19;
     if(message_notification_muted(gs,i.now_ms)||(c&&message_notification_muted(c->setting,i.now_ms))||
@@ -204,13 +214,13 @@ MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
        (i.author_id==i.self_id&&i.message_type!=46)||
        (i.known_gates&relationships)!=relationships||(i.gates&relationships))return B::none;
     const auto* guild=message_notifications_guild(*i.settings,i.guild_id);
-    const bool settings_known=(guild&&!guild->incomplete)||(!guild&&i.settings->complete);
+    const bool known=settings_known(*i.settings,guild,i.guild_id);
     const auto* channel=message_notifications_override(*i.settings,i.guild_id,i.channel_id);
     const auto* parent=message_notifications_override(*i.settings,i.guild_id,i.parent_id);
     const auto* category=message_notifications_override(*i.settings,i.guild_id,i.category_id);
     const auto* thread=message_notifications_thread(*i.settings,i.channel_id);
     bool mentioned=i.direct_mention;
-    if(settings_known){
+    if(known){
         const bool suppress_everyone=guild&&guild->setting.suppress_everyone;
         const bool suppress_roles=guild&&guild->setting.suppress_roles;
         mentioned|=i.everyone_mention&&!suppress_everyone;
@@ -223,10 +233,12 @@ MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
         (parent&&message_notification_muted(parent->setting,i.now_ms))||
         (category&&message_notification_muted(category->setting,i.now_ms));
     const bool muted=scope_muted||(channel&&message_notification_muted(channel->setting,i.now_ms));
+    // Every message in an unmuted conversation counts as a mention; a muted
+    // one counts real mentions only. Recipient removals never count.
     const bool private_channel=i.channel_type==1||i.channel_type==3||i.channel_type==18;
     if(private_channel){
         if(i.message_type==2)return B::none;
-        if((settings_known&&!muted)||mentioned)return B::mention;
+        if((known&&!muted)||mentioned)return B::mention;
     }else if(mentioned)return B::mention;
     if(!mention_on_all_messages||i.channel_type==2||i.channel_type==13)return B::none;
     const bool is_thread=i.channel_type==10||i.channel_type==11||i.channel_type==12||i.channel_type==19;
@@ -238,7 +250,7 @@ MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
         if(thread->setting.flags&(4u|8u))return B::none;
         if(!i.parent_id||scope_muted)return B::none;
     }else if(muted)return B::none;
-    if(!settings_known)return B::none;
+    if(!known)return B::none;
     L level=!is_thread&&channel?channel->setting.level:L::inherit;
     if(level==L::inherit&&parent)level=parent->setting.level;
     if(level==L::inherit&&category)level=category->setting.level;

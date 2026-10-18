@@ -54,6 +54,9 @@ struct Fixture {
     DesktopNotificationResult removal_result;
     u32 removal_count, show_action;
     bool relationship_known, hold_completion, sink_valid, trace_ready, auto_drain;
+    ReadStateEntry read_pending[32];
+    PrivateChannelRecord private_records[8];
+    u64 private_recipients[32];
 };
 Fixture fixture{};
 
@@ -202,8 +205,13 @@ bool initialize() noexcept {
     if (!chat_state_store_initialize(&f.ui.chat_state, {f.guilds, 4}, {f.guild_order, 4},
             {f.channels, 32}, {f.channel_order, 32}, {f.names, sizeof(f.names)}) ||
         !chat_state_store_bind_permissions(&f.ui.chat_state, {f.roles, 16}, {f.overwrites, 32}) ||
+        !read_state_initialize(&f.ui.read_state_store, {f.read_pending, 32}) ||
+        !read_state_bind(&f.ui.chat_state, &f.ui.read_state_store) ||
+        !private_channel_store_initialize(&f.ui.private_channel_store, {f.private_records, 8},
+            {f.private_recipients, 32}) ||
         !user_store_initialize(&f.ui.user_store, {f.users, 16}, {f.user_order, 16},
             {f.user_names, sizeof(f.user_names)}) ||
+        !(f.ui.chat_state.private_channels = &f.ui.private_channel_store) ||
         !message_store_initialize(&f.messages, {f.message_rows, 8}, {f.message_order, 8},
             {f.message_text, sizeof(f.message_text)}) ||
         !ui_variable_list_initialize(&f.list, {f.heights, 8}, {f.fenwick, 8}, 0, 100) ||
@@ -760,6 +768,79 @@ void controls_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         "notification controls: Nothing on a channel suppresses its messages");
     application_notifications_release(&g_app);
 }
+// Direct messages: 40 one-to-one, 41 group, 42 muted one-to-one. READY
+// restores DM 43's unread count from its read state.
+constexpr auto dm_ready = utf8_literal(R"({"v":9,"user":{"id":"1","username":"self"},"session_id":"notification-fixture","resume_gateway_url":"wss://gateway.discord.gg","users":[{"id":"2","username":"Peer"},{"id":"3","username":"Other"}],"guilds":[{"id":"10","name":"Guild","owner_id":"99","default_message_notifications":0,"joined_at":"2026-10-01T00:00:00Z","roles":[{"id":"10","name":"@everyone","permissions":"68608"}],"members":[{"user":{"id":"1","username":"self"},"roles":[]}],"channels":[{"id":"20","type":0,"name":"selected","permission_overwrites":[]},{"id":"21","type":0,"name":"other","permission_overwrites":[]}],"threads":[]}],"private_channels":[{"id":"40","type":1,"recipient_ids":["2"],"last_message_id":"40"},{"id":"41","type":3,"recipient_ids":["2","3"],"owner_id":"2","name":"Group","last_message_id":"41"},{"id":"42","type":1,"recipient_ids":["3"],"last_message_id":"42"},{"id":"43","type":1,"recipient_ids":["3"],"last_message_id":"4300"}],"read_state":{"entries":[{"id":"43","last_message_id":"4200","mention_count":2}],"partial":false,"version":1},"user_guild_settings":{"entries":[{"guild_id":"10","message_notifications":1,"muted":false,"channel_overrides":[]},{"guild_id":null,"message_notifications":3,"muted":false,"channel_overrides":[{"channel_id":"42","muted":true,"message_notifications":3}]}],"partial":false,"version":10},"notification_settings":{"flags":0},"user_settings_proto":""})");
+void dm_regressions(void(*check)(bool,const char*) noexcept) noexcept {
+    using namespace notification_application_probe;
+    using namespace app_detail;
+    auto& f=fixture;
+    const auto dm=[&](u64 id) noexcept {return chat_state_store_find_channel(f.ui.chat_state,id);};
+    const auto unread=[&](u64 id) noexcept {return dm(id)&&chat_state_store_channel_unread(f.ui.chat_state,*dm(id));};
+    check(initialize() && enable_sound() && hydrate(dm_ready),"dm: READY with conversations hydrates");
+    check(dm(43)&&dm(43)->mention_count==2&&unread(43)&&dm(40)&&!dm(40)->mention_count&&!unread(40),
+        "dm: READY read state restores a conversation's unread count");
+    check(message(4001,11,40)&&dm(40)->mention_count==1&&unread(40)&&!(dm(40)->read_flags&4u),
+        "dm: every unmuted direct message counts as a full mention");
+    check(f.delivered==1&&f.last.target.channel_id==40&&f.sound_count==1&&f.sounds[0].clip_id==1,
+        "dm: a direct message without a ping shows a toast and plays the message sound");
+    f.sound_now=10'000;
+    check(message(4101,12,41)&&dm(41)->mention_count==1&&unread(41)&&f.delivered==2&&
+        f.last.target.channel_id==41&&f.sound_count==2,
+        "dm: a group conversation message counts, notifies and sounds");
+    check(message(4102,13,41,utf8_literal("\"\""),3,{},utf8_literal("Other"),0,2)&&dm(41)->mention_count==1&&f.delivered==2,
+        "dm: a recipient removal in a group conversation never counts or notifies");
+    f.sound_now=20'000;
+    check(message(4201,14,42)&&!dm(42)->mention_count&&f.delivered==2&&f.sound_count==2,
+        "dm: a muted conversation neither counts nor notifies ordinary messages");
+    check(dispatch(utf8_literal("MESSAGE_CREATE"),utf8_literal(R"({"id":"4202","channel_id":"42","type":0,"author":{"id":"3","username":"Other","public_flags":0},"content":"hi","timestamp":"2026-10-02T00:00:00Z","mention_everyone":false,"mentions":[{"id":"1","username":"self"}],"mention_roles":[]})"),15)&&
+        dm(42)->mention_count==1&&f.delivered==2&&f.sound_count==2,
+        "dm: a muted conversation counts a real ping without a toast or sound");
+    check(message(4003,16,40,utf8_literal("\"mine\""),1,{},utf8_literal("self"))&&!dm(40)->mention_count&&
+        dm(40)->last_read_message_id==4003&&!unread(40)&&f.delivered==2&&f.sound_count==2,
+        "dm: the user's own message reads the conversation without a toast or sound");
+    check(global(utf8_literal(R"({"partial":true,"settings":{"type":1,"proto":"WgcKBQoDZG5k"}})")),
+        "dm: Do Not Disturb arrives");
+    f.sound_now=30'000;
+    check(message(4004,17,40)&&dm(40)->mention_count==1&&f.delivered==2&&f.sound_count==2,
+        "dm: Do Not Disturb keeps the badge but silences toast and sound");
+    check(global(utf8_literal(R"({"partial":false,"settings":{"type":1,"proto":"WgIKAA=="}})")),
+        "dm: Do Not Disturb ends");
+    check(chat_state_store_select_channel(&f.ui.chat_state,40).ok(),"dm: conversation opens");
+    application_notifications_fixture_focus(&g_app,true);
+    g_app.preferences.selected_message_sounds_enabled=false;
+    f.sound_now=40'000;
+    check(message(4005,18,40)&&f.delivered==2&&f.sound_count==2,
+        "dm: the focused open conversation shows no toast and no sound");
+    g_app.preferences.selected_message_sounds_enabled=true;
+    f.sound_now=50'000;
+    check(message(4006,19,40)&&f.delivered==2&&f.sound_count==3&&f.sounds[2].clip_id==2,
+        "dm: the focused open conversation plays only the selected-channel sound when enabled");
+    application_notifications_fixture_focus(&g_app,false);
+    check(chat_state_store_select_channel(&f.ui.chat_state,20).ok()&&message(4007,20,40)&&f.delivered==3&&
+        application_notifications_fixture_metrics(&g_app).retention_tickets==3,
+        "dm: a toast for an unfocused conversation is retained");
+    check(dispatch(utf8_literal("MESSAGE_ACK"),utf8_literal(R"({"channel_id":"40","message_id":"4007","version":2})"),21)&&
+        !dm(40)->mention_count&&!unread(40)&&application_notifications_fixture_metrics(&g_app).retention_tickets==1,
+        "dm: an ack clears the conversation badge and withdraws its toasts");
+    check(dispatch(utf8_literal("MESSAGE_ACK"),utf8_literal(R"({"channel_id":"43","message_id":"4300","version":3})"),22)&&
+        !dm(43)->mention_count&&!unread(43),"dm: an ack clears a READY-restored conversation count");
+    // Mark a pending message request: it never holds a count.
+    check(private_channel_store_set_request(&f.ui.private_channel_store,40,private_request_pending)&&
+        message(4008,23,40)&&!dm(40)->mention_count,"dm: a message request never holds a mention count");
+    check(dispatch(utf8_literal("MESSAGE_CREATE"),utf8_literal(R"({"id":"4103","channel_id":"41","type":0,"author":{"id":"3","username":"Other","avatar":"not-a-hash","public_flags":0},"content":"hi","timestamp":"2026-10-02T00:00:00Z","mention_everyone":false,"mentions":[],"mention_roles":[]})"),24)&&
+        dm(41)->last_message_id==4103&&dm(41)->mention_count==2&&g_app.message_pump.hydration_skipped==1,
+        "dm: an author the user cache rejects still counts the message");
+    // Without a DM settings row, an unrelated server's incomplete settings
+    // leave conversations known.
+    constexpr auto no_dm_row=utf8_literal(R"({"entries":[{"guild_id":"10","message_notifications":1,"muted":false,"channel_overrides":[]}],"partial":false,"version":10})");
+    check(initialize()&&enable_sound()&&hydrate(dm_ready,10,false,no_dm_row)&&
+        settings(utf8_literal(R"({"guild_id":"11","message_notifications":9})"))&&
+        !application_notifications_store(&g_app)->complete,"dm: another server's settings become incomplete");
+    check(message(4009,21,40)&&dm(40)->mention_count==1&&f.delivered==1&&f.sound_count==1,
+        "dm: conversations still count and notify while other settings are incomplete");
+    application_notifications_release(&g_app);
+}
 void test_application_notifications(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace notification_application_probe;
     using namespace app_detail;
@@ -1062,6 +1143,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         "notification application: account stop discards owner authority and never navigates or opens OS delivery");
     application_notifications_release(&g_app);
     check(!g_app.notifications, "notification application: release clears nonemitting owner");
+    dm_regressions(check);
     sound_regressions(check);
     controls_regressions(check);
     pack_regressions(check);

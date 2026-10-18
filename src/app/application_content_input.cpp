@@ -454,6 +454,11 @@ bool activate_navigation_press(LPARAM lparam) noexcept {
             application_guild_folders_toggle(rail.id);
             return true;
         }
+        if (rail.conversation) {
+            guild_rail_scene_focus_guild(&g_app.guild_rail_scene, rail.id);
+            g_app.context_focus = &g_app.guild_rail_scene.widgets;
+            return select_navigation(false, rail.id, true);
+        }
     }
     const auto hit = renderer_navigation_hit_test(g_app.renderer, point.x, point.y);
     if (hit.kind == RendererNavigationHitKind::none)
@@ -500,7 +505,10 @@ bool activate_focused_navigation() noexcept {
         guild ? g_app.guild_rail_scene.focused_guild_id : g_app.shell_navigation_scene.focused_channel_id;
     if (guild && guild_folder_row_id(id))
         return application_guild_folders_toggle(id) || true;
-    return !id || select_navigation(guild, id, false);
+    // A pinned conversation in the rail opens like its conversation row.
+    const bool conversation = guild && id && g_app.account_ui &&
+                              chat_state_store_find_channel(g_app.account_ui->chat_state, id);
+    return !id || select_navigation(guild && !conversation, id, conversation);
 }
 
 bool handle_navigation_shortcut(NavigationShortcut shortcut) noexcept {

@@ -377,6 +377,9 @@ void forget_age_gate(Scope& scope) noexcept {
     scope.flags&=~gateway_notification_channel_age_baseline_complete;
 }
 void scope_admission_failed(ApplicationNotifications& n,u64 guild) noexcept {
+    // Direct message metadata lives in its channel scope; the user's DM
+    // settings stay known.
+    if(!guild) return;
     message_notifications_mark_incomplete(&n.settings,guild);
     if(auto* scope=find_scope(n.guild_scopes,n.guild_scope_count,guild)) forget_age_gate(*scope);
 }
@@ -953,6 +956,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
             scope->known_gates&=~notification_gate_age_access;
         if(kind==GatewayClientDispatchKind::user_snapshot) n->global_known_gates&=~notification_gate_restricted_hours;
         if(kind==GatewayClientDispatchKind::unknown) {
+            n->settings.complete=false; ++n->settings.revision;
             for(u32 i=0;i<n->settings.guild_count;++i) n->settings.guilds[i].incomplete=true;
             for(u32 i=0;i<n->guild_scope_count;++i) forget_age_gate(stable_storage_data<Scope>(n->guild_scopes)[i]);
         }
@@ -1095,6 +1099,10 @@ MessageReadBadge application_notifications_read_badge(void* context,const Gatewa
     const auto& n=*a->notifications;const auto& state=a->account_ui->chat_state;
     const auto* channel=chat_state_store_find_channel(state,event.message.channel_id);
     if(!channel)return MessageReadBadge::none;
+    // Message requests and spam never hold a mention count.
+    if(channel_is_private(channel->type)&&state.private_channels)
+        if(const auto* record=private_channel_store_find(*state.private_channels,channel->id);
+            record&&private_channel_is_request(*record))return MessageReadBadge::none;
     const auto* parent=channel->parent_id?chat_state_store_find_channel(state,channel->parent_id):nullptr;
     const auto* guild=channel->guild_id?chat_state_store_find_guild(state,channel->guild_id):nullptr;
     u64 mentioned_roles[kGatewayMessageMentionRoleMaximumIds],self_roles[kGatewayMessageMentionRoleMaximumIds];

@@ -209,6 +209,9 @@ struct MessageEventPump {
     u32 lifecycle;
     // Guild presence appearance changes applied without any repaint.
     u32 presence_offscreen;
+    // Message authors or members the user/member caches could not take; the
+    // message itself still applied.
+    u32 hydration_skipped;
     MessageContentAvailability content_access;
     bool has_sequence;
     bool resync_required;

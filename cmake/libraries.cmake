@@ -102,6 +102,7 @@ maicord_library(maicord_platform
     src/platform/notification_identity.cpp src/platform/taskbar_attention.cpp
     src/platform/desktop_integration.cpp src/platform/system_tray.cpp src/platform/spell_checker.cpp
     src/platform/speech.cpp src/platform/voice_audio_output.cpp src/platform/voice_audio_capture.cpp
+    src/platform/window_frame.cpp
     LIBS maicord_core ws2_32 secur32 bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/notification_pcm.cpp
@@ -341,7 +342,7 @@ maicord_library(maicord_ui
     src/ui/media_picker_presentation.cpp src/ui/search_query.cpp src/ui/search_filter_context.cpp
     src/ui/voice_channel_rows.cpp src/ui/voice_panel.cpp
     src/ui/call_scene.cpp src/ui/call_stage.cpp src/ui/stream_card_scene.cpp src/ui/guild_card_scene.cpp
-    src/ui/guild_banner.cpp src/ui/profile_activity.cpp
+    src/ui/guild_banner.cpp src/ui/profile_activity.cpp src/ui/caption_bar.cpp
     # The spell tokenizer classifies letters with the Unicode property tables;
     # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
     LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec
@@ -444,7 +445,8 @@ maicord_library(maicord_renderer
     src/render/d3d11_renderer_interaction.cpp src/render/d3d11_renderer_media.cpp
     src/render/d3d11_navigation.cpp src/render/text_edit_layout.cpp src/render/text_form_surface.cpp
     src/render/forum_post_surface.cpp src/render/message_hit_test.cpp src/render/renderer_presentation.cpp
-    src/render/layer_presentation.cpp src/render/renderer_media_draw_storage.cpp "${MAICORD_UI_VERTEX_HEADER}"
+    src/render/layer_presentation.cpp src/render/renderer_media_draw_storage.cpp
+    src/render/d3d11_renderer_caption.cpp "${MAICORD_UI_VERTEX_HEADER}"
     "${MAICORD_UI_PIXEL_HEADER}" "${MAICORD_GLYPH_VERTEX_HEADER}" "${MAICORD_GLYPH_PIXEL_HEADER}"
     "${MAICORD_MEDIA_VERTEX_HEADER}" "${MAICORD_MEDIA_PIXEL_HEADER}"
     LIBS maicord_media_core maicord_font maicord_paint_program maicord_shader_bytecode

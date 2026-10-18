@@ -175,7 +175,9 @@ void update_retained_rows(GuildRailScene* scene, const NavigationView& view, Vis
 
 GuildRailHit hit_of(const GuildRailRowWidget& row) noexcept {
     const bool folder = row.view.folder_role == GuildFolderRole::header;
-    return {row.view.id, row.widget, row.source_index, !row.view.unavailable && !folder, folder};
+    const bool conversation = row.view.folder_role == GuildFolderRole::conversation;
+    return {row.view.id, row.widget, row.source_index, !row.view.unavailable && !folder && !conversation, folder,
+            false, conversation};
 }
 
 } // namespace

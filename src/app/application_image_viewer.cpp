@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "application_content_point.hpp"
 #include "application_image_viewer.hpp"
 #include "application_cursor.hpp"
 #include "application_state.hpp"
@@ -979,7 +980,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         if (video)
             return true;
         POINT cursor{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        ScreenToClient(g_app.window, &cursor);
+        application_screen_to_content(&cursor);
         const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
         ui_image_viewer_wheel(&scene, static_cast<short>(HIWORD(wparam)), {cursor.x * scale, cursor.y * scale});
         application_request_frame();

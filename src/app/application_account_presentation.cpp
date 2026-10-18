@@ -138,6 +138,17 @@ bool synchronize_navigation_view() noexcept {
     ui.navigation_view.stage_instances = &application_stage_instances();
     application_guild_community_navigation(&ui.navigation_view);
     application_private_channel_navigation(&ui.navigation_view);
+    // The official Home badge: incoming friend requests plus message requests.
+    u32 home_badge = ui.chat_state.private_channels
+                         ? private_channel_store_request_count(*ui.chat_state.private_channels, false)
+                         : 0;
+    if (const auto* relationships = application_friends_relationships())
+        for (u32 i = 0; i < relationships->count; ++i)
+            home_badge += relationships->records[i].type == RelationshipType::incoming;
+    if (ui.navigation_view.home_badge != home_badge) {
+        ui.navigation_view.home_badge = home_badge;
+        ++ui.navigation_view.requests_revision;
+    }
     const bool voice_current = ui.navigation_view.source_voice_revision == ui.voice_states.revision &&
                                ui.navigation_view.source_stage_revision == application_stage_instances().revision;
     if (ui.navigation_view.source_guild_mutations == ui.chat_state.guild_mutations &&

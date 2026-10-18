@@ -1,4 +1,5 @@
 #include "application_message_forward.hpp"
+#include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
@@ -454,7 +455,7 @@ bool application_message_forward_window_message(UINT message, WPARAM wparam, LPA
         message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_LBUTTONDBLCLK || message == WM_MOUSEHWHEEL) return true;
     if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE && message != WM_MOUSEWHEEL) return false;
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_MOUSEWHEEL) ScreenToClient(g_app.window, &point);
+    if (message == WM_MOUSEWHEEL) application_screen_to_content(&point);
     const float scale = 96.f / maximum(1u, g_app.renderer.dpi), x = point.x * scale, y = point.y * scale;
     if (message == WM_MOUSEWHEEL) {
         ui_message_forward_scene_scroll(&q->scene, q->scene.scroll_dips -

@@ -1,4 +1,5 @@
 #include "application_private_channel.hpp"
+#include "application_content_point.hpp"
 #include "application_unread_banner.hpp"
 #include "application_cursor.hpp"
 #include "application_account_presentation.hpp"
@@ -224,7 +225,7 @@ bool application_unread_banner_window_message(UINT message, WPARAM, LPARAM lpara
     POINT cursor{};
     float x = 0, y = 0;
     if (message == WM_SETCURSOR) {
-        if (!GetCursorPos(&cursor) || !ScreenToClient(g_app.window, &cursor))
+        if (!GetCursorPos(&cursor) || !application_screen_to_content(&cursor))
             return false;
         const float scale = 96.f / static_cast<float>(maximum<u32>(g_app.renderer.dpi, 1));
         x = static_cast<float>(cursor.x) * scale;

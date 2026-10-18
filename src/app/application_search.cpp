@@ -1,4 +1,5 @@
 #include "application_click_count.hpp"
+#include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "application_search.hpp"
@@ -2941,13 +2942,13 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         return false;
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
     if (message == WM_SETCURSOR) {
-        if (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !ScreenToClient(g_app.window, &point))
+        if (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point))
             return false;
     }
     if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
         if (message == WM_CONTEXTMENU && lparam == -1)
             return g_app.context_focus == &s->scene.widgets;
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
     }
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
     const float x = point.x * scale, y = point.y * scale;

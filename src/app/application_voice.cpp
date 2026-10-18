@@ -1,4 +1,5 @@
 #include "application_user_actions.hpp"
+#include "application_content_point.hpp"
 #include "application_voice.hpp"
 #include "application_call.hpp"
 #include "application_stage.hpp"
@@ -177,7 +178,7 @@ UiVoiceControl hit(float x, float y) noexcept {
 u64 camera_user_at_message_point() noexcept {
     const DWORD position = GetMessagePos();
     POINT point{static_cast<short>(LOWORD(position)), static_cast<short>(HIWORD(position))};
-    if (!g_app.window || !ScreenToClient(g_app.window, &point))
+    if (!g_app.window || !application_screen_to_content(&point))
         return 0;
     const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
     const auto* state = application_voice_participant_at(

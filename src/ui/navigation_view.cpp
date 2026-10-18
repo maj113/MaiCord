@@ -7,6 +7,7 @@
 #include "maicord/model/guild_display_order.hpp"
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/protocol/guild_folders.hpp"
+#include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/text_style.hpp"
 
 namespace maicord {
@@ -177,7 +178,8 @@ bool row_changed(const GuildViewRow& left, const GuildViewRow& right) noexcept {
            left.unavailable != right.unavailable || left.unread != right.unread ||
            left.has_icon != right.has_icon || left.muted != right.muted || left.folder_id != right.folder_id ||
            left.folder_color != right.folder_color || left.folder_size != right.folder_size ||
-           left.folder_role != right.folder_role || left.folder_expanded != right.folder_expanded;
+           left.folder_role != right.folder_role || left.folder_expanded != right.folder_expanded ||
+           left.avatar_shape != right.avatar_shape;
 }
 
 bool row_changed(const ChannelViewRow& left, const ChannelViewRow& right) noexcept {
@@ -224,9 +226,48 @@ void publish_row(NavigationView* view, u32 index, const GuildViewRow& row, bool*
     *changed = *changed || index >= view->guild_count || row_changed(view->guild_rows[index], row);
     view->guild_rows[index] = row;
 }
-// Display order with folder headers. When headers would not fit, the flat
-// join order is used; it always fits because state.guild_count is checked.
-u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, bool* changed) noexcept {
+// Conversations with a mention count, newest message first, as in the
+// official rail. A muted conversation only counts real pings and message
+// requests never count, so the count alone selects them.
+u32 build_conversation_pins(NavigationView* view, const ChatStateStore& state, bool* changed) noexcept {
+    const ChannelRecord* pins[kNavigationConversationPinMaximum];
+    const u32 limit = minimum(kNavigationConversationPinMaximum, view->guild_capacity - state.guild_count);
+    u32 count = 0;
+    for (u32 order = 0; order < state.channel_count && limit; ++order) {
+        const ChannelRecord& channel = state.channels[state.channel_order[order]];
+        if (!channel_is_private(channel.type) || !channel.mention_count ||
+            !chat_state_store_channel_visible(state, channel))
+            continue;
+        if (state.private_channels)
+            if (const auto* metadata = private_channel_store_find(*state.private_channels, channel.id);
+                metadata && private_channel_is_request(*metadata))
+                continue;
+        u32 at = count;
+        while (at && pins[at - 1]->last_message_id < channel.last_message_id)
+            --at;
+        if (at >= limit)
+            continue;
+        for (u32 i = minimum(count, limit - 1); i > at; --i)
+            pins[i] = pins[i - 1];
+        pins[at] = &channel;
+        count = minimum(count + 1, limit);
+    }
+    for (u32 i = 0; i < count; ++i) {
+        const ChannelRecord& channel = *pins[i];
+        GuildViewRow row{channel.id, channel.revision, channel.mention_count, channel.generation,
+                         channel.id == state.selected_channel_id, false, true};
+        row.folder_color = kGuildFolderNoColor;
+        row.folder_index = kGuildDisplayNoFolder;
+        row.folder_role = GuildFolderRole::conversation;
+        row.avatar_shape = ui_private_avatar_shape(&state, channel.id, channel.type);
+        publish_row(view, i, row, changed);
+    }
+    return count;
+}
+// Display order with folder headers after `first` leading rows. When headers
+// would not fit, the flat join order is used; it always fits because pins
+// leave room for state.guild_count.
+u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, u32 first, bool* changed) noexcept {
     constexpr u32 kScratch = 1024;
     GuildDisplayEntry display[kScratch];
     const auto* folders = view->guild_folders;
@@ -234,13 +275,13 @@ u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, bool* ch
     u32 headers = 0;
     for (u32 i = 0; i < count; ++i)
         headers += display[i].folder != kGuildDisplayNoFolder && (!i || display[i - 1].folder != display[i].folder);
-    if (count != state.guild_count || count + headers > view->guild_capacity) {
+    if (count != state.guild_count || first + count + headers > view->guild_capacity) {
         folders = nullptr;
         count = 0;
         for (u32 order = 0; order < state.guild_count && order < kScratch; ++order)
             display[count++] = {state.guilds[state.guild_order[order]].id, kGuildDisplayNoFolder};
     }
-    u32 rows = 0;
+    u32 rows = first;
     for (u32 i = 0; i < count;) {
         const u16 folder = folders ? display[i].folder : kGuildDisplayNoFolder;
         if (folder == kGuildDisplayNoFolder) {
@@ -502,7 +543,8 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     for (u32 order = 0; order < state.guild_count; ++order)
         if (state.guild_order[order] >= state.guild_capacity)
             return view_error(view, NavigationViewError::invalid_input);
-    const u32 guild_rows = build_guild_rows(view, state, &guild_changed);
+    const u32 pins = build_conversation_pins(view, state, &guild_changed);
+    const u32 guild_rows = build_guild_rows(view, state, pins, &guild_changed);
     if (requests_lead) {
         ChannelViewRow row{};
         row.id = kNavigationRequestsRowId;

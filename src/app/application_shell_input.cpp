@@ -214,7 +214,7 @@ bool select_client_cursor(i32 pixel_x, i32 pixel_y, UiCursor* out) noexcept {
         (g_app.member_list_scene.active && member_list_plugin_hit(g_app.member_list_scene, x, y, nullptr).action_id))
         return true;
     const auto guild = guild_rail_scene_hit_test(g_app.guild_rail_scene, x, y);
-    if (guild.selectable || guild.folder || guild.add_server)
+    if (guild.selectable || guild.folder || guild.add_server || guild.conversation)
         return true;
     // Nonselectable rows with an ID still occlude the lower-priority lists.
     if (!guild.id) {
@@ -354,7 +354,7 @@ bool handle_navigation_hover(LPARAM lparam) noexcept {
     if (changed) {
         application_request_frame();
     }
-    return guild.selectable || guild.add_server || channel.selectable;
+    return guild.selectable || guild.add_server || guild.conversation || channel.selectable;
 }
 
 bool handle_shell_click(LPARAM lparam) noexcept {

@@ -156,6 +156,28 @@ void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
     badge.direct_mention=true;badge_thread.setting.flags=8;
     check(message_notifications_upsert_thread(&badge_settings,badge_thread)==E::none&&
         message_read_badge(badge,true)==B::mention,"read badge: direct thread mention survives thread NONE");
+
+    // Conversations default to every message and only their own mute applies.
+    MessageNotificationGuildSetting dm_guilds[2]{};MessageNotificationOverride dm_overrides[2]{};
+    MessageNotificationThreadSetting dm_threads[1]{};MessageNotificationStore dm_settings{};
+    check(message_notifications_initialize(&dm_settings,{dm_guilds,2},{dm_overrides,2},{dm_threads,1})&&
+        message_notifications_apply_settings(&dm_settings,{},{},false,1)==E::none,"conversation settings initialize");
+    message_notifications_mark_incomplete(&dm_settings,10);
+    auto dm=input(dm_settings);dm.guild_id=0;dm.channel_id=40;dm.channel_type=3;dm.guild_default_known=false;
+    dm.known_gates=dm.required_gates=notification_gate_blocked|notification_gate_ignored;
+    check(!dm_settings.complete&&eligible(dm)&&message_read_badge(dm,false)==B::mention,
+        "a server's incomplete settings leave conversations notifying and counting");
+    MessageNotificationGuildSetting dm_row{};dm_row.guild_id=0;dm_row.setting.fields=notification_level;
+    dm_row.setting.level=L::mentions;
+    check(message_notifications_apply_settings(&dm_settings,{&dm_row,1},{},true,2)==E::none&&eligible(dm),
+        "conversations notify every message whatever the DM row's level");
+    MessageNotificationOverride dm_mute{0,40,{}};dm_mute.setting.fields=notification_muted;dm_mute.setting.muted=true;
+    check(message_notifications_apply_settings(&dm_settings,{&dm_row,1},{&dm_mute,1},true,3)==E::none&&
+        message_notification_admit(dm)==R::muted&&message_read_badge(dm,false)==B::none,
+        "a muted conversation neither notifies nor counts ordinary messages");
+    dm.direct_mention=true;
+    check(message_notification_admit(dm)==R::muted&&message_read_badge(dm,false)==B::mention,
+        "a ping in a muted conversation counts without notifying");
 }
 } // namespace maicord
 

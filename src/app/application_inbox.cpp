@@ -1,4 +1,5 @@
 #include "application_inbox.hpp"
+#include "application_content_point.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "application_account_presentation.hpp"
@@ -13,6 +14,7 @@
 #include "maicord/protocol/user_guild_settings.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/inbox_scene.hpp"
+#include "maicord/ui/private_channel_title.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -179,7 +181,11 @@ void store_mentions(u32 count) noexcept {
         if (channel) {
             if (!channel_is_private(channel->type))
                 append(row.detail, sizeof(row.detail), used, utf8_literal("#"));
-            append(row.detail, sizeof(row.detail), used, chat_state_store_channel_name(ui.chat_state, *channel));
+            char storage[160];
+            append(row.detail, sizeof(row.detail), used,
+                   channel_is_private(channel->type)
+                       ? private_channel_title(ui.chat_state, &ui.user_store, *channel, {storage, sizeof(storage)})
+                       : chat_state_store_channel_name(ui.chat_state, *channel));
             if (const auto* guild = channel->guild_id ? chat_state_store_find_guild(ui.chat_state, channel->guild_id)
                                                       : nullptr) {
                 append(row.detail, sizeof(row.detail), used, utf8_literal(" · "));
@@ -209,6 +215,46 @@ void title(UnreadRow& row, Utf8View text) noexcept {
     append(row.title, sizeof(row.title), used, text);
     row.title_bytes = static_cast<u16>(used);
 }
+// Conversations lead the unreads, newest first, as in the official inbox:
+// unmuted ones holding a mention count (every message counts there).
+void build_conversation_unreads() noexcept {
+    auto& s = g_app.account_ui->chat_state;
+    const ChannelRecord* rows[kUnreadCapacity - 1];
+    u32 count = 0;
+    for (u32 order = 0; order < s.channel_count; ++order) {
+        const auto& c = s.channels[s.channel_order[order]];
+        if (!channel_is_private(c.type) || !c.mention_count || c.notification_muted ||
+            !chat_state_store_channel_visible(s, c))
+            continue;
+        if (s.private_channels)
+            if (const auto* metadata = private_channel_store_find(*s.private_channels, c.id);
+                metadata && private_channel_is_request(*metadata))
+                continue;
+        u32 at = count;
+        while (at && rows[at - 1]->last_message_id < c.last_message_id)
+            --at;
+        if (at >= kUnreadCapacity - 1)
+            continue;
+        for (u32 i = minimum(count, kUnreadCapacity - 2); i > at; --i)
+            rows[i] = rows[i - 1];
+        rows[at] = &c;
+        count = minimum(count + 1, kUnreadCapacity - 1);
+    }
+    if (!count)
+        return;
+    UnreadRow header{UiInboxRowKind::group, ~u64{0}, 0};
+    title(header, utf8_literal("Direct messages"));
+    if (!push_unread(header))
+        return;
+    for (u32 i = 0; i < count; ++i) {
+        UnreadRow row{UiInboxRowKind::channel, 0, rows[i]->id, rows[i]->mention_count};
+        char storage[160];
+        const auto name = private_channel_title(s, &g_app.account_ui->user_store, *rows[i], {storage, sizeof(storage)});
+        title(row, name.bytes ? name : utf8_literal("Conversation"));
+        if (!push_unread(row))
+            return;
+    }
+}
 void build_unreads() noexcept {
     auto& s = g_app.account_ui->chat_state;
     inbox->unread_count = 0;
@@ -217,8 +263,7 @@ void build_unreads() noexcept {
         u32 added = 0;
         for (u32 order = 0; order < s.channel_count; ++order) {
             const auto& c = s.channels[s.channel_order[order]];
-            if (c.guild_id != guild_id || (guild_id == 0) != channel_is_private(c.type) ||
-                !chat_state_store_channel_unread(s, c))
+            if (c.guild_id != guild_id || channel_is_private(c.type) || !chat_state_store_channel_unread(s, c))
                 continue;
             if (!added) {
                 UnreadRow header{UiInboxRowKind::group, guild_id ? guild_id : ~u64{0}, 0};
@@ -236,7 +281,7 @@ void build_unreads() noexcept {
             ++added;
         }
     };
-    channels(0);
+    build_conversation_unreads();
     for (u32 order = 0; order < s.guild_count; ++order) {
         const u16 slot = s.guild_order[order];
         if (slot < s.guild_capacity && !s.guilds[slot].unavailable && s.guilds[slot].unread_channels)
@@ -609,7 +654,7 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
     float y = static_cast<short>(HIWORD(lparam)) * scale;
     if (message == WM_MOUSEWHEEL) {
         POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
         x = point.x * scale;
         y = point.y * scale;
     }

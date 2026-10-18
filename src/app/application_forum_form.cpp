@@ -1,4 +1,5 @@
 #include "application_click_count.hpp"
+#include "application_content_point.hpp"
 #include "application_forum_form_state.hpp"
 #include "application_cursor.hpp"
 #include "application_state.hpp"
@@ -265,7 +266,7 @@ bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
     const auto bounds = node->content_rectangle;
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
     POINT origin{};
-    if (!ClientToScreen(g_app.window, &origin) ||
+    if (!application_content_to_screen(&origin) ||
         !GetWindowRect(g_app.window, output->window_screen.native()))
         return false;
     output->text_screen = {origin.x + static_cast<LONG>(bounds.left * scale),
@@ -276,7 +277,7 @@ bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
 }
 bool point_geometry(void* context, POINT point, bool round, u32* position, bool* inside) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!current_layout(field) || !g_app.renderer.dpi || !ScreenToClient(g_app.window, &point))
+    if (!current_layout(field) || !g_app.renderer.dpi || !application_screen_to_content(&point))
         return false;
     const float scale = 96.f / g_app.renderer.dpi;
     return text_edit_layout_point_geometry(field->owner->surface.layouts[field->index], point.x * scale,
@@ -308,7 +309,7 @@ bool range_geometry(void* context, u32 first, u32 last, RECT* rectangle, bool* c
     bounds = {maximum(bounds.left, clip.left), maximum(bounds.top, clip.top),
               minimum(bounds.right, clip.right), minimum(bounds.bottom, clip.bottom)};
     POINT origin{};
-    if (!ClientToScreen(g_app.window, &origin))
+    if (!application_content_to_screen(&origin))
         return false;
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96;
     *rectangle = {origin.x + static_cast<LONG>(bounds.left * scale),
@@ -1000,7 +1001,7 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
     }
     case WM_MOUSEWHEEL: {
         POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
         const float delta = -static_cast<float>(static_cast<short>(HIWORD(wparam))) / WHEEL_DELTA * 48;
         const auto target = forum_post_hit_test(f->scene, point.x * scale, point.y * scale);
         if (target.element == ForumPostElement::body)

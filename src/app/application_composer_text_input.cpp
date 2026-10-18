@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "application_content_point.hpp"
 #include "application_composer_text_input_state.hpp"
 #include "application_profile.hpp"
 #include "application_composer.hpp"
@@ -195,7 +196,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     if (!ui_rect_has_area(bounds) || !eligible() || !g_app.renderer.dpi)
         return false;
     POINT origin{};
-    if (!ClientToScreen(g_app.window, &origin) ||
+    if (!application_content_to_screen(&origin) ||
         !GetWindowRect(g_app.window, output->window_screen.native()))
         return false;
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96.0f;
@@ -241,7 +242,7 @@ bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* 
     const auto& layout = edit_layout();
     const auto model = message_composer_text(edit_model());
     const bool plain = plain_edit();
-    if (!g_app.renderer.dpi || !ScreenToClient(g_app.window, &point))
+    if (!g_app.renderer.dpi || !application_screen_to_content(&point))
         return false;
     const float scale = 96.0f / g_app.renderer.dpi;
     u32 hit = 0, byte = 0;
@@ -304,7 +305,7 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
         return false;
     *clipped = *clipped || !ui_rect_equal(rectangle, visible);
     POINT origin{};
-    if (!ClientToScreen(g_app.window, &origin))
+    if (!application_content_to_screen(&origin))
         return false;
     const float scale = static_cast<float>(g_app.renderer.dpi) / 96.0f;
     output->left = origin.x + static_cast<LONG>(visible.left * scale);
@@ -329,7 +330,7 @@ bool application_composer_text_input_range_bounds(Utf8View text, u32 begin, u32 
     if (!range_geometry(input, first, last, &screen, &clipped))
         return false;
     POINT origin{};
-    if (!ClientToScreen(g_app.window, &origin))
+    if (!application_content_to_screen(&origin))
         return false;
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     *output = {(screen.left - origin.x) * scale, (screen.top - origin.y) * scale, (screen.right - origin.x) * scale,

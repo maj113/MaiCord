@@ -1,4 +1,5 @@
 #include "application_settings_layer.hpp"
+#include "application_content_point.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "application_state.hpp"
@@ -660,7 +661,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             return true;
         }
         POINT point{static_cast<i16>(LOWORD(lparam)), static_cast<i16>(HIWORD(lparam))};
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
         const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
         const bool sidebar = ui_rect_contains(scene->layout.sidebar, point.x * scale, point.y * scale);
         application_modal_scroll_wheel(&g_app.scroll_host, scroll_binding(layer, sidebar), g_app.window,

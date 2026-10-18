@@ -231,6 +231,15 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         }
     }
 
+    const auto* home = ui_scene_resolve_semantic(scene, UiSemantic::home_button);
+    const auto* rail = ui_scene_resolve_semantic(scene, UiSemantic::guild_rail);
+    if (home && rail && navigation.home_badge &&
+        !ui_mention_badge_text_output(navigation.home_badge, scene.widgets, home->widget,
+                                      ui_mention_badge_guild_rectangle(home->rectangle, navigation.home_badge),
+                                      rail->rectangle, stream)) {
+        reject_atomically(stream);
+        return false;
+    }
     const auto* guild_navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
     if (guild_navigation && guild_scene && guild_scene->active) {
         for (u32 index = 0; index < guild_scene->count; ++index) {

@@ -1495,10 +1495,12 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     }
     const auto consume_message =
         [&](const GatewayMessageEvent* decoded_message) noexcept -> MessageEventPumpConsumeResult {
-        if (!observe_message_users(pump, event, payload) || !observe_message_member(pump, event, payload)) {
-            reject_resync(pump, &result, MessageEventPumpRejectReason::message_users);
-            return result;
-        }
+        // The caches are best effort: an author they cannot take must not
+        // cost the message its read state, badge or notification.
+        const bool users = observe_message_users(pump, event, payload);
+        const bool member = observe_message_member(pump, event, payload);
+        if (!users || !member)
+            saturating_increment(pump->hydration_skipped);
         if (event.dispatch_kind == GatewayClientDispatchKind::message_create && pump->typing) {
             const TypingStoreResult stopped = typing_store_note_message(
                 pump->typing, event.message.channel_id, event.message.author_id, false);

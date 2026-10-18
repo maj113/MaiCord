@@ -6,7 +6,10 @@ namespace maicord {
 struct GuildFolderSettings;
 struct VoiceStateStore;
 
-enum class GuildFolderRole : u8 { none, header, member };
+// conversation: an unread direct message pinned above the servers; the row id
+// is its channel.
+enum class GuildFolderRole : u8 { none, header, member, conversation };
+inline constexpr u32 kNavigationConversationPinMaximum = 20;
 // The scheduled events entry leads a server's channel list: a synthetic row
 // with this id and type (never a channel; activating it opens the events).
 inline constexpr u64 kNavigationEventsRowId = 0x4556454E54535257ull;
@@ -23,9 +26,11 @@ constexpr bool navigation_requests_row(u64 id) noexcept {
 }
 inline constexpr u32 kGuildFolderNoColor = ~0u;
 
-// Guild rows follow the display order. A folder header (id carries
-// kGuildFolderRowMarker) precedes its members; collapsed members stay in the
-// list so guild navigation still reaches them, but the rail hides them.
+// Guild rows follow the display order, after up to
+// kNavigationConversationPinMaximum conversation pins (newest first). A folder
+// header (id carries kGuildFolderRowMarker) precedes its members; collapsed
+// members stay in the list so guild navigation still reaches them, but the
+// rail hides them.
 struct GuildViewRow {
     u64 id;
     u32 revision;
@@ -42,6 +47,7 @@ struct GuildViewRow {
     u16 folder_index;   // GuildFolderSettings index, kGuildDisplayNoFolder outside folders
     GuildFolderRole folder_role;
     bool folder_expanded;
+    u8 avatar_shape; // conversation pins: ui_private_avatar_shape
 };
 
 struct ChannelViewRow {
@@ -131,6 +137,9 @@ struct NavigationView {
     u32 request_count;
     u32 requests_revision;
     u32 source_requests_revision;
+    // Host-set: the Home button badge (incoming friend requests plus message
+    // requests). Bump requests_revision on change.
+    u32 home_badge;
 };
 
 enum class NavigationViewError : u8 {
@@ -175,9 +184,10 @@ inline constexpr u32 kNavigationVoiceRowsMaximum = 99;
 // Recounts voice_count from view->voice_states (and stage_live from
 // view->stage_instances) after a voice-state or stage change.
 bool navigation_view_refresh_voice(NavigationView* view) noexcept;
-// Guild rows that represent selectable guilds (folder headers excluded).
+// Guild rows that represent selectable guilds (folder headers and
+// conversation pins excluded).
 constexpr bool guild_view_row_is_guild(const GuildViewRow& row) noexcept {
-    return row.id && row.folder_role != GuildFolderRole::header;
+    return row.id && row.folder_role != GuildFolderRole::header && row.folder_role != GuildFolderRole::conversation;
 }
 constexpr bool guild_view_row_hidden(const GuildViewRow& row) noexcept {
     return row.folder_role == GuildFolderRole::member && !row.folder_expanded;

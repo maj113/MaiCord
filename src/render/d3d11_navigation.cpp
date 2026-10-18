@@ -44,6 +44,8 @@ RendererNavigationHit renderer_navigation_hit_test(const D3D11Renderer& renderer
     const UiNode* guild = navigation_scene_node(renderer, UiSemantic::guild_navigation);
     if (guild && renderer.guild_rail_scene && ui_rect_contains(guild->rectangle, x, y)) {
         const GuildRailHit hit = guild_rail_scene_hit_test(*renderer.guild_rail_scene, x, y);
+        if (hit.conversation)
+            return {hit.id, RendererNavigationHitKind::channel, true};
         return hit.id != 0 ? RendererNavigationHit{hit.id, RendererNavigationHitKind::guild, hit.selectable}
                            : RendererNavigationHit{};
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "application_state.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/ui/cursor.hpp"
@@ -49,6 +50,8 @@ inline bool application_cursor_point(HWND window, u32 dpi, LPARAM lparam, UiPoin
     if (!point || LOWORD(lparam) != HTCLIENT || !GetCursorPos(cursor.native()) ||
         !ScreenToClient(window, cursor.native()))
         return false;
+    if (window == g_app.window)
+        cursor.y -= static_cast<LONG>(g_app.renderer.caption_height);
     const float scale = 96.f / static_cast<float>(dpi ? dpi : 96u);
     *point = {static_cast<float>(cursor.x) * scale, static_cast<float>(cursor.y) * scale};
     return true;

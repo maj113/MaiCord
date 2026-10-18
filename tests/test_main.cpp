@@ -272,6 +272,7 @@ void test_private_snapshot(void (*check)(bool, const char*) noexcept) noexcept;
 void test_gateway_state_recovery(void (*check)(bool, const char*) noexcept) noexcept;
 void test_navigation_restore(void (*check)(bool, const char*) noexcept) noexcept;
 void test_private_order(void (*check)(bool, const char*) noexcept) noexcept;
+void test_private_rail_pins(void (*check)(bool, const char*) noexcept) noexcept;
 void test_private_conversation(void (*check)(bool, const char*) noexcept) noexcept;
 void test_private_channel_actions(void (*check)(bool, const char*) noexcept) noexcept;
 namespace {
@@ -25982,6 +25983,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_gateway_state_recovery(maicord::expect);
     maicord::test_navigation_restore(maicord::expect);
     maicord::test_private_order(maicord::expect);
+    maicord::test_private_rail_pins(maicord::expect);
     maicord::test_private_conversation(maicord::expect);
     maicord::test_private_channel_actions(maicord::expect);
     maicord::test_widget_storage_growth();

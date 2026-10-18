@@ -34,7 +34,7 @@ bool account_ready() noexcept {
     return g_app.account_ui && !g_app.login.visible && !g_app.popup_scene.active && !g_app.text_form;
 }
 NavigationDragRowKind guild_kind(const GuildViewRow& row) noexcept {
-    if (row.unavailable)
+    if (row.unavailable || row.folder_role == GuildFolderRole::conversation)
         return NavigationDragRowKind::none;
     if (row.folder_role == GuildFolderRole::header)
         return application_guild_folders_folder_id(row) ? NavigationDragRowKind::folder : NavigationDragRowKind::none;

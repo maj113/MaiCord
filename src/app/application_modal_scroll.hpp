@@ -1,4 +1,5 @@
 #pragma once
+#include "application_state.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/ui/scroll_host.hpp"
@@ -14,6 +15,8 @@ inline UiScrollDispatch application_modal_scroll_wheel(UiScrollHost* host, UiScr
     Win32Point point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
     if (!ScreenToClient(window, point.native()))
         return UiScrollDispatch::unhandled;
+    if (window == g_app.window)
+        point.y -= static_cast<LONG>(g_app.renderer.caption_height);
     const double scale = 96.0 / maximum(dpi, 1u);
     UINT lines = 3;
     SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);

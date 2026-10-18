@@ -1,4 +1,5 @@
 #include "application_profile_editor.hpp"
+#include "application_content_point.hpp"
 #include "application_account_logout.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
@@ -1784,7 +1785,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
         POINT point{};
         GetCursorPos(&point);
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
         const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
         const auto hit = ui_profile_dialog_hit_test(d, point.x * scale, point.y * scale);
         const auto action = ui_profile_dialog_action(d, hit);

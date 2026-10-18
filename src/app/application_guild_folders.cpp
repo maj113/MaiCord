@@ -7,6 +7,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
+#include "maicord/ui/private_channel_title.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -199,6 +200,12 @@ Utf8View application_guild_rail_label(const GuildViewRow& row, Slice<char> outpu
         if (!g_folders || !g_folders->settings.present || row.folder_index >= g_folders->settings.folder_count)
             return {};
         return {output.data, guild_folder_display_name(g_folders->settings, row.folder_index, state, output)};
+    }
+    if (row.folder_role == GuildFolderRole::conversation) {
+        const auto* channel = chat_state_store_find_channel(state, row.id);
+        const Utf8View title =
+            channel ? private_channel_title(state, &g_app.account_ui->user_store, *channel, output) : Utf8View{};
+        return title.data == output.data ? title : Utf8View{output.data, utf8_copy_truncated(output.data, output.count, title)};
     }
     const auto* guild = chat_state_store_find_guild(state, row.id);
     if (!guild)

@@ -1,4 +1,5 @@
 #include "application_commands.hpp"
+#include "application_content_point.hpp"
 #include "application_cursor.hpp"
 #include "application_scrolling.hpp"
 #include "application_profile.hpp"
@@ -276,7 +277,7 @@ void update_scrollbar_hover(float x, float y) noexcept {
 bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
     const u64 message_scroll_before = g_app.message_view.timeline.scroll_units;
     POINT pixel{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (!ScreenToClient(g_app.window, &pixel))
+    if (!application_screen_to_content(&pixel))
         return false;
     const double scale = 96.0 / maximum(g_app.renderer.dpi, 1u);
     const UiPoint point{static_cast<float>(pixel.x * scale), static_cast<float>(pixel.y * scale)};

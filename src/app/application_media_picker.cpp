@@ -1,4 +1,5 @@
 #include "application_reply_draft.hpp"
+#include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
 #include "application_media_picker.hpp"
 #include "application_cursor.hpp"
@@ -1112,7 +1113,7 @@ bool application_media_picker_synchronize() noexcept {
     // once for that update so a stationary cursor keeps its action hint.
     if (prior_generation != p->scene.generation && !g_app.keyboard_focus_visible) {
         POINT pointer{};
-        if (GetCursorPos(&pointer) && ScreenToClient(g_app.window, &pointer)) {
+        if (GetCursorPos(&pointer) && application_screen_to_content(&pointer)) {
             const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
             ui_media_picker_scene_hover(&p->scene, pointer.x * scale, pointer.y * scale,
                                         clock_monotonic_milliseconds());
@@ -1788,12 +1789,12 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
     }
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
     if (message == WM_SETCURSOR &&
-        (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !ScreenToClient(g_app.window, &point)))
+        (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point)))
         return false;
     if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU) {
         if (message == WM_CONTEXTMENU && lparam == -1)
             return true;
-        if (!ScreenToClient(g_app.window, &point))
+        if (!application_screen_to_content(&point))
             return false;
     }
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;

@@ -561,6 +561,7 @@ bool drain_account_events() noexcept {
             continue;
         }
         const bool private_was_incomplete = g_app.message_pump.private_state_incomplete;
+        const u32 hydration_skipped = g_app.message_pump.hydration_skipped;
         BrowserGatewayDrain browser_drain{};
         browser_drain.source_index = static_cast<u8>(source_index);
         browser_drain.source = source;
@@ -581,6 +582,9 @@ bool drain_account_events() noexcept {
         repaint = repaint || drained.repaint;
         if (drained.apply_failures)
             log_skipped_events(source_index, drained);
+        if (g_app.message_pump.hydration_skipped != hydration_skipped)
+            log_u64(LogLevel::warning, "account", "message_author_cache_skipped",
+                    g_app.message_pump.hydration_skipped - hydration_skipped);
         repaint = observe_sync_health(host, drained) || repaint;
         if (!drained.ok()) {
             // Transport failures only (a corrupt or oversized mailbox record):

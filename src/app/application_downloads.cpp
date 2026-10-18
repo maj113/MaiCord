@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
@@ -1638,9 +1639,9 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
         return false;
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
     if (message == WM_MOUSEWHEEL)
-        ScreenToClient(g_app.window, &point);
+        application_screen_to_content(&point);
     if (message == WM_SETCURSOR) {
-        if (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !ScreenToClient(g_app.window, &point))
+        if (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point))
             return false;
     }
     const float scale = 96.f / maximum(1u, g_app.renderer.dpi);

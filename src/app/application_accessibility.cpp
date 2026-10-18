@@ -1,4 +1,6 @@
 #include "application_guild_community.hpp"
+#include "application_content_point.hpp"
+#include "application_caption.hpp"
 #include "application_profile_editor.hpp"
 #include "application_report.hpp"
 #include "application_accessibility.hpp"
@@ -12,6 +14,7 @@
 #include "application_content_input.hpp"
 #include "application_custom_status.hpp"
 #include "application_friends.hpp"
+#include "application_guild_folders.hpp"
 #include "application_guild_settings.hpp"
 #include "application_login_input.hpp"
 #include "application_login_ui.hpp"
@@ -64,6 +67,7 @@ enum AccessSurface : u8 {
     surface_form,
     surface_viewer,
     surface_picker,
+    surface_caption,
 };
 
 constexpr u32 kNodeCapacity = 8192;
@@ -211,6 +215,12 @@ void describe_guild(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         g_name.add(utf8_literal("Server folder, ")).number(view.folder_size).add(utf8_literal(" servers"));
         info->state |= view.folder_expanded ? ui_access_expanded : ui_access_collapsed;
         info->actions = ui_access_action_invoke | ui_access_action_expand | ui_access_action_focus;
+    } else if (view.folder_role == GuildFolderRole::conversation) {
+        char title[128];
+        const Utf8View label = application_guild_rail_label(view, {title, sizeof(title)});
+        g_name.add(label.bytes ? label : utf8_literal("Direct message"));
+        add_unread(&g_name, view.unread, view.mention_count);
+        info->actions = ui_access_action_invoke | ui_access_action_focus;
     } else {
         const auto* state = chat_state();
         const auto* guild = state ? chat_state_store_find_guild(*state, view.id) : nullptr;
@@ -1018,13 +1028,50 @@ void build_account(UiAccessTree* tree) noexcept {
     }
 }
 
+// The window caption's buttons, above the content origin.
+void build_caption(UiAccessTree* tree) noexcept {
+    const UiCaptionBarLayout layout = application_caption_layout();
+    const UiCaptionBarState state = application_caption_state();
+    UiAccessNodeDesc bar{};
+    bar.key = ui_access_key(surface_caption, 0);
+    bar.rectangle = {0, layout.buttons[0].top, layout.width, 0};
+    bar.name = utf8_literal("Title bar");
+    bar.role = UiAccessRole::group;
+    bar.surface = surface_caption;
+    const u32 parent = ui_access_add(tree, 0, bar);
+    if (parent == kUiAccessNone)
+        return;
+    constexpr UiCaptionPart kParts[]{UiCaptionPart::icon,     UiCaptionPart::update,
+                                     UiCaptionPart::settings, UiCaptionPart::minimize,
+                                     UiCaptionPart::maximize, UiCaptionPart::close};
+    for (const UiCaptionPart part : kParts) {
+        const UiRect rectangle = ui_caption_bar_part_rect(layout, part);
+        const Utf8View name = ui_caption_bar_part_name(part, state);
+        if (!ui_rect_has_area(rectangle) || !name.bytes)
+            continue;
+        UiAccessNodeDesc button{};
+        button.key = ui_access_key(surface_caption, static_cast<u64>(part));
+        button.item = static_cast<u64>(part);
+        button.rectangle = rectangle;
+        button.name = name;
+        button.role = UiAccessRole::button;
+        button.actions = ui_access_action_invoke;
+        button.surface = surface_caption;
+        ui_access_add(tree, parent, button);
+    }
+}
+
 void build_snapshot() noexcept {
     auto& tree = g_access.tree;
     const float scale = access_scale(nullptr);
-    const UiRect bounds{0, 0, static_cast<float>(g_app.renderer.width) / scale,
+    const float caption = static_cast<float>(g_app.renderer.caption_height) / scale;
+    const UiRect bounds{0, -caption, static_cast<float>(g_app.renderer.width) / scale,
                         static_cast<float>(g_app.renderer.height) / scale};
+    g_access.host.content_offset_y = static_cast<i32>(g_app.renderer.caption_height);
     if (!ui_access_tree_reset(&tree, utf8_literal("MaiCord"), bounds))
         return;
+    if (g_app.renderer.caption_height)
+        build_caption(&tree);
     if (g_app.renderer_ready) {
         if (g_app.login.visible)
             build_login(&tree);
@@ -1160,18 +1207,21 @@ bool access_act(void*, u64 key, UiAccessAction action, double number, Utf8View t
 }
 
 // Activates through the same pointer route a mouse click takes.
+// Pointer messages carry client coordinates: content rows start below the caption.
 bool click_at(float x, float y) noexcept {
     if (!g_app.window)
         return false;
     const float scale = access_scale(nullptr);
-    const LPARAM point = MAKELPARAM(static_cast<int>(x * scale), static_cast<int>(y * scale));
+    const int caption = static_cast<int>(g_app.renderer.caption_height);
+    const LPARAM point = MAKELPARAM(static_cast<int>(x * scale), static_cast<int>(y * scale) + caption);
     SendMessageW(g_app.window, WM_MOUSEMOVE, 0, point);
     SendMessageW(g_app.window, WM_LBUTTONDOWN, MK_LBUTTON, point);
     SendMessageW(g_app.window, WM_LBUTTONUP, 0, point);
     POINT cursor{};
     RECT client{};
     if (GetCursorPos(&cursor) && ScreenToClient(g_app.window, &cursor) && GetClientRect(g_app.window, &client) &&
-        cursor.x >= client.left && cursor.y >= client.top && cursor.x < client.right && cursor.y < client.bottom)
+        cursor.x >= client.left && cursor.y >= client.top + caption && cursor.x < client.right &&
+        cursor.y < client.bottom)
         SendMessageW(g_app.window, WM_MOUSEMOVE, 0, MAKELPARAM(cursor.x, cursor.y));
     application_request_frame();
     return true;
@@ -1398,7 +1448,7 @@ bool wheel_node(const UiAccessNode& node, UiAccessScroll amount) noexcept {
     const UiPoint point = center(node.visible);
     const float scale = access_scale(nullptr);
     POINT screen{static_cast<LONG>(point.x * scale), static_cast<LONG>(point.y * scale)};
-    ClientToScreen(g_app.window, &screen);
+    application_content_to_screen(&screen);
     SendMessageW(g_app.window, WM_MOUSEWHEEL, MAKEWPARAM(0, delta), MAKELPARAM(screen.x, screen.y));
     application_request_frame();
     return true;
@@ -1504,6 +1554,10 @@ void run_action(const PendingAction& pending) noexcept {
     case UiAccessAction::select:
     case UiAccessAction::invoke:
     case UiAccessAction::toggle:
+        if (node.surface == surface_caption) {
+            application_caption_command(static_cast<UiCaptionPart>(node.item));
+            return;
+        }
         if (!locked && row && (node.surface == surface_guilds || node.surface == surface_channels) &&
             pending.action != UiAccessAction::toggle && !(node.state & (ui_access_expanded | ui_access_collapsed))) {
             if (focus_item(node.surface, node.item) && !activate_focused_navigation())

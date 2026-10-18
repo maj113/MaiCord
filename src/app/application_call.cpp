@@ -1,4 +1,5 @@
 #include "application_call.hpp"
+#include "application_content_point.hpp"
 #include "application_content_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_cursor.hpp"
@@ -502,7 +503,7 @@ void activate(UiCallControl control, u64 user_id) noexcept {
 }
 UiPoint wheel_point(LPARAM lparam) noexcept {
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    ScreenToClient(g_app.window, &point);
+    application_screen_to_content(&point);
     const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
     return {static_cast<float>(point.x) * scale, static_cast<float>(point.y) * scale};
 }

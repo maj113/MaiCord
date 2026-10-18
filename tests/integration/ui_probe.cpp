@@ -163,6 +163,9 @@ bool notification_settings_ui_probe(D3D11Renderer& renderer,
                                     bool (*capture)(const wchar_t*) noexcept) noexcept;
 bool inbox_ui_probe(D3D11Renderer& renderer, PopupScene& popup, bool (*capture)(const wchar_t*) noexcept) noexcept;
 extern u32 inbox_ui_probe_stage;
+bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_height) noexcept,
+                      bool (*show_login)(bool visible) noexcept) noexcept;
+extern u32 caption_ui_probe_stage;
 bool login_recovery_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept,
                              bool (*text_pixels)(ConstSlice<UiRect>) noexcept) noexcept;
 bool login_reset_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept,
@@ -681,6 +684,11 @@ bool rebuild_probe_content_text() noexcept {
 bool probe_sync_shell_and_text() noexcept {
     return synchronize_probe_shell_layout() && rebuild_probe_content_text();
 }
+// The content below a window caption: same buffers, a shorter shell.
+bool probe_caption_relayout(u32 content_height) noexcept {
+    return renderer_resize(&g_probe.renderer, g_probe.renderer.width, content_height) &&
+           probe_sync_shell_and_text();
+}
 bool set_probe_login_view(RendererLoginView view) noexcept {
     LoginScene& scene = g_probe.login_scene;
     scene.restoring_session = view.status == RendererLoginStatus::restoring_session;
@@ -710,6 +718,21 @@ bool set_probe_login_view(RendererLoginView view) noexcept {
     g_probe.login_view = view;
     g_probe.login_view_bound = view.visible;
     return true;
+}
+
+// The sign-in screen (a QR code, no credentials) under the window caption.
+bool probe_caption_login(bool visible) noexcept {
+    if (!visible)
+        return set_probe_login_view(RendererLoginView{}) && probe_sync_shell_and_text();
+    constexpr Utf8View payload =
+        utf8_literal("https://chat_state.com/ra/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    static QrCode qr{};
+    if (!qr_code_encode_v5_m(ConstSlice<u8>{reinterpret_cast<const u8*>(payload.data), payload.bytes}, &qr))
+        return false;
+    const RendererLoginView view{{},    {},    {},    0,     0,     false, LoginControl::qr,
+                                 RendererLoginStatus::remote_qr_ready, login_mfa_capability_none,
+                                 login_mfa_capability_none, 0, false, &qr, false, false, false, true};
+    return set_probe_login_view(view);
 }
 
 bool add_guild(u64 id, Utf8View name) noexcept {
@@ -9903,6 +9926,10 @@ int run_probe() noexcept {
     const bool plugin_catalog_requested =
         GetEnvironmentVariableW(L"MAICORD_PLUGIN_CATALOG_UI_PROBE", plugin_catalog_option, 2) == 1 &&
         plugin_catalog_option[0] == L'1';
+    wchar_t caption_option[2]{};
+    const bool caption_requested =
+        GetEnvironmentVariableW(L"MAICORD_UI_CAPTION_PROBE", caption_option, 2) == 1 &&
+        caption_option[0] == L'1';
     wchar_t inbox_option[2]{};
     const bool inbox_requested = GetEnvironmentVariableW(L"MAICORD_INBOX_UI_PROBE", inbox_option, 2) == 1 &&
                                  inbox_option[0] == L'1';
@@ -10596,6 +10623,16 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 247;
+    }
+    if (caption_requested) {
+        bool valid = initialize_fixture(true);
+        if (!valid)
+            log_u64(LogLevel::error, "probe", "caption_fixture_failure_stage", g_probe.failure_stage);
+        valid = valid && caption_ui_probe(g_probe.renderer, probe_caption_relayout, probe_caption_login);
+        renderer_shutdown(&g_probe.renderer);
+        DestroyWindow(g_probe.window);
+        log_close();
+        return valid ? 0 : 303;
     }
     if (inbox_requested) {
         bool valid = initialize_fixture(true);
@@ -12117,6 +12154,46 @@ int run_probe() noexcept {
             ui_private_row_status(private_rows, 9998) != UiPrivateRowStatus::online)
             return 15;
         log_write(LogLevel::info, "probe", "group_conversation_icon_members_presence_and_actions_passed");
+        // An unread conversation: pinned in the rail with the peer's avatar and
+        // its count, counted on its conversation row, and Home's request badge.
+        {
+            g_probe.navigation.private_rows = &private_rows;
+            g_probe.navigation.home_badge = 2;
+            ++g_probe.navigation.requests_revision;
+            const bool pinned =
+                chat_state_store_note_message(&g_probe.chat_state, 9998, 1'270'000'000'000'020'000ull, 123, true,
+                                              false) &&
+                chat_state_store_note_message(&g_probe.chat_state, 9998, 1'270'000'000'000'020'001ull, 123, true,
+                                              false) &&
+                navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() &&
+                g_probe.navigation.guild_count && g_probe.navigation.guild_rows[0].id == 9998 &&
+                g_probe.navigation.guild_rows[0].folder_role == GuildFolderRole::conversation &&
+                g_probe.navigation.guild_rows[0].mention_count == 2 && synchronize_probe_shell_layout() &&
+                rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+                probe_capture_frame(L"dm-pings.bmp");
+            bool rail_avatar = false;
+            for (u32 i = 0; pinned && i < g_probe.renderer.media_quad_count; ++i) {
+                const auto& quad = g_probe.renderer.media_draw.quad_data[i];
+                const auto handle = g_probe.renderer.media_draw.handle_data[i];
+                rail_avatar = rail_avatar ||
+                              (handle.slot == avatar_allocation.handle.slot &&
+                               handle.generation == avatar_allocation.handle.generation &&
+                               quad.right - quad.left == 40.f &&
+                               ui_rect_has_area(ui_rect_intersection({quad.left, quad.top, quad.right, quad.bottom},
+                                                                     g_probe.guild_rail_scene.viewport)));
+            }
+            g_probe.navigation.private_rows = nullptr;
+            g_probe.navigation.home_badge = 0;
+            ++g_probe.navigation.requests_revision;
+            // Reading the conversation unpins it for the scenes that follow.
+            if (!pinned || !rail_avatar ||
+                !chat_state_store_note_message(&g_probe.chat_state, 9998, 1'270'000'000'000'020'002ull, 123, false,
+                                               true) ||
+                !navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() ||
+                g_probe.navigation.guild_rows[0].folder_role == GuildFolderRole::conversation)
+                return 16;
+            log_write(LogLevel::info, "probe", "conversation_rail_pin_passed");
+        }
         // Group DM member list: the recipients beside the conversation with
         // the owner's crown, laid out as the application shows it.
         {
