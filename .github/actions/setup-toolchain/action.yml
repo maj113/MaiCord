@@ -63,4 +63,7 @@ runs:
           Sort-Object { [version]$_.Name } | Select-Object -Last 1
         Write-Host "MSVC toolset: $($msvc.Name)"
         [IO.File]::AppendAllText($env:GITHUB_ENV, "MAICORD_MSVC_VERSION=$($msvc.Name)`n")
+        # cl and link start vctip.exe (compiler telemetry) on every launch unless it is missing.
+        Get-ChildItem -LiteralPath (Join-Path $msvc.FullName 'bin') -Recurse -Filter vctip.exe |
+          Rename-Item -NewName 'vctip.exe.disabled'
         cmake --version | Select-Object -First 1
