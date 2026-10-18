@@ -297,9 +297,11 @@ bool account_storage() noexcept {
         return fail_at(__LINE__);
     // Exactly 101 outbound guild targets: 99 ordinary children plus parent/thread.
     // Empty channels have local-only targets; the unrelated guild is excluded.
+    // Muted, so the collapsed category folds them away; a mention keeps the first.
     for (u32 i = 0; i < 99; ++i)
         if (!channel(94400 + i, utf8_literal("retained project channel"), 0, kCategory, i + 1,
-                     5000000 + i * 1000, 4999900 + i * 1000, i == 0 ? 1200 : 0))
+                     5000000 + i * 1000, 4999900 + i * 1000, i == 0 ? 1200 : 0) ||
+            !chat_state_store_set_channel_mute(&ui.chat_state, 94400 + i, true, true))
             return fail_at(__LINE__);
     const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, kCategory))
         ->collapsed = true;

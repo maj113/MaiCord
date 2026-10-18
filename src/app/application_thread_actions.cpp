@@ -491,10 +491,13 @@ bool application_thread_actions_response(const RestClientResponse& response,
             response.transport_ok() && response.status_code == 200 && body.bytes == response.body_bytes &&
             thread_member_decode(body, value->id, flight.source.self_user_id, &member).ok();
         const bool absent = response.transport_ok() && response.status_code == 404;
-        if (joined || absent)
+        if (joined || absent) {
             success = chat_state_store_set_thread_self_membership(&state, value->id,
                                                                      flight.source.self_user_id, joined);
-        else if (response.transport_ok() && response.status_code == 403)
+            if (success && joined)
+                chat_state_store_set_thread_join_time(&state, value->id, flight.source.self_user_id,
+                                                      thread_join_seconds_from_ms(member.join_timestamp_ms));
+        } else if (response.transport_ok() && response.status_code == 403)
             chat_state_store_set_thread_self_membership(&state, value->id, flight.source.self_user_id,
                                                            false, false);
     } else if (flight.operation == Operation::unarchive) {
@@ -507,9 +510,14 @@ bool application_thread_actions_response(const RestClientResponse& response,
             if (success)
                 chat_state_store_set_thread_active(&state, value->id, flight.source.self_user_id, true);
         }
-    } else if (response.transport_ok() && response.status_code == 204)
+    } else if (response.transport_ok() && response.status_code == 204) {
         success = chat_state_store_set_thread_self_membership(
             &state, value->id, flight.source.self_user_id, flight.operation == Operation::join);
+        // The server's THREAD_MEMBER_UPDATE replaces this local join time.
+        if (success && flight.operation == Operation::join)
+            chat_state_store_set_thread_join_time(&state, value->id, flight.source.self_user_id,
+                                                  thread_join_seconds_from_ms(clock_unix_milliseconds()));
+    }
     if (!response.transport_ok())
         invalidate_uncertain_membership(flight);
     publish(success ? Utf8View{} : utf8_literal("Couldn't update the thread. Try again."),

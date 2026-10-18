@@ -609,6 +609,8 @@ bool read_input(const void* opaque, u32 index, ChannelInput* output) noexcept {
     // An omitted membership object is unknown. It cannot clear existing proof.
     output->thread_self_joined_known = (row.fields & thread_browser_self_joined) != 0;
     output->thread_self_joined = output->thread_self_joined_known;
+    if (output->thread_self_joined)
+        output->thread_join_seconds = thread_join_seconds_from_ms(row.self_join_timestamp_ms);
     return true;
 }
 bool apply_page(ApplicationThreadBrowser& value, BrowserBank& bank, const BrowserFlight& flight) noexcept {

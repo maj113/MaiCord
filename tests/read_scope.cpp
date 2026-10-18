@@ -210,7 +210,7 @@ void test_read_scope(void (*check)(bool, const char*) noexcept) noexcept {
     large.channels = full_channels;
     large.channel_order = full_order;
     large.channel_count = kReadScopeTargetMaximum;
-    large.channel_capacity = kReadScopeTargetMaximum + 1;
+    large.channel_capacity = large.channel_backed_count = kReadScopeTargetMaximum + 1;
     for (u32 i = 0; i < kReadScopeTargetMaximum + 1; ++i) {
         full_channels[i] = {};
         auto& channel = full_channels[i];

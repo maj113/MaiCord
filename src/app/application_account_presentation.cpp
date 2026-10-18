@@ -143,6 +143,7 @@ bool synchronize_navigation_view() noexcept {
     if (ui.navigation_view.source_guild_mutations == ui.chat_state.guild_mutations &&
         ui.navigation_view.source_channel_mutations == ui.chat_state.channel_mutations &&
         ui.navigation_view.source_selection_revision == ui.chat_state.selection_revision &&
+        !ui.navigation_view.connected_voice_stale &&
         ui.navigation_view.source_folder_revision == ui.navigation_view.folder_revision &&
         ui.navigation_view.source_events_revision == ui.navigation_view.events_revision &&
         ui.navigation_view.source_requests_revision == ui.navigation_view.requests_revision) {

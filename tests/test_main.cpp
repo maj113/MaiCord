@@ -18449,6 +18449,7 @@ void test_thread_inventory_navigation() noexcept {
     inputs[3].thread_archived_known = true;
     inputs[3].thread_listed_active = true;
     inputs[3].thread_active_known = true;
+    inputs[3].thread_self_joined = inputs[3].thread_self_joined_known = true; // the rail lists joined threads
     inputs[4].last_message_id = 210;
     inputs[4].last_message_known = true;
     inputs[4].thread_archived = true;
@@ -18566,7 +18567,7 @@ void test_chat_state() noexcept {
 
     const GatewayDecodeResult guild_envelope = decode_gateway(
         utf8_literal(
-            R"({"op":0,"d":{"id":"100","owner_id":"999","name":"Mai\u0043ord","icon":"0123456789abcdef0123456789abcdef","roles":[{"id":"100","permissions":"1024"},{"id":"300","permissions":"0","color":0,"colors":{"primary_color":12872687,"secondary_color":null,"tertiary_color":null}}],"members":[{"user":{"id":"1"},"roles":["300"]}],"channels":[{"id":"10","type":4,"position":0,"name":"text","permission_overwrites":[]},{"id":"11","type":0,"position":1,"name":"general","permission_overwrites":[]},{"id":"12","type":0,"position":0,"flags":131072,"name":"hidden","permission_overwrites":[]}],"threads":[{"id":"13","type":11,"parent_id":"11","name":"active"}],"emojis":{"op":0,"items":[{"id":"500","name":"party_blob","roles":[],"animated":false,"available":true,"managed":false,"require_colons":true},{"id":"501","name":"reader_only","roles":["300"],"animated":true,"available":true},{"id":"502","name":"disabled_blob","roles":[],"available":false}]}},"s":2,"t":"GUILD_CREATE"})"),
+            R"({"op":0,"d":{"id":"100","owner_id":"999","name":"Mai\u0043ord","icon":"0123456789abcdef0123456789abcdef","roles":[{"id":"100","permissions":"1024"},{"id":"300","permissions":"0","color":0,"colors":{"primary_color":12872687,"secondary_color":null,"tertiary_color":null}}],"members":[{"user":{"id":"1"},"roles":["300"]}],"channels":[{"id":"10","type":4,"position":0,"name":"text","permission_overwrites":[]},{"id":"11","type":0,"parent_id":"10","position":1,"name":"general","permission_overwrites":[]},{"id":"12","type":0,"position":0,"flags":131072,"name":"hidden","permission_overwrites":[]}],"threads":[{"id":"13","type":11,"parent_id":"11","name":"active","member":{"id":"13","user_id":"1","join_timestamp":"2026-01-01T00:00:00.000000+00:00","flags":0}}],"emojis":{"op":0,"items":[{"id":"500","name":"party_blob","roles":[],"animated":false,"available":true,"managed":false,"require_colons":true},{"id":"501","name":"reader_only","roles":["300"],"animated":true,"available":true},{"id":"502","name":"disabled_blob","roles":[],"available":false}]}},"s":2,"t":"GUILD_CREATE"})"),
         &envelope);
     const GatewayClientDispatchRouteResult guild_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
@@ -18688,9 +18689,9 @@ void test_chat_state() noexcept {
                navigation.guild_revision != 0 && navigation.channel_revision != 0 &&
                navigation.guild_count == 2 && navigation.channel_count == 4 &&
                navigation.channel_rows[0].id == 14 && navigation.channel_rows[0].depth == 0 &&
-               navigation.channel_rows[1].id == 11 && navigation.channel_rows[2].id == 13 &&
-               navigation.channel_rows[2].depth == 1 && navigation.channel_rows[3].id == 10 &&
-               navigation.channel_rows[3].selectable &&
+               navigation.channel_rows[1].id == 10 && navigation.channel_rows[1].selectable &&
+               navigation.channel_rows[2].id == 11 && navigation.channel_rows[2].depth == 1 &&
+               navigation.channel_rows[3].id == 13 && navigation.channel_rows[3].depth == 2 &&
                !navigation_view_find_channel(navigation, 12),
            "navigation_visual_order_hierarchy_obfuscated");
     const u32 navigation_guild_revision_before_selection = navigation.guild_revision;
@@ -19130,7 +19131,7 @@ void test_channel_permissions() noexcept {
     const bool permission_guild_decoded =
         gateway_decode_envelope(
             utf8_literal(
-                R"({"op":0,"d":{"id":"100","owner_id":"999","name":"Permissions","roles":[{"id":"100","permissions":"0","name":"@everyone"},{"id":"2000","permissions":"0","name":"Reader"},{"id":"3000","permissions":"0","name":"Writer"}],"members":[{"user":{"id":"1"},"roles":["2000","3000"]}],"channels":[{"id":"10","type":4,"position":0,"name":"Private","permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"1024"}]},{"id":"11","type":0,"parent_id":"10","position":1,"name":"role-allow","permission_overwrites":[{"id":"3000","type":0,"allow":"1024","deny":"0"}]},{"id":"12","type":0,"position":2,"name":"role-collision","permission_overwrites":[{"id":"2000","type":0,"allow":"0","deny":"1024"},{"id":"3000","type":0,"allow":"1024","deny":"0"}]},{"id":"13","type":0,"position":3,"name":"member-deny","permission_overwrites":[{"id":"3000","type":0,"allow":"1024","deny":"0"},{"id":"1","type":1,"allow":"0","deny":"1024"}]},{"id":"14","type":0,"position":4,"name":"thread-parent","permission_overwrites":[{"id":"100","type":0,"allow":"1024","deny":"0"}]}],"threads":[{"id":"15","type":11,"parent_id":"14","position":0,"name":"thread"}]},"s":2,"t":"GUILD_CREATE"})"),
+                R"({"op":0,"d":{"id":"100","owner_id":"999","name":"Permissions","roles":[{"id":"100","permissions":"0","name":"@everyone"},{"id":"2000","permissions":"0","name":"Reader"},{"id":"3000","permissions":"0","name":"Writer"}],"members":[{"user":{"id":"1"},"roles":["2000","3000"]}],"channels":[{"id":"10","type":4,"position":0,"name":"Private","permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"1024"}]},{"id":"11","type":0,"parent_id":"10","position":1,"name":"role-allow","permission_overwrites":[{"id":"3000","type":0,"allow":"1024","deny":"0"}]},{"id":"12","type":0,"position":2,"name":"role-collision","permission_overwrites":[{"id":"2000","type":0,"allow":"0","deny":"1024"},{"id":"3000","type":0,"allow":"1024","deny":"0"}]},{"id":"13","type":0,"position":3,"name":"member-deny","permission_overwrites":[{"id":"3000","type":0,"allow":"1024","deny":"0"},{"id":"1","type":1,"allow":"0","deny":"1024"}]},{"id":"14","type":0,"position":4,"name":"thread-parent","permission_overwrites":[{"id":"100","type":0,"allow":"1024","deny":"0"}]}],"threads":[{"id":"15","type":11,"parent_id":"14","position":0,"name":"thread","member":{"id":"15","user_id":"1","join_timestamp":"2026-01-01T00:00:00.000000+00:00","flags":0}}]},"s":2,"t":"GUILD_CREATE"})"),
             Slice<u32>{scratch, 2'048}, 32, &envelope)
             .ok();
     const bool permission_guild_routed =

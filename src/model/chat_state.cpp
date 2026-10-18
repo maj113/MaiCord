@@ -826,6 +826,7 @@ ChatStateStoreError chat_state_store_preflight_channel(const ChatStateStore& sto
         (!input.content_policy_known && input.content_policy) ||
         (input.thread_listed_active && !input.thread_active_known) ||
         (input.thread_active_known && !channel_is_thread(input.type)) ||
+        (input.thread_join_seconds && (!channel_is_thread(input.type) || !input.thread_self_joined)) ||
         (private_channel ? input.guild_id != 0 || input.parent_id != 0 : input.guild_id == 0))
         return ChatStateStoreError::invalid_input;
     bool found = false;
@@ -897,6 +898,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         (!input.content_policy_known && input.content_policy) ||
         (input.thread_listed_active && !input.thread_active_known) ||
         (input.thread_active_known && !channel_is_thread(input.type)) ||
+        (input.thread_join_seconds && (!channel_is_thread(input.type) || !input.thread_self_joined)) ||
         (private_channel ? input.guild_id != 0 || input.parent_id != 0 : input.guild_id == 0) ||
         !valid_name(input.name) || input.name.bytes > 0xFFFFu) {
         return state_error(store, ChatStateStoreError::invalid_input);
@@ -957,10 +959,14 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         record.thread_locked_known = false;
         record.thread_active_known = false;
         record.thread_listing_synced = false;
+        record.position = 0;
     }
     record.guild_id = input.guild_id;
     record.parent_id = input.parent_id;
-    record.position = input.position;
+    if (!channel_is_thread(input.type))
+        record.position = input.position;
+    else if (input.thread_join_seconds)
+        record.thread_join_seconds = input.thread_join_seconds;
     record.flags = input.flags;
     record.type = input.type;
     if (input.rate_limit_known)
@@ -976,6 +982,8 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
     if (input.thread_self_joined_known) {
         record.thread_self_joined = input.thread_self_joined;
         record.thread_self_joined_known = true;
+        if (!input.thread_self_joined && channel_is_thread(record.type))
+            record.thread_join_seconds = 0;
     }
     if (input.thread_active_known && channel_is_thread(record.type)) {
         record.thread_listed_active = input.thread_listed_active;
@@ -1263,6 +1271,7 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
     role.mentionable = input.mentionable;
     role.has_icon = input.has_icon;
     role.in_prompt = input.in_prompt;
+    role.linked = input.linked;
     role.secondary_color = input.secondary_color;
     role.tertiary_color = input.tertiary_color;
     return true;
@@ -1469,8 +1478,11 @@ bool set_thread_authority(ChatStateStore* store, u64 thread_id, u64 self_user_id
         chat_state_store_channel_visible(*store, channel) ? channel.mention_count : 0;
     if (field == ThreadAuthorityField::membership) {
         channel.thread_self_joined_known = known;
-        if (known)
+        if (known) {
             channel.thread_self_joined = value;
+            if (!value)
+                channel.thread_join_seconds = 0;
+        }
     } else if (field == ThreadAuthorityField::archived) {
         channel.thread_archived_known = known;
         if (known)
@@ -1494,6 +1506,26 @@ bool chat_state_store_set_thread_self_membership(ChatStateStore* store, u64 thre
                                                     u64 self_user_id, bool joined, bool known) noexcept {
     return set_thread_authority(store, thread_id, self_user_id, joined, known,
                                 ThreadAuthorityField::membership);
+}
+
+bool chat_state_store_set_thread_join_time(ChatStateStore* store, u64 thread_id, u64 self_user_id,
+                                              u32 seconds) noexcept {
+    if (!store || !seconds || !self_user_id || self_user_id != store->self_user_id)
+        return false;
+    bool found = false;
+    const u32 order = find_channel_order(*store, thread_id, &found);
+    if (!found)
+        return false;
+    auto& channel = store->channels[store->channel_order[order]];
+    if (!channel.occupied || !channel_is_thread(channel.type) || !channel.thread_self_joined_known ||
+        !channel.thread_self_joined)
+        return false;
+    if (channel.thread_join_seconds != seconds) {
+        channel.thread_join_seconds = seconds;
+        saturating_increment(channel.revision);
+        ++store->channel_mutations;
+    }
+    return true;
 }
 
 bool chat_state_store_set_thread_archived(ChatStateStore* store, u64 thread_id, u64 self_user_id,

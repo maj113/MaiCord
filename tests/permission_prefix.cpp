@@ -32,7 +32,7 @@ RoleRecord role_sentinel(u32 index) noexcept {
     RoleRecord value{};
     value.id = 0xDEAD0000ull + index; value.guild_id = 777; value.permissions = ~0ull;
     value.name_offset = 991; value.name_bytes = 17; value.position = 313; value.color = 0xABCDEF;
-    value.self_assigned = value.hoist = value.managed = true; value.reserved = 3;
+    value.self_assigned = value.hoist = value.managed = value.linked = true; value.reserved = 1;
     return value;
 }
 PermissionOverwriteRecord overwrite_sentinel(u32 index) noexcept {

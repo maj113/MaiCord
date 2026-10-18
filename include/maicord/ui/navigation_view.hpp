@@ -97,7 +97,9 @@ struct NavigationView {
     u64 selected_guild_id;
     u64 selected_channel_id;
     const VoiceStateStore* voice_states;
-    u64 connected_voice_channel_id; // Local voice session, for the account panel.
+    // Local voice session: the account panel, and the one voice row a collapsed
+    // category keeps. Whoever changes it sets connected_voice_stale.
+    u64 connected_voice_channel_id;
     u32 source_voice_revision;
     u32 expanded_folder_count;
     // Borrowed folder layout; null keeps the state's join order without folders.
@@ -120,6 +122,8 @@ struct NavigationView {
     u32 source_events_revision;
     char events_label[24];
     u8 events_label_bytes;
+    // Host-set with connected_voice_channel_id; cleared by the rebuild.
+    bool connected_voice_stale;
     // Host-set (home): the "Message requests" row with this pending count;
     // requests_mode lists only message requests. Bump requests_revision.
     bool requests_row;

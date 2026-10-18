@@ -164,7 +164,7 @@ bool read_channel(void*, u64 channel_id, mc_channel_info* info) noexcept {
     info->guild_id = channel->guild_id;
     info->parent_id = channel->parent_id;
     info->last_message_id = channel->last_message_id;
-    info->position = channel->position;
+    info->position = channel_is_thread(channel->type) ? 0 : channel->position;
     if (channel->permissions_resolved) {
         info->flags |= MC_CHANNEL_PERMISSIONS;
         info->self_permissions = channel->effective_permissions;

@@ -90,7 +90,8 @@ bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
     key->base_id = channel.type == 4 ? 0 : base->id;
     key->base_position = channel.type == 4 ? 0 : channel_list_position(base->type, base->position);
     key->row_id = channel.id;
-    key->row_position = channel.position;
+    // Threads list the most recently joined first; unknown join times last.
+    key->row_position = !thread ? channel.position : channel.thread_join_seconds ? ~channel.thread_join_seconds : ~0u;
     key->row_rank = channel.type == 4 ? 0 : thread ? 2 : 1;
     key->depth = channel.type == 4 ? 0
                  : category        ? static_cast<u8>(thread ? 2 : 1)
@@ -115,25 +116,59 @@ u16 channel_slot(const ChatStateStore& state, u64 channel_id) noexcept {
                : static_cast<u16>(0xFFFF);
 }
 
-void mark_visible_category(NavigationView* view, const ChatStateStore& state,
-                           const ChannelRecord& channel) noexcept {
-    u16 parent_slot = channel.parent_id != 0 ? channel_slot(state, channel.parent_id) : 0xFFFF;
-    if (parent_slot == 0xFFFF || parent_slot >= state.channel_capacity) {
-        return;
+// Projection state of each channel slot, kept in channel_visibility_scratch.
+constexpr u8 kListed = 1;          // the row is in the list
+constexpr u8 kCandidate = 2;       // passes every filter, before the collapse and thread rules
+constexpr u8 kHasChildren = 4;     // category: owns a channel record, listed or not
+constexpr u8 kHasListedChild = 8;  // category: a child row is listed
+constexpr u8 kCollapsedChild = 16; // category: a child is hidden only by the collapse
+constexpr u8 kHasThreadRow = 32;   // channel: a thread row is listed under it
+
+// The slot of a listed guild category (a thread's parent's parent), or 0xFFFF.
+u16 category_slot(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
+    u16 slot = channel.parent_id != 0 ? channel_slot(state, channel.parent_id) : 0xFFFF;
+    if (slot == 0xFFFF || slot >= state.channel_capacity) {
+        return 0xFFFF;
     }
-    const ChannelRecord* category = &state.channels[parent_slot];
-    if (category->type != 4 && (channel.type == 10 || channel.type == 11 || channel.type == 12) &&
-        category->parent_id != 0) {
-        parent_slot = channel_slot(state, category->parent_id);
-        if (parent_slot == 0xFFFF || parent_slot >= state.channel_capacity) {
-            return;
+    if (state.channels[slot].type != 4 && channel_is_thread(channel.type) && state.channels[slot].parent_id != 0) {
+        slot = channel_slot(state, state.channels[slot].parent_id);
+        if (slot == 0xFFFF || slot >= state.channel_capacity) {
+            return 0xFFFF;
         }
-        category = &state.channels[parent_slot];
     }
-    if (category->type == 4 && category->guild_id == state.selected_guild_id &&
-        (category->flags & kChannelObfuscatedFlag) == 0) {
-        view->channel_visibility_scratch[parent_slot] = 1;
+    const ChannelRecord& category = state.channels[slot];
+    return category.type == 4 && category.guild_id == state.selected_guild_id &&
+                   (category.flags & kChannelObfuscatedFlag) == 0
+               ? slot
+               : u16{0xFFFF};
+}
+
+// A joined thread is listed under its parent when the parent is open or lists
+// everything (not collapsed, not muted); otherwise only while it has mentions
+// or is unread. The open thread always stays.
+bool thread_listed(const ChatStateStore& state, const ChannelRecord& thread, const ChannelRecord& parent,
+                   bool category_collapsed, u64 open_thread_parent_id) noexcept {
+    if (thread.id == state.selected_channel_id) {
+        return true;
     }
+    if (!thread.thread_self_joined_known || !thread.thread_self_joined) {
+        return false;
+    }
+    const bool open = parent.id == state.selected_channel_id || parent.id == open_thread_parent_id;
+    return open || (!category_collapsed && !parent.notification_dimmed) || thread.mention_count > 0 ||
+           chat_state_store_channel_unread(state, thread);
+}
+
+// A channel in a collapsed category: mentions, the open or connected channel and
+// unread unmuted text channels stay; voice, muted and read text channels fold away.
+bool collapsed_keeps(const ChatStateStore& state, const ChannelRecord& channel, u8 flags,
+                     u64 connected_voice_id) noexcept {
+    if (channel.id == state.selected_channel_id || channel.id == connected_voice_id ||
+        channel.mention_count > 0 || (flags & kHasThreadRow) != 0) {
+        return true;
+    }
+    return !channel.notification_dimmed && channel.type != 2 && channel.type != 13 &&
+           (!channel_is_thread_parent(channel.type) || chat_state_store_channel_unread(state, channel));
 }
 
 bool row_changed(const GuildViewRow& left, const GuildViewRow& right) noexcept {
@@ -329,6 +364,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             return view_error(view, NavigationViewError::invalid_input);
         }
     }
+    u8* const flags = view->channel_visibility_scratch;
     // "Hide muted channels" drops own- or category-muted rows (a server-wide
     // mute alone does not count); the open channel and its category remain.
     const GuildRecord* selected_guild =
@@ -340,6 +376,11 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     for (u32 order = 0; order < state.channel_count; ++order) {
         const u16 slot = state.channel_order[order];
         const ChannelRecord& channel = state.channels[slot];
+        if (channel.guild_id == state.selected_guild_id && channel.type != 4 && !channel_is_thread(channel.type)) {
+            const u16 owner = category_slot(state, channel);
+            if (owner != 0xFFFF)
+                flags[owner] |= kHasChildren;
+        }
         if (hide_muted && channel.notification_dimmed && channel.id != state.selected_channel_id &&
             channel.guild_id == state.selected_guild_id)
             continue;
@@ -365,26 +406,70 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             ((channel.thread_archived_known && channel.thread_archived) ||
              (channel.thread_active_known && !channel.thread_listed_active)))
             continue;
-        view->channel_visibility_scratch[slot] = 1;
-        if (channel.type != 4) {
-            mark_visible_category(view, state, channel);
+        flags[slot] |= kCandidate;
+    }
+
+    // Threads first: a listed thread keeps its parent in the list, and the
+    // parent of the open thread counts as open.
+    const ChannelRecord* open_channel = chat_state_store_find_channel(state, state.selected_channel_id);
+    const u64 open_thread_parent = open_channel && channel_is_thread(open_channel->type) ? open_channel->parent_id : 0;
+    for (u32 order = 0; order < state.channel_count; ++order) {
+        const u16 slot = state.channel_order[order];
+        const ChannelRecord& thread = state.channels[slot];
+        if (!(flags[slot] & kCandidate) || !channel_is_thread(thread.type)) {
+            continue;
+        }
+        const u16 parent_slot = thread.parent_id != 0 ? channel_slot(state, thread.parent_id) : 0xFFFF;
+        if (parent_slot == 0xFFFF || parent_slot >= state.channel_capacity) {
+            continue;
+        }
+        const u16 owner = category_slot(state, thread);
+        if (thread_listed(state, thread, state.channels[parent_slot],
+                          owner != 0xFFFF && state.channels[owner].collapsed, open_thread_parent)) {
+            flags[slot] |= kListed;
+            flags[parent_slot] |= kHasThreadRow;
+        }
+    }
+    // Channels. A collapsed category folds its channels away except the ones
+    // that matter now; what folds away keeps the header.
+    for (u32 order = 0; order < state.channel_count; ++order) {
+        const u16 slot = state.channel_order[order];
+        const ChannelRecord& channel = state.channels[slot];
+        if (channel_is_thread(channel.type) || channel.type == 4 || !(flags[slot] & (kCandidate | kHasThreadRow))) {
+            continue;
+        }
+        const u16 owner = category_slot(state, channel);
+        if (owner == 0xFFFF || !state.channels[owner].collapsed ||
+            collapsed_keeps(state, channel, flags[slot], view->connected_voice_channel_id)) {
+            flags[slot] |= kListed;
+            if (owner != 0xFFFF)
+                flags[owner] |= kHasListedChild;
+        } else {
+            flags[owner] |= kCollapsedChild;
+        }
+    }
+    // Categories. A category lists while a child row does or the collapse is
+    // all that hides one; an empty one stays for members who manage channels.
+    constexpr u32 kManageView = channel_action_view | channel_action_manage_channel;
+    for (u32 order = 0; order < state.channel_count; ++order) {
+        const u16 slot = state.channel_order[order];
+        const ChannelRecord& category = state.channels[slot];
+        if (category.type != 4 || category.guild_id != state.selected_guild_id ||
+            (category.flags & kChannelObfuscatedFlag) != 0) {
+            continue;
+        }
+        const u8 own = flags[slot];
+        if ((own & (kHasListedChild | kCollapsedChild)) ||
+            ((own & kCandidate) && !(own & kHasChildren) && (category.actions & kManageView) == kManageView)) {
+            flags[slot] |= kListed;
         }
     }
     u32 channel_count = 0;
     for (u32 order = 0; order < state.channel_count; ++order) {
         const u16 slot = state.channel_order[order];
-        if (view->channel_visibility_scratch[slot] == 0) {
+        if (!(flags[slot] & kListed)) {
             continue;
         }
-        // Collapse only the projection. Keep channel state and the selected
-        // conversation intact so expanding does not fetch history again.
-        const auto* parent = chat_state_store_find_channel(state, state.channels[slot].parent_id);
-        bool hidden = false;
-        for (u32 depth = 0; parent && depth < state.channel_count; ++depth) {
-            if (parent->type == 4 && parent->collapsed) { hidden = true; break; }
-            parent = chat_state_store_find_channel(state, parent->parent_id);
-        }
-        if (hidden) continue;
         if (channel_count >= view->channel_capacity) {
             return view_error(view, NavigationViewError::channel_capacity);
         }
@@ -458,7 +543,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         const ChannelViewRow row{
             channel.id,
             channel.parent_id,
-            channel.position,
+            channel_is_thread(channel.type) ? 0u : channel.position,
             channel.revision,
             channel.actions,
             channel.mention_count,
@@ -493,6 +578,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     view->source_guild_mutations = state.guild_mutations;
     view->source_channel_mutations = state.channel_mutations;
     view->source_selection_revision = state.selection_revision;
+    view->connected_voice_stale = false;
     view->source_voice_revision = view->voice_states ? view->voice_states->revision : 0;
     view->source_stage_revision = view->stage_instances ? view->stage_instances->revision : 0;
     view->source_folder_revision = view->folder_revision;

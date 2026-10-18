@@ -9,7 +9,7 @@ inline bool role_equal(const RoleRecord& a, const RoleRecord& b) noexcept {
     return a.id == b.id && a.guild_id == b.guild_id && a.permissions == b.permissions &&
         a.name_offset == b.name_offset && a.name_bytes == b.name_bytes && a.position == b.position &&
         a.color == b.color && a.self_assigned == b.self_assigned && a.hoist == b.hoist &&
-        a.managed == b.managed && a.reserved == b.reserved;
+        a.managed == b.managed && a.linked == b.linked && a.reserved == b.reserved;
 }
 inline bool guild_equal(const GuildRecord& a, const GuildRecord& b) noexcept {
     return a.id == b.id && a.owner_id == b.owner_id && a.base_permissions == b.base_permissions &&

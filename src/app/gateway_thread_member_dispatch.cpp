@@ -1,8 +1,10 @@
 #include "maicord/app/gateway_thread_members.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/model/chat_state.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/client_status.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "gateway_payload_writer.hpp"
 namespace maicord {
@@ -99,7 +101,7 @@ bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 struct Outer {
-    u64 user_id, thread_id;
+    u64 user_id, thread_id, join_ms;
     JsonValue member, presence;
     bool id_seen, thread_seen, member_seen, presence_seen;
     GatewayEventDecodeError error;
@@ -112,6 +114,10 @@ bool visit_outer(void* opaque, JsonString key, JsonValue value) noexcept {
     } else if (json_string_equals_ascii(key, utf8_literal("id"))) {
         if (o.thread_seen || !json_value_to_snowflake(value, &o.thread_id)) return reject(&o.error);
         o.thread_seen = true;
+    } else if (json_string_equals_ascii(key, utf8_literal("join_timestamp"))) {
+        // Advisory: an unreadable time only leaves the join order unknown.
+        JsonString text{};
+        if (!json_value_as_string(value, &text) || !parse_iso_timestamp(text, &o.join_ms)) o.join_ms = 0;
     } else if (json_string_equals_ascii(key, utf8_literal("member"))) {
         if (o.member_seen || value.kind != JsonValueKind::object) return reject(&o.error);
         o.member_seen = true; o.member = value;
@@ -163,6 +169,7 @@ struct Array {
     u64 guild, thread;
     GatewayClientMemberListOperation operation;
     GatewayEventDecodeError error;
+    u64 self, self_join_ms;
 };
 void merge_appearance(UserAppearance* target, const UserAppearance& other) noexcept {
     if (!target->user_id) { target->user_id = other.user_id; target->guild_id = other.guild_id; }
@@ -249,6 +256,7 @@ bool visit_entry(void* opaque, u32, JsonValue value) noexcept {
     Outer o{};
     if (!visit_object(value, *a->document, a->depth, visit_outer, &o, &o.error) || !o.id_seen) return reject(&a->error);
     if (o.thread_seen && o.thread_id != a->thread) return reject(&a->error);
+    if (a->self && o.user_id == a->self && o.join_ms) a->self_join_ms = o.join_ms;
     return append_record(a, o.user_id, o.member, o.member_seen, o.presence, o.presence_seen);
 }
 } // namespace
@@ -266,6 +274,7 @@ GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(con
     const auto read = json_visit_root_object(document.input, document.structurals, depth, visit_root, &root);
     if (!read.ok() || !root.guild_seen || !root.thread_seen || (root.snapshot && !root.members_seen)) return {root.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::missing_required_field : root.error, GatewayClientDispatchRouteError::decode};
     Array array{{storage, 0}, &document, depth, 0, root.guild, root.thread, root.snapshot ? GatewayClientMemberListOperation::sync : GatewayClientMemberListOperation::insert, {}};
+    array.self = self_user_id;
     bool valid = !root.members_seen || json_visit_indexed_array(document, root.members, depth, visit_entry, &array).ok();
     array.operation = GatewayClientMemberListOperation::remove;
     if (valid && root.removed_seen) valid = json_visit_indexed_array(document, root.removed, depth, visit_entry, &array).ok();
@@ -294,6 +303,8 @@ GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(con
     }
     event->thread_members.authority_flags = self_proof;
     event->thread_members.authority_self_id = self_proof ? self_user_id : 0;
+    if (self_proof & gateway_thread_self_joined)
+        event->thread_members.authority_join_seconds = thread_join_seconds_from_ms(array.self_join_ms);
     return {};
 }
 

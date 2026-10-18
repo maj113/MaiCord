@@ -406,6 +406,8 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
         input.thread_listed_active = !input.thread_archived;
         input.thread_self_joined_known = (receipt.fields & thread_creation_self_joined) != 0;
         input.thread_self_joined = input.thread_self_joined_known;
+        if (input.thread_self_joined)
+            input.thread_join_seconds = thread_join_seconds_from_ms(receipt.self_join_timestamp_ms);
         if (chat_state_store_preflight_channel(state, input) != ChatStateStoreError::none ||
             !chat_state_store_upsert_channel(&state, input).ok())
             return false;

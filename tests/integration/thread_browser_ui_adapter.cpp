@@ -217,7 +217,8 @@ bool thread_browser_ui_adapter_page(Slice<u8> storage, u32 count, u64 first, boo
             !protocol_writer_append_literal(&w, " · native review\",\"thread_metadata\":{\"archived\":") ||
             !protocol_writer_append_c_string(&w, archived || i % 2 == 0 ? "true" : "false") ||
             !protocol_writer_append_literal(&w, ",\"locked\":false}")) return false;
-        if (i % 4 == 0 && !protocol_writer_append_literal(&w,
+        // Private threads and every search result are joined: the channel list shows joined threads.
+        if ((i % 4 == 0 || !archived) && !protocol_writer_append_literal(&w,
             ",\"member\":{\"join_timestamp\":\"2024-08-30T12:34:56Z\",\"flags\":0}")) return false;
         if (!protocol_writer_append_byte(&w, '}')) return false;
     }

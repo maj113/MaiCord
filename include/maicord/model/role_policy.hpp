@@ -19,6 +19,12 @@ inline bool role_before(const RoleRecord& left, const RoleRecord& right) noexcep
     return role_rank_before(left.guild_id, left.position, left.id, right.position, right.id);
 }
 
+// Profile role pills: linked roles follow all others; each group keeps the
+// hierarchy order. Colour, icon and hoist selection are unaffected.
+inline bool role_pill_before(const RoleRecord& left, const RoleRecord& right) noexcept {
+    return left.linked != right.linked ? right.linked != 0 : role_before(left, right);
+}
+
 // A candidate against the retained winner; a zero winner id means none yet.
 inline bool role_rank_above(const RoleRecord& candidate, u32 position,
                                     u64 role_id) noexcept {

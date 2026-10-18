@@ -153,7 +153,15 @@ struct ChannelInput {
     bool thread_active_known = false;
     u16 rate_limit_per_user = 0;
     bool rate_limit_known = false;
+    // Thread only: join time in Unix seconds; zero keeps the stored one.
+    u32 thread_join_seconds = 0;
 };
+
+// Unix seconds in 32 bits are enough for join times; a time outside that range is unknown.
+constexpr u32 thread_join_seconds_from_ms(u64 timestamp_ms) noexcept {
+    const u64 seconds = timestamp_ms / 1000;
+    return seconds > 0xFFFFFFFFull ? 0u : static_cast<u32>(seconds);
+}
 
 struct GuildRecord {
     u64 id;
@@ -202,7 +210,12 @@ struct ChannelRecord {
     u64 member_list_id;
     u32 name_offset;
     u32 overwrite_offset;
-    u32 position;
+    union {
+        u32 position;
+        // Threads have no position: the word holds the current member's join
+        // time in Unix seconds, zero when unknown.
+        u32 thread_join_seconds;
+    };
     u32 flags;
     u32 actions;
     u32 mention_count;
@@ -277,6 +290,9 @@ u32 chat_state_store_thread_actions(const ChatStateStore&, const ChannelRecord&)
 // A different current self ID cannot mutate retained membership or metadata.
 bool chat_state_store_set_thread_self_membership(ChatStateStore*, u64 thread_id, u64 self_user_id,
                                                     bool joined, bool known = true) noexcept;
+// Records when the current member joined a joined thread; zero is ignored.
+bool chat_state_store_set_thread_join_time(ChatStateStore*, u64 thread_id, u64 self_user_id,
+                                              u32 seconds) noexcept;
 bool chat_state_store_set_thread_archived(ChatStateStore*, u64 thread_id, u64 self_user_id,
                                              bool archived, bool known = true) noexcept;
 bool chat_state_store_set_thread_locked(ChatStateStore*, u64 thread_id, u64 self_user_id, bool locked,
@@ -318,7 +334,9 @@ struct RoleRecord {
     u8 has_icon : 1;
     // Role flag bit 0: selectable in onboarding prompts.
     u8 in_prompt : 1;
-    u8 reserved : 2;
+    // tags.guild_connections is present: a linked role, listed last in profile pills.
+    u8 linked : 1;
+    u8 reserved : 1;
     // colors.secondary_color / tertiary_color: RGB | kRoleColorPresent or zero.
     u32 secondary_color;
     u32 tertiary_color;
@@ -352,6 +370,7 @@ struct RoleInput {
     // Enhanced role colours: RGB | kRoleColorPresent, or zero when absent.
     u32 secondary_color = 0;
     u32 tertiary_color = 0;
+    bool linked = false;
 };
 
 struct PermissionOverwriteInput {

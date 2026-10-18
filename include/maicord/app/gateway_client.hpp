@@ -613,7 +613,12 @@ struct GatewayClientStateMutation {
     u64 member_list_id;
     u32 position;
     u32 flags;
-    u32 color;
+    union {
+        u32 color;
+        // Thread channel records: the current member's join time in Unix
+        // seconds; zero when unknown.
+        u32 thread_join_seconds;
+    };
     u32 record_count;
     u32 role_count;
     u32 member_role_count;
@@ -709,6 +714,8 @@ enum GatewayClientRoleFlag : u8 {
     gateway_client_role_mentionable = 1u << 2,
     gateway_client_role_has_icon = 1u << 3,
     gateway_client_role_in_prompt = 1u << 4,
+    // tags.guild_connections is present: a linked role.
+    gateway_client_role_linked = 1u << 5,
 };
 enum GatewayClientChannelEventFlag : u8 {
     // THREAD_CREATE with newly_created=true, never an old membership sync.
@@ -853,6 +860,8 @@ struct GatewayClientThreadMembersUpdate {
     u8 authority_flags;
     u8 authority_reserved;
     u64 authority_self_id;
+    // The current member's join time in Unix seconds when it joined; zero when unknown.
+    u32 authority_join_seconds;
 };
 enum GatewayClientThreadAuthorityFlag : u8 {
     gateway_thread_self_known = 1,
@@ -861,12 +870,16 @@ enum GatewayClientThreadAuthorityFlag : u8 {
 struct GatewayClientThreadSelfUpdate {
     u64 guild_id, thread_id, self_user_id;
     u8 authority_flags;
-    u8 reserved[7];
+    u8 reserved[3];
+    u32 join_seconds;
 };
 enum class GatewayClientThreadSyncScope : u8 {
     guild,
     parents
 };
+// THREAD_LIST_SYNC payload: parent ids, thread records, then one entry per
+// joined thread: its id (u64 LE) and join time in seconds (u32 LE).
+inline constexpr u32 kGatewayThreadSyncMemberBytes = 12;
 struct GatewayClientThreadListSync {
     u64 guild_id, self_user_id;
     u32 parent_count, thread_count, member_count;

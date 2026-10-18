@@ -64,6 +64,8 @@ bool channel(ReadStateFixture& f, u64 id, u64 guild, Utf8View name, u8 type,
     ChannelInput input{};
     input.id = id; input.guild_id = guild; input.parent_id = parent; input.name = name;
     input.type = type; input.position = position; input.last_message_id = last_message; input.last_message_known = true;
+    // The channel list shows joined threads.
+    if (type == 11) input.thread_self_joined = input.thread_self_joined_known = true;
     if (!check(chat_state_store_upsert_channel(&f.state, input).ok(), "fixture_channel_upsert_failed")) {
         log_u64(LogLevel::error, "read_state", "fixture_channel_id", id);
         return false;

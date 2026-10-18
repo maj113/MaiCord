@@ -63,6 +63,26 @@ void grant(State& s, u64 channel_id, PermissionSet permissions) noexcept {
     channel->effective_permissions = permissions;
     channel->actions = channel_actions(channel->type, permissions, true);
 }
+ChannelRecord* mutable_channel(State& s, u64 id) noexcept {
+    return const_cast<ChannelRecord*>(chat_state_store_find_channel(s.store, id));
+}
+// A newer message than the last read one (and no mention).
+void mark_unread(State& s, u64 id) noexcept {
+    if (auto* channel = mutable_channel(s, id))
+        channel->last_message_id = channel->id + 1000;
+}
+// A thread of `parent`; joined threads carry their join time in Unix seconds (0: unknown).
+bool add_thread(State& s, u64 id, u64 guild, u64 parent, bool joined, u32 join_seconds, bool archived = false) noexcept {
+    ChannelInput input{id, guild, parent, {"thread", 6}, 0, 0, 11};
+    input.name_known = true;
+    input.thread_self_joined_known = true;
+    input.thread_self_joined = joined;
+    input.thread_join_seconds = joined ? join_seconds : 0;
+    input.thread_active_known = input.thread_archived_known = true;
+    input.thread_listed_active = !archived;
+    input.thread_archived = archived;
+    return chat_state_store_upsert_channel(&s.store, input).ok();
+}
 
 // ---- server lifecycle requests --------------------------------------------
 void lifecycle_requests() noexcept {
@@ -540,6 +560,7 @@ void channel_opt_in() noexcept {
     constexpr u64 ids[]{10, 11, 12, 13, 14};
     for (const u64 id : ids)
         grant(s, id, kPermissionViewChannel | kPermissionReadMessageHistory);
+    grant(s, 14, kPermissionViewChannel | kPermissionManageChannels); // an empty category stays for its managers
     GuildViewRow guild_rows[4]{};
     ChannelViewRow channel_rows[16]{};
     u16 sorting[16]{};
@@ -670,15 +691,200 @@ void list_order_voice_and_uncategorized() noexcept {
 void list_order_threads() noexcept {
     List t{};
     check(initialize(t.s) && add_guild(t.s, 1, "Lab") && add_channel(t.s, 80, 1, 0, 0, 1, "text") &&
-              add_channel(t.s, 91, 1, 80, 11, 0, "t2") && add_channel(t.s, 90, 1, 80, 11, 0, "t1") &&
+              add_thread(t.s, 91, 1, 80, true, 0) && add_thread(t.s, 90, 1, 80, true, 0) &&
               add_channel(t.s, 81, 1, 0, 0, 2, "later") && add_channel(t.s, 82, 1, 0, 2, 0, "voice") &&
               add_channel(t.s, 100, 1, 0, 4, 0, "Cat") && add_channel(t.s, 101, 1, 100, 0, 0, "in") &&
-              add_channel(t.s, 102, 1, 101, 11, 0, "thread") && add_channel(t.s, 103, 1, 100, 2, 0, "cv") &&
+              add_thread(t.s, 102, 1, 101, true, 0) && add_channel(t.s, 103, 1, 100, 2, 0, "cv") &&
               list_ready(t),
           "list order: thread fixture");
     constexpr u64 expected[]{80, 90, 91, 81, 82, 100, 101, 102, 103};
     check(list_is(t, expected) && t.view.channel_rows[1].depth == 1 && t.view.channel_rows[7].depth == 2,
           "list order: threads follow their parent, before the next channel, in both placements");
+}
+
+
+// ---- empty categories ----------------------------------------------------------------
+void empty_categories() noexcept {
+    List l{};
+    check(initialize(l.s) && add_guild(l.s, 1, "Lab") && add_channel(l.s, 10, 1, 0, 4, 0, "Bare") &&
+              add_channel(l.s, 11, 1, 0, 4, 1, "Managed") && add_channel(l.s, 12, 1, 0, 4, 2, "Filled") &&
+              add_channel(l.s, 13, 1, 12, 0, 0, "text") && add_channel(l.s, 14, 1, 0, 4, 3, "Quiet") &&
+              add_channel(l.s, 15, 1, 14, 0, 0, "quiet") && list_ready(l) &&
+              chat_state_store_select_channel(&l.s.store, 13).ok(),
+          "empty categories: fixture");
+    constexpr u64 ids[]{10, 11, 12, 13, 14, 15};
+    for (const u64 id : ids)
+        grant(l.s, id, kPermissionViewChannel | kPermissionReadMessageHistory);
+    grant(l.s, 11, kPermissionViewChannel | kPermissionManageChannels);
+
+    constexpr u64 base[]{11, 12, 13, 14, 15};
+    check(list_is(l, base),
+          "empty categories: a category without channels shows only for those who manage channels");
+
+    // Children hidden by "Hide muted channels" leave nothing to list, even for a manager.
+    check(chat_state_store_set_channel_mute(&l.s.store, 15, true, true) &&
+              chat_state_store_set_guild_hide_muted(&l.s.store, 1, true),
+          "empty categories: mute fixture");
+    constexpr u64 manager[]{11, 12, 13};
+    check(list_is(l, manager), "empty categories: a category whose children are all hidden folds away");
+    grant(l.s, 14, kPermissionViewChannel | kPermissionManageChannels);
+    check(list_is(l, manager),
+          "empty categories: Manage Channels does not keep a category that still owns channels");
+
+    grant(l.s, 11, kPermissionViewChannel);
+    constexpr u64 no_manage[]{12, 13};
+    check(list_is(l, no_manage), "empty categories: without Manage Channels an empty category is hidden");
+    grant(l.s, 11, kPermissionManageChannels);
+    check(list_is(l, no_manage), "empty categories: Manage Channels needs View Channel on the category");
+    grant(l.s, 11, kPermissionViewChannel | kPermissionManageChannels);
+    check(list_is(l, manager), "empty categories: the manager gets the empty category back");
+
+    // Channel opt-in lists an empty category only when it is opted in.
+    check(chat_state_store_set_guild_hide_muted(&l.s.store, 1, false) &&
+              chat_state_store_set_channel_mute(&l.s.store, 15, false, false) &&
+              chat_state_store_set_guild_channel_opt_in(&l.s.store, 1, true),
+          "empty categories: opt-in fixture");
+    constexpr u64 not_opted[]{12, 13};
+    check(list_is(l, not_opted), "empty categories: an empty category that is not opted in stays hidden");
+    check(chat_state_store_set_channel_opted_in(&l.s.store, 11, true) && list_is(l, manager),
+          "empty categories: an opted-in empty category shows for its manager");
+}
+
+// ---- collapsed categories --------------------------------------------------------------
+void collapsed_categories() noexcept {
+    List l{};
+    check(initialize(l.s) && add_guild(l.s, 1, "Lab") && add_channel(l.s, 200, 1, 0, 4, 0, "Fold") &&
+              add_channel(l.s, 201, 1, 200, 0, 0, "read") && add_channel(l.s, 202, 1, 200, 0, 0, "open") &&
+              add_channel(l.s, 203, 1, 200, 0, 0, "mention") && add_channel(l.s, 204, 1, 200, 0, 0, "unread") &&
+              add_channel(l.s, 205, 1, 200, 0, 0, "quiet") && add_channel(l.s, 206, 1, 200, 2, 0, "voice") &&
+              add_channel(l.s, 207, 1, 200, 2, 0, "call") && add_channel(l.s, 208, 1, 200, 0, 0, "ping") &&
+              add_channel(l.s, 209, 1, 200, 15, 0, "forum") && add_channel(l.s, 210, 1, 200, 13, 0, "stage") &&
+              add_channel(l.s, 211, 1, 0, 0, 0, "outside") && list_ready(l) &&
+              chat_state_store_select_channel(&l.s.store, 202).ok(),
+          "collapsed: fixture");
+    mark_unread(l.s, 204);
+    mark_unread(l.s, 205);
+    mark_unread(l.s, 209);
+    mutable_channel(l.s, 203)->mention_count = 2;
+    mutable_channel(l.s, 208)->mention_count = 1;
+    check(chat_state_store_set_channel_mute(&l.s.store, 205, true, true) &&
+              chat_state_store_set_channel_mute(&l.s.store, 208, true, true),
+          "collapsed: muted fixture");
+    l.view.connected_voice_channel_id = 207;
+
+    constexpr u64 expanded[]{211, 200, 201, 202, 203, 204, 205, 208, 209, 206, 207, 210};
+    check(list_is(l, expanded), "collapsed: an expanded category lists every channel");
+
+    mutable_channel(l.s, 200)->collapsed = true;
+    constexpr u64 folded[]{211, 200, 202, 203, 204, 208, 209, 207};
+    check(list_is(l, folded) && l.view.channel_rows[1].collapsed,
+          "collapsed: the open and connected channels, mentions and unread unmuted text stay; the header stays");
+    check(!navigation_view_find_channel(l.view, 201) && !navigation_view_find_channel(l.view, 205) &&
+              !navigation_view_find_channel(l.view, 206) && !navigation_view_find_channel(l.view, 210),
+          "collapsed: read, muted-unread, voice and stage channels fold away");
+    check(navigation_view_find_channel(l.view, 208) && navigation_view_find_channel(l.view, 209),
+          "collapsed: a mention outranks a mute; an unread forum counts as text-like");
+
+    check(chat_state_store_select_channel(&l.s.store, 201).ok(), "collapsed: open another channel");
+    constexpr u64 moved[]{211, 200, 201, 203, 204, 208, 209, 207};
+    check(list_is(l, moved), "collapsed: the open channel moves with the selection");
+
+    l.view.connected_voice_channel_id = 0;
+    constexpr u64 disconnected[]{211, 200, 201, 203, 204, 208, 209};
+    check(list_is(l, disconnected), "collapsed: leaving the call folds the voice channel away");
+
+    mutable_channel(l.s, 203)->mention_count = 0;
+    mutable_channel(l.s, 208)->mention_count = 0;
+    mutable_channel(l.s, 204)->last_read_message_id = mutable_channel(l.s, 204)->last_message_id;
+    mutable_channel(l.s, 209)->last_read_message_id = mutable_channel(l.s, 209)->last_message_id;
+    constexpr u64 quiet[]{211, 200, 201};
+    check(list_is(l, quiet), "collapsed: read, mention-free channels fold away except the open one");
+
+    check(chat_state_store_select_channel(&l.s.store, 211).ok(), "collapsed: open a channel outside");
+    constexpr u64 header_only[]{211, 200};
+    check(list_is(l, header_only) && l.view.channel_rows[1].id == 200,
+          "collapsed: when nothing is kept the category keeps its header");
+
+    // A category whose only children fold away still shows; one with none does not.
+    check(add_channel(l.s, 220, 1, 0, 4, 5, "Bare"), "collapsed: bare category");
+    grant(l.s, 220, kPermissionViewChannel);
+    mutable_channel(l.s, 220)->collapsed = true;
+    check(list_is(l, header_only), "collapsed: collapsing does not bring an empty category back");
+    mutable_channel(l.s, 200)->collapsed = false;
+    check(list_is(l, expanded), "collapsed: expanding lists the folded channels again");
+}
+
+// A joined thread with a new message keeps its folded channel; a read one does not.
+void collapsed_threads() noexcept {
+    List l{};
+    check(initialize(l.s) && add_guild(l.s, 1, "Lab") && add_channel(l.s, 300, 1, 0, 4, 0, "Fold") &&
+              add_channel(l.s, 301, 1, 300, 0, 0, "parent") && add_channel(l.s, 306, 1, 300, 0, 1, "other") &&
+              add_thread(l.s, 302, 1, 301, true, 100) && add_thread(l.s, 303, 1, 301, true, 200) &&
+              add_thread(l.s, 304, 1, 301, true, 300) && add_thread(l.s, 305, 1, 301, false, 0) &&
+              add_channel(l.s, 307, 1, 0, 0, 0, "outside") && list_ready(l) &&
+              chat_state_store_select_channel(&l.s.store, 307).ok(),
+          "collapsed threads: fixture");
+    l.s.store.self_user_id = 5;
+    mark_unread(l.s, 302);
+    mark_unread(l.s, 305);
+    mutable_channel(l.s, 304)->mention_count = 1;
+    mutable_channel(l.s, 300)->collapsed = true;
+    constexpr u64 folded[]{307, 300, 301, 304, 302};
+    check(list_is(l, folded) && l.view.channel_rows[3].depth == 2,
+          "collapsed threads: unread or mentioned joined threads keep their channel; the rest fold away");
+    check(chat_state_store_select_channel(&l.s.store, 301).ok(), "collapsed threads: open the channel");
+    constexpr u64 open[]{307, 300, 301, 304, 303, 302};
+    check(list_is(l, open), "collapsed threads: an open channel lists all its joined threads, newest join first");
+    check(chat_state_store_select_channel(&l.s.store, 303).ok(), "collapsed threads: open a thread");
+    check(list_is(l, open), "collapsed threads: the open thread counts as its channel being open");
+    check(chat_state_store_select_channel(&l.s.store, 307).ok(), "collapsed threads: leave");
+    mutable_channel(l.s, 300)->collapsed = false;
+    constexpr u64 expanded[]{307, 300, 301, 304, 303, 302, 306};
+    check(list_is(l, expanded), "collapsed threads: an expanded category lists every joined thread");
+}
+
+// ---- joined threads, newest join first ---------------------------------------------------
+void thread_join_order() noexcept {
+    List t{};
+    check(initialize(t.s) && add_guild(t.s, 1, "Lab") && add_channel(t.s, 80, 1, 0, 0, 1, "text") &&
+              add_channel(t.s, 81, 1, 0, 0, 2, "later") && add_thread(t.s, 90, 1, 80, true, 100) &&
+              add_thread(t.s, 91, 1, 80, true, 300) && add_thread(t.s, 92, 1, 80, true, 200) &&
+              add_thread(t.s, 93, 1, 80, true, 0) && add_thread(t.s, 94, 1, 80, false, 0) &&
+              add_thread(t.s, 95, 1, 80, true, 400, true) && add_thread(t.s, 96, 1, 80, true, 300) &&
+              add_thread(t.s, 97, 1, 81, true, 50) && list_ready(t) &&
+              chat_state_store_select_channel(&t.s.store, 81).ok(),
+          "thread order: fixture");
+    t.s.store.self_user_id = 5;
+    constexpr u64 newest_first[]{80, 91, 96, 92, 90, 93, 81, 97};
+    check(list_is(t, newest_first) && t.view.channel_rows[1].depth == 1,
+          "thread order: joined active threads, most recently joined first; equal times by ID, unknown last");
+    check(!navigation_view_find_channel(t.view, 94) && !navigation_view_find_channel(t.view, 95),
+          "thread order: threads the member has not joined and archived threads stay off the list");
+
+    check(chat_state_store_set_thread_join_time(&t.s.store, 90, 5, 500) &&
+              !chat_state_store_set_thread_join_time(&t.s.store, 94, 5, 500) &&
+              !chat_state_store_set_thread_join_time(&t.s.store, 80, 5, 500) &&
+              !chat_state_store_set_thread_join_time(&t.s.store, 90, 6, 600) &&
+              !chat_state_store_set_thread_join_time(&t.s.store, 90, 5, 0),
+          "thread order: a join time applies to a joined thread of the signed-in member only");
+    constexpr u64 rejoined[]{80, 90, 91, 96, 92, 93, 81, 97};
+    check(list_is(t, rejoined), "thread order: a newer join time moves the thread to the top");
+    check(chat_state_store_set_thread_self_membership(&t.s.store, 91, 5, false) &&
+              mutable_channel(t.s, 91)->thread_join_seconds == 0,
+          "thread order: leaving a thread forgets its join time");
+    constexpr u64 left[]{80, 90, 96, 92, 93, 81, 97};
+    check(list_is(t, left), "thread order: a left thread leaves the list");
+
+    // A muted channel lists only unread or mentioned joined threads; opening it lists them all.
+    check(chat_state_store_set_channel_mute(&t.s.store, 80, true, true), "thread order: mute fixture");
+    mark_unread(t.s, 92);
+    mutable_channel(t.s, 96)->mention_count = 3;
+    constexpr u64 muted[]{80, 96, 92, 81, 97};
+    check(list_is(t, muted), "thread order: under a muted channel only unread or mentioned threads list");
+    check(chat_state_store_select_channel(&t.s.store, 80).ok() && list_is(t, left),
+          "thread order: opening the muted channel lists its joined threads");
+    check(chat_state_store_select_channel(&t.s.store, 92).ok() && list_is(t, left),
+          "thread order: an open thread opens its channel's thread list");
 }
 
 // Gateway-driven re-sorting: GUILD_CREATE replaces a server's channels, CHANNEL_UPDATE moves one.
@@ -712,6 +918,21 @@ struct Wire {
             return false;
         event.dispatch_payload_bytes = output.count;
         return chat_state_apply_gateway_event(&store, event, output, {}).ok();
+    }
+    // THREAD_MEMBERS_UPDATE routes beside the state events.
+    bool apply_members(Utf8View wire) noexcept {
+        GatewayEnvelope envelope{};
+        GatewayClientEvent event{};
+        ConstSlice<u8> output{};
+        bool handled = false;
+        event.kind = GatewayClientEventKind::dispatch;
+        if (!gateway_decode_envelope(wire, {structurals, 2048}, 32, &envelope).ok() ||
+            !gateway_client_route_thread_member_dispatch(envelope, {structurals, 2048}, 32,
+                                                         {payload, sizeof(payload)}, 1, &event, &output, &handled)
+                 .ok() ||
+            !handled)
+            return false;
+        return chat_state_apply_thread_authority(event, output, &store).ok();
     }
     template <u32 N>
     bool listed(const u64 (&ids)[N]) noexcept {
@@ -771,11 +992,87 @@ void list_order_gateway() noexcept {
           "list order gateway: a repeated GUILD_CREATE replaces and re-sorts the channels");
 }
 
+
+// Join times arrive with THREAD_LIST_SYNC, THREAD_MEMBER_UPDATE, THREAD_MEMBERS_UPDATE and a thread's own member.
+void thread_join_gateway() noexcept {
+    auto& w = g_wire;
+    w.store.self_user_id = 1;
+    constexpr u32 kBase = 1'767'225'600; // 2026-01-01T00:00:00Z
+    const auto joined_at = [&](u64 id) noexcept {
+        const auto* thread = chat_state_store_find_channel(w.store, id);
+        return thread ? thread->thread_join_seconds : ~0u;
+    };
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"GUILD_CREATE","d":{"id":"7","name":"Guild","owner_id":"2","roles":[{"id":"7","name":"Everyone","permissions":"1024"}],)"
+              R"("members":[{"user":{"id":"1"},"roles":[]}],"channels":[)"
+              R"({"id":"10","type":0,"name":"general","position":0,"permission_overwrites":[]}]}})")) &&
+              chat_state_store_select_guild(&w.store, 7).ok() && chat_state_store_select_channel(&w.store, 10).ok(),
+          "thread joins: GUILD_CREATE");
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"THREAD_LIST_SYNC","d":{"guild_id":"7","threads":[)"
+              R"({"id":"21","parent_id":"10","type":11,"name":"a","thread_metadata":{"archived":false}},)"
+              R"({"id":"22","parent_id":"10","type":11,"name":"b","thread_metadata":{"archived":false}},)"
+              R"({"id":"23","parent_id":"10","type":11,"name":"c","thread_metadata":{"archived":false}}],"members":[)"
+              R"({"id":"21","user_id":"1","join_timestamp":"2026-01-01T00:00:10.000000+00:00","flags":0},)"
+              R"({"id":"22","user_id":"1","join_timestamp":"2026-01-01T00:00:30.500000+00:00","flags":0}]}})")),
+          "thread joins: THREAD_LIST_SYNC");
+    constexpr u64 synced[]{10, 22, 21};
+    check(joined_at(21) == kBase + 10 && joined_at(22) == kBase + 30 && joined_at(23) == 0 && w.listed(synced),
+          "thread joins: THREAD_LIST_SYNC keeps each joined thread's join time and lists the newest first");
+
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"THREAD_MEMBER_UPDATE","d":{"id":"23","guild_id":"7","user_id":"1",)"
+              R"("join_timestamp":"2026-01-01T00:00:50.000000+00:00","flags":0}})")),
+          "thread joins: THREAD_MEMBER_UPDATE");
+    constexpr u64 updated[]{10, 23, 22, 21};
+    check(joined_at(23) == kBase + 50 && w.listed(updated),
+          "thread joins: THREAD_MEMBER_UPDATE joins with its time");
+
+    check(w.apply_members(utf8_literal(
+              R"({"op":0,"t":"THREAD_MEMBERS_UPDATE","d":{"id":"21","guild_id":"7","member_count":3,)"
+              R"("added_members":[{"id":"21","user_id":"1","join_timestamp":"2026-01-01T00:01:10.000000+00:00","flags":0}]}})")),
+          "thread joins: THREAD_MEMBERS_UPDATE adds");
+    constexpr u64 added[]{10, 21, 23, 22};
+    check(joined_at(21) == kBase + 70 && w.listed(added),
+          "thread joins: THREAD_MEMBERS_UPDATE carries the member's join time");
+
+    check(w.apply_members(utf8_literal(
+              R"({"op":0,"t":"THREAD_MEMBERS_UPDATE","d":{"id":"22","guild_id":"7","member_count":2,"removed_member_ids":["1"]}})")),
+          "thread joins: THREAD_MEMBERS_UPDATE removes");
+    constexpr u64 removed[]{10, 21, 23};
+    check(joined_at(22) == 0 && w.listed(removed), "thread joins: leaving a thread forgets its time and drops the row");
+
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"THREAD_CREATE","d":{"id":"25","guild_id":"7","parent_id":"10","type":11,"name":"d","owner_id":"1",)"
+              R"("newly_created":true,"thread_metadata":{"archived":false},)"
+              R"("member":{"id":"25","user_id":"1","join_timestamp":"2026-01-01T00:02:00.000000+00:00","flags":1}}})")),
+          "thread joins: THREAD_CREATE");
+    constexpr u64 created[]{10, 25, 21, 23};
+    check(joined_at(25) == kBase + 120 && w.listed(created),
+          "thread joins: a thread's own member object carries the join time");
+
+    // A time the sync leaves out, or one that is not a time, leaves the order unknown without failing the sync.
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"THREAD_LIST_SYNC","d":{"guild_id":"7","threads":[)"
+              R"({"id":"21","parent_id":"10","type":11,"name":"a","thread_metadata":{"archived":false}},)"
+              R"({"id":"25","parent_id":"10","type":11,"name":"d","thread_metadata":{"archived":false}}],"members":[)"
+              R"({"id":"21","user_id":"1","join_timestamp":"2026-01-01T00:03:00.000000+00:00","flags":0}]}})")),
+          "thread joins: second THREAD_LIST_SYNC");
+    constexpr u64 resynced[]{10, 21};
+    check(joined_at(21) == kBase + 180 && joined_at(25) == 0 && w.listed(resynced),
+          "thread joins: a sync without a thread's membership marks it unjoined");
+}
+
 void run() noexcept {
     list_order_kinds();
     list_order_voice_and_uncategorized();
     list_order_threads();
     list_order_gateway();
+    thread_join_gateway();
+    empty_categories();
+    collapsed_categories();
+    collapsed_threads();
+    thread_join_order();
     hide_muted();
     channel_opt_in();
     lifecycle_requests();

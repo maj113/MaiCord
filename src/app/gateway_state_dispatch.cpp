@@ -40,6 +40,7 @@ struct StateObjectContext {
     JsonValue user;
     JsonValue properties;
     JsonValue colors;
+    JsonValue tags;
     JsonValue recipients;
     JsonValue recipient_ids;
     JsonValue nicks;
@@ -62,6 +63,9 @@ struct StateObjectContext {
     bool user_seen;
     bool properties_seen;
     bool colors_seen;
+    bool tags_seen;
+    // Role tags.guild_connections is present: a linked role.
+    bool role_linked;
     bool recipients_seen;
     bool recipient_ids_seen;
     bool nicks_seen;
@@ -502,6 +506,18 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         }
         context->colors_seen = true;
         context->colors = value;
+        return true;
+    }
+    if (json_name_is(name, utf8_literal("tags"))) {
+        // Only an object carries role tags; other shapes are ignored.
+        if (value.kind != JsonValueKind::object)
+            return true;
+        if (context->tags_seen) {
+            context->error = GatewayEventDecodeError::duplicate_field;
+            return false;
+        }
+        context->tags_seen = true;
+        context->tags = value;
         return true;
     }
     if (json_name_is(name, utf8_literal("hoist"))) {
@@ -1043,6 +1059,21 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
             context.mutation.tertiary_color = colors.secondary ? colors.tertiary : 0;
         }
     }
+    if (context.tags_seen) {
+        const auto tags_scan = json_scan_structurals_avx1(context.tags.source, scratch);
+        if (!tags_scan.ok())
+            return decode_error(GatewayEventDecodeError::scan_failed, tags_scan.error_offset, tags_scan.error);
+        if (!json_visit_value_object(
+                 context.tags, {scratch.data, tags_scan.count}, maximum_depth,
+                 +[](void* opaque, JsonString name, JsonValue) noexcept {
+                     if (json_name_is(name, utf8_literal("guild_connections")))
+                         *static_cast<bool*>(opaque) = true;
+                     return true;
+                 },
+                 &context.role_linked)
+                 .ok())
+            return decode_error(GatewayEventDecodeError::invalid_json);
+    }
     if (context.features_seen) {
         const auto features_scan = json_scan_structurals_avx1(context.features.source, scratch);
         if (!features_scan.ok())
@@ -1233,7 +1264,8 @@ u8 role_flags(const StateObjectContext& object) noexcept {
                            (object.mutation.managed ? gateway_client_role_managed : 0u) |
                            (object.mutation.role_flags & gateway_client_role_mentionable) |
                            (icon ? gateway_client_role_has_icon : 0u) |
-                           (in_prompt ? gateway_client_role_in_prompt : 0u));
+                           (in_prompt ? gateway_client_role_in_prompt : 0u) |
+                           (object.role_linked ? gateway_client_role_linked : 0u));
 }
 
 bool visit_role(void* opaque, u32, JsonValue value) noexcept {
@@ -1686,6 +1718,7 @@ bool hydrate_self_member(StateObjectContext* object, u64 self_user_id) noexcept 
     if (!thread_member_decode(object->thread_member.source, object->mutation.id, self_user_id, &member).ok()) return true;
     object->mutation.thread_self_joined = true;
     object->mutation.thread_self_joined_known = true;
+    object->mutation.thread_join_seconds = thread_join_seconds_from_ms(member.join_timestamp_ms);
     return true;
 }
 
@@ -1899,10 +1932,13 @@ bool thread_sync_member(void* opaque, u32, JsonValue value) noexcept {
         members.error = GatewayEventDecodeError::invalid_data; return false;
     }
     for (u32 i = 0; i < members.count; ++i)
-        if (byte_load_le64(reinterpret_cast<const u8*>(members.writer->output.data + members.begin + i * 8)) == snapshot.thread_id) {
+        if (byte_load_le64(reinterpret_cast<const u8*>(members.writer->output.data + members.begin +
+                                                       i * kGatewayThreadSyncMemberBytes)) == snapshot.thread_id) {
             members.error = GatewayEventDecodeError::invalid_data; return false;
         }
-    if (!gateway_payload_append_u64(members.writer, snapshot.thread_id)) {
+    const u32 join_seconds = thread_join_seconds_from_ms(snapshot.join_timestamp_ms);
+    if (!gateway_payload_append_u64(members.writer, snapshot.thread_id) ||
+        !gateway_payload_append(members.writer, &join_seconds, sizeof(join_seconds))) {
         members.error = GatewayEventDecodeError::message_content_capacity; return false;
     }
     ++members.count;
@@ -2124,7 +2160,8 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
             return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
         event->dispatch_kind = GatewayClientDispatchKind::thread_self_update;
         event->thread_self = {member.mutation.guild_id, receipt.thread_id, self_user_id,
-                             gateway_thread_self_known | gateway_thread_self_joined, {}};
+                             gateway_thread_self_known | gateway_thread_self_joined, {},
+                             thread_join_seconds_from_ms(receipt.join_timestamp_ms)};
         *payload = {}; event->dispatch_payload_bytes = 0;
         return {};
     }

@@ -634,6 +634,7 @@ bool drain_account_events() noexcept {
                       repaint;
             if (ui.navigation_view.connected_voice_channel_id != channel) {
                 ui.navigation_view.connected_voice_channel_id = channel;
+                ui.navigation_view.connected_voice_stale = true;
                 saturating_increment(ui.navigation_view.revision);
                 repaint = true;
             }
