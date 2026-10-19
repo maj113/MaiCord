@@ -159,6 +159,13 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
               g.vote.right == 456 && g.bounds.bottom == g.vote.bottom + 16,
           "poll geometry: 472-DIP card, 16 padding, 50-DIP answers 8 apart, 24-DIP right-hand selection icon, "
           "24-DIP emoji with 2+8 spacing and a 38-DIP Vote button in the footer");
+    // 270 DIPs of content: the 52-character failure status would wrap, and
+    // "Poll closed" fits beside "Show results" + "Vote".
+    UiPollProjection narrow{};
+    check(ui_poll_controls_project(f.state, {0, 0, 302, 1}, kDefaultUiPollStyle, kDefaultTheme, &f.cache, 1,
+                                   &narrow) &&
+              ui_rect_height(narrow.geometry.instruction) == 16 && narrow.geometry.footer_rows == 1,
+          "poll narrow card: a long status reserves one ellipsized line and the footer stays one row");
     check(f.unstyled_measures > 0 || f.cache.backend_calls > 0, "poll measurement: labels measured natively");
     ui_text_measure_cache_invalidate(&f.cache);
     UiPollLayout layout{};

@@ -924,8 +924,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
     const bool poll_changed =
         row->poll_content_revision != poll_content || row->poll_result_revision != poll_result;
     if (!preserve_measurement || row->message_id != record->id || row->measured_width != width ||
-        row->poll_content_revision != poll_content ||
-        row->poll_backend_revision != (scene->polls ? scene->polls->backend_revision : 0)) {
+        poll_changed || row->poll_backend_revision != (scene->polls ? scene->polls->backend_revision : 0)) {
         const float previous_poll_height = row->poll_height;
         if (!poll_height(*scene, *record, handle, width, &row->poll_height))
             return false;

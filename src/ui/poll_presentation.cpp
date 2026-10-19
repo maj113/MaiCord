@@ -210,9 +210,9 @@ bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPo
     if (!label(output, state.question.bytes ? state.question : style.question_fallback, geometry.question,
                visible, owner, projection.foreground, style.question_style) ||
         !label(output, status_text.bytes ? Utf8View{} : instruction(projection, style), geometry.instruction,
-               visible, owner, projection.secondary, style.detail_style) ||
+               visible, owner, projection.secondary, style.detail_style, false) ||
         !label(output, status_text, geometry.status, visible, owner,
-               state.error ? projection.error : projection.secondary, style.detail_style) ||
+               state.error ? projection.error : projection.secondary, style.detail_style, false) ||
         !label(output, ui_poll_summary_label(projection), geometry.summary, visible, owner, projection.secondary,
                style.detail_style, false))
         return false;

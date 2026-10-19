@@ -334,10 +334,11 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
     top = geometry.question.bottom + style.gap * .5f;
     const Utf8View helper_labels[]{style.single,  style.multi,  style.closed,         style.unavailable,
                                    style.loading, style.failed, style.unknown_results};
+    // One line whatever the state: a long status ellipsizes in narrow cards.
     float helper_height = style.label_minimum_height;
     for (u32 i = 0; i < 7; ++i) {
-        if (!measure(state, helper_labels[i], static_cast<u16>(70 + i), style.detail_style, header_right - left,
-                     false, cache, backend, &measured))
+        if (!measure(state, helper_labels[i], static_cast<u16>(70 + i), style.detail_style, kMaximumUiCoordinate,
+                     true, cache, backend, &measured))
             return false;
         helper_height = maximum(helper_height, measured.size.height);
     }
@@ -426,12 +427,25 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
     layout.back_width = widths[2];
     layout.show_width = widths[3];
     layout.retry_width = widths[4];
-    if (!measure(state, utf8_literal("99,999 votes \xE2\x88\x99 Poll closed"), 4, style.detail_style,
-                 kMaximumUiCoordinate, true, cache, backend, &measured))
+    // The widest details for the current vote count's digits, so a count
+    // update re-measures nothing; the expiry is reserved at "Poll closed".
+    char details[48];
+    u8 details_bytes = 0;
+    if (state.total_votes_known) {
+        u64 nines = 9;
+        for (u64 votes = state.total_votes; votes >= 10; votes /= 10)
+            nines = nines * 10 + 9;
+        votes_label(details, details_bytes, nines);
+        literal(details, details_bytes, " \xE2\x88\x99 ");
+    }
+    literal(details, details_bytes, "Poll closed");
+    if (!measure(state, {details, details_bytes}, 4, style.detail_style, kMaximumUiCoordinate, true, cache,
+                 backend, &measured))
         return false;
     const float details_width = measured.size.width;
-    const float actions_width = widths[3] + 2 * style.padding + maximum(maximum(widths[0], widths[1]),
-                                                                        maximum(widths[2], widths[4]));
+    // "Show results" only accompanies "Vote".
+    const float actions_width = maximum(widths[3] + 2 * style.padding + widths[0],
+                                        maximum(widths[1], maximum(widths[2], widths[4])));
     const bool stacked = details_width + 2 * style.padding * .5f + actions_width > right - left;
     geometry.footer_rows = stacked ? 2 : 1;
     const float details_height = maximum(style.label_minimum_height, measured.size.height);
