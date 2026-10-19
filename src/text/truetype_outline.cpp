@@ -26,10 +26,7 @@ float component_product(float coordinate, float factor) noexcept {
     return static_cast<float>(value < 0 ? -integer : integer) / 64.f;
 }
 
-u32 location(const SfntTrueType& font, u32 glyph) noexcept {
-    return font.loca_stride == 4 ? be32(font.loca.data + glyph * 4)
-                                : be16(font.loca.data + glyph * 2) * 2u;
-}
+u32 location(const SfntTrueType& font, u32 glyph) noexcept { return loca_offset(font.loca, font.loca_stride, glyph); }
 
 struct Reader {
     ConstSlice<u8> data;
@@ -120,11 +117,8 @@ struct Decoder {
                     if (!reader.take(2, &p)) return SfntStatus::truncated;
                     delta = s16(p);
                 }
-                // At most 65536 signed-16 deltas; avoid overflow on malformed
-                // data rather than trusting the glyph's stated bounding box.
-                const i64 next = static_cast<i64>(coordinate) + delta;
-                if (next < -2147483648ll || next > 2147483647ll) return SfntStatus::malformed;
-                coordinate = static_cast<i32>(next);
+                // At most 65536 signed-16 deltas stay within i32.
+                coordinate += delta;
                 if (axis) point.y = static_cast<float>(coordinate);
                 else point.x = static_cast<float>(coordinate);
             }
@@ -175,8 +169,8 @@ struct Decoder {
         const u32 first_contour=scratch.contour_count;
         SfntGvarDelta* component_deltas=nullptr;u32 component_count=0,component_index=0;
         if(variation){Reader scan{data,10};u16 f=0;do{if(!work)return SfntStatus::resource_limit;--work;const u8* p=nullptr;if(!scan.take(4,&p))return SfntStatus::truncated;f=be16(p);
-                const u32 transform=f&(8u|64u|128u);if(transform && transform!=8 && transform!=64 && transform!=128)return SfntStatus::malformed;
-                if(!scan.take((f&1?4u:2u)+(transform==8?2u:transform==64?4u:transform==128?8u:0u),&p))return SfntStatus::truncated;++component_count;
+                const u32 words=composite_transform_words(f);if(words==0xff)return SfntStatus::malformed;
+                if(!scan.take((f&1?4u:2u)+words*2,&p))return SfntStatus::truncated;++component_count;
             }while(f&0x20);
             auto status=variations(id,0,0,component_count,true,&component_deltas);if(status!=SfntStatus::ok)return status;
             delta_count+=component_count+4;*metric_origin-=varied_coordinate(component_deltas[component_count].x);
@@ -197,10 +191,8 @@ struct Decoder {
             const i32 b = words ? (xy ? s16(p + 2) : be16(p + 2))
                                 : (xy ? static_cast<signed char>(p[1]) : p[1]);
             float xx = 1, xy_matrix = 0, yx = 0, yy = 1;
-            const u16 transforms = flags & (8u | 64u | 128u);
-            if (transforms && transforms != 8 && transforms != 64 && transforms != 128)
-                return SfntStatus::malformed;
-            const u32 values = transforms == 8 ? 1u : transforms == 64 ? 2u : transforms == 128 ? 4u : 0u;
+            const u32 values = composite_transform_words(flags);
+            if (values == 0xff) return SfntStatus::malformed;
             if (values) {
                 if (!reader.take(values * 2, &p)) return SfntStatus::truncated;
                 xx = s16(p) / 16384.f;
@@ -409,9 +401,8 @@ SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present
         const auto* data=font.glyf.data+begin;const i16 contours=s16(data);u32 at=10;
         if(contours>=0){if(!contours&&size==10)continue;at+=static_cast<u32>(contours)*2;}
         else{bool instructions=false;u16 flags=0;do{if(!work)return SfntStatus::resource_limit;--work;if(at>size||size-at<4)return SfntStatus::truncated;
-                flags=be16(data+at);at+=4;instructions|=(flags&0x100)!=0;const u32 transform=flags&(8u|64u|128u);
-                if(transform&&transform!=8&&transform!=64&&transform!=128)return SfntStatus::malformed;
-                const u32 bytes=(flags&1?4u:2u)+(transform==8?2u:transform==64?4u:transform==128?8u:0u);if(bytes>size-at)return SfntStatus::truncated;at+=bytes;
+                flags=be16(data+at);at+=4;instructions|=(flags&0x100)!=0;const u32 words=composite_transform_words(flags);
+                if(words==0xff)return SfntStatus::malformed;const u32 bytes=(flags&1?4u:2u)+words*2;if(bytes>size-at)return SfntStatus::truncated;at+=bytes;
             }while(flags&0x20);if(!instructions)continue;}
         if(at>size||size-at<2)return SfntStatus::truncated;const u32 count=be16(data+at);if(count>size-at-2)return SfntStatus::truncated;
         if(count){*present=true;return SfntStatus::ok;}

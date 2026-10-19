@@ -19,6 +19,21 @@ inline u32 packed(const u8* p, u32 size) noexcept {
     for (u32 i = 0; i < size; ++i) value = (value << 8u) | p[i];
     return value;
 }
+// glyf offset of a glyph from a loca view with a stride of two or four bytes.
+inline u32 loca_offset(ConstSlice<u8> loca, u32 stride, u32 glyph) noexcept {
+    return stride == 4 ? byte_load_be32(loca.data + glyph * 4) : byte_load_be16(loca.data + glyph * 2) * 2u;
+}
+// Transform words in a composite glyph record (0, 1, 2 or 4), or 0xff when its
+// scale flags conflict.
+inline u32 composite_transform_words(u32 flags) noexcept {
+    switch (flags & (8u | 64u | 128u)) {
+    case 0: return 0;
+    case 8: return 1;
+    case 64: return 2;
+    case 128: return 4;
+    default: return 0xff;
+    }
+}
 inline bool spend(u32& work, u32 n = 1) noexcept {
     if (n > work) return false;
     work -= n;

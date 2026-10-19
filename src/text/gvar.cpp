@@ -125,8 +125,7 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
     if(depth==chain.count||!spend(work,depth+1))return SfntStatus::resource_limit;
     for(u32 i=0;i<depth;++i)if(chain[i]==glyph)return SfntStatus::malformed;chain[depth]=glyph;
     SfntGlyphMetrics metrics{};auto status=sfnt_horizontal_metrics(font.metrics,glyph,&metrics);if(status!=SfntStatus::ok)return status;
-    const u32 first=font.loca_stride==4?r32(font.loca,glyph*4):r16(font.loca,glyph*2)*2u;
-    const u32 end=font.loca_stride==4?r32(font.loca,(static_cast<u32>(glyph)+1)*4):r16(font.loca,(static_cast<u32>(glyph)+1)*2)*2u;
+    const u32 first=loca_offset(font.loca,font.loca_stride,glyph),end=loca_offset(font.loca,font.loca_stride,glyph+1u);
     if(first>end||end>font.glyf.count)return SfntStatus::malformed;u32 points=0;
     if(first<end){const ConstSlice<u8> data{font.glyf.data+first,end-first};if(!span(data,0,10))return SfntStatus::truncated;const i16 contours=static_cast<i16>(r16(data,0));
         if(contours>=0){if(!span(data,10,static_cast<u32>(contours)*2))return SfntStatus::truncated;if(!spend(work,contours))return SfntStatus::resource_limit;
@@ -134,9 +133,8 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
         else{if(contours!=-1)return SfntStatus::malformed;Reader components{data,10};u16 flags=0,selected=0xffff;double matrix[4]{1,0,0,1};
             do{if(!spend(work)||points==65536)return SfntStatus::resource_limit;++points;ConstSlice<u8> record{};if(!components.take(4,&record))return SfntStatus::truncated;
                 flags=r16(record,0);const u16 child=r16(record,2);if(child>=font.metrics.glyph_count)return SfntStatus::glyph_out_of_range;
-                if(!components.take(flags&1?4:2,&record))return SfntStatus::truncated;const u16 transform=flags&(8|64|128);
-                if(transform&&transform!=8&&transform!=64&&transform!=128)return SfntStatus::malformed;
-                const u32 count=transform==8?1:transform==64?2:transform==128?4:0;if(!components.take(count*2,&record))return SfntStatus::truncated;
+                if(!components.take(flags&1?4:2,&record))return SfntStatus::truncated;const u32 count=composite_transform_words(flags);
+                if(count==0xff)return SfntStatus::malformed;if(!components.take(count*2,&record))return SfntStatus::truncated;
                 if(flags&0x200){selected=child;matrix[0]=matrix[3]=1;matrix[1]=matrix[2]=0;
                     if(count){matrix[0]=static_cast<i16>(r16(record,0))/16384.;matrix[3]=count==1?matrix[0]:static_cast<i16>(r16(record,(count-1)*2))/16384.;}
                     if(count==4){matrix[1]=static_cast<i16>(r16(record,2))/16384.;matrix[2]=static_cast<i16>(r16(record,4))/16384.;}}
