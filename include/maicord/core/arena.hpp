@@ -39,6 +39,9 @@ void* arena_allocate_zero(Arena* arena, usize bytes, usize alignment) noexcept;
 ArenaMark arena_mark(const Arena* arena) noexcept;
 bool arena_rewind(Arena* arena, ArenaMark mark, ArenaRewindMode mode = ArenaRewindMode::retain) noexcept;
 void arena_reset(Arena* arena, ArenaRewindMode mode = ArenaRewindMode::retain) noexcept;
+// Rewinds to `offset` (at most the current offset) and decommits the whole
+// pages past it; the reservation stays and later allocations commit again.
+bool arena_trim(Arena* arena, usize offset) noexcept;
 ArenaProcessCounters arena_process_counters() noexcept;
 
 // A zero count yields nullptr, like a zero byte count.

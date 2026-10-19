@@ -499,13 +499,27 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.decoded_message.arena.base == base && runtime.decoded_message.capacity == 512 * 1024 &&
         runtime.structural_scratch.capacity == 128 * 1024 && !growth_user.inflater.failed && !runtime.session.compressed_bytes,
         "Gateway actual compressed READY expands beyond 128 KiB and scans large dense tail once with stable banks");
-    // This bank's reservation is bounded to 8 MiB by growing_session.
     const u32 committed = static_cast<u32>(runtime.decoded_message.arena.committed);
     check(compressed_packet({kGatewayGrowthFollow, sizeof(kGatewayGrowthFollow)}), "Gateway dictionary continuation frame accepted");
     received = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(received.kind == GatewaySessionEventKind::dispatch && received.envelope.sequence == 12 &&
         runtime.decoded_message.arena.committed == committed && !growth_user.inflater.failed,
         "Gateway dictionary continuation preserves flush history and message backing high-water mark");
+    // Below the 1 MiB trim threshold the banks keep their high-water mark.
+    trim_message_banks(&runtime);
+    check(runtime.decoded_message.arena.committed == committed && runtime.session.message_storage.data == base,
+        "Gateway keeps decoded banks under the trim threshold");
+    check(stable_storage_grow(&runtime.decoded_message, 2 * 1024 * 1024) &&
+        stable_storage_grow(&runtime.ready_record_index, 64 * 1024), "Gateway banks grow past the trim threshold");
+    runtime.session.message_storage = decoded_message_view(&runtime);
+    trim_message_banks(&runtime);
+    check(runtime.decoded_message.capacity == kRetainedDecodedMessageBytes &&
+        runtime.decoded_message.arena.committed == kRetainedDecodedMessageBytes &&
+        runtime.session.message_storage.data == base &&
+        runtime.session.message_storage.count == kRetainedDecodedMessageBytes &&
+        runtime.ready_record_index.capacity == kInitialStructuralCount &&
+        runtime.ready_record_index.arena.committed == kInitialStructuralCount * sizeof(u32),
+        "Gateway returns decoded and READY record pages past the threshold between events");
     for (u32 mode = 0; mode < 3; ++mode) {
         check(growing_session(mode == 2 ? 4096 : kGatewaySessionMaximumDecodedMessageBytes), "Gateway failed growth owner initializes");
         runtime.session.opened = true;
@@ -533,13 +547,19 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
             ConstSlice<u8>{kGatewayGrowthExactIndex, sizeof(kGatewayGrowthExactIndex)};
         check(compressed_packet(bytes), "Gateway compressed structural boundary frame accepted within wire bound");
         received = gateway_session_next(&runtime.session, 0, GetTickCount64());
-        // Past 1M offsets the index doubles once more instead of failing: a
-        // large account's READY reaches this well within the 8 MiB message bound.
+        // Past 1M offsets the index doubles once more instead of failing.
         const u32 capacity = excess ? 2 * 1024 * 1024 : 1024 * 1024;
         check(runtime.structural_scratch.capacity == capacity &&
             runtime.structural_scratch.arena.committed == capacity * sizeof(u32) && !growth_user.inflater.failed &&
             received.kind == GatewaySessionEventKind::dispatch && runtime.session.lifecycle.last_sequence == 99,
             "Gateway 1M and 1M+1 offset frames both dispatch, committing only the index each needs");
+        const auto* index_base = main_index_view(&runtime).data;
+        trim_message_banks(&runtime);
+        check(runtime.structural_scratch.capacity == kRetainedStructuralCount &&
+            runtime.structural_scratch.arena.committed == kRetainedStructuralCount * sizeof(u32) &&
+            runtime.session.structural_scratch.data == index_base &&
+            runtime.session.structural_scratch.count == kRetainedStructuralCount,
+            "Gateway returns a grown index to its retained prefix between events at the same base");
     }
     clear_user_transport(&runtime);
     bool wiped = true;

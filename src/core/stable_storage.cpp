@@ -101,6 +101,20 @@ bool stable_storage_grow(StableStorage* storage,
     return stable_storage_reserve(storage, capacity);
 }
 
+bool stable_storage_shrink(StableStorage* storage, u32 capacity) noexcept {
+    if (!storage || !storage->arena.base || capacity > storage->capacity) {
+        return false;
+    }
+    if (capacity == storage->capacity) {
+        return true;
+    }
+    if (!arena_trim(&storage->arena, static_cast<usize>(capacity) * storage->element_bytes)) {
+        return false;
+    }
+    storage->capacity = capacity;
+    return true;
+}
+
 void stable_storage_release(StableStorage* storage) noexcept {
     if (!storage) {
         return;

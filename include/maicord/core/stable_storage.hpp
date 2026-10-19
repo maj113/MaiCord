@@ -22,6 +22,9 @@ bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
 bool stable_storage_reserve(StableStorage* storage,
                             u32 required_capacity) noexcept;
 bool stable_storage_grow(StableStorage* storage, u32 required_capacity) noexcept;
+// Keeps the first `capacity` elements (at most the current capacity) and
+// decommits the pages past them; the base address stays.
+bool stable_storage_shrink(StableStorage* storage, u32 capacity) noexcept;
 void stable_storage_release(StableStorage* storage) noexcept;
 
 template <typename T>

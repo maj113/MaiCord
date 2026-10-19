@@ -67,8 +67,8 @@ inline constexpr u32 kInitialDecodedMessageBytes = 4096;
 inline constexpr u32 kPlainOutputBytes = 64 * 1024;
 inline constexpr u32 kRecordOutputBytes = 68 * 1024;
 inline constexpr u64 kPhaseTimeoutMs = 15'000;
-// Typed READY records are far smaller than the 8 MiB decoded READY bound; a
-// larger projection routes twice instead of staging.
+// Typed READY records are far smaller than the decoded READY; a larger
+// projection routes twice instead of staging.
 inline constexpr u32 kReadyStagingBytes = 16u * 1024u * 1024u;
 
 static_assert(kGatewayClientDispatchPayloadCapacity <= kHandshakeBytes - kMessageBytes,
@@ -304,6 +304,23 @@ bool grow_ready_record_index(void* context, u32 required, Slice<u32>* backed) no
         return false;
     *backed = ready_record_index_view(runtime);
     return true;
+}
+
+// Decoded bytes and indexes never outlive their event. After a payload such
+// as READY grows them past 1 MiB, the pages are returned before the next one.
+inline constexpr u32 kRetainedDecodedMessageBytes = 256 * 1024;
+inline constexpr u32 kRetainedStructuralCount = kRetainedDecodedMessageBytes / sizeof(u32);
+void trim_message_banks(GatewayClientRuntime* runtime) noexcept {
+    if (runtime->decoded_message.capacity > 4 * kRetainedDecodedMessageBytes &&
+        runtime->session.message_storage.data == stable_storage_data<u8>(runtime->decoded_message) &&
+        stable_storage_shrink(&runtime->decoded_message, kRetainedDecodedMessageBytes))
+        runtime->session.message_storage = decoded_message_view(runtime);
+    if (runtime->structural_scratch.capacity > 4 * kRetainedStructuralCount &&
+        runtime->session.structural_scratch.data == stable_storage_data<u32>(runtime->structural_scratch) &&
+        stable_storage_shrink(&runtime->structural_scratch, kRetainedStructuralCount))
+        runtime->session.structural_scratch = main_index_view(runtime);
+    if (runtime->ready_record_index.capacity > kInitialStructuralCount)
+        stable_storage_shrink(&runtime->ready_record_index, kInitialStructuralCount);
 }
 
 void release_main_index(GatewayClientRuntime* runtime) noexcept {
@@ -1802,6 +1819,7 @@ void checkpoint_resume_sequence(GatewayClientRuntime* runtime) noexcept {
 
 PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     for (;;) {
+        trim_message_banks(runtime);
         // Reuse the owner's deadline field during bounded envelope rescans;
         // no index growth can extend this absolute budget.
         runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;

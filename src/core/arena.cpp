@@ -187,6 +187,24 @@ void arena_reset(Arena* arena, ArenaRewindMode mode) noexcept {
     }
 }
 
+bool arena_trim(Arena* arena, usize offset) noexcept {
+    if (!arena || !arena->base || offset > arena->offset) {
+        return false;
+    }
+    const usize page_mask = system_page_size() - 1;
+    const usize keep = (offset + page_mask) & ~page_mask;
+    if (keep < arena->committed) {
+        if (!VirtualFree(arena->base + keep, arena->committed - keep, MEM_DECOMMIT)) {
+            return false;
+        }
+        arena->committed = keep;
+    }
+    arena->offset = offset;
+    // Decommitted pages come back as zero pages.
+    arena->peak = minimum(arena->peak, keep);
+    return true;
+}
+
 ArenaProcessCounters arena_process_counters() noexcept {
     return ArenaProcessCounters{static_cast<u64>(read_acquire(&g_arena_initializations)),
                                 static_cast<u64>(read_acquire(&g_arena_commits)),
