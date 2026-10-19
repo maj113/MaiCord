@@ -410,7 +410,12 @@ maicord_compact_sources(
         src/app/account_module.cpp src/app/rest_client.cpp
         src/app/account_soundboard.cpp src/app/account_voice_message.cpp
         src/app/https_file_upload.cpp src/app/https_file_download.cpp
-        src/media/h264_parameters.cpp src/media/hevc_parameters.cpp src/media/h264_configuration.cpp)
+        src/media/h264_parameters.cpp src/media/hevc_parameters.cpp src/media/h264_configuration.cpp
+        # Run once per font file or face: name/family/property resolution,
+        # catalog records, seac charsets and face preparation.
+        src/text/font_names.cpp src/text/font_family.cpp src/text/font_candidates.cpp
+        src/text/font_catalog.cpp src/text/font_prepare.cpp src/text/cff_charset.cpp
+        src/ui/native_text_catalog.cpp)
 
 # maicord_application_state_headers(<variable> <glob>...): the file names of
 # application_state.hpp and of the globbed headers that include it, directly
