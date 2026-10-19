@@ -34,13 +34,7 @@ float3 convert_luma(uint2 position, int3 terms) {
 }
 
 float3 convert(uint2 position) {
-    int luma = int(Luma.Load(int4(position, 0, 0)) * 255.0 + 0.5);
-    int2 uv = int2(Chroma.Load(int4(position / 2, 0, 0)) * 255.0 + 0.5) - 128;
-    int y = (luma - YOffset) * YScale;
-    int3 rgb = int3(y + RedCr * uv.y,
-                   y - GreenCb * uv.x - GreenCr * uv.y,
-                   y + BlueCb * uv.x);
-    return float3(clamp((rgb + 128) >> 8, 0, 255));
+    return convert_luma(position, chroma_terms(position));
 }
 
 // Written pixel -> unrotated (reduced) source pixel.

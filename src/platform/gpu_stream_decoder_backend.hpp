@@ -64,11 +64,26 @@ struct GpuStreamDecoderDesc {
 // Recreates the DXVA decoder and its shader-readable surface array.
 // DXGI_ERROR_UNSUPPORTED when the GPU cannot decode this geometry.
 HRESULT gpu_stream_create_decoder(GpuStream* stream, const GpuStreamDecoderDesc& desc) noexcept;
-// One picture into surface: parameters (and the optional matrix) with each
-// batch of slices that fits the driver's bitstream buffer, all in one
-// Begin/EndFrame. Short-slice entries of H.264 and HEVC share one layout.
-HRESULT gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> parameters, ConstSlice<u8> matrix,
-                          ConstSlice<u8> source, const H264StreamNalRange* slices, u32 slice_count) noexcept;
+// Writes the bitstream and control entries of units [first, first + n) for
+// the largest n <= limit that fits capacity; returns n (0: unit first does
+// not fit) and the bitstream bytes.
+using GpuStreamBatchFill = u32 (*)(const void* source, u32 first, u8* bitstream, u32 capacity,
+                                   void* entries, u32 limit, u32* bytes) noexcept;
+struct GpuStreamSubmission {
+    u8 surface;
+    ConstSlice<u8> parameters, matrix; // matrix may be empty.
+    u32 units;                         // Slices or tiles.
+    u32 entry_bytes, entry_limit;      // Control entry size and the most per batch.
+    const void* source;
+    GpuStreamBatchFill fill;
+};
+// One picture into surface in one Begin/EndFrame: the parameters (and matrix)
+// with each batch of units that fits the driver's bitstream and control buffers.
+HRESULT gpu_stream_submit(GpuStream* stream, const GpuStreamSubmission& submission) noexcept;
+// H.264/HEVC short slices (one entry layout) from Annex B NAL ranges of source.
+HRESULT gpu_stream_submit_slices(GpuStream* stream, u8 surface, ConstSlice<u8> parameters,
+                                 ConstSlice<u8> matrix, ConstSlice<u8> source,
+                                 const H264StreamNalRange* slices, u32 slice_count) noexcept;
 // Display format at a keyframe: crop and visible size in coded pixels.
 void gpu_stream_set_format(GpuStream* stream, u32 crop_x, u32 crop_y, u32 width, u32 height, u8 matrix,
                            bool full_range, u32 sar_width, u32 sar_height) noexcept;
@@ -81,12 +96,12 @@ void gpu_stream_request_keyframe(GpuStream* stream, bool unsupported) noexcept;
 bool gpu_stream_failure(GpuStream* stream, HRESULT status) noexcept;
 void gpu_stream_release_decoder(GpuStream* stream) noexcept;
 
-void h264_gpu_stream_reset(H264GpuStreamState* state) noexcept;
+void h264_gpu_stream_reset(GpuStream* stream) noexcept;
 void h264_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,
                             bool resynchronize) noexcept;
 void h264_gpu_stream_drain(GpuStream* stream) noexcept;
 void h264_gpu_stream_stats(const GpuStream& stream, GpuStreamDecoderStats* stats) noexcept;
-void hevc_gpu_stream_reset(HevcGpuStreamState* state) noexcept;
+void hevc_gpu_stream_reset(GpuStream* stream) noexcept;
 void hevc_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,
                             bool resynchronize) noexcept;
 void hevc_gpu_stream_drain(GpuStream* stream) noexcept;

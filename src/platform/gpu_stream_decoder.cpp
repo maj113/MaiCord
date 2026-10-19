@@ -14,12 +14,14 @@ namespace {
 constexpr HRESULT kDrawingBusy = static_cast<HRESULT>(0x8876021C); // D3DERR_WASSTILLDRAWING
 constexpr u32 kBusyRetries = 200;                                  // ~200 ms of 1 ms waits.
 constexpr u32 kGpuStreamSliceBatch = 256;
+constexpr u32 kControlBytes = kGpuStreamSliceBatch * u32{sizeof(DXVA_Slice_HEVC_Short)};
+static_assert(kAv1StreamTiles * sizeof(DXVA_Tile_AV1) <= kControlBytes);
 
 bool busy(HRESULT status) noexcept {
     return status == E_PENDING || status == kDrawingBusy || status == DXGI_ERROR_WAS_STILL_DRAWING;
 }
 
-// Short-slice decoder configuration (H.264 2, HEVC 1) without encryption.
+// Bitstream configuration (H.264 short slices 2, HEVC short slices 1, AV1 1) without encryption.
 HRESULT select_config(ID3D11VideoDevice* video, const D3D11_VIDEO_DECODER_DESC& description,
                       u8 bitstream_raw, D3D11_VIDEO_DECODER_CONFIG* selected) noexcept {
     UINT count = 0;
@@ -36,14 +38,27 @@ HRESULT select_config(ID3D11VideoDevice* video, const D3D11_VIDEO_DECODER_DESC& 
     return FAILED(status) ? status : DXGI_ERROR_UNSUPPORTED;
 }
 
-struct CodecProfile {
-    const GUID* guid;
+struct Backend {
+    const GUID* profile;
     u8 bitstream_raw;
+    void (*reset)(GpuStream* stream) noexcept;
+    void (*decode)(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,
+                   bool resynchronize) noexcept;
+    void (*drain)(GpuStream* stream) noexcept;
+    void (*stats)(const GpuStream& stream, GpuStreamDecoderStats* stats) noexcept;
 };
-// Probed profiles, indexed by GpuStreamCodec.
-constexpr CodecProfile kCodecProfiles[]{{&D3D11_DECODER_PROFILE_H264_VLD_NOFGT, 2},
-                                        {&D3D11_DECODER_PROFILE_HEVC_VLD_MAIN, 1},
-                                        {&D3D11_DECODER_PROFILE_AV1_VLD_PROFILE0, 1}};
+// Indexed by GpuStreamCodec.
+constexpr Backend kBackends[]{
+    {&D3D11_DECODER_PROFILE_H264_VLD_NOFGT, 2, h264_gpu_stream_reset, h264_gpu_stream_decode,
+     h264_gpu_stream_drain, h264_gpu_stream_stats},
+    {&D3D11_DECODER_PROFILE_HEVC_VLD_MAIN, 1, hevc_gpu_stream_reset, hevc_gpu_stream_decode,
+     hevc_gpu_stream_drain, hevc_gpu_stream_stats},
+    {&D3D11_DECODER_PROFILE_AV1_VLD_PROFILE0, 1, av1_gpu_stream_reset, av1_gpu_stream_decode,
+     av1_gpu_stream_drain, av1_gpu_stream_stats}};
+
+const Backend& backend(const GpuStream& stream) noexcept {
+    return kBackends[static_cast<u8>(stream.options.codec)];
+}
 
 void release_buffer(GpuStreamInput* input) noexcept {
     if (input->data)
@@ -66,48 +81,14 @@ bool reserve(GpuStreamInput* input, u32 bytes) noexcept {
     return true;
 }
 
-void backend_reset(GpuStream* stream) noexcept {
-    switch (stream->options.codec) {
-    case GpuStreamCodec::h264:
-        return h264_gpu_stream_reset(&stream->h264);
-    case GpuStreamCodec::h265:
-        return hevc_gpu_stream_reset(&stream->hevc);
-    case GpuStreamCodec::av1:
-        return av1_gpu_stream_reset(&stream->av1);
-    }
-}
-
-void decode_input(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,
-                  bool resynchronize) noexcept {
-    switch (stream->options.codec) {
-    case GpuStreamCodec::h264:
-        return h264_gpu_stream_decode(stream, bytes, rtp_timestamp, intact, resynchronize);
-    case GpuStreamCodec::h265:
-        return hevc_gpu_stream_decode(stream, bytes, rtp_timestamp, intact, resynchronize);
-    case GpuStreamCodec::av1:
-        return av1_gpu_stream_decode(stream, bytes, rtp_timestamp, intact, resynchronize);
-    }
-}
-
-void drain(GpuStream* stream) noexcept {
-    switch (stream->options.codec) {
-    case GpuStreamCodec::h264:
-        return h264_gpu_stream_drain(stream);
-    case GpuStreamCodec::h265:
-        return hevc_gpu_stream_drain(stream);
-    case GpuStreamCodec::av1:
-        return av1_gpu_stream_drain(stream);
-    }
-}
-
 // Frees the decoder and surfaces; the stream then waits for a keyframe
 // (parameter sets are kept) and recreates them at its geometry.
 bool release_idle(GpuStream* stream) noexcept {
     if (!stream->decoder && !stream->surfaces.texture)
         return false;
-    drain(stream); // Nothing decoded may be lost silently.
+    backend(*stream).drain(stream); // Nothing decoded may be lost silently.
     gpu_stream_release_decoder(stream);
-    backend_reset(stream);
+    backend(*stream).reset(stream);
     stream->last_request_ms = 0; // The first picture after release asks at once.
     saturating_increment(stream->stats.idle_releases);
     return true;
@@ -115,17 +96,7 @@ bool release_idle(GpuStream* stream) noexcept {
 
 void publish_stats(GpuStream* stream) noexcept {
     auto& stats = stream->stats;
-    switch (stream->options.codec) {
-    case GpuStreamCodec::h264:
-        h264_gpu_stream_stats(*stream, &stats);
-        break;
-    case GpuStreamCodec::h265:
-        hevc_gpu_stream_stats(*stream, &stats);
-        break;
-    case GpuStreamCodec::av1:
-        av1_gpu_stream_stats(*stream, &stats);
-        break;
-    }
+    backend(*stream).stats(*stream, &stats);
     stats.coded_width = stream->coded_width;
     stats.coded_height = stream->coded_height;
     stats.surfaces = stream->surfaces.count;
@@ -170,8 +141,9 @@ DWORD WINAPI decode_main(void* parameter) {
             if (stream->count)
                 stream->head = (stream->head + 1u) % kGpuStreamQueueFrames;
             ReleaseSRWLockExclusive(&stream->lock);
-            decode_input(stream, {stream->work.data, stream->work.bytes}, stream->work.rtp_timestamp,
-                         stream->work.intact, stream->work.resynchronize);
+            backend(*stream).decode(stream, {stream->work.data, stream->work.bytes},
+                                    stream->work.rtp_timestamp, stream->work.intact,
+                                    stream->work.resynchronize);
             AcquireSRWLockExclusive(&stream->lock);
             publish_stats(stream);
             ReleaseSRWLockExclusive(&stream->lock);
@@ -235,17 +207,11 @@ HRESULT gpu_stream_create_decoder(GpuStream* stream, const GpuStreamDecoderDesc&
     return S_OK;
 }
 
-HRESULT gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> parameters, ConstSlice<u8> matrix,
-                          ConstSlice<u8> source, const H264StreamNalRange* slices,
-                          u32 slice_count) noexcept {
-    if (surface >= stream->surfaces.count || !stream->surfaces.views[surface] || !slice_count)
+HRESULT gpu_stream_submit(GpuStream* stream, const GpuStreamSubmission& submission) noexcept {
+    const u8 surface = submission.surface;
+    if (surface >= stream->surfaces.count || !stream->surfaces.views[surface] || !submission.units ||
+        submission.entry_bytes > kControlBytes)
         return E_INVALIDARG;
-    for (u32 i = 0; i < slice_count; ++i) {
-        const auto range = slices[i];
-        if (!range.size || range.offset > source.count || range.size > source.count - range.offset)
-            return E_INVALIDARG;
-    }
-    static_assert(sizeof(DXVA_Slice_H264_Short) == sizeof(DXVA_Slice_HEVC_Short));
     HRESULT status = S_OK;
     for (u32 attempt = 0;; ++attempt) {
         stream->guard->Enter();
@@ -281,7 +247,7 @@ HRESULT gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> paramete
         return result;
     };
     if (!stream->slice_entries) {
-        // The slice control capacity bounds each batch; drivers size it per decoder.
+        // The control buffer capacity bounds each batch; drivers size it per decoder.
         UINT capacity = 0;
         void* mapped = nullptr;
         status = stream->context->GetDecoderBuffer(
@@ -290,18 +256,19 @@ HRESULT gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> paramete
             status = stream->context->ReleaseDecoderBuffer(stream->decoder,
                                                            D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL);
         stream->slice_entries = static_cast<u16>(
-            minimum<u32>(capacity / u32{sizeof(DXVA_Slice_HEVC_Short)}, kGpuStreamSliceBatch));
+            minimum<u32>(minimum<u32>(capacity, kControlBytes) / submission.entry_bytes, submission.entry_limit));
         if (SUCCEEDED(status) && !stream->slice_entries)
             status = E_OUTOFMEMORY;
     }
     u32 next = 0;
-    while (SUCCEEDED(status) && next < slice_count) {
+    while (SUCCEEDED(status) && next < submission.units) {
         D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
         u32 count = 0;
-        status = upload(D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, parameters, &buffers[count++]);
-        if (SUCCEEDED(status) && matrix.count)
-            status =
-                upload(D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, matrix, &buffers[count++]);
+        status = upload(D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, submission.parameters,
+                        &buffers[count++]);
+        if (SUCCEEDED(status) && submission.matrix.count)
+            status = upload(D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, submission.matrix,
+                            &buffers[count++]);
         if (FAILED(status))
             break;
         UINT bit_capacity = 0;
@@ -310,45 +277,24 @@ HRESULT gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> paramete
                                                    &bit_capacity, &bit_data);
         if (FAILED(status))
             break;
-        // Slice entries are built here, then copied into the slice buffer after
-        // the bitstream buffer is released: drivers may share upload memory.
-        DXVA_Slice_HEVC_Short entries[kGpuStreamSliceBatch];
-        u32 offset = 0, batch = 0;
-        if (bit_data) {
-            auto* bytes = static_cast<u8*>(bit_data);
-            while (next + batch < slice_count && batch < stream->slice_entries) {
-                const auto range = slices[next + batch];
-                const u64 end = u64{offset} + 3u + range.size;
-                // Keep room for the zero tail that pads to 128 bytes.
-                if (end + 1u > bit_capacity)
-                    break;
-                entries[batch] = {offset, range.size + 3u, 0};
-                bytes[offset] = 0;
-                bytes[offset + 1u] = 0;
-                bytes[offset + 2u] = 1;
-                copy_bytes(bytes + offset + 3u, source.data + range.offset, range.size);
-                offset = static_cast<u32>(end);
-                ++batch;
-            }
-            if (batch) {
-                // A zero tail even on a 128-byte boundary (DXVA HEVC).
-                const u32 aligned =
-                    static_cast<u32>(minimum<u64>((u64{offset} + 128u) & ~127ull, bit_capacity));
-                clear_bytes(bytes + offset, aligned - offset);
-                entries[batch - 1u].SliceBytesInBuffer += aligned - offset;
-                offset = aligned;
-            }
-        }
+        // Control entries are built here, then copied after the bitstream
+        // buffer is released: drivers may share upload memory between the two.
+        alignas(8) u8 entries[kControlBytes];
+        u32 bytes = 0;
+        const u32 batch =
+            bit_data ? submission.fill(submission.source, next, static_cast<u8*>(bit_data), bit_capacity,
+                                       entries, minimum<u32>(stream->slice_entries, submission.units - next),
+                                       &bytes)
+                     : 0;
         const HRESULT released =
             stream->context->ReleaseDecoderBuffer(stream->decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM);
-        status = !batch ? E_OUTOFMEMORY : released; // One slice exceeds the driver buffer.
+        status = !batch ? E_OUTOFMEMORY : released; // One unit exceeds the driver buffer.
         if (FAILED(status))
             break;
         buffers[count].BufferType = D3D11_VIDEO_DECODER_BUFFER_BITSTREAM;
-        buffers[count++].DataSize = offset;
-        uploaded += offset;
-        status = upload(D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL,
-                        {reinterpret_cast<const u8*>(entries), batch * u32{sizeof(DXVA_Slice_HEVC_Short)}},
+        buffers[count++].DataSize = bytes;
+        uploaded += bytes;
+        status = upload(D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL, {entries, batch * submission.entry_bytes},
                         &buffers[count++]);
         if (SUCCEEDED(status))
             status = stream->context->SubmitDecoderBuffers(stream->decoder, count, buffers);
@@ -360,6 +306,50 @@ HRESULT gpu_stream_submit(GpuStream* stream, u8 surface, ConstSlice<u8> paramete
     if (++stream->feedback == 0)
         ++stream->feedback;
     return FAILED(status) ? status : ended;
+}
+
+HRESULT gpu_stream_submit_slices(GpuStream* stream, u8 surface, ConstSlice<u8> parameters,
+                                 ConstSlice<u8> matrix, ConstSlice<u8> source,
+                                 const H264StreamNalRange* slices, u32 slice_count) noexcept {
+    for (u32 i = 0; i < slice_count; ++i) {
+        const auto range = slices[i];
+        if (!range.size || range.offset > source.count || range.size > source.count - range.offset)
+            return E_INVALIDARG;
+    }
+    struct Source {
+        const u8* data;
+        const H264StreamNalRange* slices;
+    } const context{source.data, slices};
+    // Each slice behind a start code; a zero tail pads the batch to 128 bytes (DXVA HEVC).
+    const auto fill = [](const void* opaque, u32 first, u8* bytes, u32 capacity, void* control, u32 limit,
+                         u32* written) noexcept -> u32 {
+        const auto& from = *static_cast<const Source*>(opaque);
+        auto* entries = static_cast<DXVA_Slice_HEVC_Short*>(control);
+        u32 offset = 0, batch = 0;
+        for (; batch < limit; ++batch) {
+            const auto range = from.slices[first + batch];
+            const u64 end = u64{offset} + 3u + range.size;
+            if (end + 1u > capacity) // Room for at least one tail byte.
+                break;
+            entries[batch] = {offset, range.size + 3u, 0};
+            bytes[offset] = 0;
+            bytes[offset + 1u] = 0;
+            bytes[offset + 2u] = 1;
+            copy_bytes(bytes + offset + 3u, from.data + range.offset, range.size);
+            offset = static_cast<u32>(end);
+        }
+        if (batch) {
+            const u32 aligned = static_cast<u32>(minimum<u64>((u64{offset} + 128u) & ~127ull, capacity));
+            clear_bytes(bytes + offset, aligned - offset);
+            entries[batch - 1u].SliceBytesInBuffer += aligned - offset;
+            offset = aligned;
+        }
+        *written = offset;
+        return batch;
+    };
+    static_assert(sizeof(DXVA_Slice_H264_Short) == sizeof(DXVA_Slice_HEVC_Short));
+    return gpu_stream_submit(stream, {surface, parameters, matrix, slice_count,
+                                      u32{sizeof(DXVA_Slice_HEVC_Short)}, kGpuStreamSliceBatch, &context, fill});
 }
 
 void gpu_stream_set_format(GpuStream* stream, u32 crop_x, u32 crop_y, u32 width, u32 height, u8 matrix,
@@ -437,14 +427,14 @@ u32 gpu_stream_decoder_codecs(ID3D11Device* device) noexcept {
         FAILED(device->QueryInterface(__uuidof(ID3D11VideoDevice), reinterpret_cast<void**>(&video))))
         return 0;
     u32 codecs = 0;
-    for (u32 codec = 0; codec < sizeof(kCodecProfiles) / sizeof(kCodecProfiles[0]); ++codec) {
-        const auto& profile = kCodecProfiles[codec];
+    for (u32 codec = 0; codec < sizeof(kBackends) / sizeof(kBackends[0]); ++codec) {
+        const Backend& entry = kBackends[codec];
         BOOL supported = FALSE;
         D3D11_VIDEO_DECODER_CONFIG config{};
-        if (SUCCEEDED(video->CheckVideoDecoderFormat(profile.guid, DXGI_FORMAT_NV12, &supported)) &&
+        if (SUCCEEDED(video->CheckVideoDecoderFormat(entry.profile, DXGI_FORMAT_NV12, &supported)) &&
             supported &&
-            SUCCEEDED(select_config(video, {*profile.guid, 1920, 1080, DXGI_FORMAT_NV12},
-                                    profile.bitstream_raw, &config)))
+            SUCCEEDED(select_config(video, {*entry.profile, 1920, 1080, DXGI_FORMAT_NV12},
+                                    entry.bitstream_raw, &config)))
             codecs |= 1u << codec;
     }
     video->Release();
@@ -460,7 +450,7 @@ GpuStreamDecoder* gpu_stream_decoder_create(const GpuStreamDecoderOptions& optio
         return nullptr;
     stream->options = options;
     stream->presented = 255;
-    backend_reset(stream);
+    backend(*stream).reset(stream);
     InitializeSRWLock(&stream->lock);
     stream->device = options.device;
     options.device->AddRef();
@@ -492,7 +482,7 @@ bool gpu_stream_decoder_push(GpuStreamDecoder* stream, ConstSlice<u8> annexb, u3
         saturating_increment(stream->stats.received);
         const bool resynchronize = stream->resynchronize_pending;
         stream->resynchronize_pending = false;
-        decode_input(stream, annexb, rtp_timestamp, intact, resynchronize);
+        backend(*stream).decode(stream, annexb, rtp_timestamp, intact, resynchronize);
         publish_stats(stream);
         return true;
     }

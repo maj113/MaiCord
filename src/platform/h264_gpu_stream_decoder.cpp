@@ -33,9 +33,9 @@ HRESULT create_decoder(GpuStream* stream, const H264Sps& sps, u8 surfaces) noexc
 
 } // namespace
 
-void h264_gpu_stream_reset(H264GpuStreamState* backend) noexcept {
-    h264_stream_reset(&backend->state);
-    h264_stream_set_surfaces(&backend->state, 0);
+void h264_gpu_stream_reset(GpuStream* stream) noexcept {
+    h264_stream_reset(&stream->h264.state);
+    h264_stream_set_surfaces(&stream->h264.state, 0);
 }
 
 void h264_gpu_stream_drain(GpuStream* stream) noexcept {
@@ -98,7 +98,7 @@ void h264_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_tim
         h264_dxva_picture_parameters(sps, picture.pps, picture.first, picture.all_intra, state->references,
                                      decode.plan.decode_order, decode.surface, stream->feedback,
                                      &parameters, &matrix);
-        const HRESULT status = gpu_stream_submit(
+        const HRESULT status = gpu_stream_submit_slices(
             stream, decode.surface, {reinterpret_cast<const u8*>(&parameters), sizeof(parameters)},
             {reinterpret_cast<const u8*>(&matrix), sizeof(matrix)}, bytes, picture.slices,
             picture.slice_count);

@@ -8,13 +8,7 @@
 namespace maicord {
 namespace {
 
-constexpr HRESULT kDrawingBusy = static_cast<HRESULT>(0x8876021C); // D3DERR_WASSTILLDRAWING
-constexpr u32 kBusyRetries = 200;                                  // ~200 ms of 1 ms waits.
 constexpr u8 kNoSurface = 255;
-
-bool busy(HRESULT status) noexcept {
-    return status == E_PENDING || status == kDrawingBusy || status == DXGI_ERROR_WAS_STILL_DRAWING;
-}
 
 void lose(Av1GpuStreamState* state) noexcept {
     state->waiting = true;
@@ -77,114 +71,43 @@ u8 free_surface(const GpuStream& stream) noexcept {
     return kNoSurface;
 }
 
-// One frame into surface. Tiles are batched by the driver's bitstream and
-// tile control capacity, each batch with the picture parameters; the
-// bitstream is the temporal unit span from the batch's first to last tile.
+// One frame into surface. A batch's bitstream is the temporal unit span from
+// its first to last tile, zero-padded to 128 bytes with at least one zero.
 HRESULT submit(GpuStream* stream, u8 surface, const DXVA_PicParams_AV1& parameters,
                ConstSlice<u8> unit) noexcept {
-    const Av1GpuStreamState& state = stream->av1;
-    if (surface >= stream->surfaces.count || !stream->surfaces.views[surface] || !state.tile_count)
-        return E_INVALIDARG;
-    HRESULT status = S_OK;
-    for (u32 attempt = 0;; ++attempt) {
-        stream->guard->Enter();
-        status = stream->context->DecoderBeginFrame(stream->decoder, stream->surfaces.views[surface], 0,
-                                                    nullptr);
-        if (!busy(status) || attempt == kBusyRetries)
-            break;
-        stream->guard->Leave();
-        Sleep(1);
-    }
-    if (FAILED(status)) {
-        stream->guard->Leave();
-        return status;
-    }
-    u64 uploaded = 0;
-    const auto upload = [&](D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
-                            D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
-        UINT capacity = 0;
-        void* destination = nullptr;
-        HRESULT result = stream->context->GetDecoderBuffer(stream->decoder, type, &capacity, &destination);
-        if (FAILED(result))
-            return result;
-        const bool fits = destination && bytes <= capacity;
-        if (fits)
-            copy_bytes(destination, data, bytes);
-        result = stream->context->ReleaseDecoderBuffer(stream->decoder, type);
-        if (!fits)
-            return E_OUTOFMEMORY;
-        *description = {};
-        description->BufferType = type;
-        description->DataSize = bytes;
-        uploaded += bytes;
-        return result;
-    };
-    if (!stream->slice_entries) {
-        UINT capacity = 0;
-        void* mapped = nullptr;
-        status = stream->context->GetDecoderBuffer(
-            stream->decoder, D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL, &capacity, &mapped);
-        if (SUCCEEDED(status))
-            status = stream->context->ReleaseDecoderBuffer(stream->decoder,
-                                                           D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL);
-        stream->slice_entries =
-            static_cast<u16>(minimum<u32>(capacity / u32{sizeof(DXVA_Tile_AV1)}, kAv1StreamTiles));
-        if (SUCCEEDED(status) && !stream->slice_entries)
-            status = E_OUTOFMEMORY;
-    }
-    u32 next = 0;
-    while (SUCCEEDED(status) && next < state.tile_count) {
-        D3D11_VIDEO_DECODER_BUFFER_DESC buffers[3]{};
-        status = upload(D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &parameters, sizeof(parameters),
-                        &buffers[0]);
-        if (FAILED(status))
-            break;
-        UINT bit_capacity = 0;
-        void* bit_data = nullptr;
-        status = stream->context->GetDecoderBuffer(stream->decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM,
-                                                   &bit_capacity, &bit_data);
-        if (FAILED(status))
-            break;
-        // Entries are built here and copied after the bitstream buffer is
-        // released: drivers may share upload memory between the two.
-        DXVA_Tile_AV1 entries[kAv1StreamTiles];
-        const u32 start = state.tiles[next].offset;
+    struct Source {
+        const u8* unit;
+        const Av1Tile* tiles;
+    } const source{unit.data, stream->av1.tiles};
+    const auto fill = [](const void* opaque, u32 first, u8* bytes, u32 capacity, void* control, u32 limit,
+                         u32* written) noexcept -> u32 {
+        const auto& from = *static_cast<const Source*>(opaque);
+        auto* entries = static_cast<DXVA_Tile_AV1*>(control);
+        const u32 start = from.tiles[first].offset;
         u32 batch = 0, end = start;
-        while (bit_data && next + batch < state.tile_count && batch < stream->slice_entries) {
-            const Av1Tile& tile = state.tiles[next + batch];
+        for (; batch < limit; ++batch) {
+            const Av1Tile& tile = from.tiles[first + batch];
             const u64 tile_end = u64{tile.offset} + tile.size;
-            // The buffer size is a multiple of 128 with at least one zero byte after the data.
-            if (tile.offset < start || ((tile_end - start + 128u) & ~127ull) > bit_capacity)
+            if (tile.offset < start || ((tile_end - start + 128u) & ~127ull) > capacity)
                 break;
             entries[batch] = {tile.offset - start, tile.size, tile.row, tile.column, 0, 0xff, 0};
             end = maximum(end, static_cast<u32>(tile_end));
-            ++batch;
         }
-        u32 bytes = 0;
         if (batch) {
-            bytes = static_cast<u32>((u64{end} - start + 128u) & ~127ull);
-            auto* destination = static_cast<u8*>(bit_data);
-            copy_bytes(destination, unit.data + start, end - start);
-            clear_bytes(destination + (end - start), bytes - (end - start));
+            *written = static_cast<u32>((u64{end} - start + 128u) & ~127ull);
+            copy_bytes(bytes, from.unit + start, end - start);
+            clear_bytes(bytes + (end - start), *written - (end - start));
         }
-        const HRESULT released =
-            stream->context->ReleaseDecoderBuffer(stream->decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM);
-        status = !batch ? E_OUTOFMEMORY : released; // One tile exceeds the driver buffer.
-        if (FAILED(status))
-            break;
-        buffers[1].BufferType = D3D11_VIDEO_DECODER_BUFFER_BITSTREAM;
-        buffers[1].DataSize = bytes;
-        uploaded += bytes;
-        status = upload(D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL, entries,
-                        batch * u32{sizeof(DXVA_Tile_AV1)}, &buffers[2]);
-        if (SUCCEEDED(status))
-            status = stream->context->SubmitDecoderBuffers(stream->decoder, 3, buffers);
-        next += batch;
-    }
-    const HRESULT ended = stream->context->DecoderEndFrame(stream->decoder);
-    stream->guard->Leave();
-    stream->stats.uploaded_bytes += uploaded;
-    return FAILED(status) ? status : ended;
+        return batch;
+    };
+    return gpu_stream_submit(stream, {surface,
+                                      {reinterpret_cast<const u8*>(&parameters), sizeof(parameters)},
+                                      {},
+                                      stream->av1.tile_count,
+                                      u32{sizeof(DXVA_Tile_AV1)},
+                                      kAv1StreamTiles,
+                                      &source,
+                                      fill});
 }
 
 void present(GpuStream* stream, u8 surface, const Av1FrameHeader& header, u32 rtp_timestamp) noexcept {
@@ -300,8 +223,9 @@ bool gather_tiles(Av1GpuStreamState* state, ConstSlice<u8> unit, ConstSlice<u8> 
 
 } // namespace
 
-void av1_gpu_stream_reset(Av1GpuStreamState* state) noexcept {
+void av1_gpu_stream_reset(GpuStream* stream) noexcept {
     // The sequence header and pool size survive an idle release.
+    Av1GpuStreamState* state = &stream->av1;
     for (auto& reference : state->references)
         reference.valid = false;
     for (auto& surface : state->slot_surface)

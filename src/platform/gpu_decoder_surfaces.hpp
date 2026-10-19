@@ -7,9 +7,9 @@ namespace maicord {
 
 inline constexpr u32 kGpuDecoderSurfaceCapacity = 32;
 
-// Shader-readable NV12 decoder output array for the H.264 and HEVC attachment
-// decoders: every slice has R8/R8G8 single-slice plane views, so the renderer
-// converts a decoded picture in place.
+// Shader-readable NV12 decoder output array for the attachment and live
+// stream decoders: every slice has R8/R8G8 single-slice plane views, so the
+// renderer converts a decoded picture in place.
 struct GpuDecoderSurfaces {
     ID3D11Texture2D* texture;
     ID3D11VideoDecoderOutputView* views[kGpuDecoderSurfaceCapacity];

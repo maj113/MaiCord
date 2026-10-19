@@ -29,7 +29,7 @@ struct Av1GpuStreamState {
     bool have_sequence, sequence_changed, frame_open, waiting, unsupported;
 };
 
-void av1_gpu_stream_reset(Av1GpuStreamState* state) noexcept;
+void av1_gpu_stream_reset(GpuStream* stream) noexcept;
 // One temporal unit (OBUs, the last one possibly without obu_size).
 void av1_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,
                            bool resynchronize) noexcept;

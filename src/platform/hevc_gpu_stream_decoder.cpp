@@ -25,9 +25,9 @@ u32 surface_extent(u32 coded) noexcept {
 
 } // namespace
 
-void hevc_gpu_stream_reset(HevcGpuStreamState* backend) noexcept {
-    hevc_stream_reset(&backend->state);
-    hevc_stream_set_surfaces(&backend->state, 0);
+void hevc_gpu_stream_reset(GpuStream* stream) noexcept {
+    hevc_stream_reset(&stream->hevc.state);
+    hevc_stream_set_surfaces(&stream->hevc.state, 0);
 }
 
 void hevc_gpu_stream_drain(GpuStream* stream) noexcept {
@@ -108,7 +108,7 @@ void hevc_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_tim
             request_keyframe(stream);
             continue;
         }
-        const HRESULT status = gpu_stream_submit(
+        const HRESULT status = gpu_stream_submit_slices(
             stream, decode.surface, {reinterpret_cast<const u8*>(&parameters), sizeof(parameters)},
             {reinterpret_cast<const u8*>(&matrix), sps.scaling_enabled ? u32{sizeof(matrix)} : 0u}, bytes,
             picture.slices, picture.slice_count);

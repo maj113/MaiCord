@@ -31,33 +31,14 @@ HRESULT ensure_resources(VideoFrameGpu* gpu, ID3D11Device* device) noexcept {
     return status;
 }
 
-// One-slice array view of the frame's subresource (the shader reads arrays).
-bool plane_matches(ID3D11ShaderResourceView* view, ID3D11Texture2D* texture, u32 slice,
-                   DXGI_FORMAT format) noexcept {
-    D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
-    view->GetDesc(&desc);
-    if (desc.Format != format || desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DARRAY ||
-        desc.Texture2DArray.MostDetailedMip != 0 || desc.Texture2DArray.MipLevels != 1 ||
-        desc.Texture2DArray.FirstArraySlice != slice || desc.Texture2DArray.ArraySize != 1) return false;
-    ID3D11Resource* resource = nullptr;
-    view->GetResource(&resource);
-    const bool matches = resource == static_cast<ID3D11Resource*>(texture);
-    com_release(resource);
-    return matches;
-}
-
-bool direct_planes(const GpuVideoFrame& frame, const D3D11_TEXTURE2D_DESC& input) noexcept {
-    return frame.luma && frame.chroma && (input.BindFlags & D3D11_BIND_SHADER_RESOURCE) &&
-           plane_matches(frame.luma, frame.texture, frame.subresource, DXGI_FORMAT_R8_UNORM) &&
-           plane_matches(frame.chroma, frame.texture, frame.subresource, DXGI_FORMAT_R8G8_UNORM);
-}
-
 } // namespace
 
 HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
     ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step) noexcept {
-    if (!gpu || !device || !context || !frame.texture || !destination || frame.rotation > 3 ||
+    // The plane views are the decoder's one-slice array views of frame.subresource.
+    if (!gpu || !device || !context || !frame.texture || !frame.luma || !frame.chroma || !destination ||
+        frame.rotation > 3 ||
         frame.width == 0 || frame.height == 0 || step == 0 || step > kGpuVideoReductionMaximum) return E_INVALIDARG;
     // Reduced source extent; the written (rotated) extent swaps it for odd turns.
     const u32 width = gpu_video_frame_reduced(frame.width, step);
@@ -92,7 +73,6 @@ HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     if (target.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
         x > target.Width || output_width > target.Width - x ||
         y > target.Height || output_height > target.Height - y) return E_INVALIDARG;
-    if (!direct_planes(frame, input)) return E_INVALIDARG;
     status = ensure_resources(gpu, device);
     if (FAILED(status)) return status;
     if (!gpu->multithread) {
