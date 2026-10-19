@@ -145,6 +145,27 @@ u64 measure_per_second(TextSystem* system, Utf8View input, const Clock& clock) n
                : (static_cast<u64>(kTextBenchmarkIterations) * 1'000'000ull) / elapsed;
 }
 
+// Alternating inputs defeat the single-entry paragraph cache, so every call
+// shapes. Returns thread cycles per call.
+u64 alternating_shape_cycles(TextSystem* system, ShapedText* shaped, Utf8View first,
+                             Utf8View second) noexcept {
+    constexpr u32 iterations = 4'096;
+    ULONG64 begin = 0, end = 0;
+    u64 checksum = 0;
+    QueryThreadCycleTime(GetCurrentThread(), &begin);
+    for (u32 iteration = 0; iteration < iterations; ++iteration) {
+        const TextShapeResult result = text_shape_utf8(system, (iteration & 1) ? second : first, 640.0f,
+                                                       200.0f, Slice<wchar_t>{g_utf16, 512}, shaped);
+        if (!result.ok() || shaped->glyph_count == 0) {
+            return 0;
+        }
+        checksum += shaped->glyph_count + shaped->glyphs[iteration % shaped->glyph_count].index;
+    }
+    QueryThreadCycleTime(GetCurrentThread(), &end);
+    g_text_checksum ^= checksum;
+    return (end - begin) / iterations;
+}
+
 u64 styled_shape_per_second(TextSystem* system, ShapedText* shaped,
                             const Clock& clock) noexcept {
     constexpr Utf8View input = utf8_literal(
@@ -255,6 +276,33 @@ int run() noexcept {
         utf8_literal("MaiCord shapes office, @mentions, #channels, timestamps, and reactions."),
         clock);
 
+    struct Pair {
+        const char* name;
+        Utf8View first, second;
+    };
+    const Pair pairs[] = {
+        {"cycles_latin", utf8_literal("Caf\xc3\xa9, fianc\xc3\xa9" "e, na\xc3\xafve, r\xc3\xa9sum\xc3\xa9. AV To office."),
+         utf8_literal("R\xc3\xa9sum\xc3\xa9, caf\xc3\xa9, na\xc3\xafve, fianc\xc3\xa9" "e. To AV office.")},
+        {"cycles_arabic",
+         utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7 \xd8\xa8\xd8\xa7\xd9\x84\xd8\xac\xd9\x85\xd9\x8a\xd8\xb9 "
+                      "\xd9\x81\xd9\x8a \xd8\xa7\xd9\x84\xd9\x82\xd9\x86\xd8\xa7\xd8\xa9"),
+         utf8_literal("\xd8\xa7\xd9\x84\xd9\x82\xd9\x86\xd8\xa7\xd8\xa9 \xd8\xaa\xd8\xb1\xd8\xad\xd8\xa8 "
+                      "\xd8\xa8\xd8\xa7\xd9\x84\xd8\xac\xd9\x85\xd9\x8a\xd8\xb9")},
+        {"cycles_devanagari",
+         utf8_literal("\xe0\xa4\xb9\xe0\xa4\xbf\xe0\xa4\xa8\xe0\xa5\x8d\xe0\xa4\xa6\xe0\xa5\x80 "
+                      "\xe0\xa4\x95\xe0\xa5\x8d\xe0\xa4\xb7\xe0\xa5\x87\xe0\xa4\xa4\xe0\xa5\x8d\xe0\xa4\xb0 "
+                      "\xe0\xa4\xb0\xe0\xa5\x8d\xe0\xa4\x95\xe0\xa4\xbf"),
+         utf8_literal("\xe0\xa4\xb0\xe0\xa5\x8d\xe0\xa4\x95\xe0\xa4\xbf "
+                      "\xe0\xa4\xb9\xe0\xa4\xbf\xe0\xa4\xa8\xe0\xa5\x8d\xe0\xa4\xa6\xe0\xa5\x80 "
+                      "\xe0\xa4\x95\xe0\xa5\x8d\xe0\xa4\xb7\xe0\xa5\x87\xe0\xa4\xa4\xe0\xa5\x8d\xe0\xa4\xb0")},
+    };
+    for (const auto& pair : pairs) {
+        const u64 cycles = alternating_shape_cycles(&system, &shaped, pair.first, pair.second);
+        if (cycles == 0) {
+            return 4;
+        }
+        write_value(pair.name, cycles);
+    }
     constexpr Utf8View message_hit_text = utf8_literal(
         "Retained native selection layout with bold and emoji \xF0\x9F\x98\x80");
     constexpr TextStyleSpan message_hit_styles[] = {
