@@ -32,6 +32,11 @@ try {
     # cannot classify or remove outputs while another wrapper owns the cache.
     if ($Apply) { $cleanupMutex = Enter-ReleaseCleanupLock }
 
+# Whether an existing file or directory is a reparse point (missing: -1, false).
+function Test-ReparsePoint([string]$Path) {
+    $attributes = [int][IO.FileInfo]::new($Path).Attributes
+    return $attributes -ne -1 -and ($attributes -band [int][IO.FileAttributes]::ReparsePoint)
+}
 $validatedAncestors = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 function Assert-ReleasePath([string]$Path) {
     $absolute = [IO.Path]::GetFullPath($Path)
@@ -41,12 +46,7 @@ function Assert-ReleasePath([string]$Path) {
     }
     $ancestor = $absolute
     while ($ancestor -and !$validatedAncestors.Contains($ancestor)) {
-        if (Test-Path -LiteralPath $ancestor) {
-            $item = Get-Item -LiteralPath $ancestor -Force
-            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw "Reparse point in build path: $ancestor"
-            }
-        }
+        if (Test-ReparsePoint $ancestor) { throw "Reparse point in build path: $ancestor" }
         [void]$validatedAncestors.Add($ancestor)
         $ancestor = [IO.Path]::GetDirectoryName($ancestor)
     }
@@ -141,16 +141,16 @@ $targets = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalI
 $ownedTestRoots = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 function Add-OwnedTree([string]$Root) {
     $rootPath = Assert-ReleasePath $Root
-    if (!(Test-Path -LiteralPath $rootPath -PathType Container)) { return }
+    if (![IO.Directory]::Exists($rootPath)) { return }
     $pending = [Collections.Generic.Queue[string]]::new()
     $pending.Enqueue($rootPath)
     while ($pending.Count) {
         $directory = Assert-ReleasePath $pending.Dequeue()
         [void]$scratchDirectories.Add($directory)
         # Validate each child before traversing it; never follow reparse points.
-        foreach ($child in Get-ChildItem -LiteralPath $directory -Force) {
+        foreach ($child in ([IO.DirectoryInfo]$directory).EnumerateFileSystemInfos()) {
             $childPath = Assert-ReleasePath $child.FullName
-            if ($child.PSIsContainer) { $pending.Enqueue($childPath) }
+            if ($child -is [IO.DirectoryInfo]) { $pending.Enqueue($childPath) }
             else { [void]$targets.Add($childPath) }
         }
     }
@@ -211,24 +211,24 @@ if ($RuntimeOnly) {
                 $path.StartsWith((Join-Path $releaseRoot 'licenses') + '\', [StringComparison]::OrdinalIgnoreCase)) {
                 throw 'Runtime asset appeared in the disposable build-output manifest.'
             }
-            if (Test-Path -LiteralPath $path -PathType Leaf) { [void]$targets.Add($path) }
+            if ([IO.File]::Exists($path)) { [void]$targets.Add($path) }
             if ([IO.Path]::GetExtension($path) -in @('.exe', '.dll', '.lib')) {
                 foreach ($extension in @('.lib', '.exp', '.pdb', '.map', '.ilk', '.iobj', '.ipdb')) {
-                    $sidecar = Assert-ReleasePath ([IO.Path]::ChangeExtension($path, $extension))
-                    if (Test-Path -LiteralPath $sidecar -PathType Leaf) { [void]$targets.Add($sidecar) }
+                    $sidecar = [IO.Path]::ChangeExtension($path, $extension)
+                    if ([IO.File]::Exists($sidecar)) { [void]$targets.Add((Assert-ReleasePath $sidecar)) }
                 }
             }
         } else {
             if ($path -notmatch '\\CMakeFiles\\[A-Za-z0-9_.+-]+\.dir$') { throw 'Invalid build object directory.' }
-            if (!(Test-Path -LiteralPath $path -PathType Container)) { continue }
+            if (![IO.Directory]::Exists($path)) { continue }
             $pending = [Collections.Generic.Queue[string]]::new()
             $pending.Enqueue($path)
             while ($pending.Count) {
                 $directory = Assert-ReleasePath $pending.Dequeue()
                 [void]$scratchDirectories.Add($directory)
-                foreach ($child in Get-ChildItem -LiteralPath $directory -Force) {
+                foreach ($child in ([IO.DirectoryInfo]$directory).EnumerateFileSystemInfos()) {
                     $childPath = Assert-ReleasePath $child.FullName
-                    if ($child.PSIsContainer) { $pending.Enqueue($childPath) }
+                    if ($child -is [IO.DirectoryInfo]) { $pending.Enqueue($childPath) }
                     elseif ($child.Extension -match '^\.(obj|res|rsp|pdb|idb|iobj|ipdb|ilk|exp|lib|pch|i)$' -or
                         $child.Name -cmatch '^application_pch_O(?:2|s)\.cpp$') { [void]$targets.Add($childPath) }
                 }
@@ -236,8 +236,7 @@ if ($RuntimeOnly) {
         }
     }
     foreach ($name in @('CMakeCache.txt', 'build.ninja', 'cmake_install.cmake', '.ninja_deps', '.ninja_log', '.ninja_lock',
-            'CTestTestfile.cmake', 'maicord-test-targets.txt', 'maicord-test-shards.txt', 'notification_sounds.rc',
-            'MaiCord.map', 'MaiCordAccount.map',
+            'CTestTestfile.cmake', 'maicord-test-targets.txt', 'maicord-tests.txt', 'notification_sounds.rc',
             'CMakeFiles\cmake.check_cache', 'CMakeFiles\cmake.verify_globs', 'CMakeFiles\InstallScripts.json',
             'CMakeFiles\rules.ninja', 'CMakeFiles\TargetDirectories.txt', 'CMakeFiles\VerifyGlobs.cmake',
             'CMakeFiles\ShowIncludes\foo.h', 'CMakeFiles\ShowIncludes\main.c', 'CMakeFiles\ShowIncludes\main.obj')) {
@@ -257,15 +256,15 @@ if ($RuntimeOnly) {
     # files in them as disposable products.
     foreach ($name in @('generated', 'CMakeFiles', 'third_party')) {
         $root = Assert-ReleasePath (Join-Path $releaseRoot $name)
-        if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
+        if (![IO.Directory]::Exists($root)) { continue }
         $pending = [Collections.Generic.Queue[string]]::new()
         $pending.Enqueue($root)
         while ($pending.Count) {
             $directory = Assert-ReleasePath $pending.Dequeue()
             [void]$scratchDirectories.Add($directory)
-            foreach ($child in Get-ChildItem -LiteralPath $directory -Force) {
+            foreach ($child in ([IO.DirectoryInfo]$directory).EnumerateFileSystemInfos()) {
                 [void](Assert-ReleasePath $child.FullName)
-                if ($child.PSIsContainer) { $pending.Enqueue($child.FullName) }
+                if ($child -is [IO.DirectoryInfo]) { $pending.Enqueue($child.FullName) }
             }
         }
     }
@@ -408,11 +407,7 @@ $removedDirectories = 0
 function Assert-CurrentPlain([string]$Path) {
     [void](Assert-ReleasePath $Path)
     foreach ($current in @($Path, [IO.Path]::GetDirectoryName($Path))) {
-        if (Test-Path -LiteralPath $current) {
-            if ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw "Reparse point appeared during cleanup: $current"
-            }
-        }
+        if (Test-ReparsePoint $current) { throw "Reparse point appeared during cleanup: $current" }
     }
 }
 foreach ($target in $allowedTargets) {
@@ -429,8 +424,12 @@ foreach ($path in $targets) { [void](Assert-ReleasePath $path) }
 $orderedTargets = @($targets | Where-Object { !$RuntimeOnly -or $_ -ne $ownership })
 foreach ($path in $orderedTargets) {
     Assert-CurrentPlain $path
-    $removedBytes += (Get-Item -LiteralPath $path -Force).Length
-    if ($Apply) { Remove-Item -LiteralPath $path -Force }
+    $file = [IO.FileInfo]::new($path)
+    $removedBytes += $file.Length
+    if ($Apply) {
+        if ($file.IsReadOnly) { $file.IsReadOnly = $false }
+        $file.Delete()
+    }
     $parent = [IO.Path]::GetDirectoryName($path)
     while ($parent -and !$parent.Equals($releaseRoot, [StringComparison]::OrdinalIgnoreCase)) {
         [void]$parents.Add($parent)
@@ -440,9 +439,8 @@ foreach ($path in $orderedTargets) {
 if ($Apply) {
     foreach ($parent in $parents | Sort-Object Length -Descending) {
         Assert-CurrentPlain $parent
-        if ((Test-Path -LiteralPath $parent -PathType Container) -and
-            !@(Get-ChildItem -LiteralPath $parent -Force).Count) {
-            Remove-Item -LiteralPath $parent
+        if ([IO.Directory]::Exists($parent) -and ![IO.Directory]::GetFileSystemEntries($parent).Length) {
+            [IO.Directory]::Delete($parent)
             ++$removedDirectories
         }
     }

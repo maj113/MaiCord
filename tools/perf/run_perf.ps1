@@ -30,17 +30,13 @@ if ($ProductionStartup) {
     if (!$PSBoundParameters.ContainsKey('Runs')) { $Runs = 3 }
 }
 if (!$Execute) {
-    $build = Join-Path (Split-Path -Parent $PSScriptRoot) 'build.ps1'
-    if ($ProductionStartup) {
-        $arguments = @{ StartupProbe = $true; StartupProbeRuns = $Runs }
-    } else {
-        $arguments = @{ PerfProbe = $true; SkipClient = $true; PerfRuns = $Runs }
-        if ($WarmOnly) { $arguments.PerfWarmOnly = $true }
-        if ($Raw) { $arguments.PerfRaw = $true }
-        if ($Debugger) { $arguments.PerfDebugger = $true }
-        if ($Sampling) { $arguments.PerfProfile = $true }
+    # build.ps1 calls back with -Execute, -Probe, -ProfileRoot and these options.
+    $options = @{ Runs = $Runs }
+    foreach ($name in $PSBoundParameters.Keys) {
+        if ($name -ne 'ProductionStartup') { $options[$name] = $PSBoundParameters[$name] }
     }
-    & $build @arguments
+    $kind = if ($ProductionStartup) { @{ StartupProbe = $true } } else { @{ PerfProbe = $true; SkipClient = $true } }
+    & (Join-Path (Split-Path -Parent $PSScriptRoot) 'build.ps1') @kind -PerfArguments $options
     return
 }
 

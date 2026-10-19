@@ -36,7 +36,7 @@ network.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\perf\run_perf.ps1 -ProductionStartup -Runs 5
 ```
 
-This command uses `tools\build.ps1 -StartupProbe -StartupProbeRuns 5`.
+It builds the client through `tools\build.ps1 -StartupProbe`.
 It builds the actual `MaiCord.exe` with `MAICORD_STARTUP_PROBE` and the real account backend.
 The build script refuses to overwrite a client that runs from the Release directory.
 The default is three fresh/warm pairs. `-Runs 5` requests five pairs, or ten launches.

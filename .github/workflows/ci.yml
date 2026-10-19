@@ -37,7 +37,7 @@ concurrency:
 #              the pair a second time;
 #   tests/core every other test (text, fonts, media, protocol, platform).
 # build.ps1 -TestShard picks each test's shard from its executable
-# (maicord-test-shards.txt, written by CMake), builds only that shard's
+# (maicord-tests.txt, written by CMake), builds only that shard's
 # executables and runs exactly those tests. Both shards build most of the
 # shared test libraries, so this costs runner minutes for wall time: about
 # 29 runner minutes and 10 minutes of wall time per run, where one tests job
