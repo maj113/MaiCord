@@ -21,7 +21,7 @@ static_assert(sizeof(GatewayClientRoleMutation) == 40);
 static_assert(sizeof(GatewayClientPermissionOverwriteMutation) == 32);
 static_assert(sizeof(GatewayClientEmojiMutation) == 16);
 inline constexpr u32 kGatewayGuildRoleMaximum = 256;
-inline constexpr u32 kGatewayGuildEmojiMaximum = 512;
+inline constexpr u32 kGatewayGuildEmojiMaximum = kGuildEmojiMaximum;
 inline constexpr u32 kGatewayGuildIconHashMaximumBytes = 34;
 
 struct StateObjectContext {

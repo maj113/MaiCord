@@ -43,7 +43,7 @@ static_assert(sizeof(GuildChannelIdScratch) <= sizeof(GuildEmojiScratch) &&
               alignof(GuildChannelIdScratch) <= alignof(GuildEmojiScratch) &&
               sizeof(GuildTransientScratch) == sizeof(GuildEmojiScratch) &&
               alignof(GuildTransientScratch) == alignof(GuildEmojiScratch));
-static_assert(sizeof(GuildStateScratch) == 27'648 && sizeof(PrivateStateScratch) == 8'192 &&
+static_assert(sizeof(GuildStateScratch) == 33'792 && sizeof(PrivateStateScratch) == 8'192 &&
               sizeof(MemberRoleScratch) == 2'048);
 static_assert(alignof(GuildStateScratch) <= 16 && alignof(PrivateStateScratch) <= 16 &&
               alignof(MemberRoleScratch) <= 16);

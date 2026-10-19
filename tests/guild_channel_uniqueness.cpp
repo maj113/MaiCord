@@ -14,7 +14,7 @@ constexpr u32 kPayloadBytes = kRows * (sizeof(GatewayClientStateMutation) + 8) +
 constexpr u64 kGuild = 77, kOwner = 999, kSelf = 42, kRole = 78;
 constexpr u64 kPermissions = kPermissionViewChannel | kPermissionReadMessageHistory |
     kPermissionSendMessages;
-static_assert(kIdPrefix == 3072 && sizeof(GatewayClientStateMutation) == 168);
+static_assert(kIdPrefix == 3840 && sizeof(GatewayClientStateMutation) == 168);
 struct UniquenessModel {
     ChatStateStore state;
     GuildRecord guilds[2];

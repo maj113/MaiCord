@@ -13,7 +13,9 @@ inline constexpr u32 kChannelObfuscatedFlag = 1u << 17;
 inline constexpr u8 kChannelContentAgeRestricted = 1u << 0;
 inline constexpr u32 kGuildRoleMaximum = 256;
 inline constexpr u32 kGuildIconHashMaximumBytes = 34;
-inline constexpr u32 kGuildEmojiMaximum = 512;
+// Boost tier 3 allows 250 static, 250 animated and 25 role-subscription emoji,
+// plus purchased slots.
+inline constexpr u32 kGuildEmojiMaximum = 640;
 inline constexpr u32 kCustomEmojiNameMaximumBytes = 32;
 
 enum ChannelAction : u32 {

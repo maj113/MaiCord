@@ -258,8 +258,9 @@ void indexed_channel_records(void (*check)(bool, const char*) noexcept) noexcept
 }
 // A READY shaped like a huge public community (~18M members) at the server's own
 // per-guild limits: 500 channels of every guild type with eight overwrites
-// each, 251 roles, 500 emoji, 60 stickers, 48 soundboard sounds, a recurring
-// scheduled event, active threads, unknown features/levels and large counts.
+// each, 251 roles, 525 emoji (tier 3 plus role subscriptions), 60 stickers,
+// 48 soundboard sounds, a recurring scheduled event, active threads, unknown
+// features/levels and large counts.
 u8 huge_source[1024 * 1024];
 u32 huge_arrays[1u << 18], huge_records[1u << 18];
 char huge_payload[kGatewayClientDispatchPayloadCapacity];
@@ -298,7 +299,7 @@ Utf8View huge_ready() noexcept {
         j.s(R"("hoist":false,"managed":false,"mentionable":false,"flags":0,"icon":null,"unicode_emoji":null,"tags":{}})");
     }
     j.s(R"(],"emojis":[)");
-    for (u32 i = 0; i < 500; ++i) {
+    for (u32 i = 0; i < 525; ++i) {
         if (i) j.s(",");
         j.s(R"({"id":)").q(kHugeGuild + 10000 + i).s(R"(,"name":"emoji_)").n(i)
          .s(i % 2 ? R"(","roles":[],"require_colons":true,"managed":false,"animated":true,"available":true})"
@@ -406,7 +407,7 @@ void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
         {huge_payload, kGatewayClientDispatchPayloadCapacity}, {}, 1, {acquire_huge, nullptr}, &event, &copied);
     check(reserved && full.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_create &&
         event.state.id == kHugeGuild && event.state.record_count == 502 && event.state.overwrite_count == 4000 &&
-        event.state.role_count == 251 && event.state.emojis_known && event.state.emoji_count == 500 &&
+        event.state.role_count == 251 && event.state.emojis_known && event.state.emoji_count == 525 &&
         copied.count > 128 * 1024 && copied.data == huge_large.base && huge_acquires == 1 &&
         huge_large.committed == 256 * 1024,
         "huge community guild fits one typed record at server limits, committing only 256 KiB of 1 MiB");
