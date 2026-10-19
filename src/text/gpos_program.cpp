@@ -107,7 +107,7 @@ struct Executor {
         const auto mode=selected?SfntPositionApplication::selected:SfntPositionApplication::scan;SfntStatus s;
         if(lookup.type<=6 && !(selected && lookup.type==3 && (lookup.filter.flags&1))){s=flush();if(s!=SfntStatus::ok)return s;}
         if(lookup.type<=2){
-            SfntPositionExecution r{};s=sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},program.gdef,glyphs,positions,at,end,rtl,instance,&r,work,match_work,mode);work-=r.operations;result.matches+=r.matches;*resume=end;return s;}
+            SfntPositionExecution r{};s=sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},program.gdef,glyphs,positions,at,end,rtl,instance,&r,work,match_work,mode,&lookup.bounds);work-=r.operations;result.matches+=r.matches;*resume=end;return s;}
         if(lookup.type<=6){const SfntGposAttachmentLookup attachment{lookup.tables.attachment,lookup.filter};
             if(lookup.type==3){SfntCursiveExecution r{};
                 if(selected){if((lookup.filter.flags&1) && !chains_ready){const u32 n=sfnt_glyph_count(glyphs);if(scratch.cursive_chains.count<n)return SfntStatus::output_too_small;if(!spend(&work,n))return SfntStatus::resource_limit;
@@ -121,7 +121,7 @@ struct Executor {
             *resume=end;return s;
         }
         if(lookup.type!=7 && lookup.type!=8)return SfntStatus::unsupported;const auto& glyph=sfnt_glyph_at(glyphs,at);
-        if(sfnt_lookup_bounds_disjoint(lookup.bounds,glyph.glyph,glyph.glyph))return SfntStatus::ok;
+        if(sfnt_lookup_bounds_exclude(lookup.bounds,glyph.glyph))return SfntStatus::ok;
         if(!selected && sfnt_lookup_ignores(program.gdef,lookup.filter,glyph.glyph,glyph.glyph_class))return SfntStatus::ok;
         u32 shared_index=sfnt_not_covered;
         if(lookup.bounds.ready&2){shared_index=sfnt_coverage_index(sfnt_context_first_coverage(lookup.tables.context[0]),glyph.glyph);
@@ -168,13 +168,13 @@ SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 l
     if(!sfnt_glyph_view_valid(glyphs) || !root || !root->type || !program.glyph_limit || program.glyph_limit>65536 || start>end || end>n || nominal.count<n || flags.count<n || positions.count<n || (n && (!nominal.data || !flags.data || !positions.data)) || (associations.count && (associations.count<n || !associations.data)) || (targets.count && !targets.data) || static_cast<u8>(null_policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1 || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.cursive_bits) || !valid(scratch.ligature_prefix) || !valid(scratch.cursive_chains) || scratch.positions.count>0x3fffffffu)return SfntStatus::invalid_input;
     u64 work=limits.operations;
     for(u32 i=0;i<targets.count;++i){if(!spend(&work)){output->operations=limits.operations-work;return SfntStatus::resource_limit;}if(targets.data[i]>=n || (i && targets.data[i]<=targets.data[i-1]))return SfntStatus::invalid_input;}
-    u16 first_glyph=65535,last_glyph=0;
+    SfntGlyphSummary run{};
     for(u32 i=0;i<n;++i){if(!spend(&work)){output->operations=limits.operations-work;return SfntStatus::resource_limit;}const auto& g=sfnt_glyph_at(glyphs,i);const auto& p=positions.data[i];
-        first_glyph=minimum(first_glyph,g.glyph);last_glyph=maximum(last_glyph,g.glyph);
+        sfnt_glyph_summary_add(run,g.glyph);
         if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)) || !is_finite(nominal.data[i]) || !is_finite(p.advance) || !is_finite(p.advance_offset) || !is_finite(p.ascender_offset))return SfntStatus::invalid_input;
         if(associations.count && associations.data[i].target!=0xffffffffu && (associations.data[i].target>=targets.count || targets.data[associations.data[i].target]>=i))return SfntStatus::invalid_input;
     }
-    if(sfnt_lookup_bounds_disjoint(root->bounds,first_glyph,last_glyph)){output->operations=limits.operations-work;return SfntStatus::ok;}
+    if(sfnt_lookup_bounds_miss(root->bounds,run)){output->operations=limits.operations-work;return SfntStatus::ok;}
     const auto status=sfnt_gpos_execute_validated_lookup(program,lookup,glyphs,nominal,flags,associations,targets,positions,start,end,rtl,instance,null_policy,component_policy,scratch,{work,limits.match_work},output,resolver,context);
     output->operations+=limits.operations-work;return status;
 }

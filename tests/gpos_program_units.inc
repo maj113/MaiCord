@@ -70,9 +70,10 @@ bool gpos_shared_coverage_units() noexcept {
                 {&nominal,1},{&flag,1},{},{},{&position,1},0,1,false,{},SfntNullAnchorPolicy::skip,SfntComponentAnchorPolicy::strict,
                 {{&frame,1},{&selected,1},{},{},{}},{budget,1000},&result);};
             if(run(1000,optimized)!=SfntStatus::ok||position.advance!=100||position.advance_offset||position.ascender_offset)return false;
-            const auto ready=lookup.bounds.ready;lookup.bounds.ready=1;
+            // The ordinary scan keeps neither the shared certificate nor a digest.
+            const auto bounds=lookup.bounds;lookup.bounds.ready=1;lookup.bounds.digest={};
             if(run(1000,ordinary)!=SfntStatus::ok||ordinary.matches!=optimized.matches||ordinary.actions!=optimized.actions||position.advance!=100)return false;
-            lookup.bounds.ready=ready;
+            lookup.bounds=bounds;
             if(optimized.matches!=static_cast<u64>(id!=2||mode==1))return false;
             if(mode!=1&&id==2&&optimized.operations>=ordinary.operations)return false;
             for(u64 budget=0;budget<=optimized.operations;++budget){SfntGposExecutionResult limited{};const auto status=run(budget,limited);

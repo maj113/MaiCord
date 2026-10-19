@@ -142,7 +142,7 @@ struct Executor {
         // The buffer is unchanged until a matching edit returns, so one view
         // serves all rejected subtables of the current lookup.
         const auto view=sfnt_glyph_buffer_view(buffer);const u16 first=sfnt_glyph_at(view,at).glyph;
-        if(sfnt_lookup_bounds_disjoint(lookup.bounds,first,first))return SfntStatus::ok;
+        if(sfnt_lookup_bounds_exclude(lookup.bounds,first))return SfntStatus::ok;
         // Preparation sets this certificate only on contextual lookups.
         const bool shared=(lookup.bounds.ready&2)!=0;
         u32 shared_index=sfnt_not_covered;
@@ -203,10 +203,10 @@ struct Executor {
     SfntStatus run(const SfntGsubExecutableLookup& root,u32 start) noexcept {
         const bool reverse=root.type==8;u32 at=reverse?result.input_end:start;
         while(reverse?at>start:at<result.input_end){const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;
-            const auto& filter=root.filter;
-            if(filter.flags){const auto& glyph=sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),current);
-                if(sfnt_lookup_ignores(program.gdef,filter,glyph.glyph,glyph.glyph_class)){
-                    if(!spend(&work))return SfntStatus::resource_limit;if(!reverse)at=resume;continue;}}
+            // An excluded or ignored glyph costs the same single unit as a rejected attempt.
+            const auto& glyph=sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),current);
+            if(sfnt_lookup_bounds_exclude(root.bounds,glyph.glyph)||(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,glyph.glyph,glyph.glyph_class))){
+                if(!spend(&work))return SfntStatus::resource_limit;if(!reverse)at=resume;continue;}
             auto s=attempt(root,current,result.input_end,&matched,&resume);if(s!=SfntStatus::ok)return s;
             while(depth){auto& frame=scratch.frames.data[depth-1];
                 if(frame.next_action==frame.actions.count/4){resume=frame.input_end;used=frame.positions;--depth;continue;}
@@ -249,12 +249,12 @@ SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,Sf
     const auto view=sfnt_glyph_buffer_view(*buffer);if(start>end || end>sfnt_glyph_count(view))return SfntStatus::invalid_input;
     // Validate the complete run once, including lookaround outside the range.
     if(sfnt_glyph_count(view)>limits.operations)return SfntStatus::resource_limit;
-    u16 first_glyph=65535,last_glyph=0;
+    SfntGlyphSummary run{};
     for(u32 i=0;i<sfnt_glyph_count(view);++i){const auto& g=sfnt_glyph_at(view,i);if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (clusters && byte_load_le32(reinterpret_cast<const u8*>(&g)+4)>=clusters->text_count))return SfntStatus::invalid_input;
-        first_glyph=minimum(first_glyph,g.glyph);last_glyph=maximum(last_glyph,g.glyph);
+        sfnt_glyph_summary_add(run,g.glyph);
         if(components){const auto& c=*reinterpret_cast<const SfntComponentGlyph*>(&g);if((c.component!=0xffffffffu && c.component>=components->nodes.count) || (c.attachment!=0xffffffffu && c.attachment>=components->nodes.count))return SfntStatus::invalid_input;}}
     output->input_end=end;
-    if(sfnt_lookup_bounds_disjoint(root->bounds,first_glyph,last_glyph)){output->operations=sfnt_glyph_count(view);return SfntStatus::ok;}
+    if(sfnt_lookup_bounds_miss(root->bounds,run)){output->operations=sfnt_glyph_count(view);return SfntStatus::ok;}
     const u32 count=sfnt_glyph_count(view);const auto status=sfnt_gsub_execute_validated_lookup(program,*root,buffer,start,end,alternate,scratch,{limits.operations-count,limits.match_work},output,clusters,components,mask);
     output->operations+=count;return status;
 }

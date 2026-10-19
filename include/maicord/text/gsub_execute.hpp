@@ -60,7 +60,7 @@ struct SfntGsubExecutionLimits {u64 operations;u32 match_work;};
 // operations is shared across scheduling, matches, copies and rebasing; match_work
 // also caps an individual match. These are work units, not CPU timings.
 struct SfntGsubExecutionResult {u64 operations,edits,moved_records;u32 input_end,max_depth;};
-static_assert(sizeof(SfntGsubExecutableSubtable)==64 && sizeof(SfntGsubExecutableLookup)==40 && sizeof(SfntGsubProgram)==88);
+static_assert(sizeof(SfntGsubExecutableSubtable)==64 && sizeof(SfntGsubExecutableLookup)==64 && sizeof(SfntGsubProgram)==88);
 static_assert(sizeof(SfntGsubExecutionFrame)==32 && sizeof(SfntGsubExecutionResult)==32);
 // Execute one caller-selected lookup over [start,input_end), in logical order
 // (type 8 visits positions in reverse). alternate is zero-based. No heap or C++

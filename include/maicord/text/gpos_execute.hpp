@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/text/gpos.hpp"
 #include "maicord/text/clusters.hpp"
+#include "maicord/text/lookup_bounds.hpp"
 namespace maicord {
 // Font-unit state keeps scaling out of lookup execution. Fractional values allow
 // resolved variable metrics/deltas.
@@ -36,7 +37,8 @@ SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntG
                                          Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
                                          const SfntPositionInstance& instance,SfntPositionExecution* result,
                                          u64 work_limit=1000000,u32 match_limit=1000000,
-                                         SfntPositionApplication application=SfntPositionApplication::scan) noexcept;
+                                         SfntPositionApplication application=SfntPositionApplication::scan,
+                                         const SfntLookupBounds* bounds=nullptr) noexcept;
 // Nonnegative trailing spacing in reading order, with zero leading/minimum
 // spacing. RTL adjusts the first eligible glyph/offset; LTR adjusts the last.
 // Placements and flags are validated shaping output; empty flags mean one

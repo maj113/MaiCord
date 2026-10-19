@@ -8,7 +8,7 @@ namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
 template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;}
 }
-SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyphs,ShapeGlyphBounds glyph_bounds,ShapeGlyphBounds mark_bounds,
+SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyphs,const SfntGlyphSummary& glyph_bounds,const SfntGlyphSummary& mark_bounds,
     u32 targets,float em,bool rtl,SfntShapeStorage s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output) noexcept {
     const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;
     for(u32 index=0;index<plan.positioning_roots.count;++index){const u16 root=plan.positioning_roots[index];SfntGposExecutionResult execution{};
@@ -19,7 +19,7 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
         // glyph IDs must not widen their coverage test.
         const auto* prepared=sfnt_gpos_lookup(*plan.positioning,root);if(!prepared||!prepared->type)return SfntStatus::invalid_input;const auto& lookup=*prepared;
         const bool marks=lookup.type>=4&&lookup.type<=6;
-        if(index&&((marks&&mark_bounds.first>mark_bounds.last)||sfnt_lookup_bounds_disjoint(lookup.bounds,marks?mark_bounds.first:glyph_bounds.first,marks?mark_bounds.last:glyph_bounds.last))){
+        if(index&&((marks&&mark_bounds.first>mark_bounds.last)||sfnt_lookup_bounds_miss(lookup.bounds,marks?mark_bounds:glyph_bounds))){
             if(!work)return SfntStatus::resource_limit;--work;++result->lookup_operations;continue;
         }
         const auto execute=index?sfnt_gpos_execute_validated_lookup:sfnt_gpos_execute_program_lookup;
@@ -60,9 +60,9 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     SfntClusterMap clusters{};SfntComponentForest forest{};SfntGlyphBuffer buffer{};
     auto status=sfnt_cluster_map_open(units,boundaries,s.cluster_bits,&clusters,limits.stage_work);
     if(status!=SfntStatus::ok)return status;
-    u16 substitution_first=65535,substitution_last=0;
+    SfntGlyphSummary substitution{};
     for(u32 i=0;i<input.count;++i){const auto& source=input[input_order.count?input_order[i]:i];s.glyphs[i]={source.glyph,source.source,0,0};
-        substitution_first=minimum(substitution_first,source.glyph.glyph);substitution_last=maximum(substitution_last,source.glyph.glyph);}
+        sfnt_glyph_summary_add(substitution,source.glyph.glyph);}
     status=sfnt_components_open({s.glyphs.data,input.count},s.components,&forest,limits.stage_work,steps.count!=0);
     if(status!=SfntStatus::ok)return status;
     status=sfnt_glyph_buffer_open({reinterpret_cast<u8*>(s.glyphs.data),s.glyphs.count*static_cast<u32>(sizeof(SfntComponentGlyph))},
@@ -71,8 +71,8 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     if(initial){if(!initial->prepare)return SfntStatus::invalid_input;
         status=initial->prepare(initial->context,&buffer,&clusters,&forest,s.substitutions,limits.stage_work);if(status!=SfntStatus::ok)return status;
         const auto prepared=sfnt_glyph_buffer_view(buffer);const u32 count=sfnt_glyph_count(prepared);if(count>limits.stage_work)return SfntStatus::resource_limit;
-        substitution_first=65535;substitution_last=0;
-        for(u32 i=0;i<count;++i){const auto glyph=sfnt_glyph_at(prepared,i).glyph;substitution_first=minimum(substitution_first,glyph);substitution_last=maximum(substitution_last,glyph);}
+        substitution={};
+        for(u32 i=0;i<count;++i)sfnt_glyph_summary_add(substitution,sfnt_glyph_at(prepared,i).glyph);
     }
     u64 work=limits.lookup_operations;
     const u32 roots=steps.count?steps.count:plan.substitution_roots.count;bool bounds_current=true,refresh=false,validated=false;
@@ -95,13 +95,13 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         if(stages&&next_stage<=steps[index].stage){status=prepare_stages(steps[index].stage);if(status!=SfntStatus::ok)return status;}
         if(refresh){const auto current=sfnt_glyph_buffer_view(buffer);const u32 count=sfnt_glyph_count(current);
             if(count>work)return SfntStatus::resource_limit;work-=count;result->lookup_operations+=count;
-            substitution_first=65535;substitution_last=0;
+            substitution={};
             for(u32 i=0;i<count;++i){auto& glyph=const_cast<SfntGsubGlyph&>(sfnt_glyph_at(current,i));glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph);
-                substitution_first=minimum(substitution_first,glyph.glyph);substitution_last=maximum(substitution_last,glyph.glyph);}
+                sfnt_glyph_summary_add(substitution,glyph.glyph);}
             refresh=false;bounds_current=true;}
         // Substitutions preserve valid records but invalidate glyph bounds.
         // Script callbacks invalidate both; class refresh also restores bounds.
-        if(validated&&bounds_current&&sfnt_lookup_bounds_disjoint(prepared->bounds,substitution_first,substitution_last)){
+        if(validated&&bounds_current&&sfnt_lookup_bounds_miss(prepared->bounds,substitution)){
             if(!work)return SfntStatus::resource_limit;--work;++result->lookup_operations;continue;
         }
         SfntGsubExecutionResult execution{};
@@ -123,13 +123,12 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     if(policy.clusters){status=policy.clusters(policy.context,&clusters,forest,{s.glyphs.data,count},limits.stage_work);if(status!=SfntStatus::ok)return status;}
     if(!defer_output)status=sfnt_cluster_map_export(clusters,glyphs,s.character_glyphs,{},limits.stage_work);
     if(status!=SfntStatus::ok)return status;
-    u16 first_glyph=65535,last_glyph=0,first_mark=65535,last_mark=0;u64 metric_slots=0;
+    SfntGlyphSummary glyph_bounds{},mark_bounds{};u64 metric_slots=0;
     const bool position_bounds=plan.positioning_roots.count>1;
     const u32 cache_size=plan.cache_advances?(s.targets.count>=64?64u:s.targets.count>=32?32u:0u):0u;
     for(u32 i=0;i<count;++i){auto& glyph=s.glyphs[i].glyph;
         if(!policy.prepare)glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph);
-        if(position_bounds){first_glyph=minimum(first_glyph,glyph.glyph);last_glyph=maximum(last_glyph,glyph.glyph);
-            if(glyph.glyph_class==SfntGlyphClass::mark){first_mark=minimum(first_mark,glyph.glyph);last_mark=maximum(last_mark,glyph.glyph);}}
+        if(position_bounds){sfnt_glyph_summary_add(glyph_bounds,glyph.glyph);if(glyph.glyph_class==SfntGlyphClass::mark)sfnt_glyph_summary_add(mark_bounds,glyph.glyph);}
         const u32 slot=glyph.glyph&(cache_size?cache_size-1:0);const u64 bit=1ull<<slot;
         if(cache_size&&(metric_slots&bit)&&s.glyphs[s.targets[slot]].glyph.glyph==glyph.glyph)s.advances[i]=s.advances[s.targets[slot]];
         else{status=plan.advance(plan.metric_context,glyph.glyph,&s.advances[i]);if(status!=SfntStatus::ok)return status;
@@ -142,7 +141,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     if(status!=SfntStatus::ok)return status;
     status=sfnt_position_initialize({s.advances.data,count},{s.flags.data,count},rtl,{s.positions.data,count},limits.stage_work);
     if(status!=SfntStatus::ok)return status;
-    status=shape_position_prepared(plan,glyphs,{first_glyph,last_glyph},{first_mark,last_mark},targets,em,rtl,s,result,limits,work,defer_output);
+    status=shape_position_prepared(plan,glyphs,glyph_bounds,mark_bounds,targets,em,rtl,s,result,limits,work,defer_output);
     if(status==SfntStatus::ok){result->glyph_count=count;result->source_units=units;result->target_count=targets;}
     return status;
 }

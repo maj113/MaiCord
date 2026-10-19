@@ -59,12 +59,12 @@ SfntStatus sfnt_position_initialize(ConstSlice<double> advances,ConstSlice<u8> f
     for(u32 i=0;i<advances.count;++i)if(!is_finite(advances.data[i]) || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)))return SfntStatus::invalid_input;
     for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]={zero?0:advances.data[i],zero&&rtl&&advances.data[i]!=0?-advances.data[i]:0,0};}return SfntStatus::ok;
 }
-SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application) noexcept {
+SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application,const SfntLookupBounds* bounds) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
     for(u32 at=start;at<end && (!selected || at==start);){if(!spend(result,&work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);
         if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;if(lookup.subtables.count && glyph.glyph>=lookup.subtables.data[0].glyph_limit)return SfntStatus::glyph_out_of_range;
-        if(!selected && sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)){++at;continue;}
+        if(!selected && ((bounds&&sfnt_lookup_bounds_exclude(*bounds,glyph.glyph))||sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class))){++at;continue;}
         SfntGposMatch match{};
         for(u32 i=0;i<lookup.subtables.count;++i){u32 used=0;const u32 budget=work<match_limit?static_cast<u32>(work):match_limit;
             const auto s=sfnt_gpos_subtable_match_view(lookup.subtables.data[i],gdef,lookup.filter,glyphs,at,end,&match,budget,&used);spend(result,&work,used);if(s!=SfntStatus::ok)return s;if(match.matched)break;}

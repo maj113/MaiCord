@@ -30,7 +30,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
     if(total_units&&!storage.character_glyphs.data)return SfntStatus::invalid_input;
     auto cluster_plan=plan;cluster_plan.positioning_roots={};
     if(profile==SfntIndicProfile::odia)cluster_plan.position_instance.source_mark_targets=true;
-    u32 count=0,units=0,targets=0;u16 first_glyph=65535,last_glyph=0,first_mark=65535,last_mark=0;
+    u32 count=0,units=0,targets=0;SfntGlyphSummary glyph_bounds{},mark_bounds{};
     const bool position_bounds=plan.positioning_roots.count>1;
     u32 previous=0;bool have_previous=false;
     for(u32 first=0;first<source_size;){u32 decoded_scalars[32]{},byte_offsets[33]{};
@@ -59,8 +59,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
             if(static_cast<u64>(shaped.glyph_count)+shaped.source_units+shaped.target_count>limits.stage_work)return SfntStatus::resource_limit;
             for(u32 i=0;i<shaped.source_units;++i)local.character_glyphs[i]=count;
             for(u32 i=0;i<shaped.glyph_count;++i){auto& glyph=local.glyphs[i];glyph.source+=units;
-                if(position_bounds){first_glyph=minimum(first_glyph,glyph.glyph.glyph);last_glyph=maximum(last_glyph,glyph.glyph.glyph);
-                    if(glyph.glyph.glyph_class==SfntGlyphClass::mark){first_mark=minimum(first_mark,glyph.glyph.glyph);last_mark=maximum(last_mark,glyph.glyph.glyph);}}
+                if(position_bounds){sfnt_glyph_summary_add(glyph_bounds,glyph.glyph.glyph);if(glyph.glyph.glyph_class==SfntGlyphClass::mark)sfnt_glyph_summary_add(mark_bounds,glyph.glyph.glyph);}
                 if(local.associations[i].target!=0xffffffffu)local.associations[i].target+=targets;}
             for(u32 i=0;i<shaped.target_count;++i)local.targets[i]+=count;
             count+=shaped.glyph_count;units+=shaped.source_units;targets+=shaped.target_count;previous=scalars[at+length-1];have_previous=true;first+=consumed;at+=length;
@@ -70,7 +69,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
     const SfntGlyphView glyphs{reinterpret_cast<const SfntGsubGlyph*>(storage.glyphs.data),nullptr,count,0,sizeof(SfntComponentGlyph)};
     u64 work=limits.lookup_operations-result->lookup_operations;
     cluster_plan.positioning_roots=plan.positioning_roots;
-    auto status=shape_position_prepared(cluster_plan,glyphs,{first_glyph,last_glyph},{first_mark,last_mark},targets,em,rtl,storage,result,limits,work,false);
+    auto status=shape_position_prepared(cluster_plan,glyphs,glyph_bounds,mark_bounds,targets,em,rtl,storage,result,limits,work,false);
     if(status==SfntStatus::ok&&trailing_spacing){u64 remaining=limits.stage_work;
         for(u32 first=0;first<count;){u32 end=first+1;while(end<count&&!(storage.flags[end]&sfnt_position_cluster_start))++end;
             const u32 length=end-first;if(static_cast<u64>(length)*2>remaining)return SfntStatus::resource_limit;remaining-=static_cast<u64>(length)*2;

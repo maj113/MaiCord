@@ -1,5 +1,6 @@
 #include "maicord/text/layout_tables.hpp"
 #include "coverage_index.hpp"
+#include "maicord/text/lookup_bounds.hpp"
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
@@ -39,6 +40,20 @@ u32 coverage_index(const u8* records,u16 count,u16 format,u16 glyph) noexcept {
 }
 u32 sfnt_coverage_index(const SfntCoverage& coverage,u16 glyph) noexcept {
     return coverage_index(coverage.records,coverage.record_count,coverage.format,glyph);
+}
+// Ranges set every covered residue; a span of 64 or more saturates its level.
+void sfnt_lookup_bounds_add(SfntLookupBounds& bounds,const SfntCoverage& coverage) noexcept {
+    if(!coverage.covered_count)return;
+    const auto span=[](u32 first,u32 last) noexcept {
+        const u32 n=last-first+1,at=first&63;if(n>=64)return ~u64{0};
+        const u64 bits=(u64{1}<<n)-1;return at?(bits<<at)|(bits>>(64-at)):bits;
+    };
+    const u32 stride=coverage.format==1?2u:6u;
+    for(u32 i=0;i<coverage.record_count;++i){
+        const u16 first=read(coverage.records,i*stride),last=coverage.format==1?first:read(coverage.records,i*stride+2);
+        bounds.digest.low|=span(first,last);bounds.digest.high|=span(first>>6,last>>6);
+        bounds.first=minimum(bounds.first,first);bounds.last=maximum(bounds.last,last);
+    }
 }
 SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph) noexcept {
     if(!glyph)return SfntStatus::invalid_input;*glyph=0;
