@@ -79,6 +79,7 @@ void native_text_catalogs_release(NativeTextCatalogs* owner) noexcept {
     log_u64(LogLevel::info,"text","native_catalog_unsupported",owner->unsupported);log_u64(LogLevel::info,"text","native_catalog_failures",owner->failures);
     log_u64(LogLevel::info,"text","native_catalog_build_ticks",owner->build_ticks);log_u64(LogLevel::info,"text","native_catalog_commit",owner->storage.committed);
     native_font_coverage_release(&owner->coverage);
+    if(owner->locator)owner->locator->release();
     arena_release(&owner->storage);clear_bytes(owner,sizeof(*owner));
 }
 namespace {

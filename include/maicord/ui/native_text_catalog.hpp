@@ -27,10 +27,11 @@ struct NativeTextCatalogs {
     u64 builds,selections,unsupported,failures,build_ticks;
     // Failure epoch. A binding attempt must not keep a negative result after a
     // temporary capacity failure.
-    u32 retryable_failures;
+    u32 retryable_failures,next_candidate;
     struct FamilyOrder* families;
     struct NativeSystemFontFile* files;
-    u32 next_candidate;
+    // System face locator kept from the first system family build until release.
+    struct SystemFontLocator* locator;
     NativeFontCoverageCache coverage;NativeFontCoverageSlot coverage_slots[16];
 };
 bool native_text_catalogs_initialize(NativeTextCatalogs*) noexcept;
