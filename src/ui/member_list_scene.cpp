@@ -516,6 +516,8 @@ u64 member_media_stamp(const MemberListScene& s) noexcept {
     h = hash64_mix(h, s.source ? s.source->guild_id : 0);
     h = hash64_mix(h, (static_cast<u64>(s.users->revision) << 32) | s.users->appearance.revision);
     h = hash64_mix(h, (static_cast<u64>(s.users->compactions) << 32) | s.users->evictions);
+    // An activity status line moves the badge onto the name line.
+    h = hash64_mix(h, s.users->activities.revision);
     h = hash64_mix(h, s.members ? s.members->revision : 0);
     h = hash64_mix(h, s.measure ? s.measure->generation : 0);
     return h | 1;

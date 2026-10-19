@@ -469,6 +469,22 @@ u32 test_member_media_cache_scroll() noexcept {
     MemberMediaPlacement own{};
     check(cache.resolves - before_appearance >= member_rows - 1 && !member_plain_avatar_place(scene, 4, &own) &&
           member_media_place(scene, 4, MemberMedia::avatar, &own) && own.circular);
+    // An arriving activity adds a status line: the cached badge moves onto the name line.
+    u32 tagged = scene.count;
+    for (u32 i = 0; i < scene.count && tagged == scene.count; ++i)
+        if (member_list_badge(scene, i).label.bytes)
+            tagged = i;
+    const UiBadgeWidget centred = tagged < scene.count ? member_list_badge(scene, tagged) : UiBadgeWidget{};
+    UserActivitySet playing{};
+    playing.user_id = tagged < scene.count ? scene.rows[tagged].user_id : 0;
+    playing.count = 1;
+    playing.items[0].type = UserActivityType::playing;
+    playing.items[0].lengths[static_cast<u32>(UserActivityField::name)] = 4;
+    copy_bytes(playing.items[0].text, "Game", 4);
+    check(tagged < scene.count && user_activity_upsert(&users.activities, playing));
+    frame();
+    check(tagged < scene.count && member_list_badge(scene, tagged).rectangle.top < centred.rectangle.top);
+    user_activity_release(&users.activities);
     user_appearance_release(&users.appearance);
     return failed;
 }
