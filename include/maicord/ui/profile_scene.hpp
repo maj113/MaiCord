@@ -67,7 +67,9 @@ enum class ProfileAction : u16 {
     activity_watch,
     activity_join,
     // No action: the part only carries a hint (tooltip).
-    hint
+    hint,
+    // A profile badge (source: its index in badges): opens its link, if any.
+    badge
 };
 enum class ProfilePhase : u8 {
     loading,
@@ -148,8 +150,7 @@ enum class ProfileLook : u8 {
     bubble,
     // Connection platform box.
     box,
-    // The circle behind a profile badge, and a 1 DIP divider.
-    badge,
+    // A 1 DIP divider.
     rule
 };
 // Text colour roles (resolved per profile theme in paint/text).
@@ -320,6 +321,12 @@ ProfileAction profile_scene_action(const ProfileScene& scene, UiWidgetHandle wid
 // The part behind a widget, or null.
 const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
 UiWidgetHandle profile_scene_hit_test(const ProfileScene&, float x, float y) noexcept;
+// Adds the card's widgets beneath parent for UI Automation and returns its
+// node (kUiAccessNone when inactive or full). Hinted parts are named by their
+// hint; a badge is a link when it has one, else an image.
+struct UiAccessTree;
+u32 profile_scene_access(UiAccessTree* tree, u32 parent, const ProfileScene& scene, u8 surface,
+                         bool focus_owner) noexcept;
 void profile_scene_publish_text_hit(const ProfileScene&, UiWidgetReference, UiRect layout,
                                      UiRect ink, UiRect clip) noexcept;
 // Popout entrance offset at now (0 when settled or under reduced motion).

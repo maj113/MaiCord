@@ -469,6 +469,11 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
         p->retry_at = 0;
         return true;
     }
+    case ProfileAction::badge:
+        // Through the link rules: Discord's own hosts open at once, others warn.
+        if (part && part->source < p->data.badge_count && p->data.badges[part->source].link.bytes)
+            application_open_content_url(p->data.badges[part->source].link.view());
+        return true;
     case ProfileAction::activity_watch: {
         // The stream page opens like the official client's, without a warning.
         const auto* set = s.activity_set;

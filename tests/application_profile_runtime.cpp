@@ -34,8 +34,8 @@ u8 target[128], body[2048];
 u32 target_bytes, body_bytes;
 char read_value[64];
 u32 read_value_bytes;
-char opened_url[128];
-u32 opened_url_bytes, opened;
+char opened_url[128], content_url[128];
+u32 opened_url_bytes, opened, content_url_bytes, content_opened;
 bool opened_trusted;
 GuildRecord guild;
 u16 guild_order;
@@ -84,6 +84,24 @@ bool click(ProfileAction action, u64 id = 0) noexcept {
         if (hit.slot != part.widget.slot || hit.generation != part.widget.generation)
             return false;
         return application_profile_pointer(UiButtonPointerEvent::press, center) &&
+               application_profile_pointer(UiButtonPointerEvent::release, center);
+    }
+    return false;
+}
+bool click_badge(u16 source) noexcept {
+    auto& scene = g_app.profile->scene;
+    for (u32 i = 0; i < scene.part_count; ++i) {
+        const auto& part = scene.parts[i];
+        if (part.media != ProfileMediaKind::badge || part.source != source)
+            continue;
+        const auto* node = ui_widget_manager_layout_node(scene.widgets, part.widget);
+        if (!node)
+            return false;
+        const UiPoint center{(node->rectangle.left + node->rectangle.right) * .5f,
+                             (node->rectangle.top + node->rectangle.bottom) * .5f};
+        return profile_scene_action(scene, profile_scene_hit_test(scene, center.x, center.y)) ==
+                   ProfileAction::badge &&
+               application_profile_pointer(UiButtonPointerEvent::press, center) &&
                application_profile_pointer(UiButtonPointerEvent::release, center);
     }
     return false;
@@ -280,6 +298,21 @@ void run() noexcept {
     check(!p.metadata_pending && opened == 1 && !opened_trusted &&
               utf8_equal({opened_url, opened_url_bytes}, utf8_literal("https://example.invalid/open")),
           "profile runtime: the button opens its URL through the link warning");
+    // A badge with a link opens it through the content link rules; one
+    // without does nothing, and the card stays open.
+    constexpr auto badges = utf8_literal(
+        R"({"user":{"id":"42","username":"fixture"},"badges":[)"
+        R"({"id":"premium","description":"Subscriber since Jan 1, 2020","icon":"aa","link":"https://discord.com/settings/premium"},)"
+        R"({"id":"legacy_username","description":"Originally known as fixture#0001","icon":"bb"}]})");
+    const bool laid = g_app.account_ui->profile_decode.decode_into(badges, 42, 7, p.data) &&
+                      profile_scene_layout(&p.scene, p.scene.viewport, true);
+    const u32 links = opened;
+    check(laid && click_badge(0) && content_opened == 1 && opened == links &&
+              utf8_equal({content_url, content_url_bytes}, utf8_literal("https://discord.com/settings/premium")) &&
+              p.scene.active,
+          "profile runtime: a badge click opens its link through the content link rules");
+    check(laid && click_badge(1) && content_opened == 1 && p.scene.active,
+          "profile runtime: a badge without a link opens nothing");
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -383,8 +416,12 @@ bool application_guild_card_open(u64, UiRect) noexcept {
 bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
     return false;
 }
-bool application_open_content_url(Utf8View) noexcept {
-    return false;
+bool application_open_content_url(Utf8View url) noexcept {
+    using namespace profile_runtime_test;
+    ++content_opened;
+    content_url_bytes = url.bytes <= sizeof(content_url) ? url.bytes : 0;
+    copy_bytes(content_url, url.data, content_url_bytes);
+    return true;
 }
 bool application_link_open(Utf8View url, bool trusted) noexcept {
     using namespace profile_runtime_test;

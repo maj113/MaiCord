@@ -99,9 +99,13 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
 bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
                              UserAppearance* output) noexcept;
 
+// A profile badge: the tooltip and accessible name (description), the
+// /badge-icons/ hash and the https link a click opens (empty when none).
 struct ProfileBadge {
-    ProfileString<64> id, icon;
+    ProfileString<64> id;
+    ProfileString<34> icon;
     ProfileString<192> description;
+    ProfileString<128> link;
 };
 struct ProfileConnection {
     ProfileString<32> type;

@@ -68,6 +68,7 @@ enum AccessSurface : u8 {
     surface_viewer,
     surface_picker,
     surface_caption,
+    surface_profile,
 };
 
 constexpr u32 kNodeCapacity = 8192;
@@ -1004,6 +1005,9 @@ void build_overlays(UiAccessTree* tree, bool settings) noexcept {
         if (g_app.image_viewer.scene.active)
             ui_access_add_image_viewer(tree, 0, g_app.image_viewer.scene, surface_viewer);
     }
+    if (renderer.profile_scene && renderer.profile_scene->active)
+        profile_scene_access(tree, 0, *renderer.profile_scene, surface_profile,
+                             !g_app.popup_scene.active && !g_app.text_form);
     if (renderer.forum_form && renderer.forum_form->scene && renderer.forum_form->scene->active)
         ui_access_add_forum_post(tree, 0, *renderer.forum_form->scene, surface_forum);
     if (renderer.text_form && renderer.text_form->scene && renderer.text_form->scene->active)

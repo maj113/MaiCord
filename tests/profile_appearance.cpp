@@ -5,6 +5,8 @@
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/badge.hpp"
+#include "maicord/ui/accessibility.hpp"
+#include "maicord/ui/profile_scene.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/scroll_host.hpp"
@@ -63,7 +65,114 @@ void test_profile_plugin_section(void (*check)(bool, const char*) noexcept) noex
     profile_scene_release(&scene);
     g_ui_plugin_slot_query = nullptr;
 }
+// Profile badges: description, icon and https link are stored; the row draws
+// the images bare (no backing), each badge a control whose hint and
+// UI Automation name is its description, in the popout and the full profile.
+void test_profile_badges(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr auto json = utf8_literal(
+        R"({"user":{"id":"42","username":"badges"},"badges":[)"
+        R"({"id":"premium","description":"Subscriber since Jan 1, 2020","icon":"0123456789abcdef0123456789abcdef","link":"https://discord.com/settings/premium"},)"
+        R"({"id":"hypesquad_house_1","description":"HypeSquad Bravery","icon":"aa","link":"https://discord.com/settings/hypesquad-online"},)"
+        R"({"id":"legacy_username","description":"Originally known as fixture#0001","icon":"bb"},)"
+        R"({"id":"unsafe","description":"Unsafe link","icon":"cc","link":"http://example.invalid/badge"},)"
+        R"({"id":"wide","description":"Wide icon","icon":"0123456789abcdef0123456789abcdef0123"},)"
+        R"({"id":"overlong","description":")"
+        R"(xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)"
+        R"(xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",)"
+        R"("icon":"dd"}],"guild_badges":[)"
+        R"({"id":"guild_booster_lvl1","description":"Server boosting since Feb 2, 2021","icon":"ee","link":"https://discord.com/settings/premium"}]})");
+    static UserProfile profile{};
+    static ProfileScene scene{};
+    u32 scratch[512];
+    const bool decoded = user_profile_decode(json, {scratch, 512}, 42, 0, &profile);
+    const auto& b = profile.badges;
+    check(decoded && profile.badge_count == 6 &&
+              utf8_equal(b[0].description.view(), utf8_literal("Subscriber since Jan 1, 2020")) &&
+              utf8_equal(b[0].icon.view(), utf8_literal("0123456789abcdef0123456789abcdef")) &&
+              utf8_equal(b[0].link.view(), utf8_literal("https://discord.com/settings/premium")) &&
+              utf8_equal(b[2].description.view(), utf8_literal("Originally known as fixture#0001")) &&
+              !b[2].link.bytes && utf8_equal(b[3].id.view(), utf8_literal("unsafe")) && !b[3].link.bytes &&
+              utf8_equal(b[4].id.view(), utf8_literal("wide")) && !b[4].icon.bytes &&
+              utf8_equal(b[5].description.view(), utf8_literal("Server boosting since Feb 2, 2021")) &&
+              utf8_equal(b[5].link.view(), utf8_literal("https://discord.com/settings/premium")),
+          "profile badges: description, icon and https link are stored; an unfit badge is left out");
+    const bool opened = decoded && profile_scene_open(&scene, &profile, nullptr, nullptr, 1, {700, 100, 720, 120},
+                                                      {0, 0, 1280, 900});
+    for (u32 pass = 0; pass < 2; ++pass) {
+        if (pass) {
+            scene.presentation = ProfilePresentation::modal;
+            if (!profile_scene_layout(&scene, scene.viewport, true))
+                break;
+        }
+        UiRect rects[8]{};
+        u32 count = 0;
+        bool controls = opened;
+        for (u32 i = 0; opened && i < scene.part_count; ++i) {
+            const auto& part = scene.parts[i];
+            if (part.media != ProfileMediaKind::badge)
+                continue;
+            const auto* node = ui_widget_manager_layout_node(scene.widgets, part.widget);
+            if (!node || count == 8 || part.source != count) {
+                controls = false;
+                break;
+            }
+            const auto r = node->rectangle;
+            UiRect anchor{};
+            const auto hit = profile_scene_hit_test(scene, (r.left + r.right) * .5f, (r.top + r.bottom) * .5f);
+            controls = controls && part.action == ProfileAction::badge && same_handle(hit, part.widget) &&
+                       ui_rect_width(r) == 20 && ui_rect_height(r) == 20 &&
+                       (!count || r.left - rects[count - 1].left == 22) &&
+                       utf8_equal(profile_scene_hint(scene, hit, &anchor), b[count].description.view()) &&
+                       ui_rect_equal(anchor, r);
+            rects[count++] = r;
+        }
+        // The gap between two badges is not a badge.
+        const auto gap = count > 1 ? profile_scene_part(scene, profile_scene_hit_test(scene, rects[0].right + 1,
+                                                                                      rects[0].top + 10))
+                                   : nullptr;
+        controls = controls && count == 6 && (!gap || gap->media != ProfileMediaKind::badge);
+        PaintStream paint{};
+        bool bare = controls && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1280, 900) &&
+                    profile_scene_paint(scene, kDefaultTheme, &paint) &&
+                    profile_scene_foreground(scene, kDefaultTheme, &paint, nullptr) && paint.rejected == 0;
+        for (u32 q = 0; bare && q < paint.count; ++q)
+            for (u32 i = 0; i < count; ++i) {
+                const auto& quad = paint.quads[q];
+                if (quad.left >= rects[i].left - .5f && quad.right <= rects[i].right + .5f &&
+                    quad.top >= rects[i].top - .5f && quad.bottom <= rects[i].bottom + .5f)
+                    bare = false;
+            }
+        paint_stream_release(&paint);
+        check(controls, pass ? "profile badges: full profile badges are 20 DIP controls 2 apart with their hint"
+                             : "profile badges: popout badges are 20 DIP controls 2 apart with their hint");
+        check(bare, pass ? "profile badges: no backing quad behind full profile badge icons"
+                         : "profile badges: no backing quad behind popout badge icons");
+    }
+    static UiAccessNode nodes[512];
+    static char text[32768];
+    static u32 slots[2048], keys[1024];
+    static UiAccessTree tree{};
+    bool named = opened && ui_access_tree_initialize(&tree, {nodes, 512}, {text, sizeof(text)}, {slots, 2048},
+                                                     {keys, 1024}) &&
+                 ui_access_tree_reset(&tree, utf8_literal("Profile"), {0, 0, 1280, 900}) &&
+                 profile_scene_access(&tree, 0, scene, 1, true) != kUiAccessNone && ui_access_tree_finish(&tree);
+    u32 links = 0, images = 0;
+    for (u32 i = 1; named && i < tree.count; ++i) {
+        const auto name = ui_access_name(tree, i);
+        if (tree.nodes[i].role == UiAccessRole::link)
+            links += utf8_equal(name, b[0].description.view()) || utf8_equal(name, b[1].description.view()) ||
+                     utf8_equal(name, b[5].description.view());
+        if (tree.nodes[i].role == UiAccessRole::image)
+            images += (utf8_equal(name, b[2].description.view()) || utf8_equal(name, b[3].description.view()) ||
+                       utf8_equal(name, b[4].description.view())) &&
+                      (tree.nodes[i].state & ui_access_focusable);
+    }
+    check(named && links == 3 && images == 3,
+          "profile badges: UI Automation names each badge by its description; linked badges are links");
+    profile_scene_release(&scene);
+}
 void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept {
+    test_profile_badges(check);
     {
         char json[kProfileBioMaximumUtf8Bytes + 128]{};
         constexpr auto prefix =

@@ -5,6 +5,7 @@
 #include "maicord/ui/profile_scene.hpp"
 #include "maicord/ui/profile_activity.hpp"
 #include "maicord/ui/badge.hpp"
+#include "maicord/ui/accessibility.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/model/role_policy.hpp"
@@ -1011,13 +1012,13 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             const float bx = block.left + (i % per_row) * 22.f, by = block.top + 1 + (i / per_row) * 22.f;
             if (bx + 20 > left + width)
                 continue;
-            if (!add(s, owner, {bx, by, bx + 20, by + 20}, {}, ProfileAction::none, 0, ProfileLook::badge))
-                return -1;
-            auto* b = add(s, owner, {bx, by, bx + 20, by + 20});
+            // Bare 20 DIP images, 2 apart; the description is the tooltip.
+            auto* b = add(s, owner, {bx, by, bx + 20, by + 20}, {}, ProfileAction::badge);
             if (!b)
                 return -1;
             b->media = ProfileMediaKind::badge;
             b->source = static_cast<u16>(i);
+            b->hint = p.badges[i].description.view();
         }
     }
     return row_top + row_height - top;
@@ -2323,9 +2324,6 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, large ? c.subtle : c.text,
                                            theme.scale.radius_full);
             break;
-        case ProfileLook::badge:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.border, theme.scale.radius_full);
-            break;
         case ProfileLook::rule:
             ok = paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.border);
             break;
@@ -2553,5 +2551,32 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
         return true;
     return ui_edit_field_text_output(text, {&s.widgets, s.message_field}, s.edit_content, s.edit, edit,
                                      s.message_placeholder.view(), local);
+}
+namespace {
+void describe_access(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget& widget,
+                     const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
+    const auto& s = *static_cast<const ProfileScene*>(context);
+    if (widget.id == 1) {
+        info->role = UiAccessRole::dialog;
+        info->name = utf8_literal("User profile");
+        return;
+    }
+    const auto* part = profile_scene_part(s, handle);
+    if (!part || !part->hint.bytes)
+        return;
+    info->name = part->hint;
+    if (part->media != ProfileMediaKind::badge)
+        return;
+    const bool link = s.profile && part->source < s.profile->badge_count && s.profile->badges[part->source].link.bytes;
+    info->role = link ? UiAccessRole::link : UiAccessRole::image;
+    info->actions = ui_access_default_actions(info->role);
+}
+} // namespace
+u32 profile_scene_access(UiAccessTree* tree, u32 parent, const ProfileScene& s, u8 surface,
+                         bool focus_owner) noexcept {
+    if (!tree || !s.active || !s.widgets.count)
+        return kUiAccessNone;
+    return ui_access_add_widgets(tree, parent, s.widgets,
+                                 {describe_access, const_cast<ProfileScene*>(&s), surface, focus_owner});
 }
 } // namespace maicord

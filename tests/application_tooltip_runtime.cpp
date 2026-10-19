@@ -486,6 +486,65 @@ void run() noexcept {
         profile_scene_release(&card);
         user_activity_release(&users.activities);
     }
+    // A profile badge shows its description above it, centred, after 300 ms;
+    // the next badge, directly or across the 2 DIP gap, shows at once.
+    {
+        static UserStore users{};
+        static UserProfile profile{};
+        static ProfileScene card{};
+        u32 structurals[256];
+        const bool opened =
+            user_profile_decode(utf8_literal(R"({"user":{"id":"42","username":"b"},"badges":[)"
+                                             R"({"id":"a","description":"Subscriber since Jan 1, 2020","icon":"aa"},)"
+                                             R"({"id":"b","description":"HypeSquad Bravery","icon":"bb"}]})"),
+                                {structurals, 256}, 42, 0, &profile) &&
+            profile_scene_open(&card, &profile, nullptr, &users, 1, {300, 100, 340, 140}, viewport);
+        UiRect badges[2]{};
+        u32 count = 0;
+        for (u32 i = 0; opened && i < card.part_count && count < 2; ++i)
+            if (card.parts[i].media == ProfileMediaKind::badge)
+                if (const auto* badge = ui_widget_manager_layout_node(card.widgets, card.parts[i].widget))
+                    badges[count++] = badge->rectangle;
+        g_app.renderer.profile_scene = &card;
+        const auto move = [](float x, float y) noexcept {
+            application_tooltip_input(WM_MOUSEMOVE, 0, MAKELPARAM(static_cast<short>(x), static_cast<short>(y)));
+        };
+        const auto shows = [](Utf8View text) noexcept {
+            const auto& tip = *g_app.renderer.tooltip_scene;
+            return tip.visible && tip.key.action == 0x5801u && utf8_equal({tip.text, tip.text_bytes}, text);
+        };
+        bool delayed = false, above = false, next = false, across = false;
+        if (count == 2) {
+            const auto& a = badges[0];
+            const float ax = (a.left + a.right) * .5f;
+            const u64 before = clock_monotonic_milliseconds();
+            move(ax, (a.top + a.bottom) * .5f);
+            const u64 after = clock_monotonic_milliseconds(), at = application_tooltip_next_wake();
+            delayed = at >= before + 300 && at <= after + 300 && application_tooltip_synchronize(at - 1) &&
+                      !g_app.renderer.tooltip_scene->visible && application_tooltip_synchronize(at) &&
+                      shows(utf8_literal("Subscriber since Jan 1, 2020"));
+            const auto& tip = *g_app.renderer.tooltip_scene;
+            above = delayed && ui_rect_equal(tip.anchor, a) && tip.placement == UiTooltipPlacement::above &&
+                    tip.rectangle.bottom <= a.top && (tip.rectangle.left + tip.rectangle.right) * .5f - ax < .5f &&
+                    ax - (tip.rectangle.left + tip.rectangle.right) * .5f < .5f;
+            const auto& b = badges[1];
+            move((b.left + b.right) * .5f, (b.top + b.bottom) * .5f);
+            next = shows(utf8_literal("HypeSquad Bravery")) && !application_tooltip_next_wake();
+            const u64 leave = clock_monotonic_milliseconds();
+            move(a.right + 1, (a.top + a.bottom) * .5f);
+            const bool hidden = !g_app.renderer.tooltip_scene->visible;
+            move(ax, (a.top + a.bottom) * .5f);
+            // Within the warm window (a stalled runner may outlast it).
+            across = hidden && (shows(utf8_literal("Subscriber since Jan 1, 2020")) ||
+                                clock_monotonic_milliseconds() >= leave + 300);
+        }
+        check(delayed, "tooltip Profile: a badge shows its description after 300 ms");
+        check(above, "tooltip Profile: the badge tooltip sits above the badge, centred");
+        check(next && across, "tooltip Profile: moving to the next badge shows its tooltip at once");
+        application_tooltip_clear();
+        g_app.renderer.profile_scene = nullptr;
+        profile_scene_release(&card);
+    }
     ui_scene_release(&g_app.shell_scene);
     application_tooltip_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);

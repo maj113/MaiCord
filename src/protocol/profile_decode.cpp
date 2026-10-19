@@ -124,11 +124,20 @@ bool badge_item(void* opaque, u32, JsonValue v) noexcept {
     auto& c = *static_cast<ProfileContext*>(opaque);
     if (c.profile->badge_count >= 24)
         return true;
-    Field f[] = {{utf8_literal("id")}, {utf8_literal("icon")}, {utf8_literal("description")}};
+    Field f[] = {{utf8_literal("id")}, {utf8_literal("icon")}, {utf8_literal("description")}, {utf8_literal("link")}};
     auto& b = c.profile->badges[c.profile->badge_count];
-    if (!object(*c.doc, v, f) || !string(f[0].value, &b.id) || !string(f[1].value, &b.icon) ||
-        !string(f[2].value, &b.description))
+    if (!object(*c.doc, v, f))
         return false;
+    // A badge whose id or description does not fit is left out, not the
+    // profile; an oversized icon draws nothing, and only https links are kept.
+    if (!string(f[0].value, &b.id) || !string(f[2].value, &b.description) || !b.id.bytes)
+        return true;
+    if (!string(f[1].value, &b.icon))
+        b.icon = {};
+    constexpr auto https = utf8_literal("https://");
+    if (!string(f[3].value, &b.link) || b.link.bytes <= https.bytes ||
+        !utf8_equal({b.link.data, https.bytes}, https))
+        b.link = {};
     ++c.profile->badge_count;
     return true;
 }

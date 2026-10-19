@@ -34,6 +34,8 @@ struct ApplicationTooltip {
     UiRect viewport;
     u32 published_revision;
     bool published_visible;
+    // Until then another profile badge's tooltip shows without its delay.
+    u64 badge_warm_until_ms;
     bool pointer_valid, keyboard, pressed;
     bool viewport_failed;
 };
@@ -528,6 +530,10 @@ bool profile_available() noexcept {
     return g_app.renderer_ready && scene && scene->active && !g_app.popup_scene.active && !g_app.text_form &&
            !IsIconic(g_app.window);
 }
+// Profile badges show after Discord's 300 ms, and at once when moving
+// from one badge to the next.
+constexpr u32 kProfileBadgeTooltip = 0x5801u;
+constexpr u32 kProfileBadgeDelayMs = 300;
 bool profile_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
     const auto& scene = *g_app.renderer.profile_scene;
     const auto handle = keyboard ? scene.widgets.focused : profile_scene_hit_test(scene, point.x, point.y);
@@ -535,7 +541,9 @@ bool profile_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* ta
     const Utf8View label = profile_scene_hint(scene, handle, &anchor);
     if (!label.bytes)
         return false;
-    *target = {{{&scene.widgets, handle}, scope, scene.opens, handle.slot, 0x5800u}, anchor, label};
+    const auto* part = profile_scene_part(scene, handle);
+    const u32 action = part && part->media == ProfileMediaKind::badge ? kProfileBadgeTooltip : 0x5800u;
+    *target = {{{&scene.widgets, handle}, scope, scene.opens, handle.slot, action}, anchor, label};
     return true;
 }
 bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexcept {
@@ -663,6 +671,7 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     UiTooltipTarget target{};
     const bool resolved = !owner.pressed && (owner.keyboard || owner.pointer_valid) &&
                           resolve_target(owner.point, owner.keyboard, &target);
+    const bool badge_shown = owner.scene.visible && owner.scene.key.action == kProfileBadgeTooltip;
     // Reaction pills lead with their emoji; their names wrap beside it.
     const bool reaction = resolved && (media_asset_key_valid(target.emoji.media) || target.emoji.glyph.bytes);
     if (!reaction)
@@ -678,6 +687,12 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
         if (reaction) {
             style.maximum_width = 260;
             style.maximum_height = 120;
+        }
+        if (target.key.action == kProfileBadgeTooltip) {
+            if ((owner.scene.pending || owner.scene.visible) && ui_tooltip_key_equal(owner.scene.key, target.key))
+                style = owner.scene.style;
+            else
+                style.pointer_delay_ms = badge_shown || now_ms < owner.badge_warm_until_ms ? 0 : kProfileBadgeDelayMs;
         }
         ui_tooltip_offer(&owner.scene, target, viewport,
                          owner.keyboard ? UiTooltipTrigger::keyboard : UiTooltipTrigger::pointer, now_ms, style);
@@ -703,6 +718,8 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
         }
         application_request_frame();
     }
+    if (badge_shown && !(owner.scene.visible && owner.scene.key.action == kProfileBadgeTooltip))
+        owner.badge_warm_until_ms = now_ms + kProfileBadgeDelayMs;
     owner.published_visible = owner.scene.visible;
     owner.published_revision = owner.scene.revision;
     application_reaction_tooltip_pump();
