@@ -12,8 +12,9 @@ struct MessageComposer;
 inline constexpr u32 kReactionPickerMaximumQueryBytes = 48;
 inline constexpr u32 kReactionPickerBorrowedQueryMaximumBytes = 256;
 inline constexpr u32 kReactionPickerCatalogCapacity = 3'780;
-// Custom results are 15-bit indices (kReactionPickerCustomResult).
-inline constexpr u32 kReactionPickerCustomEmojiCapacity = 32'768;
+// Custom results index the chat state's emoji array, so the picker holds
+// every emoji the store can.
+inline constexpr u32 kReactionPickerCustomEmojiCapacity = 131'072;
 inline constexpr u32 kReactionPickerGuildCapacity = 256;
 inline constexpr u32 kReactionPickerResultCapacity =
     kReactionPickerCatalogCapacity + kReactionPickerCustomEmojiCapacity +
@@ -34,18 +35,12 @@ enum class ReactionPickerError : u8 {
     capacity,
 };
 
-struct ReactionPickerCustomEmoji {
-    u64 id;
-    char name[kCustomEmojiNameMaximumBytes];
-    u8 name_bytes;
-    u8 flags;
-    u16 guild_index;
-};
-
 struct ReactionPickerGuild {
     u64 id;
     u32 icon_variant;
     u32 first_result;
+    // The server's span of custom_order.
+    u32 custom_first, custom_count;
     u16 name_bytes;
     bool animated;
     char name[176];
@@ -77,11 +72,17 @@ struct ReactionPickerResult {
     }
 };
 
+// Custom emoji are borrowed from the chat state by index: results and the
+// per-server name order never copy names or IDs. A changed emoji array
+// (emoji_mutations) leaves custom results unresolved until reopened.
 struct ReactionPickerModel {
     MessageComposer* search;
     Arena storage;
-    u16* result_catalog_indices;
-    ReactionPickerCustomEmoji* custom_emojis;
+    // Unicode catalog indices, or kReactionPickerCustomResult | emoji index.
+    u32* results;
+    // Usable custom emoji (chat state indices), per server in name order.
+    u32* custom_order;
+    const ChatStateStore* state;
     ReactionPickerGuild* guilds;
     ReactionPickerSection* sections;
     ReactionPreferenceStore* preferences;
@@ -94,6 +95,7 @@ struct ReactionPickerModel {
     u32 guild_count;
     u32 section_count;
     u32 revision;
+    u32 emoji_mutations;
     ReactionPreferenceKind preference_kind;
     bool search_borrowed;
     char query[kReactionPickerMaximumQueryBytes];

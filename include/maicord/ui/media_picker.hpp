@@ -10,7 +10,8 @@ inline constexpr u32 kUiMediaPickerVisibleCells = 256;
 inline constexpr u32 kUiMediaPickerVisibleSections = 24;
 inline constexpr u32 kUiMediaPickerWidgetCapacity = kUiMediaPickerVisibleCells + 64;
 inline constexpr u32 kUiMediaPickerMaximumSections = 272;
-inline constexpr u32 kUiMediaPickerMaximumItems = 65'536;
+// Holds every custom emoji the chat state can (131,072) plus Unicode and preferences.
+inline constexpr u32 kUiMediaPickerMaximumItems = 262'144;
 // Discord's expression picker: 498 DIP minimum (and default) width, 486 high.
 inline constexpr float kUiMediaPickerWidth = 498;
 inline constexpr float kUiMediaPickerHeight = 486;

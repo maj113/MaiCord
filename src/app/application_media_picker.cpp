@@ -216,6 +216,9 @@ constexpr u32 kCatalogRateRetries = 3;
 constexpr u64 kCatalogLocalRateRetryMs = 1000;
 bool projection(ApplicationMediaPicker&) noexcept;
 void revoke_capture(ApplicationMediaPicker&) noexcept;
+// The emoji picker holds every emoji the chat state can.
+static_assert(kChatStateEmojiCapacity <= kReactionPickerCustomEmojiCapacity &&
+              kReactionPickerResultCapacity <= kUiMediaPickerMaximumItems);
 bool emoji_projection(ApplicationMediaPicker& p) noexcept {
     revoke_capture(p);
     if (!reaction_picker_refresh_search(&p.emoji).ok() ||

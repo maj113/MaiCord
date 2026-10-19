@@ -33,7 +33,7 @@ inline constexpr Utf8View kMessageSeeds[] = {
     utf8_literal("pile_of_poo"),    utf8_literal("hundred_points"),
 };
 
-inline constexpr u16 kReactionPickerCustomResult = 0x8000u;
+inline constexpr u32 kReactionPickerCustomResult = 0x8000'0000u;
 
 // Picker section headers.
 inline constexpr Utf8View kSectionNames[] = {
@@ -42,15 +42,15 @@ inline constexpr Utf8View kSectionNames[] = {
     utf8_literal("Travel"),          utf8_literal("Objects"),    utf8_literal("Symbols"),
     utf8_literal("Flags"),           utf8_literal("Search results"),
 };
+// Reserved only; an open snapshot commits what it uses.
 inline constexpr usize kReactionPickerStorageBytes =
-    sizeof(u16) * kReactionPickerResultCapacity +
-    sizeof(ReactionPickerCustomEmoji) * kReactionPickerCustomEmojiCapacity +
+    sizeof(u32) * kReactionPickerResultCapacity + sizeof(u32) * kReactionPickerCustomEmojiCapacity +
     sizeof(ReactionPickerGuild) * kReactionPickerGuildCapacity + sizeof(MessageComposer) +
     sizeof(ReactionPickerSection) * kReactionPickerSectionCapacity + 128;
 
 bool storage_valid(const ReactionPickerModel* picker) noexcept {
-    return picker && picker->storage.base && picker->result_catalog_indices && picker->custom_emojis &&
-           picker->guilds && picker->sections;
+    return picker && picker->storage.base && picker->results && picker->custom_order && picker->guilds &&
+           picker->sections;
 }
 
 bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state,
@@ -74,11 +74,10 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
         message_composer_reset(picker->search, 1, false);
     picker->query_bytes = picker->search->bytes;
     picker->search_revision = picker->search->text_revision;
-    picker->custom_emojis =
-        arena_allocate_zero<ReactionPickerCustomEmoji>(&picker->storage, emoji_capacity);
+    picker->custom_order = arena_allocate<u32>(&picker->storage, emoji_capacity);
     picker->guilds = arena_allocate_zero<ReactionPickerGuild>(&picker->storage, guild_capacity);
     picker->guild_count = 0;
-    if (!picker->custom_emojis || !picker->guilds) {
+    if (!picker->custom_order || !picker->guilds) {
         arena_release(&picker->storage);
         *picker = ReactionPickerModel{};
         return false;
@@ -86,16 +85,22 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
     return true;
 }
 
-bool push_result(ReactionPickerModel* picker, u32 catalog_index) noexcept {
-    if (!storage_valid(picker) || picker->result_count >= picker->result_capacity ||
-        catalog_index > 0xFFFFu) {
+bool push_result(ReactionPickerModel* picker, u32 value) noexcept {
+    if (!storage_valid(picker) || picker->result_count >= picker->result_capacity)
         return false;
-    }
-    picker->result_catalog_indices[picker->result_count++] = static_cast<u16>(catalog_index);
+    picker->results[picker->result_count++] = value;
     return true;
 }
 
-Utf8View custom_name(const ReactionPickerCustomEmoji& emoji) noexcept {
+// The snapshot's emoji at a chat state index; null once the array changed.
+const CustomEmojiRecord* custom_emoji(const ReactionPickerModel& picker, u32 index) noexcept {
+    const auto* state = picker.state;
+    return state && state->emojis && state->emoji_mutations == picker.emoji_mutations && index < state->emoji_count
+               ? &state->emojis[index]
+               : nullptr;
+}
+
+Utf8View custom_name(const CustomEmojiRecord& emoji) noexcept {
     return emoji.id != 0 && emoji.name_bytes != 0 && emoji.name_bytes <= kCustomEmojiNameMaximumBytes
                ? Utf8View{emoji.name, emoji.name_bytes}
                : Utf8View{};
@@ -133,7 +138,7 @@ Utf8View section_label(const ReactionPickerModel& picker, u32 section) noexcept 
                 return {picker.guilds[i].name, picker.guilds[i].name_bytes};
     return kSectionNames[minimum(source.local, kReactionPickerSectionSearch)];
 }
-bool custom_before(const ReactionPickerCustomEmoji& left, const ReactionPickerCustomEmoji& right) noexcept {
+bool custom_before(const CustomEmojiRecord& left, const CustomEmojiRecord& right) noexcept {
     const Utf8View left_name = custom_name(left);
     const Utf8View right_name = custom_name(right);
     const u32 shared = minimum(left_name.bytes, right_name.bytes);
@@ -147,84 +152,70 @@ bool custom_before(const ReactionPickerCustomEmoji& left, const ReactionPickerCu
     return left_name.bytes != right_name.bytes ? left_name.bytes < right_name.bytes : left.id < right.id;
 }
 
-void sort_custom_emojis(ReactionPickerCustomEmoji* emojis, u32 count) noexcept {
-    if (count <= 32) {
-        for (u32 index = 1; index < count; ++index) {
-            const auto value = emojis[index];
-            u32 cursor = index;
-            while (cursor && custom_before(value, emojis[cursor - 1])) {
-                emojis[cursor] = emojis[cursor - 1];
-                --cursor;
-            }
-            emojis[cursor] = value;
-        }
-        return;
-    }
-    u32 ordered = 1;
-    while (ordered < count && !custom_before(emojis[ordered], emojis[ordered - 1]))
-        ++ordered;
-    if (ordered == count)
-        return;
-
-    // All emoji in this slice share one guild, so guild_index is borrowed as a
-    // rank that keeps equal keys in input order, then restored below.
-    const u16 guild_index = emojis[0].guild_index;
-    for (u32 index = 0; index < count; ++index)
-        emojis[index].guild_index = static_cast<u16>(index);
-    heap_sort(emojis, count, [](const auto& left, const auto& right) noexcept {
-        return custom_before(left, right) ||
-               (left.id == right.id && !custom_before(right, left) &&
-                left.guild_index < right.guild_index);
-    });
-    // No failure exit or callback occurs between rank assignment and restore.
-    for (u32 index = 0; index < count; ++index)
-        emojis[index].guild_index = guild_index;
-}
-
 bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* state,
                             u64 guild_id) noexcept {
-    if (!picker->storage.base || !picker->custom_emojis || !picker->guilds) {
+    if (!picker->storage.base || !picker->custom_order || !picker->guilds) {
         return false;
     }
     picker->custom_emoji_count = picker->guild_count = 0;
+    picker->state = state;
+    picker->emoji_mutations = state ? state->emoji_mutations : 0;
     if (!state || !state->emojis)
         return true;
+    // A server's emoji are replaced together, so each forms a run of the
+    // array; the runs are found once instead of scanning it per server.
+    struct Run {
+        u64 guild_id;
+        u32 first, count;
+    };
+    const u32 emoji_count = minimum(state->emoji_count, kReactionPickerCustomEmojiCapacity);
+    const CustomEmojiRecord* emojis = state->emojis;
+    u32 run_count = 0;
+    for (u32 index = 0; index < emoji_count; ++index)
+        run_count += !index || emojis[index].guild_id != emojis[index - 1].guild_id;
+    const ArenaMark mark = arena_mark(&picker->storage);
+    Run* runs = arena_allocate<Run>(&picker->storage, run_count);
+    if (run_count && !runs)
+        return false;
+    for (u32 index = 0, run = 0; index < emoji_count; ++index) {
+        if (!index || emojis[index].guild_id != emojis[index - 1].guild_id)
+            runs[run++] = {emojis[index].guild_id, index, 0};
+        ++runs[run - 1].count;
+    }
+    bool valid = true;
     // Selected server first, followed by the account's server order.
-    for (u32 pass = 0; pass <= state->guild_count; ++pass) {
+    for (u32 pass = 0; valid && pass <= state->guild_count; ++pass) {
         const auto* guild = pass == 0 ? chat_state_store_find_guild(*state, guild_id)
                                       : &state->guilds[state->guild_order[pass - 1]];
         if (!guild || guild->unavailable || (pass && guild->id == guild_id))
             continue;
+        if (picker->guild_count == kReactionPickerGuildCapacity)
+            break;
         const u32 first = picker->custom_emoji_count;
-        for (u32 index = 0; index < state->emoji_count; ++index) {
-            const auto& source = state->emojis[index];
-            if (source.guild_id != guild->id || !chat_state_store_emoji_usable(*state, source))
+        for (u32 run = 0; valid && run < run_count; ++run) {
+            if (runs[run].guild_id != guild->id)
                 continue;
-            // Beyond the bound the snapshot keeps the earlier servers (the
-            // selected one first) instead of failing the whole picker.
-            if (picker->custom_emoji_count == kReactionPickerCustomEmojiCapacity ||
-                picker->guild_count == kReactionPickerGuildCapacity)
-                break;
-            const auto name = chat_state_store_emoji_name(source);
-            if (!name.bytes || name.bytes > kCustomEmojiNameMaximumBytes)
-                return false;
-            auto& target = picker->custom_emojis[picker->custom_emoji_count++];
-            target = {};
-            target.id = source.id;
-            target.flags = source.flags;
-            target.guild_index = static_cast<u16>(picker->guild_count);
-            target.name_bytes = static_cast<u8>(name.bytes);
-            copy_bytes(target.name, name.data, name.bytes);
+            for (u32 index = runs[run].first; index < runs[run].first + runs[run].count; ++index) {
+                const auto& source = emojis[index];
+                if (!chat_state_store_emoji_usable(*state, source))
+                    continue;
+                const auto name = chat_state_store_emoji_name(source);
+                if (!name.bytes || name.bytes > kCustomEmojiNameMaximumBytes) {
+                    valid = false;
+                    break;
+                }
+                picker->custom_order[picker->custom_emoji_count++] = index;
+            }
         }
-        if (first == picker->custom_emoji_count) {
-            if (picker->custom_emoji_count == kReactionPickerCustomEmojiCapacity)
-                break;
+        const u32 count = picker->custom_emoji_count - first;
+        if (!valid || !count)
             continue;
-        }
         auto& target = picker->guilds[picker->guild_count++];
         target = {};
         target.id = guild->id;
         target.icon_variant = guild->icon_variant;
+        target.custom_first = first;
+        target.custom_count = count;
         const auto hash = chat_state_store_guild_icon_hash(*guild);
         target.animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
         auto name = chat_state_store_guild_name(*state, *guild);
@@ -232,9 +223,12 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
             name = utf8_literal("Server emoji");
         target.name_bytes = static_cast<u16>(name.bytes);
         copy_bytes(target.name, name.data, name.bytes);
-        sort_custom_emojis(picker->custom_emojis + first, picker->custom_emoji_count - first);
+        heap_sort(picker->custom_order + first, count, [emojis](u32 left, u32 right) noexcept {
+            return custom_before(emojis[left], emojis[right]);
+        });
     }
-    return true;
+    arena_rewind(&picker->storage, mark);
+    return valid;
 }
 
 bool find_exact_name(Utf8View name, u32* catalog_index) noexcept {
@@ -277,15 +271,43 @@ bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKi
     return true;
 }
 
-// Picker result value for a preference identity, or ~0u when this snapshot
-// cannot show it (unknown Unicode or an unavailable custom emoji).
-u32 preference_result(const ReactionPickerModel& picker, ReactionEmojiRef emoji, u32 catalog_count) noexcept {
-    if (!emoji.custom())
-        return emoji.catalog_index < catalog_count ? emoji.catalog_index : ~0u;
-    for (u32 i = 0; i < picker.custom_emoji_count; ++i)
-        if (picker.custom_emojis[i].id == emoji.custom_id)
-            return kReactionPickerCustomResult | i;
-    return ~0u;
+// Picker result values of preference identities, ~0u where this snapshot
+// cannot show one (unknown Unicode or an unavailable custom emoji). Custom
+// identities resolve in one pass over the snapshot.
+void preference_results(const ReactionPickerModel& picker, ConstSlice<ReactionEmojiRef> emojis, u32 catalog_count,
+                        u32* output) noexcept {
+    struct Wanted {
+        u64 id;
+        u32 slot;
+    };
+    Wanted wanted[kReactionPreferenceFavoriteCapacity];
+    u32 wanted_count = 0;
+    for (u32 i = 0; i < emojis.count; ++i) {
+        output[i] = emojis[i].custom() || emojis[i].catalog_index >= catalog_count ? ~0u : emojis[i].catalog_index;
+        if (emojis[i].custom() && wanted_count < kReactionPreferenceFavoriteCapacity)
+            wanted[wanted_count++] = {emojis[i].custom_id, i};
+    }
+    if (!wanted_count)
+        return;
+    heap_sort(wanted, wanted_count, [](const Wanted& left, const Wanted& right) noexcept { return left.id < right.id; });
+    for (u32 p = 0; p < picker.custom_emoji_count; ++p) {
+        const u32 index = picker.custom_order[p];
+        const auto* emoji = custom_emoji(picker, index);
+        if (!emoji)
+            return;
+        u32 first = 0, count = wanted_count;
+        while (count) {
+            const u32 step = count / 2;
+            if (wanted[first + step].id < emoji->id) {
+                first += step + 1;
+                count -= step + 1;
+            } else {
+                count = step;
+            }
+        }
+        for (; first < wanted_count && wanted[first].id == emoji->id; ++first)
+            output[wanted[first].slot] = kReactionPickerCustomResult | index;
+    }
 }
 
 ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
@@ -296,13 +318,20 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
     if (catalog.count > kReactionPickerCatalogCapacity ||
         picker->custom_emoji_count > kReactionPickerCustomEmojiCapacity)
         return {ReactionPickerError::capacity, false};
+    // A changed emoji array leaves the snapshot's indices meaningless.
+    if (picker->custom_emoji_count && !custom_emoji(*picker, picker->custom_order[0]))
+        return {ReactionPickerError::invalid_input, false};
     const Utf8View query = message_composer_text(*picker->search);
     if (!query.bytes) {
         if (picker->preferences) {
             const auto favorites = reaction_preferences_favorites(*picker->preferences);
+            u32 values[kReactionPreferenceFavoriteCapacity];
+            const ConstSlice<ReactionEmojiRef> listed{favorites.data,
+                                                      minimum(favorites.count, kReactionPreferenceFavoriteCapacity)};
+            preference_results(*picker, listed, catalog.count, values);
             bool shown = false;
-            for (u32 i = 0; i < favorites.count; ++i) {
-                const u32 value = preference_result(*picker, favorites[i], catalog.count);
+            for (u32 i = 0; i < listed.count; ++i) {
+                const u32 value = values[i];
                 if (value == ~0u)
                     continue;
                 if ((!shown && !push_section(picker, kReactionPickerSectionFavorites)) ||
@@ -315,8 +344,12 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
             return {ReactionPickerError::capacity, false};
         if (picker->preferences) {
             const auto frequent = reaction_preferences_frequently(*picker->preferences, picker->preference_kind);
-            for (u32 i = 0; i < frequent.count; ++i) {
-                const u32 value = preference_result(*picker, frequent[i], catalog.count);
+            u32 values[kReactionPreferenceFavoriteCapacity];
+            const ConstSlice<ReactionEmojiRef> listed{frequent.data,
+                                                      minimum(frequent.count, kReactionPreferenceFavoriteCapacity)};
+            preference_results(*picker, listed, catalog.count, values);
+            for (u32 i = 0; i < listed.count; ++i) {
+                const u32 value = values[i];
                 if (value != ~0u && !push_result(picker, value))
                     return {ReactionPickerError::capacity, false};
             }
@@ -331,15 +364,14 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
                 }
             }
         }
-        for (u32 i = 0; i < picker->custom_emoji_count; ++i) {
-            const u32 guild = picker->custom_emojis[i].guild_index;
-            if (!i || guild != picker->custom_emojis[i - 1].guild_index) {
-                if (!push_section(picker, kReactionPickerSectionGuild + guild))
-                    return {ReactionPickerError::capacity, false};
-                picker->guilds[guild].first_result = picker->result_count;
-            }
-            if (!push_result(picker, kReactionPickerCustomResult | i))
+        for (u32 guild = 0; guild < picker->guild_count; ++guild) {
+            const auto& server = picker->guilds[guild];
+            if (!push_section(picker, kReactionPickerSectionGuild + guild))
                 return {ReactionPickerError::capacity, false};
+            picker->guilds[guild].first_result = picker->result_count;
+            for (u32 p = server.custom_first; p < server.custom_first + server.custom_count; ++p)
+                if (!push_result(picker, kReactionPickerCustomResult | picker->custom_order[p]))
+                    return {ReactionPickerError::capacity, false};
         }
         for (u32 category = 0; category < kEmojiCategoryCount; ++category) {
             if (!push_section(picker, kReactionPickerSectionUnicode + category))
@@ -353,11 +385,12 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
         if (!push_section(picker, kReactionPickerSectionSearch))
             return {ReactionPickerError::capacity, false};
         for (u32 pass = 0; pass < 2; ++pass) {
-            for (u32 i = 0; i < picker->custom_emoji_count; ++i) {
-                const auto name = custom_name(picker->custom_emojis[i]);
+            for (u32 p = 0; p < picker->custom_emoji_count; ++p) {
+                const u32 index = picker->custom_order[p];
+                const auto name = custom_name(picker->state->emojis[index]);
                 const bool prefix = emoji_catalog_name_starts_with(name, query);
                 if ((pass ? !prefix && emoji_catalog_name_contains(name, query) : prefix) &&
-                    !push_result(picker, kReactionPickerCustomResult | i))
+                    !push_result(picker, kReactionPickerCustomResult | index))
                     return {ReactionPickerError::capacity, false};
             }
             for (u32 i = 0; i < catalog.count; ++i) {
@@ -404,7 +437,7 @@ ReactionPickerResult reaction_picker_open(ReactionPickerModel* picker, u64 messa
     // upper bound of accepted sources for this snapshot.
     picker->result_capacity = kReactionPickerCatalogCapacity + picker->custom_emoji_count +
                               kReactionPreferenceFavoriteCapacity + kReactionPreferenceFrequentCapacity;
-    picker->result_catalog_indices = arena_allocate_zero<u16>(&picker->storage, picker->result_capacity);
+    picker->results = arena_allocate<u32>(&picker->storage, picker->result_capacity);
     picker->sections =
         arena_allocate_zero<ReactionPickerSection>(&picker->storage, picker->guild_count + 10);
     if (!storage_valid(picker)) {
@@ -463,18 +496,15 @@ ReactionPickerResult reaction_picker_toggle_section(ReactionPickerModel* picker,
 }
 
 namespace {
-bool resolve_result(const ReactionPickerModel& picker, u16 result, ReactionPickerSelection* selection,
+bool resolve_result(const ReactionPickerModel& picker, u32 result, ReactionPickerSelection* selection,
                     Utf8View* label) noexcept {
-    if (result == 0xFFFFu) {
-        return false;
-    }
     *selection = ReactionPickerSelection{};
     if ((result & kReactionPickerCustomResult) != 0) {
-        const u32 index = result & ~kReactionPickerCustomResult;
-        if (index >= picker.custom_emoji_count) {
+        const auto* found = custom_emoji(picker, result & ~kReactionPickerCustomResult);
+        if (!found) {
             return false;
         }
-        const ReactionPickerCustomEmoji& emoji = picker.custom_emojis[index];
+        const CustomEmojiRecord& emoji = *found;
         selection->emoji_id = emoji.id;
         selection->name = custom_name(emoji);
         selection->catalog_index = ~0u;
@@ -499,7 +529,7 @@ bool resolve_result(const ReactionPickerModel& picker, u16 result, ReactionPicke
 bool reaction_picker_result_at(const ReactionPickerModel& picker, u32 index,
                                ReactionPickerSelection* selection, Utf8View* label) noexcept {
     return storage_valid(&picker) && selection && index < picker.result_count &&
-           resolve_result(picker, picker.result_catalog_indices[index], selection, label);
+           resolve_result(picker, picker.results[index], selection, label);
 }
 Utf8View reaction_picker_section_label(const ReactionPickerModel& picker, u32 section) noexcept {
     return storage_valid(&picker) ? section_label(picker, section) : Utf8View{};
@@ -507,15 +537,16 @@ Utf8View reaction_picker_section_label(const ReactionPickerModel& picker, u32 se
 Utf8View reaction_picker_result_guild_name(const ReactionPickerModel& picker, u32 index) noexcept {
     if (!storage_valid(&picker) || index >= picker.result_count)
         return {};
-    const u16 result = picker.result_catalog_indices[index];
-    if (result == 0xFFFFu || !(result & kReactionPickerCustomResult))
+    const u32 result = picker.results[index];
+    const auto* emoji = result & kReactionPickerCustomResult
+                            ? custom_emoji(picker, result & ~kReactionPickerCustomResult)
+                            : nullptr;
+    if (!emoji)
         return {};
-    const u32 custom = result & ~kReactionPickerCustomResult;
-    if (custom >= picker.custom_emoji_count)
-        return {};
-    const u32 guild = picker.custom_emojis[custom].guild_index;
-    return guild < picker.guild_count ? Utf8View{picker.guilds[guild].name, picker.guilds[guild].name_bytes}
-                                      : Utf8View{};
+    for (u32 guild = 0; guild < picker.guild_count; ++guild)
+        if (picker.guilds[guild].id == emoji->guild_id)
+            return {picker.guilds[guild].name, picker.guilds[guild].name_bytes};
+    return {};
 }
 
 namespace {
