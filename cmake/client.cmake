@@ -167,14 +167,32 @@ set(MAICORD_UPDATE_REPOSITORY "${maicord_default_update_repository}" CACHE STRIN
     "GitHub owner/repo whose releases publish signed MaiCord updates")
 set(MAICORD_UPDATE_PUBLIC_KEY "${maicord_default_update_public_key}" CACHE STRING
     "Update publisher ECDSA P-256 public key: 130 hex digits (uncompressed SEC1 point)")
-set(MAICORD_UPDATE_PREVIEW "$ENV{MAICORD_UPDATE_PREVIEW}" CACHE STRING
-    "Preview number 1-998 for a vX.Y.Z-preview.N build; empty or 0 for stable")
-if(NOT MAICORD_UPDATE_PREVIEW)
-    set(maicord_update_preview 0)
-elseif(MAICORD_UPDATE_PREVIEW MATCHES "^[1-9][0-9]?[0-9]?$" AND MAICORD_UPDATE_PREVIEW LESS 999)
-    set(maicord_update_preview ${MAICORD_UPDATE_PREVIEW})
+# The installed version: empty builds as the project version. CI passes the
+# commit's identity (tools/release/maicord_release.py identity): X.Y.Z-dev.N
+# for master builds, the tag's X.Y.Z for releases.
+set(MAICORD_UPDATE_VERSION "$ENV{MAICORD_UPDATE_VERSION}" CACHE STRING
+    "Installed version X.Y.Z or X.Y.Z-dev.N (N 1-998); empty for the project version")
+set(MAICORD_UPDATE_COMMIT "$ENV{MAICORD_UPDATE_COMMIT}" CACHE STRING
+    "Source commit (40 lowercase hex digits) shown with the version; may be empty")
+set(maicord_update_dev 0)
+if(NOT MAICORD_UPDATE_VERSION)
+    set(maicord_update_major ${PROJECT_VERSION_MAJOR})
+    set(maicord_update_minor ${PROJECT_VERSION_MINOR})
+    set(maicord_update_patch ${PROJECT_VERSION_PATCH})
+elseif(MAICORD_UPDATE_VERSION MATCHES "^(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)(-dev\\.([1-9][0-9]?[0-9]?))?$"
+        AND NOT CMAKE_MATCH_5 STREQUAL "999")
+    set(maicord_update_major ${CMAKE_MATCH_1})
+    set(maicord_update_minor ${CMAKE_MATCH_2})
+    set(maicord_update_patch ${CMAKE_MATCH_3})
+    if(CMAKE_MATCH_5)
+        set(maicord_update_dev ${CMAKE_MATCH_5})
+    endif()
 else()
-    message(FATAL_ERROR "MAICORD_UPDATE_PREVIEW must be empty or 1-998.")
+    message(FATAL_ERROR "MAICORD_UPDATE_VERSION must be empty, X.Y.Z or X.Y.Z-dev.N (components 0-999, N 1-998).")
+endif()
+string(LENGTH "${MAICORD_UPDATE_COMMIT}" maicord_update_commit_length)
+if(MAICORD_UPDATE_COMMIT AND (NOT maicord_update_commit_length EQUAL 40 OR NOT MAICORD_UPDATE_COMMIT MATCHES "^[0-9a-f]+$"))
+    message(FATAL_ERROR "MAICORD_UPDATE_COMMIT must be empty or 40 lowercase hex digits.")
 endif()
 if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
     # The owner is a GitHub login: it also names the Pages host <owner>.github.io.
@@ -190,7 +208,7 @@ if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
     endif()
 endif()
 set_source_files_properties(src/app/application_update_entry.cpp PROPERTIES COMPILE_DEFINITIONS
-    "MAICORD_UPDATE_REPOSITORY=\"${MAICORD_UPDATE_REPOSITORY}\";MAICORD_UPDATE_PUBLIC_KEY=\"${MAICORD_UPDATE_PUBLIC_KEY}\";MAICORD_UPDATE_PREVIEW=${maicord_update_preview};MAICORD_VERSION_MAJOR=${PROJECT_VERSION_MAJOR};MAICORD_VERSION_MINOR=${PROJECT_VERSION_MINOR};MAICORD_VERSION_PATCH=${PROJECT_VERSION_PATCH}")
+    "MAICORD_UPDATE_REPOSITORY=\"${MAICORD_UPDATE_REPOSITORY}\";MAICORD_UPDATE_PUBLIC_KEY=\"${MAICORD_UPDATE_PUBLIC_KEY}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${MAICORD_UPDATE_COMMIT}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
 
 # Official plugin catalog (maj113/MaiCord-plugins on GitHub Pages): the current
 # and the next (offline) P-256 key. No key compiles the official catalog as

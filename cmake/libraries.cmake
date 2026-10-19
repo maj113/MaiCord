@@ -216,6 +216,7 @@ maicord_library(maicord_app_core
     src/app/call_video_presenter.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
     # acceptance_record.cpp: durable floor records shared by update_acceptance and the plugin catalog.
     src/app/acceptance_record.cpp src/app/gateway_guild_details.cpp src/app/account_guild_moderation.cpp
+    src/app/update_changelog.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 

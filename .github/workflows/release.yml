@@ -1,11 +1,11 @@
 name: Release
 
-# Push a tag to publish:  vMAJOR.MINOR.PATCH          -> stable release (stable + preview channels)
-#                         vMAJOR.MINOR.PATCH-preview.N -> prerelease (preview channel only)
+# Push a vMAJOR.MINOR.PATCH tag to publish a stable release; it advances the
+# stable and preview channels. Preview builds come from master (ci.yml).
 # Releases are immutable once published, so every asset goes onto a draft that
-# is then published. The channel manifests clients poll live outside releases,
-# on GitHub Pages (https://<owner>.github.io/<repo>/updates/), deployed from the
-# update-channels branch. See tools/release/README.md.
+# is then published. The channel manifests and changelogs clients poll live
+# outside releases, on GitHub Pages (https://<owner>.github.io/<repo>/updates/),
+# deployed from the update-channels branch. See tools/release/README.md.
 on:
   push:
     tags: ["v*.*.*"]
@@ -68,13 +68,14 @@ jobs:
         run: python -B tools/release/test_release_tools.py
 
       # The updater is compiled with this repository, the published key and
-      # the tag's preview number (0 for stable); see tools/release/README.md.
+      # the release's version and commit; see tools/release/README.md.
       - name: Build, audit and test
         shell: powershell
         env:
           MAICORD_UPDATE_REPOSITORY: ${{ github.repository }}
           MAICORD_UPDATE_PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
-          MAICORD_UPDATE_PREVIEW: ${{ steps.version.outputs.preview }}
+          MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
+          MAICORD_UPDATE_COMMIT: ${{ github.sha }}
         run: ./tools/build.ps1 -Test -TestDeadlineSeconds 300 -TestTimeoutScale 5 -ExcludeTestLabels gpu,display
 
       - name: Package and sign update
@@ -148,25 +149,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SEMVER: ${{ steps.version.outputs.semver }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
           $ErrorActionPreference = 'Stop'
           # A draft left by a failed run is replaced; the tag stays.
           gh release view $env:TAG --json isDraft | Out-Null
           if ($LASTEXITCODE -eq 0) { gh release delete $env:TAG --yes; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
           $assets = @(Get-ChildItem $env:DIST -File | ForEach-Object FullName)
-          $prerelease = @(if ($env:PRERELEASE -eq 'true') { '--prerelease' })
-          $latest = if ($env:PRERELEASE -eq 'true') { '--latest=false' } else { '--latest' }
           gh release create $env:TAG --draft --verify-tag --title "MaiCord $env:SEMVER" `
-            --notes-file "$env:RUNNER_TEMP\notes.md" @prerelease
+            --notes-file "$env:RUNNER_TEMP\notes.md"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           gh release upload $env:TAG @assets
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          gh release edit $env:TAG --draft=false $latest
+          gh release edit $env:TAG --draft=false --latest
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       # The channels advance only to manifests attached to the published
-      # release, so they always name a package that is downloadable.
+      # release, so they always name a package that is downloadable. The
+      # changelogs come from the published release notes and the commits since
+      # the previous release.
       - name: Update the update channels
         id: channels
         if: env.PUBLIC_REPOSITORY == 'true'
@@ -180,6 +180,9 @@ jobs:
           $published = Join-Path $env:RUNNER_TEMP 'published'
           gh release download $env:TAG --dir $published --pattern 'maicord-*.manifest.json*'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -B tools/release/maicord_release.py changelogs --tag $env:TAG --github $env:GH_REPO `
+            --output-dir $published --repository . --public-key $env:PUBLIC_KEY
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish $published `
             -Message "Publish $env:TAG to the update channels" -AlwaysDeploy
 
@@ -189,23 +192,12 @@ jobs:
         run: |
           Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
 
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        if: steps.channels.outputs.deploy == 'true'
-        with:
-          path: ${{ runner.temp }}/update-channels
-
   pages:
-    name: Deploy the update channels
+    name: Pages
     needs: release
     if: needs.release.outputs.deploy == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
     permissions:
+      contents: read
       pages: write
       id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+    uses: ./.github/workflows/deploy-pages.yml

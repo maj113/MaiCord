@@ -58,14 +58,30 @@ jobs:
     # an image or self-hosted runner that already has it to skip that step.
     runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
     timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.collect.outputs.name }}
+      version: ${{ steps.identity.outputs.version }}
+      dev: ${{ steps.identity.outputs.dev }}
     steps:
+      # Full history: the build identity counts commits since the last release tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: ./.github/actions/setup-toolchain
         with:
           minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+
+      # A commit after the last stable tag builds as X.Y.Z-dev.N, the preview
+      # channel's version; without an identity the project version is used.
+      - name: Build identity
+        id: identity
+        shell: powershell
+        run: |
+          python -B tools/release/maicord_release.py identity --repository .
+          if ($LASTEXITCODE) { Write-Host '::warning::No build identity; building as the project version.' }
+          exit 0
 
       - name: Release tooling self-test
         shell: powershell
@@ -83,6 +99,9 @@ jobs:
       # test jobs cover them all.
       - name: Build and audit
         shell: powershell
+        env:
+          MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
+          MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
         run: ./tools/build.ps1
 
       - name: Collect client binaries
@@ -172,3 +191,81 @@ jobs:
               Remove-Job -Job $fetch -Force
             }
           }
+
+  # Every green master build of maj113/MaiCord goes to the preview channel.
+  # Only this job reads the signing key, and the release environment admits
+  # only master and v* tags, so pull requests and forks never reach it.
+  preview:
+    name: Publish the preview build
+    needs: [client, tests]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/master' &&
+      github.repository == 'maj113/MaiCord' && !github.event.repository.private &&
+      needs.client.outputs.dev == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    environment: release
+    # A newer build replaces a pending one. The branch push is leased, so this
+    # may run beside release.yml and manifest-refresh.yml.
+    concurrency:
+      group: preview-channel
+      cancel-in-progress: false
+    permissions:
+      contents: write # the update-channels branch
+      actions: read   # the client job's artifact from this run
+    outputs:
+      deploy: ${{ steps.channels.outputs.deploy }}
+    env:
+      VERSION: ${{ needs.client.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Fetch the client binaries
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: ${{ needs.client.outputs.artifact }}
+        run: |
+          gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --name $env:ARTIFACT --dir "$env:RUNNER_TEMP\client"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Package and sign the preview build
+        shell: powershell
+        env:
+          MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!$env:MAICORD_UPDATE_SIGNING_KEY -or !$env:PUBLIC_KEY) { throw 'The signing key secret or the public key variable is missing.' }
+          python -B tools/release/maicord_release.py preview --binaries "$env:RUNNER_TEMP\client" `
+            --output-dir "$env:RUNNER_TEMP\preview" --repository . --expect-version $env:VERSION --public-key $env:PUBLIC_KEY
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem "$env:RUNNER_TEMP\preview" | Format-Table Name, Length -AutoSize
+
+      - name: Update the preview channel
+        id: channels
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+        run: |
+          ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish "$env:RUNNER_TEMP\preview" `
+            -Message "Publish $env:VERSION to the preview channel"
+
+  pages:
+    name: Pages
+    needs: preview
+    if: needs.preview.outputs.deploy == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-pages.yml

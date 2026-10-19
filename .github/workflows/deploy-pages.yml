@@ -1,0 +1,38 @@
+name: Deploy the update channels
+
+# Called by the workflows that write the update-channels branch. It deploys
+# the branch as it is when this job runs, so racing writers never leave an
+# older site deployed over a newer one.
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  deploy:
+    name: Deploy the update channels
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: update-channels
+          path: site
+          persist-credentials: false
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

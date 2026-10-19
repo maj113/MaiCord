@@ -210,6 +210,11 @@ maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     USES_CLIENT MaiCord MaiCordAccount
     TIMEOUT 15
     TEST maicord_update_client)
+maicord_test(MaiCordUpdateChangelogTests ENTRY maicord_update_changelog_tests_entry
+    SOURCES tests/update_changelog.cpp
+    LIBS maicord_core maicord_platform maicord_app_core kernel32 bcrypt
+    TIMEOUT 10
+    TEST maicord_update_changelog)
 # Startup: the DLLs MaiCord.exe maps before its entry point (static imports)
 # and those it delay-loads (MAICORD_CLIENT_DELAY_LOADS in cmake/client.cmake).
 list(JOIN MAICORD_CLIENT_DELAY_LOADS "," maicord_client_delay_load_list)
@@ -1644,7 +1649,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/plugin_catalog_ui_probe.cpp src/app/application_plugin_browser_projection.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
-        src/app/settings_catalog.cpp
+        src/app/settings_catalog.cpp src/app/application_updates.cpp
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/app_icon.cpp config/maicord.rc

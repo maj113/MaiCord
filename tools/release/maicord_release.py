@@ -7,6 +7,8 @@ The formats here mirror the client's verifiers exactly:
   * src/app/update_manifest.cpp - a compact JSON document with ten fields,
     signed as SHA-256("MaiCord update manifest v1\\n" || document) with
     ECDSA P-256, stored as a raw 64-byte P1363 (r || s) signature.
+  * src/app/update_changelog.cpp - the channel changelog, signed the same way
+    under "MaiCord update changelog v1\\n".
 
 Run `python tools/release/maicord_release.py --help` for the subcommands.
 Only the Python standard library and Windows CNG are used.
@@ -19,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -26,6 +29,7 @@ import time
 import zipfile
 import zlib
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -33,18 +37,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cng_p256  # noqa: E402
 
 SIGNATURE_DOMAIN = b"MaiCord update manifest v1\n"
+CHANGELOG_DOMAIN = b"MaiCord update changelog v1\n"
 INVENTORY_DOMAIN = b"MaiCord publisher inventory v1\n"
 MANIFEST_MAXIMUM_BYTES = 4096
 PACKAGE_MAXIMUM_BYTES = 0xFFFFFFFE
+# The client refuses larger packages (kUpdateDefaultArtifactCap).
+PACKAGE_CLIENT_MAXIMUM_BYTES = 64 * 1024 * 1024
 MEMBER_NAMES = ("MaiCord.exe", "MaiCordAccount.dll")
 CHANNELS = ("stable", "preview")
 DEFAULT_VALIDITY_DAYS = 90
 UPDATES_DIRECTORY = "updates"
+PREVIEW_DIRECTORY = "preview"
+# Preview packages kept on Pages: the current build and the one before it.
+PREVIEW_PACKAGES_KEPT = 2
 CLOCK_SKEW_SECONDS = 600
-TAG_PATTERN = re.compile(r"^v(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})(?:-preview\.([1-9]\d{0,2}))?$")
+TAG_PATTERN = re.compile(r"^v(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$")
 MANIFEST_FIELDS = ("format", "product", "arch", "channel", "version", "issued", "expires", "bytes", "sha256",
                    "artifact")
 STABLE_SEQUENCE = 999
+DEV_SEQUENCE_MAXIMUM = 998
+# Matches src/app/update_changelog.hpp.
+CHANGELOG_MAXIMUM_BYTES = 65536
+CHANGELOG_MAXIMUM_ENTRIES = 100
+CHANGELOG_TEXT_MAXIMUM_BYTES = 8192
+CHANGELOG_FIELDS = ("format", "product", "channel", "version", "base", "entries")
+CHANGELOG_ENTRY_FIELDS = ("version", "date", "commit", "text")
+# Publisher-side limits, tighter than the client's.
+CHANGELOG_STABLE_RELEASES = 10
+CHANGELOG_SUBJECT_BYTES = 200
+CHANGELOG_NOTES_BYTES = 6000
 
 
 class ReleaseError(RuntimeError):
@@ -53,6 +74,26 @@ class ReleaseError(RuntimeError):
 
 # --------------------------------------------------------------------------- versions
 
+def version_number(major: int, minor: int, patch: int, sequence: int) -> int:
+    """Monotonic u64 compared by the updater's rollback floor.
+
+    ((major * 1000 + minor) * 1000 + patch) * 1000 + sequence: 999 for a stable
+    release, 1-998 for the master build that many commits after the last
+    stable tag, so 1.2.3 = 1002003999 < 1.2.4-dev.5 = 1002004005 < 1.2.4.
+    """
+    return ((major * 1000 + minor) * 1000 + patch) * 1000 + sequence
+
+
+def version_text(number: int) -> str:
+    sequence, base = number % 1000, number // 1000
+    text = f"{base // 1000000}.{base // 1000 % 1000}.{base % 1000}"
+    return text if sequence == STABLE_SEQUENCE else f"{text}-dev.{sequence}"
+
+
+def is_stable(number: int) -> bool:
+    return number % 1000 == STABLE_SEQUENCE
+
+
 @dataclass(frozen=True)
 class ReleaseVersion:
     tag: str
@@ -60,22 +101,36 @@ class ReleaseVersion:
     major: int
     minor: int
     patch: int
-    preview: int | None
-
-    @property
-    def channel(self) -> str:
-        return "preview" if self.preview else "stable"
 
     @property
     def number(self) -> int:
-        """Monotonic u64 compared by the updater's rollback floor.
+        return version_number(self.major, self.minor, self.patch, STABLE_SEQUENCE)
 
-        ((major * 1000 + minor) * 1000 + patch) * 1000 + sequence, where the
-        sequence is the preview number (1-998) or 999 for the stable release, so
-        v1.2.3-preview.4 = 1002003004 < v1.2.3 = 1002003999 < v1.2.4-preview.1.
-        """
-        sequence = self.preview if self.preview else STABLE_SEQUENCE
-        return ((self.major * 1000 + self.minor) * 1000 + self.patch) * 1000 + sequence
+    @property
+    def artifact_name(self) -> str:
+        return f"MaiCord-x64-{self.number}.zip"
+
+
+@dataclass(frozen=True)
+class BuildIdentity:
+    """What a commit's build calls itself: a stable release or a dev build."""
+    major: int
+    minor: int
+    patch: int
+    sequence: int
+    commit: str
+
+    @property
+    def number(self) -> int:
+        return version_number(self.major, self.minor, self.patch, self.sequence)
+
+    @property
+    def semver(self) -> str:
+        return version_text(self.number)
+
+    @property
+    def label(self) -> str:
+        return self.semver if is_stable(self.number) else f"{self.semver}+{self.commit[:7]}"
 
     @property
     def artifact_name(self) -> str:
@@ -85,21 +140,62 @@ class ReleaseVersion:
 def parse_tag(tag: str) -> ReleaseVersion:
     match = TAG_PATTERN.match(tag.strip())
     if not match:
-        raise ReleaseError(f"Tag {tag!r} is not vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-preview.N "
-                           "(components 0-999, preview 1-998).")
+        raise ReleaseError(f"Tag {tag!r} is not vMAJOR.MINOR.PATCH (components 0-999). Preview builds come "
+                           "from master, not from tags.")
     major, minor, patch = (int(match.group(i)) for i in (1, 2, 3))
-    preview = int(match.group(4)) if match.group(4) else None
-    if preview is not None and preview >= STABLE_SEQUENCE:
-        raise ReleaseError("Preview numbers must be between 1 and 998.")
-    return ReleaseVersion(tag.strip(), tag.strip()[1:], major, minor, patch, preview)
+    return ReleaseVersion(tag.strip(), tag.strip()[1:], major, minor, patch)
+
+
+def parse_project_version(text: str) -> tuple[int, int, int]:
+    match = re.search(r"project\(\s*MaiCord\s+VERSION\s+(\d+)\.(\d+)\.(\d+)", text)
+    if not match:
+        raise ReleaseError("CMakeLists.txt has no project(MaiCord VERSION x.y.z).")
+    return tuple(int(match.group(i)) for i in (1, 2, 3))
 
 
 def cmake_project_version(repository: Path) -> str:
-    text = (repository / "CMakeLists.txt").read_text(encoding="utf-8", errors="replace")
-    match = re.search(r"project\(\s*MaiCord\s+VERSION\s+(\d+\.\d+\.\d+)", text)
-    if not match:
-        raise ReleaseError("CMakeLists.txt has no project(MaiCord VERSION x.y.z).")
-    return match.group(1)
+    parts = parse_project_version((repository / "CMakeLists.txt").read_text(encoding="utf-8", errors="replace"))
+    return ".".join(str(part) for part in parts)
+
+
+def git(*command: str, repository: Path | str = ".") -> str:
+    return subprocess.run(["git", "-C", str(repository), *command], check=True, capture_output=True,
+                          encoding="utf-8", errors="replace").stdout.strip()
+
+
+def stable_tags(repository: Path | str, ref: str) -> list[ReleaseVersion]:
+    """Stable release tags reachable from ref, newest version first."""
+    tags = [parse_tag(tag) for tag in git("tag", "--list", "v*", "--merged", ref, repository=repository).splitlines()
+            if TAG_PATTERN.match(tag)]
+    return sorted(tags, key=lambda tag: tag.number, reverse=True)
+
+
+def next_base(release: ReleaseVersion, project: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Version a dev build after `release` is numbered under: the next patch,
+    or the CMake project version when it was already bumped further."""
+    following = (release.major, release.minor, release.patch + 1)
+    if following[2] > 999:
+        following = (release.major, release.minor + 1, 0)
+    if following[1] > 999:
+        following = (release.major + 1, 0, 0)
+    return max(following, project)
+
+
+def build_identity(repository: Path | str, ref: str = "HEAD") -> BuildIdentity:
+    commit = git("rev-parse", f"{ref}^{{commit}}", repository=repository)
+    tags = stable_tags(repository, commit)
+    if not tags:
+        raise ReleaseError("No stable release tag is reachable; dev builds are numbered after one.")
+    latest = tags[0]
+    if git("rev-parse", f"{latest.tag}^{{commit}}", repository=repository) == commit:
+        return BuildIdentity(latest.major, latest.minor, latest.patch, STABLE_SEQUENCE, commit)
+    sequence = int(git("rev-list", "--count", f"{latest.tag}..{commit}", repository=repository))
+    if not 1 <= sequence <= DEV_SEQUENCE_MAXIMUM:
+        raise ReleaseError(f"{sequence} commits since {latest.tag}: dev builds stop at {DEV_SEQUENCE_MAXIMUM}. "
+                           "Publish a stable release.")
+    project = parse_project_version(git("show", f"{commit}:CMakeLists.txt", repository=repository))
+    major, minor, patch = next_base(latest, project)
+    return BuildIdentity(major, minor, patch, sequence, commit)
 
 
 # --------------------------------------------------------------------------- PE sanity
@@ -298,6 +394,196 @@ def verify_offer(document: bytes, signature: bytes, public_point: bytes, artifac
     return fields
 
 
+
+
+# --------------------------------------------------------------------------- changelog
+
+def changelog_digest(document: bytes) -> bytes:
+    return hashlib.sha256(CHANGELOG_DOMAIN + document).digest()
+
+
+def render_changelog(channel: str, version: int, base: int, entries: list[dict]) -> bytes:
+    document = {"format": 1, "product": "MaiCord", "channel": channel, "version": version, "base": base,
+                "entries": [{name: entry[name] for name in CHANGELOG_ENTRY_FIELDS} for entry in entries]}
+    rendered = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    parse_changelog(rendered)
+    return rendered
+
+
+def parse_changelog(document: bytes) -> dict:
+    """Strict reading equivalent to update_changelog.cpp."""
+    if not document or len(document) > CHANGELOG_MAXIMUM_BYTES:
+        raise ReleaseError("Changelog size is invalid.")
+
+    def pairs(items):
+        names = [name for name, _ in items]
+        if len(names) != len(set(names)):
+            raise ReleaseError("Changelog has duplicate fields.")
+        return dict(items)
+    try:
+        fields = json.loads(document.decode("utf-8"), object_pairs_hook=pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ReleaseError(f"Changelog is not valid JSON: {error}.") from None
+
+    def unsigned(value) -> bool:
+        return type(value) is int and 0 <= value < 2 ** 64
+    if not isinstance(fields, dict) or set(fields) != set(CHANGELOG_FIELDS):
+        raise ReleaseError(f"Changelog fields must be exactly {', '.join(CHANGELOG_FIELDS)}.")
+    if (fields["format"] != 1 or fields["product"] != "MaiCord" or fields["channel"] not in CHANNELS or
+            not unsigned(fields["version"]) or not fields["version"] or not unsigned(fields["base"]) or
+            fields["base"] >= fields["version"] or not isinstance(fields["entries"], list) or
+            len(fields["entries"]) > CHANGELOG_MAXIMUM_ENTRIES):
+        raise ReleaseError("Changelog header values are invalid.")
+    previous = fields["version"]
+    for entry in fields["entries"]:
+        if not isinstance(entry, dict) or set(entry) != set(CHANGELOG_ENTRY_FIELDS):
+            raise ReleaseError(f"Changelog entries must have exactly {', '.join(CHANGELOG_ENTRY_FIELDS)}.")
+        text = entry["text"]
+        if (not unsigned(entry["version"]) or not fields["base"] < entry["version"] <= previous or
+                not unsigned(entry["date"]) or not isinstance(entry["commit"], str) or
+                not re.fullmatch(r"(?:[0-9a-f]{40})?", entry["commit"]) or not isinstance(text, str) or not text or
+                len(text.encode("utf-8")) > CHANGELOG_TEXT_MAXIMUM_BYTES):
+            raise ReleaseError("Changelog entry values are invalid.")
+        previous = entry["version"]
+    return fields
+
+
+def sign_changelog(key: cng_p256.PrivateKey, document: bytes, expected_public: bytes | None) -> bytes:
+    if expected_public is not None and key.public_point != expected_public:
+        raise ReleaseError("The signing key does not match the expected public key. Refusing to sign.")
+    signature = key.sign_digest(changelog_digest(document))
+    if not cng_p256.verify_digest(key.public_point, changelog_digest(document), signature):
+        raise ReleaseError("CNG produced a signature that does not verify.")
+    return signature
+
+
+def verify_changelog(document: bytes, signature: bytes, public_point: bytes) -> dict:
+    if len(signature) != 64 or not cng_p256.verify_digest(public_point, changelog_digest(document), signature):
+        raise ReleaseError("Changelog signature does not verify with the given public key.")
+    return parse_changelog(document)
+
+
+def truncate_utf8(text: str, limit: int) -> str:
+    if len(text.encode("utf-8")) <= limit:
+        return text
+    return text.encode("utf-8")[:limit - 3].decode("utf-8", errors="ignore").rstrip() + "…"
+
+
+def clean_subject(subject: str) -> str:
+    text = " ".join("".join(c if c >= " " and c != "\x7f" else " " for c in subject).split())
+    return truncate_utf8(text, CHANGELOG_SUBJECT_BYTES)
+
+
+COMMIT_REFERENCE = re.compile(r"\s*\(\[`[0-9a-f]{7,40}`\]\([^)]*\)\)")
+MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
+
+def release_notes_text(body: str) -> str:
+    """The changes part of a release body (see render_notes), without links."""
+    lines: list[str] = []
+    for raw in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw.rstrip()
+        if line.startswith("### Download"):
+            break
+        if re.match(r"^#{1,2}\s", line) or line.startswith(">") or line.startswith("**Full changelog:**"):
+            continue
+        line = MARKDOWN_LINK.sub(r"\1", COMMIT_REFERENCE.sub("", line))
+        line = "".join(c for c in line.replace("\t", " ") if c >= " " and c != "\x7f").rstrip()
+        if line or (lines and lines[-1]):
+            lines.append(line)
+    while lines and not lines[-1]:
+        lines.pop()
+    text = "\n".join(lines) or "No user-visible changes."
+    while len(text.encode("utf-8")) > CHANGELOG_NOTES_BYTES and "\n" in text:
+        text = text.rsplit("\n", 1)[0]
+        if len((text + "\n…").encode("utf-8")) <= CHANGELOG_NOTES_BYTES:
+            return text + "\n…"
+    return truncate_utf8(text, CHANGELOG_NOTES_BYTES)
+
+
+def fit_changelog(channel: str, version: int, base: int, entries: list[dict]) -> bytes:
+    """Drops the oldest versions until the document fits the client's bounds."""
+    entries = list(entries)
+    while True:
+        try:
+            return render_changelog(channel, version, base, entries)
+        except ReleaseError:
+            if not entries:
+                raise
+        oldest = entries[-1]["version"]
+        entries = [entry for entry in entries if entry["version"] != oldest]
+        base = oldest
+
+
+def iso_seconds(text: str | None) -> int:
+    if not text:
+        return 0
+    return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp())
+
+
+def tag_commit(repository: Path | str, tag: str) -> str:
+    try:
+        return git("rev-list", "-n", "1", tag, repository=repository)
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def stable_changelog(releases: list[dict], version: int, repository: Path | str | None) -> bytes:
+    """Release notes of the newest published stable releases up to version."""
+    listed: dict[int, tuple[ReleaseVersion, dict]] = {}
+    for release in releases:
+        tag = str(release.get("tag_name", ""))
+        if release.get("draft") or release.get("prerelease") or not TAG_PATTERN.match(tag):
+            continue
+        parsed = parse_tag(tag)
+        if parsed.number <= version:
+            listed[parsed.number] = (parsed, release)
+    ordered = sorted(listed.items(), key=lambda item: item[0], reverse=True)
+    if not ordered or ordered[0][0] != version:
+        raise ReleaseError(f"The release list has no published {version_text(version)}.")
+    entries = [{"version": number, "date": iso_seconds(release.get("published_at")),
+                "commit": tag_commit(repository, parsed.tag) if repository else "",
+                "text": release_notes_text(release.get("body") or "")}
+               for number, (parsed, release) in ordered[:CHANGELOG_STABLE_RELEASES]]
+    base = ordered[CHANGELOG_STABLE_RELEASES][0] if len(ordered) > CHANGELOG_STABLE_RELEASES else 0
+    return fit_changelog("stable", version, base, entries)
+
+
+def preview_changelog(repository: Path | str, target: str, version: int) -> bytes:
+    """Commit subjects after the previous stable release up to target, newest
+    first, each numbered as the master build that first contained it."""
+    target = git("rev-parse", f"{target}^{{commit}}", repository=repository)
+    previous = next((tag for tag in stable_tags(repository, target) if tag.number < version), None)
+    span = f"{previous.tag}..{target}" if previous else target
+    log = {}
+    for line in git("log", "--format=%H%x1f%ct%x1f%s", span, repository=repository).splitlines():
+        sha, date, subject = line.split("", 2)
+        log[sha] = (int(date), subject)
+    count = len(log)
+    entries: list[dict] = []
+    base = previous.number if previous else 0
+    for line in git("rev-list", "--first-parent", "--parents", span, repository=repository).splitlines():
+        commit, *parents = line.split()
+        if len(parents) > 1:
+            side = git("rev-list", f"{parents[0]}..{commit}", repository=repository).splitlines()
+            merged = [sha for sha in side if sha != commit]
+        else:
+            side = merged = [commit]
+        number = version
+        if previous:
+            project = parse_project_version(git("show", f"{commit}:CMakeLists.txt", repository=repository))
+            major, minor, patch = next_base(previous, project)
+            number = min(version, version_number(major, minor, patch, min(count, DEV_SEQUENCE_MAXIMUM)))
+        group = [{"version": number, "date": log[sha][0], "commit": sha, "text": clean_subject(log[sha][1])}
+                 for sha in merged if sha in log and classify_commit(log[sha][1])]
+        if len(entries) + len(group) > CHANGELOG_MAXIMUM_ENTRIES:
+            base = number
+            break
+        entries += group
+        count -= len(side)
+    return fit_changelog("preview", version, base, entries)
+
+
 # --------------------------------------------------------------------------- commands
 
 def write_outputs(values: dict) -> None:
@@ -313,14 +599,18 @@ def command_version(arguments) -> None:
     version = parse_tag(arguments.tag)
     if arguments.check_cmake:
         project = cmake_project_version(Path(arguments.check_cmake))
-        base = f"{version.major}.{version.minor}.{version.patch}"
-        if project != base:
+        if project != version.semver:
             raise ReleaseError(f"Tag {version.tag} does not match project(MaiCord VERSION {project}) in "
                                "CMakeLists.txt. Bump the project version before tagging.")
     write_outputs({"tag": version.tag, "semver": version.semver, "number": version.number,
-                   "channel": version.channel, "preview": version.preview or 0,
-                   "prerelease": str(bool(version.preview)).lower(),
                    "artifact": version.artifact_name})
+
+
+def command_build_identity(arguments) -> None:
+    identity = build_identity(arguments.repository, arguments.ref)
+    write_outputs({"version": identity.semver, "label": identity.label, "number": identity.number,
+                   "commit": identity.commit, "artifact": identity.artifact_name,
+                   "dev": str(not is_stable(identity.number)).lower()})
 
 
 def signed_manifest(arguments, key, expected, version: int, channel: str, artifact_bytes: int, digest: str,
@@ -329,111 +619,264 @@ def signed_manifest(arguments, key, expected, version: int, channel: str, artifa
     document = render_manifest(version, channel, issued, expires, artifact_bytes, digest,
                                f"MaiCord-x64-{version}.zip")
     signature = sign_document(key, document, expected)
+    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"maicord-{channel}.manifest.json").write_bytes(document)
     (output_dir / f"maicord-{channel}.manifest.json.sig").write_bytes(signature)
 
 
-def command_release(arguments) -> None:
-    """Build the update ZIP, sign one manifest per channel and self-verify."""
-    version = parse_tag(arguments.tag)
-    output_dir = Path(arguments.output_dir)
+def write_changelog(key, expected, document: bytes, output_dir: Path) -> None:
+    fields = parse_changelog(document)
+    signature = sign_changelog(key, document, expected)
+    verify_changelog(document, signature, expected or key.public_point)
+    name = f"maicord-{fields['channel']}.changelog.json"
+    (output_dir / name).write_bytes(document)
+    (output_dir / f"{name}.sig").write_bytes(signature)
+    print(f"{name}: {len(fields['entries'])} entries, {len(document)} bytes")
+
+
+def package_binaries(binaries: Path, output_dir: Path, artifact_name: str) -> tuple[bytes, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    binaries = Path(arguments.binaries)
-    artifact_path = output_dir / version.artifact_name
+    artifact_path = output_dir / artifact_name
     build_update_zip(binaries / MEMBER_NAMES[0], binaries / MEMBER_NAMES[1], artifact_path)
     artifact = artifact_path.read_bytes()
-    digest = hashlib.sha256(artifact).hexdigest()
+    if len(artifact) > PACKAGE_CLIENT_MAXIMUM_BYTES:
+        raise ReleaseError(f"{artifact_name} exceeds the client's {PACKAGE_CLIENT_MAXIMUM_BYTES} byte limit.")
+    return artifact, hashlib.sha256(artifact).hexdigest()
+
+
+def command_release(arguments) -> None:
+    """Build the update ZIP, sign the stable and preview manifests and self-verify."""
+    version = parse_tag(arguments.tag)
+    output_dir = Path(arguments.output_dir)
+    artifact, digest = package_binaries(Path(arguments.binaries), output_dir, version.artifact_name)
     key = load_private_key(arguments)
     expected = cng_p256.parse_public_point(arguments.public_key) if arguments.public_key else None
     issued = (arguments.issued or int(time.time())) - CLOCK_SKEW_SECONDS
-    # Stable releases also advance the preview channel; previews never reach stable.
-    channels = ("preview",) if version.preview else CHANNELS
-    for channel in channels:
+    # A stable release also advances the preview channel.
+    for channel in CHANNELS:
         signed_manifest(arguments, key, expected, version.number, channel, len(artifact), digest, output_dir, issued)
         document = (output_dir / f"maicord-{channel}.manifest.json").read_bytes()
         signature = (output_dir / f"maicord-{channel}.manifest.json.sig").read_bytes()
         verify_offer(document, signature, expected or key.public_point, artifact, now=issued + CLOCK_SKEW_SECONDS)
     print(f"{version.artifact_name}: {len(artifact)} bytes, sha256 {digest}")
-    print(f"channels: {', '.join(channels)}; publisher fingerprint {inventory_fingerprint(key.public_point)}")
+    print(f"publisher fingerprint {inventory_fingerprint(key.public_point)}")
 
 
-def site_manifest_paths(site: Path, channel: str) -> tuple[Path, Path]:
-    document = site / UPDATES_DIRECTORY / f"maicord-{channel}.manifest.json"
-    return document, document.with_name(document.name + ".sig")
+def command_preview(arguments) -> None:
+    """Package and sign a master build for the preview channel, with its changelog."""
+    repository = Path(arguments.repository)
+    identity = build_identity(repository, "HEAD")
+    if is_stable(identity.number):
+        raise ReleaseError(f"HEAD is the {identity.semver} release; release.yml publishes it.")
+    if arguments.expect_version and arguments.expect_version != identity.semver:
+        raise ReleaseError(f"The binaries were built as {arguments.expect_version}, HEAD is {identity.semver}.")
+    output_dir = Path(arguments.output_dir)
+    artifact, digest = package_binaries(Path(arguments.binaries), output_dir, identity.artifact_name)
+    key = load_private_key(arguments)
+    expected = cng_p256.parse_public_point(arguments.public_key) if arguments.public_key else None
+    issued = (arguments.issued or int(time.time())) - CLOCK_SKEW_SECONDS
+    signed_manifest(arguments, key, expected, identity.number, "preview", len(artifact), digest, output_dir, issued)
+    verify_offer((output_dir / "maicord-preview.manifest.json").read_bytes(),
+                 (output_dir / "maicord-preview.manifest.json.sig").read_bytes(), expected or key.public_point,
+                 artifact, now=issued + CLOCK_SKEW_SECONDS)
+    write_changelog(key, expected, preview_changelog(repository, identity.commit, identity.number), output_dir)
+    print(f"{identity.label}: {identity.artifact_name}, {len(artifact)} bytes, sha256 {digest}")
+    write_outputs({"version": identity.semver, "label": identity.label, "artifact": identity.artifact_name})
+
+
+def command_changelogs(arguments) -> None:
+    """Signed stable and preview changelogs for a published stable release."""
+    version = parse_tag(arguments.tag)
+    if arguments.releases:
+        releases = json.loads(Path(arguments.releases).read_text(encoding="utf-8-sig"))
+    else:
+        listing = subprocess.run(["gh", "api", f"repos/{arguments.github}/releases?per_page=30"], check=True,
+                                 capture_output=True).stdout
+        releases = json.loads(listing.decode("utf-8"))
+    if not isinstance(releases, list):
+        raise ReleaseError("The release list must be the JSON array GET /repos/{owner}/{repo}/releases returns.")
+    output_dir = Path(arguments.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    key = load_private_key(arguments)
+    expected = cng_p256.parse_public_point(arguments.public_key) if arguments.public_key else None
+    repository = Path(arguments.repository)
+    write_changelog(key, expected, stable_changelog(releases, version.number, repository), output_dir)
+    write_changelog(key, expected, preview_changelog(repository, version.tag, version.number), output_dir)
+
+
+@dataclass(frozen=True)
+class Slot:
+    name: str
+    channel: str
+    manifest: str
+    changelog: str | None
+
+
+# The Pages site. Clients up to 0.3.3 read the legacy preview manifest and
+# download packages only from releases, so it mirrors stable; later clients
+# read the preview feed under updates/preview/, whose master builds are served
+# from Pages beside it.
+SLOTS = (
+    Slot("stable", "stable", f"{UPDATES_DIRECTORY}/maicord-stable.manifest.json",
+         f"{UPDATES_DIRECTORY}/maicord-stable.changelog.json"),
+    Slot("legacy preview", "preview", f"{UPDATES_DIRECTORY}/maicord-preview.manifest.json", None),
+    Slot("preview", "preview", f"{UPDATES_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json",
+         f"{UPDATES_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.changelog.json"),
+)
+PREVIEW_SLOT = SLOTS[2]
+
+
+def read_offer(site: Path, slot: Slot, public: bytes, now: int | None = None) -> dict:
+    document = site / slot.manifest
+    fields = verify_offer(document.read_bytes(), Path(f"{document}.sig").read_bytes(), public, now=now)
+    if fields["channel"] != slot.channel:
+        raise ReleaseError(f"The {slot.name} manifest carries the {fields['channel']} channel.")
+    if slot is not PREVIEW_SLOT and not is_stable(fields["version"]):
+        raise ReleaseError(f"The {slot.name} manifest offers dev build {fields['version']}.")
+    return fields
+
+
+def preview_package(site: Path, number: int) -> Path:
+    return site / UPDATES_DIRECTORY / PREVIEW_DIRECTORY / f"MaiCord-x64-{number}.zip"
 
 
 def command_channels(arguments) -> None:
-    """Maintain the Pages site that serves the channel manifests.
+    """Maintain the Pages site that serves the channel manifests and changelogs.
 
     The site directory is the root of the update-channels branch and of the
-    GitHub Pages deployment: updates/maicord-<channel>.manifest.json(.sig).
-    --publish installs the signed manifests of a newly published release
-    (a channel never moves to a lower version); --refresh-within-days re-signs
-    manifests close to expiry. Every manifest left in the site must verify
-    with the public key and be currently valid.
+    GitHub Pages deployment (see SLOTS). --publish installs the signed files of
+    a release or master build (a channel never moves to a lower version);
+    --refresh-within-days re-signs manifests close to expiry. Every manifest
+    left must verify and be currently valid, every changelog must match its
+    manifest's version, and a preview dev build's package must be present.
     """
     site = Path(arguments.site)
-    (site / UPDATES_DIRECTORY).mkdir(parents=True, exist_ok=True)
     expected = cng_p256.parse_public_point(arguments.public_key)
     now = int(time.time())
     changed = []
     current = {}
-    for channel in CHANNELS:
-        document, signature = site_manifest_paths(site, channel)
-        if document.exists() or signature.exists():
+    for slot in SLOTS:
+        document = site / slot.manifest
+        if document.exists() or Path(f"{document}.sig").exists():
             try:
-                current[channel] = verify_offer(document.read_bytes(), signature.read_bytes(), expected)
+                current[slot.name] = read_offer(site, slot, expected)
             except (ReleaseError, OSError) as error:
-                raise ReleaseError(f"The site's {channel} manifest is invalid: {error}") from None
-            if current[channel]["channel"] != channel:
-                raise ReleaseError(f"The site's {channel} manifest carries the {current[channel]['channel']} channel.")
+                raise ReleaseError(f"The site's {slot.name} manifest is invalid: {error}") from None
     if arguments.publish:
         source = Path(arguments.publish)
+        offers = []
         for channel in CHANNELS:
             document = source / f"maicord-{channel}.manifest.json"
             if not document.exists():
                 continue
-            payload = document.read_bytes()
-            signature = Path(f"{document}.sig").read_bytes()
+            payload, signature = document.read_bytes(), Path(f"{document}.sig").read_bytes()
             fields = verify_offer(payload, signature, expected, now=now)
             if fields["channel"] != channel:
                 raise ReleaseError(f"{document.name} carries the {fields['channel']} channel.")
-            previous = current.get(channel)
-            if previous and fields["version"] < previous["version"]:
-                print(f"{channel}: keeps version {previous['version']}; not moving back to {fields['version']}.")
+            if is_stable(fields["version"]):
+                offers += [(slot, payload, signature, fields, None) for slot in SLOTS if slot.channel == channel]
+            elif channel == "stable":
+                raise ReleaseError(f"{document.name} offers dev build {fields['version']} on the stable channel.")
+            else:
+                package = source / fields["artifact"]
+                verify_offer(payload, signature, expected, package.read_bytes())
+                if fields["bytes"] > PACKAGE_CLIENT_MAXIMUM_BYTES:
+                    raise ReleaseError(f"{package.name} exceeds the client's package limit.")
+                offers.append((PREVIEW_SLOT, payload, signature, fields, package))
+        for slot, payload, signature, fields, package in offers:
+            previous = current.get(slot.name)
+            # An equal version keeps the site's copy, which may be re-signed.
+            if previous and fields["version"] <= previous["version"]:
+                if fields["version"] < previous["version"]:
+                    print(f"{slot.name}: keeps version {previous['version']}; not moving back to {fields['version']}.")
                 continue
-            target, target_signature = site_manifest_paths(site, channel)
-            if target.exists() and target.read_bytes() == payload and target_signature.read_bytes() == signature:
+            target = site / slot.manifest
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if package:
+                shutil.copyfile(package, preview_package(site, fields["version"]))
+            target.write_bytes(payload)
+            Path(f"{target}.sig").write_bytes(signature)
+            current[slot.name] = fields
+            changed.append(f"{slot.name} -> {fields['version']}")
+        for slot in SLOTS:
+            document = source / f"maicord-{slot.channel}.changelog.json"
+            if not slot.changelog or not document.exists():
+                continue
+            payload, signature = document.read_bytes(), Path(f"{document}.sig").read_bytes()
+            fields = verify_changelog(payload, signature, expected)
+            offer = current.get(slot.name)
+            if fields["channel"] != slot.channel or not offer or fields["version"] != offer["version"]:
+                print(f"{slot.name}: {document.name} is for version {fields['version']}; not installed.")
+                continue
+            target = site / slot.changelog
+            if target.exists() and target.read_bytes() == payload:
                 continue
             target.write_bytes(payload)
-            target_signature.write_bytes(signature)
-            current[channel] = fields
-            changed.append(f"{channel} -> {fields['version']}")
+            Path(f"{target}.sig").write_bytes(signature)
+            changed.append(f"{slot.name} changelog -> {fields['version']}")
     if arguments.refresh_within_days is not None:
         key = None
-        for channel, fields in sorted(current.items()):
-            if fields["expires"] - now > arguments.refresh_within_days * 86400:
+        for slot in SLOTS:
+            fields = current.get(slot.name)
+            if not fields or fields["expires"] - now > arguments.refresh_within_days * 86400:
                 continue
             key = key or load_private_key(arguments)
-            signed_manifest(arguments, key, expected, fields["version"], channel, fields["bytes"], fields["sha256"],
-                            site / UPDATES_DIRECTORY, now - CLOCK_SKEW_SECONDS)
-            document, signature = site_manifest_paths(site, channel)
-            current[channel] = verify_offer(document.read_bytes(), signature.read_bytes(), expected, now=now)
-            changed.append(f"{channel} re-signed")
-    for channel in current:
-        document, signature = site_manifest_paths(site, channel)
-        fields = verify_offer(document.read_bytes(), signature.read_bytes(), expected, now=now)
-        print(f"{channel}: version {fields['version']}, expires in {(fields['expires'] - now) // 86400} days")
+            signed_manifest(arguments, key, expected, fields["version"], slot.channel, fields["bytes"],
+                            fields["sha256"], (site / slot.manifest).parent, now - CLOCK_SKEW_SECONDS)
+            current[slot.name] = read_offer(site, slot, expected, now)
+            changed.append(f"{slot.name} re-signed")
+    for slot in SLOTS:
+        if not slot.changelog or not (site / slot.changelog).exists():
+            continue
+        target = site / slot.changelog
+        fields = verify_changelog(target.read_bytes(), Path(f"{target}.sig").read_bytes(), expected)
+        offer = current.get(slot.name)
+        if fields["channel"] != slot.channel or not offer or fields["version"] != offer["version"]:
+            target.unlink()
+            Path(f"{target}.sig").unlink(missing_ok=True)
+            changed.append(f"{slot.name} changelog removed")
+    feed = current.get(PREVIEW_SLOT.name)
+    keep = []
+    if feed and not is_stable(feed["version"]):
+        package = preview_package(site, feed["version"])
+        if not package.exists():
+            raise ReleaseError(f"The preview package {package.name} is missing from the site.")
+        keep.append(package)
+    packages = sorted(((int(path.stem.rsplit("-", 1)[1]), path) for path in
+                       (site / UPDATES_DIRECTORY / PREVIEW_DIRECTORY).glob("MaiCord-x64-*.zip")
+                       if re.fullmatch(r"MaiCord-x64-\d+", path.stem)), reverse=True)
+    for number, path in packages:
+        if path in keep:
+            continue
+        if keep and len(keep) < PREVIEW_PACKAGES_KEPT and number < feed["version"]:
+            keep.append(path)
+            continue
+        path.unlink()
+        changed.append(f"removed {path.name}")
+    for slot in SLOTS:
+        if slot.name not in current:
+            continue
+        fields = read_offer(site, slot, expected, now)
+        if slot is PREVIEW_SLOT and not is_stable(fields["version"]):
+            verify_offer((site / slot.manifest).read_bytes(), Path(f"{site / slot.manifest}.sig").read_bytes(),
+                         expected, preview_package(site, fields["version"]).read_bytes(), now)
+        print(f"{slot.name}: {version_text(fields['version'])}, expires in {(fields['expires'] - now) // 86400} days")
     print("changed: " + (", ".join(changed) if changed else "nothing"))
     write_outputs({"changed": str(bool(changed)).lower()})
 
 
 def command_verify(arguments) -> None:
-    fields = verify_offer(Path(arguments.manifest).read_bytes(), Path(arguments.signature).read_bytes(),
-                          cng_p256.parse_public_point(arguments.public_key),
+    public = cng_p256.parse_public_point(arguments.public_key)
+    fields = verify_offer(Path(arguments.manifest).read_bytes(), Path(arguments.signature).read_bytes(), public,
                           Path(arguments.artifact).read_bytes() if arguments.artifact else None,
                           now=int(time.time()) if arguments.check_time else None)
     print(json.dumps(fields, indent=2))
+    if arguments.changelog:
+        changelog = Path(arguments.changelog)
+        log = verify_changelog(changelog.read_bytes(), Path(f"{changelog}.sig").read_bytes(), public)
+        if (log["channel"], log["version"]) != (fields["channel"], fields["version"]):
+            raise ReleaseError(f"{changelog.name} does not describe this manifest's version.")
+        print(f"{changelog.name}: {len(log['entries'])} entries")
 
 
 def command_portable(arguments) -> None:
@@ -463,10 +906,6 @@ def command_portable(arguments) -> None:
     print(f"{output.name}: {output.stat().st_size} bytes")
 
 
-def git(*command: str) -> str:
-    return subprocess.run(["git", *command], check=True, capture_output=True, text=True).stdout.strip()
-
-
 NOTE_GROUPS = ("Features", "Fixes", "Performance", "Other")
 CONVENTIONAL = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?!?:\s*(?P<text>.+)$", re.IGNORECASE)
 CONVENTIONAL_GROUPS = {"feat": "Features", "feature": "Features", "fix": "Fixes", "bugfix": "Fixes", "perf": "Performance"}
@@ -476,7 +915,7 @@ PERFORMANCE_WORDS = re.compile(r"\b(perf|performance|faster|speed\w*|latency|thr
                                r"code size|startup time|optimi[sz]\w*)\b", re.IGNORECASE)
 FEATURE_WORDS = re.compile(r"^(add|adds|added|support|supports|introduce\w*|implement\w*|enable\w*|allow\w*|new|show)\b",
                            re.IGNORECASE)
-RELEASE_BUMP = re.compile(r"^(release|bump( version)?( to)?|version)\s+v?\d+\.\d+\.\d+\S*\s*$", re.IGNORECASE)
+RELEASE_BUMP = re.compile(r"^(maicord|release|bump( version)?( to)?|version)\s+v?\d+\.\d+\.\d+\S*\s*$", re.IGNORECASE)
 
 
 def classify_commit(subject: str) -> tuple[str, str] | None:
@@ -506,8 +945,6 @@ def render_notes(version: ReleaseVersion, previous: str | None, commits: list[tu
         reference = f"[`{sha[:7]}`]({base}/commit/{sha})" if base else f"`{sha[:7]}`"
         groups[group].append(f"- {text} ({reference})")
     lines = [f"## MaiCord {version.semver}", ""]
-    if version.preview:
-        lines += ["> Preview build for the `preview` update channel. Expect rough edges.", ""]
     if not any(groups.values()):
         lines += ["No user-visible changes.", ""]
     for name in NOTE_GROUPS:
@@ -529,10 +966,7 @@ def render_notes(version: ReleaseVersion, previous: str | None, commits: list[tu
 
 def command_notes(arguments) -> None:
     version = parse_tag(arguments.tag)
-    tags = [tag for tag in git("tag", "--list", "v*", "--sort=-v:refname", "--merged", version.tag).splitlines()
-            if tag != version.tag and TAG_PATTERN.match(tag)]
-    if not version.preview:
-        tags = [tag for tag in tags if "-preview." not in tag] or tags
+    tags = [tag.tag for tag in stable_tags(".", version.tag) if tag.number < version.number]
     previous = tags[0] if tags else None
     span = f"{previous}..{version.tag}" if previous else version.tag
     log = git("log", "--no-merges", "--pretty=format:%H%x1f%s", span)
@@ -551,6 +985,7 @@ def command_checksums(arguments) -> None:
     (directory / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -561,10 +996,15 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--key-file", help="read the private JWK from a file instead (local testing)")
         command.add_argument("--validity-days", type=int, default=DEFAULT_VALIDITY_DAYS)
 
-    command = sub.add_parser("version", help="map a release tag to the updater's version number and channel")
+    command = sub.add_parser("version", help="map a release tag to the updater's version number")
     command.add_argument("tag")
     command.add_argument("--check-cmake", metavar="REPOSITORY", help="require CMakeLists.txt project VERSION to match")
     command.set_defaults(run=command_version)
+
+    command = sub.add_parser("identity", help="the version a commit builds as (a release or a dev build)")
+    command.add_argument("--repository", default=".")
+    command.add_argument("--ref", default="HEAD")
+    command.set_defaults(run=command_build_identity)
 
     command = sub.add_parser("release", help="build the update ZIP and signed channel manifests")
     command.add_argument("--tag", required=True)
@@ -575,19 +1015,41 @@ def main(argv: list[str] | None = None) -> int:
     key_options(command)
     command.set_defaults(run=command_release)
 
-    command = sub.add_parser("channels", help="publish or re-sign the channel manifests of the Pages site")
+    command = sub.add_parser("preview", help="package and sign HEAD's master build for the preview channel")
+    command.add_argument("--binaries", required=True)
+    command.add_argument("--output-dir", required=True)
+    command.add_argument("--repository", default=".")
+    command.add_argument("--expect-version", help="the version the binaries were built as")
+    command.add_argument("--public-key")
+    command.add_argument("--issued", type=int, help=argparse.SUPPRESS)
+    key_options(command)
+    command.set_defaults(run=command_preview)
+
+    command = sub.add_parser("changelogs", help="signed stable and preview changelogs for a published release")
+    command.add_argument("--tag", required=True)
+    source = command.add_mutually_exclusive_group(required=True)
+    source.add_argument("--releases", help="JSON from GET /repos/{owner}/{repo}/releases")
+    source.add_argument("--github", metavar="OWNER/REPO", help="list the releases with the GitHub CLI")
+    command.add_argument("--output-dir", required=True)
+    command.add_argument("--repository", default=".")
+    command.add_argument("--public-key")
+    key_options(command)
+    command.set_defaults(run=command_changelogs)
+
+    command = sub.add_parser("channels", help="publish or re-sign the update files of the Pages site")
     command.add_argument("--site", required=True, help="site root (the update-channels branch)")
     command.add_argument("--public-key", required=True)
-    command.add_argument("--publish", metavar="DIRECTORY", help="install the signed manifests found here")
+    command.add_argument("--publish", metavar="DIRECTORY", help="install the signed files found here")
     command.add_argument("--refresh-within-days", type=int, help="re-sign manifests expiring within this many days")
     key_options(command)
     command.set_defaults(run=command_channels)
 
-    command = sub.add_parser("verify", help="verify a manifest, signature and optional artifact")
+    command = sub.add_parser("verify", help="verify a manifest, signature, optional artifact and changelog")
     command.add_argument("--manifest", required=True)
     command.add_argument("--signature", required=True)
     command.add_argument("--public-key", required=True)
     command.add_argument("--artifact")
+    command.add_argument("--changelog", help="a changelog (with .sig beside it) that must match the manifest")
     command.add_argument("--check-time", action="store_true")
     command.set_defaults(run=command_verify)
 
@@ -610,7 +1072,7 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     try:
         arguments.run(arguments)
-    except (ReleaseError, cng_p256.CngError, OSError, subprocess.CalledProcessError) as error:
+    except (ReleaseError, cng_p256.CngError, OSError, subprocess.CalledProcessError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
