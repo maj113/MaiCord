@@ -21,5 +21,12 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
 // The recorded frame is on screen (or provably needs no present).
 void renderer_paint_diff_commit(D3D11Renderer* renderer) noexcept;
 void renderer_paint_diff_release(D3D11Renderer* renderer) noexcept;
+// Typing dots (RendererTypingDots): where the last build painted them, whether
+// the composer's phase has moved since, and the step that patches the retained
+// stream and damages only the dots. A false step leaves everything as it was
+// (the caller rebuilds).
+void renderer_record_typing_dots(D3D11Renderer* renderer, const UiTypingDotsPaint& paint) noexcept;
+bool renderer_typing_dots_pending(const D3D11Renderer& renderer) noexcept;
+bool renderer_step_typing_dots(D3D11Renderer* renderer) noexcept;
 
 } // namespace maicord

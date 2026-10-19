@@ -451,7 +451,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
         !renderer->begin_frame_permit && !renderer_settings_backdrop_stale(renderer, theme) &&
         renderer_presentation_stamp_equal(current, renderer->retained_presentation) &&
-        presentation_damage_empty(renderer->presentation_damage) &&
+        presentation_damage_empty(renderer->presentation_damage) && !renderer_typing_dots_pending(*renderer) &&
         !d3d11_renderer_caption_pending(renderer, theme)) {
         renderer->draw_calls_last_frame = 0;
         renderer->media_draws_last_frame = 0;

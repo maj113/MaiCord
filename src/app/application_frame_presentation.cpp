@@ -150,7 +150,7 @@ bool typing_dots_animate() noexcept {
            !(g_app.window && IsIconic(g_app.window));
 }
 // The "is typing" dots step only while someone types in the shown chat; the
-// composer scene paints the sampled phase (shell_presentation).
+// renderer patches the sampled phase into its retained stream.
 void synchronize_typing_dots(u64 now_ms) noexcept {
     auto& renderer = g_app.renderer;
     auto& scene = g_app.message_composer_scene;

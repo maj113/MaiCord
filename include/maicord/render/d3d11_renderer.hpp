@@ -38,6 +38,7 @@
 #include "maicord/ui/tooltip.hpp"
 #include "maicord/ui/unread_banner_scene.hpp"
 #include "maicord/ui/toast.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 #include "maicord/ui/friends_scene.hpp"
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
@@ -323,6 +324,18 @@ struct PickerGlyphCache;
 struct ShapedTextCache;
 struct RendererCaption;
 
+// The composer's animated typing dots in the built paint stream. A step
+// (renderer_step_typing_dots) patches their quads in place, writes them past
+// the stream's end in the instance buffer (no-overwrite, until it is full) and
+// presents only their damage; the next full upload restores them in place.
+struct RendererTypingDots {
+    UiTypingDotsPaint paint;
+    // Instance index the dots draw from, and the end of the step ring.
+    u32 gpu_first, ring_end;
+    u32 steps, uploads;
+    bool upload_pending;
+};
+
 struct D3D11Renderer {
     // Startup storage remains zero-filled; renderer_initialize binds identity.
     RendererLayerOpacity layer_opacity;
@@ -490,6 +503,7 @@ struct D3D11Renderer {
     PresentationDamageTracker presentation_damage;
     RendererPaintDiff paint_diff;
     RendererShellSegment shell_segment;
+    RendererTypingDots typing_dots;
     Win32Rect present_dirty_rect;
     // Flip-sequential rotates between two independently retained back buffers.
     // `previous_buffer_damage` is the logical damage submitted on the prior

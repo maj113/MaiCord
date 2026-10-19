@@ -224,13 +224,17 @@ void typing_cases() noexcept {
         check(false, "typing dots: paint stream");
         return;
     }
-    bool three = true;
+    bool three = true, patched = true;
     for (u16 phase = 0; phase < kUiTypingDotsPhases; ++phase) {
         const u32 before = paint.count;
         three = three && ui_typing_dots_paint(&paint, {0, 0, 40, 20}, kDefaultTheme.text_primary, phase) &&
                 paint.count == before + 3;
+        PaintQuad quads[kUiTypingDotCount];
+        ui_typing_dots_quads({0, 0, 40, 20}, kDefaultTheme.text_primary, phase, quads);
+        patched = patched && three && bytes_equal(paint.quads + before, quads, sizeof(quads));
     }
     check(three, "typing dots: every phase paints the same three quads (damage stays on them)");
+    check(patched, "typing dots: a step's patched quads are the ones a rebuild paints");
     paint_stream_release(&paint);
     // The host loop: wake at the clock's deadline, tick once a frame.
     const auto run = [](u64 from, u64 to, bool visible, bool animate, u32* frames, u32* changes) noexcept {

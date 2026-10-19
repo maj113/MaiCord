@@ -190,33 +190,49 @@ bool batch_scissor(const D3D11Renderer& renderer, UiRect clip, float pixel_scale
 
 // Where a pass's instances live: glyph instances [0, prefix) start at
 // prefix_base in the ring and the rest at suffix_base; paint and media keep
-// their whole stream at the buffer start (prefix ~0u).
+// their whole stream at the buffer start (prefix ~0u), except paint
+// [moved_first, moved_end) (stepped typing dots) at moved_base.
 struct RunTarget {
     D3D11Renderer* renderer;
     DrawSubmissionState* submission;
     DrawPipeline pipeline;
     u32 vertices, prefix, prefix_base, suffix_base;
+    u32 moved_first = 0, moved_end = 0, moved_base = 0;
 };
 
+void draw_instances(const RunTarget& target, u32 first, u32 end) noexcept {
+    D3D11Renderer* renderer = target.renderer;
+    auto* context = renderer->graphics.context;
+    if (first < end && first < target.prefix) {
+        context->DrawInstanced(target.vertices, minimum(end, target.prefix) - first, 0, target.prefix_base + first);
+        ++renderer->draw_calls_last_frame;
+    }
+    if (first < end && end > target.prefix) {
+        const u32 from = maximum(first, target.prefix);
+        context->DrawInstanced(target.vertices, end - from, 0, target.suffix_base + (from - target.prefix));
+        ++renderer->draw_calls_last_frame;
+    }
+}
+
 // One merged run: binds what its pipeline and scissor still need, then draws
-// it (a glyph run straddling the ring's retained prefix takes two calls).
+// it (a run straddling the glyph ring's retained prefix or moved paint takes
+// more calls).
 void draw_run(const RunTarget& target, const DrawRun& run) noexcept {
     if (run.end <= run.first)
         return;
     D3D11Renderer* renderer = target.renderer;
     select_pipeline(renderer, target.submission, target.pipeline);
     set_scissor(renderer, target.submission, run.scissor);
-    auto* context = renderer->graphics.context;
-    if (run.first < target.prefix) {
-        context->DrawInstanced(target.vertices, minimum(run.end, target.prefix) - run.first, 0,
-                               target.prefix_base + run.first);
-        ++renderer->draw_calls_last_frame;
+    if (run.first >= target.moved_end || run.end <= target.moved_first) {
+        draw_instances(target, run.first, run.end);
+        return;
     }
-    if (run.end > target.prefix) {
-        const u32 from = maximum(run.first, target.prefix);
-        context->DrawInstanced(target.vertices, run.end - from, 0, target.suffix_base + (from - target.prefix));
-        ++renderer->draw_calls_last_frame;
-    }
+    const u32 first = maximum(run.first, target.moved_first), end = minimum(run.end, target.moved_end);
+    draw_instances(target, run.first, first);
+    renderer->graphics.context->DrawInstanced(target.vertices, end - first, 0,
+                                              target.moved_base + (first - target.moved_first));
+    ++renderer->draw_calls_last_frame;
+    draw_instances(target, end, run.end);
 }
 
 // Continues `run` with [first, end) under `scissor`, or draws `run` first and
@@ -430,7 +446,18 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
         return true;
     }
     auto* context = renderer->graphics.context;
-    const RunTarget target{renderer, submission, DrawPipeline::paint, 6, ~0u, 0, 0};
+    const auto& dots = renderer->typing_dots;
+    const bool moved = dots.paint.quads && dots.gpu_first != dots.paint.first_quad;
+    const RunTarget target{renderer,
+                           submission,
+                           DrawPipeline::paint,
+                           6,
+                           ~0u,
+                           0,
+                           0,
+                           moved ? dots.paint.first_quad : 0,
+                           moved ? dots.paint.first_quad + dots.paint.quads : 0,
+                           dots.gpu_first};
     // The background effect draws over each canvas right after its base fill,
     // before the quads (and later text and media) that follow it.
     const bool effects = renderer->background_fx.source != BackgroundFxSource::none;
@@ -828,6 +855,31 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     // the retained paint copy when any of them changed.
     const float icon_weight = ui_icon_theme_weight(theme);
     upload_paint = upload_paint || icon_atlas_stale(renderer->icon_atlas, renderer->dpi, icon_weight);
+    // A typing dots step writes its quads past the stream's end in the
+    // instance buffer; once that tail is full the whole stream uploads again.
+    auto& dots = renderer->typing_dots;
+    const u32 dots_base = maximum(dots.ring_end, renderer->paint_stream.count);
+    upload_paint = upload_paint || (dots.upload_pending && (dots_base > renderer->pipeline.ui_instance_capacity ||
+                                                            renderer->pipeline.ui_instance_capacity - dots_base <
+                                                                dots.paint.quads));
+    if (!upload_paint && dots.upload_pending && renderer->pipeline.ui_instance_buffer) {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(renderer->graphics.context->Map(renderer->pipeline.ui_instance_buffer, 0,
+                                                   D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped)) ||
+            !mapped.pData) {
+            log_write(LogLevel::error, "render", "ui_instance_buffer_map_failed");
+            return false;
+        }
+        const usize bytes = static_cast<usize>(dots.paint.quads) * sizeof(PaintQuad);
+        CopyMemory(static_cast<PaintQuad*>(mapped.pData) + dots_base,
+                   renderer->paint_stream.quads + dots.paint.first_quad, bytes);
+        renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
+        dots.gpu_first = dots_base;
+        dots.ring_end = dots_base + dots.paint.quads;
+        dots.upload_pending = false;
+        ++dots.uploads;
+        renderer->paint_upload_bytes += bytes;
+    }
     if (upload_paint && renderer->paint_stream.count != 0) {
         const auto reserved =
             d3d11_draw_pipeline_reserve_ui_instances(&renderer->pipeline, renderer->graphics.device,
@@ -858,6 +910,9 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
         ++renderer->paint_instance_uploads;
         renderer->paint_upload_bytes += static_cast<u64>(renderer->paint_stream.count) * sizeof(PaintQuad);
+        dots.gpu_first = dots.paint.first_quad;
+        dots.ring_end = renderer->paint_stream.count;
+        dots.upload_pending = false;
     }
     if (renderer->paint_stream.count &&
         (!renderer->pipeline.ui_instance_buffer ||

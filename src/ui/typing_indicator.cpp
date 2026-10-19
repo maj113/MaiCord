@@ -44,18 +44,26 @@ void ui_typing_dots_geometry(UiRect row, u16 phase, UiTypingDot output[kUiTyping
         output[i] = {{cx - half, middle - half, cx + half, middle + half}, opacity};
     }
 }
+void ui_typing_dots_quads(UiRect row, Color color, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept {
+    UiTypingDot dots[kUiTypingDotCount];
+    ui_typing_dots_geometry(row, phase, dots);
+    for (u32 i = 0; i < kUiTypingDotCount; ++i) {
+        Color ink = color;
+        ink.alpha *= dots[i].opacity;
+        const UiRect& r = dots[i].rectangle;
+        // As paint_stream_push_rounded stores it.
+        const float radius = minimum(r.right - r.left, r.bottom - r.top) * .5f;
+        output[i] = {r.left, r.top, r.right, r.bottom, ink, ink, radius, 0, 0, 0};
+    }
+}
 bool ui_typing_dots_paint(PaintStream* paint, UiRect row, Color color, u16 phase) noexcept {
     if (!paint)
         return false;
-    UiTypingDot dots[kUiTypingDotCount];
-    ui_typing_dots_geometry(row, phase, dots);
-    for (const auto& dot : dots) {
-        Color ink = color;
-        ink.alpha *= dot.opacity;
-        const UiRect& r = dot.rectangle;
-        if (!paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, ink, (r.right - r.left) * .5f))
+    PaintQuad quads[kUiTypingDotCount];
+    ui_typing_dots_quads(row, color, phase, quads);
+    for (const auto& q : quads)
+        if (!paint_stream_push_rounded(paint, q.left, q.top, q.right, q.bottom, q.fill, q.radius))
             return false;
-    }
     return true;
 }
 bool ui_typing_dots_clock_tick(UiTypingDotsClock* clock, u64 now_ms, bool visible, bool animate) noexcept {

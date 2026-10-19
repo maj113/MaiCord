@@ -585,10 +585,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .caret(scene.caret_visible)
             .push(scene.typing_dots)
             .widgets(scene.widgets);
-        // A dots step repaints only their quads: outside the structure (paint
-        // diff damage) and the shell segment (drawn in the composer overlay).
-        const TimelineInputs timeline(&stamp);
-        s.push(stamp.structural ? 0u : scene.typing_phase);
+        // The dots' phase is not an input: a step patches their quads in the
+        // retained stream (renderer_step_typing_dots).
     }
     s.pointer(renderer.dm_profile_panel);
     if (!content_hidden && renderer.dm_profile_panel)
@@ -915,6 +913,56 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
     if (partial)
         ++diff.partial_rebuilds;
     return partial;
+}
+
+void renderer_record_typing_dots(D3D11Renderer* renderer, const UiTypingDotsPaint& paint) noexcept {
+    auto& dots = renderer->typing_dots;
+    dots.paint = paint;
+    dots.gpu_first = paint.first_quad;
+    dots.upload_pending = false;
+}
+
+bool renderer_typing_dots_pending(const D3D11Renderer& renderer) noexcept {
+    return renderer.typing_dots.paint.quads && renderer.message_composer_scene &&
+           renderer.message_composer_scene->typing_phase != renderer.typing_dots.paint.phase;
+}
+
+bool renderer_step_typing_dots(D3D11Renderer* renderer) noexcept {
+    auto& dots = renderer->typing_dots;
+    const UiTypingDotsPaint& p = dots.paint;
+    PaintStream& stream = renderer->paint_stream;
+    if (!renderer->message_composer_scene || p.quads != kUiTypingDotCount || p.first_quad > stream.count ||
+        stream.count - p.first_quad < kUiTypingDotCount)
+        return false;
+    // Full-size dots inside the clip: no phase culls one, so the count holds.
+    PaintQuad before[kUiTypingDotCount], after[kUiTypingDotCount];
+    ui_typing_dots_quads(p.row, p.color, kUiTypingDotsRest, after);
+    for (const auto& quad : after)
+        if (quad.left < p.clip.left || quad.top < p.clip.top || quad.right > p.clip.right ||
+            quad.bottom > p.clip.bottom)
+            return false;
+    PaintQuad* quads = stream.quads + p.first_quad;
+    ui_typing_dots_quads(p.row, p.color, p.phase, before);
+    if (!bytes_equal(quads, before, sizeof(before)))
+        return false;
+    const u16 phase = renderer->message_composer_scene->typing_phase;
+    ui_typing_dots_quads(p.row, p.color, phase, after);
+    const PresentationDamageRect clip{p.clip.left, p.clip.top, p.clip.right, p.clip.bottom};
+    for (u32 i = 0; i < kUiTypingDotCount; ++i)
+        if (!add_quad_damage(&renderer->presentation_damage, before[i].left, before[i].top, before[i].right,
+                             before[i].bottom, clip) ||
+            !add_quad_damage(&renderer->presentation_damage, after[i].left, after[i].top, after[i].right,
+                             after[i].bottom, clip))
+            presentation_damage_invalidate_full(&renderer->presentation_damage);
+    CopyMemory(quads, after, sizeof(after));
+    // The diff record mirrors the built stream: keep it equal to the screen.
+    RendererPaintDiff& diff = renderer->paint_diff;
+    if ((diff.valid || diff.pending) && diff.paint_count == stream.count)
+        CopyMemory(stable_storage_data<PaintQuad>(diff.paint_quads) + p.first_quad, after, sizeof(after));
+    dots.paint.phase = phase;
+    dots.upload_pending = true;
+    ++dots.steps;
+    return true;
 }
 
 void renderer_paint_diff_commit(D3D11Renderer* renderer) noexcept {

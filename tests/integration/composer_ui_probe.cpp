@@ -913,6 +913,133 @@ bool warm(u32 sample) noexcept {
     return valid;
 }
 
+// Typing dots steps: each patches the dots' three quads in the retained
+// stream, uploads only them and presents only their damage; the pixels match
+// a full rebuild at the same phase. Once the instance buffer's tail is spent,
+// a step uploads the whole stream once and the ring restarts.
+bool typing_dots_steps() noexcept {
+    auto& r = g_app.renderer;
+    auto& scene = g_app.message_composer_scene;
+    const auto& theme = fixture->theme;
+    fixture->typing = utf8_literal("Avery is typing…");
+    if (!project())
+        return false;
+    const auto* typing = message_composer_scene_layout_node(scene, MessageComposerControl::typing_indicator);
+    if (!require(typing && r.content_text && r.message_composer_scene == &scene &&
+                     message_composer_scene_typing_label(scene).bytes,
+                 240))
+        return false;
+    scene.typing_dots = true;
+    const auto full = [&]() noexcept {
+        presentation_damage_invalidate_full(&r.presentation_damage);
+        return probe_present(&r, theme);
+    };
+    const auto paint = [&]() noexcept {
+        return d3d11_renderer_paint_layout(&r, theme, renderer_capture_presentation_stamp(r, theme));
+    };
+    // The dots' box with the damage fringe, in pixels.
+    const float scale = r.dpi / 96.f;
+    const UiRect row = ui_typing_dots_row(typing->rectangle);
+    const float middle = (row.top + row.bottom) * .5f;
+    const RECT box{static_cast<LONG>((row.left - 2) * scale) - 1, static_cast<LONG>((middle - 5.5f) * scale) - 1,
+                   static_cast<LONG>((row.right + 2) * scale) + 2, static_cast<LONG>((middle + 5.5f) * scale) + 2};
+    // A full rebuild at the same phase draws the same pixels where the step drew.
+    const auto rebuild = [&](const ProbeTargetReadback& stepped) noexcept {
+        r.retained_presentation.valid = false;
+        presentation_damage_invalidate_full(&r.presentation_damage);
+        ProbeTargetReadback rebuilt{};
+        if (!paint() || probe_target_readback(r, &rebuilt) || stepped.width != rebuilt.width ||
+            stepped.height != rebuilt.height || box.left < 0 || box.top < 0 ||
+            static_cast<u32>(box.right) > rebuilt.width || static_cast<u32>(box.bottom) > rebuilt.height)
+            return false;
+        for (u32 y = static_cast<u32>(box.top); y < static_cast<u32>(box.bottom); ++y)
+            if (!bytes_equal(static_cast<const u8*>(stepped.mapped.pData) + y * stepped.mapped.RowPitch + box.left * 4,
+                             static_cast<const u8*>(rebuilt.mapped.pData) + y * rebuilt.mapped.RowPitch + box.left * 4,
+                             static_cast<u32>(box.right - box.left) * 4))
+                return false;
+        return true;
+    };
+    const auto next = [&]() noexcept {
+        scene.typing_phase = static_cast<u16>((scene.typing_phase + 1) % kUiTypingDotsPhases);
+    };
+    // Phase before the step, the warm-up step's phase, the stepped phase.
+    const u16 phases[][3]{{4, 3, 5}, {11, 10, 12}, {22, 21, 23}, {0, 1, kUiTypingDotsRest}, {kUiTypingDotsRest, 6, 7}};
+    for (const auto& phase : phases) {
+        scene.typing_phase = phase[0];
+        if (!require(full() && r.typing_dots.paint.quads == kUiTypingDotCount, 241))
+            return false;
+        // The first step after a full frame repaints what the other buffer missed.
+        scene.typing_phase = phase[1];
+        if (!require(probe_present(&r, theme), 242))
+            return false;
+        const u32 builds = r.paint_stream_builds, uploads = r.paint_instance_uploads,
+                  texts = r.content_text->rebuilds, text_uploads = r.text_instance_uploads,
+                  shell = r.shell_segment.builds + r.shell_segment.replays, steps = r.typing_dots.steps,
+                  dot_uploads = r.typing_dots.uploads;
+        const u64 bytes = r.paint_upload_bytes;
+        scene.typing_phase = phase[2];
+        ProbeTargetReadback stepped{};
+        if (!require(paint() && !probe_target_readback(r, &stepped), 243))
+            return false;
+        const RECT dirty = *r.present_dirty_rect.native();
+        log_u64(LogLevel::info, "composer_dots", "step_draws", r.draw_calls_last_frame);
+        log_u64(LogLevel::info, "composer_dots", "step_dirty_px",
+                static_cast<u64>(dirty.right - dirty.left) * static_cast<u64>(dirty.bottom - dirty.top));
+        if (!require(r.paint_stream_builds == builds && r.paint_instance_uploads == uploads &&
+                         r.content_text->rebuilds == texts && r.text_instance_uploads == text_uploads &&
+                         r.shell_segment.builds + r.shell_segment.replays == shell &&
+                         r.typing_dots.steps == steps + 1 && r.typing_dots.uploads == dot_uploads + 1 &&
+                         r.paint_upload_bytes == bytes + kUiTypingDotCount * sizeof(PaintQuad),
+                     244))
+            return false;
+        if (!require(r.present_required && !r.present_full && dirty.left >= box.left && dirty.top >= box.top &&
+                         dirty.right <= box.right && dirty.bottom <= box.bottom && dirty.right > dirty.left,
+                     245))
+            return false;
+        if (!require(rebuild(stepped) && r.paint_stream_builds == builds + 1, 246))
+            return false;
+        // Presents the rebuilt frame; nothing moves, so nothing presents after it.
+        const u32 skips = r.unchanged_present_skips;
+        if (!require(probe_present(&r, theme) && probe_present(&r, theme) && r.unchanged_present_skips == skips + 1,
+                     247))
+            return false;
+    }
+    // Steps fill the instance buffer's tail three quads at a time, then one
+    // full upload restarts the ring; the stream is never rebuilt.
+    if (!require(full() && full(), 248))
+        return false;
+    const u32 builds = r.paint_stream_builds, uploads = r.paint_instance_uploads,
+              dot_uploads = r.typing_dots.uploads;
+    const u32 room = (r.pipeline.ui_instance_capacity - r.paint_stream.count) / kUiTypingDotCount;
+    u32 steps = 0;
+    while (r.paint_instance_uploads == uploads && steps <= room) {
+        next();
+        if (!require(paint(), 249))
+            return false;
+        ++steps;
+    }
+    log_u64(LogLevel::info, "composer_dots", "ring_steps", steps);
+    if (!require(steps == room + 1 && r.paint_instance_uploads == uploads + 1 &&
+                     r.typing_dots.uploads == dot_uploads + room && r.paint_stream_builds == builds &&
+                     r.typing_dots.gpu_first == r.typing_dots.paint.first_quad && full() && full(),
+                 250))
+        return false;
+    // Steps after the restart draw from the ring again and match a rebuild.
+    next();
+    if (!require(probe_present(&r, theme), 251))
+        return false;
+    next();
+    ProbeTargetReadback wrapped{};
+    if (!require(paint() && r.typing_dots.gpu_first == r.paint_stream.count + kUiTypingDotCount &&
+                     !probe_target_readback(r, &wrapped) && rebuild(wrapped) && probe_present(&r, theme),
+                 252))
+        return false;
+    scene.typing_dots = false;
+    scene.typing_phase = kUiTypingDotsRest;
+    fixture->typing = {};
+    return project() && full();
+}
+
 // Spelling squiggles: a synthetic misspelling span paints danger-token quads
 // under the word inside the edit box (no spell checker involved).
 bool spelling_marks() noexcept {
@@ -1073,6 +1200,8 @@ bool scenarios() noexcept {
                      fixture->timestamp_pixel_proofs == 12 && fixture->clipped_timestamp_headers == 1,
                  13))
         return false;
+    if (!require(typing_dots_steps(), 15))
+        return false;
     log_u64(LogLevel::info, "composer_native", "unexpected_completions", fixture->unexpected_completions);
     log_u64(LogLevel::info, "composer_native", "attachment_queue_notices",
             fixture->attachment_queue_notices);
@@ -1089,6 +1218,7 @@ bool scenarios() noexcept {
     log_write(LogLevel::info, "probe", "composer_native_queue_only_unexpected_completion_zero");
     log_write(LogLevel::info, "probe", "composer_native_compact160_wrapped_controls_cancelled_send_passed");
     log_write(LogLevel::info, "probe", "composer_native_compact160_measured_timestamp_clipped");
+    log_write(LogLevel::info, "probe", "composer_native_typing_dots_steps_patch_retained_stream_passed");
     return true;
 }
 } // namespace composer_probe_detail

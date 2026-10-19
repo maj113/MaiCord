@@ -36,8 +36,18 @@ void ui_typing_dot_pose(u32 index, u16 phase, float* scale, float* opacity) noex
 UiRect ui_typing_dots_row(UiRect row) noexcept;
 // The dots left-aligned in `row`, vertically centred.
 void ui_typing_dots_geometry(UiRect row, u16 phase, UiTypingDot output[kUiTypingDotCount]) noexcept;
+// The dots' paint quads, as ui_typing_dots_paint pushes them.
+void ui_typing_dots_quads(UiRect row, Color, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept;
 // Always kUiTypingDotCount quads, whatever the phase.
 bool ui_typing_dots_paint(PaintStream*, UiRect row, Color, u16 phase) noexcept;
+// Where a frame painted animated dots, so a step can patch their quads in
+// place: first_quad of `quads` under `clip`, painted at `phase`.
+struct UiTypingDotsPaint {
+    UiRect row, clip;
+    Color color;
+    u32 first_quad, quads;
+    u16 phase;
+};
 // Host frame clock: each presented frame ticks it once with whether a typing
 // line is on screen and may animate. Animating dots get their phase and the
 // next step's deadline; anything else rests and disarms it, so idle typing

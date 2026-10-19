@@ -948,6 +948,7 @@ bool shell_segment_replay(D3D11Renderer* renderer, u64 key, float width_dip, flo
 
 bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                   const RendererPresentationStamp* stamp = nullptr, bool replay_shell = false) noexcept {
+    renderer_record_typing_dots(renderer, {});
     renderer->theme_editor_paint_first_batch = renderer->theme_editor_paint_end_batch = 0;
     renderer->quick_switcher_status_first_batch = renderer->quick_switcher_status_end_batch = 0;
     renderer->settings_page_paint_first_batch = renderer->settings_page_paint_end_batch = 0;
@@ -1924,10 +1925,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !paint_stream_push_focus(&renderer->paint_stream, *focus_owner, theme.tokens.border.focus))
         return layout_step_failed(__LINE__);
     renderer->edit_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    UiTypingDotsPaint typing_dots{};
     if (!content_hidden &&
         !shell_presentation_build_composer_overlay(renderer->message_composer_scene, composer_presentation,
-                                                   theme, &renderer->paint_stream, renderer->dpi))
+                                                   theme, &renderer->paint_stream, renderer->dpi, &typing_dots))
         return layout_step_failed(__LINE__);
+    renderer_record_typing_dots(renderer, typing_dots);
     renderer->overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     // Call view: background and tile plates lead the side-panel layer; its
     // media and foreground (pills, rings, controls) follow below.
@@ -2725,9 +2728,12 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->present_logical_damage_full = false;
     renderer->present_logical_damage_rect = {};
     bool media_source_changed = false;
-    const bool retained = (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
-                          renderer_presentation_stamp_equal(*stamp, renderer->retained_presentation) &&
-                          refresh_media_quad_sources(renderer, &media_source_changed);
+    bool retained = (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
+                    renderer_presentation_stamp_equal(*stamp, renderer->retained_presentation) &&
+                    refresh_media_quad_sources(renderer, &media_source_changed);
+    // A typing dots step patches the retained stream; one it cannot take rebuilds.
+    if (retained && renderer_typing_dots_pending(*renderer) && !renderer_step_typing_dots(renderer))
+        retained = false;
     if (!retained) {
         // Consecutive rejected builds; logged once per power of two with the
         // stream's bounds, so a capacity overflow names itself without

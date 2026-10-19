@@ -1026,16 +1026,26 @@ UiRect caret_pixel_rectangle(UiRect caret, UiRect clip, u32 dpi) noexcept {
 }
 bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene,
                                                const MessageComposerPresentationInput& input,
-                                               const Theme& theme, PaintStream* paint, u32 dpi) noexcept {
-    // Typing dots: always three quads, so a step changes only their geometry
-    // and the renderer limits its damage to them.
+                                               const Theme& theme, PaintStream* paint, u32 dpi,
+                                               UiTypingDotsPaint* dots) noexcept {
+    if (dots)
+        *dots = {};
+    // Typing dots: always three quads, so a step patches only their geometry
+    // (renderer_step_typing_dots).
     if (scene && scene->active && scene->typing_dots && message_composer_scene_typing_label(*scene).bytes) {
         const auto* typing = message_composer_scene_layout_node(*scene, MessageComposerControl::typing_indicator);
+        const UiRect row = typing ? ui_typing_dots_row(typing->rectangle) : UiRect{};
+        const u32 first = paint ? paint->count : 0;
         if (typing && (!paint_stream_push_clip(paint, typing->rectangle.left, typing->rectangle.top,
                                                typing->rectangle.right, typing->rectangle.bottom) ||
-                       !ui_typing_dots_paint(paint, ui_typing_dots_row(typing->rectangle), theme.text_primary,
-                                             scene->typing_phase) ||
-                       !paint_stream_pop_clip(paint)))
+                       !ui_typing_dots_paint(paint, row, theme.text_primary, scene->typing_phase)))
+            return false;
+        if (typing && dots) {
+            const PaintClip& clip = paint->clips[paint->clip_stack[paint->clip_depth - 1]];
+            *dots = {row, {clip.left, clip.top, clip.right, clip.bottom}, theme.text_primary, first,
+                     paint->count - first, scene->typing_phase};
+        }
+        if (typing && !paint_stream_pop_clip(paint))
             return false;
     }
     // Spelling marks stay visible without focus; the caret needs it.

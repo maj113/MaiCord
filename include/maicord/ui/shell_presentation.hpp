@@ -3,6 +3,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/scene.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 
 namespace maicord {
 struct GuildRailScene;
@@ -20,8 +21,11 @@ UiRect caret_pixel_rectangle(UiRect caret, UiRect clip, u32 dpi) noexcept;
 // The reply bar's mention switch (no button box): tinted @ icon and divider.
 bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, const Theme& theme,
                                             PaintStream* stream) noexcept;
+// `dots`, when given, receives where animated typing dots were painted
+// (quads 0 when none were).
 bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene,
-    const MessageComposerPresentationInput& input, const Theme& theme, PaintStream* paint, u32 dpi) noexcept;
+    const MessageComposerPresentationInput& input, const Theme& theme, PaintStream* paint, u32 dpi,
+    UiTypingDotsPaint* dots = nullptr) noexcept;
 
 // A nonzero visual selection only changes the sidebar location highlight.
 // Navigation admission and composer permissions still use their ordinary owners.
