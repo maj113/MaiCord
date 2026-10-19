@@ -163,6 +163,11 @@ bool chips(const UiSettingsPageContent& content, u32 index) noexcept {
     return c.kind == UiSettingsControlKind::action && c.choices.data && c.choices.count && c.choices.count <= 16 &&
            !list_item(content, index);
 }
+// Action rows with a meter level show it as a progress bar (thousandths).
+bool progress(const UiSettingsPageContent& content, u32 index) noexcept {
+    return content.controls[index].kind == UiSettingsControlKind::action && content.meters &&
+           content.meters[index] != kUiSettingsNoMeter && !list_item(content, index);
+}
 float button_label_width(Utf8View label) noexcept {
     return ui_settings_text_width(label, kUiSettingsDescriptionEm) * 1.08f;
 }
@@ -444,6 +449,12 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
         r.chips = {text_left, content_top + text_height + 8, text_left + text_width,
                    content_top + text_height + 8 + height};
         text_height += 8 + height;
+    }
+    if (progress(content, index)) {
+        // The progress bar runs under the text, as wide as it.
+        const float bar_top = content_top + text_height + m.field_gap;
+        r.value = {text_left, bar_top, text_left + text_width, bar_top + m.slider_bar};
+        text_height += m.field_gap + m.slider_bar;
     }
     const bool avatar = c.kind == UiSettingsControlKind::action &&
                         has_flag(content, index, ui_settings_presentation_avatar);
@@ -2554,6 +2565,16 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             if (ui_rect_has_area(chip))
                 ok = ui_admin_chip_paint(paint, t, chip, dot, has_dot, c.enabled ? 1.f : .5f);
         }
+    }
+    if (ok && progress(scene.content, index) && ui_rect_has_area(r.value)) {
+        const float level = static_cast<float>(minimum<u16>(scene.content.meters[index], 1000)) / 1000.f;
+        const float radius = ui_rect_height(r.value) * .5f;
+        ok = paint_stream_push_rounded(paint, r.value.left, r.value.top, r.value.right, r.value.bottom, tc.slider_track,
+                                       radius);
+        if (ok && level > 0)
+            ok = paint_stream_push_rounded(paint, r.value.left, r.value.top,
+                                           maximum(r.value.left + radius * 2, r.value.left + ui_rect_width(r.value) * level),
+                                           r.value.bottom, tc.brand, radius);
     }
     // Rows inside one category are separated by hairline dividers; sections
     // end with a divider halfway through their trailing space.

@@ -303,7 +303,7 @@ int application_run() noexcept {
     application_request_frame();
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     application_updates_confirm_startup();
-    application_updates_initialize(application_update_build_config());
+    application_updates_initialize(application_update_build_config(), application_update_build_commit());
     application_plugin_browser_initialize();
 #endif
 

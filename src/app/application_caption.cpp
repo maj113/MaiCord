@@ -392,7 +392,7 @@ UiCaptionBarState application_caption_state() noexcept {
             g_caption.pressed,
             g_caption.active,
             g_caption.maximized,
-            application_update_badge(updates.state),
+            application_update_badge(updates),
             g_app.login.visible,
             application_update_progress(updates),
             to_dips(static_cast<i32>(g_caption.side_frame), window_dpi(g_app.window)),

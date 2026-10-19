@@ -190,6 +190,7 @@ Utf8View ui_caption_bar_part_name(UiCaptionPart part, const UiCaptionBarState& s
         return state.update == UiCaptionUpdate::ready         ? utf8_literal("Restart to update")
                : state.update == UiCaptionUpdate::installing  ? utf8_literal("Installing update")
                : state.update == UiCaptionUpdate::downloading ? utf8_literal("Downloading update")
+               : state.update == UiCaptionUpdate::failed      ? utf8_literal("Couldn't update")
                                                               : Utf8View{};
     case UiCaptionPart::settings:
         return state.settings ? utf8_literal("Settings") : Utf8View{};
@@ -274,12 +275,14 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
             (lit && !push_fill(r, pressed ? tokens.pressed : tokens.hover)))
             return false;
         const UiRect box = item_box(r);
-        if (!ui_icon_paint(paint, UiIcon::download, box,
-                           ready ? tokens.badge_ready
-                           : lit ? tokens.icon_hover
-                                 : idle))
+        const bool failed = state.update == UiCaptionUpdate::failed;
+        if (!ui_icon_paint(paint, failed ? UiIcon::warning : UiIcon::download, box,
+                           ready    ? tokens.badge_ready
+                           : failed ? theme.tokens.text.danger
+                           : lit    ? tokens.icon_hover
+                                    : idle))
             return false;
-        if (!ready) {
+        if (!ready && !failed) {
             // Progress under the icon; installing has no measure and fills it.
             const float gap = theme.scale.space_1;
             const float top = snap(box.bottom + gap, pixel_scale);

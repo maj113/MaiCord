@@ -1,5 +1,6 @@
 #include "probe_present.hpp"
 #include "settings_catalog.hpp"
+#include "application_updates.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/render/text_form_surface.hpp"
 #include "maicord/ui/settings_scene.hpp"
@@ -7,6 +8,9 @@
 #include "maicord/core/log.hpp"
 
 namespace maicord {
+namespace app_detail {
+void application_settings_refresh_pages() noexcept {}
+} // namespace app_detail
 namespace {
 // The real catalog pages and sidebar with fixture values, projected the way
 // the settings host shows them before live values arrive, plus a gallery of
@@ -19,6 +23,8 @@ struct Fixture {
     UiSettingsPageContent contents[kSettingsPanelCount + 1];
     UiSettingsControl controls[kSettingsPanelCount + 1][kRows];
     UiSettingsControlPresentation looks[kSettingsPanelCount + 1][kRows];
+    UiSettingsListItem update_items[kRows];
+    u16 update_meters[kRows];
     UiSettingsEditor editors[2];
     UiEditGeometry geometries[2];
     UiPageRegistry registry;
@@ -94,6 +100,83 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding), &value))
             c.selected_choice = value.choice;
         ++count;
+    }
+    return count;
+}
+
+// The Updates page as application_updates projects it: a preview build that
+// is downloading a newer master build, with the commits since this build.
+struct UpdatesFixture {
+    app_detail::ApplicationUpdatesView view;
+    app_detail::ApplicationUpdatesText text[8];
+    app_detail::ApplicationUpdatesChangelogRows rows;
+    UpdateChangelog log;
+};
+UpdatesFixture g_updates;
+u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks, UiSettingsListItem* items,
+                    u16* meters) noexcept {
+    auto& u = g_updates;
+    auto& v = u.view;
+    v = {};
+    v.state = app_detail::ApplicationUpdateState::downloading;
+    v.channel = UpdateChannel::preview;
+    v.own_version = update_version_number(0, 3, 4, 12);
+    copy_bytes(v.own_commit, "4d1c9a2", 7);
+    v.offer_version = update_version_number(0, 3, 4, 17);
+    copy_bytes(v.offer_commit, "9be03f1", 7);
+    v.offer_bytes = 8598323;
+    v.offer_date = 1792406289;
+    v.total = v.offer_bytes;
+    v.received = v.offer_bytes / 100 * 62;
+    v.changelog_revision = 1;
+    constexpr const char* subjects[]{"Show the release date and size of an available update",
+                                     "Keep scroll position when a channel reloads",
+                                     "Fix the emoji picker losing focus after a search",
+                                     "Draw thread previews with their author colour",
+                                     "Halve memory used by cached member lists",
+                                     "Reconnect voice after the network changes"};
+    u.log = {};
+    u.log.channel = UpdateChannel::preview;
+    u.log.version = v.offer_version;
+    u.log.base = update_version_number(0, 3, 3, 0);
+    for (u32 i = 0; i < 6; ++i) {
+        auto& e = u.log.entries[u.log.count++];
+        e.version = v.offer_version - i;
+        e.date_unix_seconds = 1792406289 - i * 43200;
+        e.text_offset = u.log.text_bytes;
+        while (subjects[i][e.text_bytes])
+            ++e.text_bytes;
+        copy_bytes(u.log.text + u.log.text_bytes, subjects[i], e.text_bytes);
+        u.log.text_bytes += e.text_bytes;
+    }
+    app_detail::application_updates_changelog_build(v, u.log, &u.rows);
+    const u32 panel = static_cast<u32>(SettingsPanel::updates);
+    const auto& nodes = settings_catalog_panel(SettingsPanel::updates).nodes;
+    u32 count = 0;
+    for (u32 i = 0; i < nodes.count && count < kRows; ++i) {
+        const auto& n = nodes[i];
+        auto& c = out[count];
+        c = {settings_control_id(panel, i), n.label, n.description, n.kind, true, false, n.choices, 0, n.action_label,
+             nullptr};
+        looks[count] = {static_cast<UiSettingsVariant>(n.variant), 0, kUiSettingsNoDefault};
+        items[count] = {};
+        meters[count] = kUiSettingsNoMeter;
+        const auto binding = static_cast<SettingBinding>(n.binding);
+        if (binding == SettingBinding::update_changelog) {
+            if (!app_detail::application_updates_changelog_heading(u.rows, &c, &items[count]))
+                continue;
+            ++count;
+            const u32 rows = app_detail::application_updates_changelog_project(u.rows, {out + count, kRows - count},
+                                                                               {looks + count, kRows - count});
+            for (u32 r = 0; r < rows; ++r) {
+                items[count + r] = app_detail::application_updates_changelog_item(u.rows, r);
+                meters[count + r] = kUiSettingsNoMeter;
+            }
+            count += rows;
+            continue;
+        }
+        if (app_detail::application_updates_project_view(v, binding, &u.text[i % 8], &c, &looks[count], &meters[count]))
+            ++count;
     }
     return count;
 }
@@ -191,6 +274,12 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         const u32 count = project_panel(panel, f.controls[panel], f.looks[panel]);
         f.contents[panel] = {source.title, {}, {f.controls[panel], count}, 1};
         f.contents[panel].presentation = f.looks[panel];
+        if (panel == static_cast<u32>(SettingsPanel::updates)) {
+            f.contents[panel].controls = {f.controls[panel],
+                                          project_updates(f.controls[panel], f.looks[panel], f.update_items, f.update_meters)};
+            f.contents[panel].list_items = f.update_items;
+            f.contents[panel].meters = f.update_meters;
+        }
         valid = ui_page_registry_register(&f.registry,
                                           {{kSettingsNativeOwner, panel + 1u}, source.title, &f.contents[panel]})
                     .ok();
@@ -237,6 +326,9 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     if (valid)
         stage = __LINE__;
     valid = valid && show(f, renderer, page(SettingsPanel::voice), viewport, L"user-settings-voice.bmp", capture);
+    if (valid)
+        stage = __LINE__;
+    valid = valid && show(f, renderer, page(SettingsPanel::updates), viewport, L"user-settings-updates.bmp", capture);
     // The gallery with keyboard focus on its first switch, then scrolled to
     // the swatches with focus on them.
     if (valid)

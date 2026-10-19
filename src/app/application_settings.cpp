@@ -286,6 +286,8 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
                      static_cast<u8>(node.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
                      node.default_choice < kUiSettingsNoDefault ? static_cast<u16>(node.default_choice)
                                                                 : kUiSettingsNoDefault};
+    if (binding == SettingBinding::update_changelog)
+        return application_updates_project(binding, control, presentation);
     if (node.kind == UiSettingsControlKind::category)
         return !(node.flags & ui_settings_schema_dynamic) || custom.revision != 0;
     if (application_desktop_settings_project(binding, control))
@@ -381,6 +383,8 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     case SettingBinding::update_channel:
     case SettingBinding::update_rollback:
     case SettingBinding::update_notice:
+    case SettingBinding::update_problem:
+    case SettingBinding::update_available:
         return application_updates_project(binding, control, presentation);
     default:
         return true;
@@ -420,6 +424,9 @@ u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSet
             if (binding == SettingBinding::registered_games)
                 count += application_activity_settings_list({controls + count, capacity - count},
                                                             {presentation + count, capacity - count});
+            if (binding == SettingBinding::update_changelog)
+                count += application_updates_settings_list({controls + count, capacity - count},
+                                                           {presentation + count, capacity - count});
         }
     // A category left without rows (every dynamic row hidden) is dropped.
     u32 kept = 0;
@@ -511,6 +518,7 @@ void project(ApplicationSettings& settings) noexcept {
             settings.content[i].presentation = nullptr;
             settings.content[i].meters = nullptr;
             settings.content[i].avatar_media = nullptr;
+            settings.content[i].list_items = nullptr;
         }
         settings.native_page = native;
         application_voice_settings_visible(native == static_cast<u32>(SettingsPanel::voice) + 1);
@@ -562,6 +570,34 @@ void project(ApplicationSettings& settings) noexcept {
         settings.content[kPluginsPage - 1].controls = {settings.controls, plugin_count};
         settings.content[kPluginsPage - 1].presentation = nullptr;
         settings.content[kPluginsPage - 1].avatar_media = nullptr;
+    } else if (native == static_cast<u32>(SettingsPanel::updates) + 1 && application_updates_settings_bank()) {
+        // Updates borrows its own bank for the changelog rows, with their
+        // table decorations and the download's progress meter.
+        auto& page = changed[native - 1];
+        auto& content = settings.content[native - 1];
+        auto& bank = *application_updates_settings_bank();
+        const u32 count = project_panel(settings, native - 1, &page, bank.controls, bank.presentation,
+                                        kApplicationUpdatesSettingsRows);
+        UiSettingsSchemaLocation location{};
+        const u64 heading = settings_catalog_binding(SettingBinding::update_changelog, &location)
+                                ? settings_control_id(location.panel, location.node)
+                                : 0;
+        const u64 available = settings_catalog_binding(SettingBinding::update_available, &location)
+                                  ? settings_control_id(location.panel, location.node)
+                                  : 0;
+        for (u32 i = 0; i < count; ++i) {
+            const u64 id = bank.controls[i].id;
+            const auto item = application_updates_list_item(id, id == heading);
+            page = page || item.style != bank.items[i].style;
+            bank.items[i] = item;
+            bank.meters[i] = id == available ? application_updates_meter() : kUiSettingsNoMeter;
+        }
+        page = page || content.controls.count != count || content.controls.data != bank.controls;
+        content.controls = {bank.controls, count};
+        content.presentation = bank.presentation;
+        content.list_items = bank.items;
+        content.meters = bank.meters;
+        content.avatar_media = nullptr;
     } else if (native == static_cast<u32>(SettingsPanel::keybinds) + 1) {
         // Keybinds borrows its own bank, sized for every default shortcut.
         auto& page = changed[native - 1];
@@ -1202,6 +1238,8 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
                                                                               request.selected_choice));
     if (application_activity_settings_row(target.control_id))
         return settled(*settings, application_activity_settings_activate_row(target.control_id));
+    if (application_updates_changelog_row(target.control_id))
+        return false;
     if (target.control_id >= kSettingsListFirst && target.control_id < kSettingsListFirst + 0x10000)
         return settled(*settings, application_account_settings_activate_row(target.control_id));
     SettingBinding binding{};

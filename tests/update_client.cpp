@@ -1,17 +1,18 @@
-// Manual extension: MAICORD_UPDATE_REPLAY_DIR=<published files> (and MAICORD_UPDATE_REPLAY_OWN=<version>)
-// replays a published update offline.
-// Updater client: version derivation, update locations (Pages manifests,
-// versioned release packages), the fetch state machine and the HTTP response
-// reader against fakes, updater logging, the full check/install pipeline into
-// a temporary generation root with a throwaway publisher key, rollback, and
-// the Settings rows. Nothing here contacts the network.
+// Updater client: version derivation and channel rules, update locations
+// (Pages manifests and changelogs, release and Pages packages), the fetch
+// state machine and the HTTP response reader against fakes, updater logging,
+// the full check/install pipeline into a temporary generation root with a
+// throwaway publisher key, rollback, the Settings rows and changelog
+// sections, and an offline replay of a synthetic preview build. Nothing here
+// contacts the network.
 //
-// Offline replay of published release files: set MAICORD_UPDATE_REPLAY_DIR to
-// a directory holding maicord-<channel>.manifest.json, its .sig,
-// MaiCord-x64-<version>.zip and public-key.txt (the 130-digit hex point), and
-// optionally MAICORD_UPDATE_REPLAY_OWN to the installed version number
-// (default 1000999, v0.1.0). The pipeline then runs against those exact bytes
-// and prints every updater log line.
+// Offline replay of published files: set MAICORD_UPDATE_REPLAY_DIR to a
+// directory holding maicord-<channel>.manifest.json, its .sig, optionally
+// maicord-<channel>.changelog.json and its .sig, MaiCord-x64-<version>.zip and
+// public-key.txt (the 130-digit hex point), and optionally
+// MAICORD_UPDATE_REPLAY_OWN to the installed version number (default 1000999,
+// v0.1.0). The pipeline then runs against those exact bytes and prints every
+// updater log line.
 #include "maicord/app/update_service.hpp"
 #include "maicord/app/update_https.hpp"
 #include "maicord/app/update_log.hpp"
@@ -88,7 +89,7 @@ struct Route {
     u32 hits;
 };
 struct Fake {
-    Route routes[12];
+    Route routes[16];
     u32 count, requests, wrong_host;
     const char* origin; // the Pages or provider host this fake serves
 };
@@ -156,6 +157,20 @@ void test_versions() noexcept {
     const u32 stable = update_version_text(1002003999, {buffer, sizeof(buffer)});
     check(same({buffer, stable}, "1.2.3") && same({buffer, update_version_text(1002003004, {buffer, sizeof(buffer)})}, "1.2.3-preview.4") &&
         !update_version_text(1002003999, {buffer, 4}), "update versions: display text round-trips tags and refuses short output");
+    // Master builds number the commits after the last stable release under the
+    // next version: 1.2.3 < 1.2.4-dev.1 < 1.2.4-dev.998 < 1.2.4 < 1.2.5-dev.1.
+    const u64 ordered[]{update_version_number(1, 2, 3, 0), update_version_number(1, 2, 4, 1), update_version_number(1, 2, 4, 998),
+        update_version_number(1, 2, 4, 0), update_version_number(1, 2, 5, 1), update_version_number(1, 3, 0, 0)};
+    bool ascending = true;
+    for (u32 i = 1; i < sizeof(ordered) / sizeof(ordered[0]); ++i) ascending = ascending && ordered[i - 1] < ordered[i];
+    check(ascending && update_version_channel(ordered[1]) == UpdateChannel::preview &&
+        update_version_channel(ordered[3]) == UpdateChannel::stable,
+        "update versions: dev builds sort between the stable releases around them and select the preview channel");
+    check(same({buffer, update_build_version_text(1002004005, utf8_literal("abc1234"), {buffer, sizeof(buffer)})}, "1.2.4-dev.5+abc1234") &&
+        same({buffer, update_build_version_text(1002003999, {}, {buffer, sizeof(buffer)})}, "1.2.3") &&
+        same({buffer, update_build_version_text(1002003999, utf8_literal("abc1234"), {buffer, sizeof(buffer)})}, "1.2.3+abc1234") &&
+        !update_build_version_text(1002004005, utf8_literal("abc1234"), {buffer, 12}),
+        "update versions: builds read as X.Y.Z or X.Y.Z-dev.N with their commit");
     UpdateServiceConfig config{};
     constexpr char key[] = "04"
         "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
@@ -187,17 +202,21 @@ void test_locations() noexcept {
     check(update_asset_location(utf8_literal("Maj113/MaiCord"), UpdateChannel::stable, UpdateAsset::manifest, 0, &l) &&
             same_location(l, UpdateHost::pages, "maj113.github.io", "/MaiCord/updates/maicord-stable.manifest.json") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::signature, 0, &l) &&
-            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/maicord-preview.manifest.json.sig"),
-        "update locations: channel manifests and signatures come from the repository's Pages site");
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/preview/maicord-preview.manifest.json.sig") &&
+          update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::changelog, 0, &l) &&
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/maicord-stable.changelog.json") &&
+          update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::changelog_signature, 0, &l) &&
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/preview/maicord-preview.changelog.json.sig"),
+        "update locations: manifests, changelogs and signatures come from the Pages site; preview has its own feed");
     check(update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1002003999, &l) &&
             same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3/MaiCord-x64-1002003999.zip") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::package, 1002003004, &l) &&
-            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3-preview.4/MaiCord-x64-1002003004.zip") &&
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/preview/MaiCord-x64-1002003004.zip") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::package, 1002003999, &l) &&
             same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3/MaiCord-x64-1002003999.zip") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1001999, &l) &&
             same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v0.1.1/MaiCord-x64-1001999.zip"),
-        "update locations: packages come from the immutable release whose tag the signed version names");
+        "update locations: stable packages come from their release, master builds from the preview feed on Pages");
     check(!update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1002003000, &l) &&
           !update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 0, &l) &&
           !update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1000000000999ull, &l) &&
@@ -429,6 +448,124 @@ void test_http_reader() noexcept {
         "update http: a redirect records its Location and never delivers its body");
 }
 
+// The available-update row: version with commit, progress, chips, meter.
+void test_offer_rows() noexcept {
+    using namespace app_detail;
+    ApplicationUpdatesView v{};
+    v.own_version = update_version_number(0, 3, 3, 0);
+    v.channel = UpdateChannel::preview;
+    ApplicationUpdatesText text{}; UiSettingsControl c{}; UiSettingsControlPresentation p{}; u16 meter = 0;
+    const auto row = [&](SettingBinding b) noexcept {
+        c = {}; c.kind = UiSettingsControlKind::action; p = {}; meter = 0;
+        return application_updates_project_view(v, b, &text, &c, &p, &meter);
+    };
+    v.state = ApplicationUpdateState::up_to_date;
+    check(!row(SettingBinding::update_available) && !row(SettingBinding::update_problem),
+        "update settings: no offer, no available row or problem notice");
+    v.state = ApplicationUpdateState::downloading;
+    v.offer_version = update_version_number(0, 3, 4, 16); v.offer_bytes = 8388608; v.offer_date = 1760000100;
+    copy_bytes(v.offer_commit, "581fd44", 7);
+    v.received = 4194304; v.total = 8388608;
+    check(row(SettingBinding::update_available) && same(c.label, "MaiCord 0.3.4-dev.16+581fd44") &&
+        same(c.description, "Downloading 4.0 MB of 8.0 MB…") && meter == 500 && c.choices.count == 4 &&
+        same(c.choices[0], "Preview build") && same(c.choices[1], "Built Oct 9, 2025") && same(c.choices[2], "8.0 MB") &&
+        same(c.choices[3], "Signature verified") && !c.action_label.bytes,
+        "update settings: a preview offer shows its build, size, date, verification and download progress");
+    v.state = ApplicationUpdateState::installing;
+    check(row(SettingBinding::update_available) && meter == 1000 && contains(c.description, "installing"),
+        "update settings: installing fills the progress bar");
+    v.state = ApplicationUpdateState::ready; v.ready_version = v.offer_version;
+    check(row(SettingBinding::update_available) && meter == kUiSettingsNoMeter &&
+        same(c.description, "Downloaded and verified. Restart MaiCord to finish."),
+        "update settings: a ready update reads as verified with no bar");
+    v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::unavailable;
+    check(row(SettingBinding::update_available) && contains(c.description, "tries again") && row(SettingBinding::update_problem) &&
+        same(c.description, "The update's download isn't available yet. MaiCord will try again later."),
+        "update settings: a failed download keeps the offer and explains the error");
+    v.state = ApplicationUpdateState::up_to_date; v.ready_version = 0;
+    v.offer_version = update_version_number(0, 3, 4, 0); v.offer_commit[0] = 0;
+    check(row(SettingBinding::update_available) && same(c.label, "MaiCord 0.3.4") && same(c.choices[0], "Stable release") &&
+        same(c.choices[1], "Released Oct 9, 2025"), "update settings: a stable offer names its release date");
+    v.offer_version = v.own_version;
+    check(!row(SettingBinding::update_available), "update settings: an offer no newer than this build is not shown");
+    v.channel = UpdateChannel::stable; v.own_version = update_version_number(0, 3, 4, 2); copy_bytes(v.own_commit, "abcdef0", 7);
+    check(row(SettingBinding::update_channel) && c.selected_choice == 0 &&
+        contains(c.description, "stays installed until a newer stable release"),
+        "update settings: switching a preview build to stable explains when it moves");
+    check(row(SettingBinding::update_status) && same(c.description, "MaiCord 0.3.4-dev.2+abcdef0, stable channel."),
+        "update settings: the status names this build with its commit");
+    v.channel = UpdateChannel::preview;
+    check(row(SettingBinding::update_channel) && contains(c.description, "Every master build that passes CI"),
+        "update settings: the preview channel says what it delivers");
+}
+
+UpdateChangelog g_log;
+void log_entry(u64 version, u64 date, const char* text, const char* commit = nullptr) noexcept {
+    auto& e = g_log.entries[g_log.count++];
+    e = {};
+    e.version = version; e.date_unix_seconds = date;
+    e.text_offset = g_log.text_bytes; e.text_bytes = length8(text);
+    copy_bytes(g_log.text + g_log.text_bytes, text, e.text_bytes);
+    g_log.text_bytes += e.text_bytes;
+    if (commit) { copy_bytes(e.commit, commit, 40); e.has_commit = true; }
+}
+// "What's new": preview commit tables, stable release notes, and notes about
+// what is not listed.
+void test_changelog_rows() noexcept {
+    using namespace app_detail;
+    static ApplicationUpdatesChangelogRows rows;
+    ApplicationUpdatesView v{};
+    UiSettingsControl controls[48]{}; UiSettingsControlPresentation presentation[48]{};
+    UiSettingsControl heading{}; UiSettingsListItem item{};
+    const auto build = [&]() noexcept {
+        application_updates_changelog_build(v, g_log, &rows);
+        heading = {}; item = {};
+        const bool shown = application_updates_changelog_heading(rows, &heading, &item);
+        const u32 count = application_updates_changelog_project(rows, {controls, 48}, {presentation, 48});
+        return shown ? count : 0u;
+    };
+    g_log = {};
+    g_log.channel = UpdateChannel::preview; g_log.version = 3004016; g_log.base = 3003999;
+    log_entry(3004016, 1760000100, "Polish the updater page", "1111111111111111111111111111111111111111");
+    log_entry(3004015, 1760086500, "Fix a crash when the gateway drops", "2222222222222222222222222222222222222222");
+    log_entry(3004014, 1760000000, "Add a theme picker", "3333333333333333333333333333333333333333");
+    v.offer_version = 3004016; v.own_version = 3004014; copy_bytes(v.own_commit, "abcdef0", 7); v.changelog_revision = 1;
+    u32 count = build();
+    check(count == 2 && same(heading.label, "What's new since 0.3.4-dev.14+abcdef0") && heading.kind == UiSettingsControlKind::category &&
+        item.style == UiSettingsListStyle::header && heading.choices.count == 1 && same(heading.choices[0], "Date") &&
+        controls[0].kind == UiSettingsControlKind::action && same(controls[0].label, "Polish the updater page") &&
+        controls[0].choices.count == 1 && same(controls[0].choices[0], "Oct 9") && same(controls[1].choices[0], "Oct 10") &&
+        application_updates_changelog_item(rows, 0).style == UiSettingsListStyle::row &&
+        application_updates_changelog_row(controls[1].id) && !application_updates_changelog_row(controls[1].id + 0x100),
+        "update changelog: a preview build lists each newer commit with its date in a table");
+    v.own_version = 3002999; v.own_commit[0] = 0;
+    count = build();
+    check(count == 4 && controls[3].kind == UiSettingsControlKind::notice && same(controls[3].description, "Changes up to 0.3.3 aren't listed here.") &&
+        application_updates_changelog_item(rows, 3).style == UiSettingsListStyle::none,
+        "update changelog: a build older than the changelog's start says what is missing");
+    g_log.count = 0; g_log.text_bytes = 0;
+    for (u32 i = 0; i < 50; ++i) log_entry(3004016 - i / 3, 1760000000, "A commit");
+    v.own_version = 3003999;
+    count = build();
+    check(count == kApplicationUpdatesChangelogRows && same(controls[count - 1].description, "15 earlier changes aren't shown."),
+        "update changelog: long lists stop at the row budget and count the rest");
+    g_log = {};
+    g_log.channel = UpdateChannel::stable; g_log.version = 3004999; g_log.base = 3002999;
+    log_entry(3004999, 1760000100, "### Features\n\n- Add a [theme](https://example.invalid) picker");
+    log_entry(3003999, 1759000000, "- Fix it");
+    v.offer_version = 3004999; v.own_version = 3003999; v.changelog_revision = 2;
+    count = build();
+    check(count == 1 && same(heading.label, "What's new since 0.3.3") && item.style == UiSettingsListStyle::none && !heading.choices.count &&
+        controls[0].kind == UiSettingsControlKind::notice && same(controls[0].label, "MaiCord 0.3.4 · Oct 9, 2025") &&
+        same(controls[0].description, "Features\n\n\xE2\x80\xA2 Add a theme picker"),
+        "update changelog: stable releases show their notes as plain text under a dated header");
+    v.own_version = 3002999;
+    check(build() == 2 && same(controls[1].label, "MaiCord 0.3.3 · Sep 27, 2025"),
+        "update changelog: skipping releases shows every newer one");
+    v.offer_version = 3005999;
+    check(!build(), "update changelog: a changelog for another version is not shown");
+}
+
 void test_settings_rows() noexcept {
     using app_detail::ApplicationUpdatesView; using app_detail::ApplicationUpdateState; using app_detail::ApplicationUpdatesText;
     ApplicationUpdatesView v{};
@@ -449,20 +586,25 @@ void test_settings_rows() noexcept {
         c.choices.count == 2 && row(SettingBinding::update_notice) && !row(SettingBinding::update_rollback),
         "update settings: current version, channel and Check now");
     v.state = ApplicationUpdateState::downloading; v.received = 42; v.total = 100;
-    check(row(SettingBinding::update_status) && same(c.label, "Downloading update 42%") && !c.enabled &&
-        row(SettingBinding::update_channel) && !c.enabled, "update settings: download progress disables actions");
+    check(row(SettingBinding::update_status) && same(c.label, "Downloading update 42%") && c.kind == UiSettingsControlKind::notice &&
+        c.checked && !c.action_label.bytes && row(SettingBinding::update_channel) && !c.enabled,
+        "update settings: a download in flight reads as a loading notice and locks the channel");
     v.state = ApplicationUpdateState::installing; v.received = 100;
-    check(row(SettingBinding::update_status) && same(c.label, "Installing update…") && !c.enabled &&
-        row(SettingBinding::update_channel) && !c.enabled, "update settings: staging and install after the download say so");
+    check(row(SettingBinding::update_status) && same(c.label, "Installing update…") && c.kind == UiSettingsControlKind::notice &&
+        c.checked && row(SettingBinding::update_channel) && !c.enabled, "update settings: staging and install after the download say so");
     v.state = ApplicationUpdateState::ready; v.ready_version = update_version_number(0, 2, 0, 0);
     check(row(SettingBinding::update_status) && same(c.label, "Update ready") && same(c.action_label, "Restart") &&
         p.variant == UiSettingsVariant::primary && same(c.description, "Restart MaiCord to finish updating to 0.2.0."),
         "update settings: a ready update offers Restart");
     v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::signature; v.rollback_version = update_version_number(0, 0, 9, 0);
     check(row(SettingBinding::update_status) && same(c.label, "Couldn't update") && same(c.action_label, "Try again") &&
+        same(c.description, "MaiCord 0.1.0, stable channel.") && row(SettingBinding::update_problem) &&
+        c.kind == UiSettingsControlKind::notice && p.variant == UiSettingsVariant::critical &&
         same(c.description, "The update isn't signed by the MaiCord publisher.") &&
         row(SettingBinding::update_rollback) && contains(c.description, "0.0.9") && c.enabled,
-        "update settings: errors offer Try again and rollback names the previous version");
+        "update settings: errors offer Try again, explain themselves in a critical notice, and rollback names the previous version");
+    test_offer_rows();
+    test_changelog_rows();
     UiSettingsSchemaLocation status{}, channel{};
     const auto* node = settings_catalog_binding(SettingBinding::update_status, &status);
     check(node && settings_catalog_binding(SettingBinding::update_channel, &channel) && status.panel == static_cast<u32>(SettingsPanel::updates) &&
@@ -509,6 +651,7 @@ bool temporary_root(Temp* t) noexcept {
     return true;
 }
 void remove_root(const Temp& t) noexcept { wchar_t path[MAX_PATH]{}; const u32 n = length(t.root); copy_bytes(path, t.root, (n + 1) * sizeof(wchar_t)); remove_tree(path, n); }
+constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999;
 constexpr char pages_manifest[] = "/repo/updates/maicord-stable.manifest.json";
 constexpr char pages_current[] = "/repo/updates/current.json";
 constexpr char pages_signature[] = "/repo/updates/maicord-stable.manifest.json.sig";
@@ -534,25 +677,25 @@ void test_service() noexcept {
     check(packaged, "update service: signed fixture package holds the built EXE and account DLL"); if (!packaged) return;
 
     char documents[5][512]{}; u8 signatures[5][64]{};
-    const Utf8View v6 = manifest(documents[0], package_bytes, digest, 6), v7 = manifest(documents[1], package_bytes, digest, 7),
-        v4 = manifest(documents[2], package_bytes, digest, 4);
+    const Utf8View v6 = manifest(documents[0], package_bytes, digest, kV6), v7 = manifest(documents[1], package_bytes, digest, kV7),
+        v4 = manifest(documents[2], package_bytes, digest, kV4);
     const bool signed_all = sign(v6, signer, workspace, signatures[0]) && sign(v7, signer, workspace, signatures[1]) &&
         sign(v4, signer, workspace, signatures[2]) && sign(v6, stranger, workspace, signatures[3]);
     copy_bytes(signatures[4], signatures[0], 64); signatures[4][10] ^= 1;
     check(signed_all, "update service: releases signed with the throwaway publisher and a stranger key"); if (!signed_all) return;
-    // Versions 6 and 7 name the tags v0.0.0-preview.6 and v0.0.0-preview.7.
+    // "v6" and "v7" are releases 0.0.2 and 0.0.3 after the installed 0.0.1.
     static UpdateLocation package6{}, package7{};
     static char package_target[96]{}, package_target7[96]{};
-    const bool located = update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, 6, &package6) &&
-        update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, 7, &package7) &&
-        same_location(package6, UpdateHost::github, "github.com", "/owner/repo/releases/download/v0.0.0-preview.6/MaiCord-x64-6.zip");
+    const bool located = update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV6, &package6) &&
+        update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV7, &package7) &&
+        same_location(package6, UpdateHost::github, "github.com", "/owner/repo/releases/download/v0.0.2/MaiCord-x64-2999.zip");
     check(located, "update service: package locations name the version's release"); if (!located) return;
     copy_bytes(package_target, package6.target, package6.target_bytes); copy_bytes(package_target7, package7.target, package7.target_bytes);
 
     UpdateServiceConfig config{};
     UpdatePaths paths{};
     static UpdateService service{};
-    const bool configured = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, 5, &config) &&
+    const bool configured = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV5, &config) &&
         update_paths_build({t.base, length(t.base)}, &paths) && update_service_initialize(&service, config, paths) == UpdateServiceError::none;
     struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
     check(configured, "update service: configuration from repository and compiled public key"); if (!configured) return;
@@ -606,34 +749,44 @@ void test_service() noexcept {
     fake.routes[0].status = 404; fake.routes[0].location = nullptr;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.error == UpdateServiceError::not_found && !acceptance_exists(), "update service: an unpublished channel reports nothing published");
+    {
+        char dev_document[512]{}; u8 dev_signature[64]{};
+        const Utf8View dev = manifest(dev_document, package_bytes, digest, update_version_number(0, 0, 2, 7));
+        serve(dev, dev_signature, package_target);
+        const bool signed_dev = sign(dev, signer, workspace, dev_signature);
+        r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+        check(signed_dev && r.error == UpdateServiceError::manifest && r.manifest_error == UpdateManifestError::unsupported &&
+            !acceptance_exists() && !fake.routes[3].hits,
+            "update service: the stable channel refuses a signed dev build before admission");
+    }
 
     serve(v6, signatures[0], package_target, true);
     g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.error == UpdateServiceError::unavailable && r.fetch_error == UpdateFetchError::not_found && fake.routes[1].hits == 1 &&
         fake.routes[3].hits == 1 && acceptance_exists() && GetFileAttributesW(paths.download) == INVALID_FILE_ATTRIBUTES &&
-        logged("admitted version=6") && logged("http host=github.com status=404") && logged("check_failed phase=package"),
+        logged("admitted version=2999") && logged("http host=github.com status=404") && logged("check_failed phase=package"),
         "update service: a missing release package after admission is reported once and logged, without refetching");
     serve(v6, signatures[0], package_target);
     g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     UpdateInstalledState installed{};
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == 6 && fake.routes[4].hits == 1 &&
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 &&
         update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.journal &&
-        installed.phase == UpdateGenerationPhase::stable && installed.active_version == 6 && !installed.previous_version &&
+        installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV6 && !installed.previous_version &&
         GetFileAttributesW(paths.download) == INVALID_FILE_ATTRIBUTES,
         "update service: the first release provisions a stable generation from the versioned release");
-    check(logged("check channel=0 own=5") && logged("offer channel=0 version=6") && logged("stage error=0") &&
-        logged("install error=0") && logged("ready version=6"), "update log: every phase of a successful check is recorded");
+    check(logged("check channel=0 own=1999") && logged("offer channel=0 version=2999") && logged("stage error=0") &&
+        logged("install error=0") && logged("ready version=2999"), "update log: every phase of a successful check is recorded");
     if (!installed.journal) { g_update_log_sink = nullptr; return; }
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == 7 && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.phase == UpdateGenerationPhase::prepared && installed.candidate_version == 7 && installed.active_version == 6,
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
+        installed.phase == UpdateGenerationPhase::prepared && installed.candidate_version == kV7 && installed.active_version == kV6,
         "update service: the next release downloads, stages and prepares a candidate beside the active pair");
     const u32 package_hits = fake.routes[4].hits;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == 7 && fake.routes[4].hits == package_hits,
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && fake.routes[4].hits == package_hits,
         "update service: a prepared candidate is ready without downloading again");
     // Live activation and the child's confirmation, without launching a process.
     UpdateGenerationLaunchAdmission admission{};
@@ -646,10 +799,10 @@ void test_service() noexcept {
     }
     update_service_close(&service);
     check(acknowledged && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.phase == UpdateGenerationPhase::stable && installed.active_version == 7 && installed.previous_version == 6,
+        installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV7 && installed.previous_version == kV6,
         "update service: a confirmed activation keeps the previous pair for rollback");
     check(update_service_revert(&service) == UpdateServiceError::none && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.active_version == 6 && installed.previous_version == 7 && update_service_revert(&service) == UpdateServiceError::state,
+        installed.active_version == kV6 && installed.previous_version == kV7 && update_service_revert(&service) == UpdateServiceError::state,
         "update service: roll back makes the previous pair active once");
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
@@ -685,19 +838,31 @@ u64 json_number(Utf8View document, const char* key) noexcept {
     }
     return 0;
 }
-void test_replay() noexcept {
-    wchar_t dir[MAX_PATH]{};
-    const DWORD dn = GetEnvironmentVariableW(L"MAICORD_UPDATE_REPLAY_DIR", dir, MAX_PATH);
-    if (!dn || dn >= MAX_PATH - 64) return;
-    test_write_line("update replay: running the published files offline");
+struct ReplayOffer { u64 version; u32 entries; bool changelog; };
+void replay_offered(void* context, const UpdateManifest& manifest, const UpdateChangelog* changelog) noexcept {
+    auto* offer = static_cast<ReplayOffer*>(context);
+    offer->version = manifest.version;
+    offer->changelog = changelog != nullptr;
+    offer->entries = changelog ? changelog->count : 0;
+}
+// Runs the published files in dir through the real pipeline into a fresh
+// generation root: the channel's manifest and signature, its changelog when
+// present, and the package from its release (stable) or the preview feed.
+UpdateCheckResult replay(const wchar_t* dir, u64 own, ReplayOffer* offer) noexcept {
     static u8 document[kUpdateManifestMaximumBytes + 1]; u8 signature[65]{}; char key[132]{};
-    u32 document_bytes = 0, signature_bytes = 0, key_bytes = 0;
-    bool preview = read_small(dir, L"maicord-preview.manifest.json", document, sizeof(document), &document_bytes) &&
+    static u8 changelog[kUpdateChangelogMaximumBytes + 1]; u8 changelog_signature[65]{};
+    u32 document_bytes = 0, signature_bytes = 0, key_bytes = 0, changelog_bytes = 0, changelog_signature_bytes = 0;
+    UpdateCheckResult failed_result{}; failed_result.outcome = UpdateCheckOutcome::failed; failed_result.error = UpdateServiceError::state;
+    const bool preview = read_small(dir, L"maicord-preview.manifest.json", document, sizeof(document), &document_bytes) &&
         !read_small(dir, L"maicord-stable.manifest.json", document, sizeof(document), &document_bytes);
     const bool loaded = (preview || read_small(dir, L"maicord-stable.manifest.json", document, sizeof(document), &document_bytes)) &&
         read_small(dir, preview ? L"maicord-preview.manifest.json.sig" : L"maicord-stable.manifest.json.sig", signature, sizeof(signature), &signature_bytes) &&
         signature_bytes == 64 && read_small(dir, L"public-key.txt", reinterpret_cast<u8*>(key), sizeof(key), &key_bytes) && key_bytes >= 130;
-    check(loaded, "update replay: manifest, 64-byte signature and public-key.txt are present"); if (!loaded) return;
+    check(loaded, "update replay: manifest, 64-byte signature and public-key.txt are present"); if (!loaded) return failed_result;
+    const bool has_changelog =
+        read_small(dir, preview ? L"maicord-preview.changelog.json" : L"maicord-stable.changelog.json", changelog, sizeof(changelog), &changelog_bytes) &&
+        read_small(dir, preview ? L"maicord-preview.changelog.json.sig" : L"maicord-stable.changelog.json.sig", changelog_signature,
+            sizeof(changelog_signature), &changelog_signature_bytes) && changelog_signature_bytes == 64;
     const Utf8View text_view{reinterpret_cast<const char*>(document), document_bytes};
     const u64 version = json_number(text_view, "\"version\":");
     wchar_t zip_name[48]{L"MaiCord-x64-"}; u32 zn = 12; char digits[20]; const u32 dcount = decimal(digits, version);
@@ -707,73 +872,183 @@ void test_replay() noexcept {
     HANDLE zip = CreateFileW(zip_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     LARGE_INTEGER zip_size{};
     const bool opened = zip != INVALID_HANDLE_VALUE && GetFileSizeEx(zip, &zip_size);
-    check(opened, "update replay: the package named by the manifest is present"); if (!opened) { if (zip != INVALID_HANDLE_VALUE) CloseHandle(zip); return; }
+    check(opened, "update replay: the package named by the manifest is present");
+    if (!opened) { if (zip != INVALID_HANDLE_VALUE) CloseHandle(zip); return failed_result; }
     struct Zip { HANDLE h; ~Zip() noexcept { CloseHandle(h); } } zip_owner{zip};
-    wchar_t own_text[24]{}; u64 own = 1000999;
-    if (const DWORD on = GetEnvironmentVariableW(L"MAICORD_UPDATE_REPLAY_OWN", own_text, 24); on && on < 24) {
-        own = 0; for (u32 i = 0; i < on; ++i) own = own * 10 + static_cast<u64>(own_text[i] - L'0');
-    }
     static Temp t{};
     const bool dirs = temporary_root(&t);
-    check(dirs, "update replay: isolated temporary storage"); if (!dirs) return;
+    check(dirs, "update replay: isolated temporary storage"); if (!dirs) return failed_result;
     struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
     UpdateServiceConfig config{}; UpdatePaths paths{};
     static UpdateService service{};
+    static UpdateChangelogDownload download{};
     const bool configured = update_service_config(utf8_literal("owner/repo"), {key, 130}, own, &config) &&
         update_paths_build({t.base, length(t.base)}, &paths) && update_service_initialize(&service, config, paths) == UpdateServiceError::none;
     struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
-    check(configured, "update replay: configuration from public-key.txt"); if (!configured) return;
+    check(configured, "update replay: configuration from public-key.txt"); if (!configured) return failed_result;
+    service.changelog = &download;
+    service.observer = {offer, replay_offered};
     const UpdateChannel channel = preview ? UpdateChannel::preview : UpdateChannel::stable;
-    static UpdateLocation manifest_at{}, signature_at{}, package_at{};
-    static char manifest_target[256], signature_target[256], package_target[256];
+    static UpdateLocation manifest_at{}, signature_at{}, package_at{}, changelog_at{}, changelog_signature_at{};
+    static char manifest_target[256], signature_target[256], package_target[256], changelog_target[256], changelog_signature_target[256];
     if (!update_asset_location(utf8_literal("owner/repo"), channel, UpdateAsset::manifest, 0, &manifest_at) ||
         !update_asset_location(utf8_literal("owner/repo"), channel, UpdateAsset::signature, 0, &signature_at) ||
+        !update_asset_location(utf8_literal("owner/repo"), channel, UpdateAsset::changelog, 0, &changelog_at) ||
+        !update_asset_location(utf8_literal("owner/repo"), channel, UpdateAsset::changelog_signature, 0, &changelog_signature_at) ||
         !update_asset_location(utf8_literal("owner/repo"), channel, UpdateAsset::package, version, &package_at)) {
-        check(false, "update replay: the manifest version maps to a release tag"); return;
+        check(false, "update replay: the manifest version maps to a package location"); return failed_result;
     }
     copy_bytes(manifest_target, manifest_at.target, manifest_at.target_bytes);
     copy_bytes(signature_target, signature_at.target, signature_at.target_bytes);
     copy_bytes(package_target, package_at.target, package_at.target_bytes);
+    copy_bytes(changelog_target, changelog_at.target, changelog_at.target_bytes);
+    copy_bytes(changelog_signature_target, changelog_signature_at.target, changelog_signature_at.target_bytes);
     static Fake fake{};
     fake = {}; fake.origin = "owner.github.io";
     fake.routes[fake.count++] = route(UpdateHost::pages, manifest_target, 200, nullptr, document, document_bytes);
     fake.routes[fake.count++] = route(UpdateHost::pages, signature_target, 200, nullptr, signature, 64);
-    fake.routes[fake.count++] = route(UpdateHost::github, package_target, 302, "https://release-assets.githubusercontent.com/replay?sig=1");
-    fake.routes[fake.count] = route(UpdateHost::release_assets, "/replay?sig=1", 200);
+    if (has_changelog) {
+        fake.routes[fake.count++] = route(UpdateHost::pages, changelog_target, 200, nullptr, changelog, changelog_bytes);
+        fake.routes[fake.count++] = route(UpdateHost::pages, changelog_signature_target, 200, nullptr, changelog_signature, 64);
+    }
+    // Releases redirect to their asset host; the preview feed serves directly.
+    if (package_at.host == UpdateHost::github) {
+        fake.routes[fake.count++] = route(UpdateHost::github, package_target, 302, "https://release-assets.githubusercontent.com/replay?sig=1");
+        fake.routes[fake.count] = route(UpdateHost::release_assets, "/replay?sig=1", 200);
+    } else
+        fake.routes[fake.count] = route(package_at.host, package_target, 200);
     fake.routes[fake.count].file = zip; fake.routes[fake.count++].body_bytes = static_cast<u64>(zip_size.QuadPart);
     FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
     const u64 now = ((static_cast<u64>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) / 10000000ull) - 11644473600ull;
-    g_echo = true; g_update_log_sink = capture;
+    g_update_log_sink = capture; g_line_count = 0;
     const auto r = update_service_check(&service, {&fake, fake_get}, channel, now);
-    g_echo = false; g_update_log_sink = nullptr;
+    g_update_log_sink = nullptr;
+    check(!fake.wrong_host, "update replay: every request names its route's host");
+    return r;
+}
+u64 unix_now() noexcept {
+    FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
+    return ((static_cast<u64>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) / 10000000ull) - 11644473600ull;
+}
+void test_replay() noexcept {
+    wchar_t dir[MAX_PATH]{};
+    const DWORD dn = GetEnvironmentVariableW(L"MAICORD_UPDATE_REPLAY_DIR", dir, MAX_PATH);
+    if (!dn || dn >= MAX_PATH - 64) return;
+    test_write_line("update replay: running the published files offline");
+    wchar_t own_text[24]{}; u64 own = 1000999;
+    if (const DWORD on = GetEnvironmentVariableW(L"MAICORD_UPDATE_REPLAY_OWN", own_text, 24); on && on < 24) {
+        own = 0; for (u32 i = 0; i < on; ++i) own = own * 10 + static_cast<u64>(own_text[i] - L'0');
+    }
+    ReplayOffer offer{};
+    g_echo = true;
+    const auto r = replay(dir, own, &offer);
+    g_echo = false;
     test_write_metric("update replay outcome=", static_cast<u64>(r.outcome));
     test_write_metric("update replay error=", static_cast<u64>(r.error));
+    test_write_metric("update replay changelog entries=", offer.entries);
     check(r.outcome == UpdateCheckOutcome::ready, "update replay: the published release installs into a fresh generation root");
+}
+bool write_file(const wchar_t* dir, const wchar_t* name, const void* data, u32 bytes) noexcept {
+    wchar_t path[MAX_PATH]{}; child(dir, name, path);
+    const HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD put = 0; const bool ok = WriteFile(h, data, bytes, &put, nullptr) && put == bytes;
+    return CloseHandle(h) && ok;
+}
+// Publisher layout of a preview feed manifest (maicord_release.py preview).
+Utf8View preview_manifest(char* out, u64 bytes, const u8* digest, u64 version, u64 issued) noexcept {
+    u32 n = 0; auto add = [&](Utf8View text) noexcept { copy_bytes(out + n, text.data, text.bytes); n += text.bytes; };
+    add(utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"preview","version":)")); n += decimal(out + n, version);
+    add(utf8_literal(R"(,"issued":)")); n += decimal(out + n, issued);
+    add(utf8_literal(R"(,"expires":)")); n += decimal(out + n, issued + 90 * 86400);
+    add(utf8_literal(R"(,"bytes":)")); n += decimal(out + n, bytes); add(utf8_literal(R"(,"sha256":")"));
+    constexpr char hex[] = "0123456789abcdef";
+    for (u32 i = 0; i < 32; ++i) { out[n++] = hex[digest[i] >> 4]; out[n++] = hex[digest[i] & 15]; }
+    add(utf8_literal(R"(","artifact":"MaiCord-x64-)")); n += decimal(out + n, version); add(utf8_literal(R"(.zip"})"));
+    return {out, n};
+}
+// A synthetic master build replayed end to end from a temporary directory:
+// the installed stable 0.0.1 on the preview channel takes 0.0.2-dev.3 from
+// the preview feed, with its signed changelog.
+void test_preview_replay() noexcept {
+#if defined(MAICORD_UPDATE_PAIR_TEST_EXECUTABLE) && defined(MAICORD_UPDATE_PAIR_TEST_ACCOUNT)
+    KdfSha256Workspace workspace{}; P256Key signer{};
+    char key_hex[131]{};
+    const bool keys = kdf_sha256_initialize(&workspace).ok() && p256_generate(&signer, P256Kind::ecdsa).ok() && hex_key(signer, key_hex);
+    struct Keys { KdfSha256Workspace& w; P256Key& a; ~Keys() noexcept { p256_release(&a); kdf_sha256_release(&w); } } key_owner{workspace, signer};
+    check(keys, "preview replay: throwaway publisher key"); if (!keys) return;
+    static Temp files{};
+    const bool dirs = temporary_root(&files);
+    struct Cleanup { ~Cleanup() noexcept { remove_root(files); } } cleanup;
+    check(dirs, "preview replay: temporary publish directory"); if (!dirs) return;
+    constexpr u64 version = update_version_number(0, 0, 2, 3);
+    wchar_t zip[MAX_PATH]{}; child(files.root, L"MaiCord-x64-2003.zip", zip);
+    HANDLE package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
+    const wchar_t* members[]{MAICORD_UPDATE_PAIR_TEST_EXECUTABLE, MAICORD_UPDATE_PAIR_TEST_ACCOUNT};
+    const bool packaged = package(zip, members, &package_file, sources, &package_bytes, digest, &hash);
+    for (auto& h : sources) close(&h);
+    close(&package_file);
+    char document[512]{}; u8 signature[64]{}, changelog_signature[64]{};
+    const Utf8View manifest_text = preview_manifest(document, package_bytes, digest, version, unix_now() - 600);
+    static char changelog[1024];
+    u32 cn = 0; auto add = [&](const char* text) noexcept { const u32 b = length8(text); copy_bytes(changelog + cn, text, b); cn += b; };
+    add(R"({"format":1,"product":"MaiCord","channel":"preview","version":2003,"base":1999,"entries":[)");
+    add(R"({"version":2003,"date":1760000100,"commit":"1111111111111111111111111111111111111111","text":"Polish the updater page"},)");
+    add(R"({"version":2002,"date":1760000050,"commit":"2222222222222222222222222222222222222222","text":"Fix a crash"},)");
+    add(R"({"version":2001,"date":1760000000,"commit":"","text":"Add a theme picker"}]})");
+    u8 changelog_digest[32]{};
+    const ConstSlice<u8> parts[]{{reinterpret_cast<const u8*>(kUpdateChangelogSignatureDomain.data), kUpdateChangelogSignatureDomain.bytes},
+                                 {reinterpret_cast<const u8*>(changelog), cn}};
+    const bool signed_all = packaged && sign(manifest_text, signer, workspace, signature) &&
+        sha256(workspace, {parts, 2}, {changelog_digest, 32}).ok() &&
+        p256_sign_digest(signer, {changelog_digest, 32}, {changelog_signature, 64}).ok();
+    const bool written = signed_all &&
+        write_file(files.root, L"maicord-preview.manifest.json", manifest_text.data, manifest_text.bytes) &&
+        write_file(files.root, L"maicord-preview.manifest.json.sig", signature, 64) &&
+        write_file(files.root, L"maicord-preview.changelog.json", changelog, cn) &&
+        write_file(files.root, L"maicord-preview.changelog.json.sig", changelog_signature, 64) &&
+        write_file(files.root, L"public-key.txt", key_hex, 130);
+    check(written, "preview replay: a signed preview build, its changelog and the publisher key written to disk"); if (!written) return;
+    ReplayOffer offer{};
+    const auto r = replay(files.root, 1999, &offer);
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == version && offer.version == version && offer.changelog &&
+        offer.entries == 3 && logged("changelog fetched=1 error=0 matches=1 entries=3") && logged("http host=owner.github.io status=200"),
+        "preview replay: a stable build on the preview channel installs the master build from the feed with its changelog");
+    // The same files offered to a newer build install nothing.
+    offer = {};
+    const auto newer = replay(files.root, update_version_number(0, 0, 2, 0), &offer);
+    check(newer.outcome == UpdateCheckOutcome::up_to_date && !offer.version,
+        "preview replay: a release newer than the dev build ignores it");
+#else
+    check(false, "preview replay: build must supply the built EXE and account DLL fixture paths");
+#endif
 }
 // The caption's update badge: when it shows, what a click does, its progress.
 void test_caption_badge() noexcept {
     using app_detail::application_update_badge;
     using app_detail::application_update_badge_restarts;
     using State = app_detail::ApplicationUpdateState;
+    app_detail::ApplicationUpdatesView view{};
+    view.own_version = 1999;
+    const auto badge = [&](State state, u64 offer = 0) noexcept { view.state = state; view.offer_version = offer; return application_update_badge(view); };
     constexpr State kHidden[]{State::disabled, State::idle,     State::checking,
                               State::up_to_date, State::error, State::rate_limited};
     bool hidden = true;
     for (State state : kHidden)
-        hidden = hidden && application_update_badge(state) == UiCaptionUpdate::hidden &&
-                 !application_update_badge_restarts(state);
+        hidden = hidden && badge(state) == UiCaptionUpdate::hidden && !application_update_badge_restarts(state);
     check(hidden, "badge hidden without an update in flight");
-    check(application_update_badge(State::downloading) == UiCaptionUpdate::downloading &&
-              application_update_badge(State::installing) == UiCaptionUpdate::installing &&
-              application_update_badge(State::ready) == UiCaptionUpdate::ready &&
-              application_update_badge(State::restarting) == UiCaptionUpdate::ready,
+    check(badge(State::downloading) == UiCaptionUpdate::downloading && badge(State::installing) == UiCaptionUpdate::installing &&
+              badge(State::ready) == UiCaptionUpdate::ready && badge(State::restarting) == UiCaptionUpdate::ready,
           "badge states");
+    check(badge(State::error, 2999) == UiCaptionUpdate::failed && badge(State::rate_limited, 2999) == UiCaptionUpdate::hidden &&
+              badge(State::error, 999) == UiCaptionUpdate::hidden,
+          "badge marks an offered update that failed to download or install");
     // Ready restarts; a download in flight opens the Updates page instead.
     check(application_update_badge_restarts(State::ready) &&
               !application_update_badge_restarts(State::downloading) &&
               !application_update_badge_restarts(State::installing) &&
               !application_update_badge_restarts(State::restarting),
           "badge action");
-    app_detail::ApplicationUpdatesView view{};
     view.received = 3;
     view.total = 12;
     check(app_detail::application_update_progress(view) == .25f, "badge progress");
@@ -835,6 +1110,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_http_reader();
     maicord::test_settings_rows();
     maicord::test_service();
+    maicord::test_preview_replay();
     maicord::test_replay();
     ExitProcess(maicord::failures ? 1 : 0);
 }

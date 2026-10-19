@@ -188,7 +188,10 @@ struct UiSettingsPageContent {
     const UiSettingsControlPresentation* presentation = nullptr;
     // Null, or one live level per control in slider steps: a slider with a
     // level other than kUiSettingsNoMeter shows it as a meter behind its thumb
-    // (lit strongly past the thumb). Read at paint; request a frame on change.
+    // (lit strongly past the thumb); an action row shows its level, in
+    // thousandths, as a progress bar under its text. Read at paint; request a
+    // frame on change (an action row's bar also changes its height, so
+    // publish a revision when one appears or goes).
     const u16* meters = nullptr;
     // Null, or one entry per control: avatar rows whose key (user avatar or
     // server icon) is valid draw the resident image over their initials. Bump

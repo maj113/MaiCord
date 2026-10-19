@@ -64,6 +64,16 @@ u32 update_version_text(u64 version, Slice<char> output) noexcept {
     return w.ok ? w.used : 0;
 }
 
+u32 update_build_version_text(u64 version, Utf8View commit, Slice<char> output) noexcept {
+    if (!output.data || commit.bytes > 12) return 0;
+    Writer w{output, 0, true};
+    const u64 n = version % 1000, base = version / 1000;
+    w.number(base / 1000000); w.add(".", 1); w.number(base / 1000 % 1000); w.add(".", 1); w.number(base % 1000);
+    if (n != kUpdateStableSequence) { w.add(utf8_literal("-dev.")); w.number(n); }
+    if (commit.bytes) { w.add("+", 1); w.add(commit); }
+    return w.ok ? w.used : 0;
+}
+
 bool update_repository_valid(Utf8View repository) noexcept {
     if (!repository.data || !repository.bytes || repository.bytes > kUpdateRepositoryMaximumBytes) return false;
     const char* p = repository.data;
@@ -135,15 +145,17 @@ bool update_provider_location(Utf8View host, ConstSlice<char> target, UpdateLoca
 }
 
 bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAsset asset, u64 version, UpdateLocation* out) noexcept {
-    if (!out || !update_repository_valid(repository) || channel > UpdateChannel::preview || asset > UpdateAsset::package) return false;
+    if (!out || !update_repository_valid(repository) || channel > UpdateChannel::preview ||
+        asset > UpdateAsset::changelog_signature) return false;
     u32 slash = 0;
     while (repository.data[slash] != '/') ++slash;
     Writer w{{out->target, kUpdateTargetCapacity}, 0, true};
     out->origin_bytes = 0;
-    if (asset == UpdateAsset::package) {
-        // Tags are vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-preview.N (N 1-998).
+    const bool stable_package = update_version_channel(version) == UpdateChannel::stable;
+    if (asset == UpdateAsset::package && (!(version % 1000) || version / 1000000000 >= 1000)) return false;
+    if (asset == UpdateAsset::package && stable_package) {
         char tag[32];
-        const u32 tag_bytes = version % 1000 && version / 1000000000 < 1000 ? update_version_text(version, {tag, sizeof(tag)}) : 0;
+        const u32 tag_bytes = update_version_text(version, {tag, sizeof(tag)});
         if (!tag_bytes) return false;
         out->host = UpdateHost::github;
         w.add("/", 1); w.add(repository); w.add(utf8_literal("/releases/download/v")); w.add(tag, tag_bytes);
@@ -154,9 +166,15 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         copy_bytes(out->origin + slash, kPagesSuffix.data, kPagesSuffix.bytes);
         out->origin_bytes = slash + kPagesSuffix.bytes;
         w.add("/", 1); w.add({repository.data + slash + 1, repository.bytes - slash - 1});
-        w.add(channel == UpdateChannel::stable ? utf8_literal("/updates/maicord-stable.manifest.json")
-                                               : utf8_literal("/updates/maicord-preview.manifest.json"));
-        if (asset == UpdateAsset::signature) w.add(utf8_literal(".sig"));
+        if (asset == UpdateAsset::package) {
+            w.add(utf8_literal("/updates/preview/MaiCord-x64-")); w.number(version); w.add(utf8_literal(".zip"));
+        } else {
+            w.add(channel == UpdateChannel::stable ? utf8_literal("/updates/maicord-stable.")
+                                                   : utf8_literal("/updates/preview/maicord-preview."));
+            const bool changelog = asset == UpdateAsset::changelog || asset == UpdateAsset::changelog_signature;
+            w.add(changelog ? utf8_literal("changelog.json") : utf8_literal("manifest.json"));
+            if (asset == UpdateAsset::signature || asset == UpdateAsset::changelog_signature) w.add(utf8_literal(".sig"));
+        }
     }
     out->target_bytes = w.ok ? w.used : 0;
     return w.ok;

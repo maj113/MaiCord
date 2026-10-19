@@ -203,6 +203,29 @@ bool random_identity(UpdateGenerationIdentity* id) noexcept {
     }
     return false;
 }
+// Best effort: the changelog is display data, so any failure only leaves it out.
+void offer_changelog(UpdateService* s, const UpdateTransport& transport, Utf8View repository, UpdateChannel channel,
+    const UpdateManifest& manifest, u64 now) noexcept {
+    const UpdateChangelog* verified = nullptr;
+    if (auto* d = s->changelog) {
+        UpdateLocation location{};
+        UpdateBufferSink document{reinterpret_cast<u8*>(d->document), sizeof(d->document), 0};
+        UpdateBufferSink signature{d->signature, sizeof(d->signature), 0};
+        bool fetched = update_asset_location(repository, channel, UpdateAsset::changelog, 0, &location) &&
+            update_fetch(transport, location, kUpdateChangelogMaximumBytes, 0, update_buffer_sink, &document, now).ok() &&
+            update_asset_location(repository, channel, UpdateAsset::changelog_signature, 0, &location) &&
+            update_fetch(transport, location, 64, 64, update_buffer_sink, &signature, now).ok();
+        d->document_bytes = document.used;
+        const auto error = fetched ? update_changelog_verify({d->document, d->document_bytes}, {d->signature, 64}, s->key,
+            s->workspace, {d->scratch, kUpdateChangelogStructurals}, &d->changelog) : UpdateChangelogError::invalid_input;
+        const bool matches = error == UpdateChangelogError::none && d->changelog.version == manifest.version &&
+            d->changelog.channel == channel;
+        UpdateLog("changelog").field("fetched", fetched).field("error", static_cast<u8>(error)).field("matches", matches)
+            .field("entries", matches ? d->changelog.count : 0).write(fetched && !matches ? LogLevel::warning : LogLevel::info);
+        if (matches) verified = &d->changelog;
+    }
+    if (s->observer.offered) s->observer.offered(s->observer.context, manifest, verified);
+}
 bool hex_name(const wchar_t* name, const u8* digest) noexcept {
     constexpr wchar_t hex[] = L"0123456789abcdef";
     if (name[0] != L'g' || name[1] != L'-') return false;
@@ -377,10 +400,14 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     if (!verified.ok()) { auto r = failed(manifest_error(verified.error)); r.manifest_error = verified.error; return report(r, "verify"); }
     UpdateLog("offer").field("channel", static_cast<u8>(manifest.channel)).field("version", manifest.version)
         .field("bytes", manifest.artifact_bytes).field("issued", manifest.issued_unix_seconds).field("expires", manifest.expires_unix_seconds).write();
-    if (manifest.channel != channel) { auto r = failed(SE::manifest); r.manifest_error = UpdateManifestError::unsupported; return report(r, "channel"); }
+    // The stable channel never offers a preview build, whatever its manifest says.
+    if (manifest.channel != channel || (channel == UpdateChannel::stable && update_version_channel(manifest.version) != UpdateChannel::stable)) {
+        auto r = failed(SE::manifest); r.manifest_error = UpdateManifestError::unsupported; return report(r, "channel");
+    }
     if (manifest.version <= floor) return up_to_date(floor, manifest.version);
     // An explicit rollback skips releases up to the version left behind.
     if (was_reverted && manifest.version <= installed.previous_version) return up_to_date(floor, manifest.version);
+    offer_changelog(s, transport, repository, channel, manifest, now);
     if (installed.phase == UpdateGenerationPhase::prepared && installed.candidate_version >= manifest.version) {
         UpdateLog("ready").field("version", installed.candidate_version).field("prepared", 1).write();
         return outcome(UpdateCheckOutcome::ready, installed.candidate_version);

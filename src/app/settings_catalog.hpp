@@ -133,6 +133,10 @@ enum class SettingBinding : u16 {
     join_voice,
     activity_notice,
     accessibility_notice,
+    // Updates page (application_updates) rows added with the changelog.
+    update_problem,
+    update_available,
+    update_changelog,
     count
 };
 enum class SettingBackend : u8 {

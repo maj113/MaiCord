@@ -26,11 +26,17 @@ constexpr u64 update_version_number(u32 major, u32 minor, u32 patch, u32 preview
 constexpr bool update_version_components_valid(u32 major, u32 minor, u32 patch, u32 preview) noexcept {
     return major < 1000 && minor < 1000 && patch < 1000 && preview < kUpdateStableSequence;
 }
+// Stable releases end in 999; every other sequence (1-998) is a preview:
+// the master build that many commits after the last stable release.
 constexpr UpdateChannel update_version_channel(u64 version) noexcept {
     return version % 1000 == kUpdateStableSequence ? UpdateChannel::stable : UpdateChannel::preview;
 }
-// "1.2.3" or "1.2.3-preview.4"; returns bytes written, 0 when it does not fit.
+// "1.2.3" or "1.2.3-preview.4" (plugin index versions); returns bytes
+// written, 0 when it does not fit.
 u32 update_version_text(u64 version, Slice<char> output) noexcept;
+// An application build: "1.2.3", or "1.2.4-dev.5" for a master build,
+// followed by "+<commit>" when commit is not empty (at most 12 characters).
+u32 update_build_version_text(u64 version, Utf8View commit, Slice<char> output) noexcept;
 
 // GitHub "owner/repo". The owner is a GitHub login (1-39 ASCII letters,
 // digits and inner '-'), which is also the DNS label of its Pages host; the
@@ -63,14 +69,18 @@ bool update_origin_host_valid(Utf8View host) noexcept;
 // path and query characters. out is unchanged on failure.
 bool update_provider_location(Utf8View host, ConstSlice<char> target, UpdateLocation* out) noexcept;
 
-enum class UpdateAsset : u8 { manifest, signature, package };
-// Channel manifests and their signatures come from the repository's GitHub
-// Pages site, outside any release:
-//   https://<owner>.github.io/<repo>/updates/maicord-<channel>.manifest.json[.sig]
-// Packages come from the immutable release of their version, whose tag is
-// derived from the signed version number:
-//   https://github.com/<owner>/<repo>/releases/download/v<version text>/MaiCord-x64-<version>.zip
-// A package version must map to a release tag (n = 1..999, major < 1000).
+enum class UpdateAsset : u8 { manifest, signature, package, changelog, changelog_signature };
+// Channel manifests, changelogs and their signatures come from the
+// repository's GitHub Pages site, outside any release:
+//   https://<owner>.github.io/<repo>/updates/maicord-stable.{manifest,changelog}.json[.sig]
+//   https://<owner>.github.io/<repo>/updates/preview/maicord-preview.{manifest,changelog}.json[.sig]
+// (updates/maicord-preview.manifest.json mirrors stable for clients up to
+// 0.3.3). A stable package comes from the immutable release of its version,
+// whose tag is derived from the signed version number; a preview package
+// sits beside the preview manifest:
+//   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-<version>.zip
+//   https://<owner>.github.io/<repo>/updates/preview/MaiCord-x64-<version>.zip
+// A package version needs a sequence of 1..999 and major < 1000.
 bool update_asset_location(Utf8View repository, UpdateChannel, UpdateAsset, u64 version, UpdateLocation*) noexcept;
 // Location header: absolute https on an allowed host, or origin-relative on
 // the current host. github.com and the release-asset hosts redirect among

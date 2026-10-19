@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/app/update_changelog.hpp"
 #include "maicord/app/update_fetch.hpp"
 #include "maicord/app/update_handoff.hpp"
 #include "maicord/app/update_install.hpp"
@@ -59,6 +60,22 @@ struct UpdateCheckResult {
     u32 native_error;
 };
 struct UpdateProgress { volatile LONG64 received, total; };
+// Worker-thread buffers for the optional channel changelog.
+struct UpdateChangelogDownload {
+    u32 document_bytes;
+    char document[kUpdateChangelogMaximumBytes];
+    u8 signature[64];
+    u32 scratch[kUpdateChangelogStructurals];
+    UpdateChangelog changelog;
+};
+// Called on the worker once a newer signed offer is verified, before any
+// durable admission or download. changelog is null when none was published,
+// fetched or verified for exactly this version and channel; both are borrowed
+// for the call.
+struct UpdateOfferObserver {
+    void* context;
+    void (*offered)(void* context, const UpdateManifest&, const UpdateChangelog* changelog) noexcept;
+};
 
 // Zero-initialize; noncopyable; large, so allocate it. One worker thread.
 struct UpdateService {
@@ -76,6 +93,9 @@ struct UpdateService {
     UpdatePair pair;
     UpdateHandoff handoff;
     UpdateProgress progress;
+    // Optional: a changelog buffer (null skips the changelog) and an observer.
+    UpdateChangelogDownload* changelog;
+    UpdateOfferObserver observer;
     HANDLE download;
     u32 document_bytes, signature_bytes;
     char document[kUpdateManifestMaximumBytes];

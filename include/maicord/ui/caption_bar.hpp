@@ -22,12 +22,14 @@ enum class UiCaptionPart : u8 {
     close,
 };
 
-// The update badge: hidden unless an update is on its way or ready.
+// The update badge: hidden unless an update is on its way, ready, or failed
+// to download or install.
 enum class UiCaptionUpdate : u8 {
     hidden,
     downloading,
     installing,
     ready,
+    failed,
 };
 
 inline constexpr u32 kUiCaptionButtonCount = 3;
