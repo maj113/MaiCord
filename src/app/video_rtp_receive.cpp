@@ -1,6 +1,7 @@
 #include "maicord/app/video_rtp_receive.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/media/rtp_av1.hpp"
 #include "maicord/media/rtp_h264.hpp"
 #include "maicord/media/rtp_h265.hpp"
 
@@ -45,6 +46,7 @@ const VideoRtpCodecBinding* rtx_codec(const VideoRtpReceiver& receiver, u8 type)
 bool starts_access_unit(VideoRtpCodec codec, ConstSlice<u8> payload) noexcept {
     return codec == VideoRtpCodec::h264   ? rtp_h264_starts_access_unit(payload)
            : codec == VideoRtpCodec::h265 ? rtp_h265_starts_access_unit(payload)
+           : codec == VideoRtpCodec::av1  ? rtp_av1_starts_temporal_unit(payload)
                                           : false;
 }
 void release_window(VideoRtpStream* stream) noexcept {
@@ -161,8 +163,9 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexce
             break;
         }
         const ConstSlice<u8> payload{payload_at(stream, sequence), slot.bytes};
-        const auto pushed = codec == VideoRtpCodec::h264 ? rtp_h264_push(&assembly, payload, false)
-                                                         : rtp_h265_push(&assembly, payload, false);
+        const auto pushed = codec == VideoRtpCodec::h264   ? rtp_h264_push(&assembly, payload, false)
+                            : codec == VideoRtpCodec::h265 ? rtp_h265_push(&assembly, payload, false)
+                                                           : rtp_av1_push(&assembly, payload, false);
         intact = pushed == RtpDepacketize::appended && !assembly.damaged;
     }
     const u32 bytes = rtp_video_assembly_finish(&assembly);
@@ -180,8 +183,9 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexce
         lose(stream);
         return;
     }
-    const bool keyframe =
-        codec == VideoRtpCodec::h264 ? rtp_h264_keyframe(assembly) : rtp_h265_keyframe(assembly);
+    const bool keyframe = codec == VideoRtpCodec::h264   ? rtp_h264_keyframe(assembly)
+                          : codec == VideoRtpCodec::h265 ? rtp_h265_keyframe(assembly)
+                                                         : rtp_av1_keyframe(assembly);
     if (keyframe) {
         stream.keyframe_needed = false;
         stream.references_lost = false;

@@ -51,6 +51,19 @@ void test_select_protocol(Check check) noexcept {
              R"({"op":1,"d":{"protocol":"udp","data":{"address":"2001:db8::1234","port":65535,"mode":"aead_xchacha20_poly1305_rtpsize"},"address":"2001:db8::1234","port":65535,"mode":"aead_xchacha20_poly1305_rtpsize","codecs":[{"name":"opus","type":"audio","priority":1000,"payload_type":120},{"name":"H265","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":false,"decode":true},{"name":"H264","type":"video","priority":2000,"payload_type":103,"rtx_payload_type":104,"encode":true,"decode":true}],"rtc_connection_id":"0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0","experiments":[]}})"),
          "Select Protocol: video codecs take PT 101+2i, RTX +1 and priority 1000(i+1) in offer order");
 
+    VoiceCodecOffer offers[kVoiceVideoMaximumCodecs];
+    const u32 all = voice_video_codec_bit(VoiceVideoCodec::av1) | voice_video_codec_bit(VoiceVideoCodec::h265) |
+                    voice_video_codec_bit(VoiceVideoCodec::vp8);
+    check(voice_video_decode_offers(0, {offers, kVoiceVideoMaximumCodecs}) == 1 &&
+              offers[0].codec == VoiceVideoCodec::h264 && offers[0].decode && !offers[0].encode &&
+              voice_video_decode_offers(voice_video_codec_bit(VoiceVideoCodec::h265),
+                                        {offers, kVoiceVideoMaximumCodecs}) == 2 &&
+              offers[0].codec == VoiceVideoCodec::h265 && offers[1].codec == VoiceVideoCodec::h264 &&
+              voice_video_decode_offers(all, {offers, kVoiceVideoMaximumCodecs}) == 3 &&
+              offers[0].codec == VoiceVideoCodec::av1 && offers[1].codec == VoiceVideoCodec::h265 &&
+              offers[2].codec == VoiceVideoCodec::h264 && voice_video_decode_offers(all, {offers, 1}) == 1,
+          "Select Protocol: decode offers follow Discord's order AV1, H265, H264; H264 always, VP8 never");
+
     u8 output[1024];
     const auto rejected = [&](const VoiceSelectProtocolMedia& value) noexcept {
         memset(output, 0xAA, sizeof(output));

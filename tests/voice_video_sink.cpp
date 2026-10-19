@@ -255,6 +255,88 @@ void routing(Check check) noexcept {
     voice_participants_release(&connection.participants);
 }
 
+// Every offered codec is bound: H265 first (payload type 101), H264 second (103).
+void codec_binding(Check check) noexcept {
+    static VoiceConnection connection;
+    static VoiceReceive receive;
+    static Decoder decoder;
+    static Dave dave;
+    connection = {};
+    clear_bytes(&receive, sizeof(receive));
+    decoder = {};
+    dave = {};
+    check(announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
+              {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
+          "Video codecs fixture: camera announced");
+    receive.video.decrypt = open;
+    receive.video.decrypt_context = &dave;
+    receive.video.frames = {&decoder, push, end};
+    connection.media.has_description = true;
+    connection.media.video_offer =
+        voice_video_codec_bit(VoiceVideoCodec::h265) | voice_video_codec_bit(VoiceVideoCodec::h264);
+    connection.media.ssrc = 7;
+    voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
+    // VPS, SPS, PPS and an IDR_N_LP first slice segment as single NAL packets.
+    const u8 vps[]{0x40, 0x01, 0x0c}, sps[]{0x42, 0x01, 0x01}, pps[]{0x44, 0x01, 0xc1}, idr[]{0x28, 0x01, 0xaf, 0x10};
+    const ConstSlice<u8> nals[]{{vps, 3}, {sps, 3}, {pps, 3}, {idr, 4}};
+    u8 plain[64];
+    for (u32 i = 0; i != 4; ++i) {
+        const u32 bytes = rtp(plain, 101, kVideo, static_cast<u16>(10 + i), 3000, i == 3, nals[i]);
+        voice_receive_packet(&receive, received(connection, {plain, bytes}), {plain, bytes}, audio_unused, nullptr,
+                             1'000'000);
+    }
+    voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
+    check(decoder.frames == 1 && decoder.codec == VoiceVideoCodec::h265 && decoder.keyframe && decoder.intact &&
+              decoder.bytes == 4 * 4 + 13,
+          "Video sink: payload type 101 of an H265-first offer reaches the decoder as H.265");
+    send_keyframe(receive, connection, 14, 6000, 1'040'000, kVideo, 103);
+    voice_video_sink_drive(&receive.video, &connection, false, 1070, 1'070'000);
+    check(decoder.frames == 2 && decoder.codec == VoiceVideoCodec::h264 && decoder.keyframe,
+          "Video sink: the second offer (H264, payload type 103) is bound too; a stream may switch codec");
+    voice_receive_stop(&receive);
+    voice_participants_release(&connection.participants);
+}
+
+// An AV1-capable device offers AV1 first: payload type 101 carries AV1 OBUs.
+void av1_binding(Check check) noexcept {
+    static VoiceConnection connection;
+    static VoiceReceive receive;
+    static Decoder decoder;
+    static Dave dave;
+    connection = {};
+    clear_bytes(&receive, sizeof(receive));
+    decoder = {};
+    dave = {};
+    check(announce(connection, 12, utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
+              {"type":"video","rid":"100","ssrc":20,"rtx_ssrc":21,"active":true,"quality":100}]})")),
+          "AV1 video fixture: camera announced");
+    receive.video.decrypt = open;
+    receive.video.decrypt_context = &dave;
+    receive.video.frames = {&decoder, push, end};
+    connection.media.has_description = true;
+    connection.media.video_offer =
+        voice_video_codec_bit(VoiceVideoCodec::av1) | voice_video_codec_bit(VoiceVideoCodec::h264);
+    connection.media.ssrc = 7;
+    voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
+    // N=1, W=2: a sequence header element, then a frame OBU to the end.
+    const u8 unit[]{0x28, 0x03, 0x08, 0x00, 0x00, 0x30, 0x10, 0x20};
+    u8 plain[64];
+    const u32 bytes = rtp(plain, 101, kVideo, 10, 3000, true, {unit, sizeof(unit)});
+    voice_receive_packet(&receive, received(connection, {plain, bytes}), {plain, bytes}, audio_unused, nullptr,
+                         1'000'000);
+    voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
+    const u8 expected[]{0x0a, 0x02, 0x00, 0x00, 0x30, 0x10, 0x20};
+    check(decoder.frames == 1 && decoder.codec == VoiceVideoCodec::av1 && decoder.keyframe && decoder.intact &&
+              decoder.bytes == sizeof(expected) && bytes_equal(decoder.frame, expected, sizeof(expected)),
+          "Video sink: payload type 101 of an AV1-first offer reaches the decoder as depacketized AV1");
+    send_keyframe(receive, connection, 11, 6000, 1'040'000, kVideo, 103);
+    voice_video_sink_drive(&receive.video, &connection, false, 1070, 1'070'000);
+    check(decoder.frames == 2 && decoder.codec == VoiceVideoCodec::h264,
+          "Video sink: H264 stays bound at payload type 103 behind AV1");
+    voice_receive_stop(&receive);
+    voice_participants_release(&connection.participants);
+}
+
 void dave_frames(Check check) noexcept {
     static VoiceConnection connection;
     connection = {};
@@ -286,6 +368,8 @@ void dave_frames(Check check) noexcept {
 
 void test_voice_video_sink(Check check) noexcept {
     routing(check);
+    codec_binding(check);
+    av1_binding(check);
     dave_frames(check);
 }
 } // namespace maicord

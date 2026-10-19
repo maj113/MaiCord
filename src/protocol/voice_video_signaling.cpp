@@ -65,6 +65,16 @@ VoiceVideoCodec voice_video_codec(JsonString name) noexcept {
     return VoiceVideoCodec::unknown;
 }
 
+u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept {
+    constexpr VoiceVideoCodec order[]{VoiceVideoCodec::av1, VoiceVideoCodec::h265, VoiceVideoCodec::h264};
+    decodable |= voice_video_codec_bit(VoiceVideoCodec::h264);
+    u32 count = 0;
+    for (const auto codec : order)
+        if ((decodable & voice_video_codec_bit(codec)) && count < output.count)
+            output[count++] = {codec, false, true};
+    return count;
+}
+
 bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept {
     if (random.count != 16 || !random.data || output.count < kVoiceRtcConnectionIdBytes || !output.data)
         return false;

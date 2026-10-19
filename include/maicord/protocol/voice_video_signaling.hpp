@@ -26,6 +26,12 @@ struct VoiceCodecOffer {
     VoiceVideoCodec codec;
     bool encode, decode;
 };
+constexpr u32 voice_video_codec_bit(VoiceVideoCodec codec) noexcept {
+    return 1u << static_cast<u8>(codec);
+}
+// Decode-only offers for the decodable codec bits in Discord's priority order
+// (AV1, H265, H264); H.264 is always offered. Returns the count written.
+u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept;
 struct VoiceSelectProtocolMedia {
     VoiceGatewaySelectProtocol transport;
     // Priority order; empty when video is unsupported (audio-only offer).

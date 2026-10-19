@@ -56,37 +56,68 @@ void on_keyframe(void* context, u32 ssrc) noexcept {
 
 // Removes a stream under the lock; the decoder is destroyed afterwards because
 // joining its thread while holding the lock could deadlock with on_frame.
-H264StreamDecoder* detach(VideoStreamDecoders::Stream* stream) noexcept {
-    H264StreamDecoder* decoder = stream->decoder;
+GpuStreamDecoder* detach(VideoStreamDecoders::Stream* stream) noexcept {
+    GpuStreamDecoder* decoder = stream->decoder;
+    // Counts only, for checking real streams.
+    const auto s = gpu_stream_decoder_stats(decoder);
+    const VoiceLogField fields[]{{"codec", static_cast<u64>(stream->codec)},
+                                 {"received", s.received},
+                                 {"decoded", s.decoded},
+                                 {"presented", s.presented},
+                                 {"damaged", s.damaged},
+                                 {"gaps", s.gaps},
+                                 {"requests", s.keyframe_requests},
+                                 {"reinits", s.reinitializations},
+                                 {"gpu_failures", s.gpu_failures},
+                                 {"unsupported", s.unsupported},
+                                 {"width", s.coded_width},
+                                 {"height", s.coded_height},
+                                 {"surfaces", s.surfaces},
+                                 {"upload_kib", s.uploaded_bytes >> 10}};
+    voice_log_fields(s.gpu_failures || s.unsupported ? VoiceLogLevel::warning : VoiceLogLevel::info,
+                     "video_decoder_summary", {fields, sizeof(fields) / sizeof(fields[0])});
     release_frame(stream->latest);
     *stream = {};
     return decoder;
 }
 
-bool push_frame(void* context, u32 ssrc, ConstSlice<u8> frame, u32 rtp_timestamp, bool keyframe,
-                bool intact) noexcept {
+bool decodable_codec(const VideoStreamDecoders& decoders, VoiceVideoCodec codec, GpuStreamCodec* output) noexcept {
+    const u32 bits = static_cast<u32>(InterlockedCompareExchange(const_cast<volatile LONG*>(&decoders.decodable), 0, 0));
+    if (!(bits & voice_video_codec_bit(codec))) return false;
+    *output = codec == VoiceVideoCodec::av1    ? GpuStreamCodec::av1
+              : codec == VoiceVideoCodec::h265 ? GpuStreamCodec::h265
+                                               : GpuStreamCodec::h264;
+    return true;
+}
+
+bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> frame, u32 rtp_timestamp,
+                bool keyframe, bool intact) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
     if (!decoders || !ssrc || !frame.data || !frame.count) return false;
     AcquireSRWLockShared(decoders->lock.native());
     auto* stream = find(decoders, ssrc);
+    const bool current = stream && stream->codec == codec;
     // push copies into the decoder queue; the worker is the only creator and
     // destroyer, so the decoder outlives this shared section.
-    const bool pushed = stream && h264_stream_decoder_push(stream->decoder, frame, rtp_timestamp, intact);
+    const bool pushed = current && gpu_stream_decoder_push(stream->decoder, frame, rtp_timestamp, intact);
     ID3D11Device* device = decoders->device;
-    if (!stream && device) device->AddRef();
+    if (!current && device) device->AddRef();
     ReleaseSRWLockShared(decoders->lock.native());
-    if (stream) return pushed;
-    if (!device || !keyframe) {
-        // Decoding can only begin at a keyframe: ask for one now and then at
-        // most every kH264StreamKeyframeIntervalMs while this SSRC waits.
+    if (current) return pushed;
+    GpuStreamCodec decoder_codec{};
+    const bool supported = device && decodable_codec(*decoders, codec, &decoder_codec);
+    if (!supported || !keyframe) {
+        // Decoding can only begin (or change codec) at a keyframe: ask for one
+        // now and then at most every kGpuStreamKeyframeIntervalMs while waiting.
         if (device) device->Release();
+        if (!supported) return false;
         const u64 now = GetTickCount64();
         u32 slot = 0;
         for (u32 i = 0; i < kVideoStreamDecoderStreams; ++i) {
             if (decoders->waiting_ssrc[i] == ssrc) { slot = i; break; }
             if (decoders->waiting_ms[i] < decoders->waiting_ms[slot]) slot = i;
         }
-        if (decoders->waiting_ssrc[slot] == ssrc && now - decoders->waiting_ms[slot] < kH264StreamKeyframeIntervalMs)
+        if (decoders->waiting_ssrc[slot] == ssrc && now - decoders->waiting_ms[slot] < kGpuStreamKeyframeIntervalMs)
             return false;
         decoders->waiting_ssrc[slot] = ssrc;
         decoders->waiting_ms[slot] = now ? now : 1;
@@ -145,10 +176,16 @@ void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept {
 
 void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Device* device) noexcept {
     if (!decoders) return;
+    const u32 codecs = device ? gpu_stream_decoder_codecs(device) : 0;
+    u32 bits = 0;
+    if (codecs & gpu_stream_codec_bit(GpuStreamCodec::h264)) bits |= voice_video_codec_bit(VoiceVideoCodec::h264);
+    if (codecs & gpu_stream_codec_bit(GpuStreamCodec::h265)) bits |= voice_video_codec_bit(VoiceVideoCodec::h265);
+    if (codecs & gpu_stream_codec_bit(GpuStreamCodec::av1)) bits |= voice_video_codec_bit(VoiceVideoCodec::av1);
     if (device) device->AddRef();
     AcquireSRWLockExclusive(decoders->lock.native());
     ID3D11Device* previous = decoders->device;
     decoders->device = device;
+    InterlockedExchange(&decoders->decodable, static_cast<LONG>(bits));
     ReleaseSRWLockExclusive(decoders->lock.native());
     if (previous) previous->Release();
 }

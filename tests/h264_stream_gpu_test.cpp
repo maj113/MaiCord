@@ -11,6 +11,9 @@
 namespace maicord {
 int h264_attachment_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h264_fixture::Bits bits,
                              h264_fixture::Output out) noexcept;
+int hevc_stream_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h264_fixture::Bits bits,
+                         h264_fixture::Output out) noexcept;
+int av1_stream_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context) noexcept;
 namespace {
 using namespace h264_fixture;
 
@@ -465,7 +468,8 @@ extern "C" __declspec(noreturn) void WINAPI maicord_h264_stream_gpu_tests_entry(
         text[25] = static_cast<char>('0' + result % 10);
         say(text);
     }
+    const int av1 = av1_stream_gpu_test(device, context); // Reports its own failure.
     context->Release();
     device->Release();
-    ExitProcess(static_cast<UINT>(result));
+    ExitProcess(static_cast<UINT>(result ? result : av1));
 }

@@ -1,10 +1,10 @@
 """Generate RTP video receive fixtures (stdlib only).
 
-Builds tiny synthetic H.264 / H.265 elementary streams, packetizes them
+Builds tiny synthetic H.264 / H.265 / AV1 elementary streams, packetizes them
 independently of MaiCord (RFC 6184 packetization-mode 1, RFC 7798 without
-DONL), and writes packet sets with loss/reorder/duplicate/RTX permutations,
-the byte-exact Annex B (4-byte start code) access units the receiver must
-emit, and RTCP NACK/PLI/FIR/RR/SR serializations.
+DONL, the AOM AV1 RTP payload as WebRTC writes it), and writes packet sets with loss/reorder/duplicate/RTX permutations,
+the byte-exact Annex B (4-byte start code) access units, or AV1 temporal
+units in Discord's depacketized form, the receiver must emit, and RTCP NACK/PLI/FIR/RR/SR serializations.
 
     python tools/rtp_video_oracle.py tests/data/rtp_video_vectors.hpp
 """
@@ -17,7 +17,7 @@ MTU = 1100  # Maximum RTP payload bytes used by the reference packetizer.
 SSRC = 0x1234ABCD
 RTX_SSRC = SSRC + 1
 LOCAL_SSRC = 0x00C0FFEE
-CODECS = {'h264': (101, 102), 'h265': (103, 104)}
+CODECS = {'h264': (101, 102), 'h265': (103, 104), 'av1': (105, 106)}
 
 
 def nal_body(rng, size, first_bit):
@@ -130,6 +130,82 @@ def packetize_h265(nals):
     return payloads
 
 
+def av1_obu(rng, obu_type, size, extension=None):
+    header = bytes([obu_type << 3 | (4 if extension is not None else 0)])
+    if extension is not None:
+        header += bytes([extension])
+    return header, bytes(rng.randrange(256) for _ in range(size))
+
+
+def av1_stream(rng):
+    # Temporal delimiters are dropped by the packetizer; payloads are opaque here.
+    td = (bytes([2 << 3]), b'')
+    return [
+        [td, av1_obu(rng, 1, 12), av1_obu(rng, 6, 3300)],                     # sequence header + key frame
+        [td, av1_obu(rng, 6, 700)],
+        [td, av1_obu(rng, 3, 40), av1_obu(rng, 4, 1500), av1_obu(rng, 4, 900)],  # frame header + tile groups
+        [td, av1_obu(rng, 6, 30), av1_obu(rng, 6, 2400)],                     # hidden frame + shown frame
+        [td, av1_obu(rng, 6, 90, extension=0x20)],                            # temporal_id 1
+        [td, av1_obu(rng, 6, 1800)],
+    ]
+
+
+def leb128(value):
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
+def av1_kept(obus):
+    return [(h, p) for h, p in obus if (h[0] >> 3) & 15 not in (2, 8, 15)]
+
+
+def packetize_av1(obus):
+    # WebRTC RtpPacketizerAv1: size fields stripped, W counts up to three
+    # elements (the last then has no length), Z/Y mark fragments, N a sequence start.
+    kept = av1_kept(obus)
+    packets, current, used, continues = [], [], 1, False
+
+    def flush(more):
+        nonlocal current, used, continues
+        packets.append((continues, more, current))
+        current, used, continues = [], 1, more
+
+    for header, payload in kept:
+        data, offset = bytes([header[0] & ~2]) + header[1:] + payload, 0
+        while offset < len(data):
+            room = MTU - used - 2
+            if room < 8:
+                flush(offset > 0)
+                continue
+            chunk = data[offset:offset + room]
+            current.append(chunk)
+            used += len(chunk) + len(leb128(len(chunk)))
+            offset += len(chunk)
+    flush(False)
+    payloads = []
+    for index, (z, y, elements) in enumerate(packets):
+        w = len(elements) if len(elements) <= 3 else 0
+        n = index == 0 and (kept[0][0][0] >> 3) & 15 == 1
+        body = b''.join(e if w and i + 1 == len(elements) else leb128(len(e)) + e for i, e in enumerate(elements))
+        payloads.append(bytes([z << 7 | y << 6 | w << 4 | n << 3]) + body)
+    return payloads
+
+
+def av1_frame(obus):
+    kept, out = av1_kept(obus), bytearray()
+    for index, (header, payload) in enumerate(kept):
+        if index + 1 < len(kept):
+            out += bytes([header[0] | 2]) + header[1:] + leb128(len(payload)) + payload
+        else:
+            out += bytes([header[0] & ~2]) + header[1:] + payload
+    return bytes(out)
+
+
 def rtp(pt, seq, ts, ssrc, marker, payload):
     return struct.pack('>BBHII', 0x80, (0x80 if marker else 0) | pt, seq & 0xFFFF, ts & 0xFFFFFFFF, ssrc) + payload
 
@@ -142,7 +218,7 @@ class Stream:
     def __init__(self, codec, units, first_seq, first_ts):
         self.codec = codec
         pt, self.rtx_pt = CODECS[codec]
-        packetize = packetize_h264 if codec == 'h264' else packetize_h265
+        packetize = {'h264': packetize_h264, 'h265': packetize_h265, 'av1': packetize_av1}[codec]
         self.packets, self.frame_of, self.frames = [], [], []
         seq, ts = first_seq, first_ts
         for index, nals in enumerate(units):
@@ -151,7 +227,7 @@ class Stream:
                 self.packets.append((seq & 0xFFFF, ts, i + 1 == len(payloads), payload))
                 self.frame_of.append(index)
                 seq += 1
-            self.frames.append(annex_b(nals))
+            self.frames.append(av1_frame(nals) if codec == 'av1' else annex_b(nals))
             ts += 3000
         self.pt = pt
 
@@ -286,6 +362,10 @@ def main():
              '    const u8* delivered; u32 delivered_count; bool keyframe_request; };']
     emit_stream(lines, 'h264', h264, rng)
     emit_stream(lines, 'h265', h265, rng)
+    # A separate generator keeps the H.264/H.265 vectors unchanged.
+    av1_rng = random.Random(0xA71)
+    av1 = Stream('av1', av1_stream(av1_rng), 30000, 0x7FFFF000)
+    emit_stream(lines, 'av1', av1, av1_rng)
     rr, pli, fir, sequences, nack, items, compound = rtcp_vectors()
     lines.append(f'constexpr const char* rtcp_rr = {cstr(rr)};')
     lines.append(f'constexpr const char* rtcp_pli = {cstr(pli)};')
@@ -296,7 +376,8 @@ def main():
     lines.append(f'constexpr const char* rtcp_sr_compound = {cstr(compound)};')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
-    print(f'Generated {len(h264.packets)} H.264 and {len(h265.packets)} H.265 packets: {args.output}')
+    print(f'Generated {len(h264.packets)} H.264, {len(h265.packets)} H.265 and {len(av1.packets)} AV1 packets: '
+          f'{args.output}')
 
 
 if __name__ == '__main__':

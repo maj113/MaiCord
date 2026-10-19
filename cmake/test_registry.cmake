@@ -1087,15 +1087,26 @@ maicord_test(MaiCordProgressiveVideoTests ENTRY maicord_progressive_video_tests_
     LIBS maicord_core maicord_app_core maicord_protocol maicord_media_codec maicord_media_core kernel32
     TIMEOUT 10
     TEST maicord_progressive_video)
+# AV1 header parsing and DXVA parameters on the synthetic SVT-AV1 fixture, with fuzzing.
+maicord_test(MaiCordAv1Tests ENTRY maicord_av1_tests_entry
+    SOURCES tests/av1.cpp src/platform/av1_dxva_parameters.cpp
+    LIBS maicord_core maicord_media_codec kernel32
+    INCLUDES src/platform
+    TIMEOUT 10
+    TEST maicord_av1)
 maicord_test(MaiCordH264Tests ENTRY maicord_h264_tests_entry
     SOURCES tests/h264_parameters_test.cpp tests/h264_state_test.cpp tests/h264_stream_test.cpp
+        tests/hevc_stream_test.cpp
     LIBS maicord_core maicord_media_codec kernel32
     TEST maicord_h264_parameters)
-# Live stream decoder on real DXVA hardware with synthetic I_PCM/P_Skip
-# streams (1080p/1440p/4K included), then the attachment decoder on an
-# in-memory MP4 through video_frame_gpu; skipped when no video device exists.
+# Live H.264 and H.265 stream decoders on real DXVA hardware with synthetic
+# PCM/skip streams (1080p/1440p/4K included), the live AV1 decoder on a lossless
+# SVT-AV1 fixture, then the attachment decoder on an in-memory MP4 through
+# video_frame_gpu; skipped when no video device exists.
 maicord_test(MaiCordH264StreamGpuTests ENTRY maicord_h264_stream_gpu_tests_entry
-    SOURCES tests/h264_stream_gpu_test.cpp src/platform/h264_gpu_stream_decoder.cpp
+    SOURCES tests/h264_stream_gpu_test.cpp tests/hevc_stream_gpu_test.cpp src/platform/gpu_stream_decoder.cpp
+        src/platform/h264_gpu_stream_decoder.cpp src/platform/hevc_gpu_stream_decoder.cpp src/app/voice_log.cpp
+        tests/av1_stream_gpu_test.cpp src/platform/av1_gpu_stream.cpp src/platform/av1_dxva_parameters.cpp
         src/app/video_stream_decoders.cpp tests/h264_attachment_gpu_test.cpp src/platform/mp4_decoder.cpp
         src/platform/h264_gpu_decoder.cpp src/platform/hevc_gpu_decoder.cpp src/platform/h264_gpu_configuration.cpp
         src/platform/gpu_decoder_surfaces.cpp src/render/video_frame_gpu.cpp ${MAICORD_VIDEO_FRAME_HEADER}

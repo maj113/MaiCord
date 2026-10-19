@@ -66,7 +66,8 @@ maicord_library(maicord_media_codec
     src/media/png_stream.cpp src/media/png_encode.cpp src/media/png_common.cpp src/media/vp8.cpp
     src/media/webp.cpp src/media/webp_thumbnail.cpp src/media/webp_alpha.cpp src/media/animated_webp.cpp
     src/media/yuv_convert.cpp src/media/yuv_convert_avx2.cpp
-    src/media/rtp_h264.cpp src/media/rtp_h265.cpp
+    src/media/rtp_h264.cpp src/media/rtp_h265.cpp src/media/hevc_stream.cpp
+    src/media/rtp_av1.cpp src/media/av1.cpp
     LIBS maicord_core maicord_compression maicord_opus_decoder ntdll
     INCLUDES third_party/minimp3)
 set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
@@ -229,7 +230,8 @@ maicord_library(maicord_account_media
     src/app/account_video_session.cpp src/platform/mp4_decoder.cpp src/platform/h264_gpu_decoder.cpp
     src/platform/hevc_gpu_decoder.cpp src/platform/h264_gpu_configuration.cpp
     src/platform/h264_gpu_stream_decoder.cpp src/app/video_stream_decoders.cpp
-    src/platform/gpu_decoder_surfaces.cpp
+    src/platform/gpu_decoder_surfaces.cpp src/platform/gpu_stream_decoder.cpp src/platform/hevc_gpu_stream_decoder.cpp
+    src/platform/av1_gpu_stream.cpp src/platform/av1_dxva_parameters.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_core maicord_media_codec
         maicord_cdn_media maicord_paint_program d3d11 dxguid maicord_compression
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"

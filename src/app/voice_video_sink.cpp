@@ -9,15 +9,27 @@ constexpr u32 kBufferBytes = 2 * kVideoRtpFrameBytes;
 VideoRtpCodec rtp_codec(VoiceVideoCodec codec) noexcept {
     return codec == VoiceVideoCodec::h264   ? VideoRtpCodec::h264
            : codec == VoiceVideoCodec::h265 ? VideoRtpCodec::h265
+           : codec == VoiceVideoCodec::av1  ? VideoRtpCodec::av1
                                             : VideoRtpCodec::none;
 }
-// Select Protocol offers one decode codec at index 0: PT 101, RTX 102.
-bool bind_codec(VoiceVideoSink& sink) noexcept {
-    const auto codec = rtp_codec(sink.codec);
-    if (codec == VideoRtpCodec::none)
-        return video_rtp_set_codecs(&sink.rtp, {});
-    const VideoRtpCodecBinding binding{kVoiceVideoPayloadTypeBase, kVoiceVideoPayloadTypeBase + 1, codec};
-    return video_rtp_set_codecs(&sink.rtp, {&binding, 1});
+VoiceVideoCodec voice_codec(VideoRtpCodec codec) noexcept {
+    return codec == VideoRtpCodec::h264   ? VoiceVideoCodec::h264
+           : codec == VideoRtpCodec::h265 ? VoiceVideoCodec::h265
+           : codec == VideoRtpCodec::av1  ? VoiceVideoCodec::av1
+                                          : VoiceVideoCodec::none;
+}
+// Senders may use any offered codec: offer i is payload type 101 + 2i, RTX the next.
+bool bind_codecs(VoiceVideoSink& sink) noexcept {
+    VoiceCodecOffer offers[kVoiceVideoMaximumCodecs];
+    const u32 count = sink.offer ? voice_video_decode_offers(sink.offer, {offers, kVoiceVideoMaximumCodecs}) : 0;
+    VideoRtpCodecBinding bindings[kVoiceVideoMaximumCodecs];
+    u32 bound = 0;
+    for (u32 i = 0; i != count; ++i)
+        if (const auto codec = rtp_codec(offers[i].codec); codec != VideoRtpCodec::none) {
+            const auto payload = static_cast<u8>(kVoiceVideoPayloadTypeBase + 2 * i);
+            bindings[bound++] = {payload, static_cast<u8>(payload + 1), codec};
+        }
+    return video_rtp_set_codecs(&sink.rtp, {bindings, bound});
 }
 void end_stream(VoiceVideoSink& sink, u32 index) noexcept {
     const u32 ssrc = sink.ended[index];

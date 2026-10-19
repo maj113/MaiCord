@@ -8,7 +8,8 @@ namespace maicord {
 // NACK (RFC 4585) and keyframe requests (PLI, or FIR per RFC 5104), and RTCP
 // receiver reports. Input is transport-opened (rtpsize) plaintext RTP whose
 // source was already mapped by the voice connection; output frames are the
-// depacketized Annex B (4-byte start codes) bytes that DAVE then decrypts.
+// depacketized bytes DAVE then decrypts: Annex B with 4-byte start codes for
+// H.264/H.265, OBUs for AV1 (rtp_av1.hpp).
 inline constexpr u32 kVideoRtpMaxStreams = 16;
 inline constexpr u32 kVideoRtpMaxCodecs = 8;
 // Reorder/recovery window per stream (power of two). A 2 MiB access unit at
@@ -24,7 +25,8 @@ inline constexpr u32 kVideoRtpMaxNackItems = 64; // FCI entries per stream per R
 enum class VideoRtpCodec : u8 {
     none,
     h264,
-    h265
+    h265,
+    av1
 };
 // From the negotiated codec list (opcode 1/4): media payload type, its RTX
 // payload type (0 when absent) and codec.
@@ -52,7 +54,8 @@ struct VideoRtpFrame {
     u64 user_id;
     ConstSlice<u8> annex_b; // Borrowed until the sink returns.
     u32 ssrc, rtp_timestamp;
-    bool keyframe;        // Contains an IDR (H.264) / IRAP (H.265) picture.
+    VideoRtpCodec codec;  // Of the frame's payload type.
+    bool keyframe;        // Contains an IDR (H.264) / IRAP (H.265) picture, or starts an AV1 sequence.
     bool references_lost; // Loss since the last delivered keyframe (or none yet).
 };
 // Called synchronously from video_rtp_receive/video_rtp_tick for complete,
