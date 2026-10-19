@@ -8,6 +8,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/protocol/account_requirement.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -47,12 +48,11 @@ struct Owner {
     SettingsPanel status_panel;
 };
 Owner g_owner{};
+// Last connection the settings host projected; survives owner scope resets.
+u8 g_connection = 0xFF;
 
 bool online() noexcept {
-    return g_app.account.instance && g_app.account_ui && g_app.account.status.profile_id &&
-           g_app.account_ui->chat_state.self_user_id && g_app.account.status.running &&
-           !g_app.account.status.failed && g_app.account.status.required_action == AccountRequirement::none &&
-           g_app.account.api.account_settings;
+    return application_account_settings_connection() == AccountSettingsConnection::ready;
 }
 bool mutation_pending() noexcept {
     return g_owner.queued != Mutation::none || g_owner.inflight != Mutation::none;
@@ -83,9 +83,12 @@ void scope() noexcept {
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
     const u32 revision = g_owner.revision + 1;
+    // The open page stays wanted: a page opened before READY loads once it lands.
+    const u8 wanted = g_owner.wanted;
     g_owner = {};
     g_owner.lifetime = lifetime;
     g_owner.revision = revision;
+    g_owner.wanted = wanted;
     g_owner.profile_id = profile;
     g_owner.self_user_id = self;
 }
@@ -261,10 +264,22 @@ bool project_notice(SettingsPanel panel, u8 loads, UiSettingsControl* control,
         presentation->variant = g_owner.status_error ? UiSettingsVariant::critical : UiSettingsVariant::positive;
         return true;
     }
-    if (!online()) {
+    switch (application_account_settings_connection()) {
+    case AccountSettingsConnection::offline:
         control->label = utf8_literal("Offline");
         control->description = utf8_literal("Connect to Discord to see these details.");
         return true;
+    case AccountSettingsConnection::connecting:
+        control->label = utf8_literal("Connecting…");
+        control->description = utf8_literal("These details load once MaiCord is connected.");
+        return true;
+    case AccountSettingsConnection::action_required:
+        control->label = utf8_literal("Discord needs something from you");
+        control->description = account_requirement_notice(g_app.account.status.required_action);
+        presentation->variant = UiSettingsVariant::critical;
+        return true;
+    case AccountSettingsConnection::ready:
+        break;
     }
     if (g_owner.failed & loads) {
         control->label = utf8_literal("Couldn't load these details");
@@ -696,5 +711,27 @@ void application_account_settings_release() noexcept {
     const u64 lifetime = g_owner.lifetime + 1;
     g_owner = {};
     g_owner.lifetime = lifetime;
+}
+
+AccountSettingsConnection application_account_settings_connection() noexcept {
+    const auto& host = g_app.account;
+    const auto& status = host.status;
+    if (!host.instance || host.stop_failed || !g_app.account_ui || !host.api.account_settings || status.failed)
+        return AccountSettingsConnection::offline;
+    if (status.required_action != AccountRequirement::none)
+        return AccountSettingsConnection::action_required;
+    // Running is the coordinator phase; READY's self user lands in the drain after it.
+    if (!status.running || !status.profile_id || !g_app.account_ui->chat_state.self_user_id)
+        return AccountSettingsConnection::connecting;
+    return AccountSettingsConnection::ready;
+}
+
+bool application_account_settings_connection_changed() noexcept {
+    const u8 connection = static_cast<u8>(application_account_settings_connection());
+    if (connection == g_connection)
+        return false;
+    g_connection = connection;
+    ++g_owner.revision;
+    return true;
 }
 } // namespace maicord::app_detail

@@ -284,6 +284,7 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/application_settings_runtime.cpp tests/application_custom_theme.cpp
         tests/application_plugin_catalog_runtime.cpp tests/application_plugin_navigation_runtime.cpp
         tests/application_settings_choice_runtime.cpp tests/application_user_settings_runtime.cpp
+        tests/application_account_settings_runtime.cpp
         tests/application_keybinds_settings_runtime.cpp tests/application_plugins_read_runtime.cpp
         tests/application_plugins_actions_runtime.cpp src/app/application_user_settings.cpp
         src/app/application_account_settings.cpp src/app/application_state.cpp src/app/application_settings.cpp

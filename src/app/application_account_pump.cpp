@@ -39,6 +39,7 @@
 #include "application_reply_draft.hpp"
 #include "application_message_navigation.hpp"
 #include "application_poll.hpp"
+#include "application_frame_presentation.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 
 #include "maicord/core/memory.hpp"
@@ -518,6 +519,12 @@ void drain_terminal_gateway_diagnostics() noexcept {
     }
 }
 
+// The drain stage that stopped the account, for its log line.
+const char* g_drain_failure = "event_drain_failed";
+bool drain_failed(const char* stage) noexcept {
+    g_drain_failure = stage;
+    return false;
+}
 bool drain_account_events() noexcept {
     AccountHost& host = g_app.account;
     if (!host.instance) {
@@ -589,9 +596,9 @@ bool drain_account_events() noexcept {
         repaint = observe_sync_health(host, drained) || repaint;
         if (!drained.ok()) {
             // Transport failures only (a corrupt or oversized mailbox record):
-            // the stream itself is unusable, so the session restarts.
+            // the stream itself is unusable, so the session stops.
             log_u64(LogLevel::error, "account", "event_drain_error", static_cast<u64>(drained.error));
-            return false;
+            return drain_failed("event_drain_failed");
         }
         if (browser_drain.all) {
             application_thread_browser_gateway();
@@ -646,27 +653,29 @@ bool drain_account_events() noexcept {
         }
     }
     application_voice_pump();
-    if (!consume_message_send_completions() || !synchronize_navigation_view() ||
-        !synchronize_selected_channel()) {
-        return false;
-    }
+    if (!consume_message_send_completions())
+        return drain_failed("send_completion_sync_failed");
+    if (!synchronize_navigation_view())
+        return drain_failed("navigation_sync_failed");
+    if (!synchronize_selected_channel())
+        return drain_failed("selected_channel_sync_failed");
     const u32 thread_revision = application_thread_actions_publication_revision();
     application_thread_actions_synchronize();
+    // Feature surfaces are presentation: a failure degrades the surface, never
+    // the session (a poll card projection used to stop the account here).
     if (!application_thread_browser_synchronize())
-        return false;
+        application_record_presentation_failure("thread_browser_sync_failed");
     if (!application_thread_creation_synchronize())
-        return false;
+        application_record_presentation_failure("thread_creation_sync_failed");
     if (!application_forum_post_synchronize())
-        return false;
+        application_record_presentation_failure("forum_post_sync_failed");
     if (!application_poll_synchronize())
-        return false;
+        application_record_presentation_failure("poll_sync_failed");
     repaint =
         repaint || (g_app.account_ui && poll_revision != g_app.account_ui->message_poll_store.revision);
     if (thread_revision != application_thread_actions_publication_revision()) {
-        if (!application_refresh_thread_actions_menu())
-            return false;
-        if (!synchronize_shell_widget_scenes())
-            return false;
+        if (!application_refresh_thread_actions_menu() || !synchronize_shell_widget_scenes())
+            application_record_presentation_failure("thread_actions_refresh_failed");
         repaint = true;
     }
     application_notifications_selection(&g_app);
@@ -744,6 +753,8 @@ bool application_pump_account() noexcept {
             static_cast<u8>(UserAccountCoordinatorError::authentication_rejected));
     }
     if (!drain_account_events()) {
+        // The shell stays up on cached state after this stop; never silent.
+        log_write(LogLevel::error, "account", g_drain_failure);
         application_stop_account();
         return false;
     }

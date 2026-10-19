@@ -44,6 +44,7 @@ void test_application_plugins_read_runtime(void (*check)(bool, const char*) noex
 void test_application_custom_theme(void (*check)(bool, const char*) noexcept) noexcept;
 namespace app_detail {
 void test_application_user_settings_runtime(void (*check)(bool, const char*) noexcept) noexcept;
+void test_application_account_settings_connection_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_keybinds_settings_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_plugins_actions_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 }
@@ -812,6 +813,7 @@ void test_controller() noexcept {
                 sizeof(PermissionOverwriteRecord) * kChatStateOverwriteCapacity);
     test_native_projection_bank();
     test_every_settings_page();
+    maicord::app_detail::test_application_account_settings_connection_runtime(check);
     test_search_field();
     maicord::app_detail::test_application_keybinds_settings_runtime(check);
     auto* widget_memory = scene()->storage.arena.base;

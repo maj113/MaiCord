@@ -1836,8 +1836,10 @@ bool application_settings_synchronize() noexcept {
                                     selected->key.page_id <= kSettingsSearchPage
                                 ? static_cast<u32>(selected->key.page_id)
                                 : 0;
+    // A connection change (READY, a stop) re-projects the account pages by itself.
+    const bool connection = application_account_settings_connection_changed();
     if (settings->native_page != native_page ||
-        settings->custom_theme_revision != application_custom_theme_view().revision)
+        settings->custom_theme_revision != application_custom_theme_view().revision || connection)
         project(*settings);
     const bool notifications = native_page == static_cast<u32>(SettingsPanel::notifications) + 1 ||
                                native_page == kSettingsSearchPage;

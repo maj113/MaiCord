@@ -19,4 +19,10 @@ u64 application_account_settings_next_wake() noexcept;
 bool application_account_settings_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_account_settings_response(const RestClientResponse&, Utf8View body) noexcept;
 void application_account_settings_release() noexcept;
+
+// What the pages can do with the account right now; reads load only when ready.
+enum class AccountSettingsConnection : u8 { offline, connecting, action_required, ready };
+AccountSettingsConnection application_account_settings_connection() noexcept;
+// True once per connection change; the settings host re-projects on it.
+bool application_account_settings_connection_changed() noexcept;
 } // namespace maicord::app_detail

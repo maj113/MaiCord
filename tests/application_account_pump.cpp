@@ -78,6 +78,8 @@ bool application_refresh_thread_actions_menu() noexcept {
 }
 namespace {
 u32 refreshes, forced, history_calls, stops, login_returns, order;
+u32 presentation_failures;
+bool forum_sync_ok = true;
 u32 normal_media_pumps, forum_preview_pumps, covered_media_pumps;
 bool fixture_forum_active, fixture_preview_ok = true;
 bool navigation_ok = true, history_ok = true, order_ok = true, rejected;
@@ -337,6 +339,9 @@ bool application_stop_account() noexcept {
     ++stops;
     return true;
 }
+void application_record_presentation_failure(const char*) noexcept {
+    ++presentation_failures;
+}
 bool application_account_return_to_login(bool invalid) noexcept {
     ++login_returns;
     rejected = invalid;
@@ -406,7 +411,7 @@ u64 application_thread_creation_next_wake() noexcept {
 }
 u64 forum_request_wake;
 bool application_forum_post_synchronize() noexcept {
-    return true;
+    return forum_sync_ok;
 }
 bool application_forum_post_observation_needed() noexcept {
     return forum_observation_needed;
@@ -1552,6 +1557,13 @@ u32 run_account_pump_tests() noexcept {
     check(application_pump_account() && history_calls == 1 && refreshes == 1 && !stops && order_ok,
           "history_failure_keeps_presentation_and_account_alive");
     check(plugin_restores == 1, "unchanged_account_pump_never_polls_saved_plugins_again");
+    reset_counts();
+    forum_sync_ok = false;
+    presentation_failures = 0;
+    check(application_pump_account() && !stops && presentation_failures == 1 && history_calls == 1 &&
+              refreshes == 1 && order_ok,
+          "feature_surface_sync_failure_records_presentation_failure_and_keeps_account_alive");
+    forum_sync_ok = true;
     reset_counts();
     navigation_ok = false;
     check(!application_pump_account() && stops == 1 && !refreshes && !history_calls,
