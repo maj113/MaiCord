@@ -74,10 +74,18 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
     const auto& c = tokens.color;
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float bar_radius = ui_rect_height(g.bar) * .5f;
-    bool ok = true;
-    if (g.marks && count >= 2 && count <= 32) {
-        const float top = g.bounds.top + tokens.metric.slider_mark_height - 2;
-        const float bottom = g.bar.bottom + 6;
+    const Color fill = c.brand;
+    const float grab_radius = ui_rect_width(g.grabber) * .5f;
+    bool ok = paint_stream_push_rounded(paint, g.bar.left, g.bar.top, g.bar.right, g.bar.bottom,
+                                        ui_settings_color_alpha(c.slider_track, alpha), bar_radius) &&
+              (ui_rect_width(g.fill) <= 0 ||
+               paint_stream_push_rounded(paint, g.fill.left, g.fill.top, g.fill.right, g.fill.bottom,
+                                         ui_settings_color_alpha(fill, alpha), bar_radius));
+    // Stop marks span the control row centred on the resting bar, over the
+    // track and under the grabber.
+    if (ok && g.marks && count >= 2 && count <= 32) {
+        const float top = resting.bounds.top + tokens.metric.slider_mark_height;
+        const float bottom = resting.bar.top + resting.bar.bottom - top;
         for (u32 i = 0; ok && i < count; ++i) {
             const float x = ui_slider_position(g, count, i);
             const Color tick = i == default_index ? c.positive : c.slider_track;
@@ -85,15 +93,7 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
                                            1);
         }
     }
-    const Color fill = c.brand;
-    const float grab_radius = ui_rect_width(g.grabber) * .5f;
-    ok = ok &&
-         paint_stream_push_rounded(paint, g.bar.left, g.bar.top, g.bar.right, g.bar.bottom,
-                                   ui_settings_color_alpha(c.slider_track, alpha), bar_radius) &&
-         (ui_rect_width(g.fill) <= 0 ||
-          paint_stream_push_rounded(paint, g.fill.left, g.fill.top, g.fill.right, g.fill.bottom,
-                                    ui_settings_color_alpha(fill, alpha), bar_radius)) &&
-         ui_settings_shadow_paint(paint, g.grabber, grab_radius, 2, .14f * alpha) &&
+    ok = ok && ui_settings_shadow_paint(paint, g.grabber, grab_radius, 2, .14f * alpha) &&
          paint_stream_push_rounded_border(paint, g.grabber.left, g.grabber.top, g.grabber.right, g.grabber.bottom,
                                           ui_settings_color_alpha(c.thumb, alpha),
                                           ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);

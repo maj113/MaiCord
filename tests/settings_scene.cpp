@@ -113,6 +113,21 @@ void test_slider_input(Check check, const UiSettingsTokens& tokens, PaintStream*
               close_to(paint->quads[paint->count - 1].right - paint->quads[paint->count - 1].left,
                        12 + m.slider_grabber_grow),
           "settings slider: hover growth follows an overridden grabber size");
+    const auto marked = ui_slider_geometry(tokens, {100, 0, 420, ui_slider_height(tokens, true)}, 5, 2, true);
+    const float bar_middle = (marked.bar.top + marked.bar.bottom) * .5f;
+    u32 ticks = 0, first = 0, last = 0;
+    bool centred = paint_stream_reset(paint, 1000, 1000) &&
+                   ui_slider_paint(paint, tokens, marked, 5, 1, {true, false, false, false});
+    for (u32 i = 0; centred && i < paint->count; ++i) {
+        const auto& q = paint->quads[i];
+        if (!close_to(q.right - q.left, 2) || q.bottom - q.top <= m.slider_bar)
+            continue;
+        centred = close_to((q.top + q.bottom) * .5f, bar_middle);
+        first = ticks++ ? first : i;
+        last = i;
+    }
+    check(centred && ticks == 5 && first > 0 && last + 1 < paint->count,
+          "settings slider: stop marks centre on the track, over it and under the grabber");
 }
 
 void test_color_hex(Check check) noexcept {
