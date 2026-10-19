@@ -979,7 +979,7 @@ bool application_poll_synchronize() noexcept {
         }
     }
     // Presentation failures degrade the poll surfaces; they never fail the
-    // account pump (a false here used to stop the whole session).
+    // account pump.
     project_card();
     if (!project_voters())
         application_poll_voters_close();

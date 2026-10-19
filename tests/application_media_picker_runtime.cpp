@@ -457,6 +457,11 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
               same(cover.url, utf8_literal("https://cdn.discordapp.com/stickers/72.png")) &&
               cover.key.id == rail.asset_id && application_media_picker_preview_visible(cover.key),
           "picker stickers: the rail requests and resolves the pack cover's preview");
+    const u32 stored = g_sticker_store.count, stored_bytes = g_sticker_store.bytes;
+    application_media_picker_gateway(sticker_update(9, utf8_literal("[]")), utf8_literal("[]"));
+    check(g_sticker_store.count == stored + 1 && g_sticker_store.bytes == stored_bytes && sticker_list(9) &&
+              !sticker_list(9)->json,
+          "picker stickers: a server without stickers is known without a copy");
     GatewayClientEvent left{};
     left.kind = GatewayClientEventKind::dispatch;
     left.dispatch_kind = GatewayClientDispatchKind::guild_delete;

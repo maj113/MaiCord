@@ -17,7 +17,6 @@
 
 namespace maicord::app_detail {
 namespace {
-constexpr u32 kStructurals = 16 * 1024;
 struct StatusForm {
     u64 serial, channel_id, guild_id, account_scope, revision;
     Utf8View status;
@@ -34,7 +33,6 @@ struct VoiceChannels {
     // guild without voice channels, skipped until its channels change.
     u64 asked_guild, skipped_guild;
     u32 session, asked_session, skipped_session, skipped_mutations, info_revision;
-    u32 structurals[kStructurals];
     char text[kVoiceChannelStatusMaximumBytes];
 };
 VoiceChannels vc{};
@@ -84,13 +82,15 @@ bool apply_entry(void* opaque, const VoiceChannelInfoEntry& entry) noexcept {
     return true;
 }
 void decode(VoiceChannelInfoEvent kind, ConstSlice<u8> payload) noexcept {
-    if (!payload.data || !payload.count)
+    if (!payload.data || !payload.count || !g_app.account_ui)
         return;
     const Utf8View data{reinterpret_cast<const char*>(payload.data), payload.count};
+    const Slice<u32> structurals{g_app.account_ui->message_history_page_structurals,
+                                 kMessageHistoryPageStructuralCount};
     // The answer replaces what the guild had, as in the official client.
     if (kind == VoiceChannelInfoEvent::channel_info) {
-        const auto probe = voice_channel_info_decode(kind, data, {vc.structurals, kStructurals},
-                                                     {vc.text, sizeof(vc.text)}, nullptr, nullptr);
+        const auto probe = voice_channel_info_decode(kind, data, structurals, {vc.text, sizeof(vc.text)},
+                                                     nullptr, nullptr);
         if (!probe.ok()) {
             log_u64(LogLevel::warning, "voice", "channel_info_rejected", static_cast<u64>(probe.error));
             return;
@@ -98,8 +98,8 @@ void decode(VoiceChannelInfoEvent kind, ConstSlice<u8> payload) noexcept {
         voice_channel_info_store_clear_guild(&vc.info, probe.guild_id);
     }
     Apply apply{&vc.info};
-    const auto result = voice_channel_info_decode(kind, data, {vc.structurals, kStructurals},
-                                                  {vc.text, sizeof(vc.text)}, apply_entry, &apply);
+    const auto result =
+        voice_channel_info_decode(kind, data, structurals, {vc.text, sizeof(vc.text)}, apply_entry, &apply);
     if (!result.ok())
         log_u64(LogLevel::warning, "voice", "channel_info_update_rejected", static_cast<u64>(result.error));
 }
@@ -374,6 +374,12 @@ u64 application_voice_timer_next_wake() noexcept {
 
 void application_voice_timer_tick(u64 now_ms) noexcept {
     vc.extras.info = &vc.info;
+    // Runs every loop turn: without start times or an invite row nothing can show.
+    if (!vc.info.count && !ui_voice_invite_channel(vc.invite)) {
+        vc.clock.visible = false;
+        vc.clock.wake_ms = 0;
+        return;
+    }
     const bool shown = g_app.window && !IsIconic(g_app.window) && IsWindowVisible(g_app.window) &&
                        !renderer_settings_hides_shell(g_app.renderer);
     const auto& scene = g_app.shell_navigation_scene;

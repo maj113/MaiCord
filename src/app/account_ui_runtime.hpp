@@ -249,7 +249,8 @@ struct AccountUiRuntime {
     // releases its font runs before returning; only quads and hit regions persist.
     AccountResponseShapeScratch response_shape_scratch;
     // UI-thread-only transaction scratch. Navigation keys are rebuilt before
-    // use; history parsing and profile commits finish before presentation.
+    // use; history parsing, Gateway decoding and profile commits finish before
+    // presentation.
     union {
         ChannelSortKey navigation_sort_keys[kNavigationChannelRows];
         u32 message_history_page_structurals[kMessageHistoryPageStructuralCount];

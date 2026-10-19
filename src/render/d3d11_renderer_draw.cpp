@@ -22,6 +22,23 @@ struct LayerBatchRange {
     float scale = 1, origin_x = 0, origin_y = 0;
 };
 
+// Binds one layer transform unless it is already bound.
+bool bind_layer(D3D11Renderer* renderer, float& current_opacity, float opacity, float scale, float origin_x,
+                float origin_y) noexcept {
+    if (opacity == current_opacity && scale == renderer->draw_layer_scale &&
+        origin_x == renderer->draw_layer_origin_x && origin_y == renderer->draw_layer_origin_y)
+        return true;
+    if (!d3d11_draw_pipeline_update_layer(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                          renderer->height, renderer->dpi, opacity, scale, origin_x,
+                                          origin_y))
+        return false;
+    current_opacity = opacity;
+    renderer->background_fx.layer_opacity = opacity;
+    renderer->draw_layer_scale = scale;
+    renderer->draw_layer_origin_x = origin_x;
+    renderer->draw_layer_origin_y = origin_y;
+    return true;
+}
 // Split only at a moving surface's existing batch boundaries. Geometry and
 // instance buffers remain retained; one existing frame constant serves paint,
 // glyphs and media. Identity layers use the original draw ranges directly.
@@ -48,19 +65,8 @@ bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end,
                 next = minimum(next, layer.first);
             }
         }
-        if (opacity != current_opacity || scale != renderer->draw_layer_scale ||
-            origin_x != renderer->draw_layer_origin_x || origin_y != renderer->draw_layer_origin_y) {
-            if (!d3d11_draw_pipeline_update_layer(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                                  renderer->height, renderer->dpi, opacity, scale, origin_x,
-                                                  origin_y))
-                return false;
-            current_opacity = opacity;
-            renderer->background_fx.layer_opacity = opacity;
-            renderer->draw_layer_scale = scale;
-            renderer->draw_layer_origin_x = origin_x;
-            renderer->draw_layer_origin_y = origin_y;
-        }
-        if (!draw(first, next))
+        if (!bind_layer(renderer, current_opacity, opacity, scale, origin_x, origin_y) ||
+            !draw(first, next))
             return false;
         first = next;
     }
@@ -1277,19 +1283,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         goto draw_failed;
     }
     if (toast) {
-        const float opacity = renderer->toast_opacity;
-        const LayerBatchRange toast_paint[1]{{paint_batch_count, stream_paint_batches, opacity}};
-        const LayerBatchRange toast_text[1]{{visible_text_end, stream_text_end, opacity}};
-        const auto paint_toast = [&](u32 begin, u32 limit) noexcept {
-            return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
-        };
-        const auto text_toast = [&](u32 begin, u32 limit) noexcept {
-            return draw_gpu_text(renderer, &submission, theme, begin, limit, false, damage);
-        };
-        if (!draw_opacity_batches(renderer, paint_batch_count, stream_paint_batches, toast_paint,
-                                  current_opacity, paint_toast) ||
-            !draw_opacity_batches(renderer, visible_text_end, stream_text_end, toast_text, current_opacity,
-                                  text_toast))
+        // renderer_set_toast_opacity keeps it within [0, 1].
+        if (!bind_layer(renderer, current_opacity, renderer->toast_opacity, 1, 0, 0) ||
+            !draw_paint_batches(renderer, &submission, paint_batch_count, stream_paint_batches, pixel_scale,
+                                damage) ||
+            !draw_gpu_text(renderer, &submission, theme, visible_text_end, stream_text_end, false, damage))
             goto draw_failed;
     }
     if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&

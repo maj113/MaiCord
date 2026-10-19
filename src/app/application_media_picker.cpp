@@ -85,7 +85,7 @@ constexpr u32 kStickerServerCapacity = 256;
 constexpr u32 kStickerStoreMaximumBytes = 8 * 1024 * 1024;
 struct StickerServerList {
     u64 guild_id;
-    char* json;
+    char* json; // Null for a server without stickers.
     u32 bytes;
 };
 struct StickerStore {
@@ -104,7 +104,8 @@ void sticker_list_remove(u64 guild_id) noexcept {
     for (u32 i = 0; i < store.count; ++i)
         if (store.lists[i].guild_id == guild_id) {
             store.bytes -= store.lists[i].bytes;
-            HeapFree(GetProcessHeap(), 0, store.lists[i].json);
+            if (store.lists[i].json)
+                HeapFree(GetProcessHeap(), 0, store.lists[i].json);
             store.lists[i] = store.lists[--store.count];
             ++store.revision;
             return;
@@ -117,19 +118,26 @@ bool sticker_list_put(u64 guild_id, Utf8View json) noexcept {
     sticker_list_remove(guild_id);
     if (store.count == kStickerServerCapacity || json.bytes > kStickerStoreMaximumBytes - store.bytes)
         return false;
-    auto* copy = static_cast<char*>(HeapAlloc(GetProcessHeap(), 0, json.bytes));
-    if (!copy)
-        return false;
-    CopyMemory(copy, json.data, json.bytes);
-    store.lists[store.count++] = {guild_id, copy, json.bytes};
-    store.bytes += json.bytes;
+    // Most servers have none; their "[]" stays a known empty list without a copy.
+    const bool empty = json.bytes == 2 && json.data[0] == '[' && json.data[1] == ']';
+    char* copy = nullptr;
+    if (!empty) {
+        copy = static_cast<char*>(HeapAlloc(GetProcessHeap(), 0, json.bytes));
+        if (!copy)
+            return false;
+        CopyMemory(copy, json.data, json.bytes);
+    }
+    const u32 bytes = copy ? json.bytes : 0;
+    store.lists[store.count++] = {guild_id, copy, bytes};
+    store.bytes += bytes;
     ++store.revision;
     return true;
 }
 void sticker_store_clear() noexcept {
     auto& store = g_sticker_store;
     for (u32 i = 0; i < store.count; ++i)
-        HeapFree(GetProcessHeap(), 0, store.lists[i].json);
+        if (store.lists[i].json)
+            HeapFree(GetProcessHeap(), 0, store.lists[i].json);
     store.count = store.bytes = 0;
     ++store.revision;
 }
@@ -546,17 +554,23 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
                           permission_has(channel->effective_permissions, kPermissionUseExternalStickers);
     u64 order[kStickerServerCapacity];
     u32 servers = 0;
-    if (sticker_list(p.guild_id))
+    const auto stocked = [](u64 guild_id) noexcept {
+        const auto* list = sticker_list(guild_id);
+        return list && list->json;
+    };
+    if (stocked(p.guild_id))
         order[servers++] = p.guild_id;
     for (u32 i = 0; i < state.guild_count && servers < kStickerServerCapacity; ++i) {
         const auto& guild = state.guilds[state.guild_order[i]];
-        if (!guild.unavailable && guild.id != p.guild_id && sticker_list(guild.id))
+        if (!guild.unavailable && guild.id != p.guild_id && stocked(guild.id))
             order[servers++] = guild.id;
     }
     p.sticker_store_revision = g_sticker_store.revision;
-    auto* scratch = static_cast<u32*>(
-        VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!scratch)
+    auto* scratch =
+        servers ? static_cast<u32*>(VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32),
+                                                 MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                : nullptr;
+    if (servers && !scratch)
         return false;
     constexpr u32 kNameBytes = 128;
     u32 items = 0, text = 0;
@@ -636,7 +650,8 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
             g_app.media_picker_item_serial += used;
         }
     }
-    VirtualFree(scratch, 0, MEM_RELEASE);
+    if (scratch)
+        VirtualFree(scratch, 0, MEM_RELEASE);
     revoke_capture(p);
     ui_media_picker_scene_close(&p.scene);
     if (p.guild)

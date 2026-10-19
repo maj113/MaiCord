@@ -221,11 +221,6 @@ struct RowLayout {
     UiRect row, label, description, control, lead, chips, value;
     float height;
 };
-// The trailing columns of a list row: the count column, then the icon
-// buttons; header rows align their column title with it.
-float list_trailing(const UiSettingsMetrics& m) noexcept {
-    return m.list_column + (m.list_action + m.chip_gap) * kUiSettingsListActions;
-}
 // Parts of a list row or card, from its row rectangle.
 struct ListParts {
     UiRect content, icon, lock, column, chevron;

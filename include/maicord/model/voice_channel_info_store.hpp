@@ -5,8 +5,9 @@
 
 namespace maicord {
 // Voice channel statuses and session start times by channel. Only channels
-// with a value hold a record; statuses share one packed text arena.
-inline constexpr u32 kVoiceChannelInfoCapacity = 1024;
+// with a value hold a record; statuses share one packed text arena. A guild
+// has at most 500 channels, and only the selected guild's values are asked for.
+inline constexpr u32 kVoiceChannelInfoCapacity = 512;
 inline constexpr u32 kVoiceChannelInfoTextBytes = 32 * 1024;
 
 struct VoiceChannelInfo {

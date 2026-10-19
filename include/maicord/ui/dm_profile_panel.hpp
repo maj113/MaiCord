@@ -39,8 +39,4 @@ Utf8View ui_side_panel_toggle_label(bool profile, bool unavailable, bool shown) 
 // 429 waits the same minute). Times are monotonic milliseconds, zero: never.
 inline constexpr u64 kUiProfileFreshMs = 60'000;
 bool ui_profile_fetch_due(u64 loaded_at, u64 failed_at, u64 now) noexcept;
-// Smallest client width in DIPs for the account shell: rail, channel list, a
-// shown member list and a readable chat. The DM profile adds nothing: below
-// its breakpoint it gives way.
-float ui_side_panel_minimum_width(float rail, float navigation, const UiSidePanelInput&) noexcept;
 } // namespace maicord

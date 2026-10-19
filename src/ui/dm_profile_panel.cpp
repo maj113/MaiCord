@@ -31,7 +31,4 @@ bool ui_profile_fetch_due(u64 loaded_at, u64 failed_at, u64 now) noexcept {
     const u64 at = loaded_at > failed_at ? loaded_at : failed_at;
     return !at || now < at || now - at >= kUiProfileFreshMs;
 }
-float ui_side_panel_minimum_width(float rail, float navigation, const UiSidePanelInput& in) noexcept {
-    return rail + navigation + (in.members_visible ? member_width(in) : 0.f) + kUiShellMinimumMessageWidthDips;
-}
 } // namespace maicord

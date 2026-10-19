@@ -669,7 +669,7 @@ bool drain_account_events() noexcept {
     const u32 thread_revision = application_thread_actions_publication_revision();
     application_thread_actions_synchronize();
     // Feature surfaces are presentation: a failure degrades the surface, never
-    // the session (a poll card projection used to stop the account here).
+    // the session.
     if (!application_thread_browser_synchronize())
         application_record_presentation_failure("thread_browser_sync_failed");
     if (!application_thread_creation_synchronize())
