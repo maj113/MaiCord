@@ -240,6 +240,7 @@ bool message_timeline_reset(MessageTimeline* timeline) noexcept {
         return false;
     }
     MessageStore* const store = timeline->store;
+    Arena* const text_arena = store->text_arena;
     MessageRichStore* const rich_store = timeline->rich_store;
     UiVariableList* const list = timeline->list;
     const u32 record_capacity = store->capacity;
@@ -249,9 +250,11 @@ bool message_timeline_reset(MessageTimeline* timeline) noexcept {
     const u64 viewport_units = timeline->viewport_units;
     const bool follow_bottom = timeline->follow_bottom;
     const u32 reset_generation = timeline->reset_generation + 1u;
-    if (!message_store_initialize(store, Slice<MessageRecord>{store->records, record_capacity},
-                                  Slice<u32>{store->order, record_capacity},
-                                  Slice<u8>{store->text, text_capacity}) ||
+    if (!(text_arena ? message_store_initialize_growing(store, Slice<MessageRecord>{store->records, record_capacity},
+                                                        Slice<u32>{store->order, record_capacity}, text_arena)
+                     : message_store_initialize(store, Slice<MessageRecord>{store->records, record_capacity},
+                                                Slice<u32>{store->order, record_capacity},
+                                                Slice<u8>{store->text, text_capacity})) ||
         (rich_store && !message_rich_store_reset(rich_store)) ||
         !ui_variable_list_initialize(list, Slice<u32>{list->item_units, list_capacity},
                                      Slice<u64>{list->fenwick, list_capacity}, 0, default_item_units)) {

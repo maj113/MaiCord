@@ -6,7 +6,6 @@ namespace {
 struct MessageViewStorage {
     MessageRecord records[kMessageViewItemCapacity];
     u32 order[kMessageViewItemCapacity];
-    u8 text[kMessageViewTextCapacity];
     u32 item_units[kMessageViewItemCapacity];
     u64 fenwick[kMessageViewItemCapacity];
 };
@@ -21,13 +20,17 @@ bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
             return false;
         }
         Arena storage = runtime->storage;
+        Arena text_storage = runtime->text_storage;
         arena_reset(&storage, ArenaRewindMode::erase);
         *runtime = MessageViewRuntime{};
         runtime->storage = storage;
+        runtime->text_storage = text_storage;
     } else {
         *runtime = MessageViewRuntime{};
         if (!arena_initialize(&runtime->storage,
-                              sizeof(MessageViewStorage), 0, 4 * 1024)) {
+                              sizeof(MessageViewStorage), 0, 4 * 1024) ||
+            !arena_initialize(&runtime->text_storage, kMessageViewTextCapacity, 0, kMessageStoreTextCommitStep)) {
+            arena_release(&runtime->storage);
             return false;
         }
     }
@@ -39,7 +42,6 @@ bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
     }
     runtime->records = storage->records;
     runtime->order = storage->order;
-    runtime->text = storage->text;
     runtime->item_units = storage->item_units;
     runtime->fenwick = storage->fenwick;
     return true;
@@ -51,7 +53,7 @@ MessageViewRuntimeResult message_view_runtime_reindex(MessageViewRuntime* runtim
                                                       u64 viewport_units, bool follow_bottom) noexcept {
     if (!runtime || !runtime->initialized || !runtime->store.records ||
         runtime->store.records != runtime->records || runtime->store.order != runtime->order ||
-        runtime->store.text != runtime->text || default_item_units == 0 || viewport_units == 0) {
+        runtime->store.text != runtime->text_storage.base || default_item_units == 0 || viewport_units == 0) {
         return runtime_error(MessageViewRuntimeError::invalid_input);
     }
     MessageRichStore* const rich_store = runtime->timeline.rich_store;
@@ -82,10 +84,10 @@ MessageViewRuntimeResult message_view_runtime_initialize(MessageViewRuntime* run
     if (!prepare_owned_storage(runtime)) {
         return runtime_error(MessageViewRuntimeError::store);
     }
-    if (!message_store_initialize(&runtime->store,
-                                  Slice<MessageRecord>{runtime->records, kMessageViewItemCapacity},
-                                  Slice<u32>{runtime->order, kMessageViewItemCapacity},
-                                  Slice<u8>{runtime->text, kMessageViewTextCapacity})) {
+    if (!message_store_initialize_growing(&runtime->store,
+                                          Slice<MessageRecord>{runtime->records, kMessageViewItemCapacity},
+                                          Slice<u32>{runtime->order, kMessageViewItemCapacity},
+                                          &runtime->text_storage)) {
         return runtime_error(MessageViewRuntimeError::store);
     }
     runtime->initialized = true;
@@ -120,6 +122,7 @@ void message_view_runtime_release(MessageViewRuntime* runtime) noexcept {
     }
     if (runtime->owns_storage) {
         arena_release(&runtime->storage);
+        arena_release(&runtime->text_storage);
     }
     *runtime = MessageViewRuntime{};
 }

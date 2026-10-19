@@ -6,7 +6,9 @@
 namespace maicord {
 
 inline constexpr u32 kMessageViewItemCapacity = 256;
-inline constexpr u32 kMessageViewTextCapacity = 16 * 1024;
+// Address space for every resident message at its longest; the text bank
+// commits as content needs it (message_store_initialize_growing).
+inline constexpr u32 kMessageViewTextCapacity = kMessageViewItemCapacity * kMaximumMessageContentBytes;
 
 enum class MessageViewRuntimeError : u8 {
     none,
@@ -30,9 +32,9 @@ struct MessageViewRuntime {
     UiVariableList list;
     MessageTimeline timeline;
     Arena storage;
+    Arena text_storage;
     MessageRecord* records;
     u32* order;
-    u8* text;
     u32* item_units;
     u64* fenwick;
     bool initialized;

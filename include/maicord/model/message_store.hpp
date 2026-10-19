@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/arena.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -66,9 +67,13 @@ struct MessageStore {
     MessageRecord* records;
     u32* order;
     u8* text;
+    // Growing banks reserve text_capacity in this arena and commit
+    // text_committed of it; fixed banks are fully committed and have none.
+    Arena* text_arena;
     u32 capacity;
     u32 count;
     u32 text_capacity;
+    u32 text_committed;
     u32 text_used;
     u32 text_wasted;
     u32 rejected;
@@ -115,6 +120,12 @@ struct MessageStoreResult {
 
 bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records,
                               Slice<u32> order, Slice<u8> text) noexcept;
+// Text lives in `text_arena` (its whole reservation is the capacity). The
+// arena is trimmed back to its first kMessageStoreTextCommitStep bytes, and
+// appends commit more only when compaction cannot make room.
+inline constexpr u32 kMessageStoreTextCommitStep = 16 * 1024;
+bool message_store_initialize_growing(MessageStore* store, Slice<MessageRecord> records,
+                                      Slice<u32> order, Arena* text_arena) noexcept;
 MessageStoreError message_store_validate_input(
     const MessageStore* store, const MessageInput& input) noexcept;
 MessageStoreResult message_store_upsert(MessageStore* store,

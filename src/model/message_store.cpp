@@ -115,6 +115,34 @@ MessageStoreResult result_from_slot(const MessageStore& store, u32 slot, u32 ord
     };
 }
 
+enum class AppendRoom : u8 { ready, full, failed };
+
+// Makes `bytes` appendable at text_used. Compaction comes first whenever it
+// frees enough committed text; a growing bank commits more only otherwise.
+// `full` leaves the store unchanged; `failed` may follow a compaction.
+AppendRoom append_room(MessageStore* store, u32 bytes, Utf8View source) noexcept {
+    if (bytes <= store->text_committed - store->text_used)
+        return AppendRoom::ready;
+    const u32 live = store->text_used - store->text_wasted;
+    if (bytes > store->text_capacity - live || content_overlaps_text(*store, source))
+        return AppendRoom::full;
+    if (bytes <= store->text_committed - live || store->text_used + bytes > store->text_capacity) {
+        if (!message_store_compact_in_place(store))
+            return AppendRoom::failed;
+        if (bytes <= store->text_committed - store->text_used)
+            return AppendRoom::ready;
+    }
+    Arena* arena = store->text_arena;
+    if (!arena)
+        return AppendRoom::failed;
+    const u32 target = minimum(store->text_capacity, (store->text_used + bytes + kMessageStoreTextCommitStep - 1) &
+                                                         ~(kMessageStoreTextCommitStep - 1));
+    if (target > arena->offset && !arena_allocate(arena, target - arena->offset, 1))
+        return AppendRoom::failed;
+    store->text_committed = static_cast<u32>(arena->offset);
+    return AppendRoom::ready;
+}
+
 // Metadata an upsert replaces on new and resident records alike.
 void assign_metadata(MessageRecord& record, const MessageInput& input) noexcept {
     record.channel_id = input.channel_id;
@@ -142,10 +170,24 @@ bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records,
     store->text = text.data;
     store->capacity = records.count;
     store->text_capacity = text.count;
+    store->text_committed = text.count;
     for (u32 index = 0; index < records.count; ++index) {
         records[index] = MessageRecord{};
         order[index] = ~0u;
     }
+    return true;
+}
+
+bool message_store_initialize_growing(MessageStore* store, Slice<MessageRecord> records, Slice<u32> order,
+                                      Arena* text_arena) noexcept {
+    if (!text_arena || !text_arena->base || text_arena->reserved < kMessageStoreTextCommitStep ||
+        text_arena->reserved > ~0u || !arena_trim(text_arena, 0) ||
+        !arena_allocate(text_arena, kMessageStoreTextCommitStep, 1) ||
+        !message_store_initialize(store, records, order,
+                                  {text_arena->base, static_cast<u32>(text_arena->reserved)}))
+        return false;
+    store->text_arena = text_arena;
+    store->text_committed = kMessageStoreTextCommitStep;
     return true;
 }
 
@@ -181,7 +223,7 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
                            reinterpret_cast<const u8*>(input.content.data), input.content.bytes);
                 store->text_wasted += record.content_bytes - input.content.bytes;
                 record.content_bytes = input.content.bytes;
-            } else if (input.content.bytes <= store->text_capacity - store->text_used) {
+            } else if (input.content.bytes <= store->text_committed - store->text_used) {
                 const u32 new_offset = store->text_used;
                 copy_bytes(store->text + new_offset, reinterpret_cast<const u8*>(input.content.data),
                            input.content.bytes);
@@ -190,18 +232,19 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
                 record.content_offset = new_offset;
                 record.content_bytes = input.content.bytes;
             } else {
-                const u32 live_without_previous =
-                    store->text_used - store->text_wasted - record.content_bytes;
-                if (input.content.bytes > store->text_capacity - live_without_previous ||
-                    content_overlaps_text(*store, input.content)) {
-                    ++store->rejected;
-                    return store_error(input.content.bytes > store->text_capacity - live_without_previous
-                                           ? MessageStoreError::text_capacity
-                                           : MessageStoreError::invalid_input);
-                }
-                store->text_wasted += record.content_bytes;
+                const u32 previous = record.content_bytes;
+                store->text_wasted += previous;
                 record.content_bytes = 0;
-                if (!message_store_compact_in_place(store)) {
+                const AppendRoom room = append_room(store, input.content.bytes, input.content);
+                if (room == AppendRoom::full) {
+                    store->text_wasted -= previous;
+                    record.content_bytes = previous;
+                    ++store->rejected;
+                    return store_error(content_overlaps_text(*store, input.content)
+                                           ? MessageStoreError::invalid_input
+                                           : MessageStoreError::text_capacity);
+                }
+                if (room == AppendRoom::failed) {
                     return store_error(MessageStoreError::text_capacity);
                 }
                 record.content_offset = store->text_used;
@@ -220,15 +263,11 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
         ++store->rejected;
         return store_error(MessageStoreError::record_capacity);
     }
-    if (input.content.bytes > store->text_capacity - store->text_used) {
-        const u32 live_bytes = store->text_used - store->text_wasted;
-        if (input.content.bytes > store->text_capacity - live_bytes) {
+    const AppendRoom room = append_room(store, input.content.bytes, input.content);
+    if (room != AppendRoom::ready) {
+        if (room == AppendRoom::full)
             ++store->rejected;
-            return store_error(MessageStoreError::text_capacity);
-        }
-        if (!message_store_compact_in_place(store)) {
-            return store_error(MessageStoreError::text_capacity);
-        }
+        return store_error(MessageStoreError::text_capacity);
     }
     const u32 slot = find_empty_slot(*store);
     if (slot >= store->capacity) {

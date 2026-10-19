@@ -9782,9 +9782,34 @@ void test_message_view_runtime() noexcept {
                g_message_view_runtime.store.count == 0 && g_message_view_runtime.list.count == 0 &&
                g_message_view_runtime.timeline.rich_store == nullptr,
            "message_view_runtime_unbind_and_reinitialize");
+    {
+        // Long messages fill the whole window; the text bank commits only what they use.
+        static char long_content[4000];
+        for (auto& c : long_content) c = 'x';
+        MessageStore& store = g_message_view_runtime.store;
+        bool inserted = store.text_committed == kMessageStoreTextCommitStep;
+        for (u64 id = 1; inserted && id <= 200; ++id)
+            inserted = message_store_upsert(&store, MessageInput{id, 7, 1, id, 0, {long_content, 4000}, 0}).ok();
+        const usize committed = g_message_view_runtime.text_storage.committed;
+        expect(inserted && store.count == 200 && store.text_used == 800000 && store.text_committed >= 800000 &&
+                   committed == store.text_committed && committed < 800000 + kMessageStoreTextCommitStep,
+               "message_view_runtime_long_messages_commit_text_on_demand");
+        // Replacing deleted content compacts inside the committed bank instead of growing it.
+        bool churned = true;
+        for (u64 id = 1; churned && id <= 100; ++id) churned = message_store_delete(&store, id);
+        for (u64 id = 201; churned && id <= 300; ++id)
+            churned = message_store_upsert(&store, MessageInput{id, 7, 1, id, 0, {long_content, 4000}, 0}).ok();
+        expect(churned && store.count == 200 && store.compactions == 1 &&
+                   g_message_view_runtime.text_storage.committed == committed,
+               "message_view_runtime_text_churn_compacts_before_committing");
+        expect(message_timeline_reset(&g_message_view_runtime.timeline) && store.count == 0 &&
+                   store.text_arena == &g_message_view_runtime.text_storage &&
+                   g_message_view_runtime.text_storage.committed == kMessageStoreTextCommitStep,
+               "message_view_runtime_reset_returns_text_pages");
+    }
     message_view_runtime_release(&g_message_view_runtime);
     expect(!g_message_view_runtime.initialized && !g_message_view_runtime.storage.base &&
-               !g_message_view_runtime.records,
+               !g_message_view_runtime.text_storage.base && !g_message_view_runtime.records,
            "message_view_runtime_release");
 }
 
