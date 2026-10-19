@@ -1092,11 +1092,15 @@ maicord_test(MaiCordH264Tests ENTRY maicord_h264_tests_entry
     LIBS maicord_core maicord_media_codec kernel32
     TEST maicord_h264_parameters)
 # Live stream decoder on real DXVA hardware with synthetic I_PCM/P_Skip
-# streams (1080p/1440p/4K included); skipped when no video device exists.
+# streams (1080p/1440p/4K included), then the attachment decoder on an
+# in-memory MP4 through video_frame_gpu; skipped when no video device exists.
 maicord_test(MaiCordH264StreamGpuTests ENTRY maicord_h264_stream_gpu_tests_entry
     SOURCES tests/h264_stream_gpu_test.cpp src/platform/h264_gpu_stream_decoder.cpp
-        src/app/video_stream_decoders.cpp
-    LIBS maicord_core maicord_media_codec kernel32 d3d11 dxguid
+        src/app/video_stream_decoders.cpp tests/h264_attachment_gpu_test.cpp src/platform/mp4_decoder.cpp
+        src/platform/h264_gpu_decoder.cpp src/platform/hevc_gpu_decoder.cpp src/platform/h264_gpu_configuration.cpp
+        src/platform/gpu_decoder_surfaces.cpp src/render/video_frame_gpu.cpp ${MAICORD_VIDEO_FRAME_HEADER}
+    LIBS maicord_core maicord_media_codec maicord_shader_bytecode kernel32 d3d11 dxguid
+    INCLUDES ${MAICORD_GENERATED_DIRECTORY}
     TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu
     TEST maicord_h264_stream_gpu)
 maicord_test(MaiCordGlyphEffectTests ENTRY maicord_glyph_effect_entry

@@ -1,6 +1,7 @@
 // Frozen per-pixel NV12 converter (before the shared-chroma fast path). Test reference only.
-Texture2D<float> Luma : register(t0);
-Texture2D<float2> Chroma : register(t1);
+// Resource types follow the production views (one-slice arrays).
+Texture2DArray<float> Luma : register(t0);
+Texture2DArray<float2> Chroma : register(t1);
 RWTexture2D<unorm float4> Target : register(u0);
 
 cbuffer VideoConstants : register(b0) {
@@ -21,8 +22,8 @@ cbuffer VideoConstants : register(b0) {
 };
 
 float3 convert(uint2 position) {
-    int luma = int(Luma.Load(int3(position, 0)) * 255.0 + 0.5);
-    int2 uv = int2(Chroma.Load(int3(position / 2, 0)) * 255.0 + 0.5) - 128;
+    int luma = int(Luma.Load(int4(position, 0, 0)) * 255.0 + 0.5);
+    int2 uv = int2(Chroma.Load(int4(position / 2, 0, 0)) * 255.0 + 0.5) - 128;
     int y = (luma - YOffset) * YScale;
     int3 rgb = int3(y + RedCr * uv.y,
                    y - GreenCb * uv.x - GreenCr * uv.y,

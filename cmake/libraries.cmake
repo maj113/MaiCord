@@ -226,6 +226,7 @@ maicord_library(maicord_account_media
     src/app/account_video_session.cpp src/platform/mp4_decoder.cpp src/platform/h264_gpu_decoder.cpp
     src/platform/hevc_gpu_decoder.cpp src/platform/h264_gpu_configuration.cpp
     src/platform/h264_gpu_stream_decoder.cpp src/app/video_stream_decoders.cpp
+    src/platform/gpu_decoder_surfaces.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_core maicord_media_codec
         maicord_cdn_media maicord_paint_program d3d11 dxguid maicord_compression
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"

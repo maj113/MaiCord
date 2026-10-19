@@ -12,6 +12,7 @@
 #include "maicord/sys/dxva.hpp"
 #include "h264_dxva_parameters.hpp"
 #include "gpu_decoder_fence.hpp"
+#include "gpu_decoder_surfaces.hpp"
 
 namespace maicord {
 namespace {
@@ -25,13 +26,11 @@ struct State {
     ID3D11VideoContext* context;
     ID3D11Multithread* guard;
     ID3D11VideoDecoder* decoder;
-    ID3D11Texture2D* texture;
-    ID3D11VideoDecoderOutputView* views[32];
+    GpuDecoderSurfaces surfaces;
     GpuDecoderFence wait;
     GpuVideoFrame frame;
     VideoDisplayExtent display;
     u32 feedback;
-    u8 surface_count;
     bool full_stream;
 };
 static_assert(sizeof(State) <= 4'096);
@@ -181,29 +180,15 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
     }
     if (SUCCEEDED(status)) status = s->device->CreateVideoDecoder(&decoder_desc, &selected, &s->decoder);
     if (SUCCEEDED(status)) {
-        D3D11_TEXTURE2D_DESC texture{};
-        texture.Width = a.coded_width; texture.Height = a.coded_height;
         // DPB plus the renderer lease and current decode. References and
         // waiting output share slots; displayed but referenced pictures stay.
         // An unrestricted SPS uses its level's DPB (1080p@4.x: 4 + 2 = 6
         // surfaces, ~19 MB) instead of the 16-frame maximum (18, ~56 MB).
-        texture.ArraySize = maximum<u32>(selected.ConfigMinRenderTargetBuffCount,
+        const u32 count = maximum<u32>(selected.ConfigMinRenderTargetBuffCount,
             maximum<u32>(a.max_references, h264_sps_dpb_frames(a)) + 2u);
-        texture.MipLevels = 1; texture.Format = DXGI_FORMAT_NV12;
-        texture.SampleDesc.Count = 1; texture.BindFlags = D3D11_BIND_DECODER;
-        if (texture.ArraySize > 32) status = DXGI_ERROR_UNSUPPORTED;
-        else status = device->CreateTexture2D(&texture, nullptr, &s->texture);
-        s->surface_count = static_cast<u8>(texture.ArraySize);
-    }
-    if (SUCCEEDED(status)) {
-        D3D11_VIDEO_DECODER_OUTPUT_VIEW_DESC view{};
-        view.DecodeProfile = decoder_desc.Guid;
-        view.ViewDimension = D3D11_VDOV_DIMENSION_TEXTURE2D;
-        const u32 views = full_stream ? s->surface_count : 1u;
-        for (u32 i = 0; i < views && SUCCEEDED(status); ++i) {
-            view.Texture2D.ArraySlice = i;
-            status = s->device->CreateVideoDecoderOutputView(s->texture, &view, &s->views[i]);
-        }
+        status = count > kGpuDecoderSurfaceCapacity ? DXGI_ERROR_UNSUPPORTED
+            : gpu_decoder_surfaces_create(&s->surfaces, device, s->device, decoder_desc.Guid, a.coded_width,
+                                          a.coded_height, count, full_stream ? count : 1u);
     }
     probe->status = status;
     if (FAILED(status)) {
@@ -215,7 +200,7 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
         probe->demux_error = demux_error;
         return false;
     }
-    s->frame = {s->texture, 0, a.crop_x, a.crop_y, a.width, a.height,
+    s->frame = {s->surfaces.texture, 0, a.crop_x, a.crop_y, a.width, a.height,
         a.matrix == 1, a.full_range, s->demux.rotation, {}};
     return true;
 }
@@ -231,6 +216,8 @@ Mp4DecodedFrame output_frame(State* s) noexcept {
     Mp4DecodedFrame frame{};
     if (!h264_output_pop(&s->output, &picture)) { frame.error = Mp4DecodeError::sample; return frame; }
     s->frame.subresource = picture.surface;
+    s->frame.luma = s->surfaces.luma[picture.surface];
+    s->frame.chroma = s->surfaces.chroma[picture.surface];
     frame.gpu = &s->frame; frame.width = s->frame.width; frame.height = s->frame.height;
     frame.display_width = s->display.width; frame.display_height = s->display.height;
     frame.duration_us = picture.duration_us;
@@ -295,7 +282,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
             else { probe->submitted = true; return output_frame(s); }
         }
         const u8 surface = h264_free_surface(s->output, header.first.idr ? 0 : reference_mask(*s),
-            s->full_stream ? s->surface_count : 1);
+            s->full_stream ? s->surfaces.count : 1);
         H264ReferencePlan plan{};
         probe->parse_error = h264_reference_plan(s->references, a, header.first, surface, &plan);
         if (probe->parse_error != H264Error::none) {
@@ -303,7 +290,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
         }
         s->picture.unit = unit; s->picture.header = header;
         s->guard->Enter();
-        HRESULT status = s->context->DecoderBeginFrame(s->decoder, s->views[surface], 0, nullptr);
+        HRESULT status = s->context->DecoderBeginFrame(s->decoder, s->surfaces.views[surface], 0, nullptr);
         if (SUCCEEDED(status)) {
             status = submit(s, plan, surface);
             const HRESULT ended = s->context->DecoderEndFrame(s->decoder);
@@ -384,8 +371,8 @@ bool h264_gpu_decoder_seek_start(H264GpuDecoder* decoder) noexcept {
 void h264_gpu_decoder_release(H264GpuDecoder* probe) noexcept {
     if (!probe) return;
     if (auto* s = static_cast<State*>(probe->state)) {
-        for (auto*& view : s->views) com_release(view);
-        com_release(s->texture); com_release(s->decoder);
+        gpu_decoder_surfaces_release(&s->surfaces);
+        com_release(s->decoder);
         gpu_decoder_fence_release(&s->wait);
         com_release(s->guard); com_release(s->context); com_release(s->device);
         VirtualFree(s, 0, MEM_RELEASE);

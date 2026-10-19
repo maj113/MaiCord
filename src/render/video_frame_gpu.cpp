@@ -46,8 +46,9 @@ HRESULT ensure_nv12(VideoFrameGpu* gpu, ID3D11Device* device, u32 width, u32 hei
     HRESULT status = device->CreateTexture2D(&desc, nullptr, &texture);
     D3D11_SHADER_RESOURCE_VIEW_DESC view{};
     view.Format = DXGI_FORMAT_R8_UNORM;
-    view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    view.Texture2D.MipLevels = 1;
+    view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    view.Texture2DArray.MipLevels = 1;
+    view.Texture2DArray.ArraySize = 1;
     if (SUCCEEDED(status)) status = device->CreateShaderResourceView(texture, &view, &luma);
     view.Format = DXGI_FORMAT_R8G8_UNORM;
     if (SUCCEEDED(status)) status = device->CreateShaderResourceView(texture, &view, &chroma);
@@ -62,11 +63,14 @@ HRESULT ensure_nv12(VideoFrameGpu* gpu, ID3D11Device* device, u32 width, u32 hei
     return S_OK;
 }
 
-bool plane_matches(ID3D11ShaderResourceView* view, ID3D11Texture2D* texture, DXGI_FORMAT format) noexcept {
+// One-slice array view of the frame's subresource (the shader reads arrays).
+bool plane_matches(ID3D11ShaderResourceView* view, ID3D11Texture2D* texture, u32 slice,
+                   DXGI_FORMAT format) noexcept {
     D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
     view->GetDesc(&desc);
-    if (desc.Format != format || desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D ||
-        desc.Texture2D.MostDetailedMip != 0 || desc.Texture2D.MipLevels != 1) return false;
+    if (desc.Format != format || desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DARRAY ||
+        desc.Texture2DArray.MostDetailedMip != 0 || desc.Texture2DArray.MipLevels != 1 ||
+        desc.Texture2DArray.FirstArraySlice != slice || desc.Texture2DArray.ArraySize != 1) return false;
     ID3D11Resource* resource = nullptr;
     view->GetResource(&resource);
     const bool matches = resource == static_cast<ID3D11Resource*>(texture);
@@ -75,10 +79,9 @@ bool plane_matches(ID3D11ShaderResourceView* view, ID3D11Texture2D* texture, DXG
 }
 
 bool direct_planes(const GpuVideoFrame& frame, const D3D11_TEXTURE2D_DESC& input) noexcept {
-    return frame.luma && frame.chroma && input.ArraySize == 1 && frame.subresource == 0 &&
-           (input.BindFlags & D3D11_BIND_SHADER_RESOURCE) &&
-           plane_matches(frame.luma, frame.texture, DXGI_FORMAT_R8_UNORM) &&
-           plane_matches(frame.chroma, frame.texture, DXGI_FORMAT_R8G8_UNORM);
+    return frame.luma && frame.chroma && (input.BindFlags & D3D11_BIND_SHADER_RESOURCE) &&
+           plane_matches(frame.luma, frame.texture, frame.subresource, DXGI_FORMAT_R8_UNORM) &&
+           plane_matches(frame.chroma, frame.texture, frame.subresource, DXGI_FORMAT_R8G8_UNORM);
 }
 
 } // namespace

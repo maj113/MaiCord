@@ -15,10 +15,11 @@ struct ID3D11Multithread;
 
 namespace maicord {
 
-// Source-owned NV12 plane views bypass the copy. The renderer retains no
-// source texture or view. Decoder arrays and absent/invalid plane views use
-// one grow-only NV12 scratch surface shared by all presented videos. Both
-// paths enqueue conversion before the caller releases its frame lease.
+// Source-owned NV12 plane views (one-slice array views of the frame's
+// subresource) bypass the copy. The renderer retains no source texture or
+// view. Absent/invalid plane views use one grow-only NV12 scratch surface
+// shared by all presented videos. Both paths enqueue conversion before the
+// caller releases its frame lease.
 struct VideoFrameGpu {
     ID3D11Texture2D* nv12;
     ID3D11ShaderResourceView* luma;

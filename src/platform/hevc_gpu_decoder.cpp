@@ -10,6 +10,7 @@
 #include "hevc_gpu_geometry.hpp"
 #include "hevc_gpu_references.hpp"
 #include "gpu_decoder_fence.hpp"
+#include "gpu_decoder_surfaces.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
@@ -47,13 +48,11 @@ struct State {
     ID3D11VideoContext* context;
     ID3D11Multithread* guard;
     ID3D11VideoDecoder* decoder;
-    ID3D11Texture2D* texture;
-    ID3D11VideoDecoderOutputView* views[32];
+    GpuDecoderSurfaces surfaces;
     GpuDecoderFence wait;
     GpuVideoFrame frame;
     VideoDisplayExtent display;
     u32 feedback;
-    u8 surface_count;
     bool full_stream;
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
     ProbeTiming probe_timing[probe_phase_count];
@@ -432,6 +431,8 @@ Mp4DecodedFrame output_frame(State& s) noexcept {
         return frame;
     }
     s.frame.subresource = picture.surface;
+    s.frame.luma = s.surfaces.luma[picture.surface];
+    s.frame.chroma = s.surfaces.chroma[picture.surface];
     frame.gpu = &s.frame;
     frame.width = s.frame.width;
     frame.height = s.frame.height;
@@ -544,30 +545,13 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     if (SUCCEEDED(result))
         result = s->device->CreateVideoDecoder(&desc, &selected, &s->decoder);
     if (SUCCEEDED(result)) {
-        D3D11_TEXTURE2D_DESC texture{};
-        texture.Width = surface_extent.width;
-        texture.Height = surface_extent.height;
-        texture.ArraySize =
+        const u32 count =
             maximum<u32>(selected.ConfigMinRenderTargetBuffCount, maximum<u32>(a.max_buffering, 1) + 2);
-        texture.MipLevels = 1;
-        texture.Format = DXGI_FORMAT_NV12;
-        texture.SampleDesc.Count = 1;
-        texture.BindFlags = D3D11_BIND_DECODER;
-        if (texture.ArraySize > 32)
-            result = DXGI_ERROR_UNSUPPORTED;
-        else
-            result = device->CreateTexture2D(&texture, nullptr, &s->texture);
-        s->surface_count = static_cast<u8>(texture.ArraySize);
-    }
-    if (SUCCEEDED(result)) {
-        D3D11_VIDEO_DECODER_OUTPUT_VIEW_DESC view{};
-        view.DecodeProfile = desc.Guid;
-        view.ViewDimension = D3D11_VDOV_DIMENSION_TEXTURE2D;
-        const u32 count = full_stream ? s->surface_count : 1;
-        for (u32 i = 0; i < count && SUCCEEDED(result); ++i) {
-            view.Texture2D.ArraySlice = i;
-            result = s->device->CreateVideoDecoderOutputView(s->texture, &view, &s->views[i]);
-        }
+        result = count > kGpuDecoderSurfaceCapacity
+                     ? DXGI_ERROR_UNSUPPORTED
+                     : gpu_decoder_surfaces_create(&s->surfaces, device, s->device, desc.Guid,
+                                                   surface_extent.width, surface_extent.height, count,
+                                                   full_stream ? count : 1u);
     }
     handle->status = result;
     if (FAILED(result)) {
@@ -579,7 +563,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         handle->demux_error = demux;
         return false;
     }
-    s->frame = {s->texture, 0, a.crop_x, a.crop_y, a.width, a.height, a.matrix == 1, a.full_range,
+    s->frame = {s->surfaces.texture, 0, a.crop_x, a.crop_y, a.width, a.height, a.matrix == 1, a.full_range,
                 s->demux.rotation, {}};
     return true;
 }
@@ -647,7 +631,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
         }
         const u8 surface =
             h264_free_surface(s.output, picture.idr ? 0 : hevc_reference_surfaces(s.references),
-                              s.full_stream ? s.surface_count : 1);
+                              s.full_stream ? s.surfaces.count : 1);
         HevcReferencePlan plan{};
         handle->parse_error =
             mapped(hevc_reference_plan(s.references, s.config.sps, picture, surface, &plan));
@@ -658,7 +642,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
         }
         MAICORD_HEVC_PROBE_TIME(s, probe_guard, s.guard->Enter());
         HRESULT result = MAICORD_HEVC_PROBE_TIME(
-            s, probe_begin, s.context->DecoderBeginFrame(s.decoder, s.views[surface], 0, nullptr));
+            s, probe_begin, s.context->DecoderBeginFrame(s.decoder, s.surfaces.views[surface], 0, nullptr));
         if (SUCCEEDED(result)) {
             result = submit(s, unit, picture, plan, surface);
             const HRESULT end =
@@ -768,9 +752,7 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
     if (!handle)
         return;
     if (auto* s = static_cast<State*>(handle->state)) {
-        for (auto*& view : s->views)
-            com_release(view);
-        com_release(s->texture);
+        gpu_decoder_surfaces_release(&s->surfaces);
         com_release(s->decoder);
         gpu_decoder_fence_release(&s->wait);
         com_release(s->guard);
@@ -816,7 +798,7 @@ void hevc_gpu_decoder_probe_report(const H264GpuDecoder& handle) noexcept {
     probe_metric("hevc_surface_height", surface.height);
     probe_metric("hevc_min_cb_size", u64{1} << (sps.log2_min_cb_minus3 + 3));
     probe_metric("hevc_scaling_enabled", sps.scaling_enabled);
-    probe_metric("hevc_surface_count", state->surface_count);
+    probe_metric("hevc_surface_count", state->surfaces.count);
     probe_metric("hevc_max_reorder", sps.max_reorder);
     probe_metric("hevc_max_buffering", sps.max_buffering);
     probe_metric("hevc_profile", sps.profile);

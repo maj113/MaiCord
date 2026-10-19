@@ -25,8 +25,8 @@ struct GpuVideoFrame {
     // matrix); crop and width/height stay in decoded, unrotated pixels.
     u8 rotation;
     u8 reserved;
-    // Optional, borrowed NV12 plane views for this single texture at subresource 0.
-    // Both views are valid together and share the texture's frame lifetime.
+    // Optional, borrowed R8/R8G8 plane views: Texture2DArray views of exactly
+    // `subresource`. Both are valid together and share the frame's lifetime.
     ID3D11ShaderResourceView* luma = nullptr;
     ID3D11ShaderResourceView* chroma = nullptr;
 };

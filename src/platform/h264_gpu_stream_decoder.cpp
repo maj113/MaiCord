@@ -179,8 +179,9 @@ HRESULT create_decoder(Gpu* gpu, const H264Sps& sps, u8 surfaces_needed) noexcep
         if (SUCCEEDED(status) && (display.BindFlags & D3D11_BIND_SHADER_RESOURCE)) {
             D3D11_SHADER_RESOURCE_VIEW_DESC view{};
             view.Format = DXGI_FORMAT_R8_UNORM;
-            view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-            view.Texture2D.MipLevels = 1;
+            view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+            view.Texture2DArray.MipLevels = 1;
+            view.Texture2DArray.ArraySize = 1;
             HRESULT views = gpu->device->CreateShaderResourceView(gpu->display, &view, &gpu->luma);
             view.Format = DXGI_FORMAT_R8G8_UNORM;
             if (SUCCEEDED(views))

@@ -8,6 +8,8 @@
 #include "maicord/sys/crt.hpp"
 
 namespace maicord {
+int h264_attachment_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h264_fixture::Bits bits,
+                             h264_fixture::Output out) noexcept;
 namespace {
 using namespace h264_fixture;
 
@@ -170,8 +172,10 @@ bool owned_views_valid(const GpuVideoFrame& frame) noexcept {
         D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
         views[i]->GetDesc(&desc);
         const bool valid = resource == frame.texture && desc.Format == formats[i] &&
-                           desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D &&
-                           desc.Texture2D.MostDetailedMip == 0 && desc.Texture2D.MipLevels == 1;
+                           desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2DARRAY &&
+                           desc.Texture2DArray.MostDetailedMip == 0 && desc.Texture2DArray.MipLevels == 1 &&
+                           desc.Texture2DArray.FirstArraySlice == frame.subresource &&
+                           desc.Texture2DArray.ArraySize == 1;
         com_release(resource);
         if (!valid) return false;
     }
@@ -420,6 +424,9 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         }
     }
     if (!status && !frame_ownership(device, context, &b)) finish(45);
+    b.out.count = 0;
+    b.out.ok = true;
+    if (!status) finish(h264_attachment_gpu_test(device, context, b.bits, b.out));
     com_release(capture.staging);
     VirtualFree(memory, 0, MEM_RELEASE);
     return status;

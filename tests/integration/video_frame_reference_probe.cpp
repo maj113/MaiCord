@@ -113,8 +113,9 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept {
     const D3D11_SUBRESOURCE_DATA initial{pixels, kCodedWidth, 0};
     bool valid = SUCCEEDED(device->CreateTexture2D(&desc, &initial, &source));
     D3D11_SHADER_RESOURCE_VIEW_DESC view{};
-    view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    view.Texture2D.MipLevels = 1;
+    view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    view.Texture2DArray.MipLevels = 1;
+    view.Texture2DArray.ArraySize = 1;
     view.Format = DXGI_FORMAT_R8_UNORM;
     valid = valid && SUCCEEDED(device->CreateShaderResourceView(source, &view, &planes[0]));
     view.Format = DXGI_FORMAT_R8G8_UNORM;

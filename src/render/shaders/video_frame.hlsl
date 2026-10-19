@@ -1,5 +1,6 @@
-Texture2D<float> Luma : register(t0);
-Texture2D<float2> Chroma : register(t1);
+// One-slice array views: decoder arrays are read in place.
+Texture2DArray<float> Luma : register(t0);
+Texture2DArray<float2> Chroma : register(t1);
 RWTexture2D<unorm float4> Target : register(u0);
 
 cbuffer VideoConstants : register(b0) {
@@ -22,19 +23,19 @@ cbuffer VideoConstants : register(b0) {
 };
 
 int3 chroma_terms(uint2 position) {
-    int2 uv = int2(Chroma.Load(int3(position / 2, 0)) * 255.0 + 0.5) - 128;
+    int2 uv = int2(Chroma.Load(int4(position / 2, 0, 0)) * 255.0 + 0.5) - 128;
     return int3(RedCr * uv.y, -GreenCb * uv.x - GreenCr * uv.y, BlueCb * uv.x);
 }
 
 float3 convert_luma(uint2 position, int3 terms) {
-    int luma = int(Luma.Load(int3(position, 0)) * 255.0 + 0.5);
+    int luma = int(Luma.Load(int4(position, 0, 0)) * 255.0 + 0.5);
     int y = (luma - YOffset) * YScale;
     return float3(clamp((y + terms + 128) >> 8, 0, 255));
 }
 
 float3 convert(uint2 position) {
-    int luma = int(Luma.Load(int3(position, 0)) * 255.0 + 0.5);
-    int2 uv = int2(Chroma.Load(int3(position / 2, 0)) * 255.0 + 0.5) - 128;
+    int luma = int(Luma.Load(int4(position, 0, 0)) * 255.0 + 0.5);
+    int2 uv = int2(Chroma.Load(int4(position / 2, 0, 0)) * 255.0 + 0.5) - 128;
     int y = (luma - YOffset) * YScale;
     int3 rgb = int3(y + RedCr * uv.y,
                    y - GreenCb * uv.x - GreenCr * uv.y,
