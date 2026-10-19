@@ -1,6 +1,7 @@
 #include "application_taskbar_attention.hpp"
 #include "application_friends.hpp"
 #include "application_state.hpp"
+#include "application_window_focus.hpp"
 #include "maicord/platform/taskbar_attention.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -18,7 +19,7 @@ struct Owner {
 Owner g_owner{};
 
 bool focused() noexcept {
-    return g_app.window && GetForegroundWindow() == g_app.window && !IsIconic(g_app.window);
+    return application_window_focused(g_app.window);
 }
 // The official client's badge: mentions plus incoming friend requests; unread alone is a dot.
 void recount() noexcept {
@@ -32,19 +33,17 @@ void recount() noexcept {
         const u16 slot = state.guild_order[order];
         if (slot >= state.guild_capacity)
             continue;
-        // Mentions in muted servers still count; their unread channels do not.
+        // Mentions in muted servers still count. Muted channels count as
+        // unread only with a mention (the guild unread rules).
         g_owner.mentions += state.guilds[slot].mention_count;
-        g_owner.unread = g_owner.unread || (state.guilds[slot].unread_channels != 0 &&
-                                            !state.guilds[slot].notification_muted);
+        g_owner.unread = g_owner.unread || state.guilds[slot].unread_channels != 0;
     }
+    // Conversations add their mentions; as in the official client, their
+    // unread state never lights the dot.
     const auto& privates = ui.private_channel_store;
-    for (u32 i = 0; i < privates.count; ++i) {
-        const auto* channel = chat_state_store_find_channel(state, privates.records[i].id);
-        if (!channel)
-            continue;
-        g_owner.mentions += channel->mention_count;
-        g_owner.unread = g_owner.unread || chat_state_store_channel_unread(state, *channel);
-    }
+    for (u32 i = 0; i < privates.count; ++i)
+        if (const auto* channel = chat_state_store_find_channel(state, privates.records[i].id))
+            g_owner.mentions += channel->mention_count;
     if (const auto* relationships = application_friends_relationships())
         for (u32 i = 0; i < relationships->count; ++i)
             g_owner.mentions += relationships->records[i].type == RelationshipType::incoming;

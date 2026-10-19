@@ -1,4 +1,5 @@
 #include "application_taskbar_attention.hpp"
+#include "application_window_focus.hpp"
 #include "application_desktop.hpp"
 #include "application_notifications.hpp"
 #include "application_state.hpp"
@@ -110,6 +111,10 @@ struct ApplicationNotifications {
     u64 retention_allocation_failures;
     u64 generation;
     u64 profile, audio_epoch, audio_submitted, selected, create_sequence;
+    // Toast withdrawals deferred out of sent window messages (WM_ACTIVATE):
+    // COM cannot call out during an input-synchronous call.
+    u64 deferred_removals[4];
+    u32 deferred_removal_count;
     u32 seen_next, guild_scope_count, channel_scope_count, os_setting, global_known_gates, global_gates;
     bool live, ready, snapshot, snapshot_failed, enrolled, focused, has_create_sequence, snapshot_partial, work_pending,
         backpressured, history_turn, audio_backpressured, audio_failed, audio_preference, mention_on_all;
@@ -149,7 +154,7 @@ bool focused(const Application& a,const ApplicationNotifications& n) noexcept {
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     if(n.fixture_focus_known) return n.fixture_focused;
 #endif
-    return a.window && GetForegroundWindow()==a.window && !IsIconic(a.window);
+    return application_window_focused(a.window);
 }
 u64 sound_clock(const ApplicationNotifications& n) noexcept {
     (void)n;
@@ -554,7 +559,8 @@ bool application_notifications_project(Application* a,u64 guild,u64 channel,cons
     purge_display(*n);
     return true;
 }
-void application_notifications_ack(Application* a,u64 channel) noexcept {
+namespace {
+void acknowledge(Application* a,u64 channel,bool defer_removal) noexcept {
     if(!a || !a->notifications || !channel) return;
     auto& n=*a->notifications;
     notification_retention_discard_channel(&n.retention,channel);
@@ -562,7 +568,18 @@ void application_notifications_ack(Application* a,u64 channel) noexcept {
         desktop_notification_queue_purge_channel(&n.display->queue,n.profile,n.generation,channel);
         if(n.backpressured) post_continuation(*a,n);
     }
-    if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,channel));
+    if(!n.enrolled || !n.profile) return;
+    if(defer_removal && n.deferred_removal_count<4) {
+        for(u32 i=0;i<n.deferred_removal_count;++i) if(n.deferred_removals[i]==channel) return;
+        n.deferred_removals[n.deferred_removal_count++]=channel;
+        post_continuation(*a,n);
+        return;
+    }
+    transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,channel));
+}
+}
+void application_notifications_ack(Application* a,u64 channel) noexcept {
+    acknowledge(a,channel,false);
 }
 bool application_notifications_can_pop(Application* a) noexcept {
     if(!a || !a->notifications) return true;
@@ -610,7 +627,8 @@ void application_notifications_selection(Application* a) noexcept {
     const u64 selected=a->account_ui->chat_state.selected_channel_id;
     const bool window_focused=focused(*a,n);
     if(selected!=n.selected || (window_focused && !n.focused)) {
-        if(selected) application_notifications_ack(a,selected);
+        // Runs inside focus messages; the toast withdrawal waits for the drain.
+        if(selected) acknowledge(a,selected,true);
         n.selected=selected;
     }
     n.focused=window_focused;
@@ -636,6 +654,9 @@ void application_notifications_drain(Application* a) noexcept {
         !audio_sink(n) || audio_capacity(n,1);
     if(!n.work_pending && !n.pending.message_id && !display_pending && !desktop_notifications_history_pending(&n.native)) return;
     n.work_pending=false;
+    for(u32 i=0;i<n.deferred_removal_count;++i)
+        if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,n.deferred_removals[i]));
+    n.deferred_removal_count=0;
     DesktopNotificationActivation request{};
     u32 activations=0;
     while(activations<kDesktopNotificationActivationCapacity && desktop_notifications_take_activation(&n.native,&request)) {
@@ -672,6 +693,8 @@ void application_notifications_drain(Application* a) noexcept {
             // Failure to reserve metadata cancels this queued intent and
             // follows the normal failed-Show sound fallback, before any Show.
             if(valid && retention_room(n,id.channel_id)) {
+                // The official client flashes as it shows the popup; focus stops it.
+                if(a->preferences.taskbar_flash) application_taskbar_attention_notify();
                 const DesktopNotificationPayload projected{{id.profile_id,id.channel_id,id.message_id},
                     dispatch.title,dispatch.body,dispatch.avatar_file_uri,id.silent,id.suppress_popup};
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
@@ -759,7 +782,7 @@ void application_notifications_account_stop(Application* a) noexcept {
     n.backpressured=n.audio_backpressured=false;
     n.guild_scope_count=n.channel_scope_count=n.seen_next=0;
     n.create_sequence=0; n.has_create_sequence=false;
-    n.selected=0; n.focused=false;
+    n.selected=0; n.focused=false; n.deferred_removal_count=0;
     clear_bytes(n.seen,sizeof(n.seen)); message_notifications_clear(&n.settings);
     desktop_notifications_discard_activations(&n.native);
 }
@@ -1182,9 +1205,10 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
     input.focused=focused(*a,n);
     input.selected=policy_channel->id==state.selected_channel_id;
-    // Account host currently exports no local RTCConnectionStore channel fact.
-    // Do not mistake self voice states from another client for this process.
-    input.current_voice_channel_known=false;
+    // This process's own call; a voice state from another client never counts.
+    input.current_voice_channel_known=true;
+    input.current_voice_channel=ui.voice_session.channel_id==policy_channel->id &&
+        ui.voice_session.phase!=VoiceSetupPhase::idle;
     input.known_gates=notification_gate_active_application|notification_gate_rpc_suppressed|notification_gate_streamer|notification_gate_overlay|notification_gate_required_action;
     input.gates=a->account.status.required_action==AccountRequirement::none?0u:notification_gate_required_action;
     input.known_gates|=n.global_known_gates; input.gates|=n.global_gates;
@@ -1214,26 +1238,29 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     else if(!(event.message.mention_flags&gateway_client_message_changelog_present)) {
         input.known_gates|=notification_gate_changelog; input.gates|=notification_gate_changelog;
     }
-    if((event.message.fields&gateway_message_field_interaction_metadata) &&
-        !(event.message.mention_flags&gateway_client_message_interaction_metadata_present))
-        input.known_gates|=notification_gate_interaction_relationship;
+    // A blocked or ignored user who ran the interaction suppresses its reply.
+    // The interaction user stands for interaction_metadata.user.
+    if(event.message.fields&gateway_message_field_interaction_metadata) {
+        u64 interaction_user{}; u32 interaction_gates{};
+        if(!(event.message.mention_flags&gateway_client_message_interaction_metadata_present))
+            input.known_gates|=notification_gate_interaction_relationship;
+        else if(gateway_client_event_message_interaction_user(event,payload,&interaction_user)) {
+            if(!interaction_user) input.known_gates|=notification_gate_interaction_relationship;
+            else if(application_friends_notification_gates(interaction_user,&interaction_gates)) {
+                input.known_gates|=notification_gate_interaction_relationship;
+                if(interaction_gates) input.gates|=notification_gate_interaction_relationship;
+            }
+        }
+    }
     input.required_gates=(1u<<16)-1;
-    const auto admissions=notification_sound_admissions({&input,true,
-        channel->id==state.selected_channel_id,true,a->preferences.selected_message_sounds_enabled});
-    using Admission=NotificationSoundDecision;
-    constexpr u32 common=notification_gate_restricted_hours|notification_gate_required_action|notification_gate_changelog;
-    const auto gate_admission=[&](u32 mask) noexcept {
-        return (input.gates&mask)?Admission::denied:(input.known_gates&mask)==mask?Admission::allowed:Admission::unknown;
-    };
-    const NotificationMessageSoundInput sound_input{admissions.ordinary,admissions.selected,gate_admission(common),
-        gate_admission(notification_gate_overlay),input.ready,input.live,false,false,true,input.focused,true,
-        a->preferences.message_sounds_enabled,true,!a->preferences.desktop_enabled};
-    const auto sound=notification_message_sound_decide(sound_input);
+    const MessageNotificationDevice device{a->preferences.desktop_enabled,a->preferences.message_sounds_enabled,
+        a->preferences.selected_message_sounds_enabled,a->preferences.taskbar_flash,n.mention_on_all};
+    const auto outputs=message_notification_outputs({&input,true,channel->id==state.selected_channel_id,true,
+        a->preferences.selected_message_sounds_enabled},device);
     // Selected message3 is direct and precedes preview/ordinary transport. It
     // shares MESSAGE1's sound enablement, but never shares fallback H throttle.
-    if(sound.selected_direct) sound_submit(n,2,n.audio_epoch);
-    if(!sound.ordinary_notification) return;
-    application_taskbar_attention_notify();
+    if(outputs.selected_sound) sound_submit(n,2,n.audio_epoch);
+    if(!outputs.ordinary) return;
     Utf8View author{}; if(!gateway_client_event_message_author_name(event,payload,&author)) return;
     if(!author.bytes) author=entity(a,MessageMarkdownEntityKind::user,message.author_id);
     if(contains_nul(author)) author={};
@@ -1243,11 +1270,10 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     // Source projects title/body (and dispatches RPC) before the ordinary
     // desktop-NEVER or popup sound branch. Invalid author projection must not
     // produce that later sound; selected message3 has already been handled.
-    if(sound.ordinary==NotificationMessageSoundRoute::direct) sound_submit(n,1,n.audio_epoch);
-    else if(sound.ordinary==NotificationMessageSoundRoute::popup) sound_throttled(n,1,n.audio_epoch);
-    // p plus common and overlay already resolved scope/mentions once. Popup
-    // transport contributes only streamer here; sound remains independent.
-    if(!has_popup_sink || gate_admission(notification_gate_streamer)!=Admission::allowed) return;
+    if(outputs.sound==NotificationMessageSoundRoute::direct) sound_submit(n,1,n.audio_epoch);
+    else if(outputs.sound==NotificationMessageSoundRoute::popup) sound_throttled(n,1,n.audio_epoch);
+    // Popup transport contributes only streamer here; sound remains independent.
+    if(!has_popup_sink || !outputs.popup) return;
     auto* display=ensure_display(n);
     if(!display) { log_write(LogLevel::warning,"notifications","display_storage_unavailable"); return; }
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
@@ -1267,8 +1293,8 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     }
     const auto admitted=desktop_notification_queue_enqueue(&display->queue,
         {n.profile,n.generation,channel->id,message.id,event.sequence,author,text,avatar,true,suppress_popup,policy_channel->id,
-            sound.ordinary==NotificationMessageSoundRoute::popup?n.audio_epoch:0,
-            sound.ordinary==NotificationMessageSoundRoute::popup?1u:0u});
+            outputs.sound==NotificationMessageSoundRoute::popup?n.audio_epoch:0,
+            outputs.sound==NotificationMessageSoundRoute::popup?1u:0u});
     if(!admitted.ok()) log_u64(LogLevel::warning,"notifications","display_admission_error",static_cast<u64>(admitted.error));
     else post_continuation(*a,n);
 }

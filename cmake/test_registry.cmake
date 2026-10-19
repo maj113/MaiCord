@@ -966,7 +966,7 @@ maicord_test(MaiCordLoginCancelRuntimeTests ENTRY maicord_login_cancel_runtime_e
 maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
     SOURCES tests/notification_policy.cpp tests/notification_settings_wire.cpp
         tests/desktop_notification_queue.cpp tests/notification_sound_policy.cpp
-        tests/notification_sound_admission.cpp tests/notification_controls.cpp
+        tests/notification_sound_admission.cpp tests/notification_controls.cpp tests/notification_rules.cpp
     LIBS maicord_core maicord_model maicord_protocol kernel32
     TEST maicord_notifications)
 # tests/toast_abi.cpp checks the client's WinRT toast ABI against the SDK's

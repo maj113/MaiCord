@@ -766,6 +766,22 @@ void controls_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     nothing.fields = notification_level;
     check(application_notifications_project(&g_app, 10, 21, nothing) && message(906, 106) && f.delivered == base + 3,
         "notification controls: Nothing on a channel suppresses its messages");
+    MessageNotificationSetting inherit{};
+    inherit.level = MessageNotificationLevel::inherit;
+    inherit.fields = notification_level;
+    check(application_notifications_project(&g_app, 10, 21, inherit) &&
+              message(907, 107, 21, utf8_literal("\"done\""), 7,
+                      utf8_literal(R"(,"interaction_metadata":{"id":"9","type":2,"user":{"id":"3","username":"Other"}},"interaction":{"id":"9","type":2,"name":"command","user":{"id":"3","username":"Other"}})"),
+                      utf8_literal("Bot")) &&
+              f.delivered == base + 4,
+        "notification controls: a reply to another member's interaction notifies");
+    const u32 shown_flashes = taskbar_flashes;
+    g_app.preferences.desktop_enabled = false;
+    check(message(908, 108) && f.delivered == base + 4 && taskbar_flashes == shown_flashes,
+        "notification controls: without desktop notifications nothing pops up or flashes");
+    g_app.preferences.desktop_enabled = true;
+    check(message(909, 109) && f.delivered == base + 5 && taskbar_flashes == shown_flashes + 1,
+        "notification controls: a shown popup flashes the taskbar");
     application_notifications_release(&g_app);
 }
 // Direct messages: 40 one-to-one, 41 group, 42 muted one-to-one. READY

@@ -188,6 +188,7 @@ void test_desktop_notification_queue(void (*)(bool, const char*) noexcept) noexc
 void test_notification_sound_policy(void (*)(bool, const char*) noexcept) noexcept;
 void test_notification_sound_admission(void (*)(bool, const char*) noexcept) noexcept;
 void test_notification_controls(void (*)(bool, const char*) noexcept) noexcept;
+void test_notification_rules(void (*)(bool, const char*) noexcept) noexcept;
 namespace notifications_entry {
 u32 failures;
 void check(bool passed, const char* message) noexcept {
@@ -202,5 +203,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_notifications_tests_entry() 
     maicord::test_notification_sound_policy(maicord::notifications_entry::check);
     maicord::test_notification_sound_admission(maicord::notifications_entry::check);
     maicord::test_notification_controls(maicord::notifications_entry::check);
+    maicord::test_notification_rules(maicord::notifications_entry::check);
     ExitProcess(maicord::notifications_entry::failures ? 1 : 0);
 }

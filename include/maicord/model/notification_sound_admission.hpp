@@ -27,4 +27,23 @@ struct NotificationSoundAdmissions {
 MessageNotificationReason notification_sound_ordinary_admit(const MessageNotificationPolicyInput&) noexcept;
 MessageNotificationReason notification_sound_selected_admit(const NotificationSoundAdmissionInput&) noexcept;
 NotificationSoundAdmissions notification_sound_admissions(const NotificationSoundAdmissionInput&) noexcept;
+
+// Device preferences that shape one message's outputs.
+struct MessageNotificationDevice {
+    bool desktop_enabled;  // desktop notifications on (the official client's desktop type ALL)
+    bool message_sounds;   // message1 enabled; also gates the selected-channel message3
+    bool selected_sounds;  // sound for the channel being read, in place of its popup
+    bool taskbar_flash;
+    bool mention_on_all;   // account MENTION_ON_ALL_MESSAGES
+};
+// Every output of one MESSAGE_CREATE. Popup and flash are admission only: the
+// host still needs a desktop identity, and the flash shows only while unfocused.
+struct MessageNotificationOutputs {
+    MessageReadBadge badge;
+    bool selected_sound;                  // message3, unthrottled
+    NotificationMessageSoundRoute sound;  // message1: direct, or throttled with the popup
+    bool ordinary, popup, flash;          // ordinary: passed the notification policy
+};
+MessageNotificationOutputs message_notification_outputs(const NotificationSoundAdmissionInput&,
+                                                        const MessageNotificationDevice&) noexcept;
 } // namespace maicord
