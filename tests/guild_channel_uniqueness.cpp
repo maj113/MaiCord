@@ -236,6 +236,17 @@ void test_guild_channel_uniqueness(void (*check)(bool, const char*) noexcept) no
         "guild uniqueness fallback rejects prefix-to-overflow and overflow-to-overflow collisions atomically");
     check(duplicate_case(kRows, kIdPrefix - 1, 0), "guild uniqueness finds retained-prefix duplicate even with overflow rows following");
     check(branch_emojis(false) && branch_emojis(true), "guild uniqueness all emoji member lifetimes retain nonempty names and restricted roles");
+    {
+        // A repeated GUILD_CREATE rebuilds the selected guild in place.
+        bool kept = build(4, 0, true, false) && reset(&actual) && apply().ok() &&
+            chat_state_store_select_channel(&actual.state, 100001).ok();
+        const u32 selection_revision = actual.state.selection_revision;
+        const auto repeated = kept ? apply() : ChatStateApplyResult{};
+        kept = kept && repeated.ok() && !repeated.selection_changed && !actual.state.selection_held &&
+            actual.state.selected_guild_id == kGuild && actual.state.selected_channel_id == 100001 &&
+            actual.state.selection_revision == selection_revision;
+        check(kept, "guild uniqueness rebuilding the selected guild keeps its selected channel");
+    }
 
     bool valid = build(64, 2, true, true) && reset(&actual, true);
     if (valid) { auto value = wire_channel(63); value.guild_id = 88; replace_channel(63, value); valid = rejection(); }

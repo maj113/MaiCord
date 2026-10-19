@@ -491,6 +491,8 @@ struct ChatStateStore {
     u8 active_name_bank;
     bool home_selected;
     SelfMfaState self_mfa;
+    // A guild is being rebuilt: the default selection waits for its channels.
+    bool selection_held;
     // Every slot below a hint is occupied, so READY insertion is amortized O(1).
     // Both fit existing tail padding.
     u16 guild_free_hint;

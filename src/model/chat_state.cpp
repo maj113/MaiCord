@@ -1292,7 +1292,7 @@ bool chat_state_store_touch_private_channel(ChatStateStore* store, u64 channel_i
 }
 
 bool chat_state_store_select_default(ChatStateStore* store) noexcept {
-    if (!store) {
+    if (!store || store->selection_held) {
         return false;
     }
     const ChannelRecord* selected = nullptr;

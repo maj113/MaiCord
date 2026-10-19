@@ -999,6 +999,16 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 if (!guild.ok()) {
                     return store_error(guild);
                 }
+                // The selected channel is briefly absent while the guild is
+                // rebuilt; choose a default only once it is complete.
+                struct SelectionHold {
+                    ChatStateStore* store;
+                    ~SelectionHold() {
+                        store->selection_held = false;
+                        chat_state_store_select_default(store);
+                    }
+                } const hold{store};
+                store->selection_held = true;
                 chat_state_store_remove_guild_channels(store, event.state.id);
                 chat_state_store_remove_guild_roles(store, event.state.id);
                 for (u32 role_index = 0; role_index < event.state.role_count; ++role_index) {
