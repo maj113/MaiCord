@@ -862,16 +862,21 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     upload_paint = upload_paint || (dots.upload_pending && (dots_base > renderer->pipeline.ui_instance_capacity ||
                                                             renderer->pipeline.ui_instance_capacity - dots_base <
                                                                 dots.paint.quads));
+    D3D11_MAPPED_SUBRESOURCE step_mapped{};
     if (!upload_paint && dots.upload_pending && renderer->pipeline.ui_instance_buffer) {
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(renderer->graphics.context->Map(renderer->pipeline.ui_instance_buffer, 0,
-                                                   D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped)) ||
-            !mapped.pData) {
-            log_write(LogLevel::error, "render", "ui_instance_buffer_map_failed");
-            return false;
+        const HRESULT mapped_result = renderer->graphics.context->Map(
+            renderer->pipeline.ui_instance_buffer, 0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &step_mapped);
+        if (SUCCEEDED(mapped_result) && !step_mapped.pData)
+            renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
+        // A refused no-overwrite map: the whole stream uploads instead.
+        if (FAILED(mapped_result) || !step_mapped.pData) {
+            step_mapped = {};
+            upload_paint = true;
         }
+    }
+    if (step_mapped.pData) {
         const usize bytes = static_cast<usize>(dots.paint.quads) * sizeof(PaintQuad);
-        CopyMemory(static_cast<PaintQuad*>(mapped.pData) + dots_base,
+        CopyMemory(static_cast<PaintQuad*>(step_mapped.pData) + dots_base,
                    renderer->paint_stream.quads + dots.paint.first_quad, bytes);
         renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
         dots.gpu_first = dots_base;
