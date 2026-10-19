@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/media/rtp_h264.hpp"
 #include "maicord/media/rtp_h265.hpp"
+#include "maicord/sys/crt.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -174,6 +175,105 @@ void test_rtcp(Check check) noexcept {
               rtcp_compact_ntp(info[0].ntp_seconds, info[0].ntp_fraction) == 0x456789ab &&
               info[0].rtp_timestamp == 90000 && info[0].packet_count == 10 && info[0].octet_count == 9000,
           "RTCP sender report parsing yields LSR and counters");
+}
+
+// Transport-wide CC feedback (RTPFB FMT 15) and RTP header extension lookup.
+// Expected bytes are derived by hand from draft-holmer-rmcat-transport-wide-
+// cc-extensions-01: 64 ms reference ticks, 250 us truncated deltas.
+void test_transport_feedback(Check check) noexcept {
+    u8 out[256];
+    // Received, received, lost, +68.75 ms (large), -1 ms (negative), +0.1 ms
+    // (rounds to 0): one two-bit vector chunk 01 01 00 10 10 01.
+    const u64 mixed[]{6'401'000, 6'401'250, 0, 6'470'000, 6'469'000, 6'469'100};
+    auto written = rtcp_write_transport_feedback({out, sizeof(out)}, 0, kOracleLocalSsrc, kOracleSsrc, 0xfffe, 7,
+                                                 {mixed, 6});
+    check(written.packets == 6 && written.end == 32 &&
+              equal_hex({out, written.end}, "8fcd000700c0ffee1234abcdfffe000600006407d4a404010113fffc00000000"),
+          "Transport feedback: vector chunk with loss, large and negative deltas, zero padded");
+    // Nine lost then eight received at 1 ms: two run-length chunks.
+    u64 runs[17]{};
+    for (u32 i = 0; i != 8; ++i)
+        runs[9 + i] = 320'500 + i * 1000;
+    written = rtcp_write_transport_feedback({out, sizeof(out)}, 0, kOracleLocalSsrc, kOracleSsrc, 10, 0, {runs, 17});
+    check(written.packets == 17 &&
+              equal_hex({out, written.end}, "8fcd000700c0ffee1234abcd000a0011000005000009200802040404" "04040404"),
+          "Transport feedback: runs of seven or more statuses are run-length coded");
+    // The room left bounds the statuses; a lost run alone is never sent.
+    u64 steady[20];
+    for (u32 i = 0; i != 20; ++i)
+        steady[i] = 640'000 + i * 1000;
+    memset(out, 0xAA, sizeof(out));
+    written = rtcp_write_transport_feedback({out, 40}, 0, 1, 2, 3, 4, {steady, 20});
+    check(written.packets == 18 && written.end == 40 && out[14] == 0 && out[15] == 18 && out[20] == 0x20 &&
+              out[21] == 18,
+          "Transport feedback: a short output reports the prefix that fits");
+    memset(out, 0xAA, sizeof(out));
+    check(!rtcp_write_transport_feedback({out, 23}, 0, 1, 2, 3, 4, {steady, 20}).packets &&
+              !rtcp_write_transport_feedback({out, 24}, 0, 1, 2, 3, 4, {runs, 17}).packets &&
+              !rtcp_write_transport_feedback({out, sizeof(out)}, 0, 1, 2, 3, 4, {runs, 9}).packets &&
+              !rtcp_write_transport_feedback({out, sizeof(out)}, 0, 1, 2, 3, 4, {runs, 0}).packets && out[0] == 0xAA,
+          "Transport feedback: no room for a received status, no received packet or no input writes nothing");
+    const u64 far[]{1'000'000, 10'000'000};
+    written = rtcp_write_transport_feedback({out, sizeof(out)}, 0, 1, 2, 3, 4, {far, 2});
+    check(written.packets == 1, "Transport feedback: a delta beyond 16 bits ends the packet before it");
+
+    // Recorder: sequence wrap, a loss, then a late packet rewinds the report.
+    static RtcpTransportFeedbackState state;
+    rtcp_transport_feedback_reset(&state);
+    check(!rtcp_transport_feedback_deadline(state) &&
+              rtcp_transport_feedback_build(&state, {out, sizeof(out)}, 8, 1, 1'000'000) == 8,
+          "Transport feedback recorder: nothing recorded, nothing due");
+    rtcp_transport_feedback_record(&state, 65534, 0x01020304, 1'000'000);
+    rtcp_transport_feedback_record(&state, 65535, 0x01020304, 1'001'000);
+    rtcp_transport_feedback_record(&state, 1, 0x01020304, 1'003'000);
+    rtcp_transport_feedback_record(&state, 1, 0x01020304, 1'009'000);
+    u32 end = rtcp_transport_feedback_build(&state, {out, sizeof(out)}, 0, kOracleLocalSsrc, 1'003'500);
+    check(state.packets == 3 && rtcp_transport_feedback_deadline(state) == 0 &&
+              equal_hex({out, end}, "8fcd000600c0ffee01020304fffe000400000f00d440a00408000000"),
+          "Transport feedback recorder: wrapped sequences and a gap report once; duplicates keep the first arrival");
+    rtcp_transport_feedback_record(&state, 0, 0x01020304, 1'004'000);
+    check(rtcp_transport_feedback_deadline(state) == 1'053'500 &&
+              rtcp_transport_feedback_build(&state, {out, sizeof(out)}, 0, kOracleLocalSsrc, 1'053'499) == 0,
+          "Transport feedback recorder: the next packet waits for the 50 ms interval");
+    end = rtcp_transport_feedback_build(&state, {out, sizeof(out)}, 0, kOracleLocalSsrc, 1'053'500);
+    check(equal_hex({out, end}, "8fcd000600c0ffee010203040000000200000f01d800b0fffc000000"),
+          "Transport feedback recorder: a late packet is reported again with its successor");
+    // A jump past the window forgets what can no longer be reported; a loss
+    // run longer than one feedback packet is shortened to fit beside the
+    // next received status.
+    rtcp_transport_feedback_record(&state, 3000, 0x01020304, 1'100'000);
+    const bool windowed = state.highest - state.next == kRtcpTransportFeedbackWindow - 1;
+    end = rtcp_transport_feedback_build(&state, {out, sizeof(out)}, 0, 1, 1'200'000);
+    check(windowed && end == 28 && out[14] == 2 && out[15] == 0 && state.next == state.highest + 1 &&
+              state.feedback == 3 && !rtcp_transport_feedback_deadline(state),
+          "Transport feedback recorder: a wide jump keeps one window and reports its tail in one packet");
+
+    // Header extensions: one-byte elements with padding, two-byte profile,
+    // truncated elements and the reserved ID 15.
+    u8 packet[40];
+    const auto layout_of = [&](const char* hex, MediaPacketLayout* layout) noexcept {
+        const u32 bytes = test_unhex(hex, packet);
+        return media_packet_plaintext({packet, bytes}, layout) ? bytes : 0u;
+    };
+    MediaPacketLayout layout{};
+    u32 bytes = layout_of("90650001000000001234abcdbede0002107f0051123400000102", &layout);
+    auto found = rtp_header_extensions({packet, bytes}, layout, kRtpTransportSequenceExtensionId);
+    check(bytes && found.found && found.value.count == 2 && byte_load_be16(found.value.data) == 0x1234 &&
+              found.ids == 0x22 && layout.payload_bytes == 2,
+          "RTP extensions: the transport sequence is found among padded one-byte elements");
+    bytes = layout_of("90650001000000001234abcd100000010502abcd99", &layout);
+    found = rtp_header_extensions({packet, bytes}, layout, 5);
+    check(bytes && found.found && byte_load_be16(found.value.data) == 0xabcd && found.ids == 0x20,
+          "RTP extensions: two-byte profile elements are found");
+    bytes = layout_of("90650001000000001234abcdbede0001531234ff99", &layout);
+    const bool truncated = bytes && !rtp_header_extensions({packet, bytes}, layout, 5).found;
+    bytes = layout_of("90650001000000001234abcdbede0002f00051123400000099", &layout);
+    const auto reserved = rtp_header_extensions({packet, bytes}, layout, 5);
+    const bool reserved_parsed = bytes != 0;
+    bytes = layout_of("80650001000000001234abcd99", &layout);
+    check(truncated && reserved_parsed && !reserved.found && !reserved.ids && bytes &&
+              !rtp_header_extensions({packet, bytes}, layout, 5).found,
+          "RTP extensions: truncated elements, ID 15 and extension-less packets yield nothing");
 }
 
 // ---------------------------------------------------------------------------
@@ -487,6 +587,7 @@ void test_video_rtp_receive(Check check) noexcept {
     test_h264(check);
     test_h265(check);
     test_rtcp(check);
+    test_transport_feedback(check);
     run_scenarios(check, h264_scenarios, sizeof(h264_scenarios) / sizeof(h264_scenarios[0]), h264_packets,
                   h264_frames, 102);
     run_scenarios(check, h265_scenarios, sizeof(h265_scenarios) / sizeof(h265_scenarios[0]), h265_packets,

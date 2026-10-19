@@ -8,6 +8,7 @@
 #include "maicord/app/voice_dave_route.hpp"
 #include "maicord/app/dave_session.hpp"
 #include "maicord/app/voice_log.hpp"
+#include "maicord/protocol/rtcp_feedback.hpp"
 
 namespace maicord {
 inline constexpr u32 kVoiceDaveOutbox = 16;
@@ -107,6 +108,11 @@ struct VoiceConnection {
     u8 sink_any_quality;
     bool sink_wants_configured; // The owner set wants; otherwise {"any":100}.
     bool sink_wants_sent;       // Current wants were accepted for this session.
+    // Transport-wide sequence numbers of every authenticated RTP packet
+    // (announced or not), reset per media attachment; the video sink sends
+    // the feedback. rtp_extension_ids: header extension IDs seen (logged).
+    RtcpTransportFeedbackState transport_feedback;
+    u16 rtp_extension_ids;
 };
 inline constexpr u8 kVoiceReconnectAttempts = 3;
 // Drive owner commands/timers. Deliver a polled socket completion directly to

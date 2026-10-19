@@ -1,5 +1,7 @@
 #include "maicord/app/voice_connection.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/platform/random.hpp"
 #include "maicord/sys/winsock.hpp"
 
@@ -37,6 +39,21 @@ void stop_media_io(VoiceConnection* connection) noexcept {
     connection->media_context = nullptr;
     voice_udp_media_stop(&connection->media_io);
 }
+// Every stamped packet counts for transport-wide feedback, including probes
+// and sources not announced yet: unreported packets read as losses.
+void record_extensions(VoiceConnection& connection, ConstSlice<u8> bytes, const MediaPacketLayout& layout) noexcept {
+    if (!layout.extension_bytes)
+        return;
+    const auto extensions = rtp_header_extensions(bytes, layout, kRtpTransportSequenceExtensionId);
+    if ((extensions.ids | connection.rtp_extension_ids) != connection.rtp_extension_ids) {
+        connection.rtp_extension_ids = static_cast<u16>(connection.rtp_extension_ids | extensions.ids);
+        voice_log(kInfo, "rtp_extensions", "ids", connection.rtp_extension_ids, "profile", layout.extension_profile,
+                  "stream", connection.stream_context);
+    }
+    if (extensions.found && extensions.value.count == 2)
+        rtcp_transport_feedback_record(&connection.transport_feedback, byte_load_be16(extensions.value.data),
+                                       layout.ssrc, clock_microseconds(clock_initialize(), 0, clock_now()));
+}
 bool receive_media(void* context, ConstSlice<u8> bytes, const VoicePacketResult& packet) noexcept {
     auto& connection = *static_cast<VoiceConnection*>(context);
     if (!connection.media_receive || !packet.ok() ||
@@ -45,6 +62,7 @@ bool receive_media(void* context, ConstSlice<u8> bytes, const VoicePacketResult&
     VoiceReceivedPacket received{
         packet, {}, {}, connection.socket.setup_generation, connection.ready_revision};
     if (packet.layout.kind == MediaPacketKind::rtp) {
+        record_extensions(connection, bytes, packet.layout);
         received.source = voice_participants_source(connection.participants, packet.layout.ssrc);
         if (!received.source.user_id) {
             ++connection.unannounced_rtp_packets;
@@ -387,6 +405,8 @@ bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive
         connection->media_receive = receive;
         connection->media_context = context;
         connection->unannounced_rtp_packets = 0;
+        rtcp_transport_feedback_reset(&connection->transport_feedback);
+        connection->rtp_extension_ids = 0;
         voice_log(kInfo, "media_started", "slots", receive_slots, "stream", connection->stream_context);
     }
     if (!started && connection->media_io.error != VoiceUdpMediaError::none)

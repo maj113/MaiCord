@@ -197,6 +197,26 @@ void routing(Check check) noexcept {
     check(decoder.frames == 4 && decoder.keyframe && decoder.intact,
           "Video sink: the next keyframe is intact again");
 
+    // Transport-wide feedback for the connection's stamped packets rides the
+    // sink's RTCP: due at once, last in the compound, from the audio SSRC.
+    rtcp_transport_feedback_record(&connection.transport_feedback, 500, kVideo, 1'102'000);
+    rtcp_transport_feedback_record(&connection.transport_feedback, 501, kVideo, 1'102'500);
+    const bool scheduled = rtcp_transport_feedback_deadline(connection.transport_feedback) == 1;
+    const u32 feedback = voice_video_sink_feedback(&receive.video, &connection, 1'103'000);
+    u32 at = 0, last = 0;
+    while (at < feedback && feedback - at >= 4) {
+        last = at;
+        at += (u32{byte_load_be16(receive.video.feedback + at + 2)} + 1) * 4;
+    }
+    const u8* twcc = receive.video.feedback + last;
+    check(scheduled && feedback && at == feedback && twcc[0] == 0x8f && twcc[1] == 205 &&
+              byte_load_be32(twcc + 4) == 7 && byte_load_be32(twcc + 8) == kVideo &&
+              byte_load_be16(twcc + 12) == 500 && byte_load_be16(twcc + 14) == 2 &&
+              receive.video.summary.transport_feedback == 1 &&
+              !rtcp_transport_feedback_deadline(connection.transport_feedback) &&
+              !voice_video_sink_feedback(&receive.video, &connection, 1'103'000),
+          "Video sink: transport-wide feedback follows the RTP core's RTCP and is sent once");
+
     VoiceVideoUser users[4];
     const u32 count = voice_video_users(connection, &receive.video, kSelf, {users, 4});
     check(count == 1 && users[0].user_id == kUser && users[0].ssrc == kVideo && users[0].quality == 100 &&

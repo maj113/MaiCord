@@ -52,8 +52,35 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
         sink.ended[sink.ended_count++] = frame.ssrc;
     if (sink.frames.push_frame &&
         sink.frames.push_frame(sink.frames.context, frame.ssrc, {sink.buffer, opened.bytes}, frame.rtp_timestamp,
-                               frame.keyframe, !frame.references_lost))
+                               frame.keyframe, !frame.references_lost)) {
         ++sink.stats.delivered;
+        ++sink.summary.frames;
+    }
+}
+// Counts only, no identities: packets, average kbps, frames and feedback.
+void log_summary(VoiceVideoSink& sink) noexcept {
+    auto& summary = sink.summary;
+    if (summary.packets) {
+        const u64 elapsed_ms = (summary.last_us - summary.first_us) / 1000;
+        u64 losses = 0, damaged = 0, rtx = 0;
+        for (const auto& stream : sink.rtp.streams)
+            if (stream.slots) {
+                losses += stream.stats.losses;
+                damaged += stream.stats.damaged_frames;
+                rtx += stream.stats.rtx_packets;
+            }
+        const VoiceLogField fields[]{{"packets", summary.packets},
+                                     {"kbps", elapsed_ms ? summary.bytes * 8 / elapsed_ms : 0},
+                                     {"seconds", elapsed_ms / 1000},
+                                     {"frames", summary.frames},
+                                     {"losses", losses},
+                                     {"damaged", damaged},
+                                     {"rtx", rtx},
+                                     {"keyframe_requests", sink.stats.keyframe_requests},
+                                     {"transport_feedback", summary.transport_feedback}};
+        voice_log_fields(VoiceLogLevel::info, "video_receive_summary", {fields, sizeof(fields) / sizeof(fields[0])});
+    }
+    summary = {};
 }
 bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
     if (sink.rtp_ready)
@@ -105,6 +132,11 @@ bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& pa
         !ensure_rtp(*sink, sink->rtp.local_ssrc))
         return false;
     ++sink->stats.packets;
+    auto& summary = sink->summary;
+    if (!summary.packets++)
+        summary.first_us = now_us;
+    summary.last_us = now_us;
+    summary.bytes += plaintext.count;
     const VideoRtpSource source{packet.source.user_id, packet.source.primary_ssrc,
                                 packet.source.kind == VoiceSourceKind::rtx};
     const auto pushed = video_rtp_receive(&sink->rtp, source, layout, plaintext, now_us);
@@ -153,7 +185,7 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
         sink->feedback_bytes = 0;
     } else {
         if (!sink->feedback_bytes)
-            sink->feedback_bytes = video_rtp_feedback(&sink->rtp, now_us, {sink->feedback, sizeof(sink->feedback)});
+            sink->feedback_bytes = voice_video_sink_feedback(sink, connection, now_us);
         if (sink->feedback_bytes) {
             const auto sent = voice_connection_media_send(connection, connection->ready_revision,
                                                           {sink->feedback, sink->feedback_bytes});
@@ -162,16 +194,35 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
         }
     }
     // Busy feedback retries shortly; otherwise wake for the RTP core's timers.
-    const u64 due = video_rtp_deadline(sink->rtp);
+    u64 due = video_rtp_deadline(sink->rtp);
+    if (const u64 transport =
+            media_current && sink->rtp.local_ssrc ? rtcp_transport_feedback_deadline(connection->transport_feedback) : 0;
+        transport && (!due || transport < due))
+        due = transport;
     if (sink->feedback_bytes)
         sink->deadline_ms = now_ms + 2;
     else if (due)
         sink->deadline_ms = due <= now_us ? now_ms : now_ms + (due - now_us + 999) / 1000;
 }
 
+u32 voice_video_sink_feedback(VoiceVideoSink* sink, VoiceConnection* connection, u64 now_us) noexcept {
+    if (!sink || !connection || !sink->rtp_ready)
+        return 0;
+    const Slice<u8> output{sink->feedback, sizeof(sink->feedback)};
+    const u32 core = video_rtp_feedback(&sink->rtp, now_us, output);
+    if (!sink->rtp.local_ssrc)
+        return core;
+    const u32 bytes =
+        rtcp_transport_feedback_build(&connection->transport_feedback, output, core, sink->rtp.local_ssrc, now_us);
+    if (bytes != core)
+        ++sink->summary.transport_feedback;
+    return bytes;
+}
+
 void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
     if (!sink)
         return;
+    log_summary(*sink);
     while (sink->ended_count)
         end_stream(*sink, sink->ended_count - 1);
     if (sink->rtp_ready)

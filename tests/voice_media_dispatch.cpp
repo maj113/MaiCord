@@ -28,8 +28,19 @@ bool announce(VoiceConnection& connection, u8 opcode, Utf8View text) noexcept {
         .ok();
 }
 bool deliver(VoiceConnection& connection, const VoiceConnectionSetup& setup, NetworkLoop& loop,
-             VoicePacketCrypto& remote, SOCKET peer, bool rtcp, u32 ssrc, bool corrupt = false) noexcept {
-    u8 plain[15]{0x80, 0x78, 0, 1, 0, 0, 3, 0xc0, 0, 0, 0, 0, 0xf8, 0xff, 0xfe};
+             VoicePacketCrypto& remote, SOCKET peer, bool rtcp, u32 ssrc, bool corrupt = false,
+             i32 transport_sequence = -1) noexcept {
+    u8 plain[23]{0x80, 0x78, 0, 1, 0, 0, 3, 0xc0, 0, 0, 0, 0, 0xf8, 0xff, 0xfe};
+    u32 plain_bytes = rtcp ? 8u : 15u;
+    if (transport_sequence >= 0) {
+        // One-byte header extension block: transport sequence (ID 5) + padding.
+        const u8 extension[]{0xbe, 0xde, 0, 1, 0x51, static_cast<u8>(transport_sequence >> 8),
+                             static_cast<u8>(transport_sequence), 0, 0xf8, 0xff, 0xfe};
+        plain[0] = 0x90;
+        for (u32 i = 0; i != sizeof(extension); ++i)
+            plain[12 + i] = extension[i];
+        plain_bytes = 23;
+    }
     if (rtcp) {
         plain[1] = 201;
         plain[2] = 0;
@@ -39,7 +50,7 @@ bool deliver(VoiceConnection& connection, const VoiceConnectionSetup& setup, Net
         byte_store_be32(plain + 8, ssrc);
     u8 wire[64];
     const auto sealed =
-        voice_packet_seal(remote, remote.generation, {plain, rtcp ? 8u : 15u}, {wire, sizeof(wire)});
+        voice_packet_seal(remote, remote.generation, {plain, plain_bytes}, {wire, sizeof(wire)});
     if (sealed.ok() && corrupt)
         wire[sealed.bytes - 5] ^= 1;
     sockaddr_in address{};
@@ -153,6 +164,11 @@ void test_voice_media_dispatch(Check check) noexcept {
         check(deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == 0 &&
                   connection.unannounced_rtp_packets == 1 && connection.media_io.received_packets == 1,
               "authenticated unannounced RTP is counted and dropped without creating a member");
+        check(deliver(connection, setup, loop, remote, peer, false, 12, false, 0x0102) && saved.calls == 0 &&
+                  connection.unannounced_rtp_packets == 2 && connection.transport_feedback.packets == 1 &&
+                  static_cast<u16>(connection.transport_feedback.highest) == 0x0102 &&
+                  connection.transport_feedback.media_ssrc == 12 && connection.rtp_extension_ids == 1u << 5,
+              "transport-wide sequence numbers are recorded for every authenticated RTP packet, announced or not");
         check(announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":10,"speaking":1})")) &&
                   deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == 1 &&
                   saved.current && saved.borrowed && saved.packet.source.user_id == 42 &&
@@ -162,7 +178,7 @@ void test_voice_media_dispatch(Check check) noexcept {
         auto old = saved.packet;
         const auto accepted = saved.calls;
         check(deliver(connection, setup, loop, remote, peer, false, 10, true) && saved.calls == accepted &&
-                  connection.media_io.rejected_packets == 1 && connection.unannounced_rtp_packets == 1 &&
+                  connection.media_io.rejected_packets == 1 && connection.unannounced_rtp_packets == 2 &&
                   voice_connection_media_current(connection, old),
               "tampered packet is rejected before participant dispatch without changing source state");
         check(announce(connection, 11, utf8_literal(R"({"user_ids":["42"]})")) &&
@@ -196,7 +212,7 @@ void test_voice_media_dispatch(Check check) noexcept {
               "audio SSRC replacement invalidates previously delivered work");
         const auto calls = saved.calls;
         check(deliver(connection, setup, loop, remote, peer, false, 10) && saved.calls == calls &&
-                  connection.unannounced_rtp_packets == 2 &&
+                  connection.unannounced_rtp_packets == 3 &&
                   deliver(connection, setup, loop, remote, peer, false, 11) &&
                   saved.packet.source.ssrc == 11 && saved.current,
               "retired source is dropped and its replacement resolves normally");
@@ -204,7 +220,7 @@ void test_voice_media_dispatch(Check check) noexcept {
         check(announce(connection, 13, utf8_literal(R"({"user_id":"42"})")) &&
                   !voice_connection_media_current(connection, old) &&
                   deliver(connection, setup, loop, remote, peer, false, 11) &&
-                  connection.unannounced_rtp_packets == 3,
+                  connection.unannounced_rtp_packets == 4,
               "disconnected member's queued and newly received source packets are rejected");
         check(announce(connection, 11, utf8_literal(R"({"user_ids":["42"]})")) &&
                   announce(connection, 5, utf8_literal(R"({"user_id":"42","ssrc":11,"speaking":1})")) &&

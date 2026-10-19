@@ -20,6 +20,10 @@ using VoiceVideoDecrypt = DaveMediaResult (*)(void* context, u64 user_id, u32 ss
 struct VoiceVideoStats {
     u64 packets, delivered, dave_rejected, keyframe_requests;
 };
+// Per media attachment, logged and cleared by stop (video_receive_summary).
+struct VoiceVideoSummary {
+    u64 packets, bytes, frames, first_us, last_us, transport_feedback;
+};
 // A remote participant announcing an active camera or screen stream (op 12).
 struct VoiceVideoUser {
     u64 user_id;
@@ -44,6 +48,7 @@ struct VoiceVideoSink {
     u32 ended_count, unwanted_count, feedback_bytes;
     VoiceVideoCodec codec;
     VoiceVideoStats stats;
+    VoiceVideoSummary summary;
     u8 feedback[kVoiceVideoFeedbackBytes]; // Built RTCP waiting for the transport.
     bool rtp_ready;
 };
@@ -58,10 +63,15 @@ bool voice_video_sink_packet(VoiceVideoSink* sink, const VoiceReceivedPacket& pa
 void voice_video_sink_rtcp(VoiceVideoSink* sink, ConstSlice<u8> plaintext, u64 now_us) noexcept;
 // After voice_connection_drive while media is attached (media_current): binds
 // the negotiated codec, applies keyframe requests, ends streams whose SSRC no
-// longer maps to a video source, sends due RTCP feedback and updates the op 15
-// sink wants. now_us uses the same clock as packet delivery.
+// longer maps to a video source, sends due RTCP feedback (receiver reports,
+// NACK, PLI, transport-wide feedback) and updates the op 15 sink wants.
+// now_us uses the same clock as packet delivery.
 void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, bool media_current, u64 now_ms,
                             u64 now_us) noexcept;
+// Builds the due RTCP into sink->feedback: the RTP core's compound (RR, NACK,
+// PLI) followed by the connection's transport-wide feedback. Returns its size
+// (0: nothing due). Building commits both schedules.
+u32 voice_video_sink_feedback(VoiceVideoSink* sink, VoiceConnection* connection, u64 now_us) noexcept;
 // Ends every stream, releases the RTP core and frame buffers. Bindings and
 // per-user wants stay (a reconnect renumbers SSRCs but keeps preferences).
 void voice_video_sink_stop(VoiceVideoSink* sink) noexcept;
