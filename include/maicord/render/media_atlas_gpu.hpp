@@ -266,6 +266,6 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     ID3D11Device* device, ID3D11DeviceContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
 
-static_assert(sizeof(MediaAtlasGpu) == 792);
+static_assert(sizeof(MediaAtlasGpu) == 752);
 
 } // namespace maicord

@@ -394,19 +394,17 @@ foreach ($phase in @('scroll', 'switch', 'member_list', 'churn', 'settings', 'id
 }
 Write-Host ''
 # Media atlas per second of phase: decoder input KiB uploaded (all codec
-# paths), frames written, animation cache restores, video conversions and
-# their NV12 copies.
-Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}' -f 'media / s', 'in KiB', 'frames', 'restores', 'video', 'copy KiB')
+# paths), frames written, animation cache restores and video conversions.
+Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}' -f 'media / s', 'in KiB', 'frames', 'restores', 'video')
 foreach ($phase in @('history', 'scroll', 'switch', 'idle_anim', 'idle_final')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ -and $_.media_frames -ne $null })
     if (!$rows.Count) { continue }
     $perSecond = { param($row, $key, $scale) [double]$row[$key] / $scale / [Math]::Max(0.001, [double]$row.ms / 1000) }
-    Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}{5,11}' -f $phase,
+    Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}' -f $phase,
         (Format-Number (Get-Median @($rows | ForEach-Object { & $perSecond $_ 'media_up_b' 1024 }))),
         (Format-Number (Get-Median @($rows | ForEach-Object { & $perSecond $_ 'media_frames' 1 }))),
         (Format-Number (Get-Median @($rows | ForEach-Object { & $perSecond $_ 'anim_restores' 1 }))),
-        (Format-Number (Get-Median @($rows | ForEach-Object { & $perSecond $_ 'video_frames' 1 }))),
-        (Format-Number (Get-Median @($rows | ForEach-Object { & $perSecond $_ 'video_copy_b' 1024 }))))
+        (Format-Number (Get-Median @($rows | ForEach-Object { & $perSecond $_ 'video_frames' 1 }))))
 }
 Write-Host ''
 # Immediate-context work per painted frame: draws (renderer count), state

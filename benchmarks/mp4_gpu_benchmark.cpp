@@ -67,6 +67,14 @@ struct Fixture {
     HANDLE event;
     u64 signal;
     VideoFrameGpu converter;
+    // Comparator frames (MF, FFmpeg) carry no plane views: they are copied
+    // into this shader-readable NV12 surface, counted in their cost.
+    ID3D11Texture2D* planes;
+    ID3D11ShaderResourceView* luma;
+    ID3D11ShaderResourceView* chroma;
+    u32 planes_width, planes_height;
+    u64 copied_bytes;
+    GpuVideoFrame presented;
 };
 HRESULT start(Fixture* f, u32 width, u32 height, bool verify, bool debug) noexcept {
     const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
@@ -126,10 +134,51 @@ bool complete(Fixture* f) noexcept {
 }
 void stop(Fixture* f) noexcept {
     video_frame_gpu_release(&f->converter);
+    release(f->chroma); release(f->luma); release(f->planes);
     release(f->readback); release(f->output_view); release(f->uav); release(f->output);
     release(f->fence); release(f->debug); release(f->adapter); release(f->context4);
     release(f->context1); release(f->context); release(f->device);
     if (f->event) CloseHandle(f->event);
+}
+
+// Native frames pass through; a frame without plane views is copied first.
+const GpuVideoFrame& presentable(Fixture* f, const GpuVideoFrame& frame) noexcept {
+    f->presented = frame;
+    if ((frame.luma && frame.chroma) || !frame.texture) return f->presented;
+    D3D11_TEXTURE2D_DESC input{};
+    frame.texture->GetDesc(&input);
+    if (!f->planes || f->planes_width < input.Width || f->planes_height < input.Height) {
+        release(f->chroma); release(f->luma); release(f->planes);
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = maximum(input.Width, f->planes_width);
+        desc.Height = maximum(input.Height, f->planes_height);
+        desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
+        desc.Format = DXGI_FORMAT_NV12;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SHADER_RESOURCE_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R8_UNORM;
+        view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+        view.Texture2DArray.MipLevels = 1;
+        view.Texture2DArray.ArraySize = 1;
+        HRESULT status = f->device->CreateTexture2D(&desc, nullptr, &f->planes);
+        if (SUCCEEDED(status)) status = f->device->CreateShaderResourceView(f->planes, &view, &f->luma);
+        view.Format = DXGI_FORMAT_R8G8_UNORM;
+        if (SUCCEEDED(status)) status = f->device->CreateShaderResourceView(f->planes, &view, &f->chroma);
+        if (FAILED(status)) {
+            release(f->chroma); release(f->luma); release(f->planes);
+            return f->presented; // Conversion then reports E_INVALIDARG.
+        }
+        f->planes_width = desc.Width;
+        f->planes_height = desc.Height;
+    }
+    const D3D11_BOX box{0, 0, 0, input.Width, input.Height, 1};
+    f->context->CopySubresourceRegion(f->planes, 0, 0, 0, 0, frame.texture, frame.subresource, &box);
+    f->copied_bytes += u64{input.Width} * input.Height * 3u / 2u;
+    f->presented.texture = f->planes;
+    f->presented.subresource = 0;
+    f->presented.luma = f->luma;
+    f->presented.chroma = f->chroma;
+    return f->presented;
 }
 
 bool compare_frame(Fixture* f, const Mp4DecodedFrame& expected,
@@ -177,9 +226,9 @@ bool atlas_reuse_probe(Fixture* fixture, const GpuVideoFrame& frame) noexcept {
         media_atlas_gpu_initialize(&gpu, fixture->device, fixture->context1, width, height).ok();
     for (u32 index = 0; ok && index < 3; ++index) {
         ok = media_atlas_gpu_present_video(&gpu, &atlas, fixture->device,
-            fixture->context1, key, frame, false).ok();
+            fixture->context1, key, presentable(fixture, frame), false).ok();
     }
-    ok = ok && gpu.cleared_regions == 1 && gpu.video.frames == 3 && gpu.video.allocations == 1;
+    ok = ok && gpu.cleared_regions == 1 && gpu.video.frames == 3;
     media_atlas_gpu_release(&gpu);
     return ok;
 }
@@ -201,7 +250,7 @@ bool odd_extent_probe(Fixture* f, const GpuVideoFrame& frame,
         reference.rgba8.data += expected.row_pitch * 2u + 8u;
         u64 mismatch = 0, maximum_difference = 0, borders = 0;
         if (FAILED(video_frame_gpu_present(&f->converter, f->device,
-                f->context1, cropped, f->uav, 4, 4)) ||
+                f->context1, presentable(f, cropped), f->uav, 4, 4)) ||
             !compare_frame(f, reference, &mismatch, &maximum_difference, &borders) ||
             mismatch || borders) return false;
     }
@@ -225,7 +274,7 @@ bool converter_probe(Fixture* f, const GpuVideoFrame& frame,
         f->context->Begin(disjoint);
         f->context->End(timestamps[0]);
         status = video_frame_gpu_present(&f->converter, f->device,
-            f->context1, frame, f->uav, 4, 4);
+            f->context1, presentable(f, frame), f->uav, 4, 4);
         f->context->End(timestamps[1]);
         f->context->End(disjoint);
         if (FAILED(status) || !complete(f)) { status = E_FAIL; break; }
@@ -321,7 +370,7 @@ bool concurrent_probe(Fixture* fixture, ConstSlice<u8> encoded, u32 rounds,
                 worker.frame.width != expected.width || worker.frame.height != expected.height) { ok = false; break; }
             fixture->context->PSSetShaderResources(2, 1, &fixture->output_view);
             const HRESULT result = video_frame_gpu_present(&fixture->converter, fixture->device,
-                fixture->context1, *worker.frame.gpu, fixture->uav, 4, 4);
+                fixture->context1, presentable(fixture, *worker.frame.gpu), fixture->uav, 4, 4);
             if (FAILED(result)) { ok = false; break; }
             // Return this decoder sample lease immediately after queuing its
             // GPU copy. Its next decode overlaps this readback and other lanes'
@@ -442,7 +491,7 @@ int mp4_gpu_benchmark(ConstSlice<u8> encoded, void (*metric)(const char*, u64)) 
             f.context->UpdateSubresource(f.output, 0, &box, frame.rgba8.data, frame.row_pitch, 0);
         } else if (warmed) {
             warmed = frame.gpu && SUCCEEDED(video_frame_gpu_present(&f.converter, f.device,
-                f.context1, *frame.gpu, f.uav, 4, 4));
+                f.context1, presentable(&f, *frame.gpu), f.uav, 4, 4));
         }
         warmed = warmed && complete(&f);
         release_decoder();
@@ -565,15 +614,16 @@ int mp4_gpu_benchmark(ConstSlice<u8> encoded, void (*metric)(const char*, u64)) 
             if (verify) {
                 if (frames == 0 && !atlas_reuse_probe(&f, *frame.gpu)) { ok = false; break; }
                 f.context->PSSetShaderResources(2, 1, &f.output_view);
-                GpuVideoFrame invalid = *frame.gpu;
+                GpuVideoFrame invalid = presentable(&f, *frame.gpu);
                 invalid.crop_x = ~0u;
                 const u32 submitted_frames = f.converter.frames;
                 ok = video_frame_gpu_present(&f.converter, f.device, f.context1, invalid, f.uav, 4, 4) == E_INVALIDARG &&
-                     video_frame_gpu_present(&f.converter, f.device, f.context1, *frame.gpu, f.uav, ~0u, 4) == E_INVALIDARG &&
+                     video_frame_gpu_present(&f.converter, f.device, f.context1, invalid, f.uav, ~0u, 4) == E_INVALIDARG &&
                      f.converter.frames == submitted_frames;
                 if (!ok) break;
             }
-            status = video_frame_gpu_present(&f.converter, f.device, f.context1, *frame.gpu, f.uav, 4, 4);
+            status = video_frame_gpu_present(&f.converter, f.device, f.context1, presentable(&f, *frame.gpu), f.uav,
+                                             4, 4);
             if (FAILED(status)) { metric("gpu_present_status", static_cast<u32>(status)); ok = false; break; }
         }
         const i64 presented_at = clock_now();
@@ -703,8 +753,7 @@ int mp4_gpu_benchmark(ConstSlice<u8> encoded, void (*metric)(const char*, u64)) 
     metric("gpu_rgba_max_difference", max_difference);
     metric("gpu_border_mismatch_bytes", border_mismatch);
     metric("gpu_debug_errors", debug_errors);
-    metric("gpu_surface_allocations", f.converter.allocations);
-    metric("gpu_nv12_copied_bytes", f.converter.copied_bytes);
+    metric("gpu_nv12_copied_bytes", f.copied_bytes);
     metric("gpu_decoder_rgba_allocation_bytes", decoder.rgba8_capacity);
     if (decode_trace) {
         metric("decode_trace_events", operations.count);

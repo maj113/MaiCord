@@ -1,5 +1,6 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
+#include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 namespace maicord {
@@ -8,7 +9,7 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
     constexpr u32 width = 2560, height = 16, luma_bytes = width * height;
     auto* pixels = static_cast<u8*>(
         VirtualAlloc(nullptr, luma_bytes * 3u / 2u, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    ID3D11Texture2D* texture = nullptr;
+    Nv12TestPicture picture{};
     ID3D11Texture2D* readback = nullptr;
     ID3D11Query* ready = nullptr;
     bool ok = pixels != nullptr;
@@ -17,14 +18,10 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
             pixels[i] = 80;
         for (u32 i = luma_bytes; i < luma_bytes * 3u / 2u; ++i)
             pixels[i] = 128;
+        ok = picture.create(r.graphics.device, width, height, pixels);
         D3D11_TEXTURE2D_DESC description{};
-        description.Width = width;
-        description.Height = height;
-        description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
-        description.Format = DXGI_FORMAT_NV12;
-        const D3D11_SUBRESOURCE_DATA source{pixels, width, 0};
-        ok = SUCCEEDED(r.graphics.device->CreateTexture2D(&description, &source, &texture));
         description.Width = description.Height = 1;
+        description.MipLevels = description.ArraySize = description.SampleDesc.Count = 1;
         description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         description.Usage = D3D11_USAGE_STAGING;
         description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -35,7 +32,8 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
             ok = SUCCEEDED(r.graphics.device->CreateQuery(&query, &ready));
     }
     const auto key = media_asset_attachment(987655, MediaAttachmentFormat::mp4);
-    GpuVideoFrame frame{texture, 0, 0, 0, width, height, true, true, {}};
+    GpuVideoFrame frame = picture.frame(width, height);
+    frame.bt709 = frame.full_range = true;
     const u32 conversions = gpu.video.frames, cleared = gpu.cleared_regions;
     const u32 entries = atlas.entry_count;
     MediaAtlasResult first{};
@@ -44,7 +42,7 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
         if (pass) {
             for (u32 i = 0; i < luma_bytes; ++i)
                 pixels[i] = gray;
-            r.graphics.context1->UpdateSubresource(texture, 0, nullptr, pixels, width, 0);
+            r.graphics.context1->UpdateSubresource(picture.texture, 0, nullptr, pixels, width, 0);
         }
         const auto uploaded = media_atlas_gpu_present_video(&gpu, &atlas, r.graphics.device,
                                                             r.graphics.context1, key, frame, true);
@@ -118,8 +116,7 @@ bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu
         ready->Release();
     if (readback)
         readback->Release();
-    if (texture)
-        texture->Release();
+    picture.release();
     if (pixels)
         VirtualFree(pixels, 0, MEM_RELEASE);
     log_write(ok ? LogLevel::info : LogLevel::error, "probe",

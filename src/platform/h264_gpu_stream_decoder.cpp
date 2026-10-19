@@ -168,30 +168,24 @@ HRESULT create_decoder(Gpu* gpu, const H264Sps& sps, u8 surfaces_needed) noexcep
         }
     }
     if (SUCCEEDED(status)) {
+        // The lease outlives the DPB slice, so each output picture is copied
+        // into this shader-readable texture the renderer converts in place.
         D3D11_TEXTURE2D_DESC display = texture;
         display.ArraySize = 1;
         display.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         status = gpu->device->CreateTexture2D(&display, nullptr, &gpu->display);
-        if (FAILED(status)) {
-            display.BindFlags = 0; // Copy source only; the renderer copies into its own NV12 view.
-            status = gpu->device->CreateTexture2D(&display, nullptr, &gpu->display);
-        }
-        if (SUCCEEDED(status) && (display.BindFlags & D3D11_BIND_SHADER_RESOURCE)) {
-            D3D11_SHADER_RESOURCE_VIEW_DESC view{};
-            view.Format = DXGI_FORMAT_R8_UNORM;
-            view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-            view.Texture2DArray.MipLevels = 1;
-            view.Texture2DArray.ArraySize = 1;
-            HRESULT views = gpu->device->CreateShaderResourceView(gpu->display, &view, &gpu->luma);
-            view.Format = DXGI_FORMAT_R8G8_UNORM;
-            if (SUCCEEDED(views))
-                views = gpu->device->CreateShaderResourceView(gpu->display, &view, &gpu->chroma);
-            // An unsupported view pair keeps the existing display-copy path.
-            if (FAILED(views)) {
-                com_release(gpu->chroma);
-                com_release(gpu->luma);
-            }
-        }
+        D3D11_SHADER_RESOURCE_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R8_UNORM;
+        view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+        view.Texture2DArray.MipLevels = 1;
+        view.Texture2DArray.ArraySize = 1;
+        if (SUCCEEDED(status))
+            status = gpu->device->CreateShaderResourceView(gpu->display, &view, &gpu->luma);
+        view.Format = DXGI_FORMAT_R8G8_UNORM;
+        if (SUCCEEDED(status))
+            status = gpu->device->CreateShaderResourceView(gpu->display, &view, &gpu->chroma);
+        if (FAILED(status) && status != E_OUTOFMEMORY)
+            status = DXGI_ERROR_UNSUPPORTED;
     }
     if (FAILED(status)) {
         release_decoder_objects(gpu);

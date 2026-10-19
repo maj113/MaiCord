@@ -220,9 +220,7 @@ void application_log_shutdown_metrics() noexcept {
 
     LOG_RENDER("painted_frames", g_app.renderer.painted_frames);
     LOG_RENDER("video_gpu_frames", g_app.renderer.media_gpu.video.frames);
-    LOG_RENDER("video_gpu_nv12_copy_bytes", g_app.renderer.media_gpu.video.copied_bytes);
     LOG_RENDER("video_gpu_converted_pixels", g_app.renderer.media_gpu.video.converted_pixels);
-    LOG_RENDER("video_gpu_scratch_allocations", g_app.renderer.media_gpu.video.allocations);
     if (g_app.renderer.painted_frames != 0) {
         LOG_RENDER("paint_cpu_average_us",
                    g_app.renderer.paint_cpu_us_total / g_app.renderer.painted_frames);

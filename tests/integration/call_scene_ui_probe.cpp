@@ -3,6 +3,7 @@
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/model/stage_policy.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
+#include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 
@@ -10,10 +11,10 @@ namespace maicord {
 namespace {
 // Synthetic camera pictures: a horizontal luma ramp over one chroma tint, in
 // the NV12 layout the H.264 stream decoders hand to the renderer.
-ID3D11Texture2D* synthetic_frame(D3D11Renderer& r, u32 width, u32 height, u8 cb, u8 cr) noexcept {
+Nv12TestPicture synthetic_frame(D3D11Renderer& r, u32 width, u32 height, u8 cb, u8 cr) noexcept {
     static u8 pixels[1280 * 720 * 3 / 2];
     if (width > 1280 || height > 720 || (width | height) & 1)
-        return nullptr;
+        return {};
     for (u32 y = 0; y < height; ++y)
         for (u32 x = 0; x < width; ++x)
             pixels[y * width + x] = static_cast<u8>(60 + x * 120 / width);
@@ -22,22 +23,15 @@ ID3D11Texture2D* synthetic_frame(D3D11Renderer& r, u32 width, u32 height, u8 cb,
         chroma[i] = cb;
         chroma[i + 1] = cr;
     }
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width = width;
-    desc.Height = height;
-    desc.Format = DXGI_FORMAT_NV12;
-    desc.ArraySize = desc.MipLevels = desc.SampleDesc.Count = 1;
-    const D3D11_SUBRESOURCE_DATA data{pixels, width, 0};
-    ID3D11Texture2D* texture = nullptr;
-    return SUCCEEDED(r.graphics.device->CreateTexture2D(&desc, &data, &texture)) ? texture : nullptr;
+    Nv12TestPicture picture{};
+    picture.create(r.graphics.device, width, height, pixels);
+    return picture;
 }
-bool present_frame(D3D11Renderer& r, ID3D11Texture2D* texture, u64 user, u32 ssrc, u32 extent) noexcept {
-    GpuVideoFrame frame{};
-    frame.texture = texture;
-    frame.width = 1280;
-    frame.height = 720;
-    if (!texture)
+bool present_frame(D3D11Renderer& r, const Nv12TestPicture& picture, u64 user, u32 ssrc,
+                   u32 extent) noexcept {
+    if (!picture.texture)
         return false;
+    const GpuVideoFrame frame = picture.frame(1280, 720);
     const auto result = renderer_present_video_frame(&r, media_asset_call_video(user, ssrc), frame, extent);
     if (!result.ok()) {
         log_u64(LogLevel::error, "probe", "call_video_present_error", static_cast<u64>(result.error));
@@ -102,14 +96,13 @@ bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*
     struct Restore {
         D3D11Renderer& renderer;
         const UiCallScene* previous;
-        ID3D11Texture2D* textures[2];
+        Nv12TestPicture textures[2];
         ~Restore() noexcept {
             renderer.call_scene = previous;
             renderer.retained_presentation.valid = false;
             ui_call_scene_release(&scene);
-            for (auto* texture : textures)
-                if (texture)
-                    texture->Release();
+            for (auto& texture : textures)
+                texture.release();
         }
     } restore{renderer, renderer.call_scene, {}};
     // Red and blue tints (BT.601 limited range chroma). The probe atlas is
@@ -137,7 +130,7 @@ bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*
     content.gap = theme.scale.space_4;
     const u32 frames_before = renderer.media_gpu.video.frames;
     u32 stage = __LINE__;
-    bool valid = restore.textures[0] && restore.textures[1];
+    bool valid = restore.textures[0].texture && restore.textures[1].texture;
     stage = valid ? __LINE__ : stage;
     valid = valid && present_frame(renderer, restore.textures[0], 11, 501, 200);
     stage = valid ? __LINE__ : stage;

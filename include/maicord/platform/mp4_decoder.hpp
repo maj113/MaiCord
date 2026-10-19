@@ -71,7 +71,7 @@ struct Mp4DecodedFrame {
 
 // One native GPU decoder per media worker. No CPU pixel buffer, MFT, source
 // reader or per-frame allocation. The borrowed texture lasts until the next read;
-// presentation must enqueue its GPU copy before the worker is released.
+// presentation must enqueue its GPU conversion before the worker is released.
 struct Mp4Decoder {
     H264GpuDecoder native;
     const GpuVideoFrame* gpu;

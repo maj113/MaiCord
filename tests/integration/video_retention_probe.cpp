@@ -2,6 +2,7 @@
 #include "video_retention_probe.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/theme.hpp"
+#include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 
@@ -16,15 +17,9 @@ bool video_retention_probe(D3D11Renderer& r, MediaAssetKey key, u16 width, u16 h
     const u32 luma_bytes = storage_width * storage_height;
     for (u32 i = 0; i < luma_bytes; ++i) pixels[i] = 80;
     for (u32 i = luma_bytes; i < luma_bytes * 3u / 2u; ++i) pixels[i] = 128;
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width = storage_width; desc.Height = storage_height;
-    desc.Format = DXGI_FORMAT_NV12;
-    desc.ArraySize = desc.MipLevels = desc.SampleDesc.Count = 1;
-    const D3D11_SUBRESOURCE_DATA data{pixels, storage_width, 0};
-    ID3D11Texture2D* texture = nullptr;
-    if (FAILED(r.graphics.device->CreateTexture2D(&desc, &data, &texture))) return false;
-    GpuVideoFrame frame{};
-    frame.texture = texture; frame.width = width; frame.height = height;
+    Nv12TestPicture picture{};
+    if (!picture.create(r.graphics.device, storage_width, storage_height, pixels)) return false;
+    const GpuVideoFrame frame = picture.frame(width, height);
     const u32 text_builds = r.content_text_retention.builds;
     const u32 text_uploads = r.text_instance_uploads;
     const u32 layout_builds = r.paint_stream_builds;
@@ -39,7 +34,7 @@ bool video_retention_probe(D3D11Renderer& r, MediaAssetKey key, u16 width, u16 h
     for (u32 i = 0; ok && i < count; ++i) {
         ok = renderer_present_video_frame(&r, key, frame).ok() && probe_present(&r, kDefaultTheme);
     }
-    texture->Release();
+    picture.release();
     const u64 damage_pixels = r.partial_present_pixels - partial_pixels;
     ok = ok && r.content_text_retention.builds == text_builds &&
         r.text_instance_uploads == text_uploads && r.paint_stream_builds == layout_builds &&

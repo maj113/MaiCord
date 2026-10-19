@@ -8,31 +8,21 @@ struct ID3D11Buffer;
 struct ID3D11ComputeShader;
 struct ID3D11Device;
 struct ID3D11DeviceContext1;
-struct ID3D11ShaderResourceView;
-struct ID3D11Texture2D;
 struct ID3D11UnorderedAccessView;
 struct ID3D11Multithread;
 
 namespace maicord {
 
-// Source-owned NV12 plane views (one-slice array views of the frame's
-// subresource) bypass the copy. The renderer retains no source texture or
-// view. Absent/invalid plane views use one grow-only NV12 scratch surface
-// shared by all presented videos. Both paths enqueue conversion before the
-// caller releases its frame lease.
+// Converts from the frame's source-owned NV12 plane views (one-slice array
+// views of its subresource); a frame without valid views is E_INVALIDARG. The
+// renderer retains no source texture or view and enqueues the conversion
+// before the caller releases its frame lease.
 struct VideoFrameGpu {
-    ID3D11Texture2D* nv12;
-    ID3D11ShaderResourceView* luma;
-    ID3D11ShaderResourceView* chroma;
     ID3D11ComputeShader* shader;
     ID3D11Buffer* constants;
     ID3D11Multithread* multithread;
-    u64 copied_bytes;
     u64 converted_pixels;
-    u32 width;
-    u32 height;
     u32 frames;
-    u32 allocations;
 };
 
 // step > 1 box-averages step x step source pixels into each destination
@@ -43,6 +33,6 @@ HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step = 1) noexcept;
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept;
 
-static_assert(sizeof(VideoFrameGpu) == 80);
+static_assert(sizeof(VideoFrameGpu) == 40);
 
 } // namespace maicord

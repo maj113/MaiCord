@@ -522,7 +522,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     if (SUCCEEDED(result)) {
         BOOL supported{};
         result = s->device->CheckVideoDecoderFormat(&desc.Guid, DXGI_FORMAT_NV12, &supported);
-        if (SUCCEEDED(result) && !supported)
+        if (SUCCEEDED(result) && (!supported || !gpu_decoder_surfaces_supported(device)))
             result = DXGI_ERROR_UNSUPPORTED;
     }
     if (SUCCEEDED(result)) {
@@ -547,11 +547,9 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     if (SUCCEEDED(result)) {
         const u32 count =
             maximum<u32>(selected.ConfigMinRenderTargetBuffCount, maximum<u32>(a.max_buffering, 1) + 2);
-        result = count > kGpuDecoderSurfaceCapacity
-                     ? DXGI_ERROR_UNSUPPORTED
-                     : gpu_decoder_surfaces_create(&s->surfaces, device, s->device, desc.Guid,
-                                                   surface_extent.width, surface_extent.height, count,
-                                                   full_stream ? count : 1u);
+        result = gpu_decoder_surfaces_create(&s->surfaces, device, s->device, desc.Guid,
+                                             surface_extent.width, surface_extent.height, count,
+                                             full_stream ? count : 1u);
     }
     handle->status = result;
     if (FAILED(result)) {

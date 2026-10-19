@@ -162,7 +162,8 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
     if (SUCCEEDED(status)) {
         BOOL supported = FALSE;
         status = s->device->CheckVideoDecoderFormat(&decoder_desc.Guid, DXGI_FORMAT_NV12, &supported);
-        if (SUCCEEDED(status) && !supported) status = DXGI_ERROR_UNSUPPORTED;
+        if (SUCCEEDED(status) && (!supported || !gpu_decoder_surfaces_supported(device)))
+            status = DXGI_ERROR_UNSUPPORTED;
     }
     if (SUCCEEDED(status)) {
         UINT count = 0;
@@ -186,9 +187,8 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
         // surfaces, ~19 MB) instead of the 16-frame maximum (18, ~56 MB).
         const u32 count = maximum<u32>(selected.ConfigMinRenderTargetBuffCount,
             maximum<u32>(a.max_references, h264_sps_dpb_frames(a)) + 2u);
-        status = count > kGpuDecoderSurfaceCapacity ? DXGI_ERROR_UNSUPPORTED
-            : gpu_decoder_surfaces_create(&s->surfaces, device, s->device, decoder_desc.Guid, a.coded_width,
-                                          a.coded_height, count, full_stream ? count : 1u);
+        status = gpu_decoder_surfaces_create(&s->surfaces, device, s->device, decoder_desc.Guid, a.coded_width,
+            a.coded_height, count, full_stream ? count : 1u);
     }
     probe->status = status;
     if (FAILED(status)) {

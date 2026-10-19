@@ -163,7 +163,7 @@ void release_frame(VideoStreamFrame* frame) noexcept {
 
 bool owned_views_valid(const GpuVideoFrame& frame) noexcept {
     if (!frame.texture || static_cast<bool>(frame.luma) != static_cast<bool>(frame.chroma)) return false;
-    if (!frame.luma) return true; // The device can require the copy fallback.
+    if (!frame.luma) return false; // The renderer converts only from these views.
     ID3D11ShaderResourceView* views[]{frame.luma, frame.chroma};
     const DXGI_FORMAT formats[]{DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM};
     for (u32 i = 0; i < 2; ++i) {

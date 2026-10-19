@@ -1,10 +1,11 @@
 // Attachment H.264 decoder on real DXVA hardware: an in-memory MP4 around the
-// synthetic I_PCM/P_Skip fixture, presented through video_frame_gpu. Plane
-// views of the decoder array must convert in place (no NV12 copy) and match
-// the copy path pixel for pixel.
+// synthetic I_PCM/P_Skip fixture, converted by video_frame_gpu in place from
+// the decoder array's plane views. A device without shader-readable decoder
+// output (WARP) refuses decoding like a GPU without the codec.
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/render/video_frame_gpu.hpp"
 #include "maicord/media/yuv_convert_common.hpp"
+#include "../src/platform/gpu_decoder_surfaces.hpp"
 #include "h264_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -24,18 +25,6 @@ void say(const char* text) noexcept {
         ++count;
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, count, &written, nullptr);
-}
-
-void say_number(const char* label, u64 value) noexcept {
-    char text[24]{};
-    u32 n = sizeof(text) - 1;
-    text[--n] = '\n';
-    do {
-        text[--n] = static_cast<char>('0' + value % 10u);
-        value /= 10u;
-    } while (value && n);
-    say(label);
-    say(text + n);
 }
 
 struct Movie {
@@ -293,110 +282,60 @@ bool read_target(ID3D11DeviceContext1* context, Target* t, const GpuVideoFrame& 
     return ok;
 }
 
-struct Timer {
-    ID3D11Query* disjoint;
-    ID3D11Query* begin[16];
-    ID3D11Query* end[16];
-};
-
-// Presents every frame through both paths. Returns 0, or a failure code.
+// Converts every frame from the decoder's own plane views. Returns 0 or a failure code.
 int run_movie(ID3D11Device* device, ID3D11DeviceContext1* context, const Movie& movie, const Sps& sps,
-              u32 gop, bool compact, bool timed, bool* zero_copy) noexcept {
+              u32 gop, bool compact) noexcept {
     Mp4Decoder decoder{};
     if (!mp4_decoder_initialize(&decoder, {movie.bytes, movie.count}, 0, 0, device))
         return 60;
     const u32 width = sps.width_mbs * 16u, height = sps.height_mbs * 16u - sps.crop_bottom;
-    Target targets[2]{};
-    VideoFrameGpu paths[2]{}; // direct (decoder plane views), copy (views withheld)
-    Timer timer{};
-    u64 gpu_ticks[2]{};
-    int status = create_target(device, width, height, &targets[0]) &&
-                         create_target(device, width, height, &targets[1])
-                     ? 0
-                     : 61;
-    if (!status && timed) {
-        D3D11_QUERY_DESC desc{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-        status = SUCCEEDED(device->CreateQuery(&desc, &timer.disjoint)) ? 0 : 62;
-        desc.Query = D3D11_QUERY_TIMESTAMP;
-        for (u32 i = 0; i < 16 && !status; ++i)
-            status = SUCCEEDED(device->CreateQuery(&desc, &timer.begin[i])) &&
-                             SUCCEEDED(device->CreateQuery(&desc, &timer.end[i]))
-                         ? 0
-                         : 62;
-    }
-    u32 frames = 0, views = 0;
+    Target target{};
+    VideoFrameGpu converter{};
+    int status = create_target(device, width, height, &target) ? 0 : 61;
+    u32 frames = 0;
     for (u32 index = 0; !status && index < movie.samples; ++index) {
         const Mp4DecodedFrame decoded = mp4_decoder_read(&decoder, false);
-        if (!decoded.ok() || !decoded.gpu) {
+        if (!decoded.ok() || !decoded.gpu || !decoded.gpu->luma || !decoded.gpu->chroma) {
             status = 63;
             break;
         }
         const GpuVideoFrame& frame = *decoded.gpu;
-        views += frame.luma && frame.chroma ? 1u : 0u;
-        u64 hashes[2]{};
-        for (u32 path = 0; path < 2 && !status; ++path) {
-            GpuVideoFrame source = frame;
-            if (path)
-                source.luma = source.chroma = nullptr;
-            if (timed)
-                context->Begin(timer.disjoint);
-            if (timed)
-                context->End(timer.begin[index % 16]);
-            if (FAILED(video_frame_gpu_present(&paths[path], device, context, source, targets[path].view, 0,
-                                               0)))
-                status = 64;
-            if (timed) {
-                context->End(timer.end[index % 16]);
-                context->End(timer.disjoint);
-                D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-                u64 first = 0, last = 0;
-                while (context->GetData(timer.disjoint, &disjoint, sizeof(disjoint), 0) == S_FALSE) {
-                }
-                while (context->GetData(timer.begin[index % 16], &first, sizeof(first), 0) == S_FALSE) {
-                }
-                while (context->GetData(timer.end[index % 16], &last, sizeof(last), 0) == S_FALSE) {
-                }
-                if (!disjoint.Disjoint && disjoint.Frequency && last > first && index)
-                    gpu_ticks[path] += (last - first) * 1'000'000'000ull / disjoint.Frequency;
-            }
-            if (!status &&
-                !read_target(context, &targets[path], frame, sps, 1u + index / gop, compact, &hashes[path]))
-                status = 65;
-        }
-        if (!status && hashes[0] != hashes[1])
-            status = 66;
+        u64 hash = 0;
+        if (FAILED(video_frame_gpu_present(&converter, device, context, frame, target.view, 0, 0)))
+            status = 64;
+        else if (!read_target(context, &target, frame, sps, 1u + index / gop, compact, &hash))
+            status = 65;
         if (!mp4_decoder_acknowledge_frame(&decoder) && !status)
             status = 67;
         ++frames;
     }
-    const u64 coded = u64{sps.width_mbs} * 16u * sps.height_mbs * 16u * 3u / 2u;
-    *zero_copy = views == frames && frames;
     if (!status && frames != movie.samples)
         status = 68;
-    // Views are all or nothing; with them nothing is copied, without them every frame copies once.
-    if (!status && views && views != frames)
-        status = 69;
-    if (!status && paths[0].copied_bytes != (views ? 0 : coded * frames))
-        status = 70;
-    if (!status && paths[1].copied_bytes != coded * frames)
-        status = 71;
-    if (!status && (paths[0].frames != frames || paths[0].converted_pixels != u64{width} * height * frames))
+    if (!status &&
+        (converter.frames != frames || converter.converted_pixels != u64{width} * height * frames))
         status = 72;
-    if (timed && !status && frames > 1) {
-        say_number("h264 attachment gpu: present ns/frame direct=", gpu_ticks[0] / (frames - 1));
-        say_number("h264 attachment gpu: present ns/frame copy=", gpu_ticks[1] / (frames - 1));
-    }
-    com_release(timer.disjoint);
-    for (u32 i = 0; i < 16; ++i) {
-        com_release(timer.begin[i]);
-        com_release(timer.end[i]);
-    }
-    video_frame_gpu_release(&paths[0]);
-    video_frame_gpu_release(&paths[1]);
-    release_target(&targets[0]);
-    release_target(&targets[1]);
+    video_frame_gpu_release(&converter);
+    release_target(&target);
     mp4_decoder_release(&decoder);
     return status;
+}
+
+// WARP has no hardware decoder: the capability check fails and decoder
+// creation fails as on any GPU without one; nothing falls back to a copy.
+int software_device_refuses(const Movie& movie) noexcept {
+    ID3D11Device* device = nullptr;
+    constexpr D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
+    // WARP (and the Basic Render Driver built on it) rejects VIDEO_SUPPORT,
+    // exposes no ID3D11VideoDevice and reports no NV12 decoder output.
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 2, D3D11_SDK_VERSION,
+                                 &device, nullptr, nullptr)))
+        return 0; // No WARP device to compare.
+    Mp4Decoder decoder{};
+    const bool initialized = mp4_decoder_initialize(&decoder, {movie.bytes, movie.count}, 0, 0, device);
+    const bool refused = !gpu_decoder_surfaces_supported(device) && !initialized;
+    mp4_decoder_release(&decoder);
+    device->Release();
+    return refused ? 0 : 55;
 }
 
 } // namespace
@@ -416,22 +355,25 @@ int h264_attachment_gpu_test(ID3D11Device* device, ID3D11DeviceContext* immediat
         static_cast<u8*>(VirtualAlloc(nullptr, kMovieBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     movie.capacity = kMovieBytes;
     int status = movie.bytes ? 0 : 58;
-    bool zero_copy = false;
+    // This test runs only where the stream decoder found hardware H.264 decode.
+    if (!status && !gpu_decoder_surfaces_supported(device))
+        status = 54;
     // Per-macroblock I_PCM samples: a wrong slice or plane offset changes pixels.
     const Sps small{0, 66, 12, 9, 2, 1, false, 0, 8, 31};
     if (!status && !build_movie(&movie, b, small, 8, 4, false))
         status = 57;
     if (!status)
-        status = run_movie(device, context, movie, small, 4, false, false, &zero_copy);
-    // 1080p (coded 1088) compact pictures: copy and conversion cost per frame.
+        status = run_movie(device, context, movie, small, 4, false);
+    if (!status)
+        status = software_device_refuses(movie);
+    // 1080p (coded 1088) compact pictures.
     const Sps hd{0, 100, 120, 68, 2, 1, false, 0, 8, 40};
     if (!status && !build_movie(&movie, b, hd, 12, 6, true))
         status = 56;
     if (!status)
-        status = run_movie(device, context, movie, hd, 6, true, true, &zero_copy);
-    say(status      ? "h264 attachment gpu: failed\n"
-        : zero_copy ? "h264 attachment gpu: decoder plane views, no NV12 copy\n"
-                    : "h264 attachment gpu: driver refused shader-readable decoder arrays; copy path\n");
+        status = run_movie(device, context, movie, hd, 6, true);
+    if (status)
+        say("h264 attachment gpu: failed\n");
     if (movie.bytes)
         VirtualFree(movie.bytes, 0, MEM_RELEASE);
     context->Release();

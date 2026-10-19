@@ -1,6 +1,6 @@
 // video_frame.hlsl (shared-chroma fast path for even steps) must match the
-// frozen per-pixel converter for every step, crop, range and matrix, on both
-// the direct plane-view path and the scratch-copy path.
+// frozen per-pixel converter for every step, crop, range and matrix; a frame
+// without plane views is refused.
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/render/video_frame_gpu.hpp"
 #include "maicord/core/hash.hpp"
@@ -148,14 +148,11 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept {
         u32 cell = 0;
         for (const auto& geometry : geometries) {
             for (u32 step = 1; valid && step <= 5; ++step) {
-                // Matrix/range and direct/copy path; cells stay inside the target.
-                for (u32 variant = 0; valid && variant < 4; ++variant, ++cell) {
+                // Matrix/range variants; cells stay inside the target.
+                for (u32 variant = 0; valid && variant < 2; ++variant, ++cell) {
                     GpuVideoFrame frame{source, 0, geometry.crop_x, geometry.crop_y, geometry.width,
-                                        geometry.height, (variant & 1) != 0, (variant & 1) != 0, {}};
-                    if (variant & 2) {
-                        frame.luma = planes[0];
-                        frame.chroma = planes[1];
-                    }
+                                        geometry.height, variant != 0, variant != 0, 0, {},
+                                        planes[0], planes[1]};
                     valid = cell < kColumns * kRows &&
                             SUCCEEDED(video_frame_gpu_present(&converter, device, context, frame, target_view,
                                                               cell % kColumns * kCellWidth + 1 + cell % 3,
@@ -167,9 +164,16 @@ bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept {
         valid = valid && read_target(context, staging, target, &hashes[side]);
     }
     if (production) converter.shader = production;
-    valid = valid && production && hashes[0] == hashes[1] && cases == 60;
+    valid = valid && production && hashes[0] == hashes[1] && cases == 30;
+    // Plane views are required: there is no copy into a renderer surface.
+    const u32 converted = converter.frames;
+    valid = valid && video_frame_gpu_present(&converter, device, context,
+                                             GpuVideoFrame{source, 0, 0, 0, 64, 64, false, false, 0, {}},
+                                             target_view, 1, 1) == E_INVALIDARG &&
+            converter.frames == converted;
     const bool rotated = valid && rotation_matches(device, context, &converter,
-                                                   GpuVideoFrame{source, 0, 6, 2, 64, 63, false, false, 0, {}},
+                                                   GpuVideoFrame{source, 0, 6, 2, 64, 63, false, false, 0,
+                                                                 {}, planes[0], planes[1]},
                                                    target_view, target, staging);
     log_u64(rotated ? LogLevel::info : LogLevel::error, "video_frame_reference", "rotation_exact", rotated);
     valid = valid && rotated;

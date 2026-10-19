@@ -918,8 +918,8 @@ struct GpuWork {
         painted,
         partial_pixels, media_upload_bytes, animation_copy_pixels, glyph_pixels, instance_uploads;
     // Media atlas: decoder input bytes uploaded and frames written (every
-    // codec path), animation cache restores, video NV12 copies.
-    u64 media_frames, animation_restores, video_frames, video_copied_bytes;
+    // codec path), animation cache restores, video conversions.
+    u64 media_frames, animation_restores, video_frames;
 };
 struct PhaseStats {
     ProcessSample begin, end;
@@ -1061,7 +1061,6 @@ GpuWork sample_gpu_work() noexcept {
                         m.apng_frames + m.gif_frames + m.animated_webp_frames + m.vp8_atlas_uploads;
     work.animation_restores = r.animation_gpu.restores + r.preview_animation_gpu.restores;
     work.video_frames = m.video.frames;
-    work.video_copied_bytes = m.video.copied_bytes;
     work.animation_copy_pixels = r.animation_gpu.copied_pixels + r.preview_animation_gpu.copied_pixels;
     work.glyph_pixels = r.glyph_text.gpu.dispatched_pixels;
     work.instance_uploads =
@@ -1619,7 +1618,6 @@ void report_phase(Phase phase) noexcept {
         o.kv("media_frames", e.media_frames - w.media_frames);
         o.kv("anim_restores", e.animation_restores - w.animation_restores);
         o.kv("video_frames", e.video_frames - w.video_frames);
-        o.kv("video_copy_b", e.video_copied_bytes - w.video_copied_bytes);
         o.kv("glyph_px", e.glyph_pixels - w.glyph_pixels);
         o.kv("inst_uploads", e.instance_uploads - w.instance_uploads);
     }

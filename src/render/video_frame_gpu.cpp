@@ -31,38 +31,6 @@ HRESULT ensure_resources(VideoFrameGpu* gpu, ID3D11Device* device) noexcept {
     return status;
 }
 
-HRESULT ensure_nv12(VideoFrameGpu* gpu, ID3D11Device* device, u32 width, u32 height) noexcept {
-    if (gpu->nv12 && gpu->width >= width && gpu->height >= height) return S_OK;
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width = maximum(width, gpu->width);
-    desc.Height = maximum(height, gpu->height);
-    desc.MipLevels = desc.ArraySize = desc.SampleDesc.Count = 1;
-    desc.Format = DXGI_FORMAT_NV12;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    ID3D11Texture2D* texture = nullptr;
-    ID3D11ShaderResourceView* luma = nullptr;
-    ID3D11ShaderResourceView* chroma = nullptr;
-    HRESULT status = device->CreateTexture2D(&desc, nullptr, &texture);
-    D3D11_SHADER_RESOURCE_VIEW_DESC view{};
-    view.Format = DXGI_FORMAT_R8_UNORM;
-    view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
-    view.Texture2DArray.MipLevels = 1;
-    view.Texture2DArray.ArraySize = 1;
-    if (SUCCEEDED(status)) status = device->CreateShaderResourceView(texture, &view, &luma);
-    view.Format = DXGI_FORMAT_R8G8_UNORM;
-    if (SUCCEEDED(status)) status = device->CreateShaderResourceView(texture, &view, &chroma);
-    if (FAILED(status)) {
-        com_release(chroma); com_release(luma); com_release(texture);
-        return status;
-    }
-    com_release(gpu->chroma); com_release(gpu->luma); com_release(gpu->nv12);
-    gpu->nv12 = texture; gpu->luma = luma; gpu->chroma = chroma;
-    gpu->width = desc.Width; gpu->height = desc.Height;
-    ++gpu->allocations;
-    return S_OK;
-}
-
 // One-slice array view of the frame's subresource (the shader reads arrays).
 bool plane_matches(ID3D11ShaderResourceView* view, ID3D11Texture2D* texture, u32 slice,
                    DXGI_FORMAT format) noexcept {
@@ -124,9 +92,8 @@ HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     if (target.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
         x > target.Width || output_width > target.Width - x ||
         y > target.Height || output_height > target.Height - y) return E_INVALIDARG;
-    const bool direct = direct_planes(frame, input);
+    if (!direct_planes(frame, input)) return E_INVALIDARG;
     status = ensure_resources(gpu, device);
-    if (SUCCEEDED(status) && !direct) status = ensure_nv12(gpu, device, input.Width, input.Height);
     if (FAILED(status)) return status;
     if (!gpu->multithread) {
         status = context->QueryInterface(__uuidof(ID3D11Multithread),
@@ -144,12 +111,7 @@ HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
         yuv_rgb_coefficients(frame.bt709, frame.full_range), step, frame.width, frame.height, frame.rotation};
     copy_bytes(mapped.pData, &constants, sizeof(constants));
     context->Unmap(gpu->constants, 0);
-    if (!direct) {
-        const D3D11_BOX box{0, 0, 0, input.Width, input.Height, 1};
-        context->CopySubresourceRegion(gpu->nv12, 0, 0, 0, 0,
-                                      frame.texture, frame.subresource, &box);
-    }
-    ID3D11ShaderResourceView* inputs[]{direct ? frame.luma : gpu->luma, direct ? frame.chroma : gpu->chroma};
+    ID3D11ShaderResourceView* inputs[]{frame.luma, frame.chroma};
     // The atlas can still be bound by the preceding draw. Unbind it before
     // using the UAV; leave all compute bindings clean for the next render pass.
     ID3D11ShaderResourceView* empty[3]{};
@@ -168,14 +130,12 @@ HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     context->CSSetShader(nullptr, nullptr, 0);
     gpu->multithread->Leave();
     ++gpu->frames;
-    if (!direct) gpu->copied_bytes += static_cast<u64>(input.Width) * input.Height * 3u / 2u;
     gpu->converted_pixels += static_cast<u64>(width) * height;
     return S_OK;
 }
 
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept {
     if (!gpu) return;
-    com_release(gpu->chroma); com_release(gpu->luma); com_release(gpu->nv12);
     com_release(gpu->shader); com_release(gpu->constants);
     com_release(gpu->multithread);
     *gpu = VideoFrameGpu{};
