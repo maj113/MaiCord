@@ -57,10 +57,14 @@ inline bool category_label_clear(const UiMediaPickerScene& scene, const D3D11Ren
             const UiRect bounds{quad.left, quad.top, quad.right, quad.bottom};
             // Whole-card/panel fills and outlines belong behind the label.
             // Smaller foreground symbols must leave its actual line clear.
+            // Fills covering the cell's visible part (it may run past the panel's edge).
             const bool background =
-                bounds.left <= cell.rectangle.left && bounds.top <= cell.rectangle.top &&
-                bounds.right >= cell.rectangle.right && bounds.bottom >= cell.rectangle.bottom;
-            if (!background && ui_rect_has_area(ui_rect_intersection(bounds, label)))
+                bounds.left <= cell.clip.left && bounds.top <= cell.clip.top &&
+                bounds.right >= cell.clip.right && bounds.bottom >= cell.clip.bottom;
+            // Surfaces behind the picker (panes wider than its panel) are not its ink.
+            const bool behind = bounds.left < scene.panel.left || bounds.right > scene.panel.right ||
+                                bounds.top < scene.panel.top || bounds.bottom > scene.panel.bottom;
+            if (!background && !behind && ui_rect_has_area(ui_rect_intersection(bounds, label)))
                 return false;
         }
     }

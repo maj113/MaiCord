@@ -159,7 +159,9 @@ struct ApplicationMediaPicker {
     u64 emoji_first_id;
     u64 emoji_state_revision;
     u32 emoji_guild_revision;
-    CatalogBank *gif, *guild, *packs;
+    // categories: the landing view's /gifs/trending page, kept for the
+    // session like the official client's store; gif: the current results.
+    CatalogBank *gif, *categories, *guild, *packs;
     CatalogBank saved, favorites_tile;
     MediaCatalogItem tile_item;
     u8* saved_preview_mask;
@@ -206,6 +208,12 @@ struct ApplicationMediaPicker {
 };
 namespace {
 constexpr auto kReactionHint = utf8_literal("Shift-click to add more reactions");
+// Search-as-you-type waits for typing to pause before one request.
+constexpr u32 kSearchDebounceMs = 250;
+// Rate-limited catalog requests retry at most this often, never sooner than
+// the server's Retry-After.
+constexpr u32 kCatalogRateRetries = 3;
+constexpr u64 kCatalogLocalRateRetryMs = 1000;
 bool projection(ApplicationMediaPicker&) noexcept;
 void revoke_capture(ApplicationMediaPicker&) noexcept;
 bool emoji_projection(ApplicationMediaPicker& p) noexcept {
@@ -277,6 +285,10 @@ bool open_emoji_model(ApplicationMediaPicker& p) noexcept {
 bool landing(const ApplicationMediaPicker& p) noexcept {
     return p.kind == UiMediaPickerKind::gif && !p.favorites_view &&
            p.operation == MediaCatalogOperation::gif_categories;
+}
+// The bank the GIF view shows: the cached categories on the landing view.
+CatalogBank* gif_bank(const ApplicationMediaPicker& p) noexcept {
+    return p.operation == MediaCatalogOperation::gif_categories ? p.categories : p.gif;
 }
 Utf8View favorite_detail(Utf8View value) noexcept {
     u32 bytes = minimum(value.bytes, 256u);
@@ -505,7 +517,7 @@ const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
             *local = at;
         return temporary;
     }
-    const CatalogBank* owner = p.kind == UiMediaPickerKind::gif ? p.gif : p.guild;
+    const CatalogBank* owner = p.kind == UiMediaPickerKind::gif ? gif_bank(p) : p.guild;
     if (index >= p.source.count || (p.kind == UiMediaPickerKind::sticker && index >= p.filtered_count))
         return nullptr;
     u32 at = p.kind == UiMediaPickerKind::sticker && p.filtered ? p.filtered[index] : index;
@@ -674,7 +686,8 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
         out->kind = UiMediaPickerItemKind::emoji;
         out->enabled = true;
         out->label = label;
-        out->detail = selection.custom ? utf8_literal("Custom server emoji") : utf8_literal("Emoji");
+        // The footer reads "from <server>" for custom emoji.
+        out->detail = reaction_picker_result_guild_name(p.emoji, index);
         out->width = out->height = 32;
         if (selection.custom) {
             out->asset_id = selection.emoji_id;
@@ -702,6 +715,15 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     out->label =
         categories && item->kind == MediaCatalogItemKind::gif ? utf8_literal("Trending GIFs") : item->name;
     out->detail = item->description.bytes ? item->description : item->name;
+    // Stickers name their source (server or pack) in the footer.
+    if (p.kind == UiMediaPickerKind::sticker) {
+        out->detail = {};
+        for (u32 s = 0; s < p.section_count; ++s)
+            if (index >= p.sections[s].first && index - p.sections[s].first < p.sections[s].count) {
+                out->detail = p.sections[s].label;
+                break;
+            }
+    }
     out->width = item->width;
     out->height = item->height;
     out->kind = p.kind == UiMediaPickerKind::sticker ? UiMediaPickerItemKind::sticker
@@ -722,7 +744,7 @@ bool projection(ApplicationMediaPicker& p) noexcept {
     p.section_count = 0;
     if (p.kind == UiMediaPickerKind::gif) {
         if (!p.favorites_view) {
-            p.source.count = (p.gif ? p.gif->count : 0) + (landing(p) && p.favorites_enabled ? 1 : 0);
+            p.source.count = (gif_bank(p) ? gif_bank(p)->count : 0) + (landing(p) && p.favorites_enabled ? 1 : 0);
             return true;
         }
     }
@@ -818,13 +840,23 @@ void request(ApplicationMediaPicker& p, MediaCatalogOperation operation, bool de
     ++p.generation;
     p.operation = operation;
     p.retries = 0;
-    p.wanted = true;
     p.admission_busy = false;
-    p.due_at = deadline_after(clock_monotonic_milliseconds(), delayed ? 300 : 0);
-    p.phase = UiMediaPickerPhase::loading;
-    p.status = utf8_literal("Loading…");
     ++p.source.revision;
     p.scene.scroll_dips = 0;
+    // The landing categories load once per session; returning to them (Back,
+    // a cleared search, reopening) reuses that page without a request.
+    if (operation == MediaCatalogOperation::gif_categories && p.categories) {
+        p.wanted = false;
+        p.due_at = 0;
+        p.phase = UiMediaPickerPhase::ready;
+        p.status = utf8_literal("Choose an item");
+        projection(p);
+        return;
+    }
+    p.wanted = true;
+    p.due_at = deadline_after(clock_monotonic_milliseconds(), delayed ? kSearchDebounceMs : 0);
+    p.phase = UiMediaPickerPhase::loading;
+    p.status = utf8_literal("Loading…");
 }
 bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
     if (kind > UiMediaPickerKind::emoji)
@@ -835,7 +867,8 @@ bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
     const auto query = message_composer_text(p.edit);
     p.tab_query_bytes[old] = static_cast<u16>(query.bytes);
     CopyMemory(p.tab_query[old], query.data, query.bytes);
-    p.tab_scroll[old] = p.scene.scroll_dips;
+    if (p.scene.active)
+        p.tab_scroll[old] = p.scene.scroll_dips;
     if (p.kind == UiMediaPickerKind::gif)
         p.gif_favorites_view = p.favorites_view;
     focus(p, false);
@@ -1114,6 +1147,11 @@ bool rebind(ApplicationMediaPicker& p) noexcept {
     focus(p, false);
     if (g_app.media_picker_scope_serial == ~u64{0})
         return false;
+    // The session's category cache belongs to its account.
+    if (p.account_id != g_app.account_ui->chat_state.self_user_id && p.categories) {
+        VirtualFree(p.categories, 0, MEM_RELEASE);
+        p.categories = nullptr;
+    }
     p.scope = ++g_app.media_picker_scope_serial;
     p.favorites_enabled = p.favorites_view = p.gif_favorites_view = false;
     p.account_id = g_app.account_ui->chat_state.self_user_id;
@@ -1216,6 +1254,9 @@ void application_media_picker_close() noexcept {
     if (!p)
         return;
     application_surface_motion_retire(RendererLayerSurface::gallery);
+    // The scene's storage is released below; its tab keeps the scroll offset.
+    if (!p->reaction_message_id && p->scene.active)
+        p->tab_scroll[static_cast<u32>(p->kind)] = p->scene.scroll_dips;
     cancel(*p);
     p->active = p->wanted = false;
     focus(*p, false);
@@ -1233,8 +1274,9 @@ void application_media_picker_close() noexcept {
     p->hover_at = 0;
     if (g_app.context_focus == &p->scene.widgets)
         g_app.context_focus = nullptr;
-    ui_media_picker_scene_close(&p->scene);
+    // A closed picker keeps no widget, projection or masonry pages.
     g_app.renderer.media_picker_scene = nullptr;
+    ui_media_picker_scene_release(&p->scene);
     reaction_picker_release(&p->emoji);
     application_gif_favorites_set_visible(false);
     application_request_frame();
@@ -1249,7 +1291,7 @@ void application_media_picker_release() noexcept {
     ui_media_picker_scene_release(&p->scene);
     reaction_picker_release(&p->emoji);
     message_composer_release(&p->edit);
-    CatalogBank* banks[]{p->gif, p->guild, p->packs};
+    CatalogBank* banks[]{p->gif, p->categories, p->guild, p->packs};
     for (auto* bank : banks)
         if (bank)
             VirtualFree(bank, 0, MEM_RELEASE);
@@ -1334,7 +1376,8 @@ bool application_media_picker_synchronize() noexcept {
     if (p->kind == UiMediaPickerKind::gif && !favorites_refresh(*p))
         return false;
     if (p->kind == UiMediaPickerKind::gif && !p->favorites_view)
-        p->source.count = (p->gif ? p->gif->count : 0) + (landing(*p) && p->favorites_enabled ? 1 : 0);
+        p->source.count =
+            (gif_bank(*p) ? gif_bank(*p)->count : 0) + (landing(*p) && p->favorites_enabled ? 1 : 0);
     UiMediaPickerContent content{};
     content.edit = {
         message_composer_text(p->edit), p->edit.anchor, p->edit.caret, true, p->focused, p->caret_visible};
@@ -1428,7 +1471,7 @@ bool application_media_picker_submit(u64 id, u64 now) noexcept {
                             search ? Utf8View{p.submitted_query, text.bytes} : Utf8View{},
                             utf8_literal("en-US"),
                             p.operation == MediaCatalogOperation::guild_stickers ? p.guild_id : 0,
-                            p.kind == UiMediaPickerKind::gif ? 50u : 0u,
+                            0u,
                             MediaCatalogFormat::tiny_webp};
     const auto submitted = g_app.account.api.media_catalog(
         g_app.account.instance, AccountMediaCatalogOperation::submit, &query, id);
@@ -1459,11 +1502,28 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
     if (!p->active || !owns_current(*p) || p->generation != generation ||
         p->account_id != g_app.account_ui->chat_state.self_user_id)
         return true;
-    if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
-        response.retry_at_ms != 0 && p->retries++ < 3) {
+    // 429: wait out Retry-After (and an exhausted bucket's reset). A request
+    // the local limiter refused waits its own floor. Either way the view keeps
+    // a notice instead of failing, up to kCatalogRateRetries.
+    const bool limited = response.transport_ok() && response.rate_limited && response.status_code == 429 &&
+                         response.retry_at_ms;
+    const bool refused = response.error == RestClientError::rate;
+    if ((limited || refused) && p->retries < kCatalogRateRetries) {
+        ++p->retries;
+        const u64 now = clock_monotonic_milliseconds();
+        u64 due = refused ? deadline_after(now, kCatalogLocalRateRetryMs) : response.retry_at_ms;
+        if (limited && (response.rate.fields & rate_limit_field_remaining) && !response.rate.remaining &&
+            response.rate.reset_after_ms)
+            due = maximum(due, deadline_after(now, response.rate.reset_after_ms));
         p->wanted = true;
-        p->due_at = response.retry_at_ms;
+        p->due_at = maximum(due, deadline_after(now, 1));
         p->status = utf8_literal("Too many requests. Retrying…");
+        return repaint();
+    }
+    if (limited || refused) {
+        p->wanted = false;
+        p->phase = UiMediaPickerPhase::failed;
+        p->status = utf8_literal("Too many requests. Try again in a moment.");
         return repaint();
     }
     if (operation == MediaCatalogOperation::guild_stickers) {
@@ -1490,7 +1550,8 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         if (scratch) {
             const auto measured =
                 media_catalog_measure(operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32);
-            if (measured.ok() && !measured.truncated &&
+            // A page longer than the cap keeps its first records.
+            if (measured.ok() &&
                 g_app.media_picker_item_serial <= ~u64{0} - measured.item_count) {
                 const bool stickers = operation == MediaCatalogOperation::guild_stickers ||
                                       operation == MediaCatalogOperation::sticker_packs;
@@ -1508,7 +1569,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                     const auto decoded = media_catalog_decode(
                         operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32,
                         {candidate->items, measured.item_count}, {candidate->text, measured.text_bytes});
-                    if (!decoded.ok() || decoded.truncated) {
+                    if (!decoded.ok()) {
                         VirtualFree(candidate, 0, MEM_RELEASE);
                         candidate = nullptr;
                     } else {
@@ -1541,7 +1602,9 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         }
     }
     if (candidate) {
-        auto** slot = operation == MediaCatalogOperation::sticker_packs ? &p->packs : &p->gif;
+        auto** slot = operation == MediaCatalogOperation::sticker_packs    ? &p->packs
+                      : operation == MediaCatalogOperation::gif_categories ? &p->categories
+                                                                           : &p->gif;
         auto* old = *slot;
         revoke_capture(*p);
         ui_media_picker_scene_close(&p->scene);
@@ -1694,7 +1757,7 @@ u32 application_media_picker_owner_bytes() noexcept {
         return 0;
     u32 bytes = sizeof(*p) + p->filtered_capacity * sizeof(u32);
     bytes += static_cast<u32>(p->emoji.storage.offset);
-    CatalogBank* banks[]{p->gif, p->guild, p->packs};
+    CatalogBank* banks[]{p->gif, p->categories, p->guild, p->packs};
     for (auto* bank : banks)
         if (bank)
             bytes += bank->allocation_bytes;
@@ -1707,7 +1770,7 @@ bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope
     if (!p || !application_media_picker_active() || p->kind == UiMediaPickerKind::emoji ||
         p->scope != scope || !key.id || !generation || key.variant != generation)
         return false;
-    const CatalogBank* banks[]{p->kind == UiMediaPickerKind::gif ? (p->favorites_view ? &p->saved : p->gif)
+    const CatalogBank* banks[]{p->kind == UiMediaPickerKind::gif ? (p->favorites_view ? &p->saved : gif_bank(*p))
                                                                  : p->guild,
                                p->kind == UiMediaPickerKind::sticker
                                    ? p->packs
@@ -1738,7 +1801,7 @@ bool application_media_picker_preview_rejected(MediaAssetKey key, u64 scope, u32
     auto* p = g_app.media_picker;
     if (!application_media_picker_preview_owner_current(key, scope, generation))
         return false;
-    CatalogBank* banks[]{p->gif, p->guild, p->packs, &p->saved, &p->favorites_tile};
+    CatalogBank* banks[]{p->gif, p->categories, p->guild, p->packs, &p->saved, &p->favorites_tile};
     for (auto* bank : banks) {
         if (!bank || bank->generation != generation || key.id < bank->first_id ||
             key.id - bank->first_id >= bank->count || !bank->preview_mask)
@@ -2002,7 +2065,9 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         else if (key == VK_PRIOR || key == VK_NEXT)
             changed = ui_media_picker_scene_page_selection(&p->scene, key == VK_PRIOR);
         else if (key == VK_HOME || key == VK_END)
-            changed = ui_media_picker_scene_edge_selection(&p->scene, key == VK_END);
+            // Home/End reach the row's ends; with Ctrl the grid's.
+            changed = control ? ui_media_picker_scene_edge_selection(&p->scene, key == VK_END)
+                              : ui_media_picker_scene_row_edge_selection(&p->scene, key == VK_END);
         if (changed) {
             focus_selected(*p);
             repaint();

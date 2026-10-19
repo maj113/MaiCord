@@ -450,7 +450,7 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
          !locale_valid(query.locale)) ||
         !text_valid(query.query, kMediaCatalogMaximumQueryBytes, search) ||
         (!search && query.query.bytes) ||
-        (result_page &&
+        (result_page && query.limit &&
          (query.limit < kMediaCatalogMinimumGifPageItems || query.limit > kMediaCatalogMaximumPageItems)) ||
         (query.operation == MediaCatalogOperation::gif_suggestions &&
          (!query.limit || query.limit > kMediaCatalogMaximumSuggestions)) ||
@@ -502,7 +502,8 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
             route_append(&w, query.format == MediaCatalogFormat::tiny_webp ? utf8_literal("tinywebp")
                                                                            : utf8_literal("webm"));
         }
-        if (result_page || query.operation == MediaCatalogOperation::gif_suggestions) {
+        // Zero omits the limit (the server default), as the official client does.
+        if ((result_page || query.operation == MediaCatalogOperation::gif_suggestions) && query.limit) {
             route_append(&w, utf8_literal("&limit="));
             route_append_u64(&w, query.limit);
         }

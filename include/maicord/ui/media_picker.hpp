@@ -4,26 +4,39 @@
 #include "maicord/ui/scrollbar.hpp"
 
 namespace maicord {
-inline constexpr u32 kUiMediaPickerVisibleCells = 80;
-inline constexpr u32 kUiMediaPickerVisibleSections = 16;
-inline constexpr u32 kUiMediaPickerWidgetCapacity = 128;
+// Visible cells bound the widest pane: a wider request shrinks to the columns
+// that fit (about 1600 DIP of Emoji).
+inline constexpr u32 kUiMediaPickerVisibleCells = 256;
+inline constexpr u32 kUiMediaPickerVisibleSections = 24;
+inline constexpr u32 kUiMediaPickerWidgetCapacity = kUiMediaPickerVisibleCells + 64;
 inline constexpr u32 kUiMediaPickerMaximumSections = 272;
 inline constexpr u32 kUiMediaPickerMaximumItems = 65'536;
-inline constexpr float kUiMediaPickerWidth = 432;
-inline constexpr float kUiMediaPickerHeight = 480;
+// Discord's expression picker: 498 DIP minimum (and default) width, 486 high.
+inline constexpr float kUiMediaPickerWidth = 498;
+inline constexpr float kUiMediaPickerHeight = 486;
 // The reaction emoji popout: the standalone emoji picker, 498 x 440, left of
 // its control with the popout's 8 DIP spacing.
 inline constexpr float kUiMediaPickerReactionWidth = 498;
 inline constexpr float kUiMediaPickerReactionHeight = 440;
 // Value-owned DIP metrics let a theme choose spacing and control density without
 // retaining plugin memory. Geometry and presentation consume the same snapshot.
+// Grid cells are fixed: a wider pane fits more columns, never larger cells.
 struct UiMediaPickerMetrics {
     float panel_width, panel_height, viewport_inset, anchor_gap;
-    float padding, gap, content_inset, tab_height, tab_max_width;
+    // header_gap separates the tabs, search field and body.
+    float padding, gap, content_inset, tab_height, tab_max_width, header_gap;
     float search_height, footer_height, section_height, rail_width, rail_pitch;
-    float scrollbar_gutter, sticker_inset, emoji_inset;
-    float gif_min_height, emoji_min_height, gif_aspect_ratio, gif_target_width;
-    float icon_extent, text_inset, rail_inset;
+    // list_inset: the grid's leading padding; the scrollbar gutter trails it.
+    float scrollbar_gutter, list_inset;
+    // Emoji art (large once the drawer is emoji_extent wider than its
+    // minimum) with emoji_padding on every side.
+    float emoji_extent, emoji_large_extent, emoji_padding;
+    // Sticker art and the least gap between stickers; rows spread the rest.
+    float sticker_extent, sticker_gap;
+    // GIF masonry: desired column width, gutter, landing category height.
+    float gif_target_width, gif_gutter, gif_category_height;
+    // footer_art: the hover footer's preview.
+    float icon_extent, text_inset, rail_inset, footer_art;
 };
 struct UiMediaPickerStyle {
     UiMediaPickerMetrics metrics;
@@ -36,27 +49,36 @@ constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
     m.panel_height = kUiMediaPickerHeight;
     m.viewport_inset = kUiFloatingSurfaceInset;
     m.anchor_gap = kUiAutocompleteGap;
-    m.padding = kUiMenuPadding * 2;
+    // Discord: 16 DIP header padding, 30 DIP tabs, 12 DIP header gaps.
+    m.padding = kUiFloatingSurfaceInset * 2;
     m.gap = kUiMenuRowGap;
-    m.content_inset = kUiFloatingSurfaceInset;
-    m.tab_height = kUiMenuCompactRowHeight;
+    m.content_inset = kUiFloatingSurfaceInset * 2;
+    m.tab_height = kUiMenuCompactRowHeight - 2;
     m.tab_max_width = kUiMediaControlHeight * 2;
+    m.header_gap = kUiMenuPadding * 2;
     m.search_height = kUiMediaControlHeight;
+    // Inspector bar 48, section heading 32, category list 48 with 40 DIP items.
     m.footer_height = kUiMediaControlHeight + kUiFloatingSurfaceInset;
-    m.section_height = kUiMediaControlTarget;
-    m.rail_width = kUiMediaControlHeight + kUiComposerPadding;
+    m.section_height = kUiMenuCompactRowHeight;
+    m.rail_width = kUiMediaControlHeight + kUiFloatingSurfaceInset;
     m.rail_pitch = kUiMediaControlHeight;
-    m.scrollbar_gutter = kUiMenuPadding * 2;
-    m.sticker_inset = kUiFloatingSurfaceInset;
-    m.emoji_inset = kUiMenuPadding * .5f;
-    m.gif_min_height = kUiMenuShortcutMaximumWidth;
-    m.emoji_min_height = kUiMediaControlHeight + kUiFloatingSurfaceInset;
-    m.gif_aspect_ratio = .60f;
-    // Keep two native columns even when the category rail is present.
-    m.gif_target_width = (m.panel_width - m.rail_width - m.padding * 2 - m.scrollbar_gutter - m.gap) * .5f;
+    m.scrollbar_gutter = kUiFloatingSurfaceInset;
+    m.list_inset = kUiFloatingSurfaceInset;
+    // Medium (40) and large (48) emoji with 4 DIP padding.
+    m.emoji_extent = kUiMediaControlHeight;
+    m.emoji_large_extent = kUiMediaControlHeight + kUiFloatingSurfaceInset;
+    m.emoji_padding = kUiComposerPadding;
+    // 96 DIP sticker previews at least 12 DIP apart.
+    m.sticker_extent = kUiMediaControlHeight * 2 + kUiFloatingSurfaceInset * 2;
+    m.sticker_gap = kUiMenuPadding * 2;
+    // 200 DIP desired GIF columns, 12 DIP gutters, 110 DIP category tiles.
+    m.gif_target_width = kUiMediaControlHeight * 5;
+    m.gif_gutter = kUiMenuPadding * 2;
+    m.gif_category_height = kUiMediaControlHeight * 2 + kUiMenuCompactRowHeight - 2;
     m.icon_extent = kUiMenuIconExtent;
     m.text_inset = kUiComposerPadding;
     m.rail_inset = kUiComposerPadding;
+    m.footer_art = kUiMediaControlTarget;
     style.panel_radius = kUiSearchMenuCornerRadius;
     style.control_radius = kUiControlCornerRadius;
     style.edit_radius = kUiEditCornerRadius;
@@ -238,6 +260,17 @@ struct UiMediaPickerProjection {
         UiMediaPickerKind tab;
     } targets[kUiMediaPickerWidgetCapacity];
 };
+struct UiMediaPickerTile {
+    float top, height;
+    u16 column;
+    // Category tiles keep a fixed height; media scale with the column width.
+    bool fixed;
+    float aspect;
+};
+// Work counters for resize/scroll cost tests.
+struct UiMediaPickerCounters {
+    u32 rebuilds, cells, resolves, masonry_layouts, allocations;
+};
 struct UiMediaPickerScene {
     UiFixedWidgetStorageOwner storage;
     UiWidgetManager widgets;
@@ -251,8 +284,25 @@ struct UiMediaPickerScene {
     u64 account_scope, query_generation;
     u32 source_revision, content_revision, generation, revision, selected_index;
     u32 cell_count, header_count, rail_count, media_count;
+    // Grid: fixed cell_width, column_pitch apart from grid_left; rows are
+    // cell_pitch apart. Masonry GIF views place tiles instead.
     float scroll_dips, rail_scroll_dips, content_height, cell_pitch;
-    u8 columns;
+    float cell_width, cell_height, column_pitch, grid_left;
+    // The pinned section header's bottom; cells clip below it.
+    float pinned_bottom, rail_extent;
+    u16 columns;
+    // GIF masonry: one tile per item, laid out when the source revision or
+    // column geometry changes. Owned; grows only past its committed count.
+    UiMediaPickerTile* tiles;
+    u32 tile_capacity, tile_count, tile_source_revision;
+    float tile_width, tile_tallest, tile_extent;
+    u16 tile_columns;
+    bool masonry;
+    // Footer text, formatted when the inspected item changes.
+    u32 footer_index;
+    u8 footer_title_bytes, footer_detail_bytes;
+    char footer_title[96], footer_detail[96];
+    UiMediaPickerCounters counters;
     UiMediaPickerKind kind;
     UiMediaPickerVariant variant;
     u16 layout_flags;
@@ -286,7 +336,12 @@ bool ui_media_picker_scene_scroll_section(UiMediaPickerScene*, u64 section_id) n
 bool ui_media_picker_scene_select(UiMediaPickerScene*, u32 source_index) noexcept;
 bool ui_media_picker_scene_move_selection(UiMediaPickerScene*, i32 horizontal, i32 vertical) noexcept;
 bool ui_media_picker_scene_page_selection(UiMediaPickerScene*, bool reverse) noexcept;
+// Keyboard navigation follows the visible rows as one grid, ignoring section
+// breaks: Left/Right wrap between rows, Up/Down keep the column clamped to the
+// target row. Masonry moves within a column and to the nearest tile beside it.
+// Home/End reach the row's ends, edge selection the grid's.
 bool ui_media_picker_scene_edge_selection(UiMediaPickerScene*, bool last) noexcept;
+bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene*, bool last) noexcept;
 // Reuses a cell's widget and returns only the visible inset button hit region.
 // Pending remains visible but cannot activate or fall through to item Send.
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene&, u32 visible_cell, UiRect* rectangle,
@@ -300,4 +355,12 @@ ConstSlice<UiMediaPickerCell> ui_media_picker_scene_cells(const UiMediaPickerSce
 // to native media drawing and any missing-image surface.
 bool ui_media_picker_scene_media(const UiMediaPickerScene&, u32 visible_cell,
                                  UiMediaPickerMediaSlot* output) noexcept;
+// The footer inspects the hovered item, else the selection, else the first
+// visible item; GIF views have no footer. Its preview is footer_art square:
+// custom emoji and stickers as media (this slot), Unicode emoji as text.
+const UiMediaPickerCell* ui_media_picker_scene_inspected(const UiMediaPickerScene&) noexcept;
+bool ui_media_picker_scene_footer_media(const UiMediaPickerScene&, UiMediaPickerMediaSlot* output) noexcept;
+// ":name:" and "from <detail>" for emoji; the name and its source otherwise.
+Utf8View ui_media_picker_scene_footer_title(const UiMediaPickerScene&) noexcept;
+Utf8View ui_media_picker_scene_footer_detail(const UiMediaPickerScene&) noexcept;
 } // namespace maicord

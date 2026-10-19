@@ -120,6 +120,8 @@ constexpr ReactionEmojiRef reaction_picker_selection_emoji(const ReactionPickerS
 bool reaction_picker_result_at(const ReactionPickerModel&, u32 logical_index, ReactionPickerSelection*,
                                Utf8View* label = nullptr) noexcept;
 Utf8View reaction_picker_section_label(const ReactionPickerModel&, u32 section) noexcept;
+// The server a custom emoji result comes from; empty for Unicode emoji.
+Utf8View reaction_picker_result_guild_name(const ReactionPickerModel&, u32 logical_index) noexcept;
 // Account settings keys: custom emoji IDs in decimal, Unicode emoji by
 // emoji_shortcode_key() (keys for entries this client adds). Returns 0 when
 // the emoji has no settings key. Parsing accepts any alias, catalog name or

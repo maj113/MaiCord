@@ -68,7 +68,13 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
                               "search?locale=en-US&q=hello%20%26%2B%C3%A9&media_format=tinywebp&limit=20")),
         "media catalog: actual GIF search query encodes UTF8, delimiters, locale, native format and "
         "minimum provider limit");
-    constexpr u32 rejected_limits[]{0u, 1u, 19u, 51u};
+    query.limit = 0;
+    written = media_catalog_write_target(query, {target, sizeof(target)});
+    check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
+                               utf8_literal("/api/v10/gifs/"
+                                            "search?locale=en-US&q=hello%20%26%2B%C3%A9&media_format=tinywebp")),
+          "media catalog: zero limit omits the parameter like the official client");
+    constexpr u32 rejected_limits[]{1u, 19u, kMediaCatalogMaximumPageItems + 1};
     for (u32 rejected : rejected_limits) {
         query.limit = rejected;
         target[0] = 0x55;

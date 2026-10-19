@@ -536,7 +536,7 @@ void run() noexcept {
     check(application_media_picker_synchronize(), "picker runtime: default width restores after resize");
     owner_measurements("picker_open");
     check(send_pending(101) && account.query.operation == MediaCatalogOperation::gif_categories &&
-              account.query.limit == kMediaCatalogMaximumPageItems && !application_media_picker_next_wake(),
+              !account.query.limit && !application_media_picker_next_wake(),
           "picker runtime: category admission uses one canonical bounded request");
     check(query(utf8_literal("hello &+")) && account.cancelled_id == 101 && p.submitted_id == 101 &&
               !application_media_picker_pending(p.due_at) && response(101, gif_body) && !p.gif,
@@ -545,12 +545,10 @@ void run() noexcept {
     check(
         !application_media_picker_pending(due - 1) && application_media_picker_pending(due) &&
             application_media_picker_next_wake() == due && application_media_picker_submit(102, due) &&
-            account.query.limit == 50 &&
+            !account.query.limit &&
             same({reinterpret_cast<const char*>(account.target), account.target_bytes},
-                 utf8_literal(
-                     "/api/v10/gifs/search?locale=en-US&q=hello%20%26%2B&media_format=tinywebp&limit=50")),
-        "picker runtime: content debounce gates exact encoded native search target and canonical fifty "
-        "items");
+                 utf8_literal("/api/v10/gifs/search?locale=en-US&q=hello%20%26%2B&media_format=tinywebp")),
+        "picker runtime: content debounce gates the exact encoded search target with the server's page size");
     const auto admitted_generation = p.generation;
     const auto admitted_submissions = account.submissions;
     const auto admitted_cancellations = account.cancellations;
@@ -646,7 +644,8 @@ void run() noexcept {
             application_media_picker_open(UiMediaPickerKind::gif) && p.account_id == 6 &&
             p.scope != old_scope,
         "picker runtime: account replacement cannot accept previous response and allocates a fresh scope");
-    check(send_pending(108) && response(108, gif_body),
+    check(query(utf8_literal("closed")) && send_pending(108) && response(108, gif_body) && p.gif &&
+              p.phase == UiMediaPickerPhase::ready,
           "picker runtime: new account current receipt publishes");
     const auto send_target = target(0);
     const auto requests_before = g_app.account_ui->message_composer_controller.request_count;
@@ -740,8 +739,8 @@ void run() noexcept {
             response(
                 111,
                 utf8_literal(
-                    R"({"gifs":[{"id":"fixture-trending","title":"Provider preview","width":200,"height":100,"src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/trending.webp","url":"https://klipy.com/gifs/fixture"}],"categories":[{"name":"Fixture category","src":"https://images-ext-1.discordapp.net/external/fixture/https/static.klipy.com/ii/00000000000000000000000000000000/00/00/category.gif?format=webp&animated=true&width=220&height=220"}]})")) &&
-            p.source.count == 2 && application_media_picker_preview_request(0, &preview) &&
+                    R"({"gifs":[{"id":"fixture-trending","title":"Provider preview","width":200,"height":100,"src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/trending.webp","url":"https://klipy.com/gifs/fixture"}],"categories":[{"name":"Fixture category","src":"https://images-ext-1.discordapp.net/external/fixture/https/static.klipy.com/ii/00000000000000000000000000000000/00/00/category.gif?format=webp&animated=true&width=220&height=220"},{"name":"Unsupported preview","src":"https://example.invalid/category.jpg"}]})")) &&
+            p.source.count == 3 && application_media_picker_preview_request(0, &preview) &&
             preview.format == MediaAttachmentFormat::webp,
         "picker runtime: provider Trending preview is an owned native WebP landing tile");
     UiMediaPickerItem trending{};
@@ -758,22 +757,21 @@ void run() noexcept {
               send_pending(112) && account.query.operation == MediaCatalogOperation::gif_trending &&
               response(112, utf8_literal("[]")),
           "picker runtime: Trending tile navigates its real results endpoint without sending its preview");
-    check(
-        query({}) && send_pending(113) &&
-            response(
-                113,
-                utf8_literal(
-                    R"({"categories":[{"name":"Fixture category","src":"https://images-ext-1.discordapp.net/external/fixture/https/static.klipy.com/ii/00000000000000000000000000000000/00/00/category.gif?format=webp&animated=true&width=220&height=220"},{"name":"Unsupported preview","src":"https://example.invalid/category.jpg"}],"gifs":[]})")),
-        "picker runtime: returning to landing refreshes the authoritative category bank");
+    const auto submissions_at_trending = account.submissions;
+    check(query({}) && !application_media_picker_pending(~u64{0}) &&
+              account.submissions == submissions_at_trending && p.phase == UiMediaPickerPhase::ready &&
+              p.operation == MediaCatalogOperation::gif_categories && p.source.count == 3,
+          "picker runtime: returning to landing reuses the session's category bank without a request");
     UiMediaPickerItem unsupported_preview{};
-    check(p.gif && p.gif->preview_mask[0] == 1 && resolve(&p, 1, &unsupported_preview) &&
+    check(p.categories && p.categories->preview_mask[0] == 3 && resolve(&p, 2, &unsupported_preview) &&
               unsupported_preview.enabled && !unsupported_preview.asset_id &&
-              !application_media_picker_preview_request(1, &preview),
+              !application_media_picker_preview_request(2, &preview),
           "picker runtime: bank caches preview admission without disabling category navigation");
-    auto category_target = target(0);
+    auto category_target = target(1);
     category_target.action = UiMediaPickerAction::category;
     check(activate(p, category_target) && p.operation == MediaCatalogOperation::gif_search &&
-              same(message_composer_text(p.edit), utf8_literal("Fixture category")) && send_pending(114),
+              same(message_composer_text(p.edit), utf8_literal("Fixture category")) &&
+              application_media_picker_pending(clock_monotonic_milliseconds()) && send_pending(114),
           "picker runtime: explicit category activation requests its query while preserving outbox");
     const auto retry_at = clock_monotonic_milliseconds() + 5000;
     check(response(114, {}, 429, retry_at, true) && p.due_at == retry_at &&
@@ -788,6 +786,53 @@ void run() noexcept {
               response(1901, {}, 429, 0, true) && !p.wanted &&
               !application_media_picker_pending(~u64{0}) && !application_media_picker_next_wake(),
           "picker runtime: a rate flag without a server deadline does not invent a timer");
+    // Discord's pattern after a search: the categories come from the session
+    // cache; a new search waits out the 250 ms debounce and sends one request.
+    const auto submissions_at_landing = account.submissions;
+    check(query({}) && !application_media_picker_pending(~u64{0}) &&
+              account.submissions == submissions_at_landing &&
+              p.operation == MediaCatalogOperation::gif_categories && p.phase == UiMediaPickerPhase::ready,
+          "picker requests: clearing a search shows the cached categories without a request");
+    const u64 typed_at = clock_monotonic_milliseconds();
+    check(query(utf8_literal("cats")) && p.due_at >= typed_at + 250 &&
+              p.due_at <= clock_monotonic_milliseconds() + 250 &&
+              !application_media_picker_pending(p.due_at - 1) && send_pending(1902) &&
+              account.query.operation == MediaCatalogOperation::gif_search && !account.query.limit &&
+              response(1902, gif_body) && query({}) && !application_media_picker_pending(~u64{0}) &&
+              account.submissions == submissions_at_landing + 1,
+          "picker requests: one debounced search, then the categories again with no further request");
+    // 429: wait out Retry-After and an exhausted bucket's reset; a local
+    // limiter refusal retries after its floor; three retries, then a notice.
+    check(query(utf8_literal("dogs")) && send_pending(1903),
+          "picker requests: rate-limit fixture submits");
+    RestClientResponse limited{};
+    limited.request_id = 1903;
+    limited.status_code = 429;
+    limited.rate_limited = true;
+    limited.retry_at_ms = clock_monotonic_milliseconds() + 1000;
+    limited.rate.fields = rate_limit_field_remaining | rate_limit_field_reset_after;
+    limited.rate.remaining = 0;
+    limited.rate.reset_after_ms = 8000;
+    const u64 limited_at = clock_monotonic_milliseconds();
+    check(application_media_picker_response(limited, {}) && p.wanted && p.due_at >= limited_at + 8000 &&
+              same(p.status, utf8_literal("Too many requests. Retrying…")),
+          "picker requests: a 429 waits for the later of Retry-After and the bucket reset");
+    bool rate_refusals = true;
+    for (u64 id = 1904; id < 1906; ++id) {
+        RestClientResponse refused{};
+        refused.request_id = id;
+        refused.error = RestClientError::rate;
+        const u64 refused_at = clock_monotonic_milliseconds();
+        rate_refusals = rate_refusals && send_pending(id) && application_media_picker_response(refused, {}) && p.wanted &&
+                   p.due_at >= refused_at + 1000 && p.phase == UiMediaPickerPhase::loading;
+    }
+    RestClientResponse exhausted{};
+    exhausted.request_id = 1906;
+    exhausted.error = RestClientError::rate;
+    check(rate_refusals && send_pending(1906) && application_media_picker_response(exhausted, {}) && !p.wanted &&
+              p.phase == UiMediaPickerPhase::failed &&
+              same(p.status, utf8_literal("Too many requests. Try again in a moment.")),
+          "picker requests: local limiter refusals retry after a floor, then stop with a notice");
     focus(p, true);
     SetCapture(g_app.window);
     p.captured = p.dragging = true;
@@ -818,6 +863,9 @@ void run() noexcept {
     saved_gifs[1].format = GifFavoriteFormat::video;
     favorites = {{saved_gifs, 2}, 1, 1, true, false, false, {}};
     favorite_state = {true, false, false, true};
+    // A fresh session: the category cache starts empty.
+    VirtualFree(p.categories, 0, MEM_RELEASE);
+    p.categories = nullptr;
     check(
         application_media_picker_open(UiMediaPickerKind::gif) && query({}) && send_pending(115) &&
             response(
@@ -962,12 +1010,14 @@ void run() noexcept {
           "picker Favorites: reopening preserves view without issuing remote catalog search");
     auto back = target(0);
     back.action = UiMediaPickerAction::back;
-    check(activate(p, back) && !p.favorites_view && !p.edit.bytes && p.wanted &&
-              p.operation == MediaCatalogOperation::gif_categories,
-          "picker Favorites: back restores remote categories and clears local filter");
+    const auto submissions_before_back = account.submissions;
+    check(activate(p, back) && !p.favorites_view && !p.edit.bytes && !p.wanted &&
+              p.operation == MediaCatalogOperation::gif_categories && p.phase == UiMediaPickerPhase::ready &&
+              account.submissions == submissions_before_back,
+          "picker Favorites: back restores the cached categories and clears local filter");
     const auto common_panel = p.scene.panel;
     const auto submitted_before = account.submissions;
-    check(send_pending(117) && switch_tab(p, UiMediaPickerKind::emoji) &&
+    check(query(utf8_literal("cloud")) && send_pending(117) && switch_tab(p, UiMediaPickerKind::emoji) &&
               p.kind == UiMediaPickerKind::emoji && p.emoji.search == &p.edit && p.emoji.search_borrowed &&
               p.scene.content->available_tabs == 7 && !g_app.popup_scene.active &&
               ui_rect_equal(p.scene.panel, common_panel) && p.source.count > 100 && !p.wanted &&
@@ -1208,7 +1258,7 @@ void run() noexcept {
               !p.scene.tab_widgets[2].generation && same(p.content.placeholder, utf8_literal("Find the perfect reaction")) &&
               ui_rect_width(p.scene.panel) == kUiMediaPickerReactionWidth &&
               ui_rect_height(p.scene.panel) == kUiMediaPickerReactionHeight &&
-              p.scene.panel.right == add_reaction.left - 8 && p.scene.field.top < p.scene.panel.top + 16 &&
+              p.scene.panel.right == add_reaction.left - 8 && p.scene.field.top == p.scene.panel.top + 16 &&
               !g_app.popup_scene.active,
           "reaction popout: Add Reaction opens the shared Emoji component left of its button without the "
           "tab selector, focused on its own search");

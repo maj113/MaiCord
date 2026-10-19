@@ -504,6 +504,19 @@ bool reaction_picker_result_at(const ReactionPickerModel& picker, u32 index,
 Utf8View reaction_picker_section_label(const ReactionPickerModel& picker, u32 section) noexcept {
     return storage_valid(&picker) ? section_label(picker, section) : Utf8View{};
 }
+Utf8View reaction_picker_result_guild_name(const ReactionPickerModel& picker, u32 index) noexcept {
+    if (!storage_valid(&picker) || index >= picker.result_count)
+        return {};
+    const u16 result = picker.result_catalog_indices[index];
+    if (result == 0xFFFFu || !(result & kReactionPickerCustomResult))
+        return {};
+    const u32 custom = result & ~kReactionPickerCustomResult;
+    if (custom >= picker.custom_emoji_count)
+        return {};
+    const u32 guild = picker.custom_emojis[custom].guild_index;
+    return guild < picker.guild_count ? Utf8View{picker.guilds[guild].name, picker.guilds[guild].name_bytes}
+                                      : Utf8View{};
+}
 
 namespace {
 bool settings_key_digits(Utf8View key) noexcept {

@@ -72,9 +72,12 @@ inline bool colored_glyph_ink(const surface_motion_probe_detail::Readback& rb, u
     return false;
 }
 inline bool clips_current(const UiMediaPickerScene& scene) noexcept {
+    // Cells clip below a pinned section header.
+    auto grid = scene.body;
+    grid.top = maximum(grid.top, scene.pinned_bottom);
     for (u32 i = 0; i < scene.cell_count; ++i) {
         const auto& cell = scene.projection->cells[i];
-        if (!ui_rect_equal(cell.clip, ui_rect_intersection(cell.rectangle, scene.body)) ||
+        if (!ui_rect_equal(cell.clip, ui_rect_intersection(cell.rectangle, grid)) ||
             cell.clip.top < scene.body.top || cell.clip.bottom > scene.body.bottom)
             return false;
     }
@@ -211,13 +214,18 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
             !scene.tab_widgets[2].generation || scene.body.bottom != scene.footer.top ||
             !clips_current(scene))
             return fail();
+        // GIFs have no inspector footer (Discord); Stickers and Emoji share it.
         if (!kind) {
             panel = scene.panel;
-            body = scene.body;
             field = scene.field;
+            if (ui_rect_has_area(scene.footer) || scene.body.bottom != scene.panel.bottom)
+                return fail();
+        } else if (kind == 1) {
+            body = scene.body;
             footer = scene.footer;
-        } else if (!ui_rect_equal(panel, scene.panel) || !ui_rect_equal(body, scene.body) ||
-                   !ui_rect_equal(field, scene.field) || !ui_rect_equal(footer, scene.footer))
+        }
+        if (!ui_rect_equal(panel, scene.panel) || !ui_rect_equal(field, scene.field) ||
+            (kind && (!ui_rect_equal(body, scene.body) || !ui_rect_equal(footer, scene.footer))))
             return fail();
     }
     renderer.media_picker_scene = &scene;
@@ -253,7 +261,8 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
         !text_ink(scene, renderer, rb, 0, utf8_literal("Stickers")) ||
         !text_ink(scene, renderer, rb, 0, utf8_literal("Emoji")) ||
         !text_ink(scene, renderer, rb, 0, content.edit.text) ||
-        !text_ink(scene, renderer, rb, 0, content.status) || !distinct_rail_ink(scene, rb, scale))
+        !text_ink(scene, renderer, rb, 0, ui_media_picker_scene_footer_title(scene)) ||
+        !distinct_rail_ink(scene, rb, scale))
         return fail();
     stage = 4;
     bool unicode = false, custom = false, flag = false;
@@ -276,7 +285,8 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
     for (u32 i = renderer.media_picker_media_first_batch;
          ordinary_domain && i < renderer.media_picker_media_end_batch; ++i) {
         const auto& batch = renderer.media_draw.batch_data[i];
-        ordinary_domain = batch.clip.top >= scene.body.top && batch.clip.bottom <= scene.body.bottom;
+        // Cells clip to the body; the inspected item's preview to the footer.
+        ordinary_domain = batch.clip.top >= scene.body.top && batch.clip.bottom <= scene.footer.bottom;
         for (u32 q = batch.first_quad; ordinary_domain && q < batch.first_quad + batch.quad_count; ++q)
             ordinary_domain = q < renderer.media_quad_count && renderer.media_draw.domain_data[q] == 0;
     }
@@ -317,7 +327,7 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
         !probe_present(&renderer, kDefaultTheme) || !probe_present(&renderer, kDefaultTheme) ||
         !surface_motion_probe_detail::draw_fixed(renderer) || !rb.read(renderer, 3) ||
         !text_ink(scene, renderer, rb, 3, content.edit.text) ||
-        !text_ink(scene, renderer, rb, 3, content.status) ||
+        !text_ink(scene, renderer, rb, 3, ui_media_picker_scene_footer_title(scene)) ||
         !text_ink(scene, renderer, rb, 3, sections[0].label))
         return fail();
     unicode = custom = flag = false;
@@ -369,6 +379,32 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
         !probe_present(&renderer, themed) ||
         (capture && !capture(L"unified-picker-gradient-emoji.bmp", themed)))
         return fail();
+    // Fixed cells at two drawer widths: the wider pane fits more columns of
+    // the same cells (Emoji switches to Discord's large size from 538 DIP).
+    const UiMediaPickerKind captured[]{UiMediaPickerKind::emoji, UiMediaPickerKind::sticker};
+    const wchar_t* names[2][2]{{L"picker-emoji-498.bmp", L"picker-emoji-760.bmp"},
+                               {L"picker-sticker-498.bmp", L"picker-sticker-760.bmp"}};
+    const float widths[]{0, 760};
+    for (u32 k = 0; k < 2; ++k) {
+        u16 columns = 0;
+        float cell = 0;
+        for (u32 w = 0; w < 2; ++w) {
+            fixture.kind = content.kind = captured[k];
+            ++source.revision;
+            ++source.query_generation;
+            content.query_generation = source.query_generation;
+            ++content.revision;
+            if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor->rectangle, nullptr,
+                                              widths[w]) ||
+                (w && (scene.columns <= columns ||
+                       (captured[k] == UiMediaPickerKind::sticker && scene.cell_width != cell))) ||
+                !renderer_rebuild_content_text(&renderer, kDefaultTheme) || !probe_present(&renderer, kDefaultTheme) ||
+                !probe_present(&renderer, kDefaultTheme) || (capture && !capture(names[k][w], kDefaultTheme)))
+                return fail();
+            columns = scene.columns;
+            cell = scene.cell_width;
+        }
+    }
     log_write(LogLevel::info, "probe", "unified_picker_native_gpu_passed");
     return true;
 }

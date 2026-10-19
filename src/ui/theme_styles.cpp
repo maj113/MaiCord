@@ -512,7 +512,7 @@ float ui_theme_text_size(const UiThemeTypography& typography, float em, u32 flag
     // The typography must already be validated: no schema scan in a glyph
     // loop. Flag priority is fixed; the picker em is constant.
     if (flags & text_style_picker_emoji)
-        return kPickerEmojiEmSize;
+        return text_style_picker_emoji_size(flags);
     if (flags & text_style_jumbo_emoji)
         return em * 3;
     // A folded span size (two heading bits) is a fixed rem ratio.

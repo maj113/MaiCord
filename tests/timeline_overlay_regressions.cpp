@@ -370,7 +370,7 @@ void test_add_reaction_picker(Check check) noexcept {
     const UiRect anchor = hit.rectangle;
     const bool opened = ui_media_picker_scene_update(&popout, &source, &content, client, anchor);
     check(opened && !popout.tab_widgets[0].generation && !popout.tab_widgets[1].generation &&
-              !popout.tab_widgets[2].generation && popout.field.top < popout.panel.top + 16 &&
+              !popout.tab_widgets[2].generation && popout.field.top <= popout.panel.top + 16 &&
               popout.panel.right <= anchor.left && popout.panel.top >= client.top &&
               popout.panel.bottom <= client.bottom && ui_rect_width(popout.panel) == kUiMediaPickerReactionWidth,
           "add reaction: the popout opens for that message beside its button, inside the client area, "

@@ -2168,9 +2168,11 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }))
             return layout_step_failed(__LINE__);
         bool first_media = true;
-        for (u32 i = 0; i < gallery.cell_count; ++i) {
+        // Every visible cell, then the footer's preview of the inspected item.
+        for (u32 i = 0; i <= gallery.cell_count; ++i) {
             UiMediaPickerMediaSlot slot{};
-            if (!ui_media_picker_scene_media(gallery, i, &slot))
+            if (i < gallery.cell_count ? !ui_media_picker_scene_media(gallery, i, &slot)
+                                       : !ui_media_picker_scene_footer_media(gallery, &slot))
                 continue;
             const bool emoji = slot.kind == UiMediaPickerItemKind::emoji;
             const MediaAssetKey key =

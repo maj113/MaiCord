@@ -32,6 +32,9 @@ enum class UiTextFace : u8 {
 // the 28-DIP hover targets. Independent of the target extent so layout, rather
 // than font size, owns centering.
 inline constexpr float kPickerEmojiEmSize = 24.0f;
+// Expression picker grid emoji: Discord's medium and large emoji sizes.
+inline constexpr float kPickerGridEmojiEmSize = 40.0f;
+inline constexpr float kPickerLargeEmojiEmSize = 48.0f;
 
 enum TextStyleFlag : u32 {
     text_style_none = 0,
@@ -77,6 +80,14 @@ enum TextStyleFlag : u32 {
     // not the 48-DIP emoji-only message typography.
     text_style_picker_emoji = 1u << 31,
 };
+// Picker emoji plus one heading bit: the expression picker grid sizes.
+inline constexpr u32 text_style_picker_grid_emoji = text_style_picker_emoji | text_style_heading_1;
+inline constexpr u32 text_style_picker_large_emoji = text_style_picker_emoji | text_style_heading_2;
+constexpr float text_style_picker_emoji_size(u32 flags) noexcept {
+    return flags & text_style_heading_1   ? kPickerGridEmojiEmSize
+           : flags & text_style_heading_2 ? kPickerLargeEmojiEmSize
+                                          : kPickerEmojiEmSize;
+}
 
 // Shapers see one flags word: the text layer folds TextStyleSpan::size into
 // the heading bits (text_style_fold_size). One heading bit keeps its own
@@ -185,7 +196,7 @@ constexpr u32 text_style_fold_size(u32 flags, u8 size) noexcept {
 }
 
 inline float text_style_font_size(float em,u32 flags) noexcept {
-    if(flags&text_style_picker_emoji)return kPickerEmojiEmSize;
+    if(flags&text_style_picker_emoji)return text_style_picker_emoji_size(flags);
     if(flags&text_style_jumbo_emoji)return em*3.0f;
     if(const float ratio=text_style_size_code_ratio(flags))return em*ratio;
     if(flags&text_style_heading_1)return em*1.50f;

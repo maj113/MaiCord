@@ -470,7 +470,9 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
     const bool center_emoji_ink = picker_emoji || centered_jumbo_emoji;
     const bool cache_picker =
         picker_emoji && input.bytes <= 64 && styles.count == 1 && !styles[0].byte_offset &&
-        styles[0].byte_count == input.bytes && styles[0].flags == text_style_picker_emoji &&
+        styles[0].byte_count == input.bytes &&
+        (styles[0].flags == text_style_picker_emoji || styles[0].flags == text_style_picker_grid_emoji ||
+         styles[0].flags == text_style_picker_large_emoji) &&
         !flag_projection.count && !semantics.count && !selection_active && !cluster_effect &&
         face == UiTextFace::normal && horizontal_alignment == UiTextAlignment::center &&
         vertical_alignment == UiTextAlignment::center && wrapping == UiTextWrapping::no_wrap;

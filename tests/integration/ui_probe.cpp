@@ -3949,10 +3949,11 @@ bool media_gallery_probe_resolve(void* context, u32 index, UiMediaPickerItem* it
                                  utf8_literal("Failed removal - confirmed favorite is retained"),
                                  utf8_literal("Neutral source placeholder - no residency claim"),
                                  utf8_literal("Known unavailable format - Send and Favorite disabled")};
-        if (index >= 6)
+        if (index >= 10)
             return false;
-        item->label = labels[index];
-        item->detail = details[index];
+        // Records past the sixth are ordinary available favorites.
+        item->label = labels[index < 6 ? index : 1];
+        item->detail = details[index < 6 ? index : 1];
         item->favoritable = true;
         item->favorite = index == 0 || index == 3;
         item->favorite_pending = index == 2;
@@ -4473,8 +4474,9 @@ bool probe_media_gallery(bool favorites = false) noexcept {
         fixture.first_asset = 0x9f000;
     }
     UiMediaPickerSource source{&fixture, 17, 1, 12, 1, {}, media_gallery_probe_resolve};
+    // Enough favorites to scroll a partly clipped star into the taller GIF body.
     if (favorites)
-        source.count = 6;
+        source.count = 10;
     UiMediaPickerContent content{};
     content.account_scope = source.account_scope;
     content.query_generation = source.query_generation;
@@ -4652,7 +4654,7 @@ bool probe_media_gallery(bool favorites = false) noexcept {
         bool confirmed_hover = false, keyboard_favorite = false, pending_no_send = false;
         bool failed_confirmed = false, neutral_source = false, disabled_source = false;
         bool clipped_star = false, stale_favorite = false, scene_bounded = false;
-        bool valid = require(upload_art(6, false) && update() && gallery.cell_count == 6, 101);
+        bool valid = require(upload_art(10, false) && update() && gallery.cell_count >= 6, 101);
         UiRect button{}, full_button{};
         if (valid) {
             const auto r = gallery.projection->cells[0].rectangle;
@@ -4764,7 +4766,7 @@ bool probe_media_gallery(bool favorites = false) noexcept {
                 ui_media_picker_scene_pointer_up(&gallery, x, y).action == UiMediaPickerAction::none;
             // The picker's storage is fixed-capacity (kUiMediaPickerWidgetCapacity), not per item.
             scene_bounded = gallery.cell_count <= 48 && gallery.widgets.count <= 96 &&
-                            gallery.storage.arena.committed <= 48 * 1024;
+                            gallery.storage.arena.committed <= 128 * 1024;
             valid = valid && require(stale_favorite && scene_bounded, 117);
         }
         const u32 favorite_cells = gallery.cell_count, favorite_widgets = gallery.widgets.count;
@@ -9849,7 +9851,7 @@ bool initialize_probe_renderer() noexcept {
     QueryPerformanceFrequency(&frequency);
     QueryThreadCycleTime(GetCurrentThread(), &first_cycles);
     QueryPerformanceCounter(&begin);
-    const bool result = renderer_initialize(&g_probe.renderer, g_probe.window);
+    const bool result = renderer_initialize(&g_probe.renderer, g_probe.window, true);
     QueryPerformanceCounter(&end);
     QueryThreadCycleTime(GetCurrentThread(), &last_cycles);
     log_u64(LogLevel::info, "bootstrap", "renderer_init_us",

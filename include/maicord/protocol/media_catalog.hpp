@@ -6,7 +6,8 @@ namespace maicord {
 
 inline constexpr u32 kMediaCatalogMaximumQueryBytes = 256;
 inline constexpr u32 kMediaCatalogMinimumGifPageItems = 20;
-inline constexpr u32 kMediaCatalogMaximumPageItems = 50;
+// Discord sends no limit; the server's default page is 100 GIFs.
+inline constexpr u32 kMediaCatalogMaximumPageItems = 100;
 inline constexpr u32 kMediaCatalogMaximumStickerItems = 4096;
 inline constexpr u32 kMediaCatalogMaximumSuggestions = 5;
 inline constexpr u32 kMediaCatalogMaximumTargetBytes = 1024;

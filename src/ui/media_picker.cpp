@@ -1,6 +1,7 @@
 #include "maicord/ui/media_picker.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
@@ -10,7 +11,15 @@ namespace maicord {
 namespace {
 static_assert(sizeof(UiMediaPickerScene) + sizeof(UiMediaPickerProjection) +
                   kUiMediaPickerWidgetCapacity * (sizeof(UiWidget) + sizeof(UiLayoutNode)) <=
-              64 * 1024);
+              128 * 1024);
+// Discord's sticker grid: at most 360 DIP wide it uses 80 DIP previews 4 DIP
+// apart; every preview node adds 1 DIP padding.
+constexpr float kStickerCompactWidth = 360, kStickerCompactScale = 80.f / 96, kStickerNodePadding = 1;
+// The rail's separator after the last server: 12 + 1 + 12 DIP.
+constexpr float kRailSeparator = 25;
+// Masonry columns are capped at 8; extreme GIF aspect ratios are clamped.
+constexpr u32 kMasonryColumns = 8;
+constexpr float kGifMinimumAspect = .25f, kGifMaximumAspect = 4, kGifDefaultAspect = .5625f;
 float clamped(float value, float low, float high) noexcept {
     return maximum(low, minimum(value, high));
 }
@@ -25,108 +34,162 @@ bool finite_rectangle(UiRect r) noexcept {
            bounded(r.right, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
            bounded(r.bottom, -kMaximumUiCoordinate, kMaximumUiCoordinate);
 }
+bool unicode_category(UiMediaPickerSectionVisual visual) noexcept {
+    return visual >= UiMediaPickerSectionVisual::people && visual <= UiMediaPickerSectionVisual::flags;
+}
+bool server_section(UiMediaPickerSectionVisual visual) noexcept {
+    return visual == UiMediaPickerSectionVisual::guild || visual == UiMediaPickerSectionVisual::media;
+}
+// Rail items: 32 DIP art plus 8 DIP spacing, or Discord's 34 DIP for Unicode
+// categories; the last server entry carries the separator.
+float rail_item_pitch(const UiMediaPickerMetrics& m, ConstSlice<UiMediaPickerSection> sections,
+                      u32 index) noexcept {
+    const auto visual = sections[index].visual;
+    float pitch = unicode_category(visual) ? m.rail_pitch - kUiMenuPadding : m.rail_pitch;
+    if (server_section(visual) && index + 1 < sections.count && !server_section(sections[index + 1].visual))
+        pitch += kRailSeparator;
+    return pitch;
+}
+float rail_content_extent(const UiMediaPickerMetrics& m, ConstSlice<UiMediaPickerSection> sections) noexcept {
+    float extent = sections.count ? m.list_inset : 0;
+    for (u32 i = 0; i < sections.count; ++i)
+        extent += rail_item_pitch(m, sections, i);
+    return extent;
+}
 struct PickerLayout {
     UiRect panel, tabs, field, text, body, rail, footer;
-    float cell_pitch;
-    u8 columns;
+    float cell_pitch, cell_width, cell_height, column_pitch, grid_left;
+    u16 columns;
+    bool masonry;
 };
+// Fixed cells: the column count follows the width. Emoji rows leave the
+// remainder at the end, sticker rows spread it between columns and GIF
+// columns share the width.
+void grid_geometry(const UiMediaPickerStyle& style, UiMediaPickerKind kind, bool back, bool sections,
+                   float panel_width, UiRect body, PickerLayout* out) noexcept {
+    const auto& m = style.metrics;
+    out->masonry = false;
+    out->grid_left = body.left + m.list_inset;
+    const float width = body.right - m.scrollbar_gutter - out->grid_left;
+    if (kind == UiMediaPickerKind::emoji) {
+        const float art = panel_width >= m.panel_width + m.emoji_extent ? m.emoji_large_extent : m.emoji_extent;
+        const float cell = art + m.emoji_padding * 2;
+        out->cell_width = out->cell_height = out->column_pitch = out->cell_pitch = cell;
+        out->columns = static_cast<u16>(maximum(0.f, width) / cell);
+        return;
+    }
+    if (kind == UiMediaPickerKind::sticker) {
+        const bool compact = width <= kStickerCompactWidth;
+        const float node = (compact ? m.sticker_extent * kStickerCompactScale : m.sticker_extent) +
+                           kStickerNodePadding * 2;
+        const float gap = compact ? m.sticker_gap / 3 : m.sticker_gap;
+        const u32 columns = static_cast<u32>(maximum(0.f, width + gap) / (node + gap));
+        const float gutter =
+            columns > 1 ? static_cast<float>(static_cast<u32>(maximum(gap, (width - node * columns) / (columns - 1))))
+                        : 0;
+        out->cell_width = out->cell_height = node;
+        out->column_pitch = node + gutter;
+        out->cell_pitch = node + gap;
+        out->columns = static_cast<u16>(columns);
+        return;
+    }
+    // GIFs: Discord's masonry pads every side by its gutter.
+    out->grid_left = body.left + m.gif_gutter;
+    const float inner = body.right - m.gif_gutter - out->grid_left;
+    const u32 cap = back ? kMasonryColumns : 6;
+    const u32 columns =
+        minimum(cap, maximum(1u, static_cast<u32>(maximum(0.f, ui_rect_width(body)) / m.gif_target_width)));
+    out->columns = static_cast<u16>(columns);
+    out->cell_width = (inner - m.gif_gutter * (columns - 1)) / columns;
+    out->column_pitch = out->cell_width + m.gif_gutter;
+    out->cell_height = m.gif_category_height;
+    out->cell_pitch = m.gif_category_height + m.gif_gutter;
+    // Results and favorites are masonry; landing tiles share one height.
+    out->masonry = back && !sections;
+}
+// The least row pitch the projection must budget for.
+float minimum_row_pitch(const UiMediaPickerStyle& style, const PickerLayout& layout) noexcept {
+    return layout.masonry ? layout.cell_width * kGifMinimumAspect + style.metrics.gif_gutter : layout.cell_pitch;
+}
 bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* source,
                    UiMediaPickerKind kind, UiMediaPickerVariant variant, bool back, UiRect viewport,
                    UiRect anchor, float preferred_width, PickerLayout* output) noexcept {
     const auto& m = style.metrics;
     const bool reaction = variant == UiMediaPickerVariant::reaction;
+    const bool sections = source && source->sections.count;
     const float available_width = ui_rect_width(viewport) - m.viewport_inset * 2;
     const float minimum_width = minimum(m.panel_width, available_width);
-    const float width = reaction || preferred_width == 0
-                            ? minimum_width
-                            : clamped(preferred_width, minimum_width, available_width);
+    float width = reaction || preferred_width == 0 ? minimum_width
+                                                   : clamped(preferred_width, minimum_width, available_width);
     const float height = minimum(m.panel_height, ui_rect_height(viewport) - m.viewport_inset * 2);
     if (width < 240 || height < 200)
         return false;
-    float left = clamped(anchor.right - width, viewport.left + m.viewport_inset,
-                         viewport.right - width - m.viewport_inset);
-    float top = clamped(anchor.top - height - m.anchor_gap, viewport.top + m.viewport_inset,
-                        viewport.bottom - height - m.viewport_inset);
-    if (reaction) {
-        // The reaction popout opens beside its control, top aligned: to the
-        // left when it fits there, else to the right, clamped into the pane.
-        const float before = anchor.left - m.anchor_gap - width;
-        left = clamped(before >= viewport.left + m.viewport_inset ? before : anchor.right + m.anchor_gap,
-                       viewport.left + m.viewport_inset, viewport.right - width - m.viewport_inset);
-        top = clamped(anchor.top, viewport.top + m.viewport_inset, viewport.bottom - height - m.viewport_inset);
-    }
-    PickerLayout layout{};
-    layout.panel = {left, top, left + width, top + height};
-    // The reaction popout has no GIF/Sticker/Emoji selector row.
-    layout.tabs = {left + m.padding, top + m.content_inset, left + width - m.padding,
-                   top + m.content_inset + (reaction ? 0 : m.tab_height)};
-    const float field_top = reaction ? layout.tabs.bottom : layout.tabs.bottom + m.padding;
-    layout.field = {layout.tabs.left, field_top, layout.tabs.right, field_top + m.search_height};
-    layout.text = {layout.field.left + m.icon_extent + m.gap * 2 + (back ? m.icon_extent : 0),
-                   layout.field.top + m.text_inset, layout.field.right - m.gap,
-                   layout.field.bottom - m.text_inset};
-    layout.footer = {left, top + height - m.footer_height, left + width, top + height};
-    layout.body = {left, layout.field.bottom + m.padding, left + width, layout.footer.top};
-    if (source && source->sections.count) {
-        layout.rail = {left, layout.body.top, left + m.rail_width, layout.body.bottom};
-        layout.body.left += m.rail_width;
-    }
-    const float content_width = ui_rect_width(layout.body) - m.padding * 2 - m.scrollbar_gutter;
-    layout.columns = kind == UiMediaPickerKind::sticker ? 4 : 8;
-    if (kind == UiMediaPickerKind::gif) {
-        // Landing categories may include the favorites tile. Result/favorites
-        // views share the denser cap, without resolving offscreen catalogue items.
-        const u32 cap = back ? 8 : 6;
-        layout.columns =
-            static_cast<u8>(minimum(cap, maximum(1u, static_cast<u32>(maximum(0.f, content_width + m.gap) /
-                                                                      (m.gif_target_width + m.gap)))));
-    }
-    const float art_inset = kind == UiMediaPickerKind::sticker ? m.sticker_inset
-                            : kind == UiMediaPickerKind::emoji ? m.emoji_inset
-                                                               : 0;
-    // Validate the actual available pane, not just the preferred panel width.
-    if (!ui_rect_has_area(layout.text) ||
-        (!reaction && (ui_rect_width(layout.tabs) - m.gap * 2) / 3 < 24) ||
-        style.edit_radius * 2 > m.search_height)
-        return false;
-    // Keep the common full body. Reject an incompatible override as a whole;
-    // never hide its bottom rows or stretch compact Emoji cells to fit a bank.
-    const float body_height = ui_rect_height(layout.body);
-    if (body_height <= m.content_inset + 1)
-        return false;
-    const bool sections = source && source->sections.count;
-    const u32 headers = sections ? static_cast<u32>(body_height / m.section_height) + 2 : 0;
-    const u32 rail_slots = sections ? static_cast<u32>(body_height / m.rail_pitch) + 2 : 0;
-    if (headers > kUiMediaPickerVisibleSections || rail_slots > kUiMediaPickerVisibleSections)
-        return false;
-    for (;;) {
-        const float cell_width = (content_width - m.gap * (layout.columns - 1)) / layout.columns;
-        layout.cell_pitch = kind == UiMediaPickerKind::gif
-                                ? maximum(m.gif_min_height, cell_width * m.gif_aspect_ratio + m.gap)
-                                : cell_width + m.gap;
-        if (kind == UiMediaPickerKind::emoji)
-            layout.cell_pitch = maximum(m.emoji_min_height, layout.cell_pitch);
-        if (cell_width <= art_inset * 2 + 1 || layout.cell_pitch - m.gap <= art_inset * 2 + 1 ||
-            style.control_radius * 2 > minimum(cell_width, layout.cell_pitch - m.gap)) {
-            if (kind != UiMediaPickerKind::gif || layout.columns == 1)
-                return false;
-            --layout.columns;
-            continue;
+    for (u32 attempt = 0; attempt < 2; ++attempt) {
+        float left = clamped(anchor.right - width, viewport.left + m.viewport_inset,
+                             viewport.right - width - m.viewport_inset);
+        float top = clamped(anchor.top - height - m.anchor_gap, viewport.top + m.viewport_inset,
+                            viewport.bottom - height - m.viewport_inset);
+        if (reaction) {
+            // The reaction popout opens beside its control, top aligned: to the
+            // left when it fits there, else to the right, clamped into the pane.
+            const float before = anchor.left - m.anchor_gap - width;
+            left = clamped(before >= viewport.left + m.viewport_inset ? before : anchor.right + m.anchor_gap,
+                           viewport.left + m.viewport_inset, viewport.right - width - m.viewport_inset);
+            top = clamped(anchor.top, viewport.top + m.viewport_inset,
+                          viewport.bottom - height - m.viewport_inset);
         }
-        const u32 visible_rows = static_cast<u32>(body_height / layout.cell_pitch) + 2;
-        const u32 cells = visible_rows * layout.columns;
+        PickerLayout layout{};
+        layout.panel = {left, top, left + width, top + height};
+        // The reaction popout has no GIF/Sticker/Emoji selector row.
+        layout.tabs = {left + m.padding, top + m.content_inset, left + width - m.padding,
+                       top + m.content_inset + (reaction ? 0 : m.tab_height)};
+        const float field_top = reaction ? layout.tabs.bottom : layout.tabs.bottom + m.header_gap;
+        layout.field = {layout.tabs.left, field_top, layout.tabs.right, field_top + m.search_height};
+        layout.text = {layout.field.left + m.icon_extent + m.gap * 2 + (back ? m.icon_extent : 0),
+                       layout.field.top + m.text_inset, layout.field.right - m.gap,
+                       layout.field.bottom - m.text_inset};
+        const float body_top = layout.field.bottom + m.header_gap;
+        const float body_left = sections ? left + m.rail_width : left;
+        // Discord's GIF picker has no inspector; the rail runs beside the footer.
+        const float footer_height = kind == UiMediaPickerKind::gif ? 0 : m.footer_height;
+        layout.footer = {body_left, top + height - footer_height, left + width, top + height};
+        layout.body = {body_left, body_top, left + width, layout.footer.top};
+        if (sections)
+            layout.rail = {left, body_top, body_left, top + height};
+        // Validate the actual available pane, not just the preferred panel width.
+        if (!ui_rect_has_area(layout.text) ||
+            (!reaction && (ui_rect_width(layout.tabs) - m.gap * 2) / 3 < 24) ||
+            style.edit_radius * 2 > m.search_height)
+            return false;
+        const float body_height = ui_rect_height(layout.body);
+        if (body_height <= m.section_height + 1)
+            return false;
+        const u32 headers = sections ? static_cast<u32>(body_height / m.section_height) + 2 : 0;
+        const u32 rail_slots =
+            sections ? static_cast<u32>(ui_rect_height(layout.rail) / (m.rail_pitch - kUiMenuPadding)) + 2 : 0;
+        if (headers > kUiMediaPickerVisibleSections || rail_slots > kUiMediaPickerVisibleSections)
+            return false;
+        grid_geometry(style, kind, back, sections, width, layout.body, &layout);
+        if (!layout.columns || layout.cell_width <= 1 || layout.cell_height <= 1 ||
+            style.control_radius * 2 > minimum(layout.cell_width, layout.cell_height))
+            return false;
+        const u32 rows = static_cast<u32>(body_height / minimum_row_pitch(style, layout)) + 2;
+        const u32 fit = kUiMediaPickerVisibleCells / rows;
         // Disabled previews use at most five quads; rail symbols eleven and
-        // section arrows two. Wider GIF cells reduce rows when a dense theme
-        // would exceed the fixed projection or paint bank at its desired count.
-        if (cells <= kUiMediaPickerVisibleCells &&
-            cells * 5 + headers * 2 + rail_slots * 11 + 24 <= kMaxPaintQuads) {
+        // section arrows two.
+        if (fit && layout.columns <= fit &&
+            layout.columns * rows * 5 + headers * 2 + rail_slots * 11 + 24 <= kMaxPaintQuads) {
             *output = layout;
             return true;
         }
-        if (kind != UiMediaPickerKind::gif || layout.columns == 1)
+        // Too wide for the bounded projection: shrink to the columns that fit.
+        if (!fit || attempt || reaction || kind == UiMediaPickerKind::gif)
             return false;
-        --layout.columns;
+        width -= (layout.columns - fit) * layout.column_pitch;
+        if (width < minimum_width)
+            return false;
     }
+    return false;
 }
 bool label_valid(Utf8View text) noexcept {
     return text.bytes <= 256 && (!text.bytes || text.data) && utf8_validate(text).valid;
@@ -158,23 +221,45 @@ bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent&
     }
     return !source->sections.count || first == source->count;
 }
-float section_extent(const UiMediaPickerScene& scene, const UiMediaPickerSection& section) noexcept {
+// Leading list padding: none above sticky headers (Discord), the list inset
+// above plain results and the gutter above GIFs.
+float content_top(const UiMediaPickerScene& scene) noexcept {
     const auto& m = scene.style.metrics;
-    return m.section_height +
-           (section.expanded ? (section.count + scene.columns - 1) / scene.columns * scene.cell_pitch : 0);
+    return scene.kind == UiMediaPickerKind::gif               ? m.gif_gutter
+           : scene.source && scene.source->sections.count ? 0
+                                                          : m.list_inset;
+}
+// Emoji sections keep Discord's 12 DIP bottom margin, except the last.
+float section_margin(const UiMediaPickerScene& scene, u32 index) noexcept {
+    const auto& section = scene.source->sections[index];
+    return scene.kind == UiMediaPickerKind::emoji && section.expanded && section.count &&
+                   index + 1 < scene.source->sections.count
+               ? scene.style.metrics.header_gap
+               : 0;
+}
+u32 rows_of(const UiMediaPickerScene& scene, u32 count) noexcept {
+    return (count + scene.columns - 1) / scene.columns;
+}
+float section_extent(const UiMediaPickerScene& scene, u32 index) noexcept {
+    const auto& section = scene.source->sections[index];
+    return scene.style.metrics.section_height +
+           (section.expanded ? rows_of(scene, section.count) * scene.cell_pitch : 0) +
+           section_margin(scene, index);
 }
 float content_extent(const UiMediaPickerScene& scene) noexcept {
     const auto& m = scene.style.metrics;
-    if (!scene.source || !scene.content || scene.content->phase != UiMediaPickerPhase::ready)
+    if (!scene.source || !scene.content || scene.content->phase != UiMediaPickerPhase::ready ||
+        !scene.source->count)
         return 0;
+    if (scene.masonry)
+        return scene.tile_count == scene.source->count ? scene.tile_extent : 0;
+    float height = content_top(scene);
     if (!scene.source->sections.count)
-        return scene.source->count ? m.content_inset + (scene.source->count + scene.columns - 1) /
-                                                           scene.columns * scene.cell_pitch
-                                   : 0;
-    float height = m.content_inset;
+        return height + rows_of(scene, scene.source->count) * scene.cell_pitch +
+               (scene.kind == UiMediaPickerKind::gif ? 0 : m.list_inset);
     for (u32 i = 0; i < scene.source->sections.count; ++i)
-        height += section_extent(scene, scene.source->sections[i]);
-    return height;
+        height += section_extent(scene, i);
+    return height + m.list_inset;
 }
 bool item_valid(const UiMediaPickerItem& item) noexcept {
     if (item.glyph.bytes && (item.kind != UiMediaPickerItemKind::emoji || item.asset_id ||
@@ -190,6 +275,70 @@ bool item_valid(const UiMediaPickerItem& item) noexcept {
     return item.id && item.kind <= UiMediaPickerItemKind::emoji && label_valid(item.label) &&
            label_valid(item.detail) && item.width <= 65536 && item.height <= 65536 &&
            ((!item.width && !item.height) || (item.width && item.height));
+}
+// GIF masonry: each tile goes to the currently shortest column. Aspects are
+// resolved once per publication; geometry changes only re-place the tiles.
+bool layout_tiles(UiMediaPickerScene& scene) noexcept {
+    const auto& m = scene.style.metrics;
+    const u32 count = scene.source->count;
+    bool resolved = scene.tiles && scene.tile_source_revision == scene.source_revision &&
+                    scene.tile_count == count;
+    if (resolved && scene.tile_width == scene.cell_width && scene.tile_columns == scene.columns)
+        return true;
+    if (count > scene.tile_capacity) {
+        const usize bytes = (static_cast<usize>(count) * sizeof(UiMediaPickerTile) + 4095) & ~usize{4095};
+        auto* next = static_cast<UiMediaPickerTile*>(
+            VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!next)
+            return false;
+        if (scene.tiles)
+            VirtualFree(scene.tiles, 0, MEM_RELEASE);
+        scene.tiles = next;
+        scene.tile_capacity = static_cast<u32>(bytes / sizeof(UiMediaPickerTile));
+        scene.tile_count = 0;
+        resolved = false;
+        ++scene.counters.allocations;
+    }
+    if (!resolved) {
+        scene.tile_count = 0;
+        for (u32 i = 0; i < count; ++i) {
+            UiMediaPickerItem item{};
+            ++scene.counters.resolves;
+            if (!scene.source->resolve(scene.source->context, i, &item) || !item_valid(item))
+                return false;
+            auto& tile = scene.tiles[i];
+            tile.fixed = item.kind == UiMediaPickerItemKind::category;
+            tile.aspect = item.width ? clamped(static_cast<float>(item.height) / item.width, kGifMinimumAspect,
+                                               kGifMaximumAspect)
+                                     : kGifDefaultAspect;
+        }
+        scene.tile_count = count;
+        scene.tile_source_revision = scene.source_revision;
+    }
+    float heights[kMasonryColumns];
+    for (u32 c = 0; c < scene.columns; ++c)
+        heights[c] = m.gif_gutter;
+    scene.tile_tallest = 0;
+    for (u32 i = 0; i < count; ++i) {
+        u32 shortest = 0;
+        for (u32 c = 1; c < scene.columns; ++c)
+            if (heights[c] < heights[shortest])
+                shortest = c;
+        auto& tile = scene.tiles[i];
+        tile.column = static_cast<u16>(shortest);
+        tile.top = heights[shortest];
+        tile.height = tile.fixed ? m.gif_category_height : scene.cell_width * tile.aspect;
+        heights[shortest] += tile.height + m.gif_gutter;
+        scene.tile_tallest = maximum(scene.tile_tallest, tile.height);
+    }
+    float bottom = 0;
+    for (u32 c = 0; c < scene.columns; ++c)
+        bottom = maximum(bottom, heights[c]);
+    scene.tile_extent = count ? bottom : 0;
+    scene.tile_width = scene.cell_width;
+    scene.tile_columns = scene.columns;
+    ++scene.counters.masonry_layouts;
+    return true;
 }
 UiMediaPickerTarget target(const UiMediaPickerScene& scene, UiWidgetHandle widget) noexcept {
     if (!ui_media_picker_scene_current(scene) || !ui_widget_manager_input_enabled(scene.widgets, widget) ||
@@ -243,15 +392,15 @@ UiWidgetHandle add(UiMediaPickerScene& scene, UiRect rectangle,
     scene.projection->targets[result.handle.slot] = mapping;
     return result.handle;
 }
-bool cell(UiMediaPickerScene& scene, u32 index, float top, u32 column, const UiMediaPickerCell* prior,
+UiRect grid_cell(const UiMediaPickerScene& scene, u32 column, float top) noexcept {
+    const float left = scene.grid_left + column * scene.column_pitch;
+    return {left, top, left + scene.cell_width, top + scene.cell_height};
+}
+bool cell(UiMediaPickerScene& scene, u32 index, UiRect rectangle, const UiMediaPickerCell* prior,
           u32 prior_count) noexcept {
-    const auto& m = scene.style.metrics;
-    const float width =
-        (ui_rect_width(scene.body) - m.padding * 2 - m.scrollbar_gutter - m.gap * (scene.columns - 1)) /
-        scene.columns;
-    const float left = scene.body.left + m.padding + column * (width + m.gap);
-    const UiRect rectangle{left, top, left + width, top + scene.cell_pitch - m.gap};
-    const auto clip = ui_rect_intersection(rectangle, scene.body);
+    auto visible = scene.body;
+    visible.top = maximum(visible.top, scene.pinned_bottom);
+    const auto clip = ui_rect_intersection(rectangle, visible);
     if (!ui_rect_has_area(clip))
         return true;
     if (scene.cell_count == kUiMediaPickerVisibleCells)
@@ -276,6 +425,8 @@ bool cell(UiMediaPickerScene& scene, u32 index, float top, u32 column, const UiM
                                            : scene.kind == UiMediaPickerKind::sticker
                                                ? UiMediaPickerItemKind::sticker
                                                : UiMediaPickerItemKind::emoji;
+    if (!reused)
+        ++scene.counters.resolves;
     if ((!reused && !scene.source->resolve(scene.source->context, index, &item)) || !item_valid(item) ||
         (item.kind != expected &&
          !(scene.kind == UiMediaPickerKind::gif && item.kind == UiMediaPickerItemKind::category)))
@@ -289,20 +440,43 @@ bool cell(UiMediaPickerScene& scene, u32 index, float top, u32 column, const UiM
     if (!widget.generation)
         return false;
     scene.projection->cells[scene.cell_count++] = {item, rectangle, clip, widget, index};
+    ++scene.counters.cells;
     return true;
 }
 bool project_items(UiMediaPickerScene& scene, u32 first, u32 count, float top,
                    const UiMediaPickerCell* prior, u32 prior_count) noexcept {
-    const u32 rows = (count + scene.columns - 1) / scene.columns;
+    const u32 rows = rows_of(scene, count);
     const float offset = maximum(0.f, scene.body.top - top);
     const u32 first_row = minimum(rows, static_cast<u32>(offset / scene.cell_pitch));
     const u32 last_row =
         minimum(rows, first_row + static_cast<u32>(ui_rect_height(scene.body) / scene.cell_pitch) + 2);
     for (u32 row = first_row; row < last_row; ++row)
         for (u32 column = 0; column < scene.columns && row * scene.columns + column < count; ++column)
-            if (!cell(scene, first + row * scene.columns + column, top + row * scene.cell_pitch, column,
-                      prior, prior_count))
+            if (!cell(scene, first + row * scene.columns + column,
+                      grid_cell(scene, column, top + row * scene.cell_pitch), prior, prior_count))
                 return false;
+    return true;
+}
+// Tile tops never decrease in index order (the shortest column only grows),
+// so the visible tiles follow the first tile within one tallest tile above.
+bool project_tiles(UiMediaPickerScene& scene, float top, const UiMediaPickerCell* prior,
+                   u32 prior_count) noexcept {
+    const float from = scene.body.top - top - scene.tile_tallest;
+    u32 lo = 0, hi = scene.tile_count;
+    while (lo < hi) {
+        const u32 mid = lo + (hi - lo) / 2;
+        if (scene.tiles[mid].top < from)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    for (u32 i = lo; i < scene.tile_count && top + scene.tiles[i].top < scene.body.bottom; ++i) {
+        const auto& tile = scene.tiles[i];
+        const float left = scene.grid_left + tile.column * scene.column_pitch;
+        if (!cell(scene, i, {left, top + tile.top, left + scene.cell_width, top + tile.top + tile.height}, prior,
+                  prior_count))
+            return false;
+    }
     return true;
 }
 void synchronize_focus(UiMediaPickerScene& scene) noexcept {
@@ -317,8 +491,42 @@ void synchronize_focus(UiMediaPickerScene& scene) noexcept {
             return;
         }
 }
+u32 append(char* output, u32 used, u32 capacity, Utf8View text) noexcept {
+    return used + utf8_copy_truncated(output + used, capacity - used, text);
+}
+// Formats the footer for the inspected cell; unchanged cells keep their text.
+void refresh_footer(UiMediaPickerScene& scene) noexcept {
+    const auto* cell = ui_media_picker_scene_inspected(scene);
+    const u32 index = cell ? cell->source_index : ~u32{0};
+    if (index == scene.footer_index && (cell || !scene.footer_title_bytes))
+        return;
+    scene.footer_index = index;
+    scene.footer_title_bytes = scene.footer_detail_bytes = 0;
+    if (!cell)
+        return;
+    const auto& item = cell->item;
+    const bool emoji = item.kind == UiMediaPickerItemKind::emoji;
+    u32 title = 0;
+    if (emoji) {
+        char name[kUnicodeEmojiMaximumNameBytes + 8];
+        const u32 bytes = item.glyph.bytes ? emoji_shortcode_key(item.glyph, {name, sizeof(name)}) : 0;
+        title = append(scene.footer_title, 0, sizeof(scene.footer_title), utf8_literal(":"));
+        title = append(scene.footer_title, title, sizeof(scene.footer_title) - 1,
+                       bytes ? Utf8View{name, bytes} : item.label);
+        title = append(scene.footer_title, title, sizeof(scene.footer_title), utf8_literal(":"));
+    } else
+        title = append(scene.footer_title, 0, sizeof(scene.footer_title), item.label);
+    scene.footer_title_bytes = static_cast<u8>(title);
+    if (item.detail.bytes && item.kind != UiMediaPickerItemKind::gif &&
+        item.kind != UiMediaPickerItemKind::category) {
+        const u32 detail = append(scene.footer_detail, 0, sizeof(scene.footer_detail), utf8_literal("from "));
+        scene.footer_detail_bytes =
+            static_cast<u8>(append(scene.footer_detail, detail, sizeof(scene.footer_detail), item.detail));
+    }
+}
 bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     const auto& m = scene.style.metrics;
+    ++scene.counters.rebuilds;
     // Transient bounded stack snapshot; no second retained catalogue or allocation.
     UiMediaPickerCell prior[kUiMediaPickerVisibleCells];
     const u32 prior_count = reuse ? scene.cell_count : 0;
@@ -326,9 +534,12 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
         copy_bytes(prior, scene.projection->cells, prior_count * sizeof(*prior));
     scene.pressed = {};
     scene.favorite_hovered = false;
+    scene.footer_index = ~u32{0};
+    scene.footer_title_bytes = 0;
     ui_widget_manager_reset(&scene.widgets);
     ZeroMemory(scene.projection, sizeof(*scene.projection));
     scene.cell_count = scene.header_count = scene.rail_count = scene.media_count = 0;
+    scene.pinned_bottom = scene.body.top;
     if (++scene.generation == 0)
         ++scene.generation;
     auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_clip_children |
@@ -365,32 +576,43 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
             scene,
             {scene.field.left, scene.field.top, scene.field.left + m.section_height, scene.field.bottom},
             {0, 0, UiMediaPickerAction::back, scene.content->kind}, utf8_literal("Back"));
+    const bool ready = scene.source && scene.content->phase == UiMediaPickerPhase::ready;
+    if (ready && scene.masonry && !layout_tiles(scene))
+        return false;
     scene.content_height = content_extent(scene);
     scene.scroll_dips =
         minimum(scene.scroll_dips, maximum(0.f, scene.content_height - ui_rect_height(scene.body)));
-    const float rail_extent = scene.content->phase == UiMediaPickerPhase::ready && scene.source
-                                  ? scene.source->sections.count * m.rail_pitch
-                                  : 0;
+    scene.rail_extent = ready ? rail_content_extent(m, scene.source->sections) : 0;
     scene.rail_scroll_dips =
-        minimum(scene.rail_scroll_dips, maximum(0.f, rail_extent - ui_rect_height(scene.rail)));
+        minimum(scene.rail_scroll_dips, maximum(0.f, scene.rail_extent - ui_rect_height(scene.rail)));
     if (!ui_scrollbar_geometry(scene.body, scene.scroll_dips, scene.content_height).visible)
         scene.body_scrollbar_state = UiScrollbarVisualState::normal;
-    if (!ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips, rail_extent).visible)
+    if (!ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips, scene.rail_extent).visible)
         scene.rail_scrollbar_state = UiScrollbarVisualState::normal;
-    if (scene.source && scene.content->phase == UiMediaPickerPhase::ready) {
-        float top = scene.body.top + m.content_inset - scene.scroll_dips;
-        if (!scene.source->sections.count) {
+    if (ready) {
+        float top = scene.body.top + content_top(scene) - scene.scroll_dips;
+        if (scene.masonry) {
+            if (!project_tiles(scene, scene.body.top - scene.scroll_dips, prior, prior_count))
+                return false;
+        } else if (!scene.source->sections.count) {
             if (!project_items(scene, 0, scene.source->count, top, prior, prior_count))
                 return false;
         } else {
             for (u32 i = 0; i < scene.source->sections.count; ++i) {
                 const auto& section = scene.source->sections[i];
-                const float extent = section_extent(scene, section);
+                const float extent = section_extent(scene, i);
                 if (top < scene.body.bottom && top + extent > scene.body.top) {
-                    const auto rectangle = ui_rect_intersection({scene.body.left + m.padding, top,
-                                                                 scene.body.right - m.scrollbar_gutter,
-                                                                 top + m.section_height},
-                                                                scene.body);
+                    // Sticky headers: the section under the body's top pins its
+                    // header there until the section's end pushes it up.
+                    float header_top = top;
+                    if (top < scene.body.top) {
+                        header_top = minimum(scene.body.top,
+                                             top + extent - section_margin(scene, i) - m.section_height);
+                        scene.pinned_bottom = header_top + m.section_height;
+                    }
+                    const UiRect header{scene.body.left, header_top, scene.body.right,
+                                        header_top + m.section_height};
+                    const auto rectangle = ui_rect_intersection(header, scene.body);
                     if (ui_rect_has_area(rectangle)) {
                         if (scene.header_count == kUiMediaPickerVisibleSections)
                             return false;
@@ -398,11 +620,8 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
                             add(scene, rectangle,
                                 {0, static_cast<u16>(i), UiMediaPickerAction::section, scene.content->kind},
                                 section.label);
-                        scene.projection->headers[scene.header_count++] = {
-                            {scene.body.left + m.padding, top, scene.body.right - m.scrollbar_gutter,
-                             top + m.section_height},
-                            widget,
-                            static_cast<u16>(i)};
+                        scene.projection->headers[scene.header_count++] = {header, widget,
+                                                                           static_cast<u16>(i)};
                     }
                     if (section.expanded && !project_items(scene, section.first, section.count,
                                                            top + m.section_height, prior, prior_count))
@@ -410,20 +629,19 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
                 }
                 top += extent;
             }
-            const u32 first_rail = minimum(scene.source->sections.count,
-                                           static_cast<u32>(scene.rail_scroll_dips / m.rail_pitch));
-            const u32 end =
-                minimum(scene.source->sections.count, first_rail + kUiMediaPickerVisibleSections);
-            for (u32 i = first_rail; i < end; ++i) {
-                const float y = scene.rail.top + i * m.rail_pitch - scene.rail_scroll_dips;
-                const float extent = minimum(m.rail_width - m.rail_inset * 2,
-                                             m.rail_pitch - minimum(m.rail_inset, m.gap) * 2);
+            // Rail items: 32 DIP art top-aligned in each item, below the list inset.
+            float y = scene.rail.top + m.list_inset - scene.rail_scroll_dips;
+            const float extent = minimum(m.rail_width - m.list_inset * 2, m.rail_pitch - m.list_inset);
+            for (u32 i = 0; i < scene.source->sections.count && y < scene.rail.bottom; ++i) {
+                const float pitch = rail_item_pitch(m, scene.source->sections, i);
                 const float left = (scene.rail.left + scene.rail.right - extent) * .5f;
-                const float artwork_top = y + (m.rail_pitch - extent) * .5f;
-                const UiRect artwork{left, artwork_top, left + extent, artwork_top + extent};
+                const UiRect artwork{left, y, left + extent, y + extent};
+                y += pitch;
                 const auto r = ui_rect_intersection(artwork, scene.rail);
                 if (!ui_rect_has_area(r))
                     continue;
+                if (scene.rail_count == kUiMediaPickerVisibleSections)
+                    return false;
                 const auto widget =
                     add(scene, r,
                         {0, static_cast<u16>(i), UiMediaPickerAction::section_jump, scene.content->kind},
@@ -435,15 +653,86 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     if (!ui_widget_manager_layout_rectangle(&scene.widgets, scene.panel).ok())
         return false;
     synchronize_focus(scene);
+    refresh_footer(scene);
     ++scene.revision;
     return true;
 }
-bool item_position(const UiMediaPickerScene& scene, u32 index, float* top) noexcept {
-    const auto& m = scene.style.metrics;
+// Where an item sits: its section, its row within the section and its column.
+struct GridPosition {
+    u32 section, row, column;
+};
+u32 section_count(const UiMediaPickerScene& scene) noexcept {
+    return scene.source->sections.count ? scene.source->sections.count : 1;
+}
+u32 section_first(const UiMediaPickerScene& scene, u32 section) noexcept {
+    return scene.source->sections.count ? scene.source->sections[section].first : 0;
+}
+// Items shown in a section: collapsed sections show none.
+u32 section_items(const UiMediaPickerScene& scene, u32 section) noexcept {
+    if (!scene.source->sections.count)
+        return scene.source->count;
+    const auto& s = scene.source->sections[section];
+    return s.expanded ? s.count : 0;
+}
+bool grid_locate(const UiMediaPickerScene& scene, u32 index, GridPosition* position) noexcept {
+    for (u32 s = 0; s < section_count(scene); ++s) {
+        const u32 first = section_first(scene, s), count = section_items(scene, s);
+        if (index >= first && index - first < count) {
+            *position = {s, (index - first) / scene.columns, (index - first) % scene.columns};
+            return true;
+        }
+    }
+    return false;
+}
+// The index `rows` visible rows away, column clamped to the target row; the
+// nearest row when the grid ends first.
+u32 grid_step(const UiMediaPickerScene& scene, u32 index, i32 rows) noexcept {
+    GridPosition at{};
+    if (!grid_locate(scene, index, &at))
+        return index;
+    for (; rows; rows += rows > 0 ? -1 : 1) {
+        if (rows > 0) {
+            if ((at.row + 1) * scene.columns < section_items(scene, at.section)) {
+                ++at.row;
+                continue;
+            }
+            u32 next = at.section + 1;
+            while (next < section_count(scene) && !section_items(scene, next))
+                ++next;
+            if (next == section_count(scene))
+                break;
+            at = {next, 0, at.column};
+        } else {
+            if (at.row) {
+                --at.row;
+                continue;
+            }
+            u32 previous = at.section;
+            while (previous && !section_items(scene, previous - 1))
+                --previous;
+            if (!previous)
+                break;
+            --previous;
+            at = {previous, rows_of(scene, section_items(scene, previous)) - 1, at.column};
+        }
+    }
+    const u32 first = section_first(scene, at.section) + at.row * scene.columns;
+    const u32 length = minimum<u32>(scene.columns, section_items(scene, at.section) - at.row * scene.columns);
+    return first + minimum(at.column, length - 1);
+}
+bool item_position(const UiMediaPickerScene& scene, u32 index, float* top, float* height) noexcept {
     if (!scene.source || !scene.content || scene.content->phase != UiMediaPickerPhase::ready ||
         index >= scene.source->count)
         return false;
-    *top = m.content_inset;
+    *height = scene.cell_pitch;
+    if (scene.masonry) {
+        if (index >= scene.tile_count)
+            return false;
+        *top = scene.tiles[index].top;
+        *height = scene.tiles[index].height + scene.style.metrics.gif_gutter;
+        return true;
+    }
+    *top = content_top(scene);
     if (!scene.source->sections.count) {
         *top += index / scene.columns * scene.cell_pitch;
         return true;
@@ -453,10 +742,10 @@ bool item_position(const UiMediaPickerScene& scene, u32 index, float* top) noexc
         if (index >= section.first && index - section.first < section.count) {
             if (!section.expanded)
                 return false;
-            *top += m.section_height + (index - section.first) / scene.columns * scene.cell_pitch;
+            *top += scene.style.metrics.section_height + (index - section.first) / scene.columns * scene.cell_pitch;
             return true;
         }
-        *top += section_extent(scene, section);
+        *top += section_extent(scene, i);
     }
     return false;
 }
@@ -466,13 +755,15 @@ bool safe_rebuild(UiMediaPickerScene& scene) noexcept {
     ui_media_picker_scene_close(&scene);
     return false;
 }
-bool select_index(UiMediaPickerScene& scene, u32 index, float top) noexcept {
+bool select_index(UiMediaPickerScene& scene, u32 index, float top, float height) noexcept {
     const auto& m = scene.style.metrics;
     scene.selected_index = index;
-    if (top < scene.scroll_dips + m.content_inset)
-        scene.scroll_dips = maximum(0.f, top - m.content_inset);
-    else if (top + scene.cell_pitch > scene.scroll_dips + ui_rect_height(scene.body))
-        scene.scroll_dips = top + scene.cell_pitch - ui_rect_height(scene.body);
+    // Keep the row clear of a pinned section header and the list's leading inset.
+    const float lead = (scene.source && scene.source->sections.count ? m.section_height : 0) + content_top(scene);
+    if (top < scene.scroll_dips + lead)
+        scene.scroll_dips = maximum(0.f, top - lead);
+    else if (top + height > scene.scroll_dips + ui_rect_height(scene.body))
+        scene.scroll_dips = top + height - ui_rect_height(scene.body);
     return safe_rebuild(scene);
 }
 bool select_available(UiMediaPickerScene& scene, u32 first, i32 direction) noexcept {
@@ -496,17 +787,48 @@ bool select_available(UiMediaPickerScene& scene, u32 first, i32 direction) noexc
         }
         if (collapsed)
             continue;
-        float top = 0;
+        float top = 0, height = 0;
         UiMediaPickerItem item{};
-        if (!item_position(scene, static_cast<u32>(candidate), &top) ||
+        if (!item_position(scene, static_cast<u32>(candidate), &top, &height) ||
             !scene.source->resolve(scene.source->context, static_cast<u32>(candidate), &item) ||
             !item_valid(item))
             return false;
         if (item.enabled)
-            return select_index(scene, static_cast<u32>(candidate), top);
+            return select_index(scene, static_cast<u32>(candidate), top, height);
         candidate += direction;
     }
     return false;
+}
+// Masonry: Up/Down follow the tile's column; Left/Right take the neighbouring
+// column's tile nearest by top, wrapping between the outer columns a row on.
+u32 masonry_step(const UiMediaPickerScene& scene, u32 index, i32 horizontal, i32 vertical) noexcept {
+    const auto& from = scene.tiles[index];
+    if (vertical) {
+        for (i64 i = static_cast<i64>(index) + vertical; i >= 0 && i < scene.tile_count; i += vertical)
+            if (scene.tiles[i].column == from.column)
+                return static_cast<u32>(i);
+        return index;
+    }
+    i32 column = static_cast<i32>(from.column) + horizontal;
+    i32 wrap = 0;
+    if (column < 0 || column >= static_cast<i32>(scene.columns)) {
+        column = column < 0 ? scene.columns - 1 : 0;
+        wrap = horizontal;
+    }
+    u32 best = index;
+    float best_distance = kMaximumUiCoordinate;
+    for (u32 i = 0; i < scene.tile_count; ++i) {
+        const auto& tile = scene.tiles[i];
+        if (tile.column != static_cast<u32>(column) || i == index || (wrap > 0 && tile.top <= from.top) ||
+            (wrap < 0 && tile.top >= from.top))
+            continue;
+        const float distance = tile.top > from.top ? tile.top - from.top : from.top - tile.top;
+        if (distance < best_distance) {
+            best_distance = distance;
+            best = i;
+        }
+    }
+    return best;
 }
 } // namespace
 // Emoji stand-ins for the category rail icons.
@@ -529,10 +851,10 @@ u32 ui_media_picker_scene_current_section(const UiMediaPickerScene& scene) noexc
     if (!ui_media_picker_scene_current(scene) || !scene.source || !scene.source->sections.count ||
         scene.content->phase != UiMediaPickerPhase::ready)
         return ~u32{0};
-    float bottom = scene.style.metrics.content_inset;
+    float bottom = content_top(scene);
     for (u32 i = 0; i < scene.source->sections.count; ++i) {
-        bottom += section_extent(scene, scene.source->sections[i]);
-        if (bottom > scene.scroll_dips + scene.style.metrics.content_inset)
+        bottom += section_extent(scene, i);
+        if (bottom > scene.scroll_dips)
             return i;
     }
     return scene.source->sections.count - 1;
@@ -542,20 +864,23 @@ bool ui_media_picker_style_valid(const UiMediaPickerStyle& style) noexcept {
     return bounded(m.panel_width, 240, 768) && bounded(m.panel_height, 200, 768) &&
            bounded(m.viewport_inset, 0, 24) && bounded(m.anchor_gap, 0, 24) && bounded(m.padding, 4, 24) &&
            bounded(m.gap, 2, 16) && bounded(m.content_inset, 4, 24) && bounded(m.tab_height, 24, 48) &&
-           bounded(m.tab_max_width, 48, 128) && bounded(m.search_height, 32, 64) &&
-           bounded(m.footer_height, 40, 80) && bounded(m.section_height, 24, 48) &&
-           bounded(m.rail_width, 32, 64) && bounded(m.rail_pitch, 32, 64) &&
-           bounded(m.scrollbar_gutter, 8, 24) && bounded(m.sticker_inset, 0, 16) &&
-           bounded(m.emoji_inset, 0, 8) && bounded(m.gif_min_height, 48, 128) &&
-           bounded(m.emoji_min_height, 32, 80) && bounded(m.gif_aspect_ratio, .35f, 1) &&
-           bounded(m.gif_target_width, 48, 768) && bounded(m.icon_extent, 16, 28) &&
-           bounded(m.text_inset, 2, 8) && bounded(m.rail_inset, 2, 8) &&
-           bounded(style.panel_radius, 0, 24) && bounded(style.control_radius, 0, 24) &&
-           bounded(style.edit_radius, 0, 24) && bounded(style.selection_width, .5f, 3) &&
-           bounded(style.category_opacity, 0, 1) && m.search_height >= m.icon_extent + m.text_inset * 2 &&
+           bounded(m.tab_max_width, 48, 128) && bounded(m.header_gap, 4, 24) &&
+           bounded(m.search_height, 32, 64) && bounded(m.footer_height, 40, 80) &&
+           bounded(m.section_height, 24, 48) && bounded(m.rail_width, 32, 64) &&
+           bounded(m.rail_pitch, 32, 64) && bounded(m.scrollbar_gutter, 4, 24) &&
+           bounded(m.list_inset, 0, 16) && bounded(m.emoji_extent, 24, 64) &&
+           bounded(m.emoji_large_extent, 24, 64) && m.emoji_large_extent >= m.emoji_extent &&
+           bounded(m.emoji_padding, 0, 8) && bounded(m.sticker_extent, 48, 160) &&
+           bounded(m.sticker_gap, 3, 24) && bounded(m.gif_target_width, 96, 400) &&
+           bounded(m.gif_gutter, 2, 24) && bounded(m.gif_category_height, 48, 160) &&
+           bounded(m.icon_extent, 16, 28) && bounded(m.text_inset, 2, 8) && bounded(m.rail_inset, 2, 8) &&
+           bounded(m.footer_art, 16, 40) && bounded(style.panel_radius, 0, 24) &&
+           bounded(style.control_radius, 0, 24) && bounded(style.edit_radius, 0, 24) &&
+           bounded(style.selection_width, .5f, 3) && bounded(style.category_opacity, 0, 1) &&
+           m.search_height >= m.icon_extent + m.text_inset * 2 && m.footer_height >= m.footer_art + 4 &&
            m.footer_height >= m.icon_extent * 2 + m.text_inset * 2 &&
-           m.rail_width >= m.icon_extent + m.rail_inset * 2 &&
-           m.rail_pitch >= m.icon_extent + m.rail_inset * 2;
+           m.rail_width >= m.icon_extent + m.rail_inset * 2 && m.rail_pitch >= m.icon_extent + m.rail_inset * 2 &&
+           m.rail_width >= m.list_inset * 2 + m.icon_extent && m.rail_pitch >= m.list_inset + m.icon_extent;
 }
 bool ui_media_picker_target_equal(UiMediaPickerTarget a, UiMediaPickerTarget b) noexcept {
     return a.account_scope == b.account_scope && a.query_generation == b.query_generation &&
@@ -638,11 +963,13 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
         ++scene->revision;
         return true; // Native caret/search text changes need no gallery re-resolve.
     }
-    if (!scene->storage.arena.base &&
-        !ui_fixed_widget_storage_initialize(&scene->storage, kUiMediaPickerWidgetCapacity,
-                                            sizeof(UiMediaPickerProjection),
-                                            alignof(UiMediaPickerProjection)))
-        return false;
+    if (!scene->storage.arena.base) {
+        if (!ui_fixed_widget_storage_initialize(&scene->storage, kUiMediaPickerWidgetCapacity,
+                                                sizeof(UiMediaPickerProjection),
+                                                alignof(UiMediaPickerProjection)))
+            return false;
+        ++scene->counters.allocations;
+    }
     if (!scene->widgets.storage.data &&
         !ui_widget_manager_initialize(&scene->widgets, scene->storage.widgets, scene->storage.layout_nodes))
         return false;
@@ -663,6 +990,11 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
     scene->footer = layout.footer;
     scene->columns = layout.columns;
     scene->cell_pitch = layout.cell_pitch;
+    scene->cell_width = layout.cell_width;
+    scene->cell_height = layout.cell_height;
+    scene->column_pitch = layout.column_pitch;
+    scene->grid_left = layout.grid_left;
+    scene->masonry = layout.masonry;
     scene->account_scope = content->account_scope;
     scene->query_generation = content->query_generation;
     scene->source_revision = source ? source->revision : 0;
@@ -699,13 +1031,20 @@ void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
     scene->cell_count = scene->header_count = scene->rail_count = scene->media_count = 0;
     scene->source = nullptr;
     scene->content = nullptr;
+    scene->tile_count = 0;
+    scene->footer_title_bytes = scene->footer_detail_bytes = 0;
 }
 void ui_media_picker_scene_release(UiMediaPickerScene* scene) noexcept {
     if (!scene)
         return;
     ui_media_picker_scene_close(scene);
     ui_fixed_widget_storage_release(&scene->storage);
+    if (scene->tiles)
+        VirtualFree(scene->tiles, 0, MEM_RELEASE);
+    // Generations keep counting so stale targets from before stay fenced.
+    const u32 generation = scene->generation;
     *scene = {};
+    scene->generation = generation;
 }
 UiMediaPickerTarget ui_media_picker_scene_hit_test(const UiMediaPickerScene& scene, float x,
                                                    float y) noexcept {
@@ -747,6 +1086,7 @@ bool ui_media_picker_scene_hover(UiMediaPickerScene* scene, float x, float y, u6
         return false;
     scene->favorite_hovered = favorite_hovered;
     scene->widgets.hover_started_ms = now_ms;
+    refresh_footer(*scene);
     ++scene->revision;
     return true;
 }
@@ -772,9 +1112,7 @@ bool ui_media_picker_scene_scroll(UiMediaPickerScene* scene, float delta, bool r
         scene->content->phase != UiMediaPickerPhase::ready ||
         !bounded(delta, -kMaximumPaintCoordinate, kMaximumPaintCoordinate))
         return false;
-    const float maximum_scroll = rail ? maximum(0.f, (scene->source ? scene->source->sections.count : 0) *
-                                                             scene->style.metrics.rail_pitch -
-                                                         ui_rect_height(scene->rail))
+    const float maximum_scroll = rail ? maximum(0.f, scene->rail_extent - ui_rect_height(scene->rail))
                                       : maximum(0.f, scene->content_height - ui_rect_height(scene->body));
     float& scroll = rail ? scene->rail_scroll_dips : scene->scroll_dips;
     const float next = clamped(scroll + delta, 0.f, maximum_scroll);
@@ -795,54 +1133,79 @@ bool ui_media_picker_scene_scroll_section(UiMediaPickerScene* scene, u64 id) noe
     if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source ||
         scene->content->phase != UiMediaPickerPhase::ready)
         return false;
-    float offset = scene->style.metrics.content_inset;
+    float offset = content_top(*scene);
     for (u32 i = 0; i < scene->source->sections.count; ++i) {
         if (scene->source->sections[i].id == id) {
-            scene->scroll_dips = minimum(offset - scene->style.metrics.content_inset,
-                                         maximum(0.f, scene->content_height - ui_rect_height(scene->body)));
+            scene->scroll_dips =
+                minimum(offset, maximum(0.f, scene->content_height - ui_rect_height(scene->body)));
             return safe_rebuild(*scene);
         }
-        offset += section_extent(*scene, scene->source->sections[i]);
+        offset += section_extent(*scene, i);
     }
     return false;
 }
 bool ui_media_picker_scene_select(UiMediaPickerScene* scene, u32 index) noexcept {
     if (!scene || !ui_media_picker_scene_current(*scene))
         return false;
-    float top = 0;
+    float top = 0, height = 0;
     UiMediaPickerItem item{};
-    if (!item_position(*scene, index, &top) ||
+    if (!item_position(*scene, index, &top, &height) ||
         !scene->source->resolve(scene->source->context, index, &item) || !item_valid(item) || !item.enabled)
         return false;
-    return select_index(*scene, index, top);
+    return select_index(*scene, index, top, height);
 }
 bool ui_media_picker_scene_move_selection(UiMediaPickerScene* scene, i32 horizontal,
                                           i32 vertical) noexcept {
     if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count ||
-        horizontal < -1 || horizontal > 1 || vertical < -1 || vertical > 1 || (!horizontal && !vertical))
+        scene->content->phase != UiMediaPickerPhase::ready || horizontal < -1 || horizontal > 1 ||
+        vertical < -1 || vertical > 1 || (!horizontal && !vertical) || (horizontal && vertical))
         return false;
-    i64 index = scene->selected_index == ~u32{0}
-                    ? 0
-                    : static_cast<i64>(scene->selected_index) + horizontal + vertical * scene->columns;
-    index = maximum(i64{0}, minimum(index, static_cast<i64>(scene->source->count - 1)));
-    return select_available(
-        *scene, static_cast<u32>(index),
-        scene->selected_index == ~u32{0} || horizontal + vertical * scene->columns > 0 ? 1 : -1);
+    const u32 selected = scene->selected_index;
+    if (selected >= scene->source->count)
+        return select_available(*scene, 0, 1);
+    u32 index = selected;
+    if (scene->masonry)
+        index = selected < scene->tile_count ? masonry_step(*scene, selected, horizontal, vertical) : selected;
+    else if (vertical)
+        index = grid_step(*scene, selected, vertical);
+    else if (horizontal > 0 || selected)
+        index = minimum(scene->source->count - 1, selected + horizontal);
+    if (index == selected)
+        return false;
+    return select_available(*scene, index, index > selected ? 1 : -1);
 }
 bool ui_media_picker_scene_page_selection(UiMediaPickerScene* scene, bool reverse) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count)
+    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count ||
+        scene->content->phase != UiMediaPickerPhase::ready)
         return false;
-    const u32 rows = maximum(1u, static_cast<u32>(ui_rect_height(scene->body) / scene->cell_pitch));
-    const u32 stride = rows * scene->columns;
-    const u32 index = scene->selected_index == ~u32{0} ? 0 : scene->selected_index;
-    return select_available(*scene,
-                            reverse ? index - minimum(index, stride)
-                                    : minimum(scene->source->count - 1, index + stride),
-                            scene->selected_index == ~u32{0} || !reverse ? 1 : -1);
+    const u32 selected = scene->selected_index;
+    if (selected >= scene->source->count)
+        return select_available(*scene, 0, 1);
+    const i32 rows = maximum(1, static_cast<i32>(ui_rect_height(scene->body) / scene->cell_pitch));
+    u32 index = selected;
+    if (scene->masonry)
+        for (i32 i = 0; i < rows; ++i)
+            index = masonry_step(*scene, index, 0, reverse ? -1 : 1);
+    else
+        index = grid_step(*scene, selected, reverse ? -rows : rows);
+    return index != selected && select_available(*scene, index, index > selected ? 1 : -1);
 }
 bool ui_media_picker_scene_edge_selection(UiMediaPickerScene* scene, bool last) noexcept {
     return scene && ui_media_picker_scene_current(*scene) && scene->source && scene->source->count &&
            select_available(*scene, last ? scene->source->count - 1 : 0, last ? -1 : 1);
+}
+bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene* scene, bool last) noexcept {
+    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->source || !scene->source->count)
+        return false;
+    GridPosition at{};
+    if (scene->masonry || scene->selected_index >= scene->source->count ||
+        !grid_locate(*scene, scene->selected_index, &at))
+        return ui_media_picker_scene_edge_selection(scene, last);
+    const u32 first = section_first(*scene, at.section) + at.row * scene->columns;
+    const u32 length =
+        minimum<u32>(scene->columns, section_items(*scene, at.section) - at.row * scene->columns);
+    const u32 index = last ? first + length - 1 : first;
+    return index != scene->selected_index && select_available(*scene, index, last ? -1 : 1);
 }
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene& scene, u32 index, UiRect* rectangle,
                                     UiRect* full_rectangle) noexcept {
@@ -858,7 +1221,8 @@ bool ui_media_picker_scene_favorite(const UiMediaPickerScene& scene, u32 index, 
     if (!same(scene.widgets.hovered) && !same(scene.widgets.focused) && !same(scene.widgets.captured))
         return false;
     const auto& m = scene.style.metrics;
-    const float inset = maximum(4.f, m.gap);
+    // Discord: 4 DIP from the tile's top-right corner.
+    const float inset = m.emoji_padding;
     const auto r = cell.rectangle;
     const float extent =
         minimum(m.icon_extent + m.text_inset * 2, minimum(ui_rect_width(r), ui_rect_height(r)) - inset * 2);
@@ -902,7 +1266,8 @@ bool ui_media_picker_scene_rail_media(const UiMediaPickerScene& scene, u32 index
     const bool media = section.visual == UiMediaPickerSectionVisual::media && section.asset_id;
     if ((!guild && !media) || !section.icon_variant)
         return false;
-    const float inset = scene.style.metrics.padding * .5f;
+    // Server icons fill the 32 DIP item; pack covers keep a small inset.
+    const float inset = media ? scene.style.metrics.rail_inset : 0;
     const UiRect rectangle{slot.rectangle.left + inset, slot.rectangle.top + inset,
                            slot.rectangle.right - inset, slot.rectangle.bottom - inset};
     *output = {target(scene, slot.widget),
@@ -917,21 +1282,13 @@ bool ui_media_picker_scene_rail_media(const UiMediaPickerScene& scene, u32 index
                media ? section.asset_flags : static_cast<u16>(0)};
     return ui_rect_has_area(output->clip);
 }
-bool ui_media_picker_scene_media(const UiMediaPickerScene& scene, u32 index,
-                                 UiMediaPickerMediaSlot* output) noexcept {
-    const auto& m = scene.style.metrics;
-    if (!output || !ui_media_picker_scene_current(scene) || index >= scene.cell_count)
-        return false;
-    const auto& cell = scene.projection->cells[index];
+namespace {
+bool media_slot(const UiMediaPickerScene& scene, const UiMediaPickerCell& cell, UiRect rectangle, UiRect clip,
+                UiMediaPickerMediaSlot* output) noexcept {
     if (!cell.item.enabled || (!cell.item.asset_id && !cell.item.regional_flag))
         return false;
-    UiRect rectangle = cell.rectangle;
     const bool contain =
         cell.item.kind == UiMediaPickerItemKind::sticker || cell.item.kind == UiMediaPickerItemKind::emoji;
-    const float inset = cell.item.kind == UiMediaPickerItemKind::emoji ? m.emoji_inset : m.sticker_inset;
-    if (contain)
-        rectangle = {rectangle.left + inset, rectangle.top + inset, rectangle.right - inset,
-                     rectangle.bottom - inset};
     const UiMediaPickerTarget media_target{scene.account_scope,
                                            scene.query_generation,
                                            cell.item.id,
@@ -946,7 +1303,7 @@ bool ui_media_picker_scene_media(const UiMediaPickerScene& scene, u32 index,
                {&scene.widgets, cell.widget},
                cell.item.asset_id,
                rectangle,
-               ui_rect_intersection(rectangle, cell.clip),
+               ui_rect_intersection(rectangle, clip),
                scene.style.control_radius,
                cell.item.kind == UiMediaPickerItemKind::category ? scene.style.category_opacity : 1.f,
                cell.item.variant,
@@ -958,12 +1315,65 @@ bool ui_media_picker_scene_media(const UiMediaPickerScene& scene, u32 index,
                cell.item.regional_flag};
     return true;
 }
+} // namespace
+bool ui_media_picker_scene_media(const UiMediaPickerScene& scene, u32 index,
+                                 UiMediaPickerMediaSlot* output) noexcept {
+    if (!output || !ui_media_picker_scene_current(scene) || index >= scene.cell_count)
+        return false;
+    const auto& cell = scene.projection->cells[index];
+    UiRect rectangle = cell.rectangle;
+    // Emoji art sits inside its padding; sticker previews inside their node.
+    const float inset = cell.item.kind == UiMediaPickerItemKind::emoji     ? scene.style.metrics.emoji_padding
+                        : cell.item.kind == UiMediaPickerItemKind::sticker ? kStickerNodePadding
+                                                                           : 0;
+    rectangle = {rectangle.left + inset, rectangle.top + inset, rectangle.right - inset, rectangle.bottom - inset};
+    return media_slot(scene, cell, rectangle, cell.clip, output);
+}
+const UiMediaPickerCell* ui_media_picker_scene_inspected(const UiMediaPickerScene& scene) noexcept {
+    if (!ui_media_picker_scene_current(scene) || !ui_rect_has_area(scene.footer) || !scene.cell_count)
+        return nullptr;
+    // Discord inspects grid position (0, 0) by default: the first shown item,
+    // while it is on screen.
+    u32 first_index = scene.source && !scene.source->sections.count ? 0 : ~u32{0};
+    for (u32 s = 0; scene.source && s < scene.source->sections.count && first_index == ~u32{0}; ++s)
+        if (scene.source->sections[s].expanded && scene.source->sections[s].count)
+            first_index = scene.source->sections[s].first;
+    const UiMediaPickerCell* selected = nullptr;
+    const UiMediaPickerCell* first = nullptr;
+    for (u32 i = 0; i < scene.cell_count; ++i) {
+        const auto& cell = scene.projection->cells[i];
+        if (scene.widgets.hovered.slot == cell.widget.slot &&
+            scene.widgets.hovered.generation == cell.widget.generation)
+            return &cell;
+        if (cell.source_index == scene.selected_index)
+            selected = &cell;
+        if (cell.source_index == first_index && cell.item.enabled)
+            first = &cell;
+    }
+    return selected ? selected : first;
+}
+bool ui_media_picker_scene_footer_media(const UiMediaPickerScene& scene, UiMediaPickerMediaSlot* output) noexcept {
+    const auto* cell = output ? ui_media_picker_scene_inspected(scene) : nullptr;
+    if (!cell)
+        return false;
+    const auto& m = scene.style.metrics;
+    const float left = scene.footer.left + m.padding;
+    const float top = (scene.footer.top + scene.footer.bottom - m.footer_art) * .5f;
+    const UiRect art{left, top, left + m.footer_art, top + m.footer_art};
+    return media_slot(scene, *cell, art, scene.footer, output);
+}
+Utf8View ui_media_picker_scene_footer_title(const UiMediaPickerScene& scene) noexcept {
+    return ui_media_picker_scene_current(scene) ? Utf8View{scene.footer_title, scene.footer_title_bytes}
+                                                : Utf8View{};
+}
+Utf8View ui_media_picker_scene_footer_detail(const UiMediaPickerScene& scene) noexcept {
+    return ui_media_picker_scene_current(scene) ? Utf8View{scene.footer_detail, scene.footer_detail_bytes}
+                                                : Utf8View{};
+}
 UiScrollbarGeometry ui_media_picker_scene_scrollbar(const UiMediaPickerScene& scene, bool rail) noexcept {
     if (!ui_media_picker_scene_current(scene) || scene.content->phase != UiMediaPickerPhase::ready)
         return {};
-    return rail ? ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips,
-                                        (scene.source ? scene.source->sections.count : 0) *
-                                            scene.style.metrics.rail_pitch)
+    return rail ? ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips, scene.rail_extent)
                 : ui_scrollbar_geometry(scene.body, scene.scroll_dips, scene.content_height);
 }
 bool ui_media_picker_scene_set_scrollbar_state(UiMediaPickerScene* scene, bool rail,
