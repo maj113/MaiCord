@@ -116,6 +116,16 @@ Buffers g{};
 // MAICORD_DECODE_STAGES=1: lossy WebP items also report the minimum TSC
 // cycles of each VP8 stage over the timed runs.
 bool g_stages = false;
+// Minimum container-parse cycles of an animation (the per-frame cost when a
+// lane has no retained parse for the source).
+u64 g_parse_minimum;
+template <typename Parse>
+bool timed_parse(Parse parse) noexcept {
+    const u64 begin = __rdtsc();
+    const bool ok = parse();
+    g_parse_minimum = minimum(g_parse_minimum, __rdtsc() - begin);
+    return ok;
+}
 u64 g_stage_minimum[5];
 
 struct Outcome {
@@ -160,7 +170,7 @@ Outcome decode_png(ConstSlice<u8> encoded, bool verify) noexcept {
 Outcome decode_apng(ConstSlice<u8> encoded, bool verify) noexcept {
     Outcome outcome{kHash64Seed};
     ApngImage animation{};
-    if (!apng_parse(encoded, &animation, g.apng).ok())
+    if (!timed_parse([&]() noexcept { return apng_parse(encoded, &animation, g.apng).ok(); }))
         return outcome;
     outcome.ok = true;
     for (u32 index = 0; index < animation.frame_count && outcome.ok; ++index) {
@@ -181,7 +191,7 @@ Outcome decode_apng(ConstSlice<u8> encoded, bool verify) noexcept {
 Outcome decode_gif(ConstSlice<u8> encoded, bool verify) noexcept {
     Outcome outcome{kHash64Seed};
     GifImage animation{};
-    if (!gif_parse(encoded, &animation, g.gif).ok())
+    if (!timed_parse([&]() noexcept { return gif_parse(encoded, &animation, g.gif).ok(); }))
         return outcome;
     outcome.ok = true;
     for (u32 index = 0; index < animation.frame_count && outcome.ok; ++index) {
@@ -286,7 +296,7 @@ Outcome decode_animated_webp(ConstSlice<u8> encoded, bool verify) noexcept {
     Outcome outcome{kHash64Seed};
     AnimatedWebpImage animation{};
     *g.animated = AnimatedWebpWorkspace{};
-    if (!animated_webp_parse(encoded, &animation, g.animated).ok())
+    if (!timed_parse([&]() noexcept { return animated_webp_parse(encoded, &animation, g.animated).ok(); }))
         return outcome;
     outcome.ok = true;
     for (u32 index = 0; index < animation.frame_count && outcome.ok; ++index) {
@@ -609,6 +619,7 @@ int run() noexcept {
             continue;
         for (u64& stage : g_stage_minimum)
             stage = ~0ull;
+        g_parse_minimum = ~0ull;
         const Outcome verified = decode(kind, parameter, encoded, true);
         u64 samples[64];
         u32 runs = 0;
@@ -639,6 +650,8 @@ int run() noexcept {
         line.field("cycles_per_pixel_x100", runs && verified.pixels ? samples[0] * 100 / verified.pixels : 0);
         line.field("output_bytes", verified.output_bytes);
         line.field("scratch_bytes", verified.scratch_bytes);
+        if (g_parse_minimum != ~0ull)
+            line.field("parse_cycles", g_parse_minimum);
         line.hex("hash", verified.hash);
         line.write();
         if (g_stages && g_stage_minimum[3] != ~0ull) {

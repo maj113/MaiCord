@@ -81,6 +81,8 @@ try {
             MedianVsMin = if ([double]$fields.min_cycles) { [math]::Round([double]$fields.median_cycles / [double]$fields.min_cycles, 3) } else { 0 }
             OutputKiB = [math]::Round([double]$fields.output_bytes / 1024, 1)
             ScratchKiB = [math]::Round([double]$fields.scratch_bytes / 1024, 1)
+            # Animations: container parse cycles as a share of one average frame decode.
+            ParsePerFrame = if ($fields.parse_cycles -and [int]$fields.frames) { [math]::Round([double]$fields.parse_cycles * [int]$fields.frames / [double]$fields.min_cycles, 3) } else { '' }
             Runs = [int]$fields.runs
             Hash = $fields.hash
         }

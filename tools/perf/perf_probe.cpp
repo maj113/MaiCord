@@ -917,6 +917,9 @@ struct GpuWork {
     u64 full_us, full_samples, partial_us, partial_samples, replay_pixels, replay_failures, replays, replay_cycles,
         painted,
         partial_pixels, media_upload_bytes, animation_copy_pixels, glyph_pixels, instance_uploads;
+    // Media atlas: decoder input bytes uploaded and frames written (every
+    // codec path), animation cache restores, video NV12 copies.
+    u64 media_frames, animation_restores, video_frames, video_copied_bytes;
 };
 struct PhaseStats {
     ProcessSample begin, end;
@@ -1049,7 +1052,16 @@ GpuWork sample_gpu_work() noexcept {
     work.replay_cycles = static_cast<u64>(g_replay.cycles);
     work.painted = r.painted_frames;
     work.partial_pixels = r.partial_present_pixels;
-    work.media_upload_bytes = r.media_gpu.uploaded_bytes;
+    const auto& m = r.media_gpu;
+    work.media_upload_bytes = m.uploaded_bytes + m.png_uploaded_bytes + m.apng_uploaded_bytes +
+                              m.straight_rgba8_uploaded_bytes + m.gif_uploaded_bytes +
+                              m.animated_webp_uploaded_bytes + m.vp8_uploaded_bytes +
+                              m.vp8_alpha_uploaded_bytes + m.jpeg_uploaded_bytes;
+    work.media_frames = u64{m.uploads} + m.png_uploads + m.straight_rgba8_uploads + m.jpeg_uploads +
+                        m.apng_frames + m.gif_frames + m.animated_webp_frames + m.vp8_atlas_uploads;
+    work.animation_restores = r.animation_gpu.restores + r.preview_animation_gpu.restores;
+    work.video_frames = m.video.frames;
+    work.video_copied_bytes = m.video.copied_bytes;
     work.animation_copy_pixels = r.animation_gpu.copied_pixels + r.preview_animation_gpu.copied_pixels;
     work.glyph_pixels = r.glyph_text.gpu.dispatched_pixels;
     work.instance_uploads =
@@ -1604,6 +1616,10 @@ void report_phase(Phase phase) noexcept {
         o.kv("partial_px", e.partial_pixels - w.partial_pixels);
         o.kv("media_up_b", e.media_upload_bytes - w.media_upload_bytes);
         o.kv("anim_copy_px", e.animation_copy_pixels - w.animation_copy_pixels);
+        o.kv("media_frames", e.media_frames - w.media_frames);
+        o.kv("anim_restores", e.animation_restores - w.animation_restores);
+        o.kv("video_frames", e.video_frames - w.video_frames);
+        o.kv("video_copy_b", e.video_copied_bytes - w.video_copied_bytes);
         o.kv("glyph_px", e.glyph_pixels - w.glyph_pixels);
         o.kv("inst_uploads", e.instance_uploads - w.instance_uploads);
     }

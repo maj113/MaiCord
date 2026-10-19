@@ -68,6 +68,7 @@ struct MediaAtlasGpu {
     ID3D11ComputeShader* jpeg_atlas_shader;
     u64 uploaded_bytes;
     u64 png_uploaded_bytes;
+    u64 apng_uploaded_bytes;
     u64 png_dispatched_pixels;
     u64 straight_rgba8_uploaded_bytes;
     u64 straight_rgba8_dispatched_pixels;
@@ -265,6 +266,6 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     ID3D11Device* device, ID3D11DeviceContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
 
-static_assert(sizeof(MediaAtlasGpu) == 784);
+static_assert(sizeof(MediaAtlasGpu) == 792);
 
 } // namespace maicord

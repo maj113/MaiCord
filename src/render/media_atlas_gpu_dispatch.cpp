@@ -212,6 +212,7 @@ void account_apng_dispatch(MediaAtlasGpu* gpu, const ApngFrame& frame, const Png
     }
     const u64 pixels = static_cast<u64>(image.width) * image.height;
     saturating_accumulate(gpu->apng_dispatched_pixels, pixels);
+    saturating_accumulate(gpu->apng_uploaded_bytes, image.inflated_bytes);
 }
 
 void account_gif_dispatch(MediaAtlasGpu* gpu, const GifFrame& frame) noexcept {
