@@ -142,9 +142,9 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
             // for a winner, the hover outline on hover while voting.
             Color outline{};
             if (!results)
-                outline = answer.selected ? projection.accent : hovered ? projection.outline_hover : Color{};
+                outline = answer.selected ? projection.outline : hovered ? projection.outline_hover : Color{};
             else
-                outline = victor ? projection.victor : voted && !ended ? projection.accent : Color{};
+                outline = victor ? projection.victor : voted && !ended ? projection.outline : Color{};
             if (outline.alpha > 0 && !border(paint, row.bounds, {}, outline, style.radius))
                 return false;
             if (!results) {
@@ -159,7 +159,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
             }
             if (keyboard && ui_poll_target_equal(focus, target) &&
                 ui_poll_target_enabled(projection, target) &&
-                !border(paint, ui_rect_shrink(row.bounds, -2), {}, projection.accent, style.radius + 2, 2))
+                !border(paint, ui_rect_shrink(row.bounds, -2), {}, projection.outline, style.radius + 2, 2))
                 return false;
         }
         const UiPollTarget targets[]{{UiPollControl::vote},
@@ -188,7 +188,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
                     return false;
             }
             if (keyboard && enabled && ui_poll_target_equal(focus, target) &&
-                !border(paint, ui_rect_shrink(bounds, -2), {}, projection.accent, style.radius + 2, 2))
+                !border(paint, ui_rect_shrink(bounds, -2), {}, projection.outline, style.radius + 2, 2))
                 return false;
         }
         return true;
@@ -286,9 +286,9 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
                          scene.projection.secondary,   scene.projection.accent,
                          scene.projection.primary_foreground, scene.projection.border,
                          scene.projection.selected,    scene.projection.answer_fill,
-                         scene.projection.outline_hover, scene.projection.bar,
-                         scene.projection.bar_voted,   scene.projection.bar_victor,
-                         scene.projection.victor};
+                         scene.projection.outline,     scene.projection.outline_hover,
+                         scene.projection.bar,         scene.projection.bar_voted,
+                         scene.projection.bar_victor,  scene.projection.victor};
     hash = hash64_bytes(hash, colors, sizeof(colors));
     for (u32 i = 0; i < scene.projection.state.answers.count; ++i) {
         const auto& answer = scene.projection.state.answers[i];

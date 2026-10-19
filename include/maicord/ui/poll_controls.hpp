@@ -91,7 +91,7 @@ struct UiPollProjection {
     UiPollGeometry geometry{};
     Color surface{}, foreground{}, secondary{}, accent{}, primary_foreground{}, border{}, selected{},
         error{};
-    Color answer_fill{}, outline_hover{}, bar{}, bar_voted{}, bar_victor{}, victor{};
+    Color answer_fill{}, outline{}, outline_hover{}, bar{}, bar_voted{}, bar_victor{}, victor{};
     char count_text[kUiPollMaximumAnswers][24]{};
     u8 count_bytes[kUiPollMaximumAnswers]{};
     char percent_text[kUiPollMaximumAnswers][8]{};

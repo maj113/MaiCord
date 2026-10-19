@@ -1,6 +1,7 @@
 #include "maicord/ui/poll_presentation.hpp"
 #include "maicord/ui/poll_voters_avatar_media.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/ui/theme_styles.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -188,6 +189,21 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
               ui_poll_target_visible(ballot, {UiPollControl::results}) && !ballot.results_primary &&
               ballot.geometry.results.right <= ballot.geometry.vote.left,
           "poll ballot: Vote waits for a selection; the \"Show results\" text action sits left of it");
+    Theme gradient = kDefaultTheme;
+    gradient.background = background_theme_defaults();
+    UiPollProjection themed{};
+    check(ui_theme_resolve_emphasis(&gradient) &&
+              ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle, gradient, &themed) &&
+              same(themed.accent, gradient.tokens.emphasis.fill) &&
+              same(themed.outline, gradient.tokens.emphasis.outline) &&
+              same(themed.answer_fill, gradient.tokens.fill.subtle) &&
+              same(themed.selected, gradient.tokens.fill.muted) &&
+              !same(themed.accent, kDefaultTheme.tokens.accent.brand) &&
+              !same(themed.answer_fill, kDefaultTheme.tokens.fill.subtle) &&
+              same(ballot.accent, kDefaultTheme.tokens.accent.brand) &&
+              same(ballot.outline, kDefaultTheme.tokens.accent.brand),
+          "poll theme: a gradient theme's emphasis and tinted fills style the vote button, selection and "
+          "answer rows; flat themes keep the accent");
     f.answers[0].count = 3;
     f.answers[0].count_known = true;
     f.answers[1].count = 1;

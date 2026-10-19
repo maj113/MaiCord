@@ -521,15 +521,17 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
     projection.surface = theme.surface_high;
     projection.foreground = ui_foreground_color(theme, theme.text_primary);
     projection.secondary = ui_foreground_color(theme, theme.tokens.text.muted);
-    projection.accent = theme.tokens.accent.brand;
-    projection.primary_foreground = ui_surface_foreground(theme, theme.tokens.accent.brand);
+    // Emphasis tokens follow a gradient theme's hue; flat themes keep the accent.
+    projection.accent = theme.tokens.emphasis.fill;
+    projection.primary_foreground = ui_surface_foreground(theme, theme.tokens.emphasis.fill);
+    projection.outline = theme.tokens.emphasis.outline;
     projection.border = theme.tokens.border.subtle;
     projection.selected = theme.tokens.fill.muted;
     projection.error = ui_foreground_color(theme, theme.tokens.text.danger);
     projection.answer_fill = theme.tokens.fill.subtle;
     projection.outline_hover = theme.tokens.border.strong;
     projection.bar = theme.tokens.state.pressed;
-    projection.bar_voted = ui_theme_color_alpha(theme.tokens.accent.brand, .2f);
+    projection.bar_voted = ui_theme_color_alpha(theme.tokens.emphasis.fill, .2f);
     projection.victor = theme.tokens.accent.success;
     projection.bar_victor = ui_theme_color_alpha(theme.tokens.accent.success, .2f);
     const bool mutable_poll = state.supported && !state.loading && !ui_poll_closed(state);
