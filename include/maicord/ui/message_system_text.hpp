@@ -107,10 +107,7 @@ struct MessageSystemTextInput {
     Utf8View target;          // recipient add/remove subject (mentions[0])
     Utf8View content;         // channel name, thread name, Stage topic, boost count
     Utf8View guild;           // server name when known
-    Utf8View poll_question;   // poll result embed fields
-    Utf8View poll_answer;
-    u32 poll_votes;
-    u32 poll_total_votes;
+    Utf8View poll_question;   // poll result embed question
     u16 type;
     bool same_user;           // target equals author (a member left)
     bool call_present;

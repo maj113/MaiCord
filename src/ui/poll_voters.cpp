@@ -149,7 +149,8 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
     geometry.title = {left + style.padding, top, geometry.close.left - style.gap,
                       top + style.header_height};
     float y = geometry.title.bottom + style.gap;
-    const float inner_left = left + style.padding, inner_right = geometry.panel.right - style.padding;
+    float inner_left = left + style.padding;
+    const float inner_right = geometry.panel.right - style.padding;
     UiTextMeasureValue value{};
     if (state.question.bytes) {
         if (!measured(state, state.question, 100, text_style_subtext, inner_right - inner_left, cache,
@@ -157,6 +158,16 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
             return false;
         geometry.question = {inner_left, y, inner_right, y + minimum(32.f, value.size.height)};
         y = geometry.question.bottom + style.gap;
+    }
+    geometry.columns = inner_right - inner_left >= 360 && state.answers.count > 1;
+    if (geometry.columns) {
+        const float list_right = inner_left + minimum(200.f, (inner_right - inner_left) * .4f);
+        float row = y;
+        for (u32 i = 0; i < state.answers.count; ++i) {
+            geometry.answers[i] = {inner_left, row, list_right, row + style.target};
+            row += style.target + style.gap * .5f;
+        }
+        inner_left = list_right + style.padding;
     }
     for (u32 i = 0; i < state.answers.count; ++i)
         if (state.answers[i].id == state.answer_id) {
@@ -172,7 +183,7 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
             break;
         }
     float x = inner_left;
-    for (u32 i = 0; i < state.answers.count; ++i) {
+    for (u32 i = 0; !geometry.columns && i < state.answers.count; ++i) {
         if (x > inner_left && x + style.target > inner_right) {
             x = inner_left;
             y += style.target + style.gap;
@@ -180,7 +191,8 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
         geometry.answers[i] = {x, y, x + style.target, y + style.target};
         x += style.target + style.gap;
     }
-    y += style.target + style.gap;
+    if (!geometry.columns)
+        y += style.target + style.gap;
     const auto status = state.status.bytes    ? state.status
                         : state.loading       ? style.loading
                         : state.error         ? style.failed

@@ -270,6 +270,17 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     ready = ui_poll_scene_project(&scene, f.state, {0, 0, 320, 1}, {0, 0, 320, 2000}, f.owner(),
                                   UiPollSourceSurface::timeline, kDefaultUiPollStyle, kDefaultTheme,
                                   &f.cache, 1);
+    const auto busy = ui_poll_scene_pointer(&scene, UiPollPointerEvent::up, point);
+    check(ready && busy.action_requested && busy.action.answer_id == 42 &&
+              ui_poll_action_current(f.state, busy.action),
+          "poll busy input: a count-only revision between press and release keeps the press and acts on "
+          "the current revision");
+    ui_poll_scene_pointer(&scene, UiPollPointerEvent::down, point);
+    f.state.generation++;
+    ready = ui_poll_scene_project(&scene, f.state, {0, 0, 320, 1}, {0, 0, 320, 2000}, f.owner(),
+                                  UiPollSourceSurface::timeline, kDefaultUiPollStyle, kDefaultTheme,
+                                  &f.cache, 1);
+    stale.generation = f.state.generation - 1;
     check(ready && scene.capture.control == UiPollControl::none &&
               !ui_poll_action_current(f.state, stale) &&
               !ui_poll_scene_pointer(&scene, UiPollPointerEvent::up, point).action_requested &&
@@ -402,6 +413,24 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
               !ui_poll_voters_target_enabled(scene, {UiPollVotersControl::next}) &&
               !ui_poll_voters_target_enabled(scene, {UiPollVotersControl::user, 1000}),
           "poll voters loading: Close remains accessible while page/user actions are locked");
+    check(ready && scene.geometry.columns && scene.geometry.answers[1].top > scene.geometry.answers[0].bottom &&
+              scene.geometry.answers[0].left == scene.geometry.panel.left + scene.style.padding &&
+              scene.geometry.body.left > scene.geometry.answers[0].right &&
+              contained(scene.geometry.panel, scene.geometry.answers[2]),
+          "poll voters wide: answers list in a left column beside the selected answer's voters");
+    {
+        UiTextCommand listed[64]{};
+        char listed_bytes[16384]{};
+        UiTextCommandStream list_text{};
+        UiTextOutput list_output{&list_text, nullptr};
+        bool labelled = ui_text_command_stream_initialize(&list_text, {listed, 64}, {listed_bytes, sizeof(listed_bytes)}) &&
+                        ui_poll_voters_scene_text_output(scene, &list_output);
+        bool answer_label{};
+        for (u32 i = 0; i < list_text.count; ++i)
+            answer_label = answer_label || (utf8_equal(listed[i].text, f.answers[0].text) &&
+                                            contained(scene.geometry.answers[0], listed[i].rectangle));
+        check(labelled && answer_label, "poll voters wide: each answer row shows its text, not an index");
+    }
     state.loading = false;
     state.error = state.can_retry = true;
     state.revision++;

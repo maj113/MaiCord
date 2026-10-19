@@ -229,10 +229,264 @@ bool initialize() noexcept {
                .ok() &&
            chat_state_store_upsert_channel(&ui.chat_state, {70, 7, 0, utf8_literal("Room"), 0, 0, 0})
                .ok() &&
+           chat_state_store_upsert_channel(&ui.chat_state, {72, 7, 0, utf8_literal("Forum"), 1, 0, 15})
+               .ok() &&
+           chat_state_store_upsert_channel(&ui.chat_state, {73, 7, 72, utf8_literal("Post"), 2, 0, 11})
+               .ok() &&
            message_store_initialize(&g_app.message_view.store, {messages, 16}, {message_order, 16},
                                     {message_text, sizeof(message_text)}) &&
            message_poll_store_initialize_owned(&ui.message_poll_store, 16, 8192) &&
            ui_text_measure_cache_initialize(&ui.text_measure_cache, {measure_rows, 128}, measure, nullptr);
+}
+// One real message scene row over the resident store, as the client lays it out.
+struct SceneFixture {
+    u32 heights[16];
+    u64 fenwick[16];
+    UiVariableList list;
+    MessageTimeline timeline;
+    UiWidget widgets[kMessageSceneWidgetsPerRow * 2 + 1];
+    UiLayoutNode nodes[kMessageSceneWidgetsPerRow * 2 + 1];
+};
+SceneFixture* scene_fixture{};
+constexpr UiRect scene_viewport{0, 0, 600, 1400};
+bool open_scene() noexcept {
+    message_scene_release(&g_app.message_scene);
+    if (!scene_fixture)
+        scene_fixture = static_cast<SceneFixture*>(
+            VirtualAlloc(nullptr, sizeof(SceneFixture), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!scene_fixture)
+        return false;
+    auto& f = *scene_fixture;
+    f = {};
+    auto& binding = g_app.account_ui->message_poll_binding;
+    binding = {&g_app.account_ui->message_poll_store,
+               &g_app.account_ui->text_measure_cache,
+               unix_now,
+               37,
+               true,
+               true,
+               +[](void*, u64 id, Slice<UiPollAnswer> answers, UiPollState* out) noexcept {
+                   return application_poll_state(id, answers, out);
+               },
+               nullptr};
+    g_app.renderer.dpi = 96;
+    return ui_variable_list_initialize(&f.list, {f.heights, 16}, {f.fenwick, 16},
+                                       g_app.message_view.store.count, ui_extent_units(96)) &&
+           message_timeline_initialize(&f.timeline, &g_app.message_view.store, &f.list, ui_extent_units(96),
+                                       ui_extent_units(1400), false) &&
+           message_scene_initialize_owned(&g_app.message_scene, &f.timeline, 2, 1,
+                                          {f.widgets, kMessageSceneWidgetsPerRow * 2 + 1},
+                                          {f.nodes, kMessageSceneWidgetsPerRow * 2 + 1}) &&
+           message_scene_bind_poll_source(&g_app.message_scene, &binding) &&
+           message_scene_update(&g_app.message_scene, scene_viewport).ok() && g_app.message_scene.count == 1;
+}
+// The text convergence that follows a model change.
+bool converge() noexcept {
+    g_app.account_ui->message_poll_binding.now_ms = unix_now;
+    return message_scene_update(&g_app.message_scene, scene_viewport).ok() && application_poll_synchronize();
+}
+// A received poll in each shape the client must keep interactive.
+struct PollShape {
+    u64 channel = 70;
+    u32 answers = 2;
+    bool long_text = false, multiple = false, layout = true, results = true;
+    u8 expiry = 1; // 0 omitted, 1 at 10 s, 2 null
+};
+bool seed_shape(const PollShape& shape, bool history = false) noexcept {
+    clear_polls();
+    message_store_delete(&g_app.message_view.store, 900);
+    if (!message_store_upsert(&g_app.message_view.store, {900, shape.channel, 3, 100, 0, utf8_literal("")}).ok())
+        return false;
+    static char text[10][128];
+    GatewayMessagePollAnswer answers[10]{};
+    GatewayMessagePollAnswerCount counts[10]{};
+    for (u32 i = 0; i < shape.answers; ++i) {
+        u32 bytes = 0;
+        // 55 two-byte scalars: the longest answer Discord accepts.
+        for (u32 c = 0; c < (shape.long_text ? 55u : 3u); ++c) {
+            if (shape.long_text) {
+                text[i][bytes++] = static_cast<char>(0xC3);
+                text[i][bytes++] = static_cast<char>(0xA0 + i);
+            } else
+                text[i][bytes++] = static_cast<char>('a' + i);
+        }
+        answers[i] = {100 + i * 3, {text[i], bytes}, 0, {}, false};
+        counts[i] = {100 + i * 3, 0, false};
+    }
+    GatewayMessagePoll p{};
+    p.question = utf8_literal("Choice");
+    p.answers = {answers, shape.answers};
+    p.answer_counts = shape.results ? ConstSlice<GatewayMessagePollAnswerCount>{counts, shape.answers}
+                                    : ConstSlice<GatewayMessagePollAnswerCount>{};
+    p.expiry_ms = shape.expiry == 1 ? 10000 : 0;
+    p.expiry_null = shape.expiry == 2;
+    p.fields = gateway_message_poll_field_question | gateway_message_poll_field_answers |
+               gateway_message_poll_field_multiselect | (shape.expiry ? gateway_message_poll_field_expiry : 0u) |
+               (shape.layout ? gateway_message_poll_field_layout : 0u) |
+               (shape.results ? gateway_message_poll_field_results : 0u);
+    p.layout_type = 1;
+    p.allow_multiselect = shape.multiple;
+    p.results_known = shape.results;
+    p.present = true;
+    if (history) {
+        const MessagePollPageInput input{900, shape.channel, &p, 0, nullptr};
+        if (!message_poll_store_apply_page(&g_app.account_ui->message_poll_store, {&input, 1}).ok())
+            return false;
+    } else if (!message_poll_store_apply(&g_app.account_ui->message_poll_store, 900, shape.channel, p,
+                                         ++g_app.account_ui->poll_gateway_serial)
+                    .ok())
+        return false;
+    g_app.account_ui->active_channel_id = shape.channel;
+    g_app.account_ui->chat_state.selected_channel_id = shape.channel;
+    return open_scene();
+}
+UiRect target(UiPollTarget t) noexcept {
+    if (owner && owner->card.active)
+        return ui_poll_target_rectangle(owner->card.projection, t);
+    static UiPollAnswer answers[10]{};
+    UiPollProjection projection{};
+    return g_app.message_scene.count &&
+                   message_scene_poll_projection(g_app.message_scene, g_app.message_scene.rows[0],
+                                                 application_theme(), {answers, 10}, &projection)
+               ? ui_poll_target_rectangle(projection, t)
+               : UiRect{};
+}
+LPARAM point_of(UiRect r) noexcept {
+    const auto x = static_cast<u32>((r.left + r.right) * .5f), y = static_cast<u32>((r.top + r.bottom) * .5f);
+    return static_cast<LPARAM>((y << 16) | (x & 0xffffu));
+}
+// A press and release through the window procedure, as the user clicks.
+bool click(UiPollTarget t) noexcept {
+    const auto r = target(t);
+    if (!ui_rect_has_area(r))
+        return false;
+    const LPARAM at = point_of(r);
+    const bool down = application_poll_window_message(WM_LBUTTONDOWN, 0, at);
+    return application_poll_window_message(WM_LBUTTONUP, 0, at) && down;
+}
+UiPollTarget answer(u32 index) noexcept {
+    return {UiPollControl::answer, 100 + index * 3};
+}
+// Opens the card by clicking, selects one answer, clicks Vote and checks the PUT.
+bool votes(const PollShape& shape, u32 index, bool history = false) noexcept {
+    reset();
+    return seed_shape(shape, history) && click(answer(index)) && owner && owner->selection == (1u << index) &&
+           click({UiPollControl::vote}) && application_poll_submit(400 + index, now) &&
+           submitted.operation == PollOperation::vote && submitted.answer_count == 1 &&
+           submitted.answer_ids[0] == 100 + index * 3 && submitted.channel_id == shape.channel;
+}
+bool own_vote(const GatewayMessagePollVoteEvent& event) noexcept {
+    const auto applied = message_poll_store_vote(&g_app.account_ui->message_poll_store, event, 5,
+                                                 ++g_app.account_ui->poll_gateway_serial);
+    application_poll_observe(event, applied.ok());
+    return applied.ok();
+}
+void scene_cases() noexcept {
+    reset();
+    message_store_upsert(&g_app.message_view.store, {900, 70, 3, 100, 0, utf8_literal("")});
+    check(open_scene() && click({UiPollControl::answer, 7}) && owner && owner->card.active &&
+              owner->selection == 1,
+          "poll scene: a click on a received card opens it and selects the answer");
+    // Lockup: the pump stopped the account whenever synchronizing returned false.
+    const GatewayMessagePollVoteEvent other{70, 900, 77, 7, 42, true, true};
+    own_vote(other);
+    const auto* p = message_poll_store_find(g_app.account_ui->message_poll_store, 900);
+    check(g_app.message_scene.rows[0].poll_result_revision != p->result_revision &&
+              application_poll_synchronize() && owner->card.active &&
+              owner->card.projection.state.answers[1].count == 1,
+          "poll lockup: a vote event before the row converges keeps synchronizing and reprojects the card");
+    // Busy poll: a vote event between press and release keeps the press.
+    const LPARAM vote_at = point_of(target({UiPollControl::vote}));
+    application_poll_window_message(WM_LBUTTONDOWN, 0, vote_at);
+    own_vote({70, 900, 78, 7, 42, true, true});
+    application_poll_synchronize();
+    application_poll_window_message(WM_LBUTTONUP, 0, vote_at);
+    check(owner->controller.desired_active && application_poll_submit(300, now) &&
+              submitted.operation == PollOperation::vote && submitted.answer_ids[0] == 7,
+          "poll busy: a release after another user's vote still sends the vote");
+    UiPollState value{};
+    check(state(&value) && value.loading && value.results && value.answers[0].me_voted &&
+              value.answers[0].count == 1 && converge() && owner->card.active,
+          "poll optimistic: the pending vote shows its count and own mark at once");
+    own_vote({70, 900, 5, 7, 7, true, true});
+    check(application_poll_synchronize() && receipt(300, 204) && converge() && state(&value) &&
+              value.answers[0].count == 1 && value.answers[1].count == 2 && value.can_remove_vote,
+          "poll counts: the own echo before the 204 neither stops the session nor counts twice");
+    check(click({UiPollControl::remove_vote}) && application_poll_submit(301, now) &&
+              submitted.operation == PollOperation::remove_vote && receipt(301, 204) && converge() &&
+              state(&value) && !value.answers[0].me_voted && !value.answers[0].count && value.can_vote,
+          "poll remove: Remove Vote sends the empty PUT and clears the own vote");
+    check(click({UiPollControl::answer, 7}) && click({UiPollControl::vote}) && application_poll_submit(302, now) &&
+              receipt(302, 403) && converge() && state(&value) && !value.answers[0].me_voted &&
+              !value.answers[0].count && value.status.bytes,
+          "poll rollback: a rejected vote restores the counts and shows a notice");
+
+    // A vote outliving its card (channel switch) is neither cancelled nor lost.
+    reset();
+    message_store_upsert(&g_app.message_view.store, {900, 70, 3, 100, 0, utf8_literal("")});
+    const u32 cancels = cancellations;
+    check(open_scene() && click({UiPollControl::answer, 42}) && click({UiPollControl::vote}) &&
+              application_poll_submit(310, now),
+          "poll switch: vote admitted");
+    g_app.load_trace.channel_epoch = 2;
+    application_poll_synchronize();
+    p = message_poll_store_find(g_app.account_ui->message_poll_store, 900);
+    check(cancellations == cancels && receipt(310, 204) && p->answers[1].me_voted && p->answers[1].count == 1,
+          "poll switch: leaving the channel keeps the PUT and its 204 applies the own vote");
+
+    PollShape shape{};
+    shape.answers = 10;
+    shape.long_text = true;
+    check(votes(shape, 9), "poll shapes: ten 55-scalar answers keep every row clickable");
+    shape = {};
+    shape.multiple = true;
+    reset();
+    check(seed_shape(shape) && click(answer(0)) && click(answer(1)) && owner->selection == 3 &&
+              click({UiPollControl::vote}) && application_poll_submit(320, now) && submitted.answer_count == 2,
+          "poll shapes: multiselect sends every selected answer");
+    shape = {};
+    shape.layout = false;
+    shape.expiry = 2;
+    check(votes(shape, 0), "poll shapes: omitted layout_type and null expiry stay votable");
+    shape = {};
+    shape.expiry = 0;
+    check(votes(shape, 1), "poll shapes: omitted expiry stays votable");
+    shape = {};
+    shape.channel = 73;
+    check(votes(shape, 1), "poll shapes: a poll in a forum post thread is votable");
+    shape = {};
+    check(votes(shape, 0, true), "poll shapes: a poll applied from a history page is votable");
+    reset();
+    search_enabled = true;
+    check(seed_shape({}) && click(answer(1)) && owner && owner->selection == 2,
+          "poll shapes: timeline polls stay clickable while search results are open");
+    search_enabled = false;
+    // History without results: Retry reads authority before voting.
+    reset();
+    shape = {};
+    shape.results = false;
+    check(seed_shape(shape, true) && ui_rect_has_area(target({UiPollControl::retry})) &&
+              (click({UiPollControl::retry}), owner && owner->card.active) && application_poll_submit(330, now) &&
+              submitted.operation == PollOperation::refresh,
+          "poll unknown results: Retry opens the card and reads the message before voting");
+    // Ended: answers open the voter list instead of voting.
+    // Ended: the first click reads the final tally, then answers open the voters.
+    reset();
+    message_store_upsert(&g_app.message_view.store, {900, 70, 3, 100, 0, utf8_literal("")});
+    unix_now = 20000;
+    check(open_scene() && converge() && ui_rect_has_area(target({UiPollControl::answer, 42})) &&
+              !ui_rect_has_area(target({UiPollControl::vote})) &&
+              (click({UiPollControl::answer, 42}), application_poll_submit(340, now)) &&
+              submitted.operation == PollOperation::refresh && receipt(340, 200, snapshot_body()) && converge() &&
+              click({UiPollControl::answer, 42}) && application_poll_submit(341, now) &&
+              submitted.operation == PollOperation::voters && submitted.answer_id == 42,
+          "poll ended: a closed poll offers no vote and its answers open the voters");
+    unix_now = 1000;
+    application_poll_release();
+    message_scene_release(&g_app.message_scene);
+    if (scene_fixture)
+        VirtualFree(scene_fixture, 0, MEM_RELEASE);
+    scene_fixture = nullptr;
 }
 void run() noexcept {
     check(initialize(), "poll app: real Core, resident store and lazy poll store initialize");
@@ -310,11 +564,13 @@ void run() noexcept {
     check(action(UiPollActionKind::toggle_answer, 7) && action(UiPollActionKind::vote) &&
               application_poll_submit(112, now),
           "poll app: after recovery a new exact vote is admitted");
+    const u32 cancels_before_disconnect = cancellations;
     g_app.account.status.gateway_ready = 0;
     application_poll_synchronize();
-    check(owner->controller.flight.retired && cancellations && cancelled == 112 && !owner->source_checked &&
-              !owner->reconcile_requested,
-          "poll app: disconnect retires exact mutation and invalidates prior checked authority");
+    check(owner->controller.flight.retired && cancellations == cancels_before_disconnect &&
+              !owner->source_checked && !owner->reconcile_requested,
+          "poll app: disconnect retires the vote flight without cancelling a PUT that may have landed, "
+          "and invalidates prior checked authority");
     receipt(112, 500);
     g_app.account.status.gateway_ready = 1;
     application_poll_synchronize();
@@ -490,8 +746,19 @@ void run() noexcept {
               application_poll_consume_key_tail(UiInputKind::character, VK_ESCAPE, false) &&
               application_poll_consume_key_tail(UiInputKind::key_up, VK_ESCAPE, false),
           "poll app: closing inspector consumes exact Escape tail before underlying content");
+    const u32 cached_submissions = submissions;
+    check(application_poll_voters(7) && !application_poll_pending(now) && submissions == cached_submissions &&
+              application_poll_view().voters.count == 25 && application_poll_view().voters_more &&
+              application_poll_view().voters[24].id == 124,
+          "poll voters cache: reopening an answer with unchanged results shows its first page without a request");
+    application_poll_voters_close();
+    const GatewayMessagePollVoteEvent counted{70, 900, 99, 7, 42, true, true};
+    application_poll_observe(counted, message_poll_store_vote(&g_app.account_ui->message_poll_store, counted, 5,
+                                                              ++g_app.account_ui->poll_gateway_serial)
+                                          .ok());
     application_poll_voters(7);
-    application_poll_submit(143, now);
+    check(application_poll_submit(143, now) && submitted.answer_id == 7,
+          "poll voters cache: a vote count change refetches the first page");
     application_poll_voters(42);
     check(owner->controller.flight.active && owner->controller.flight.retired && submitted.answer_id == 7 &&
               receipt(143, 200, voters_body(100, 25)) && !application_poll_view().voters.count &&
@@ -507,6 +774,7 @@ void run() noexcept {
     receipt(145, 0, {}, RestClientError::cancelled);
     check(!owner && !g_app.renderer.poll_scene && !g_app.renderer.poll_voters_scene,
           "poll app: exact cancelled drain frees lazy owner and unbinds both native scenes");
+    scene_cases();
     message_poll_store_release(&g_app.account_ui->message_poll_store);
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;

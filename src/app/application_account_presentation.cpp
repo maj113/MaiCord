@@ -588,7 +588,9 @@ bool rebuild_account_text_cache() noexcept {
                 // Convergence may recycle message-row widget handles after
                 // the shell scenes were synchronized.  Rebind (or close) the
                 // hover action bar against that final scene before its emoji
-                // commands enter the retained text stream.
+                // commands enter the retained text stream. The selected poll
+                // card follows its converged row.
+                application_poll_synchronize();
                 return message_action_bar_synchronize(&g_app.message_action_bar, g_app.message_scene) &&
                        renderer_rebuild_content_text(static_cast<D3D11Renderer*>(opaque), theme);
             },

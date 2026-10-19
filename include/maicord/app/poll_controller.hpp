@@ -7,6 +7,10 @@ namespace maicord {
 struct RestClientResponse;
 inline constexpr u32 kPollControllerMaximumAnswers = 10;
 inline constexpr u32 kPollControllerMaximumRetries = 3;
+// Local admission (lane busy) retries back off from 50 ms; then the work fails.
+inline constexpr u32 kPollControllerMaximumBusyRetries = 6;
+// Failed reads retry after 500 ms, doubling.
+inline constexpr u32 kPollControllerReadRetryMs = 500;
 struct PollControllerActor {
     u64 account_scope{}, profile_id{}, self_user_id{};
     usize instance{};
@@ -20,6 +24,7 @@ struct PollControllerSource {
 };
 // Caller normalizes the current owned poll record. Missing results mean
 // mine_known=false, never an invented empty vote or zero aggregate count.
+// expiry_ms 0: no known expiry (open).
 struct PollControllerSnapshot {
     PollControllerSource source{};
     u64 expiry_ms{};
@@ -39,7 +44,7 @@ struct PollControllerCommand {
     u64 epoch{}, after_user_id{}, due_at_ms{};
     u32 answer_id{}, limit{};
     u16 desired_mask{};
-    u8 retries{};
+    u8 retries{}, busy_retries{};
     PollControllerWorkKind kind{};
 };
 struct PollControllerTicket { u64 request_id{}, epoch{}; };
@@ -84,12 +89,14 @@ bool poll_controller_prepare(const PollController&, u64 now_ms, u64 unix_now_ms,
                               PollControllerCommand*) noexcept;
 bool poll_controller_admit(PollController*, const PollControllerCommand&, u64 request_id,
                            u64 now_ms, u64 unix_now_ms, PollControllerTicket*) noexcept;
-// Submit failure before transport accepted the request leaves the copied
-// pending command available. No in-flight request or uncertain mutation is created.
-void poll_controller_submit_failed(PollController*, u64 retry_at_ms) noexcept;
+// Busy admission before transport accepted the request keeps the copied pending
+// command with backoff; after kPollControllerMaximumBusyRetries it fails (a vote
+// rolls back). No in-flight request or uncertain mutation is created.
+PollControllerResult poll_controller_submit_failed(PollController*, u64 now_ms) noexcept;
 // Decode into caller-owned page buffers before completing a voter response.
 // Only page_ready permits append. Vote success still requires server-confirmed
 // own-vote convergence; transport/5xx ambiguity requests refresh, never replay.
+// Reads retry transport/5xx failures with backoff; 429 waits for retry_at_ms.
 PollControllerResult poll_controller_complete(PollController*, PollControllerTicket,
     const RestClientResponse&, u64 now_ms, u64 unix_now_ms,
     bool body_valid = true, ConstSlice<ReactionUser> voters = {}) noexcept;

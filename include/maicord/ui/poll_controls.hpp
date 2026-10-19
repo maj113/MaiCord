@@ -231,9 +231,12 @@ struct UiPollVotersTarget {
 constexpr bool ui_poll_voters_target_equal(UiPollVotersTarget a, UiPollVotersTarget b) noexcept {
     return a.control == b.control && a.id == b.id;
 }
+// Wide panels list the answers in a left column (text and vote count) beside
+// the selected answer's voters; narrow panels keep numbered answer chips.
 struct UiPollVotersGeometry {
     UiRect viewport{}, panel{}, title{}, close{}, question{}, answer{}, status{}, body{};
     UiRect answers[kUiPollMaximumAnswers]{}, previous{}, next{}, retry{}, page{};
+    bool columns{};
 };
 struct UiPollVotersScene {
     UiPollVotersState state{};

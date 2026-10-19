@@ -2,6 +2,7 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/decimal.hpp"
 
 namespace maicord {
 namespace {
@@ -125,11 +126,16 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
                 return false;
             // The vote percentage bar sits behind the row content.
             if (results && answer.count_known && state.total_votes_known && projection.percentages[i]) {
-                auto bar = row.bounds;
-                bar.right = bar.left + ui_rect_width(bar) * static_cast<float>(projection.percentages[i]) / 100;
+                // The row's own rounded shape cut at the share: concentric with the
+                // row, with a square leading edge (the row clips it in Discord).
+                const float right =
+                    row.bounds.left + ui_rect_width(row.bounds) * static_cast<float>(projection.percentages[i]) / 100;
                 const Color fill = victor ? projection.bar_victor : voted && !ended ? projection.bar_voted
                                                                                      : projection.bar;
-                if (!rounded(paint, bar, fill, minimum(style.radius, ui_rect_width(bar) * .5f)))
+                if (!paint_stream_push_clip(paint, row.bounds.left, row.bounds.top, right, row.bounds.bottom))
+                    return false;
+                const bool filled = rounded(paint, row.bounds, fill, style.radius);
+                if (!paint_stream_pop_clip(paint) || !filled)
                     return false;
             }
             // Outline: accent while selected (voting) or voted, victor color
@@ -344,8 +350,15 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
             return false;
         for (u32 i = 0; i < scene.state.answers.count; ++i) {
             const bool selected = scene.state.answers[i].id == scene.state.answer_id;
-            if (!border(paint, geometry.answers[i], selected ? scene.accent : scene.surface,
-                        theme.interactive, scene.style.radius))
+            const bool hovered = scene.hover.control == UiPollVotersControl::answer &&
+                                 scene.hover.id == scene.state.answers[i].id;
+            // The answer list marks the open answer and the hovered row only.
+            if (geometry.columns ? (selected || hovered) &&
+                                       !rounded(paint, geometry.answers[i],
+                                                selected ? theme.tokens.fill.muted : theme.surface_high,
+                                                scene.style.radius)
+                                 : !border(paint, geometry.answers[i], selected ? scene.accent : scene.surface,
+                                           theme.interactive, scene.style.radius))
                 return false;
         }
         if (!paint_stream_push_clip(paint, geometry.body.left, geometry.body.top, geometry.body.right,
@@ -413,6 +426,27 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
                                              : utf8_literal("Answer"),
                    geometry.answer, geometry.panel, scene.owner, scene.foreground, text_style_bold))
             return false;
+        if (geometry.columns) {
+            // "Answer text ... N": the label ellipsizes before the vote count.
+            char count[16]{};
+            const u32 count_bytes = answer.count_known ? decimal_write_grouped(count, answer.count) : 0u;
+            const float pad = scene.style.gap;
+            const float count_width = count_bytes ? scene.style.avatar_extent * 1.5f + pad : 0.f;
+            const auto& row = geometry.answers[i];
+            const UiRect text_box{row.left + pad, row.top, row.right - pad - count_width, row.bottom};
+            const UiRect count_box{row.right - pad - count_width, row.top, row.right - pad, row.bottom};
+            const Utf8View text = answer.text.bytes         ? answer.text
+                                  : answer.emoji_name.bytes ? answer.emoji_name
+                                                            : utf8_literal("Answer");
+            if (!label(output, text, text_box, geometry.panel, scene.owner, scene.foreground,
+                       answer.id == scene.state.answer_id ? text_style_bold : text_style_none, false,
+                       UiTextAlignment::start, UiTextAlignment::center) ||
+                (count_bytes && !label(output, {count, count_bytes}, count_box, geometry.panel, scene.owner,
+                                       scene.secondary, text_style_subtext, false, UiTextAlignment::end,
+                                       UiTextAlignment::center)))
+                return false;
+            continue;
+        }
         char text[2]{};
         u32 bytes{};
         if (i + 1 >= 10)

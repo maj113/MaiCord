@@ -133,5 +133,73 @@ void test_poll_controller(void (*check)(bool,const char*) noexcept) noexcept {
     p.mine_known=true; poll_controller_observe(&c,p,true);
     check(poll_controller_queue_vote(&c,1,609,8).ok(),
           "poll known authoritative own result enables a later explicit user vote");
+
+    poll_controller_close(&c); p=source(); p.expiry_ms=0; poll_controller_observe(&c,p);
+    check(poll_controller_queue_vote(&c,1,700,1'000'000).ok() && !poll_controller_expire(&c,1'000'000).changed,
+          "poll without a known expiry stays open instead of reading as expired");
+    // Reads retry transport and 5xx failures with doubling backoff, then stop.
+    poll_controller_close(&c); p=source(); poll_controller_observe(&c,p);
+    poll_controller_queue_refresh(&c,1000);
+    u64 due=1000; u32 sent=0; bool backoff=true;
+    for (u64 id=710;id<714;++id) {
+        backoff=backoff && poll_controller_prepare(c,due,1,&command) &&
+            poll_controller_admit(&c,command,id,due,1,&ticket);
+        ++sent;
+        auto lost=receipt(id,0); lost.error=RestClientError::receive;
+        if (id==712) { lost=receipt(id,503); }
+        const auto done=poll_controller_complete(&c,ticket,lost,due,1);
+        if (id<713) {
+            const u64 wait=u64{kPollControllerReadRetryMs}<<(id-710);
+            backoff=backoff && done.ok() && c.pending_ready && poll_controller_next_wake(c)==due+wait &&
+                !poll_controller_prepare(c,due+wait-1,1,&command);
+            due+=wait;
+        } else backoff=backoff && done.error==PollControllerError::transport && !c.pending_ready;
+    }
+    check(backoff && sent==1+kPollControllerMaximumRetries,
+          "poll read transport/5xx failures retry at 500/1000/2000 ms and stop after three retries");
+    poll_controller_queue_refresh(&c,5000); poll_controller_prepare(c,5000,1,&command);
+    poll_controller_admit(&c,command,715,5000,1,&ticket);
+    auto aborted=receipt(715,0); aborted.error=RestClientError::cancelled;
+    check(poll_controller_complete(&c,ticket,aborted,5001,1).error==PollControllerError::transport &&
+              !c.pending_ready, "poll cancelled read is final, never retried");
+    // Rate limits: each 429 waits for its retry_at; a fourth fails and rolls the vote back.
+    poll_controller_close(&c); p=source(); poll_controller_observe(&c,p);
+    poll_controller_queue_vote(&c,1,6000,1);
+    bool waited=true; u64 at=6000;
+    for (u64 id=720;id<724;++id) {
+        waited=waited && poll_controller_prepare(c,at,1,&command) &&
+            poll_controller_admit(&c,command,id,at,1,&ticket);
+        auto limited429=receipt(id,429); limited429.retry_at_ms=at+1500;
+        const auto done=poll_controller_complete(&c,ticket,limited429,at+1,1);
+        if (id<723) {
+            waited=waited && done.ok() && c.desired_active && !poll_controller_prepare(c,at+1499,1,&command);
+            at+=1500;
+        } else waited=waited && done.error==PollControllerError::http && !c.desired_active &&
+            c.vote_phase==PollControllerVotePhase::failed && !c.pending_ready;
+    }
+    check(waited, "poll vote honours each 429 retry_at, retries three times, then fails with rollback");
+    // Busy local admission backs off from 50 ms and fails after six retries.
+    poll_controller_close(&c); p=source(); poll_controller_observe(&c,p);
+    poll_controller_queue_vote(&c,1,8000,1);
+    bool bounded=true; u64 now=8000;
+    for (u32 i=0;i<kPollControllerMaximumBusyRetries;++i) {
+        bounded=bounded && poll_controller_submit_failed(&c,now).error==PollControllerError::busy &&
+            poll_controller_next_wake(c)==now+(50ull<<i);
+        now+=50ull<<i;
+    }
+    check(bounded && poll_controller_submit_failed(&c,now).error==PollControllerError::transport &&
+              !c.pending_ready && !c.desired_active && c.vote_phase==PollControllerVotePhase::failed &&
+              !poll_controller_next_wake(c),
+          "poll busy admission backs off 50..1600 ms and then fails the vote instead of spinning");
+    // Authority without the sent vote rolls it back with a notice.
+    poll_controller_close(&c); p=source(); poll_controller_observe(&c,p);
+    poll_controller_queue_vote(&c,1,9000,1); poll_controller_prepare(c,9000,1,&command);
+    poll_controller_admit(&c,command,730,9000,1,&ticket);
+    auto unsure=receipt(730,0); unsure.error=RestClientError::receive;
+    poll_controller_complete(&c,ticket,unsure,9001,1);
+    poll_controller_observe(&c,p,true);
+    check(!c.desired_active && c.vote_phase==PollControllerVotePhase::failed &&
+              c.last_error==PollControllerError::transport && poll_controller_queue_vote(&c,1,9002,1).ok(),
+          "poll refresh showing the vote did not land rolls back with a notice and allows a new vote");
 }
 } // namespace maicord

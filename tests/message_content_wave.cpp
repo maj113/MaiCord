@@ -132,13 +132,10 @@ void test_system_text(Check check) noexcept {
 
     input.type = message_type_poll_result;
     input.poll_question = utf8_literal("Lunch?");
-    input.poll_answer = utf8_literal("Soup");
-    input.poll_votes = 2;
-    input.poll_total_votes = 3;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              utf8_equal(text.text, utf8_literal("Ada's poll Lunch? has closed. Soup won with 67%.")) &&
+              utf8_equal(text.text, utf8_literal("Ada's poll Lunch? has closed.")) &&
               utf8_equal(span_text(text, MessageSystemSpanKind::message), utf8_literal("Lunch?")),
-          "system_poll_result_winner");
+          "system_poll_result_line_links_the_poll");
 
     input.type = 0xFFF0;
     input.content = utf8_literal("Blocked.");

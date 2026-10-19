@@ -192,7 +192,7 @@ bool ink(D3D11Renderer& r, const Theme& theme, UiRect rectangle, Color color, u3
     return require(valid, 74);
 }
 } // namespace
-bool poll_scene_ui_probe(D3D11Renderer& renderer) noexcept {
+bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture_frame) noexcept {
     if (!require(renderer.graphics.device && renderer.graphics.context && renderer.graphics.target &&
                      renderer.message_measure_cache && renderer.content_text && renderer.chat_state &&
                      renderer.navigation_view,
@@ -272,7 +272,8 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer) noexcept {
                                      renderer_rebuild_content_text(&renderer, theme),
                                  8);
         renderer.retained_presentation.valid = false;
-        valid = valid && require(probe_present(&renderer, theme), 9);
+        valid = valid && require(probe_present(&renderer, theme), 9) &&
+                require(probe_capture_frame(compact ? L"poll-results.bmp" : L"poll-ballot.bmp", theme), 24);
         const auto& card = f.card.projection;
         const auto& g = card.geometry;
         const auto& style = kDefaultUiPollStyle;
@@ -326,6 +327,22 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer) noexcept {
                             marker_pixels > 3 && renderer.paint_stream.count < 512 &&
                             f.messages.widgets.count == kMessageSceneBaseWidgetsPerRow + 2,
                         10);
+        if (compact) {
+            // Ended: the winner's outline and fill, no actions.
+            auto ended = state;
+            ended.finalized = ended.finalized_known = true;
+            valid = valid &&
+                    require(ui_poll_scene_project(&f.card, ended, static_card.geometry.bounds, viewport, root,
+                                                  UiPollSourceSurface::timeline, kDefaultUiPollStyle, theme,
+                                                  renderer.message_measure_cache, 1) &&
+                                f.card.projection.victor_answers[0] &&
+                                !ui_poll_target_visible(f.card.projection, {UiPollControl::remove_vote}) &&
+                                renderer_rebuild_content_text(&renderer, theme),
+                            25);
+            renderer.retained_presentation.valid = false;
+            valid = valid && require(probe_present(&renderer, theme), 26) &&
+                    require(probe_capture_frame(L"poll-ended.bmp", theme), 27);
+        }
         const auto live = f.card.owner.handle;
         ++f.card.owner.handle.generation;
         valid = valid && require(!d3d11_renderer_poll_scene_visible(renderer) &&
@@ -370,7 +387,8 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer) noexcept {
         renderer.tooltip_scene = &tooltip;
         valid = valid && require(!d3d11_renderer_tooltip_visible(renderer), 21);
         renderer.retained_presentation.valid = false;
-        valid = valid && require(probe_present(&renderer, theme), 14);
+        valid = valid && require(probe_present(&renderer, theme), 14) &&
+                require(probe_capture_frame(compact ? L"poll-voters-compact.bmp" : L"poll-voters.bmp", theme), 28);
         u32 voter_pixels{};
         const auto row = ui_poll_voters_row_rectangle(f.inspector, 0);
         const UiRect name{row.left + f.inspector.style.avatar_extent + f.inspector.style.gap, row.top + 4,

@@ -453,7 +453,8 @@ MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore&, const Mess
     plan.components = components;
     plan.description = type != GatewayMessageEmbedType::image && type != GatewayMessageEmbedType::video &&
                        type != GatewayMessageEmbedType::gifv;
-    plan.fields = rich || type == GatewayMessageEmbedType::poll_result;
+    // A poll result shows its own card text, never its raw fields.
+    plan.fields = rich;
     const bool video = embed_media_valid(embed.video);
     const bool large = video || embed_media_valid(embed.image) || embed_thumbnail_is_image(embed);
     plan.corner_thumbnail = !plan.media_only && embed_media_valid(embed.thumbnail) &&

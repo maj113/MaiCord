@@ -10695,7 +10695,7 @@ int run_probe() noexcept {
         valid = valid && video_scene_ui_probe(g_probe.renderer, probe_capture_frame);
         valid = valid && theme_typography_ui_probe(g_probe.renderer);
         valid = valid && audio_scene_ui_probe(g_probe.renderer);
-        valid = valid && poll_scene_ui_probe(g_probe.renderer);
+        valid = valid && poll_scene_ui_probe(g_probe.renderer, probe_capture_frame);
         valid = valid && navigation_gaps_ui_probe(g_probe.renderer, &g_probe.navigation, g_probe.chat_state,
                                                   probe_sync_shell_and_text, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",

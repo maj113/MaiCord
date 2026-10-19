@@ -1693,6 +1693,72 @@ u32 parse_u32(Utf8View text) noexcept {
     return value;
 }
 
+// Generated card text, retained in the presentation's UTF-8 bank.
+struct RetainedText {
+    MessageTextPresentation* presentation;
+    u32 begin, used;
+    bool ok;
+    void add(Utf8View text) noexcept {
+        if (!ok || text.bytes > presentation->utf8.count - presentation->utf8_count - used) {
+            ok = false;
+            return;
+        }
+        copy_bytes(presentation->utf8.data + begin + used, text.data, text.bytes);
+        used += text.bytes;
+    }
+    Utf8View commit() noexcept {
+        if (!ok)
+            return {};
+        presentation->utf8_count += used;
+        return {presentation->utf8.data + begin, used};
+    }
+};
+
+// The poll result card: the winning answer with its share, a tie or no winner.
+// The system line above links the poll itself.
+bool append_poll_result(MessageTextPresentation* presentation, BuildContext* context, const MessageRichStore& store,
+                        const MessageRichRecord& rich, UiTextFlowLayout* flow, Color text, Color muted,
+                        UiWidgetReference owner, u64 message_id, u32 revision, u16 measurement_index) noexcept {
+    const u32 total = parse_u32(poll_result_field(store, rich, utf8_literal("total_votes")));
+    const u32 votes = parse_u32(poll_result_field(store, rich, utf8_literal("victor_answer_votes")));
+    const bool victor = poll_result_field(store, rich, utf8_literal("victor_answer_id")).bytes != 0;
+    const u32 percent =
+        total ? static_cast<u32>(minimum<u64>((u64{votes} * 200u + total) / (2u * u64{total}), 100u)) : 0u;
+    char number[16];
+    const Utf8View share{number, decimal_write(number, percent)};
+    RetainedText head{presentation, presentation->utf8_count, 0, true};
+    if (!total)
+        head.add(utf8_literal("There was no winner"));
+    else if (victor) {
+        const Utf8View emoji = poll_result_field(store, rich, utf8_literal("victor_answer_emoji_name"));
+        const Utf8View answer = poll_result_field(store, rich, utf8_literal("victor_answer_text"));
+        if (emoji.bytes && !poll_result_field(store, rich, utf8_literal("victor_answer_emoji_id")).bytes) {
+            head.add(emoji);
+            if (answer.bytes)
+                head.add(utf8_literal(" "));
+        }
+        head.add(answer.bytes || emoji.bytes ? answer : utf8_literal("Answer"));
+    } else
+        head.add(utf8_literal("The results were tied"));
+    const Utf8View head_text = head.commit();
+    RetainedText detail{presentation, presentation->utf8_count, 0, true};
+    if (total) {
+        if (victor)
+            detail.add(utf8_literal("Winning answer \xE2\x80\xA2 "));
+        detail.add(share);
+        detail.add(utf8_literal("%"));
+    }
+    const Utf8View detail_text = detail.commit();
+    if (!head.ok || !detail.ok)
+        return fail(presentation, MessageTextPresentationError::capacity);
+    return append_embed_plain_line(presentation, context, head_text, flow, kMessageEmbedContentInset,
+                                   kMessageEmbedEndInset, text, owner, message_id, revision, measurement_index,
+                                   text_style_bold, {}, 0, 16.0f, 0, text_size_sm) &&
+           append_embed_plain_line(presentation, context, detail_text, flow, kMessageEmbedContentInset,
+                                   kMessageEmbedEndInset, muted, owner, message_id, revision, measurement_index,
+                                   text_style_none, {}, 0, 16.0f, 0, text_size_xs);
+}
+
 // Generates the system line (with a trailing muted time) into the retained
 // buffers; names open profiles and references become actions.
 bool retain_system_text(MessageTextPresentation* presentation, const ChatStateStore& state, const UserStore* users,
@@ -1739,9 +1805,6 @@ bool retain_system_text(MessageTextPresentation* presentation, const ChatStateSt
         input.call_ended_ms = rich->system.call_ended_ms;
         if (record.type == message_type_poll_result) {
             input.poll_question = poll_result_field(*rich_store, *rich, utf8_literal("poll_question_text"));
-            input.poll_answer = poll_result_field(*rich_store, *rich, utf8_literal("victor_answer_text"));
-            input.poll_votes = parse_u32(poll_result_field(*rich_store, *rich, utf8_literal("victor_answer_votes")));
-            input.poll_total_votes = parse_u32(poll_result_field(*rich_store, *rich, utf8_literal("total_votes")));
         }
     }
     const u32 available = presentation->utf8.count - presentation->utf8_count;
@@ -2890,6 +2953,14 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                             kMessageEmbedEndInset, theme.text_primary, owner, record->id,
                                             record->revision, measurement_index, plan.markdown, 0, 0,
                                             plan.components ? text_size_inherit : text_size_sm))
+                        return false;
+                    measure_from(first, text_insets);
+                }
+                if (embed.type == GatewayMessageEmbedType::poll_result) {
+                    const u32 first = presentation->command_count;
+                    if (!block_gap() ||
+                        !append_poll_result(presentation, &context, *rich_store, *rich, &flow, theme.text_primary,
+                                            muted, owner, record->id, record->revision, measurement_index))
                         return false;
                     measure_from(first, text_insets);
                 }

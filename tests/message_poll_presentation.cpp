@@ -4,6 +4,9 @@
 #include "maicord/ui/poll_controls.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/model/message_reconcile.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "maicord/ui/message_system_text.hpp"
 
 namespace maicord {
 namespace {
@@ -116,6 +119,114 @@ bool selected(void* source, u64 id, Slice<UiPollAnswer> answers, UiPollState* ou
     *out = state;
     return true;
 }
+
+// A POLL_RESULT system message: one row with its poll_result embed.
+struct ResultFixture {
+    MessageRecord records[1]{};
+    u32 order[1]{};
+    u8 bytes[256]{};
+    MessageRichRecord rich_records[1]{};
+    u16 rich_order[1]{};
+    u8 rich_text[4096]{};
+    u32 heights[1]{};
+    u64 fenwick[1]{};
+    UiWidget widgets[kMessageSceneWidgetsPerRow + 1]{};
+    UiLayoutNode nodes[kMessageSceneWidgetsPerRow + 1]{};
+    MessageStore store{};
+    MessageRichStore rich{};
+    UiVariableList list{};
+    MessageTimeline timeline{};
+    MessageScene scene{};
+    UiTextMeasureRecord cache_records[64]{};
+    UiTextMeasureCache cache{};
+    MessageTextCommand commands[64]{};
+    char display[4096]{};
+    TextStyleSpan styles[64]{};
+    MessageMarkdownSemantic semantics[8]{};
+    MessageTextMeasurement measurements[2]{};
+    MessageTextSpoilerReveal reveals[2]{};
+    u32 scratch[512]{};
+    MessageTextPresentation text{};
+};
+bool contains_text(const MessageTextPresentation& text, Utf8View value) noexcept {
+    for (u32 i = 0; i < text.command_count; ++i)
+        if (text.commands[i].text.bytes >= value.bytes)
+            for (u32 at = 0; at + value.bytes <= text.commands[i].text.bytes; ++at)
+                if (bytes_equal(text.commands[i].text.data + at, value.data, value.bytes))
+                    return true;
+    return false;
+}
+// Builds the row for the given result fields; false on any setup failure.
+bool build_result(ResultFixture& f, ConstSlice<GatewayMessageEmbedField> fields) noexcept {
+    GatewayMessageEmbed embed{};
+    embed.type = GatewayMessageEmbedType::poll_result;
+    embed.field_count = static_cast<u16>(fields.count);
+    GatewayMessageEvent message{};
+    message.id = 4500;
+    message.channel_id = 55;
+    message.author_id = 91;
+    message.timestamp_ms = 1'700'000'000'000ull;
+    message.type = message_type_poll_result;
+    message.embeds = {&embed, 1};
+    message.embed_fields = fields;
+    message.fields = gateway_message_field_id | gateway_message_field_channel_id |
+                     gateway_message_field_author_id | gateway_message_field_timestamp |
+                     gateway_message_field_type | gateway_message_field_embeds | gateway_message_field_content;
+    ChatStateStore state{};
+    NavigationView navigation{};
+    return message_store_initialize(&f.store, {f.records, 1}, {f.order, 1}, {f.bytes, sizeof(f.bytes)}) &&
+           message_reconcile_create(&f.store, message).ok() &&
+           message_rich_store_initialize(&f.rich, {f.rich_records, 1}, {f.rich_order, 1},
+                                         {f.rich_text, sizeof(f.rich_text)}) &&
+           message_rich_store_apply(&f.rich, 4500, f.records[0].revision, message).ok() &&
+           ui_variable_list_initialize(&f.list, {f.heights, 1}, {f.fenwick, 1}, 1, ui_extent_units(48)) &&
+           message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(48), ui_extent_units(800),
+                                       false) &&
+           message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+           ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 64}, measure, nullptr) &&
+           message_scene_initialize_owned(&f.scene, &f.timeline, 1, 1, {f.widgets, kMessageSceneWidgetsPerRow + 1},
+                                          {f.nodes, kMessageSceneWidgetsPerRow + 1}) &&
+           message_scene_update(&f.scene, {0, 0, 600, 800}).ok() &&
+           message_text_presentation_initialize(&f.text, {f.commands, 64}, {f.display, sizeof(f.display)},
+                                                {f.styles, 64}, {f.semantics, 8}, {f.measurements, 2},
+                                                {f.reveals, 2}, {f.scratch, 512}) &&
+           message_text_presentation_build(&f.text, f.scene, state, nullptr, navigation, kDefaultTheme, 0).ok();
+}
+void test_poll_result_card(void (*check)(bool, const char*) noexcept) noexcept {
+    static ResultFixture f;
+    const GatewayMessageEmbedField winner[]{{utf8_literal("poll_question_text"), utf8_literal("Lunch?"), 0, false},
+                                            {utf8_literal("victor_answer_votes"), utf8_literal("2"), 0, false},
+                                            {utf8_literal("total_votes"), utf8_literal("3"), 0, false},
+                                            {utf8_literal("victor_answer_id"), utf8_literal("1"), 0, false},
+                                            {utf8_literal("victor_answer_text"), utf8_literal("Soup"), 0, false},
+                                            {utf8_literal("victor_answer_emoji_name"), utf8_literal("\xF0\x9F\x8D\xB2"),
+                                             0, false}};
+    f = {};
+    bool ready = build_result(f, {winner, 6});
+    check(ready && contains_text(f.text, utf8_literal("has closed.")) &&
+              contains_text(f.text, utf8_literal("\xF0\x9F\x8D\xB2 Soup")) &&
+              contains_text(f.text, utf8_literal("Winning answer \xE2\x80\xA2 67%")) &&
+              !contains_text(f.text, utf8_literal("victor_answer")) && !contains_text(f.text, utf8_literal("won with")),
+          "poll result card: the winner, its emoji and share replace the raw embed fields");
+    message_scene_release(&f.scene);
+    const GatewayMessageEmbedField tie[]{{utf8_literal("poll_question_text"), utf8_literal("Lunch?"), 0, false},
+                                         {utf8_literal("victor_answer_votes"), utf8_literal("1"), 0, false},
+                                         {utf8_literal("total_votes"), utf8_literal("2"), 0, false}};
+    f = {};
+    ready = build_result(f, {tie, 3});
+    check(ready && contains_text(f.text, utf8_literal("The results were tied")) &&
+              contains_text(f.text, utf8_literal("50%")),
+          "poll result card: a tie shows the tied share");
+    message_scene_release(&f.scene);
+    const GatewayMessageEmbedField none[]{{utf8_literal("poll_question_text"), utf8_literal("Lunch?"), 0, false},
+                                          {utf8_literal("total_votes"), utf8_literal("0"), 0, false}};
+    f = {};
+    ready = build_result(f, {none, 2});
+    check(ready && contains_text(f.text, utf8_literal("There was no winner")) &&
+              !contains_text(f.text, utf8_literal("%")),
+          "poll result card: no votes shows no winner");
+    message_scene_release(&f.scene);
+}
 } // namespace
 
 void test_message_poll_presentation(void (*check)(bool, const char*) noexcept) noexcept {
@@ -220,5 +331,6 @@ void test_message_poll_presentation(void (*check)(bool, const char*) noexcept) n
           "poll message: admitted poll flag without retained metadata displays bounded unavailable shell "
           "with disabled mutation");
     fixture.release();
+    test_poll_result_card(check);
 }
 } // namespace maicord

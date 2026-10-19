@@ -159,9 +159,8 @@ Pattern pattern(const MessageSystemTextInput& input, u32* tier) noexcept {
     case message_type_purchase_notification:
         return {"{a} made a purchase in this server.", UiIcon::tag, T::boost};
     case message_type_poll_result:
-        return input.poll_answer.bytes
-                   ? Pattern{"{a}'s poll [{q}] has closed. {w} won with {v}.", UiIcon::poll, T::accent}
-                   : Pattern{"{a}'s poll [{q}] has closed.", UiIcon::poll, T::accent};
+        // The winner shows in the result card below the line.
+        return {"{a}'s poll [{q}] has closed.", UiIcon::poll, T::accent};
     case message_type_join_request_accepted:
         return {"{a}'s request to join was accepted.", UiIcon::user_check, T::positive};
     case message_type_join_request_rejected:
@@ -281,20 +280,6 @@ bool message_system_text_build(const MessageSystemTextInput& input, Slice<char> 
             case 'q':
                 writer.raw(input.poll_question.bytes ? input.poll_question : utf8_literal("Poll"));
                 break;
-            case 'w':
-                writer.span(input.poll_answer, MessageSystemSpanKind::emphasis);
-                break;
-            case 'v': {
-                const u32 percent =
-                    input.poll_total_votes
-                        ? static_cast<u32>((static_cast<u64>(input.poll_votes) * 100u + input.poll_total_votes / 2u) /
-                                           input.poll_total_votes)
-                        : 0u;
-                u32 bytes = decimal_write(number, percent);
-                number[bytes++] = '%';
-                writer.raw({number, bytes});
-                break;
-            }
             case 'd': {
                 const u64 duration = input.call_ended_ms > input.timestamp_ms && input.timestamp_ms
                                          ? input.call_ended_ms - input.timestamp_ms

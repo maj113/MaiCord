@@ -686,7 +686,10 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
                       scene->owner.handle.generation == owner.handle.generation &&
                       scene->surface == surface && scene->projection.state.owner == state.owner &&
                       scene->projection.state.generation == state.generation;
-    const bool capture_current = same && scene->projection.state.revision == state.revision &&
+    // A count-only update (a vote on a busy poll) keeps a press in progress while
+    // its target keeps its place and meaning.
+    const bool capture_current = same &&
+                                 ui_poll_counts_visible(scene->projection.state) == ui_poll_counts_visible(state) &&
                                  ui_rect_equal(scene->clip, effective) &&
                                  ui_rect_equal(ui_poll_target_rectangle(scene->projection, scene->capture),
                                                ui_poll_target_rectangle(projection, scene->capture));

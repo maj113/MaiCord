@@ -259,6 +259,9 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
         return failure(store, MessagePollStoreError::invalid_input);
 
     MessagePollRecord next = old ? *old : MessagePollRecord{};
+    // An omitted layout_type is the default layout (1), the only one in use.
+    if (!old)
+        next.layout_type = 1;
     next.message_id = id;
     next.channel_id = channel;
     Utf8View question = old ? message_poll_store_string(*store, old->question) : Utf8View{};

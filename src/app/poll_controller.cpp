@@ -41,7 +41,7 @@ PollControllerError vote_allowed(const PollController& c,u16 mask,u64 unix_now) 
     if (c.vote_barrier!=PollControllerError::none) return c.vote_barrier;
     if (!p.can_vote || !p.can_inspect) return PollControllerError::forbidden;
     if (p.finalized) return PollControllerError::finalized;
-    if (!p.expiry_ms || unix_now>=p.expiry_ms) return PollControllerError::expired;
+    if (p.expiry_ms && unix_now>=p.expiry_ms) return PollControllerError::expired;
     if ((mask>>p.answer_count) || (!p.multiple && mask && (mask&(mask-1))) ||
         (!mask && (!p.mine_known || !p.mine_mask)) ||
         (mask && p.mine_known && p.mine_mask && mask!=p.mine_mask &&
@@ -108,8 +108,12 @@ PollControllerResult poll_controller_observe(PollController* c,const PollControl
         c->refresh_required=false;
     } else if (c->desired_active && p.mine_known &&
                (p.mine_mask==c->desired_mask || authoritative_refresh)) {
-        c->desired_active=false; c->vote_phase=PollControllerVotePhase::idle;
-        c->refresh_required=false; c->last_error=PollControllerError::none;
+        // Authority without the wanted vote rolls it back with a notice.
+        const bool landed=p.mine_mask==c->desired_mask;
+        c->desired_active=false;
+        c->vote_phase=landed?PollControllerVotePhase::idle:PollControllerVotePhase::failed;
+        c->refresh_required=false;
+        c->last_error=landed?PollControllerError::none:PollControllerError::transport;
         if (c->pending_ready && c->pending.kind==PollControllerWorkKind::vote) {
             c->pending_ready=false; c->pending={};
         }
@@ -205,8 +209,21 @@ bool poll_controller_admit(PollController* c,const PollControllerCommand& comman
     if (command.kind==PollControllerWorkKind::vote) c->vote_phase=PollControllerVotePhase::sending;
     *ticket=c->flight.ticket; return true;
 }
-void poll_controller_submit_failed(PollController* c,u64 retry_at) noexcept {
-    if (c && c->pending_ready && !c->flight.active) c->pending.due_at_ms=retry_at;
+PollControllerResult poll_controller_submit_failed(PollController* c,u64 now) noexcept {
+    if (!c || !c->initialized || !c->pending_ready || c->flight.active || !now)
+        return {PollControllerError::invalid_input};
+    if (c->pending.busy_retries<kPollControllerMaximumBusyRetries) {
+        c->pending.due_at_ms=deadline_after(now,50ull<<c->pending.busy_retries);
+        ++c->pending.busy_retries;
+        return result(*c,PollControllerError::busy);
+    }
+    const auto kind=c->pending.kind;
+    c->pending={}; c->pending_ready=false;
+    if (kind==PollControllerWorkKind::vote) {
+        c->desired_active=false; c->vote_phase=PollControllerVotePhase::failed;
+    } else if (kind==PollControllerWorkKind::voters) c->voters_failed=true;
+    else c->refresh_required=false;
+    return result(*c,PollControllerError::transport,true);
 }
 PollControllerResult poll_controller_complete(PollController* c,PollControllerTicket ticket,
     const RestClientResponse& response,u64 now,u64 unix_now,bool body_valid,
@@ -222,7 +239,7 @@ PollControllerResult poll_controller_complete(PollController* c,PollControllerTi
     if (response.transport_ok() && response.status_code==429 && response.retry_at_ms &&
         command.retries<kPollControllerMaximumRetries && !c->pending_ready &&
         (!vote || c->desired_active)) {
-        c->pending=command; ++c->pending.retries;
+        c->pending=command; ++c->pending.retries; c->pending.busy_retries=0;
         c->pending.due_at_ms=response.retry_at_ms>now?response.retry_at_ms:deadline_after(now,250);
         c->pending_ready=true;
         if (vote) c->vote_phase=PollControllerVotePhase::queued;
@@ -252,6 +269,14 @@ PollControllerResult poll_controller_complete(PollController* c,PollControllerTi
             return result(*c,PollControllerError::forbidden,true);
         }
         return result(*c,PollControllerError::http,true);
+    }
+    const bool transient=(!response.transport_ok() && response.error!=RestClientError::cancelled) ||
+                         response.status_code==408 || response.status_code>=500;
+    if (transient && command.retries<kPollControllerMaximumRetries && !c->pending_ready) {
+        c->pending=command; ++c->pending.retries; c->pending.busy_retries=0;
+        c->pending.due_at_ms=deadline_after(now,u64{kPollControllerReadRetryMs}<<command.retries);
+        c->pending_ready=true;
+        return result(*c,PollControllerError::none,true);
     }
     if (!success || response.status_code!=200 || !body_valid) {
         if (command.kind==PollControllerWorkKind::voters) c->voters_failed=true;

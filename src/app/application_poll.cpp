@@ -24,6 +24,14 @@ struct PollPage {
     ReactionUser users[page_limit];
     char text[page_text_bytes];
 };
+// First voter page of each answer of the open poll, reused while its results
+// are unchanged: switching answers or reopening the inspector sends nothing.
+struct PollVoterCache {
+    u64 message_id;
+    u32 answer_id[kUiPollMaximumAnswers], result_revision[kUiPollMaximumAnswers], count[kUiPollMaximumAnswers];
+    bool more[kUiPollMaximumAnswers], controller_more[kUiPollMaximumAnswers];
+    PollPage pages[kUiPollMaximumAnswers];
+};
 struct PollOwner {
     PollController controller;
     ApplicationPollSource source;
@@ -39,6 +47,7 @@ struct PollOwner {
     UiWidgetReference root;
     UiPollVotersTarget pressed;
     PollPage* pages[2];
+    PollVoterCache* voter_cache;
     u64 cursors[cursor_capacity], publication, pressed_publication, pressed_revision;
     u32 revision, user_count, cursor_first, cursor_count, page, requested_page, held_key;
     u16 selection;
@@ -176,12 +185,13 @@ bool connected() noexcept {
 PollControllerSnapshot snapshot(const ApplicationPollSource& source, const MessagePollRecord& p) noexcept {
     PollControllerSnapshot s{};
     s.source = source.source;
-    s.expiry_ms = p.expiry_null ? 0 : p.expiry_ms;
+    // Null or omitted expiry: open (Discord reserves null for non-expiring polls).
+    s.expiry_ms = (p.fields & gateway_message_poll_field_expiry) && !p.expiry_null ? p.expiry_ms : 0;
     s.answer_count = p.answer_count;
     s.multiple = p.allow_multiselect;
     s.finalized = p.is_finalized;
     s.can_inspect = p.layout_type == 1;
-    s.can_vote = s.can_inspect && connected() && !p.expiry_null && p.expiry_ms > clock_unix_milliseconds();
+    s.can_vote = s.can_inspect && connected() && (!s.expiry_ms || s.expiry_ms > clock_unix_milliseconds());
     s.mine_known = p.results_known;
     for (u32 i = 0; i < p.answer_count; ++i) {
         s.answer_ids[i] = p.answers[i].id;
@@ -240,8 +250,13 @@ void cancel_retired() noexcept {
         owner->cancel_requested)
         return;
     const auto& flight = owner->controller.flight;
-    if (flight.command.kind == PollControllerWorkKind::vote)
+    if (flight.command.kind == PollControllerWorkKind::vote) {
+        // A sent vote is never cancelled: it may have landed. Its receipt still
+        // applies; until then a refresh reconciles.
         uncertain(flight.command.snapshot.source.message_id);
+        owner->cancel_requested = true;
+        return;
+    }
     if (g_app.account.instance &&
         reinterpret_cast<usize>(g_app.account.instance) == flight.command.snapshot.source.actor.instance &&
         !application_account_logout_host_owned() && g_app.account.api.poll) {
@@ -292,8 +307,29 @@ void free_owner() noexcept {
     for (auto* page : owner->pages)
         if (page)
             VirtualFree(page, 0, MEM_RELEASE);
+    if (owner->voter_cache)
+        VirtualFree(owner->voter_cache, 0, MEM_RELEASE);
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
+}
+// Copies a page with its user labels rebased onto the destination text.
+void copy_page(PollPage& to, const PollPage& from, u32 count) noexcept {
+    copy_bytes(to.text, from.text, sizeof(from.text));
+    const auto rebase = [&](Utf8View value) noexcept {
+        return value.bytes ? Utf8View{to.text + (value.data - from.text), value.bytes} : Utf8View{};
+    };
+    for (u32 i = 0; i < count; ++i) {
+        to.users[i] = from.users[i];
+        to.users[i].username = rebase(from.users[i].username);
+        to.users[i].display_name = rebase(from.users[i].display_name);
+        to.users[i].avatar_hash = rebase(from.users[i].avatar_hash);
+    }
+}
+u32 cache_slot(const MessagePollRecord& p, u32 answer) noexcept {
+    for (u32 i = 0; i < p.answer_count; ++i)
+        if (p.answers[i].id == answer)
+            return i;
+    return kUiPollMaximumAnswers;
 }
 bool page_storage(u8 bank) noexcept {
     if (!owner->pages[bank])
@@ -378,7 +414,6 @@ bool project_state(const ApplicationPollSource& source, const MessagePollRecord&
     state.status = selected ? owner->status : Utf8View{};
     state.supported = p.layout_type == 1;
     state.can_view_results = state.supported;
-    state.can_view_voters = state.supported && state.results;
     const bool working = selected && (owner->controller.pending_ready || owner->controller.flight.active ||
                                       owner->controller.desired_active);
     state.loading = working;
@@ -425,6 +460,8 @@ bool project_state(const ApplicationPollSource& source, const MessagePollRecord&
         if (a.count_known)
             state.total_votes += count;
     }
+    // Ended polls show counts without a vote or "Show results": voters stay open.
+    state.can_view_voters = state.supported && ui_poll_counts_visible(state);
     *out = state;
     return true;
 }
@@ -487,12 +524,20 @@ MessageScene* source_scene(const ApplicationPollSource& source) noexcept {
     return source.surface == UiPollSourceSurface::search && search ? ui_search_scene_message_scene(search)
                                                                    : nullptr;
 }
-bool project_card() noexcept {
+void hide_card() noexcept {
+    owner->card.active = false;
+    renderer_bind_poll_scene(&g_app.renderer, nullptr);
+}
+// Projects the selected card from its row's layout node and the live poll. The
+// row's own measured projection lags a result change until the next text
+// convergence, so it is not consulted. A card that cannot be shown (scrolled
+// out, row gone, projection rejected) is hidden; this never fails the pump.
+void project_card() noexcept {
     if (!owner || !owner->controller.source_active)
-        return true;
+        return;
     auto* scene = source_scene(owner->source);
     const MessageSceneRowWidget* row{};
-    for (u32 i = 0; scene && i < scene->count; ++i) {
+    for (u32 i = 0; scene && scene->active && i < scene->count; ++i) {
         const auto& candidate = scene->rows[i];
         if (!candidate.redacted && !candidate.forwarded_snapshot &&
             candidate.message_id == owner->source.source.message_id &&
@@ -502,45 +547,38 @@ bool project_card() noexcept {
             break;
         }
     }
-    if (!row) {
-        owner->card.active = false;
-        renderer_bind_poll_scene(&g_app.renderer, nullptr);
-        return true;
-    }
-    const auto handle = message_scene_rich_item_widget(*row, MessageSceneRichItemKind::poll, 0);
-    const auto* node = message_scene_rich_item_layout_node(*scene, *row, MessageSceneRichItemKind::poll, 0);
-    if (!node || !handle.generation || !ui_widget_manager_input_enabled(scene->widgets, handle)) {
-        owner->card.active = false;
-        renderer_bind_poll_scene(&g_app.renderer, nullptr);
-        return true;
-    }
+    const auto handle = row ? message_scene_rich_item_widget(*row, MessageSceneRichItemKind::poll, 0)
+                            : UiWidgetHandle{};
+    const auto* node =
+        row ? message_scene_rich_item_layout_node(*scene, *row, MessageSceneRichItemKind::poll, 0) : nullptr;
+    if (!node || !handle.generation || !ui_widget_manager_input_enabled(scene->widgets, handle))
+        return hide_card();
+    const auto clip = ui_rect_intersection(node->clip_rectangle, scene->viewport);
+    if (!ui_rect_has_area(ui_rect_intersection(node->content_rectangle, clip)))
+        return hide_card();
     UiPollState state{};
     const auto* p = poll(owner->source);
     if (!p || !project_state(owner->source, *p, {owner->answers, kUiPollMaximumAnswers}, &state))
-        return false;
-    const auto clip = ui_rect_intersection(node->clip_rectangle, scene->viewport);
+        return hide_card();
     const auto theme = hash64_counted_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
     const UiWidgetReference root{&scene->widgets, handle};
     const bool same =
         owner->card.active && owner->card.projection.state.revision == state.revision &&
         owner->card.owner.manager == root.manager && ui_widget_handle_equal(owner->card.owner.handle, handle) &&
         ui_rect_equal(owner->card_node_bounds, node->content_rectangle) &&
-        ui_rect_equal(owner->card.clip, clip) && owner->card.projection.state.now_ms == state.now_ms &&
-        owner->card_theme == theme && owner->card_dpi == g_app.renderer.dpi;
-    if (!same) {
-        UiPollProjection projection{};
-        if (!message_scene_poll_projection(*scene, *row, application_theme(),
-                                           {owner->answers, kUiPollMaximumAnswers}, &projection) ||
-            !ui_poll_scene_project(&owner->card, state, projection.geometry.bounds, clip, root,
-                                   owner->source.surface, ui_theme_poll_style(application_theme()),
-                                   application_theme(), &g_app.account_ui->text_measure_cache,
-                                   renderer_text_measure_revision(g_app.renderer)))
-            return false;
-    }
+        ui_rect_equal(owner->card.clip, ui_rect_intersection(owner->card.projection.geometry.bounds, clip)) &&
+        owner->card.projection.state.now_ms == state.now_ms && owner->card_theme == theme &&
+        owner->card_dpi == g_app.renderer.dpi;
+    if (!same && !ui_poll_scene_project(&owner->card, state, node->content_rectangle, clip, root,
+                                        owner->source.surface, ui_theme_poll_style(application_theme()),
+                                        application_theme(), &g_app.account_ui->text_measure_cache,
+                                        renderer_text_measure_revision(g_app.renderer)))
+        return hide_card();
     owner->card_node_bounds = node->content_rectangle;
     owner->card_theme = theme;
     owner->card_dpi = g_app.renderer.dpi;
-    return renderer_bind_poll_scene(&g_app.renderer, &owner->card);
+    if (!renderer_bind_poll_scene(&g_app.renderer, &owner->card))
+        hide_card();
 }
 bool queue_page(u32 answer, u32 page, u64 after) noexcept {
     if (!owner || !application_poll_synchronize() || !owner->controller.source_active)
@@ -567,13 +605,8 @@ bool front() noexcept {
     return !g_app.text_form && !g_app.popup_scene.active && !g_app.image_viewer.scene.active &&
            !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
 }
-bool choose_card(UiPoint point, bool keyboard) noexcept {
-    MessageScene* scene = &g_app.message_scene;
-    if (application_search_active()) {
-        auto* search = application_search_scene();
-        scene = search ? ui_search_scene_message_scene(search) : nullptr;
-    }
-    if (!scene || !scene->active)
+bool choose_card(MessageScene* scene, UiPoint point, bool keyboard) noexcept {
+    if (!scene || !scene->active || (!keyboard && !ui_rect_contains(scene->viewport, point.x, point.y)))
         return false;
     for (u32 i = 0; i < scene->count; ++i) {
         const auto& row = scene->rows[i];
@@ -614,6 +647,12 @@ bool choose_card(UiPoint point, bool keyboard) noexcept {
         return true;
     }
     return false;
+}
+// Search results and the timeline are both live: either may hold the card.
+bool choose_card(UiPoint point, bool keyboard) noexcept {
+    auto* search = application_search_active() ? application_search_scene() : nullptr;
+    return (search && choose_card(ui_search_scene_message_scene(search), point, keyboard)) ||
+           choose_card(&g_app.message_scene, point, keyboard);
 }
 } // namespace
 
@@ -810,7 +849,39 @@ bool application_poll_voters(u32 answer, bool more) noexcept {
     value.cursors[0] = 0;
     value.loaded_before[0] = 0;
     value.cursor_count = 1;
-    return queue_page(answer, 0, 0);
+    const auto* p = poll(value.source);
+    const u32 slot = p ? cache_slot(*p, answer) : kUiPollMaximumAnswers;
+    const auto* cache = value.voter_cache;
+    const u8 bank = value.bank ^ 1;
+    if (slot == kUiPollMaximumAnswers || !cache || cache->message_id != p->message_id ||
+        cache->answer_id[slot] != answer || cache->result_revision[slot] != p->result_revision ||
+        !page_storage(bank))
+        return queue_page(answer, 0, 0);
+    // Cached first page: the inspector opens at once and no request is sent.
+    auto& c = value.controller;
+    if (c.pending_ready && c.pending.kind == PollControllerWorkKind::voters) {
+        c.pending = {};
+        c.pending_ready = false;
+    }
+    if (c.flight.active && c.flight.command.kind == PollControllerWorkKind::voters)
+        c.flight.retired = true;
+    cancel_retired();
+    clear_capture();
+    copy_page(*value.pages[bank], cache->pages[slot], cache->count[slot]);
+    value.bank = bank;
+    value.user_count = cache->count[slot];
+    value.requested_page = 0;
+    value.voters_more = cache->more[slot];
+    c.voter_answer_id = answer;
+    c.after_user_id = value.user_count ? value.pages[bank]->users[value.user_count - 1].id : 0;
+    c.voters_more = cache->controller_more[slot];
+    c.voters_failed = false;
+    value.status = {};
+    value.voters_active = true;
+    value.scene.scroll = 0;
+    changed();
+    g_app.context_focus = &value.widgets;
+    return project_voters();
 }
 bool application_poll_voters_previous() noexcept {
     if (!application_poll_voters_active() || owner->page <= owner->cursor_first ||
@@ -907,8 +978,14 @@ bool application_poll_synchronize() noexcept {
             changed();
         }
     }
-    return project_card() && project_voters() &&
-           renderer_bind_poll_voters_scene(&g_app.renderer, owner->voters_active ? &owner->scene : nullptr);
+    // Presentation failures degrade the poll surfaces; they never fail the
+    // account pump (a false here used to stop the whole session).
+    project_card();
+    if (!project_voters())
+        application_poll_voters_close();
+    if (!renderer_bind_poll_voters_scene(&g_app.renderer, owner->voters_active ? &owner->scene : nullptr))
+        application_poll_voters_close();
+    return true;
 }
 bool application_poll_pending(u64 now) noexcept {
     if (!application_poll_synchronize() || !application_poll_active() || !connected())
@@ -943,9 +1020,10 @@ bool application_poll_submit(u64 id, u64 now) noexcept {
         g_app.account_ui->message_poll_store, request.message_id, g_app.account_ui->poll_gateway_serial);
     const auto result = g_app.account.api.poll(g_app.account.instance, &request, id);
     if (!result.ok()) {
-        if (result.error == RestClientSubmitError::busy)
-            poll_controller_submit_failed(&value.controller, deadline_after(now, 50));
-        else {
+        if (result.error == RestClientSubmitError::busy) {
+            if (poll_controller_submit_failed(&value.controller, now).error != PollControllerError::busy)
+                value.status = error_text(value.controller.last_error);
+        } else {
             value.controller.pending_ready = false;
             value.controller.pending = {};
             value.controller.desired_active = false;
@@ -1048,6 +1126,25 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
         message_poll_store_own_vote(&g_app.account_ui->message_poll_store, value.source.source.message_id,
                                     value.source.source.channel_id, value.source.source.actor.self_user_id,
                                     flight.command.desired_mask);
+    // A vote that outlived its card (channel switch, another poll opened) still
+    // lands for the same account and poll content.
+    const auto& voted = flight.command.snapshot.source;
+    const auto* voted_poll = g_app.account_ui ? message_poll_store_find(g_app.account_ui->message_poll_store,
+                                                                         voted.message_id)
+                                              : nullptr;
+    const auto voter = actor();
+    if (!vote_accepted && flight.command.kind == PollControllerWorkKind::vote && response.transport_ok() &&
+        response.status_code >= 200 && response.status_code < 300 && voted_poll &&
+        voted_poll->channel_id == voted.channel_id &&
+        voted_poll->content_revision == voted.poll_content_revision && voter.instance == voted.actor.instance &&
+        voter.account_scope == voted.actor.account_scope && voter.profile_id == voted.actor.profile_id &&
+        voter.self_user_id == voted.actor.self_user_id &&
+        message_poll_store_own_vote(&g_app.account_ui->message_poll_store, voted.message_id, voted.channel_id,
+                                    voted.actor.self_user_id, flight.command.desired_mask)
+            .ok())
+        for (auto& id : value.uncertain_messages)
+            if (id == voted.message_id)
+                id = 0;
     if (!fresh)
         value.controller.flight.retired = true;
     const auto result =
@@ -1075,6 +1172,24 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
         value.voters_more =
             users.count &&
             (answer && answer->count_known ? loaded < answer->count : users.count == flight.command.limit);
+        const u32 slot = current ? cache_slot(*current, flight.command.answer_id) : kUiPollMaximumAnswers;
+        if (!flight.command.after_user_id && slot < kUiPollMaximumAnswers && !value.voter_cache)
+            value.voter_cache = static_cast<PollVoterCache*>(
+                VirtualAlloc(nullptr, sizeof(PollVoterCache), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!flight.command.after_user_id && slot < kUiPollMaximumAnswers && value.voter_cache) {
+            auto& cache = *value.voter_cache;
+            if (cache.message_id != current->message_id) {
+                for (auto& id : cache.answer_id)
+                    id = 0;
+                cache.message_id = current->message_id;
+            }
+            copy_page(cache.pages[slot], *value.pages[value.bank], users.count);
+            cache.answer_id[slot] = flight.command.answer_id;
+            cache.result_revision[slot] = current->result_revision;
+            cache.count[slot] = users.count;
+            cache.more[slot] = value.voters_more;
+            cache.controller_more[slot] = value.controller.voters_more;
+        }
     }
     value.status = error_text(value.controller.last_error);
     if (value.release_pending) {
