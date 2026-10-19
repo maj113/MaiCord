@@ -276,6 +276,20 @@ UiRect ui_profile_dialog_crop_editor(UiRect viewport) noexcept {
 bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogContent& content, UiRect viewport) noexcept {
     if (!s || content.kind == UiProfileDialogKind::none || !ui_rect_has_area(viewport))
         return false;
+    // The host rebuilds every frame; a press, hover or focus carries over to the
+    // rebuilt part with the same role and source, or a click never completes.
+    struct {
+        u8 role;
+        u16 source;
+        bool valid;
+    } kept[3]{};
+    if (s->active) {
+        const UiWidgetHandle handles[3]{s->widgets.captured, s->widgets.hovered, s->widgets.focused};
+        for (u32 k = 0; k < 3; ++k)
+            for (u32 i = 0; i < s->part_count; ++i)
+                if (ui_widget_handle_equal(s->parts[i].widget, handles[k]))
+                    kept[k] = {s->parts[i].role, s->parts[i].source, true};
+    }
     if (!s->active) {
         if (!ui_widget_manager_initialize(&s->widgets, {s->widget_storage, kUiProfileDialogPartCapacity + 4},
                                           {s->node_storage, kUiProfileDialogPartCapacity + 4}))
@@ -295,6 +309,11 @@ bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogCont
     const bool built = crop(*s) ? build_crop(s, root.handle, viewport) : build_picker(s, root.handle, viewport);
     if (!built || !ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
         return false;
+    bool (*const restore[3])(UiWidgetManager*, UiWidgetHandle) noexcept{
+        ui_widget_manager_capture, ui_widget_manager_hover, ui_widget_manager_focus};
+    for (u32 k = 0; k < 3; ++k)
+        if (const auto* part = kept[k].valid ? find(*s, static_cast<Role>(kept[k].role), kept[k].source) : nullptr)
+            restore[k](&s->widgets, part->widget);
     s->active = true;
     ++s->revision;
     return true;

@@ -2,6 +2,7 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
+#include "maicord/ui/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 
 // Geometry of the profile editor page (the official Profiles settings layout:
@@ -244,6 +245,25 @@ void test_dialogs(Check check) noexcept {
     check(built && tiles == 5 && close_to(ui_rect_height(first), 80) && close_to(second.left, first.right + 12) &&
               ui_rect_width(scene.grid_viewport) < ui_rect_width(scene.rectangle) - 280,
           "profile picker: 80 DIP tiles in 12 DIP gutters beside the 280 DIP preview panel");
+    // The host rebuilds the dialog every frame, between a press and its release.
+    const auto clicked = [&](UiProfileDialogAction wanted) noexcept {
+        UiRect r{};
+        for (u32 i = 0; i < scene.part_count; ++i)
+            if (scene.parts[i].action == wanted)
+                if (const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.parts[i].widget))
+                    r = node->rectangle;
+        const float x = (r.left + r.right) * .5f, y = (r.top + r.bottom) * .5f;
+        ui_button_pointer_target(&scene.widgets, UiButtonPointerEvent::press, ui_profile_dialog_hit_test(scene, x, y));
+        const auto content = scene.content;
+        if (!ui_profile_dialog_update(&scene, content, {0, 0, 1280, 800}))
+            return false;
+        const auto released = ui_button_pointer_target(&scene.widgets, UiButtonPointerEvent::release,
+                                                       ui_profile_dialog_hit_test(scene, x, y));
+        return released.activate && ui_profile_dialog_action(scene, released.target) == wanted;
+    };
+    check(clicked(UiProfileDialogAction::cancel) && clicked(UiProfileDialogAction::close) &&
+              clicked(UiProfileDialogAction::item),
+          "profile picker: Cancel, X and tiles complete a click across a rebuild");
     ui_profile_dialog_close(&scene);
 }
 } // namespace
