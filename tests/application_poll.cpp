@@ -387,6 +387,12 @@ void scene_cases() noexcept {
     check(open_scene() && click({UiPollControl::answer, 7}) && owner && owner->card.active &&
               owner->selection == 1,
           "poll scene: a click on a received card opens it and selects the answer");
+    check(owner->card.active && owner->card.projection.state.answers[0].selected &&
+              !owner->card.projection.state.answers[1].selected && click({UiPollControl::answer, 42}) &&
+              owner->selection == 2 && !owner->card.projection.state.answers[0].selected &&
+              owner->card.projection.state.answers[1].selected && click({UiPollControl::answer, 7}) &&
+              owner->selection == 1 && owner->card.projection.state.answers[0].selected,
+          "poll scene: the card shows each selected answer right after the click without a pump");
     // Lockup: the pump stopped the account whenever synchronizing returned false.
     const GatewayMessagePollVoteEvent other{70, 900, 77, 7, 42, true, true};
     own_vote(other);

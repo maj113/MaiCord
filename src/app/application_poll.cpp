@@ -203,10 +203,14 @@ PollControllerSnapshot snapshot(const ApplicationPollSource& source, const Messa
         s.mine_mask = 0;
     return s;
 }
+void project_card() noexcept;
+// Local state (a selected answer, a queued vote) reprojects the card at once;
+// waiting for the next account pump left clicks unpainted until network work.
 void changed() noexcept {
     if (!owner)
         return;
     ++owner->revision;
+    project_card();
     application_request_frame();
 }
 void clear_capture() noexcept {
