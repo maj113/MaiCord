@@ -5,6 +5,7 @@
 #include "maicord/sys/winsock.hpp"
 #include "../src/app/user_auth_coordinator.cpp"
 #include "account_login_captcha.hpp"
+#include "test_output.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
 
 namespace maicord::captcha_login_test {
@@ -18,6 +19,8 @@ struct Fixture {
     RemoteAuthClientResult remote;
 } fixture{};
 using Check = void (*)(bool, const char*) noexcept;
+// Upper bound for a stalled machine; elapsing is a failure, never a result.
+constexpr u32 kPatienceMs = 10000;
 Check check_fn{};
 void check(bool value, const char* label) noexcept { check_fn(value, label); }
 bool body(Utf8View value) noexcept {
@@ -153,7 +156,7 @@ AccountLoginRuntime* new_owner() noexcept {
     return owner;
 }
 bool wait_bridge(AccountLoginRuntime* owner, CaptchaBridgePhase phase) noexcept {
-    const u64 end = GetTickCount64() + 3000;
+    const u64 end = GetTickCount64() + kPatienceMs;
     while (module_login_captcha_bridge_status(owner).phase != phase) {
         const u64 now = GetTickCount64();
         const HANDLE event = module_login_notification_handle_with_captcha(owner);
@@ -197,7 +200,7 @@ bool solve(AccountLoginRuntime* owner, u64 generation, Utf8View solution, u16* u
             number(body_bytes); add(utf8_literal("\r\n\r\n")); add({body, body_bytes});
         }
         const SOCKET handle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        const DWORD timeout = 3000;
+        const DWORD timeout = kPatienceMs;
         setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
         sockaddr_in address{}; address.sin_family = AF_INET;
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(static_cast<u16>(port));
@@ -373,17 +376,34 @@ void test_captcha_bridge_runtime(void (*check)(bool, const char*) noexcept) noex
 }
 namespace {
 maicord::u32 failures{};
+const char* volatile last_check = "none";
+// A failed check goes to stdout, which CTest shows.
 void report(bool value, const char* label) noexcept {
+    last_check = label;
     if (value) return;
-    ++failures; DWORD written = 0; maicord::u32 bytes = 0; while (label[bytes]) ++bytes;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), label, bytes, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
+    ++failures;
+    maicord::test_write_text("FAIL ");
+    maicord::test_write_line(label);
+}
+LONG WINAPI report_crash(EXCEPTION_POINTERS* info) noexcept {
+    char code[9]{};
+    for (maicord::u32 i = 0; i < 8; ++i) {
+        const maicord::u32 nibble = (info->ExceptionRecord->ExceptionCode >> (28 - 4 * i)) & 15u;
+        code[i] = static_cast<char>(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
+    }
+    maicord::test_write_text("CRASH 0x");
+    maicord::test_write_text(code);
+    maicord::test_write_text(" after check ");
+    maicord::test_write_line(last_check);
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_captcha_bridge_tests_entry() noexcept {
+    SetUnhandledExceptionFilter(report_crash);
     maicord::captcha_login_test::check_fn = report;
     maicord::test_captcha_bridge_protocol(report);
     maicord::test_captcha_bridge_runtime(report);
     maicord::captcha_login_test::run();
+    if (!failures) maicord::test_write_line("PASS maicord_captcha_bridge");
     ExitProcess(failures ? 1 : 0);
 }

@@ -8,11 +8,11 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/random.hpp"
 namespace maicord::captcha_bridge_clock {
-// The bridge's monotonic clock runs ahead of the real one by this offset, so
-// the deadline test advances time instead of sleeping through it.
-volatile LONG64 offset_ms{};
+// Virtual time: it moves only when the test advances it, so a stalled machine
+// never expires a deadline. Zero would mean "no deadline", hence the base.
+volatile LONG64 now_ms{1'000'000};
 u64 now() noexcept {
-    return GetTickCount64() + static_cast<u64>(ReadAcquire64(&offset_ms));
+    return static_cast<u64>(ReadAcquire64(&now_ms));
 }
 } // namespace maicord::captcha_bridge_clock
 #define GetTickCount64 maicord::captcha_bridge_clock::now
@@ -23,6 +23,8 @@ u64 now() noexcept {
 
 namespace maicord::captcha_bridge_test {
 using Check = void (*)(bool, const char*) noexcept;
+// Upper bound for a stalled machine; elapsing is a failure, never a result.
+constexpr u32 kPatienceMs = 10000;
 
 struct Reply {
     u8 data[24 * 1024];
@@ -43,7 +45,7 @@ bool reply_contains(Utf8View needle) noexcept {
 SOCKET connect_to(u16 port) noexcept {
     const SOCKET handle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (handle == INVALID_SOCKET) return handle;
-    const DWORD timeout = 3000;
+    const DWORD timeout = kPatienceMs;
     setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
     sockaddr_in address{}; address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(port);
@@ -52,23 +54,16 @@ SOCKET connect_to(u16 port) noexcept {
     }
     return handle;
 }
-// Windows retries SYNs to a closed loopback port for seconds; binding the
-// exact port proves the listener is gone without waiting.
-bool port_released(u16 port) noexcept {
-    const SOCKET handle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    sockaddr_in address{}; address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK); address.sin_port = htons(port);
-    const bool bound = handle != INVALID_SOCKET && bind(handle, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
-    if (handle != INVALID_SOCKET) closesocket(handle);
-    return bound;
+// Parallel test processes reuse released ephemeral ports, and a connect to a
+// closed loopback port retries for seconds. A closed listener is proven by
+// its handle instead, which only this process can recreate.
+SOCKET listener_of(const CaptchaBridge& bridge) noexcept {
+    const auto* runtime = static_cast<const Runtime*>(bridge.runtime);
+    return runtime ? runtime->listener : INVALID_SOCKET;
 }
-// The worker closes its listener just after publishing a terminal phase.
-bool port_released_within(u16 port, u32 milliseconds) noexcept {
-    for (u32 waited = 0;; waited += 10) {
-        if (port_released(port)) return true;
-        if (waited >= milliseconds) return false;
-        Sleep(10);
-    }
+bool socket_closed(SOCKET handle) noexcept {
+    sockaddr_in address{}; int bytes = sizeof(address);
+    return handle != INVALID_SOCKET && getsockname(handle, reinterpret_cast<sockaddr*>(&address), &bytes) == SOCKET_ERROR;
 }
 bool send_all(SOCKET handle, const u8* data, u32 bytes) noexcept {
     return send(handle, reinterpret_cast<const char*>(data), static_cast<int>(bytes), 0) == static_cast<int>(bytes);
@@ -113,7 +108,7 @@ bool exchange(u16 port) noexcept {
     closesocket(handle);
     return sent;
 }
-bool wait_phase(CaptchaBridge* bridge, CaptchaBridgePhase phase, u32 timeout = 3000) noexcept {
+bool wait_phase(CaptchaBridge* bridge, CaptchaBridgePhase phase, u32 timeout = kPatienceMs) noexcept {
     const u64 end = GetTickCount64() + timeout;
     while (captcha_bridge_status(bridge).phase != phase) {
         const u64 now = GetTickCount64();
@@ -167,12 +162,12 @@ void lifecycle(Check check) noexcept {
     check(target(&bridge, 11, &port, state) && port >= 1024 && !captcha_bridge_copy_url(&bridge, 12, &other).ok(),
           "bridge lifecycle: URL is released only to the exact generation and has the launcher shape");
     const Utf8View state_view{state, kCaptchaBridgeStateBytes};
+    const SOCKET listener = listener_of(bridge);
 
     // An active connection keeps the slot; a second connection is refused.
     const SOCKET active = connect_to(port);
     build(true, port, state_view);
     const bool partial = active != INVALID_SOCKET && send_all(active, request.data, 10);
-    Sleep(50);
     const SOCKET second = connect_to(port);
     if (second != INVALID_SOCKET) { build(true, port, state_view); send_all(second, request.data, request.bytes); read_reply(second); closesocket(second); }
     check(partial && reply.bytes == 0, "bridge lifecycle: one connection at a time; a concurrent client gets no response");
@@ -189,7 +184,6 @@ void lifecycle(Check check) noexcept {
     check(exchange(port) && status_code() == 410, "bridge lifecycle: the page is single-use; a reload is gone");
     // An idle speculative socket yields to the real request.
     const SOCKET idle = connect_to(port);
-    Sleep(50);
     build(false, port, state_view, kBody, true);
     check(exchange(port) && reply.bytes == 0 && reply.closed && captcha_bridge_status(&bridge).phase == CaptchaBridgePhase::waiting,
           "bridge lifecycle: a foreign Origin POST is dropped without spending the state");
@@ -221,29 +215,39 @@ void lifecycle(Check check) noexcept {
     check(!captcha_bridge_take_token(&bridge, 11, &token).ok() && !captcha_bridge_copy_url(&bridge, 11, &other).ok(),
           "bridge lifecycle: the token and URL are one-shot");
     check(captcha_bridge_stop(&bridge, 5000).phase == CaptchaBridgePhase::complete && !bridge.runtime &&
-              port_released(port),
+              socket_closed(listener),
           "bridge lifecycle: stop joins the worker and closes the listener");
 
-    // Timeout: the worker expires the state and erases secrets itself. Jump the
-    // bridge clock past the deadline; a loopback connection wakes the worker.
+    // Timeout: the worker expires the state and erases secrets itself. Connect
+    // while the clock still holds the state live, advance the clock, then send:
+    // the worker wakes after the deadline passed, and it may close the listener
+    // as soon as it notices, so nothing connects after the advance.
     check(captcha_bridge_start(&bridge, 21, 1000, {kTestSitekey, {}, CaptchaProvider::turnstile, false}).ok() &&
               wait_phase(&bridge, CaptchaBridgePhase::waiting) && target(&bridge, 21, &port, state),
           "bridge lifecycle: deadline fixture starts");
-    InterlockedAdd64(&captcha_bridge_clock::offset_ms, 1000);
+    const SOCKET expiring = listener_of(bridge);
     const SOCKET wake = connect_to(port);
-    check(wake != INVALID_SOCKET && wait_phase(&bridge, CaptchaBridgePhase::expired) && secrets_erased(bridge),
+    check(wake != INVALID_SOCKET, "bridge lifecycle: the wake connection reaches the listener");
+    InterlockedAdd64(&captcha_bridge_clock::now_ms, 1000);
+    constexpr u8 kPing = 'x';
+    if (wake != INVALID_SOCKET) send_all(wake, &kPing, 1);
+    check(wait_phase(&bridge, CaptchaBridgePhase::expired) && secrets_erased(bridge),
           "bridge lifecycle: the bounded deadline expires the state and wipes it");
     if (wake != INVALID_SOCKET) closesocket(wake);
-    check(port_released_within(port, 2000), "bridge lifecycle: an expired state closes its listener");
+    const auto* expired = static_cast<const Runtime*>(bridge.runtime);
+    check(expired && WaitForSingleObject(expired->thread, kPatienceMs) == WAIT_OBJECT_0 && socket_closed(expiring),
+          "bridge lifecycle: an expired state ends the worker and closes its listener");
     captcha_bridge_stop(&bridge, 5000);
 
     // Cancel: stop invalidates first, then joins.
     check(captcha_bridge_start(&bridge, 31, 10000, {kTestSitekey, {}, CaptchaProvider::recaptcha, false}).ok() &&
               wait_phase(&bridge, CaptchaBridgePhase::waiting) && target(&bridge, 31, &port, state),
           "bridge lifecycle: cancellation fixture starts");
+    const SOCKET cancelling = listener_of(bridge);
     const auto cancelled = captcha_bridge_stop(&bridge, 5000);
-    check(cancelled.phase == CaptchaBridgePhase::cancelled && !bridge.runtime && port_released(port),
-          "bridge lifecycle: cancel invalidates the state and joins the listener");
+    check(cancelled.phase == CaptchaBridgePhase::cancelled && !bridge.runtime,
+          "bridge lifecycle: cancel invalidates the state and joins the worker");
+    check(socket_closed(cancelling), "bridge lifecycle: cancel closes the listener");
 
     // A malformed POST with the right state spends it and reports rejection.
     check(
@@ -274,6 +278,7 @@ void lifecycle(Check check) noexcept {
               wait_phase(&action.bridge, CaptchaBridgePhase::waiting) &&
               target(&action.bridge, 51, &port, state),
           "action captcha: omitted enterprise key starts the existing bridge owner");
+    const SOCKET action_listener = listener_of(action.bridge);
     action_request.operation = AccountActionCaptchaOperation::copy_url;
     action_request.url = &other;
     const bool copied = account_action_captcha(&action, nullptr, nullptr, action_request).ok() &&
@@ -288,7 +293,7 @@ void lifecycle(Check check) noexcept {
     action_request.operation = AccountActionCaptchaOperation::cancel;
     check(account_action_captcha(&action, nullptr, nullptr, action_request).ok() &&
               !action.bridge.runtime && !action.challenge_ready && !action.token.data &&
-              port_released(port),
+              socket_closed(action_listener),
           "action captcha: cancelling joins the listener and erases the action challenge");
     account_action_captcha_release(&action, nullptr, nullptr);
     secure_buffer_release(&token);
