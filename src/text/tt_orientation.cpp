@@ -1,4 +1,5 @@
 #include "maicord/text/tt_orientation.hpp"
+#include "sfnt_read.hpp"
 #include "maicord/sys/simd.hpp"
 #pragma float_control(precise,on,push)
 namespace maicord {namespace {
@@ -7,7 +8,7 @@ struct IntegerPoint {i64 v[2];};
 Point point(const SfntOutlinePoint& p) noexcept {return {static_cast<double>(p.x)*2,static_cast<double>(p.y)*2};}
 Point middle(Point a,Point b) noexcept {return {(a.x+b.x)*.5,(a.y+b.y)*.5};}
 i64 floor_ratio(i64 n,i64 d) noexcept {return n<0?-((-n+d-1)/d):n/d;}
-bool charge(u32& work) noexcept {if(!work)return false;--work;return true;}
+using namespace sfnt_read;
 IntegerPoint integer_point(const SfntOutlinePoint& p) noexcept {return {{static_cast<i64>(p.x)*2,static_cast<i64>(p.y)*2}};}
 IntegerPoint extremum(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 i,u32 direction) noexcept {
     const auto b=integer_point(points[i]);if(points[i].flags&1)return b;
@@ -24,7 +25,7 @@ IntegerPoint extremum(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 
 bool local_turn(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 index,u32& work,u32* turn) noexcept {
     auto previous=integer_point(points[index==first?end:index-1]),current=integer_point(points[index]);
     i64 vx=current.v[0]-previous.v[0],vy=current.v[1]-previous.v[1];u32 next=index;*turn=0;
-    for(u32 j=first;j<=end;++j){if(!charge(work))return false;next=next==end?first:next+1;const auto p=integer_point(points[next]);
+    for(u32 j=first;j<=end;++j){if(!spend(work))return false;next=next==end?first:next+1;const auto p=integer_point(points[next]);
         const i64 wx=p.v[0]-current.v[0],wy=p.v[1]-current.v[1];if(!wx&&!wy)continue;const i64 cross=vx*wy-vy*wx;
         if(cross){*turn=cross>0?2:0;return true;}current=p;vx=wx;vy=wy;
     }return true;
@@ -70,34 +71,34 @@ bool crossings(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,const Ray& 
     if(end-first<2)return true;
     // Reject whole contours before visiting their curves. No temporary paths.
     Point low=point(points[first]),high=low;
-    for(u32 i=first+1;i<=end;++i){if(!charge(work))return false;const auto p=point(points[i]);low={minimum<double>(low.x,p.x),minimum<double>(low.y,p.y)};high={maximum<double>(high.x,p.x),maximum<double>(high.y,p.y)};}
+    for(u32 i=first+1;i<=end;++i){if(!spend(work))return false;const auto p=point(points[i]);low={minimum<double>(low.x,p.x),minimum<double>(low.y,p.y)};high={maximum<double>(high.x,p.x),maximum<double>(high.y,p.y)};}
     if(high.x<ray.lx||low.x>ray.hx||high.y<ray.ly||low.y>ray.hy)return true;
     const bool first_on=(points[first].flags&1)!=0,last_on=(points[end].flags&1)!=0;
     const Point start=first_on?point(points[first]):last_on?point(points[end]):middle(point(points[first]),point(points[end]));
     Point current=start;u32 i=first+(first_on?1:0),limit=end+1-(!first_on&&last_on?1:0);
-    while(i<limit){if(!charge(work))return false;const Point p=point(points[i]);
+    while(i<limit){if(!spend(work))return false;const Point p=point(points[i]);
         if(points[i].flags&1){*count+=ray.line(current,p);current=p;++i;}
         else{const bool on=i+1>=limit||(points[i+1].flags&1);const Point following=i+1<limit?point(points[i+1]):start,target=on?following:middle(p,following);
             *count+=ray.curve(current,p,target);current=target;i+=on?2:1;
         }
-    }if(!charge(work))return false;*count+=ray.line(current,start);return true;
+    }if(!spend(work))return false;*count+=ray.line(current,start);return true;
 }
 }
 namespace {
 SfntStatus classify(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Slice<u8> directions,SfntOutlinePoint* marked,u32 origin,u32 work,u32* used) noexcept {
-    struct Report {u32 initial;u32& work;u32* used;~Report() noexcept {if(used)*used=initial-work;}} report{work,work,used};
+    WorkReport report{work,work,used};
     if(origin>points.count||(points.count&&!points.data)||(ends.count&&!ends.data)||(!(points.count-origin))!=(!ends.count))return SfntStatus::invalid_input;
     if(points.count-origin>65535||ends.count>32767)return SfntStatus::unsupported;
     if(!marked&&(directions.count<ends.count||(ends.count&&!directions.data)))return SfntStatus::output_too_small;
-    u32 first=origin;for(u32 c=0;c<ends.count;++c){if(!charge(work))return SfntStatus::resource_limit;if(ends[c]<first||ends[c]>=points.count)return SfntStatus::invalid_input;first=ends[c]+1;}
+    u32 first=origin;for(u32 c=0;c<ends.count;++c){if(!spend(work))return SfntStatus::resource_limit;if(ends[c]<first||ends[c]>=points.count)return SfntStatus::invalid_input;first=ends[c]+1;}
     if(first!=points.count)return SfntStatus::invalid_input;
-    for(u32 i=origin;i<points.count;++i){if(!charge(work))return SfntStatus::resource_limit;const auto& p=points[i];
+    for(u32 i=origin;i<points.count;++i){if(!spend(work))return SfntStatus::resource_limit;const auto& p=points[i];
         if(!(p.x>=-32768&&p.x<=32767&&p.y>=-32768&&p.y<=32767))return SfntStatus::unsupported;
         if(static_cast<float>(static_cast<i32>(p.x))!=p.x||static_cast<float>(static_cast<i32>(p.y))!=p.y)return SfntStatus::unsupported;
     }
     first=origin;for(u32 c=0;c<ends.count;++c){const u32 end=ends[c];auto& direction=marked?marked[first].reserved[0]:directions[c];direction=0;if(end-first<2){first=end+1;continue;}
         u32 indices[4]{first,first,first,first};
-        for(u32 i=first+1;i<=end;++i){if(!charge(work))return SfntStatus::resource_limit;const auto a=integer_point(points[i]);
+        for(u32 i=first+1;i<=end;++i){if(!spend(work))return SfntStatus::resource_limit;const auto a=integer_point(points[i]);
             for(u32 d=0;d<4;++d){const u32 axis=d/2,other=1-axis,j=indices[d];const auto b=integer_point(points[j]);
                 if((d&1?a.v[axis]>b.v[axis]:a.v[axis]<b.v[axis])||(a.v[axis]==b.v[axis]&&(!(points[j].flags&1)||((points[i].flags&1)&&((d==0||d==3)?a.v[other]<b.v[other]:a.v[other]>b.v[other])))))indices[d]=i;
             }
@@ -105,8 +106,8 @@ SfntStatus classify(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Sli
         const auto left=integer_point(points[indices[0]]);i64 distance[4]{};
         for(u32 d=1;d<4;++d){const auto p=integer_point(points[indices[d]]);distance[d]=absolute_value<i64>(p.v[0]-left.v[0])+absolute_value<i64>(p.v[1]-left.v[1]);}
         const u32 second=distance[2]>distance[3]?2:3,other=second==2?3:2,third=distance[other]>distance[1]?other:1,order[]{0,second,third};u8 votes[3]{};
-        for(u32 k=0;k<3;++k){if(!charge(work))return SfntStatus::resource_limit;const u32 d=order[k];const Ray ray(extremum(points,first,end,indices[d],d),d);u32 count=0,begin=origin,turn=0;
-            for(u32 j=0;j<ends.count;++j){if(!charge(work))return SfntStatus::resource_limit;if(j!=c&&!crossings(points,begin,ends[j],ray,work,&count))return SfntStatus::resource_limit;begin=ends[j]+1;}
+        for(u32 k=0;k<3;++k){if(!spend(work))return SfntStatus::resource_limit;const u32 d=order[k];const Ray ray(extremum(points,first,end,indices[d],d),d);u32 count=0,begin=origin,turn=0;
+            for(u32 j=0;j<ends.count;++j){if(!spend(work))return SfntStatus::resource_limit;if(j!=c&&!crossings(points,begin,ends[j],ray,work,&count))return SfntStatus::resource_limit;begin=ends[j]+1;}
             if(!local_turn(points,first,end,indices[d],work,&turn))return SfntStatus::resource_limit;votes[k]=static_cast<u8>((((count&1)^1)*2)==turn);
             if(k==1&&votes[0]==votes[1]){direction=votes[1];break;}if(k==2)direction=votes[2];
         }first=end+1;

@@ -1,7 +1,8 @@
 #include "maicord/text/tt_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {namespace {
+using namespace sfnt_read;
 bool charge(u32* work,u64 cost) noexcept {if(cost>*work)return false;*work-=static_cast<u32>(cost);return true;}
 template<class T> bool room(Slice<T> array,u32 count) noexcept {return array.count>=count && (!count || array.data);}
 SfntStatus optional(const SfntFace& f,u32 tag,ConstSlice<u8>* bytes) noexcept {const auto s=sfnt_table(f,tag,bytes);return s==SfntStatus::missing_table?SfntStatus::ok:s;}
@@ -20,7 +21,7 @@ SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* o
     *output={byte_load_be16(maxp.data+24),byte_load_be16(maxp.data+18),cvt.count/2,byte_load_be16(maxp.data+20),byte_load_be16(maxp.data+16)};return SfntStatus::ok;
 }
 SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter s,TtOutlineInstance* output,TtExecution* execution,u32 work,u32* used) noexcept {
-    struct Report {u32 initial;u32& left;u32* used;~Report() noexcept {if(used)*used=initial-left;}} report{work,work,used};
+    WorkReport report{work,work,used};
     if(output)*output={};if(execution)*execution={};if(!output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};
     if(!geometry.face.file.data)return SfntStatus::invalid_input;
     if(geometry.kind!=FontGeometryKind::truetype)return SfntStatus::unsupported;

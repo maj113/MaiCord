@@ -1,5 +1,7 @@
 #include "maicord/text/font_geometry.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {
+using namespace sfnt_read;
 SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};FontGeometry font{};font.face=face;
     if(face.version==sfnt_tag('O','T','T','O')){
@@ -15,7 +17,7 @@ SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcep
 }
 SfntStatus font_geometry_instance(const FontGeometry& font,ConstSlice<FontAxisSetting> settings,
     FontGeometryInstanceStorage storage,FontGeometryInstance* output,u32 work,u32* used) noexcept {
-    struct Report {u32 initial;const u32& left;u32* used;~Report() noexcept {if(used)*used=initial-left;}} report{work,work,used};
+    WorkReport report{work,work,used};
     if(!output)return SfntStatus::invalid_input;*output={};if(!font.face.file.data || (settings.count && !settings.data))return SfntStatus::invalid_input;
     if(!font.axes.axis_count){*output={&font,nullptr};return SfntStatus::ok;}
     if(!storage.variation)return SfntStatus::output_too_small;*storage.variation={};

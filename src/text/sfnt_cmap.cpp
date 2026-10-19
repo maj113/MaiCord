@@ -1,12 +1,9 @@
 #include "maicord/text/sfnt.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 
 namespace maicord {
 namespace {
-
-inline u16 be16(const u8* p) noexcept { return byte_load_be16(p); }
-inline u32 be32(const u8* p) noexcept { return byte_load_be32(p); }
-inline u32 be24(const u8* p) noexcept { return (static_cast<u32>(p[0]) << 16u) | be16(p + 1); }
+using namespace sfnt_read;
 bool scalar_valid(u32 scalar) noexcept {
     return scalar <= 0x10ffffu && (scalar < 0xd800u || scalar > 0xdfffu);
 }

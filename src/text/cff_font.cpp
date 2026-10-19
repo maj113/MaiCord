@@ -1,19 +1,11 @@
 #include "cff_internal.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 
 namespace maicord {
 namespace cff_detail {
 namespace {
 
-u32 offset_value(const u8* p, u8 size) noexcept {
-    u32 value = 0;
-    for (u8 i = 0; i < size; ++i) value = (value << 8u) | p[i];
-    return value;
-}
-
-bool range(ConstSlice<u8> data, u32 at, u32 count) noexcept {
-    return data.data && at <= data.count && count <= data.count - at;
-}
+using namespace sfnt_read;
 
 bool unsigned_integer(double value, u32* result) noexcept {
     if (!(value >= 0 && value <= 4294967295.0)) return false;
@@ -62,24 +54,24 @@ SfntStatus real_number(ConstSlice<u8> data, u32* at, double* value) noexcept {
 
 SfntStatus index_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
     *index = {};
-    if (!range(data, *at, 2)) return SfntStatus::truncated;
+    if (!span(data, *at, 2)) return SfntStatus::truncated;
     const u32 count = byte_load_be16(data.data + *at); *at += 2;
     if (!count) return SfntStatus::ok;
-    if (!range(data, *at, 1)) return SfntStatus::truncated;
+    if (!span(data, *at, 1)) return SfntStatus::truncated;
     const u8 size = data.data[(*at)++];
     if (!size || size > 4) return SfntStatus::malformed;
     const u32 offset_bytes = (count + 1u) * size;
-    if (!range(data, *at, offset_bytes)) return SfntStatus::truncated;
+    if (!span(data, *at, offset_bytes)) return SfntStatus::truncated;
     const u8* offsets = data.data + *at; *at += offset_bytes;
-    u32 previous = offset_value(offsets, size);
+    u32 previous = packed(offsets, size);
     if (previous != 1) return SfntStatus::malformed;
     for (u32 i = 1; i <= count; ++i) {
-        const u32 next = offset_value(offsets + i * size, size);
+        const u32 next = packed(offsets + i * size, size);
         if (next < previous) return SfntStatus::malformed;
         previous = next;
     }
     const u32 bytes = previous - 1;
-    if (!range(data, *at, bytes)) return SfntStatus::truncated;
+    if (!span(data, *at, bytes)) return SfntStatus::truncated;
     *index = {{offsets, offset_bytes}, {data.data + *at, bytes}, count, size};
     *at += bytes;
     return SfntStatus::ok;
@@ -88,8 +80,8 @@ SfntStatus index_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
 ConstSlice<u8> index_object(const CffIndex& index, u32 object) noexcept {
     if (object >= index.count) return {};
     const u8* p = index.offsets.data + object * index.offset_size;
-    const u32 first = offset_value(p, index.offset_size) - 1;
-    const u32 last = offset_value(p + index.offset_size, index.offset_size) - 1;
+    const u32 first = packed(p, index.offset_size) - 1;
+    const u32 last = packed(p + index.offset_size, index.offset_size) - 1;
     return {index.objects.data + first, last - first};
 }
 
@@ -103,12 +95,12 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
             double value = 0;
             if (byte >= 32 && byte <= 246) value = static_cast<i32>(byte) - 139;
             else if (byte >= 247 && byte <= 254) {
-                if (!range(bytes, at, 1)) return SfntStatus::truncated;
+                if (!span(bytes, at, 1)) return SfntStatus::truncated;
                 const u8 next = bytes.data[at++];
                 value = byte <= 250 ? (byte - 247) * 256 + next + 108 : -(byte - 251) * 256 - next - 108;
             } else if (byte == 28 || byte == 29) {
                 const u32 size = byte == 28 ? 2u : 4u;
-                if (!range(bytes, at, size)) return SfntStatus::truncated;
+                if (!span(bytes, at, size)) return SfntStatus::truncated;
                 value = byte == 28 ? static_cast<i16>(byte_load_be16(bytes.data + at))
                                    : static_cast<i32>(byte_load_be32(bytes.data + at));
                 at += size;
@@ -167,7 +159,7 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex* subrs, u32* seed,
                            double* default_width, double* nominal_width) noexcept {
     *subrs = {}; *seed = 0;
-    if (!range(table, dict.private_offset, dict.private_size)) return SfntStatus::truncated;
+    if (!span(table, dict.private_offset, dict.private_size)) return SfntStatus::truncated;
     Dictionary priv{};
     const auto status = dictionary({table.data + dict.private_offset, dict.private_size}, &priv);
     if (status != SfntStatus::ok) return status;

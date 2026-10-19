@@ -2,14 +2,12 @@
 #include "maicord/text/tt_orientation.hpp"
 #include "maicord/text/tt_bold_points.hpp"
 #include "maicord/text/tt_outline.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 
 namespace maicord {
 namespace {
 
-u16 be16(const u8* p) noexcept { return byte_load_be16(p); }
-i16 signed16(const u8* p) noexcept { return static_cast<i16>(be16(p)); }
-u32 be32(const u8* p) noexcept { return byte_load_be32(p); }
+using namespace sfnt_read;
 #pragma float_control(precise,on,push)
 float varied_coordinate(double value) noexcept {
     // gvar coordinates round to integral design units, with positive half
@@ -120,7 +118,7 @@ struct Decoder {
                     delta = point.flags & same_bit ? *p : -static_cast<i32>(*p);
                 } else if (!(point.flags & same_bit)) {
                     if (!reader.take(2, &p)) return SfntStatus::truncated;
-                    delta = signed16(p);
+                    delta = s16(p);
                 }
                 // At most 65536 signed-16 deltas; avoid overflow on malformed
                 // data rather than trusting the glyph's stated bounding box.
@@ -155,9 +153,9 @@ struct Decoder {
             SfntGlyphMetrics metrics{};
             const auto status = sfnt_horizontal_metrics(font.metrics, id, &metrics);
             if (status != SfntStatus::ok) return status;
-            *metric_origin = static_cast<float>(metrics.bearing - signed16(data.data + 2));
+            *metric_origin = static_cast<float>(metrics.bearing - s16(data.data + 2));
         }
-        const i16 contours = signed16(data.data);
+        const i16 contours = s16(data.data);
         if (contours >= 0) {
             ConstSlice<u8> program{};const u32 first=scratch.point_count,first_contour=scratch.contour_count;auto status=simple(data,static_cast<u32>(contours),&program);
             if(status!=SfntStatus::ok)return status;
@@ -194,9 +192,9 @@ struct Decoder {
             has_instructions = has_instructions || (flags & 0x100u);
             const bool words = (flags & 1u) != 0, xy = (flags & 2u) != 0;
             if (!reader.take(words ? 4u : 2u, &p)) return SfntStatus::truncated;
-            const i32 a = words ? (xy ? signed16(p) : be16(p))
+            const i32 a = words ? (xy ? s16(p) : be16(p))
                                 : (xy ? static_cast<signed char>(p[0]) : p[0]);
-            const i32 b = words ? (xy ? signed16(p + 2) : be16(p + 2))
+            const i32 b = words ? (xy ? s16(p + 2) : be16(p + 2))
                                 : (xy ? static_cast<signed char>(p[1]) : p[1]);
             float xx = 1, xy_matrix = 0, yx = 0, yy = 1;
             const u16 transforms = flags & (8u | 64u | 128u);
@@ -205,9 +203,9 @@ struct Decoder {
             const u32 values = transforms == 8 ? 1u : transforms == 64 ? 2u : transforms == 128 ? 4u : 0u;
             if (values) {
                 if (!reader.take(values * 2, &p)) return SfntStatus::truncated;
-                xx = signed16(p) / 16384.f;
-                yy = values == 1 ? xx : signed16(p + (values == 2 ? 2 : 6)) / 16384.f;
-                if (values == 4) { xy_matrix = signed16(p + 2) / 16384.f; yx = signed16(p + 4) / 16384.f; }
+                xx = s16(p) / 16384.f;
+                yy = values == 1 ? xx : s16(p + (values == 2 ? 2 : 6)) / 16384.f;
+                if (values == 4) { xy_matrix = s16(p + 2) / 16384.f; yx = s16(p + 4) / 16384.f; }
             }
             const u32 child_first = scratch.point_count;
             const u32 child_first_contour=scratch.contour_count;
@@ -365,7 +363,7 @@ u32 sfnt_truetype_outline_capacity(const SfntTrueType& font,u16 glyph) noexcept 
     if(begin>end||end>font.glyf.count)return 0;
     if(begin==end)return 1;
     if(end-begin<10)return 0;
-    const auto* data=font.glyf.data+begin;const i32 contours=signed16(data);
+    const auto* data=font.glyf.data+begin;const i32 contours=s16(data);
     if(contours<0)return 0;
     if(!contours)return 1;
     if(static_cast<u32>(contours)>(end-begin-10)/2)return 0;
@@ -404,11 +402,11 @@ SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allo
 }
 
 SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present,u32 work,u32* used) noexcept {
-    struct Report {u32 initial;const u32& left;u32* used;~Report() noexcept {if(used)*used=initial-left;}} report{work,work,used};
+    WorkReport report{work,work,used};
     if(!present)return SfntStatus::invalid_input;*present=false;if(!font.loca.data||!font.glyf.data||(font.loca_stride!=2&&font.loca_stride!=4)||font.loca.count/font.loca_stride<=font.metrics.glyph_count)return SfntStatus::invalid_input;
     for(u32 glyph=0;glyph<font.metrics.glyph_count;++glyph){if(!work)return SfntStatus::resource_limit;--work;const u32 begin=location(font,glyph),end=location(font,glyph+1);
         if(begin>end||end>font.glyf.count)return SfntStatus::malformed;if(begin==end)continue;const u32 size=end-begin;if(size<10)return SfntStatus::truncated;
-        const auto* data=font.glyf.data+begin;const i16 contours=signed16(data);u32 at=10;
+        const auto* data=font.glyf.data+begin;const i16 contours=s16(data);u32 at=10;
         if(contours>=0){if(!contours&&size==10)continue;at+=static_cast<u32>(contours)*2;}
         else{bool instructions=false;u16 flags=0;do{if(!work)return SfntStatus::resource_limit;--work;if(at>size||size-at<4)return SfntStatus::truncated;
                 flags=be16(data+at);at+=4;instructions|=(flags&0x100)!=0;const u32 transform=flags&(8u|64u|128u);
@@ -457,7 +455,7 @@ SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
         // contours. It applies only to simple glyphs within 2048 points and
         // contours; composites use the text order.
         const u32 begin=location(font,glyph),end=location(font,glyph+1);
-        const bool color=(mode==SfntOutlineMode::colr||mode==SfntOutlineMode::colr_commands) && end-begin>=10 && signed16(font.glyf.data+begin)>=0 &&
+        const bool color=(mode==SfntOutlineMode::colr||mode==SfntOutlineMode::colr_commands) && end-begin>=10 && s16(font.glyf.data+begin)>=0 &&
             scratch->point_count<=2048 && scratch->contour_count<=2048;
         if(color)for(u32 i=0;i<scratch->point_count;++i)scratch->points[i]=normalized(scratch->points[i],origin,scale);
         if (status == SfntStatus::ok) status = emit(*scratch, *output, origin, scale,color,mode!=SfntOutlineMode::colr_commands);

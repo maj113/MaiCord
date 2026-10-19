@@ -1,22 +1,22 @@
 #include "maicord/text/font_instance.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
+using namespace sfnt_read;
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
 bool valid(const NativeFontInstanceStore& s) noexcept {return s.fonts&&s.slots.data&&s.slots.count;}
 NativeFontInstanceSlot* slot(const NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
     if(!valid(s)||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
 }
-bool spend(u32& work,u32 n=1) noexcept {if(n>work)return false;work-=n;return true;}
 template<class T> usize bytes(u32 n) noexcept {return (static_cast<usize>(n)*sizeof(T)+7)&~usize{7};}
 template<class T> Slice<T> array(Arena& state,u32 count) noexcept {return {count?arena_allocate<T>(&state,count):nullptr,count};}
 }
 NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,NativeFontHandle handle,
     ConstSlice<FontAxisSetting> settings,bool instructions,NativeFontPrepareScratch scratch,
     NativeFontInstanceHandle* output,u32 work,u32* used,usize state_limit) noexcept {
-    struct Report {u32 initial;const u32& left;u32* used;~Report() noexcept {if(used)*used=initial-left;}} report{work,work,used};
+    WorkReport report{work,work,used};
     if(output)*output={};if(!store||!valid(*store)||!output)return result(NativeFontError::invalid_input);
     const auto* face=native_font_get(*store->fonts,handle);if(!face)return result(NativeFontError::invalid_input);
     const auto& geometry=face->geometry;const u32 axes=geometry.axes.axis_count;u32 child=0;

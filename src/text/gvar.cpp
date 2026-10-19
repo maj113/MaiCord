@@ -1,12 +1,8 @@
 #include "maicord/text/gvar.hpp"
 #include "maicord/text/truetype_outline.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {namespace {
-u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}
-u32 r32(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be32(b.data+at);}
-bool span(ConstSlice<u8> b,u32 at,u32 n) noexcept {return b.data && at<=b.count && n<=b.count-at;}
-bool spend(u32& work,u32 n=1) noexcept {if(n>work)return false;work-=n;return true;}
-struct Report {u32 initial;const u32& left;u32* used;~Report() noexcept {if(used)*used=initial-left;}};
+using namespace sfnt_read;
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool take(u32 n,ConstSlice<u8>* out) noexcept {if(!span(bytes,at,n))return false;*out={bytes.data+at,n};at+=n;return true;}bool byte(u8* v) noexcept {if(!span(bytes,at,1))return false;*v=bytes[at++];return true;}};
 u32 location(const SfntGvar& f,u32 glyph) noexcept {return f.offset_stride==4?r32(f.offsets,glyph*4):r16(f.offsets,glyph*2)*2u;}
 #pragma float_control(precise,on,push)
@@ -155,7 +151,7 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
 #pragma float_control(pop)
 }
 SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* output,u32 work,u32* used) noexcept {
-    Report report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!span(table,0,20))return SfntStatus::truncated;
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;if(r16(table,4)!=axes || r16(table,12)!=glyphs || (r16(table,14)&~1))return SfntStatus::malformed;
     const u16 shared=r16(table,6),stride=r16(table,14)&1?4:2;const u32 tuples=r32(table,8),data=r32(table,16),header=20+(static_cast<u32>(glyphs)+1)*stride,cells=static_cast<u32>(shared)*axes;
     if(shared>4096 || data<header || (shared && tuples<header))return SfntStatus::malformed;
@@ -164,7 +160,7 @@ SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* out
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> coordinates,Slice<double> storage,SfntGvarInstance* output,u32 work,u32* used) noexcept {
-    Report report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};
     if(!font.table.data || coordinates.count!=font.axis_count || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;
     if(storage.count<font.shared_count || (font.shared_count && !storage.data))return SfntStatus::output_too_small;
     if(!spend(work,coordinates.count))return SfntStatus::resource_limit;for(u32 i=0;i<coordinates.count;++i)if(!(coordinates[i]>=-1 && coordinates[i]<=1))return SfntStatus::invalid_input;
@@ -172,7 +168,7 @@ SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> co
     *output={font,coordinates,{storage.data,font.shared_count}};return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_design_advance(const SfntTrueType& font,const SfntGvarInstance& instance,u16 glyph,u16* output,u32 work,u32* used) noexcept {
-    Report report{work,work,used};if(!output)return SfntStatus::invalid_input;*output=0;const auto& g=instance.font;
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output=0;const auto& g=instance.font;
     if(!g.table.data||g.glyph_count!=font.metrics.glyph_count||instance.coordinates.count!=g.axis_count||instance.shared_scalars.count!=g.shared_count||
        (g.axis_count&&!instance.coordinates.data)||(g.shared_count&&!instance.shared_scalars.data)||(font.loca_stride!=2&&font.loca_stride!=4)||
        !font.loca.data||(font.glyf.count&&!font.glyf.data)||font.loca.count/font.loca_stride<=font.metrics.glyph_count)return SfntStatus::invalid_input;
@@ -181,7 +177,7 @@ SfntStatus sfnt_gvar_design_advance(const SfntTrueType& font,const SfntGvarInsta
     if(!(advance.x>=-9.e15&&advance.x<=9.e15))return SfntStatus::malformed;*output=static_cast<u16>(static_cast<i64>(rounded(advance.x)));return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,bool composite,SfntGvarScratch scratch,Slice<SfntGvarDelta> output,u32 work,u32* used,u32 origin) noexcept {
-    Report report{work,work,used};const auto& font=instance.font;
+    WorkReport report{work,work,used};const auto& font=instance.font;
     if(!font.table.data || instance.coordinates.count!=font.axis_count || instance.shared_scalars.count!=font.shared_count || (instance.coordinates.count && !instance.coordinates.data) || (instance.shared_scalars.count && !instance.shared_scalars.data) || (!composite && points.count && !points.data) || (ends.count && !ends.data) || points.count>65536 || (composite && ends.count))return SfntStatus::invalid_input;
     if(glyph>=font.glyph_count)return SfntStatus::glyph_out_of_range;const u32 total=points.count+4;
     if(output.count<total || !output.data)return SfntStatus::output_too_small;

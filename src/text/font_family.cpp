@@ -1,12 +1,13 @@
 #include "maicord/text/font_family.hpp"
+#include "sfnt_read.hpp"
 #include "maicord/text/font_names.hpp"
 #include "maicord/sys/intrin.hpp"
 // Font-family discovery is outside warm drawing; keep its parser compact.
 #pragma optimize("s",on)
 namespace maicord {namespace {
+using namespace sfnt_read;
 bool separator(u16 c) noexcept {return c==32||c==9||c==10||c==13||c=='.'||c=='-'||c=='_';}
 u16 lower(u16 c) noexcept {return c>='A'&&c<='Z'?static_cast<u16>(c+32):c;}
-bool spend(u32& work,u32 n=1) noexcept {if(n>work)return false;work-=n;return true;}
 // Compile pointer-free pattern records; matching priority and spelling stay
 // in source order. Source pointers exist only during constant evaluation.
 struct Pattern {u16 offset,value;};
@@ -93,7 +94,7 @@ u16 resolved_weight(u16 raw,u16 extracted) noexcept {
 }
 }
 SfntStatus native_font_family(const SfntFace& face,Slice<u16> output,NativeFontFamily* result,u32 work,u32* used) noexcept {
-    const u32 initial=work;struct Report{u32 initial;u32& left;u32* used;~Report() noexcept{if(used)*used=initial-left;}} report{initial,work,used};
+    WorkReport report{work,work,used};
     if(!result)return SfntStatus::invalid_input;*result={};if(output.count&&!output.data)return SfntStatus::invalid_input;
     SfntFontAttributes attributes{};auto status=sfnt_font_attributes(face,&attributes);if(status!=SfntStatus::ok)return status;
     ConstSlice<u8> table{};status=sfnt_table(face,sfnt_tag('n','a','m','e'),&table);if(status!=SfntStatus::ok)return status;

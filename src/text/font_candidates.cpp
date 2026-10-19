@@ -1,7 +1,8 @@
 #include "maicord/text/font_candidates.hpp"
 #include "maicord/text/font_names.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {namespace {
+using namespace sfnt_read;
 constexpr u32 default_named=0xffffffffu;
 i32 coordinate(const FontAxes& axes,u32 instance,u32 index,const FontAxis& axis) noexcept {
     i32 value=axis.normal;
@@ -18,7 +19,6 @@ SfntStatus properties(const NativeFontCandidates& source,u32 instance,NativeFont
         }else return SfntStatus::unsupported;
     }*output=result;return SfntStatus::ok;
 }
-bool spend(u32& work,u32 amount) noexcept {if(amount>work)return false;work-=amount;return true;}
 SfntStatus stat_axes(const SfntFace& face,const FontAxes& axes) noexcept {
     ConstSlice<u8> table{};auto status=sfnt_table(face,sfnt_tag('S','T','A','T'),&table);if(status==SfntStatus::missing_table)return SfntStatus::unsupported;if(status!=SfntStatus::ok)return status;
     if(table.count<18)return SfntStatus::truncated;const auto* p=table.data;const u16 minor=byte_load_be16(p+2);

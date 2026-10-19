@@ -1,15 +1,15 @@
 #include "maicord/text/components.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {namespace {
+using namespace sfnt_read;
 constexpr u32 nil=0xffffffffu;
 // journaled marks nodes already saved by the current edit; it never outlives one.
 constexpr u8 alias=1,known=2,cached=4,owner=8,journaled=16;
-bool spend(u64* work,u64 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
-struct Report {u64 initial;const u64& left;u64* used;~Report() noexcept {if(used)*used=initial-left;}};
 u32 parent(const SfntComponentNode& n) noexcept {return n.flags&owner?nil:n.parent;}
 const SfntComponentGlyph& record(SfntGlyphView v,u32 i) noexcept {return *reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(v,i));}
 struct Tree {
     SfntComponentForest& forest;Slice<SfntComponentUndo> journal;u32 used=0;u64 work;SfntStatus status=SfntStatus::ok;
-    bool charge() noexcept {if(status!=SfntStatus::ok)return false;if(!spend(&work)){status=SfntStatus::resource_limit;return false;}return true;}
+    bool charge() noexcept {if(status!=SfntStatus::ok)return false;if(!spend(work)){status=SfntStatus::resource_limit;return false;}return true;}
     SfntComponentNode& get(u32 i) noexcept {return forest.nodes.data[i];}
     u32 height(u32 i) noexcept {return i==nil?0:get(i).height;}
     u32 count(u32 i) noexcept {return i==nil?0:get(i).count;}
@@ -79,24 +79,24 @@ SfntStatus sfnt_components_open(Slice<SfntComponentGlyph> glyphs,Slice<SfntCompo
 }
 SfntStatus sfnt_component_first_metadata(const SfntComponentForest& f,u32 node,u8* output,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!output)return SfntStatus::invalid_input;*output=0;if(f.nodes.count&&!f.nodes.data)return SfntStatus::invalid_input;
-    Report report{work,work,used};
-    while(node!=nil){if(!spend(&work))return SfntStatus::resource_limit;if(node>=f.nodes.count)return SfntStatus::invalid_input;
+    WorkReport report{work,work,used};
+    while(node!=nil){if(!spend(work))return SfntStatus::resource_limit;if(node>=f.nodes.count)return SfntStatus::invalid_input;
         const auto& n=f.nodes[node];if((n.flags&alias)||n.left==nil){*output=static_cast<u8>(n.reserved>>8);return SfntStatus::ok;}node=n.left;}
     return SfntStatus::ok;
 }
 SfntStatus sfnt_component_location(const SfntComponentForest& f,u32 node,u32* root,u32* ordinal,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!root || !ordinal)return SfntStatus::invalid_input;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;
-    Report report{work,work,used};const auto* nodes=f.nodes.data;
+    WorkReport report{work,work,used};const auto* nodes=f.nodes.data;
     u32 at=node,rank=(nodes[at].flags&alias) || nodes[at].left==nil?0:nodes[nodes[at].left].count;
-    for(;;){if(!spend(&work))return SfntStatus::resource_limit;const u32 p=parent(nodes[at]);if(p==nil){*root=at;*ordinal=rank;return SfntStatus::ok;}
+    for(;;){if(!spend(work))return SfntStatus::resource_limit;const u32 p=parent(nodes[at]);if(p==nil){*root=at;*ordinal=rank;return SfntStatus::ok;}
         const auto& up=nodes[p];if(up.right==at)rank+=1+(up.left==nil?0:nodes[up.left].count);at=p;}
 }
 SfntStatus sfnt_component_source_bounds(const SfntComponentForest& forest,u32 node,u32* first,u32* last,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!first||!last)return SfntStatus::invalid_input;*first=nil;*last=0;
     if(node==nil)return SfntStatus::ok;if(node>=forest.nodes.count||!forest.nodes.data)return SfntStatus::invalid_input;
-    Report report{work,work,used};
+    WorkReport report{work,work,used};
     u32 pending[64],depth=0,lo=nil,hi=0;pending[depth++]=node;
-    while(depth){if(!spend(&work))return SfntStatus::resource_limit;
+    while(depth){if(!spend(work))return SfntStatus::resource_limit;
         const u32 at=pending[--depth];if(at>=forest.nodes.count)return SfntStatus::invalid_input;const auto& n=forest.nodes[at];
         lo=minimum(lo,n.source);hi=maximum(hi,n.source);if(n.flags&alias)continue;
         if(n.left!=nil){if(depth==64)return SfntStatus::resource_limit;pending[depth++]=n.left;}
@@ -130,22 +130,22 @@ SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs
     out->undo_count=t.used;return SfntStatus::ok;
 }
 SfntStatus sfnt_components_export(SfntComponentForest* f,SfntGlyphView glyphs,Slice<u32> targets,Slice<SfntMarkAssociation> associations,u32* target_count,u64 work,u64* used) noexcept {
-    const u64 initial=work;Report report{initial,work,used};
+    const u64 initial=work;WorkReport report{initial,work,used};
     if(!target_count)return SfntStatus::invalid_input;*target_count=0;
     if(!f || !sfnt_glyph_view_valid(glyphs) || glyphs.record_size!=sizeof(SfntComponentGlyph) || (targets.count && !targets.data) || (associations.count && !associations.data))return SfntStatus::invalid_input;
     const u32 count=sfnt_glyph_count(glyphs);if(associations.count<count)return SfntStatus::output_too_small;
     f->sealed=true;
-    for(u32 i=0;i<f->nodes.count;++i){if(!spend(&work))return SfntStatus::resource_limit;auto& n=f->nodes.data[i];if(n.flags&owner){n.parent=nil;n.flags&=~owner;}}
-    for(u32 i=0;i<count;++i){if(!spend(&work))return SfntStatus::resource_limit;const auto& g=record(glyphs,i);if(static_cast<u8>(g.glyph.glyph_class)>4)return SfntStatus::invalid_input;
+    for(u32 i=0;i<f->nodes.count;++i){if(!spend(work))return SfntStatus::resource_limit;auto& n=f->nodes.data[i];if(n.flags&owner){n.parent=nil;n.flags&=~owner;}}
+    for(u32 i=0;i<count;++i){if(!spend(work))return SfntStatus::resource_limit;const auto& g=record(glyphs,i);if(static_cast<u8>(g.glyph.glyph_class)>4)return SfntStatus::invalid_input;
         if(g.component!=nil && g.component>=f->nodes.count)return SfntStatus::invalid_input;if(g.attachment!=nil && g.attachment>=f->nodes.count)return SfntStatus::invalid_input;
         if(g.glyph.glyph_class==SfntGlyphClass::mark || g.component==nil)continue;u32 root=nil,rank=0;u64 charged=0;auto s=sfnt_component_location(*f,g.component,&root,&rank,work,&charged);work-=charged;if(s!=SfntStatus::ok)return s;
         auto& n=f->nodes.data[root];if(n.flags&owner)return SfntStatus::invalid_input;if(*target_count==targets.count)return SfntStatus::output_too_small;
         if(n.flags&alias){n.left=n.right=nil;n.flags=0;}n.flags|=owner;n.parent=*target_count;targets.data[(*target_count)++]=i;
     }
-    for(u32 i=0;i<count;++i){if(!spend(&work))return SfntStatus::resource_limit;const auto& g=record(glyphs,i);associations.data[i]={nil,sfnt_component_unknown};if(g.glyph.glyph_class!=SfntGlyphClass::mark)continue;
+    for(u32 i=0;i<count;++i){if(!spend(work))return SfntStatus::resource_limit;const auto& g=record(glyphs,i);associations.data[i]={nil,sfnt_component_unknown};if(g.glyph.glyph_class!=SfntGlyphClass::mark)continue;
         u32 node=g.attachment,leaf=nil;
-        while(node!=nil){if(!spend(&work))return SfntStatus::resource_limit;const auto& n=f->nodes.data[node];if(!(n.flags&alias)){leaf=node;break;}if(n.flags&cached){leaf=n.right;break;}node=n.left;}
-        node=g.attachment;while(node!=nil){auto& n=f->nodes.data[node];if(!(n.flags&alias) || (n.flags&cached))break;if(!spend(&work))return SfntStatus::resource_limit;const u32 next=n.left;n.right=leaf;n.flags|=cached;node=next;}
+        while(node!=nil){if(!spend(work))return SfntStatus::resource_limit;const auto& n=f->nodes.data[node];if(!(n.flags&alias)){leaf=node;break;}if(n.flags&cached){leaf=n.right;break;}node=n.left;}
+        node=g.attachment;while(node!=nil){auto& n=f->nodes.data[node];if(!(n.flags&alias) || (n.flags&cached))break;if(!spend(work))return SfntStatus::resource_limit;const u32 next=n.left;n.right=leaf;n.flags|=cached;node=next;}
         if(leaf==nil)continue;u32 root=nil,rank=0;u64 charged=0;auto s=sfnt_component_location(*f,leaf,&root,&rank,work,&charged);work-=charged;if(s!=SfntStatus::ok)return s;
         const auto& n=f->nodes.data[root];if(!(n.flags&owner))continue;const u32 slot=n.parent;if(targets.data[slot]>=i)continue;
         associations.data[i]={slot,n.flags&known?rank:sfnt_component_unknown};
