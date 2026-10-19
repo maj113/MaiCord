@@ -1,5 +1,6 @@
 #include "maicord/app/client_theme_document.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/theme_presets.hpp"
 
 namespace maicord {
 namespace {

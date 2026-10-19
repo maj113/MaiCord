@@ -2,10 +2,10 @@
 """Generate assets/themes/example.maicord-theme.json from the token tables.
 
 Reads include/maicord/ui/theme_tokens.inc (semantic tokens, scales, motion),
-include/maicord/ui/theme.hpp (core palette defaults) and theme_styles.hpp
-(typography and metric defaults), and writes a version 2 document listing
-every token with its dark default. Semantic defaults keep their references
-so the example also documents the token tiers. Stdlib only.
+include/maicord/ui/theme.hpp and theme_presets.hpp (core palette defaults) and
+theme_styles.hpp (typography and metric defaults), and writes a version 2
+document listing every token with its dark default. Semantic defaults keep
+their references so the example also documents the token tiers. Stdlib only.
 
   generate_theme_example.py           rewrite the example
   generate_theme_example.py --check   exit 1 when the example is stale
@@ -44,7 +44,9 @@ def core_palette():
     source = strip_comments((UI / 'theme.hpp').read_text(encoding='utf-8'))
     body = re.search(r'struct Theme \{(.*?)\n\};', source, re.S).group(1)
     names = re.findall(r'^\s*Color (\w+);', body, re.M)
-    initializer = re.search(r'kDefaultTheme = ui_theme_resolve_defaults\(Theme\{(.*?)\}\);', source, re.S).group(1)
+    presets = strip_comments((UI / 'theme_presets.hpp').read_text(encoding='utf-8'))
+    initializer = re.search(r'ui_theme_default_preset\(\) noexcept \{\s*return ui_theme_resolve_defaults\(Theme\{(.*?)\}\);',
+                            presets, re.S).group(1)
     values = re.findall(r'\{\s*(%s)\s*,\s*(%s)\s*,\s*(%s)\s*,\s*(%s)\s*\}' % ((NUMBER,) * 4), initializer)
     assert len(names) == len(values) == 20, (len(names), len(values))
     return {name: color(value) for name, value in zip(names, values)}

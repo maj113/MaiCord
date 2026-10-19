@@ -14,7 +14,7 @@ import struct
 import zlib
 
 SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
-# Default theme core accent (include/maicord/ui/theme.hpp) and text.on_accent.
+# Default theme core accent (include/maicord/ui/theme_presets.hpp) and text.on_accent.
 BRAND = (0.3451, 0.3961, 0.9490)
 SHADE = tuple(channel * 0.78 for channel in BRAND)
 GLYPH = (1.0, 1.0, 1.0)

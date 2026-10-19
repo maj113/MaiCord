@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/app/client_preferences.hpp"
-#include "maicord/ui/theme.hpp"
+#include "maicord/ui/theme_presets.hpp"
 #include "maicord/ui/background_color_math.hpp"
 #include "maicord/ui/theme_styles.hpp"
 

@@ -4,6 +4,7 @@
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/ui/theme_presets.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
