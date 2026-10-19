@@ -1904,7 +1904,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         const auto& rows = *renderer->navigation_view->private_rows;
         const auto* navigation = ui_scene_resolve(*renderer->ui_scene,
                                                   ui_scene_find(*renderer->ui_scene, UiSemantic::channel_navigation));
-        const u64 selected = renderer->chat_state ? renderer->chat_state->selected_channel_id : 0;
+        const u64 selected = renderer->chat_state && !renderer->navigation_view->friends_mode
+                                 ? renderer->chat_state->selected_channel_id : 0;
         if ((navigation && !ui_private_rows_overlay_paint(*renderer->shell_navigation_scene,
                                                           ui_rect_intersection(navigation->rectangle,
                                                                                renderer->shell_navigation_scene->viewport),

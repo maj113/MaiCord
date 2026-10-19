@@ -152,6 +152,11 @@ bool synchronize_navigation_view() noexcept {
         ui.navigation_view.home_badge = home_badge;
         ++ui.navigation_view.requests_revision;
     }
+    const bool friends_mode = application_friends_active();
+    if (ui.navigation_view.friends_mode != friends_mode) {
+        ui.navigation_view.friends_mode = friends_mode;
+        ++ui.navigation_view.requests_revision;
+    }
     const bool voice_current = ui.navigation_view.source_voice_revision == ui.voice_states.revision &&
                                ui.navigation_view.source_stage_revision == application_stage_instances().revision &&
                                ui.navigation_view.source_extras_revision ==

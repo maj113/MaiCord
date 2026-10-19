@@ -693,7 +693,7 @@ bool activate(UiFriendsTarget target) noexcept {
     if (checked.action == UiFriendsAction::profile) return application_profile_open(checked.user_id, input_scene(*friends).surface);
     if (checked.action == UiFriendsAction::open_dm) {
         const bool queued = queue_private_conversation(PrivateConversationOperation::open, checked.user_id);
-        if (queued) { application_friends_hide();return synchronize_shell_layout() && refresh_account_text(true) && application_request_frame(); }
+        if (queued) { application_friends_hide();return synchronize_navigation_view() && synchronize_shell_layout() && refresh_account_text(true) && application_request_frame(); }
         return false;
     }
     if (checked.action == UiFriendsAction::add_friend)

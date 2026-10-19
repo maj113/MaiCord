@@ -491,6 +491,9 @@ void application_sync_attachment_drop_target() noexcept {
 }
 void application_video_blur() noexcept {
 }
+bool synchronize_navigation_view() noexcept {
+    return true;
+}
 bool synchronize_shell_layout() noexcept {
     return true;
 }

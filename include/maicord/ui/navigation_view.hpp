@@ -125,6 +125,9 @@ struct NavigationView {
     // Borrowed voice channel statuses, timers and the invite row; may be null.
     const struct UiVoiceChannelExtras* voice_extras;
     u32 source_extras_revision;
+    // Host-set (home): the Friends view owns the content pane, so no
+    // conversation row shows as selected. Bump requests_revision on change.
+    bool friends_mode;
     // Host-set: show the events row for the selected server with this count
     // ("N Events", or "Events" at zero). Bump events_revision on change.
     bool events_row;

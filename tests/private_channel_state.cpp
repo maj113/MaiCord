@@ -220,6 +220,21 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           view.channel_count == 2 && view.channel_rows[0].selectable && view.channel_rows[1].selectable &&
           view.selected_guild_id == 0 && view.selected_channel_id == 11,
           "private channels project into native navigation after selection");
+    const auto selected_rows = [&]() noexcept {
+        u32 count = 0;
+        for (u32 i = 0; i < view.channel_count; ++i) count += view.channel_rows[i].selected;
+        return count;
+    };
+    check(selected_rows() == 1, "the open conversation row is selected");
+    view.friends_mode = true;
+    ++view.requests_revision;
+    check(navigation_view_rebuild(&view, store).ok() && selected_rows() == 0 && view.selected_channel_id == 11,
+          "the Friends view leaves no conversation row selected but keeps the channel");
+    view.friends_mode = false;
+    ++view.requests_revision;
+    check(navigation_view_rebuild(&view, store).ok() && selected_rows() == 1 &&
+              navigation_view_find_channel(view, 11)->selected,
+          "leaving Friends restores the conversation row selection");
     check(apply(utf8_literal(R"({"op":0,"s":4,"t":"CHANNEL_UPDATE","d":{"id":"11","type":3,"name":"Renamed group"}})")) &&
           chat_state_store_channel_name(store, *group).bytes == 13 &&
           bytes_equal(chat_state_store_channel_name(store, *group).data, "Renamed group", 13),

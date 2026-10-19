@@ -215,7 +215,7 @@ bool activate(ApplicationQuickSwitcher& q, const UiQuickSwitcherTarget& selected
     case QuickSwitcherKind::user:
         if (!queue_private_conversation(PrivateConversationOperation::open, target.user_id)) return false;
         application_friends_hide();
-        return synchronize_shell_layout() && refresh_account_text(true) && application_request_frame();
+        return synchronize_navigation_view() && synchronize_shell_layout() && refresh_account_text(true) && application_request_frame();
     }
     return true;
 }

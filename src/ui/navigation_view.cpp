@@ -608,7 +608,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             channel.generation,
             channel.type,
             key.depth,
-            channel.id == state.selected_channel_id,
+            channel.id == state.selected_channel_id && !(state.home_selected && view->friends_mode),
             // Voice rows join the call on click; their chat opens from the call.
             channel.type == 4 || channel.type == 15 || channel.type == 16 ||
                 (channel_is_message_capable(channel.type) && !channel_is_voice_chat(channel.type)),
