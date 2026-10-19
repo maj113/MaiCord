@@ -419,19 +419,19 @@ bool visit_mention_user(void* opaque, u32, JsonValue value) noexcept {
     }
     u64 id = 0;
     Utf8View name{};
+    // Mentions past the capacity still validate and count toward the current
+    // user's mention, but keep no name.
+    const bool keep = context->capture_names && context->count < kGatewayMessageMentionUserMaximum &&
+                      context->count < context->users.count;
     const GatewayEventDecodeResult decoded = decode_author(
         value, context->structural_scratch, context->maximum_depth, context->name_output, context->used,
-        context->capture_names, &id, &name, nullptr, nullptr, nullptr, nullptr, &context->document);
+        keep, &id, &name, nullptr, nullptr, nullptr, nullptr, &context->document);
     if (!decoded.ok()) {
         context->error = decoded.error;
         return false;
     }
     context->found = context->found || (context->current_user_id != 0 && id == context->current_user_id);
-    if (context->capture_names) {
-        if (context->count >= kGatewayMessageMentionUserMaximum || context->count >= context->users.count) {
-            context->error = GatewayEventDecodeError::mention_user_capacity;
-            return false;
-        }
+    if (keep) {
         for (u32 previous = 0; previous < context->count; ++previous) {
             if (context->users[previous].id == id) {
                 context->error = GatewayEventDecodeError::duplicate_field;
@@ -443,20 +443,23 @@ bool visit_mention_user(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 
+// Role IDs past the capacity are validated but not kept.
 bool visit_mention_role(void* opaque, u32 index, JsonValue value) noexcept {
     auto* context = static_cast<MentionRoleContext*>(opaque);
-    if (index >= kGatewayMessageMentionRoleMaximumIds || index >= context->ids.count ||
-        !json_value_to_snowflake(value, &context->ids[index])) {
-        context->error = index >= context->ids.count ? GatewayEventDecodeError::mention_role_capacity
-                                                     : GatewayEventDecodeError::invalid_data;
+    u64 id = 0;
+    if (!json_value_to_snowflake(value, &id)) {
+        context->error = GatewayEventDecodeError::invalid_data;
         return false;
     }
+    if (index >= minimum(kGatewayMessageMentionRoleMaximumIds, context->ids.count))
+        return true;
     for (u32 previous = 0; previous < index; ++previous) {
-        if (context->ids[previous] == context->ids[index]) {
+        if (context->ids[previous] == id) {
             context->error = GatewayEventDecodeError::duplicate_field;
             return false;
         }
     }
+    context->ids[index] = id;
     context->count = index + 1;
     return true;
 }
@@ -583,7 +586,8 @@ GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> str
         if (!read.ok()) {
             return read_failure(roles.error, read);
         }
-        if (read.member_count > kGatewayMessageMentionRoleMaximumIds || read.member_count != roles.count) {
+        if (roles.count != minimum(read.member_count, minimum(kGatewayMessageMentionRoleMaximumIds,
+                                                              mention_role_scratch.count))) {
             return decode_failure(GatewayEventDecodeError::invalid_data,
                                   context->mention_roles.source_offset);
         }

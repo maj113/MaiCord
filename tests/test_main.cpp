@@ -20161,11 +20161,15 @@ void test_gateway_message_events() noexcept {
                 Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, 42, &message)
                     .error == GatewayEventDecodeError::duplicate_field,
         "gateway_message_duplicate_mention_role_rejected");
+    GatewayMessageNamedUser kept_user[1]{};
     expect(gateway_decode_message_create(envelope.data, Slice<u32>{scratch, 256}, 16,
-                                         Slice<char>{content, 64}, Slice<u64>{mention_roles, 1}, 42,
-                                         &message)
-                   .error == GatewayEventDecodeError::mention_role_capacity,
-           "gateway_message_mention_role_capacity");
+                                         Slice<char>{content, 64}, Slice<u64>{mention_roles, 1},
+                                         Slice<GatewayMessageNamedUser>{kept_user, 1}, 77, &message)
+                   .ok() &&
+               message.mention_roles.count == 1 && message.mention_roles[0] == 55 &&
+               message.mention_users.count == 1 && message.mention_users[0].id == 42 &&
+               message.mentions_current_user,
+           "gateway_message_mentions_past_capacity_truncate_and_still_mention_self");
 
     expect(decode_gateway(
                utf8_literal(
