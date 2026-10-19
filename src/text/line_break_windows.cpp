@@ -23,8 +23,9 @@ inline bool ideograph(B b) noexcept {return b==B::id||b==B::eb||b==B::em;}
 bool line_windows_candidate(ConstSlice<u32> text,Slice<u8> out) noexcept {
     if((text.count&&!text.data)||!out.data||out.count<=text.count)return false;
     for(u32 i=0;i<text.count;++i)if(!unicode_is_scalar(text[i]))return false;
-    if(!text.count){out[0]=0;return true;}
-    u8 base=255;bool previous_selector=false;
+    // One pass: every rule looks only backward, so each class is resolved and
+    // its boundary decided before the next scalar is read.
+    u8 base=255;bool previous_selector=false;B previous=none,before=none,nonspace=none;
     for(u32 i=0;i<text.count;++i){const auto& p=*unicode_properties(text[i]);B b=compatibility_class(text[i],p.line_break());u8 tag=0;
         // CGJ and ZWJ retain glue behavior across following combining marks.
         // Emoji modifiers instead inherit the preceding base through CM.
@@ -36,14 +37,13 @@ bool line_windows_candidate(ConstSlice<u32> text,Slice<u8> out) noexcept {
         // A selector cannot itself be the base of another selector sequence.
         const bool is_selector=p.has(UnicodeFlag::variation_selector);
         if(is_selector&&!previous_selector&&base!=255)tag=base|ignored|selector;
-        else if(b==B::cm){const B previous=base==255?none:type(base);
-            if(previous!=none&&!hard(previous)&&previous!=B::sp&&previous!=B::zw)tag=base|ignored;else tag=static_cast<u8>(B::al);
+        else if(b==B::cm){if(previous!=none&&!hard(previous)&&previous!=B::sp&&previous!=B::zw)tag=base|ignored;else tag=static_cast<u8>(B::al);
         }else tag=static_cast<u8>(b);
-        out[i]=tag;if(!(tag&ignored))base=tag;previous_selector=is_selector;
-    }
-    B previous=none,before=none,nonspace=none;
-    for(u32 i=0;i<text.count;++i){const u8 tag=out[i];const B a=previous,b=type(tag);u8 split=1;
+        previous_selector=is_selector;b=type(tag);const B a=previous;u8 split=1;
         if(!i)split=0;
+        // Shortcuts for the common word pairs; the chain below gives the
+        // same results (LB28, and LB14 then LB18).
+        else if(!(tag&ignored)&&letter(b)&&(letter(a)||a==B::sp))split=letter(a)||nonspace==B::op?0:1;
         else if(tag&selector)split=0;
         else if(a==B::bk)split=2;
         else if(a==B::cr&&b==B::lf)split=0;
@@ -75,8 +75,9 @@ bool line_windows_candidate(ConstSlice<u32> text,Slice<u8> out) noexcept {
         else if(((letter(a)||a==B::nu)&&b==B::op)||(a==B::cp&&(letter(b)||b==B::nu)))split=0;
         else if(a==B::ri&&b==B::ri)split=0;
         out[i]=split;
-        if(!(tag&ignored)){before=previous;previous=b;if(b!=B::sp)nonspace=b;}
+        if(!(tag&ignored)){base=tag;before=previous;previous=b;if(b!=B::sp)nonspace=b;}
     }
+    if(!text.count){out[0]=0;return true;}
     out[text.count]=hard(previous)?2:1;return true;
 }
 }
