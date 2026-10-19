@@ -10,16 +10,18 @@ struct Report {u32 initial;const u32& left;u32* used;~Report() noexcept {if(used
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool take(u32 n,ConstSlice<u8>* out) noexcept {if(!span(bytes,at,n))return false;*out={bytes.data+at,n};at+=n;return true;}bool byte(u8* v) noexcept {if(!span(bytes,at,1))return false;*v=bytes[at++];return true;}};
 u32 location(const SfntGvar& f,u32 glyph) noexcept {return f.offset_stride==4?r32(f.offsets,glyph*4):r16(f.offsets,glyph*2)*2u;}
 #pragma float_control(precise,on,push)
+// Peaks, supports and the F2DOT14-rounded coordinate compare as integers; each
+// ratio is one exact-integer division, bit-identical to dividing the scaled values.
 SfntStatus region(ConstSlice<u8> peak,ConstSlice<u8> start,ConstSlice<u8> end,ConstSlice<double> coords,double* out,u32& work) noexcept {
     if(!spend(work,coords.count))return SfntStatus::resource_limit;double scalar=1;
-    // The gvar outline path quantizes coordinates more coarsely than the
-    // metric/paint item-store paths; do not change their shared axis evaluator.
-    for(u32 i=0;i<coords.count;++i){const double p=static_cast<i16>(r16(peak,i*2))/16384.0;const double shifted=coords[i]*16384+.5;const i32 integer=static_cast<i32>(shifted);const double c=(integer-(integer>shifted?1:0))/16384.0;if(p < -1 || p>1)return SfntStatus::malformed;
-        if(start.count){const double a=static_cast<i16>(r16(start,i*2))/16384.0,b=static_cast<i16>(r16(end,i*2))/16384.0;
-            if(a < -1 || a>1 || b < -1 || b>1)return SfntStatus::malformed;
+    const auto unit=[](i32 v) noexcept {return v>=-16384 && v<=16384;};
+    for(u32 i=0;i<coords.count;++i){const i32 p=static_cast<i16>(r16(peak,i*2));const double shifted=coords[i]*16384+.5;const i32 rounded=static_cast<i32>(shifted);
+        const i32 c=rounded-(rounded>shifted?1:0);if(!unit(p))return SfntStatus::malformed;
+        if(start.count){const i32 a=static_cast<i16>(r16(start,i*2)),b=static_cast<i16>(r16(end,i*2));
+            if(!unit(a) || !unit(b))return SfntStatus::malformed;
             if(a>p || p>b || (a<0 && b>0 && p!=0) || p==0)continue;
-            if(c<a || c>b){scalar=0;continue;}if(c==p)continue;scalar*=c<p?(c-a)/(p-a):(b-c)/(b-p);
-        }else{if(p==0)continue;if(c==0 || (c<0)!=(p<0)){scalar=0;continue;}if((c<0?-c:c)<(p<0?-p:p))scalar*=c/p;}
+            if(c<a || c>b){scalar=0;continue;}if(c==p)continue;scalar*=c<p?static_cast<double>(c-a)/(p-a):static_cast<double>(b-c)/(b-p);
+        }else{if(p==0)continue;if(c==0 || (c<0)!=(p<0)){scalar=0;continue;}if((c<0?-c:c)<(p<0?-p:p))scalar*=static_cast<double>(c)/p;}
     }*out=scalar;return SfntStatus::ok;
 }
 struct Tuples {
