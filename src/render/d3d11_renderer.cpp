@@ -251,7 +251,7 @@ void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEdit
     presentation_damage_invalidate_full(&renderer->presentation_damage);
 }
 
-bool renderer_initialize(D3D11Renderer* renderer, HWND window) noexcept {
+bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text) noexcept {
     if (!renderer || !window || !renderer_media_draw_storage_initialize(&renderer->media_draw)) {
         return false;
     }
@@ -344,15 +344,28 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window) noexcept {
         renderer_shutdown(renderer);
         return false;
     }
+    // Created now, the content glyph ring costs a fraction of growing the
+    // pipeline's small ring when content text first binds. A failure grows it then.
+    D3D11DrawPipelineOwner content_glyphs{};
+    if (content_text)
+        d3d11_draw_pipeline_reserve_glyph_instances(&content_glyphs, renderer->graphics.device, sizeof(GlyphQuad),
+                                                    kRendererContentGlyphCapacity);
     // Last: the prestart worker builds these objects meanwhile when it ran.
     const D3D11DrawPipelineResult pipeline = initialize_pipeline(renderer);
     if (!pipeline.ok()) {
+        d3d11_draw_pipeline_release(&content_glyphs);
         log_write(LogLevel::error, "render", "d3d11_draw_pipeline_initialization_failed");
         log_u64(LogLevel::error, "render", "d3d11_draw_pipeline_stage", static_cast<u32>(pipeline.error));
         log_u64(LogLevel::error, "render", "d3d11_draw_pipeline_native_error",
                 static_cast<u32>(pipeline.native_error));
         renderer_shutdown(renderer);
         return false;
+    }
+    if (content_glyphs.glyph_instance_buffer) {
+        com_release(renderer->pipeline.glyph_instance_buffer);
+        renderer->pipeline.glyph_instance_buffer = content_glyphs.glyph_instance_buffer;
+        renderer->pipeline.glyph_instance_capacity = content_glyphs.glyph_instance_capacity;
+        renderer->pipeline.glyph_instance_end = 0;
     }
 
     warm_draw_pipelines(renderer);

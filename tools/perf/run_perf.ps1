@@ -123,7 +123,9 @@ function Invoke-Probe([string]$RunProfile) {
                 $record.times_ok, $record.memory_ok, $record.pws_ok, $record.ttff_us, $record.app_ttff_us)
         }
         Write-Host $records[0]
-        return $records[0]
+        # Named startup points; only the name and microsecond fields are kept.
+        $marks = @($text -split "`r?`n" | Where-Object { $_ -match '^MAICORD_STARTUP_MARK pid=\d+ name=[a-z_]+ us=\d+$' })
+        return (@($records[0]) + $marks) -join "`n"
     }
     # Startup stages (load_trace, microseconds since application_run) of this launch.
     $log = Join-Path $RunProfile 'MaiCord\logs\maicord.log'
@@ -147,7 +149,7 @@ function Invoke-Probe([string]$RunProfile) {
 }
 
 function ConvertFrom-Report([string]$Text) {
-    $report = @{ phases = @{}; memory = @{}; detail = @{}; modules = @(); sites = @(); hot = @(); threads = @(); fields = @(); stages = @(); lines = @{}; st = @{} }
+    $report = @{ phases = @{}; memory = @{}; detail = @{}; modules = @(); sites = @(); hot = @(); threads = @(); fields = @(); stages = @(); marks = @(); lines = @{}; st = @{} }
     foreach ($line in $Text -split "`r?`n") {
         if (!$line) { continue }
         $parts = $line -split ' '
@@ -165,9 +167,10 @@ function ConvertFrom-Report([string]$Text) {
             'hot' { $report.hot += , $values }
             'ui_field' { $report.fields += , $values }
             'stage' { $report.stages += , $values }
+            'MAICORD_STARTUP_MARK' { $report.marks += , $values }
             'thread' { $report.threads += , $values }
             # Startup attribution (tools/perf/perf_startup.cpp): repeated line kinds.
-            { $_ -in @('st_mark', 'st_module', 'st_dll', 'st_api', 'st_d3d', 'st_present_call', 'st_event') } {
+            { $_ -in @('st_mark', 'st_module', 'st_dll', 'st_api', 'st_d3d', 'st_present_call', 'st_call', 'st_event') } {
                 if (!$report.st.ContainsKey($parts[0])) { $report.st[$parts[0]] = @() }
                 $report.st[$parts[0]] += , $values
             }
@@ -241,6 +244,25 @@ if ($ProductionStartup) {
             }
         }
         Write-Host $line
+    }
+    # Startup points in order of the warm medians (ms since process creation).
+    $names = @($startup[-1][1] | ForEach-Object { $_.marks } | ForEach-Object { $_.name } | Select-Object -Unique)
+    $rows = foreach ($name in $names) {
+        $medians = foreach ($row in $startup) {
+            Get-Median @($row[1] | ForEach-Object { $_.marks } | Where-Object { $_.name -eq $name } |
+                ForEach-Object { [double]$_.us / 1000 })
+        }
+        [pscustomobject]@{ name = $name; medians = @($medians) }
+    }
+    if ($rows) {
+        Write-Host 'startup points (ms since process creation; medians):'
+        foreach ($entry in @($rows | Sort-Object { $_.medians[-1] })) {
+            $line = '  {0,-26}' -f $entry.name
+            for ($i = 0; $i -lt $startup.Count; $i++) {
+                $line += '{0,8} {1}' -f (Format-Number $entry.medians[$i] 1), $startup[$i][0]
+            }
+            Write-Host $line
+        }
     }
     return
 }
@@ -515,6 +537,17 @@ if ($warm[0].st['st_mark']) {
         foreach ($call in @($first.st['st_present_call'])) {
             Write-Host ('  present {0}: at {1} ms, {2} ms{3}' -f $call.index, (Format-Number ([double]$call.at_us / 1000) 1),
                 (Format-Number ([double]$call.dur_us / 1000) 2), $(if ($call.main -eq '1') { '' } else { ' (worker)' }))
+        }
+        Write-Host '  D3D11/DXGI/DirectComposition calls and main-thread points from the device on (at ms, duration ms, thread):'
+        $calls = @($first.st['st_call'])
+        $from = if ($calls.Count) { [double]$calls[0].at_us } else { 0 }
+        $timeline = @($calls | ForEach-Object {
+            [pscustomobject]@{ at = [double]$_.at_us; text = ('{0,8}  {1,-30} {2}' -f (Format-Number ([double]$_.dur_us / 1000) 2),
+                $_.name, $(if ($_.main -eq '1') { 'main' } else { 'worker' })) } })
+        $timeline += @($first.st['st_mark'] | Where-Object { [double]$_.at_us -ge $from } | ForEach-Object {
+            [pscustomobject]@{ at = [double]$_.at_us; text = ('{0,8}  [{1}]' -f '', $_.name) } })
+        foreach ($entry in @($timeline | Sort-Object at)) {
+            Write-Host ('    {0,8} {1}' -f (Format-Number ($entry.at / 1000) 2), $entry.text)
         }
         Write-Host '  main-thread waits and module loads over 0.2 ms (at ms, duration ms, caller):'
         foreach ($event in @($first.st['st_event'])) {

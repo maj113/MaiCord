@@ -251,7 +251,9 @@ int application_run() noexcept {
 
     // Rendered content hides default-ignorable code points, as a browser does.
     text_set_browser_invisibles(true);
-    if (!renderer_initialize(&g_app.renderer, g_app.window)) {
+    // A prestarted saved account attaches before the first frame and binds its
+    // content text.
+    if (!renderer_initialize(&g_app.renderer, g_app.window, application_account_prestart_pending())) {
         renderer_prestart_cancel();
         MessageBoxW(g_app.window,
                     L"MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime.",

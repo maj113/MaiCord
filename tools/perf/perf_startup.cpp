@@ -315,6 +315,16 @@ struct PresentEvent {
 constexpr u32 kPresentCapacity = 6;
 PresentEvent g_presents[kPresentCapacity];
 volatile LONG g_present_count = 0;
+// Every vtable call before the first present, in order (the post-device schedule).
+struct VtCall {
+    Vt slot;
+    bool main;
+    u64 at;
+    u64 ticks;
+};
+constexpr u32 kVtCallCapacity = 96;
+VtCall g_vt_calls[kVtCallCapacity];
+volatile LONG g_vt_call_count = 0;
 
 void record_vt(Vt slot, u64 start) noexcept {
     const u64 end = qpc();
@@ -329,6 +339,9 @@ void record_vt(Vt slot, u64 start) noexcept {
         InterlockedIncrement64(&stat.later_calls);
         return;
     }
+    const LONG call = InterlockedIncrement(&g_vt_call_count) - 1;
+    if (call < static_cast<LONG>(kVtCallCapacity))
+        g_vt_calls[call] = {slot, on_main(), start, static_cast<u64>(ticks)};
     InterlockedIncrement64(&stat.calls);
     InterlockedAdd64(&stat.ticks, ticks);
     InterlockedCompareExchange64(&stat.first_at, static_cast<LONG64>(start), 0);
@@ -862,6 +875,15 @@ void startup_trace_report() noexcept {
         line.kv("at_us", at_us(g_presents[i].at));
         line.kv("dur_us", span_us(g_presents[i].ticks));
         line.kv("main", g_presents[i].main ? 1 : 0);
+        emit(line);
+    }
+    const u32 calls = minimum<u32>(static_cast<u32>(g_vt_call_count), kVtCallCapacity);
+    for (u32 i = 0; i < calls; ++i) {
+        line.s("st_call name=");
+        line.s(kVtNames[static_cast<u32>(g_vt_calls[i].slot)]);
+        line.kv("at_us", at_us(g_vt_calls[i].at));
+        line.kv("dur_us", span_us(g_vt_calls[i].ticks));
+        line.kv("main", g_vt_calls[i].main ? 1 : 0);
         emit(line);
     }
     const u32 events = minimum<u32>(static_cast<u32>(g_event_count), kEventCapacity);

@@ -11,6 +11,9 @@ void application_log_shutdown_metrics() noexcept;
 bool application_startup_probe_initialize() noexcept;
 // Records one successful Present return and requests normal window shutdown.
 void application_startup_probe_first_present() noexcept;
+// Main thread: keeps the first time of each named point (a static string)
+// for the first-present report.
+void application_startup_probe_mark(const char* name) noexcept;
 #endif
 
 } // namespace maicord::app_detail

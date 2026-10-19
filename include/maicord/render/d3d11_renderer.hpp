@@ -687,7 +687,9 @@ struct D3D11Renderer {
 void renderer_prestart() noexcept;
 // Joins the worker and releases anything renderer_initialize did not adopt.
 void renderer_prestart_cancel() noexcept;
-bool renderer_initialize(D3D11Renderer* renderer, HWND window) noexcept;
+// content_text: content text (kRendererContentGlyphCapacity glyph quads)
+// binds before the first frame; its glyph ring is created up front.
+bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text = false) noexcept;
 bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept;
 // The top `height` pixels of the swap chain hold the window caption; width,
 // height and every content coordinate exclude them. Before renderer_initialize

@@ -54,7 +54,9 @@ It skips desktop registration, notifications, updates and instance forwarding.
 Its window uses the quiet probe styles and does not take focus.
 After the first successful `Present`, the client requests normal window closure.
 
-The runner prints each `MAICORD_STARTUP` record and cold/warm medians.
+The runner prints each `MAICORD_STARTUP` record and cold/warm medians, then the medians of the
+named startup points (`MAICORD_PERF_MARK` in `main.cpp`, `application_window.cpp`,
+`application_frame_presentation.cpp` and `application_shutdown_metrics.cpp`), in ms since process creation.
 It accepts a record only from its child process, after exit code zero and valid cycle, CPU-time and memory queries.
 It also requires `backend_loaded=1` and `login_active=1` for every accepted launch.
 These flags confirm that the real backend and login instance exist. They do not mean that authentication finished.
@@ -125,9 +127,10 @@ focused window (it pauses media animations only after a real deactivation).
   (`MAICORD_PERF_MARK`, compiled only into the probe), time to the entry point,
   memory at the first present, and, for the first cold and warm run, every DLL
   mapped before the first present, timed system calls made through the probe image's
-  import tables, D3D11/DXGI/DirectComposition calls reached through their vtables,
-  the first presents, and main-thread waits and module loads over 0.2 ms with their
-  callers.
+  import tables, D3D11/DXGI/DirectComposition calls reached through their vtables
+  (totals, then each call in order with its thread, interleaved with the named
+  points), the first presents, and main-thread waits and module loads over 0.2 ms
+  with their callers.
 - **Always printed:** a per-member residency audit of `AccountUiRuntime` and a
   thread table (owner module, CPU, context switches, idle context switches, stack
   reservation and committed stack).

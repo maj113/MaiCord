@@ -23,13 +23,25 @@ namespace maicord::app_detail {
 namespace {
 
 #if defined(MAICORD_STARTUP_PROBE)
+struct StartupMark {
+    const char* name;
+    i64 at;
+};
+constexpr u32 kStartupMarkCapacity = 48;
 struct StartupProbe {
     Clock clock;
     i64 correlation_qpc;
     u64 creation_offset_us;
+    StartupMark marks[kStartupMarkCapacity];
+    u32 mark_count;
     bool initialized, recorded;
 };
 StartupProbe g_startup_probe{};
+
+u64 startup_probe_us(i64 at) noexcept {
+    return g_startup_probe.creation_offset_us +
+           clock_microseconds(g_startup_probe.clock, g_startup_probe.correlation_qpc, at);
+}
 
 u64 filetime_value(FILETIME value) noexcept {
     return static_cast<u64>(value.dwHighDateTime) << 32 | value.dwLowDateTime;
@@ -126,6 +138,16 @@ bool application_startup_probe_initialize() noexcept {
     return true;
 }
 
+void application_startup_probe_mark(const char* name) noexcept {
+    if (!g_startup_probe.initialized || g_startup_probe.recorded)
+        return;
+    for (u32 i = 0; i < g_startup_probe.mark_count; ++i)
+        if (g_startup_probe.marks[i].name == name)
+            return;
+    if (g_startup_probe.mark_count < kStartupMarkCapacity)
+        g_startup_probe.marks[g_startup_probe.mark_count++] = {name, clock_now()};
+}
+
 void application_startup_probe_first_present() noexcept {
     if (!g_startup_probe.initialized || g_startup_probe.recorded)
         return;
@@ -154,9 +176,7 @@ void application_startup_probe_first_present() noexcept {
                                  sizeof(PROCESS_MEMORY_COUNTERS_EX)) != FALSE;
     }
     TraceRecord line("MAICORD_STARTUP");
-    line.field("ttff_us",
-               g_startup_probe.creation_offset_us +
-                   clock_microseconds(g_startup_probe.clock, g_startup_probe.correlation_qpc, presented));
+    line.field("ttff_us", startup_probe_us(presented));
     line.field("app_ttff_us", clock_microseconds(g_app.clock, g_app.process_start, presented));
     line.field("main_cycles", main_cycles);
     line.field("process_cycles", process_cycles);
@@ -176,6 +196,14 @@ void application_startup_probe_first_present() noexcept {
     line.append("\n");
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
+    // Marks are microseconds since process creation, like ttff_us.
+    for (u32 i = 0; i < g_startup_probe.mark_count; ++i) {
+        TraceRecord mark("MAICORD_STARTUP_MARK");
+        mark.field("name", g_startup_probe.marks[i].name);
+        mark.field("us", startup_probe_us(g_startup_probe.marks[i].at));
+        mark.append("\n");
+        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), mark.text, mark.used, &written, nullptr);
+    }
     application_desktop_request_quit();
     PostMessageW(g_app.window, WM_CLOSE, 0, 0);
 }

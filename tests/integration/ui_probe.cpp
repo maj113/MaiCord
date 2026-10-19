@@ -10074,8 +10074,10 @@ int run_probe() noexcept {
         return 246;
     }
     // The prestarted device, draw pipeline and glyph atlas were adopted, not
-    // recreated on this thread.
-    if (g_probe.renderer.startup_prestart != 7) {
+    // recreated on this thread; the content glyph ring exists before content
+    // text binds, so binding it never reallocates the ring.
+    if (g_probe.renderer.startup_prestart != 7 ||
+        g_probe.renderer.pipeline.glyph_instance_capacity != kRendererContentGlyphCapacity) {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return 229;
