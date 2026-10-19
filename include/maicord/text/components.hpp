@@ -31,7 +31,8 @@ SfntStatus sfnt_component_source_bounds(const SfntComponentForest&,u32 node,u32*
 // Prepare component metadata for one GSUB2 expansion or GSUB4 ligature. Output
 // records are already initialized from the first consumed glyph. Failure rolls
 // back the forest; outputs/journal are scratch. On success keep the journal
-// until the glyph edit commits, or roll it back if that edit fails.
+// until the glyph edit commits, or roll it back if that edit fails. An edit
+// journals each node at most once, so forest-sized journals never overflow.
 // All mutable arrays are disjoint. No allocation. Edits are forbidden after export.
 SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs,ConstSlice<u32> consumed,bool ligature,
                                 Slice<u8> replacement_records,Slice<SfntComponentUndo> journal,SfntComponentEdit* result,u64 work_limit=1000000) noexcept;

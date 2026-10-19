@@ -1,6 +1,8 @@
 #include "maicord/text/components.hpp"
 namespace maicord {namespace {
-constexpr u32 nil=0xffffffffu;constexpr u8 alias=1,known=2,cached=4,owner=8;
+constexpr u32 nil=0xffffffffu;
+// journaled marks nodes already saved by the current edit; it never outlives one.
+constexpr u8 alias=1,known=2,cached=4,owner=8,journaled=16;
 bool spend(u64* work,u64 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
 struct Report {u64 initial;const u64& left;u64* used;~Report() noexcept {if(used)*used=initial-left;}};
 u32 parent(const SfntComponentNode& n) noexcept {return n.flags&owner?nil:n.parent;}
@@ -11,7 +13,11 @@ struct Tree {
     SfntComponentNode& get(u32 i) noexcept {return forest.nodes.data[i];}
     u32 height(u32 i) noexcept {return i==nil?0:get(i).height;}
     u32 count(u32 i) noexcept {return i==nil?0:get(i).count;}
-    bool save(u32 i) noexcept {if(!charge())return false;if(used==journal.count){status=SfntStatus::output_too_small;return false;}journal.data[used++]={i,get(i)};return true;}
+    bool save(u32 i) noexcept {
+        if(!charge())return false;auto& n=get(i);if(n.flags&journaled)return true;
+        if(used==journal.count){status=SfntStatus::output_too_small;return false;}
+        journal.data[used++]={i,n};n.flags|=journaled;return true;
+    }
     bool set_parent(u32 i,u32 p) noexcept {if(i==nil)return status==SfntStatus::ok;if(get(i).parent==p)return status==SfntStatus::ok;if(!save(i))return false;get(i).parent=p;return true;}
     bool set(u32 i,u32 left,u32 right) noexcept {
         if(!save(i))return false;auto& n=get(i);n.left=left;n.right=right;n.count=count(left)+1+count(right);n.height=static_cast<u8>(1+maximum(height(left),height(right)));
@@ -52,7 +58,7 @@ struct Tree {
     }
     bool activate(u32 root) noexcept {
         if(root==nil || !(get(root).flags&alias))return status==SfntStatus::ok;
-        if(!save(root))return false;auto& n=get(root);n.left=n.right=nil;n.flags=0;return true;
+        if(!save(root))return false;auto& n=get(root);n.left=n.right=nil;n.flags=journaled;return true;
     }
     bool root_flags(u32 root,bool history) noexcept {if(root==nil)return status==SfntStatus::ok;if(!set_parent(root,nil) || !save(root))return false;auto& n=get(root);n.flags=static_cast<u8>((n.flags&~known)|(history?known:0));return true;}
     u32 first_source(u32 root) noexcept {
@@ -79,10 +85,11 @@ SfntStatus sfnt_component_first_metadata(const SfntComponentForest& f,u32 node,u
     return SfntStatus::ok;
 }
 SfntStatus sfnt_component_location(const SfntComponentForest& f,u32 node,u32* root,u32* ordinal,u64 work,u64* used) noexcept {
-    if(used)*used=0;if(!root || !ordinal)return SfntStatus::invalid_input;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;const u64 initial=work;
-    u32 at=node,rank=f.nodes.data[at].flags&alias?0:(f.nodes.data[at].left==nil?0:f.nodes.data[f.nodes.data[at].left].count);
-    for(;;){if(!spend(&work)){if(used)*used=initial-work;return SfntStatus::resource_limit;}const auto& n=f.nodes.data[at];const u32 p=parent(n);if(p==nil){*root=at;*ordinal=rank;if(used)*used=initial-work;return SfntStatus::ok;}
-        const auto& up=f.nodes.data[p];if(up.right==at)rank+=1+(up.left==nil?0:f.nodes.data[up.left].count);at=p;}
+    if(used)*used=0;if(!root || !ordinal)return SfntStatus::invalid_input;*root=nil;*ordinal=0;if(node==nil)return SfntStatus::ok;if(node>=f.nodes.count)return SfntStatus::invalid_input;
+    Report report{work,work,used};const auto* nodes=f.nodes.data;
+    u32 at=node,rank=(nodes[at].flags&alias) || nodes[at].left==nil?0:nodes[nodes[at].left].count;
+    for(;;){if(!spend(&work))return SfntStatus::resource_limit;const u32 p=parent(nodes[at]);if(p==nil){*root=at;*ordinal=rank;return SfntStatus::ok;}
+        const auto& up=nodes[p];if(up.right==at)rank+=1+(up.left==nil?0:nodes[up.left].count);at=p;}
 }
 SfntStatus sfnt_component_source_bounds(const SfntComponentForest& forest,u32 node,u32* first,u32* last,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!first||!last)return SfntStatus::invalid_input;*first=nil;*last=0;
@@ -119,6 +126,7 @@ SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs
         }}
     out->operations=work-t.work;
     if(t.status!=SfntStatus::ok){sfnt_components_rollback(forest,{journal.data,t.used});return t.status;}
+    for(u32 i=0;i<t.used;++i)forest->nodes.data[journal.data[i].index].flags&=~journaled;
     out->undo_count=t.used;return SfntStatus::ok;
 }
 SfntStatus sfnt_components_export(SfntComponentForest* f,SfntGlyphView glyphs,Slice<u32> targets,Slice<SfntMarkAssociation> associations,u32* target_count,u64 work,u64* used) noexcept {
