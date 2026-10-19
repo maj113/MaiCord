@@ -18,6 +18,8 @@ struct SfntGvarScratch {
     Slice<i32> x_deltas,y_deltas;
 };
 // Views are borrowed, storage is caller-owned, work is limited and nothing allocates.
+// Open checks the header and array extents in O(1); each glyph's offsets and
+// tuple coordinates are validated when that glyph is used.
 SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> coordinates,Slice<double> shared_scalars,SfntGvarInstance* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Horizontal phantom metrics for an HVAR-free font. Reads only glyph counts,

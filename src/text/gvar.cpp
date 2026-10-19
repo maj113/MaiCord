@@ -30,7 +30,8 @@ struct Tuples {
     u32 count=0;
     bool shared=false;
     SfntStatus open(u16 glyph) noexcept {
-        const auto& f=instance.font;const u32 first=location(f,glyph),end=location(f,glyph+1);if(first==end)return SfntStatus::ok;
+        const auto& f=instance.font;const u32 first=location(f,glyph),end=location(f,glyph+1);
+        if(first>end || end>f.table.count-f.data_offset)return SfntStatus::malformed;if(first==end)return SfntStatus::ok;
         const ConstSlice<u8> data{f.table.data+f.data_offset+first,end-first};if(!span(data,0,4))return SfntStatus::truncated;
         const u16 flags=r16(data,0),offset=r16(data,2);if(flags&0x7000||offset<4)return SfntStatus::malformed;if(offset>data.count)return SfntStatus::truncated;
         headers={{data.data,offset},4};serialized={data,offset};count=flags&0xfffu;shared=(flags&0x8000)!=0;return SfntStatus::ok;
@@ -160,9 +161,6 @@ SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* out
     if(shared>4096 || data<header || (shared && tuples<header))return SfntStatus::malformed;
     if(!span(table,0,header) || !span(table,data,0) || (shared && !span(table,tuples,cells*2)))return SfntStatus::truncated;
     SfntGvar result{table,{table.data+20,header-20},shared?ConstSlice<u8>{table.data+tuples,cells*2}:ConstSlice<u8>{},data,axes,glyphs,shared,stride};
-    if(!spend(work,static_cast<u32>(glyphs)+1) || !spend(work,cells))return SfntStatus::resource_limit;
-    u32 previous=0;for(u32 i=0;i<=glyphs;++i){const u32 at=location(result,i);if(at<previous || at>table.count-data)return SfntStatus::malformed;previous=at;}
-    for(u32 i=0;i<cells;++i){const i16 c=static_cast<i16>(r16(result.shared_tuples,i*2));if(c < -16384 || c>16384)return SfntStatus::malformed;}
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> coordinates,Slice<double> storage,SfntGvarInstance* output,u32 work,u32* used) noexcept {
