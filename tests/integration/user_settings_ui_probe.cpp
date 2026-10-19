@@ -2,6 +2,7 @@
 #include "settings_catalog.hpp"
 #include "application_updates.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/renderer_presentation.hpp"
 #include "maicord/render/text_form_surface.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/text_form.hpp"
@@ -330,6 +331,14 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     if (valid)
         stage = __LINE__;
     valid = valid && show(f, renderer, page(SettingsPanel::updates), viewport, L"user-settings-updates.bmp", capture);
+    // The busy update notice's spinner: a phase step alone must invalidate the retained frame.
+    if (valid) {
+        stage = __LINE__;
+        const auto before = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
+        ++f.scene.spinner_phase;
+        const auto after = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
+        valid = ui_settings_scene_spinner_visible(f.scene) && !renderer_presentation_stamp_equal(before, after);
+    }
     // The gallery with keyboard focus on its first switch, then scrolled to
     // the swatches with focus on them.
     if (valid)

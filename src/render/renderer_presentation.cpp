@@ -167,6 +167,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         s.pointer(renderer.settings_scene)
             .push(settings.revision)
             .push(settings.motion_revision)
+            .push(stamp.structural ? 0 : settings.spinner_phase)
             .widgets(settings.widgets)
             .bytes(&settings.viewport, sizeof(settings.viewport))
             .push(renderer.width)
