@@ -133,6 +133,18 @@ void test_voice_protocol_selection(Check check) noexcept {
         check(command.write.ok() && command.write.bytes == expected.bytes &&
                   bytes_equal(payload, expected.data, expected.bytes),
               "protocol command uses discovered external address/port instead of server endpoint");
+        connection.video_decodable = voice_video_codec_bit(VoiceVideoCodec::h265);
+        u8 hevc_payload[1024];
+        const auto hevc = voice_connection_protocol_command(connection, {hevc_payload, sizeof(hevc_payload)});
+        connection.video_decodable = 0;
+        const auto hevc_expected = utf8_literal(
+            R"({"op":1,"d":{"protocol":"udp","data":{"address":"198.51.100.47","port":4660,"mode":"aead_aes256_gcm_rtpsize"},"address":"198.51.100.47","port":4660,"mode":"aead_aes256_gcm_rtpsize","codecs":[{"name":"opus","type":"audio","priority":1000,"payload_type":120},{"name":"H265","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":false,"decode":true},{"name":"H264","type":"video","priority":2000,"payload_type":103,"rtx_payload_type":104,"encode":false,"decode":true}],"rtc_connection_id":"0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0","experiments":[]}})");
+        check(hevc.write.ok() && hevc.write.bytes == hevc_expected.bytes &&
+                  bytes_equal(hevc_payload, hevc_expected.data, hevc_expected.bytes) &&
+                  hevc.video_offer == (voice_video_codec_bit(VoiceVideoCodec::h265) |
+                                       voice_video_codec_bit(VoiceVideoCodec::h264)) &&
+                  command.video_offer == voice_video_codec_bit(VoiceVideoCodec::h264),
+              "protocol command offers hardware H.265 decode before H.264, and H.264 alone without it");
         auto stale = command;
         ++stale.ready_revision;
         check(!voice_connection_protocol_submitted(&connection, stale, 1002) &&
@@ -146,8 +158,9 @@ void test_voice_protocol_selection(Check check) noexcept {
         check(connection.protocol_deadline_ms == deadline && !connection.media.selected_mode,
               "busy protocol drive does not extend the deadline or claim a send");
         check(voice_connection_protocol_submitted(&connection, command, 2001) &&
+                  connection.media.video_offer == voice_video_codec_bit(VoiceVideoCodec::h264) &&
                   !voice_connection_protocol_command(connection, {payload, sizeof(payload)}).ready_revision,
-              "accepted protocol command commits once and cannot be resent");
+              "accepted protocol command commits once, records its video offer and cannot be resent");
         check(voice_connection_description(&connection, data, {scratch, 256}, 16, 2002) ==
                       VoiceMediaSetupError::none &&
                   connection.media.has_description && connection.media.packets.aes.handle &&

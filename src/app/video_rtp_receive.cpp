@@ -195,6 +195,7 @@ void deliver(VideoRtpReceiver& receiver, VideoRtpStream& stream, u64 end) noexce
     frame.annex_b = {receiver.frame, bytes};
     frame.ssrc = stream.ssrc;
     frame.rtp_timestamp = timestamp;
+    frame.codec = codec;
     frame.keyframe = keyframe;
     frame.references_lost = stream.references_lost;
     if (receiver.sink)

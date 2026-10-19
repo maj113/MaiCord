@@ -1,4 +1,5 @@
 #include "maicord/media/hevc.hpp"
+#include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "hevc_bits.hpp"
 
@@ -396,6 +397,8 @@ HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
         b.error = HevcError::malformed;
     b.bit();
     profile_tier(b, s.max_sub_layers, &s.profile, &s.level);
+    if (b.error != HevcError::none)
+        return b.error; // Main10 and other profiles stay unsupported, not malformed.
     s.id = static_cast<u8>(b.ue(15));
     const u32 chroma = b.ue(3);
     if (chroma == 3)
@@ -404,7 +407,8 @@ HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
         b.error = HevcError::unsupported;
     s.coded_width = b.ue(4096);
     s.coded_height = b.ue(4096);
-    if (!s.coded_width || !s.coded_height || u64{s.coded_width} * s.coded_height > 2048u * 2048u)
+    // Live streams reach 4K; attachments check their smaller surface budget.
+    if (!s.coded_width || !s.coded_height || u64{s.coded_width} * s.coded_height > kGpuVideoCodedPixels)
         b.error = HevcError::unsupported;
     u32 left{}, right{}, top{}, bottom{};
     if (b.bit()) {
@@ -484,6 +488,38 @@ HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
     if (b.error == HevcError::none)
         *output = s;
     return b.error;
+}
+HevcError hevc_sps_id(ConstSlice<u8> nal, u8* id) noexcept {
+    auto b = hevc_payload(nal, 33);
+    b.read(4);
+    const u32 layers = b.read(3);
+    b.bit();
+    // profile_tier_level of any profile: the id follows it.
+    b.read(32);
+    b.read(32);
+    b.read(32);
+    bool profiles[7]{}, levels[7]{};
+    for (u32 i = 0; i < layers && i < 7; ++i) {
+        profiles[i] = b.bit();
+        levels[i] = b.bit();
+    }
+    if (layers)
+        b.read(2 * (8 - layers));
+    for (u32 i = 0; i < layers && i < 7; ++i) {
+        if (profiles[i]) {
+            b.read(32);
+            b.read(32);
+            b.read(24);
+        }
+        if (levels[i])
+            b.read(8);
+    }
+    const u32 value = b.ue(15);
+    if (layers > 6)
+        b.error = HevcError::malformed;
+    if (b.error == HevcError::none && id)
+        *id = static_cast<u8>(value);
+    return id ? b.error : HevcError::invalid_input;
 }
 HevcError hevc_parse_pps(ConstSlice<u8> nal, const HevcSps& s, HevcPps* output) noexcept {
     if (!output || !s.coded_width || !s.coded_height)

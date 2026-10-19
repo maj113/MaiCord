@@ -2670,6 +2670,7 @@ NetworkWorkerStep gateway_worker_handler(void* opaque, NetworkLoop* loop,
     const bool sending = !runtime->stopping && voice_send_active(runtime->voice_send);
     if (runtime->voice.requested || !voice_connection_drained(runtime->voice_connection) ||
         runtime->voice_connection.command.data || runtime->voice_receive.media_revision || sending) {
+        runtime->voice_connection.video_decodable = voice_video_sink_decodable(runtime->voice_receive.video);
         voice_connection_drive(&runtime->voice_connection, runtime->voice.setup, loop, event.now_ms);
         apply_video_wants(client, runtime);
         voice_receive_drive(&runtime->voice_receive, &runtime->voice_connection, runtime->voice, event.now_ms);

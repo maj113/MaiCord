@@ -34,17 +34,17 @@ void weights(HevcBits& b, u32 l0, u32 l1, bool bipred) noexcept {
         }
     }
 }
-struct ParsedHevcSlice {
-    HevcPicture picture{};
-    u32 address{};
-    bool first{}, dependent{};
-};
-HevcError slice_header(const HevcNal& n, const HevcConfiguration& c, const HevcPicture* previous,
-                       ParsedHevcSlice& out) noexcept {
+} // namespace
+HevcError hevc_parse_slice(const HevcNal& n, const HevcConfiguration& c, const HevcPictureHeader* previous,
+                           HevcSlice* output) noexcept {
+    if (!output)
+        return HevcError::invalid_input;
+    HevcSlice parsed{};
+    auto& out = parsed;
     const auto& s = c.sps;
     const auto& p = c.pps;
     auto b = hevc_payload(n.bytes, n.type);
-    auto& v = out.picture;
+    auto& v = out.header;
     v.nal_type = n.type;
     v.temporal_id = n.temporal_id;
     v.irap = n.type >= 16 && n.type <= 23;
@@ -215,9 +215,11 @@ HevcError slice_header(const HevcNal& n, const HevcConfiguration& c, const HevcP
             b.error = HevcError::malformed;
     if (b.error == HevcError::none && b.cursor >= b.source.count)
         b.error = HevcError::truncated;
+    if (b.error == HevcError::none)
+        *output = parsed;
     return b.error;
 }
-bool picture_same(const HevcPicture& a, const HevcPicture& b) noexcept {
+bool hevc_picture_header_same(const HevcPictureHeader& a, const HevcPictureHeader& b) noexcept {
     if (!(a.poc_lsb == b.poc_lsb && a.nal_type == b.nal_type && a.temporal_id == b.temporal_id &&
           a.pps_id == b.pps_id && a.output == b.output && a.no_output_prior == b.no_output_prior &&
           a.long_term_count == b.long_term_count &&
@@ -232,7 +234,6 @@ bool picture_same(const HevcPicture& a, const HevcPicture& b) noexcept {
     }
     return true;
 }
-} // namespace
 HevcError hevc_picture_parameter_id(ConstSlice<u8> unit, u8 length, u8* id) noexcept {
     if (!id)
         return HevcError::invalid_input;
@@ -291,16 +292,16 @@ HevcError hevc_parse_picture(ConstSlice<u8> unit, const HevcConfiguration& c,
             return HevcError::unsupported;
         if (v.slice_count == kHevcMaximumSlices)
             return HevcError::unsupported;
-        ParsedHevcSlice parsed{};
-        const auto e = slice_header(n, c, seen ? &v : nullptr, parsed);
+        HevcSlice parsed{};
+        const auto e = hevc_parse_slice(n, c, seen ? &v : nullptr, &parsed);
         if (e != HevcError::none)
             return e;
         if (parsed.first == seen)
             return HevcError::malformed;
         if (!seen) {
-            v = parsed.picture;
+            static_cast<HevcPictureHeader&>(v) = parsed.header;
             seen = true;
-        } else if (!picture_same(v, parsed.picture) ||
+        } else if (!hevc_picture_header_same(v, parsed.header) ||
                    parsed.address <= v.slices[v.slice_count - 1].segment_address)
             return HevcError::malformed;
         const u32 offset = static_cast<u32>(n.bytes.data - unit.data);

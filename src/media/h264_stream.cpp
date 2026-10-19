@@ -1,5 +1,6 @@
 #include "maicord/media/h264_stream.hpp"
 #include "maicord/media/video_display.hpp"
+#include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
 
@@ -320,8 +321,8 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
             return H264StreamAction::unsupported;
         }
         const u32 limit = sps.restriction ? minimum<u32>(sps.max_reorder, 16) : kH264StreamAdaptiveReorder;
-        next.surfaces_needed =
-            static_cast<u8>(minimum<u32>(kH264StreamMaximumSurfaces, reference_frames(sps) + limit + 1u));
+        next.surfaces_needed = static_cast<u8>(minimum<u32>(
+            kH264StreamMaximumSurfaces, reference_frames(sps) + limit + 1u + kVideoStreamPresentationSurfaces));
         next.reinitialize = !state->surfaces || !state->active || sps.coded_width != state->sps.coded_width ||
                             sps.coded_height != state->sps.coded_height ||
                             next.surfaces_needed > state->surfaces;
@@ -348,8 +349,12 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
     }
     const u8 capacity = next.reinitialize ? next.surfaces_needed : state->surfaces;
     state->output.leased = 255;
-    const u8 surface = h264_free_surface(state->output, first.idr ? 0 : reference_mask(state->references),
-                                         capacity);
+    const u32 busy = (first.idr ? 0u : reference_mask(state->references)) | (next.reinitialize ? 0u : state->held);
+    H264OutputQueue pending = state->output;
+    if (next.reinitialize)
+        pending = {}; // Drained before new surfaces replace theirs.
+    pending.leased = 255;
+    const u8 surface = h264_free_surface(pending, busy, capacity);
     if (surface == 255) {
         h264_stream_reset(state);
         return H264StreamAction::request_keyframe;
@@ -388,7 +393,7 @@ void h264_stream_commit(H264StreamState* state, const H264StreamPicture& picture
         state->waiting = false;
         state->unsupported = false;
         const u32 surfaces = state->surfaces ? state->surfaces : decode.surfaces_needed;
-        const u32 used = reference_frames(sps) + 1u;
+        const u32 used = reference_frames(sps) + 1u + kVideoStreamPresentationSurfaces;
         const u32 room = surfaces > used ? surfaces - used : 0;
         const u32 limit = sps.restriction ? minimum<u32>(sps.max_reorder, 16) : kH264StreamAdaptiveReorder;
         state->reorder_limit = static_cast<u8>(minimum(limit, room));

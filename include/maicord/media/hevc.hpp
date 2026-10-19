@@ -78,17 +78,32 @@ struct HevcSliceSpan {
     u32 offset{}, bytes{}, segment_address{};
     bool dependent{};
 };
-struct HevcPicture {
+// Picture-level slice header fields (equal in every slice of a picture).
+struct HevcPictureHeader {
     HevcReferenceSet short_term{};
     HevcLongTermReference long_term[15]{};
-    HevcSliceSpan slices[kHevcMaximumSlices]{};
-    u32 bitstream_bytes{};
     u16 poc_lsb{}, short_term_bits{};
-    u8 nal_type{}, temporal_id{}, slice_type{}, pps_id{}, long_term_count{}, slice_count{},
-        reference_rps_delta_count{};
+    u8 nal_type{}, temporal_id{}, slice_type{}, pps_id{}, long_term_count{}, reference_rps_delta_count{};
     bool output{true}, no_output_prior{}, irap{}, idr{}, reference{};
 };
+struct HevcPicture : HevcPictureHeader {
+    HevcSliceSpan slices[kHevcMaximumSlices]{};
+    u32 bitstream_bytes{};
+    u8 slice_count{};
+};
+// One slice segment header. A dependent segment inherits previous's fields.
+struct HevcSlice {
+    HevcPictureHeader header{};
+    u32 address{};
+    bool first{}, dependent{};
+};
+// nal includes its two header bytes; c.pps must be the slice's PPS.
+HevcError hevc_parse_slice(const HevcNal& nal, const HevcConfiguration& c, const HevcPictureHeader* previous,
+                           HevcSlice* output) noexcept;
+bool hevc_picture_header_same(const HevcPictureHeader& a, const HevcPictureHeader& b) noexcept;
 HevcError hevc_parse_sps(ConstSlice<u8>, HevcSps*) noexcept;
+// sps_seq_parameter_set_id of an SPS NAL of any profile.
+HevcError hevc_sps_id(ConstSlice<u8> nal, u8* id) noexcept;
 HevcError hevc_parse_pps(ConstSlice<u8>, const HevcSps&, HevcPps*) noexcept;
 // Validates all hvcC array extents; resolves one exact active parameter chain.
 HevcError hevc_select_parameters(ConstSlice<u8> hvcc, u8 pps_id, HevcConfiguration*) noexcept;

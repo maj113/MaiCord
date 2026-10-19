@@ -13,11 +13,14 @@ constexpr u32 kAudio = 10, kVideo = 20, kRtx = 21;
 struct Decoder {
     u8 frame[512];
     u32 bytes, frames, ssrc, timestamp, ended, ended_ssrc;
+    VoiceVideoCodec codec;
     bool keyframe, intact;
 };
-bool push(void* context, u32 ssrc, ConstSlice<u8> frame, u32 timestamp, bool keyframe, bool intact) noexcept {
+bool push(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> frame, u32 timestamp, bool keyframe,
+          bool intact) noexcept {
     auto& decoder = *static_cast<Decoder*>(context);
     ++decoder.frames;
+    decoder.codec = codec;
     decoder.bytes = frame.count < sizeof(decoder.frame) ? frame.count : 0;
     copy_bytes(decoder.frame, frame.data, decoder.bytes);
     decoder.ssrc = ssrc;
@@ -134,7 +137,7 @@ void routing(Check check) noexcept {
               !receive.video.rtp_ready && !receive.video.buffer && !dave.calls,
           "Video sink: video RTP before a negotiated codec is ignored without allocating buffers");
     connection.media.has_description = true;
-    connection.media.video_codec = VoiceVideoCodec::h264;
+    connection.media.video_offer = voice_video_codec_bit(VoiceVideoCodec::h264);
     connection.media.ssrc = 7;
     voice_video_sink_drive(&receive.video, &connection, false, 1000, 1'000'000);
     check(send_keyframe(receive, connection, 100, 9000, 1'000'000) == VoiceReceiveResult::video &&
@@ -142,7 +145,7 @@ void routing(Check check) noexcept {
           "Video sink: mapped camera RTP of the negotiated payload type routes to the RTP core");
     voice_video_sink_drive(&receive.video, &connection, false, 1030, 1'030'000);
     check(decoder.frames == 1 && decoder.ssrc == kVideo && decoder.timestamp == 9000 && decoder.keyframe &&
-              decoder.intact && decoder.bytes == sizeof(kAnnexB) &&
+              decoder.intact && decoder.codec == VoiceVideoCodec::h264 && decoder.bytes == sizeof(kAnnexB) &&
               bytes_equal(decoder.frame, kAnnexB, sizeof(kAnnexB)) &&
               dave.calls == 1 && dave.user_id == kUser && dave.ssrc == kVideo && receive.video.buffer &&
               receive.video.stats.delivered == 1,

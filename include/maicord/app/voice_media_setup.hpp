@@ -30,6 +30,8 @@ struct VoiceMediaSetup {
     u32 keyframe_interval_ms; // Server-requested send keyframe interval; zero when unset.
     u16 dave_protocol_version;
     VoiceVideoCodec video_codec; // The call's negotiated video codec (op 4, then op 14).
+    // Decodable bits offered in Select Protocol; senders may use any of them.
+    u32 video_offer;
     bool has_ready, has_description;
 };
 VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady& ready) noexcept;

@@ -574,7 +574,8 @@ struct AccountModuleApi {
     bool(WINAPI* voice_video_device)(void*, ID3D11Device*) noexcept;
     // Latest decoded picture of a remote video SSRC (voice_video_snapshot users[].ssrc).
     // On success the texture and each non-null shader view hold one reference.
-    // The caller releases these references after it submits the GPU read commands.
+    // The picture is a decoder slice kept intact until the next call for this
+    // SSRC: submit the GPU read before that, then release these references.
     bool(WINAPI* voice_video_frame)(void*, u32 ssrc, VideoStreamFrame* output) noexcept;
     // Go Live watch: one stream at a time, only while the call is in the
     // key's channel (gateway_stream_key_for(guild, channel, owner)). A null

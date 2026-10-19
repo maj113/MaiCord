@@ -21,7 +21,7 @@ inline constexpr u32 kH264StreamPpsSlots = 16;
 // Output pictures held back when the SPS has no bitstream_restriction and the
 // stream turns out to reorder (B-frames). Streams without reordering stay at 0.
 inline constexpr u8 kH264StreamAdaptiveReorder = 4;
-inline constexpr u8 kH264StreamMaximumSurfaces = 24;
+inline constexpr u8 kH264StreamMaximumSurfaces = 26;
 
 // Annex B splitter. Returns NALs without start code or trailing zero bytes;
 // empty NALs are skipped. A NAL with the forbidden bit set returns malformed
@@ -103,6 +103,7 @@ struct H264StreamState {
     H264OutputQueue output;
     H264StreamOutputInfo info[32]; // Per surface, for pictures awaiting output.
     i32 last_output_poc;
+    u32 held;         // Surfaces the GPU layer presents; never decoded into.
     u8 surfaces;      // Allocated by the GPU layer; 0 before the first IDR.
     u8 reorder;       // Current output delay in pictures.
     u8 reorder_limit; // Upper bound for adaptive reorder growth.

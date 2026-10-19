@@ -1,13 +1,13 @@
 // GPU memory of the media atlases, their disposal backups, the animation
-// frame caches and one live H.264 stream, measured with DXGI video-memory
+// frame caches and one live H.264 or H.265 stream, measured with DXGI video-memory
 // queries around synthetic workloads on the probe renderer. Every scenario
 // starts from released media resources and production-sized atlases; pixels
 // written before any atlas growth, relocation or trim are read back afterwards.
 // MAICORD_MEDIA_MEMORY_REPORT=<path> appends a plain-text report (no captures).
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/platform/h264_gpu_stream_decoder.hpp"
-#include "../h264_stream_fixture.hpp"
+#include "maicord/platform/gpu_stream_decoder.hpp"
+#include "../hevc_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
@@ -274,7 +274,7 @@ struct StreamCapture {
     u32 frames, failures;
 };
 
-void on_stream_frame(void* context, u32 ssrc, const H264StreamFrame& frame) noexcept {
+void on_stream_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
     auto* capture = static_cast<StreamCapture*>(context);
     ++capture->frames;
     // Call video is reduced to its tile in the preview atlas.
@@ -284,8 +284,8 @@ void on_stream_frame(void* context, u32 ssrc, const H264StreamFrame& frame) noex
 
 void on_stream_keyframe(void*, u32) noexcept {}
 
-bool push_stream(H264StreamDecoder* decoder, h264_fixture::Output* out, u32 timestamp) noexcept {
-    const bool ok = out->ok && h264_stream_decoder_push(decoder, {out->data, out->count}, timestamp);
+bool push_stream(GpuStreamDecoder* decoder, h264_fixture::Output* out, u32 timestamp) noexcept {
+    const bool ok = out->ok && gpu_stream_decoder_push(decoder, {out->data, out->count}, timestamp);
     out->count = 0;
     out->ok = true;
     return ok;
@@ -293,11 +293,11 @@ bool push_stream(H264StreamDecoder* decoder, h264_fixture::Output* out, u32 time
 
 // One 1080p camera-like stream: IDR plus P pictures, presented into the
 // preview atlas. Returns the decoder (still alive) for measurement.
-H264StreamDecoder* start_stream(D3D11Renderer& r, StreamCapture* capture, bool restricted) noexcept {
+GpuStreamDecoder* start_stream(D3D11Renderer& r, StreamCapture* capture, bool restricted) noexcept {
     using namespace h264_fixture;
     capture->renderer = &r;
-    H264StreamDecoder* decoder = h264_stream_decoder_create(
-        {r.graphics.device, 0x5150, {capture, on_stream_frame, on_stream_keyframe}, true});
+    GpuStreamDecoder* decoder = gpu_stream_decoder_create(
+        {r.graphics.device, 0x5150, {capture, on_stream_frame, on_stream_keyframe}, GpuStreamCodec::h264, true});
     if (!decoder)
         return nullptr;
     Output out{g_memory.stream, sizeof(g_memory.stream), 0, true};
@@ -313,7 +313,34 @@ H264StreamDecoder* start_stream(D3D11Renderer& r, StreamCapture* capture, bool r
         ok = push_stream(decoder, &out, 1'000u + i * 3'000u);
     }
     if (!ok || capture->frames == 0 || capture->failures) {
-        h264_stream_decoder_destroy(decoder);
+        gpu_stream_decoder_destroy(decoder);
+        return nullptr;
+    }
+    return decoder;
+}
+
+// The same 1080p stream shape in H.265 (CTB 32, one slice per CTU row).
+GpuStreamDecoder* start_hevc_stream(D3D11Renderer& r, StreamCapture* capture) noexcept {
+    using namespace hevc_fixture;
+    capture->renderer = &r;
+    if (!(gpu_stream_decoder_codecs(r.graphics.device) & gpu_stream_codec_bit(GpuStreamCodec::h265)))
+        return nullptr;
+    GpuStreamDecoder* decoder = gpu_stream_decoder_create(
+        {r.graphics.device, 0x5150, {capture, on_stream_frame, on_stream_keyframe}, GpuStreamCodec::h265, true});
+    if (!decoder)
+        return nullptr;
+    Output out{g_memory.stream, sizeof(g_memory.stream), 0, true};
+    Bits bits{g_memory.bits, sizeof(g_memory.bits), 0, true};
+    const Sps sps{1, 1920, 1088, 8, 5, 1, 2, 8, 123};
+    const Pps pps{1, 1};
+    write_idr(&out, &bits, sps, pps, 3, ctb_columns(sps));
+    bool ok = push_stream(decoder, &out, 1'000);
+    for (u16 i = 1; ok && i <= 5; ++i) {
+        write_picture(&out, &bits, sps, pps, kTrailR, i, 0);
+        ok = push_stream(decoder, &out, 1'000u + i * 3'000u);
+    }
+    if (!ok || capture->frames == 0 || capture->failures) {
+        gpu_stream_decoder_destroy(decoder);
         return nullptr;
     }
     return decoder;
@@ -486,32 +513,38 @@ bool media_memory_probe(D3D11Renderer& r) noexcept {
 
         // (d) One synthetic 1080p camera stream presented as a call tile
         // (WebRTC-style restricted SPS, then the adaptive-reorder variant).
-        for (u32 variant = 0; ok && variant < 2; ++variant) {
+        // (e) The same stream in H.265 when the GPU decodes it.
+        constexpr const char* kStreams[] = {"stream", "stream_unrestricted", "stream_hevc"};
+        constexpr const char* kSurfaces[] = {"stream_surfaces", "stream_unrestricted_surfaces",
+                                             "stream_hevc_surfaces"};
+        constexpr const char* kDecoderBytes[] = {"stream_decoder_bytes", "stream_unrestricted_decoder_bytes",
+                                                 "stream_hevc_decoder_bytes"};
+        for (u32 variant = 0; ok && variant < 3; ++variant) {
             ok = bind_production_atlases(r, !fixed);
             start = ok ? usage(adapter, r.graphics.context1) : Usage{};
             StreamCapture capture{};
-            H264StreamDecoder* decoder = ok ? start_stream(r, &capture, variant == 0) : nullptr;
+            GpuStreamDecoder* decoder = !ok           ? nullptr
+                                        : variant < 2 ? start_stream(r, &capture, variant == 0)
+                                                      : start_hevc_stream(r, &capture);
             if (!decoder) {
                 log_write(LogLevel::warning, "probe", "media_memory_stream_skipped");
                 break;
             }
-            const auto stats = h264_stream_decoder_stats(decoder);
-            measure(mode, variant == 0 ? "stream" : "stream_unrestricted", start, fixed);
+            const auto stats = gpu_stream_decoder_stats(decoder);
+            measure(mode, kStreams[variant], start, fixed);
             const Usage active = usage(adapter, r.graphics.context1);
-            report.line(label(mode, variant == 0 ? "stream_surfaces" : "stream_unrestricted_surfaces"),
-                        stats.surfaces);
+            report.line(label(mode, kSurfaces[variant]), stats.surfaces);
             if (!fixed && variant == 0) {
                 // Hidden call view: the decoder releases its DXVA objects.
-                const bool released = h264_stream_decoder_release_idle(decoder);
+                const bool released = gpu_stream_decoder_release_idle(decoder);
                 const Usage idle = usage(adapter, r.graphics.context1);
                 report.line("media_memory_growable_stream_hidden_freed",
                             active.local > idle.local ? active.local - idle.local : 0);
-                ok = released && h264_stream_decoder_stats(decoder).surfaces == 0;
+                ok = released && gpu_stream_decoder_stats(decoder).surfaces == 0;
             }
-            h264_stream_decoder_destroy(decoder);
+            gpu_stream_decoder_destroy(decoder);
             const Usage gone = usage(adapter, r.graphics.context1);
-            report.line(label(mode, variant == 0 ? "stream_decoder_bytes" : "stream_unrestricted_decoder_bytes"),
-                        active.local > gone.local ? active.local - gone.local : 0);
+            report.line(label(mode, kDecoderBytes[variant]), active.local > gone.local ? active.local - gone.local : 0);
         }
     }
 

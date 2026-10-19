@@ -1,8 +1,9 @@
 // Live H.264 stream decoder on real DXVA hardware (CTest label "gpu"; not run
 // on hosted CI). Synthetic I_PCM/P_Skip streams make every decoded pixel
 // predictable, so frames are verified by readback without a reference decoder.
-#include "maicord/platform/h264_gpu_stream_decoder.hpp"
+#include "maicord/platform/gpu_stream_decoder.hpp"
 #include "maicord/app/video_stream_decoders.hpp"
+#include "maicord/protocol/voice_video_signaling.hpp"
 #include "h264_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/crt.hpp"
@@ -46,10 +47,14 @@ struct Capture {
     u32 last_rtp;
 };
 
-void verify(Capture* capture, const H264StreamFrame& frame) noexcept {
+void verify(Capture* capture, const GpuStreamFrame& frame) noexcept {
     const GpuVideoFrame& gpu = *frame.gpu;
     D3D11_TEXTURE2D_DESC desc{};
     gpu.texture->GetDesc(&desc);
+    // Zero copy: a slice of the decoder's shader-readable surface array.
+    constexpr UINT kDecoderOutput = D3D11_BIND_DECODER | D3D11_BIND_SHADER_RESOURCE;
+    if ((desc.BindFlags & kDecoderOutput) != kDecoderOutput || desc.ArraySize < 2 || gpu.subresource >= desc.ArraySize)
+        ++capture->mismatches;
     if (!capture->staging || capture->staging_width != desc.Width || capture->staging_height != desc.Height) {
         com_release(capture->staging);
         D3D11_TEXTURE2D_DESC staging = desc;
@@ -86,7 +91,7 @@ void verify(Capture* capture, const H264StreamFrame& frame) noexcept {
     if (!ok) ++capture->mismatches;
 }
 
-void on_frame(void* context, u32 ssrc, const H264StreamFrame& frame) noexcept {
+void on_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
     auto* capture = static_cast<Capture*>(context);
     if (ssrc != 0x1234) ++capture->mismatches;
     ++capture->frames;
@@ -101,8 +106,8 @@ struct Buffers {
     Output out;
 };
 
-bool push(H264StreamDecoder* decoder, Buffers* b, u32 rtp, bool intact = true) noexcept {
-    const bool ok = b->out.ok && h264_stream_decoder_push(decoder, {b->out.data, b->out.count}, rtp, intact);
+bool push(GpuStreamDecoder* decoder, Buffers* b, u32 rtp, bool intact = true) noexcept {
+    const bool ok = b->out.ok && gpu_stream_decoder_push(decoder, {b->out.data, b->out.count}, rtp, intact);
     b->out.count = 0;
     b->out.ok = true;
     return ok;
@@ -223,7 +228,7 @@ bool frame_ownership(ID3D11Device* device, ID3D11DeviceContext* context, Buffers
     const Pps changed_pps{3, 1};
     const u64 deadline = GetTickCount64() + 2'500;
     const auto submit = [&](u32 rtp, bool keyframe) noexcept {
-        const bool ok = b->out.ok && sink.push_frame(sink.context, 0x1234,
+        const bool ok = b->out.ok && sink.push_frame(sink.context, 0x1234, VoiceVideoCodec::h264,
                                                      {b->out.data, b->out.count}, rtp, keyframe, true);
         b->out.count = 0;
         b->out.ok = true;
@@ -236,8 +241,8 @@ bool frame_ownership(ID3D11Device* device, ID3D11DeviceContext* context, Buffers
     if (ok) {
         write_p(&b->out, &b->bits, base, base_pps, 1, 0);
         ok = submit(901, false) && wait_frame(&decoders, first.sequence + 1, deadline, &repeated) &&
-             repeated.gpu.texture == first.gpu.texture && repeated.gpu.luma == first.gpu.luma &&
-             repeated.gpu.chroma == first.gpu.chroma && !released_mask();
+             repeated.gpu.texture == first.gpu.texture && repeated.gpu.subresource != first.gpu.subresource &&
+             owned_views_valid(repeated.gpu) && !released_mask();
     }
     release_frame(&repeated);
     if (ok) {
@@ -279,7 +284,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
     if (!memory) return 1;
     Buffers b{{memory, kBytes, 0, true}, {memory + kBytes, kBytes, 0, true}};
     Capture capture{device, context};
-    H264StreamDecoder* decoder = h264_stream_decoder_create({device, 0x1234, {&capture, on_frame, on_keyframe}, true});
+    GpuStreamDecoder* decoder = gpu_stream_decoder_create({device, 0x1234, {&capture, on_frame, on_keyframe}, GpuStreamCodec::h264, true});
     int status = decoder ? 0 : 2;
     const auto finish = [&](int code) noexcept {
         if (!status) status = code;
@@ -297,10 +302,10 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
             write_p(&b.out, &b.bits, base, base_pps, i, 0);
             push(decoder, &b, 100u + i);
         }
-        const auto stats = h264_stream_decoder_stats(decoder);
+        const auto stats = gpu_stream_decoder_stats(decoder);
         if (stats.unsupported || stats.reinitializations == 0) {
             say("h264 stream gpu: DXVA H.264 short-slice decoding unavailable; skipped\n");
-            h264_stream_decoder_destroy(decoder);
+            gpu_stream_decoder_destroy(decoder);
             com_release(capture.staging);
             VirtualFree(memory, 0, MEM_RELEASE);
             return 0;
@@ -315,7 +320,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         push(decoder, &b, 105);
         write_p(&b.out, &b.bits, base, base_pps, 6, 0);
         push(decoder, &b, 106);
-        const auto stats = h264_stream_decoder_stats(decoder);
+        const auto stats = gpu_stream_decoder_stats(decoder);
         if (capture.frames != 4 || stats.gaps != 1 || capture.requests != 2) finish(11);
     }
     // New ids, High profile and new geometry at an IDR: decoder recreated.
@@ -327,7 +332,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         push(decoder, &b, 200);
         write_p(&b.out, &b.bits, high, high_pps, 1, 2, true, 2);
         push(decoder, &b, 201);
-        const auto stats = h264_stream_decoder_stats(decoder);
+        const auto stats = gpu_stream_decoder_stats(decoder);
         if (capture.frames != 6 || capture.mismatches || stats.reinitializations != 2 || stats.coded_width != 160)
             finish(12);
     }
@@ -341,7 +346,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         expect(&capture, high, 3);
         write_idr(&b.out, &b.bits, high, high_pps, 3, 1);
         push(decoder, &b, 300);
-        const auto stats = h264_stream_decoder_stats(decoder);
+        const auto stats = gpu_stream_decoder_stats(decoder);
         // Three damaged pictures: these two plus the first push, which arrived
         // before any parameter set.
         if (capture.frames != 7 || capture.mismatches || stats.damaged != 3 || stats.gpu_failures) finish(13);
@@ -358,7 +363,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         push(decoder, &b, 400 + i);
         write_p(&b.out, &b.bits, large[i], pps, 1, 2, true, 4);
         push(decoder, &b, 500 + i);
-        const auto stats = h264_stream_decoder_stats(decoder);
+        const auto stats = gpu_stream_decoder_stats(decoder);
         if (i == 2 && stats.unsupported) {
             say("h264 stream gpu: this GPU does not decode 4K H.264; 4K case skipped\n");
             break;
@@ -381,12 +386,12 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
     // the display copy are freed; the next picture asks for a keyframe and the
     // IDR recreates everything with identical output.
     if (!status && decoder) {
-        const auto before = h264_stream_decoder_stats(decoder);
+        const auto before = gpu_stream_decoder_stats(decoder);
         const u32 frames = capture.frames, requests = capture.requests;
-        if (!h264_stream_decoder_release_idle(decoder)) finish(40);
-        const auto idle = h264_stream_decoder_stats(decoder);
+        if (!gpu_stream_decoder_release_idle(decoder)) finish(40);
+        const auto idle = gpu_stream_decoder_stats(decoder);
         if (idle.surfaces || idle.coded_width || idle.idle_releases != before.idle_releases + 1) finish(41);
-        if (h264_stream_decoder_release_idle(decoder)) finish(42); // Nothing left to free.
+        if (gpu_stream_decoder_release_idle(decoder)) finish(42); // Nothing left to free.
         expect(&capture, base, 8);
         write_p(&b.out, &b.bits, base, base_pps, 1, 0);
         push(decoder, &b, 800);
@@ -395,18 +400,18 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         push(decoder, &b, 801);
         write_p(&b.out, &b.bits, base, base_pps, 1, 0);
         push(decoder, &b, 802);
-        const auto resumed = h264_stream_decoder_stats(decoder);
+        const auto resumed = gpu_stream_decoder_stats(decoder);
         if (capture.frames != frames + 2 || capture.mismatches || !resumed.surfaces ||
             resumed.reinitializations != before.reinitializations + 1)
             finish(44);
     }
     // Asynchronous decoder: same content through the decode thread.
-    if (decoder) h264_stream_decoder_destroy(decoder);
+    if (decoder) gpu_stream_decoder_destroy(decoder);
     decoder = nullptr;
     if (!status) {
         Capture threaded{device, context};
         expect(&threaded, base, 7);
-        decoder = h264_stream_decoder_create({device, 0x1234, {&threaded, on_frame, on_keyframe}, false});
+        decoder = gpu_stream_decoder_create({device, 0x1234, {&threaded, on_frame, on_keyframe}, GpuStreamCodec::h264, false});
         if (!decoder) finish(30);
         else {
             write_idr(&b.out, &b.bits, base, base_pps, 7, 0);
@@ -415,8 +420,8 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
                 write_p(&b.out, &b.bits, base, base_pps, i, 0);
                 push(decoder, &b, 700u + i);
             }
-            for (u32 wait = 0; wait < 400 && h264_stream_decoder_stats(decoder).decoded < 6; ++wait) Sleep(5);
-            h264_stream_decoder_destroy(decoder);
+            for (u32 wait = 0; wait < 400 && gpu_stream_decoder_stats(decoder).decoded < 6; ++wait) Sleep(5);
+            gpu_stream_decoder_destroy(decoder);
             decoder = nullptr;
             // The callback ran on the decode thread; all reads finished before destroy returned.
             if (threaded.frames != 6 || threaded.mismatches || threaded.last_rtp != 705) finish(31);
@@ -426,6 +431,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
     if (!status && !frame_ownership(device, context, &b)) finish(45);
     b.out.count = 0;
     b.out.ok = true;
+    if (!status) finish(hevc_stream_gpu_test(device, context, b.bits, b.out));
     if (!status) finish(h264_attachment_gpu_test(device, context, b.bits, b.out));
     com_release(capture.staging);
     VirtualFree(memory, 0, MEM_RELEASE);

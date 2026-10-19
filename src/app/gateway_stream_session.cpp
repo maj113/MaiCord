@@ -3,16 +3,20 @@
 
 namespace maicord {
 namespace {
-bool push_tagged(void* context, u32 ssrc, ConstSlice<u8> frame, u32 rtp_timestamp, bool keyframe,
-                 bool intact) noexcept {
+bool push_tagged(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> frame, u32 rtp_timestamp,
+                 bool keyframe, bool intact) noexcept {
     auto& session = *static_cast<GatewayStreamSession*>(context);
     if (ssrc & kGatewayStreamVideoSsrcTag) {
         ++session.frames_untagged;
         return false;
     }
     return session.target.push_frame &&
-           session.target.push_frame(session.target.context, ssrc | kGatewayStreamVideoSsrcTag, frame, rtp_timestamp,
-                                     keyframe, intact);
+           session.target.push_frame(session.target.context, ssrc | kGatewayStreamVideoSsrcTag, codec, frame,
+                                     rtp_timestamp, keyframe, intact);
+}
+u32 decodable_target(void* context) noexcept {
+    const auto& target = static_cast<GatewayStreamSession*>(context)->target;
+    return target.decodable ? target.decodable(target.context) : 0;
 }
 void end_tagged(void* context, u32 ssrc) noexcept {
     auto& session = *static_cast<GatewayStreamSession*>(context);
@@ -30,8 +34,9 @@ void gateway_stream_session_drive(GatewayStreamSession* session, const GatewayVo
     // Watching requires being in the stream's voice channel.
     gateway_stream_voice(&control, voice.setup.channel_id, voice.setup.phase != VoiceSetupPhase::idle);
     gateway_stream_expire(&control, now_ms);
-    voice_connection_drive(&session->connection, control.setup, loop, now_ms);
     session->receive.video.frames = gateway_stream_session_frames(session);
+    session->connection.video_decodable = voice_video_sink_decodable(session->receive.video);
+    voice_connection_drive(&session->connection, control.setup, loop, now_ms);
     voice_receive_configure(&session->receive, gateway_stream_bus_settings(output, volume(*session)));
     voice_receive_drive(&session->receive, &session->connection, voice, now_ms);
     const auto& connection = session->connection;
@@ -50,7 +55,7 @@ VoiceAudioSettings gateway_stream_bus_settings(const VoiceAudioSettings& output,
 }
 
 VideoFrameSink gateway_stream_session_frames(GatewayStreamSession* session) noexcept {
-    return {session, push_tagged, end_tagged};
+    return {session, push_tagged, end_tagged, decodable_target};
 }
 
 bool gateway_stream_session_owns(const GatewayStreamSession& session, const NetworkCompletion& completion) noexcept {

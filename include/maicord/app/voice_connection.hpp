@@ -101,6 +101,9 @@ struct VoiceConnection {
     // the same credential generation.
     u64 rtc_connection_generation;
     char rtc_connection_id[kVoiceRtcConnectionIdBytes];
+    // voice_video_codec_bit set the owner's decoders handle; Select Protocol
+    // offers them (voice_video_decode_offers) and records the offer in media.
+    u32 video_decodable;
     // Desired media sink wants (op 15), sent after Session Description and
     // whenever they change. The default asks for every stream at full quality.
     VoiceSinkWant sink_wants[kVoiceSinkWantsMaximum];
@@ -135,6 +138,7 @@ struct VoiceProtocolCommand {
     u64 ready_revision;
     u32 mode;
     GatewayCommandWriteResult write;
+    u32 video_offer; // voice_video_codec_bit set of the offered video codecs.
 };
 // Worker-owned two-phase command: zero revision means discovery/selection is
 // not ready. A nonzero revision has the writer result (including size queries).

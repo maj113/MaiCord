@@ -51,8 +51,8 @@ void deliver(void* context, const VideoRtpFrame& frame) noexcept {
     if (!known && sink.ended_count != kVideoRtpMaxStreams)
         sink.ended[sink.ended_count++] = frame.ssrc;
     if (sink.frames.push_frame &&
-        sink.frames.push_frame(sink.frames.context, frame.ssrc, {sink.buffer, opened.bytes}, frame.rtp_timestamp,
-                               frame.keyframe, !frame.references_lost)) {
+        sink.frames.push_frame(sink.frames.context, frame.ssrc, voice_codec(frame.codec), {sink.buffer, opened.bytes},
+                               frame.rtp_timestamp, frame.keyframe, !frame.references_lost)) {
         ++sink.stats.delivered;
         ++sink.summary.frames;
     }
@@ -85,9 +85,9 @@ void log_summary(VoiceVideoSink& sink) noexcept {
 bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
     if (sink.rtp_ready)
         return true;
-    if (rtp_codec(sink.codec) == VideoRtpCodec::none || !video_rtp_initialize(&sink.rtp, local_ssrc, deliver, &sink))
+    if (!sink.offer || !video_rtp_initialize(&sink.rtp, local_ssrc, deliver, &sink))
         return false;
-    if (!bind_codec(sink)) {
+    if (!bind_codecs(sink)) {
         video_rtp_release(&sink.rtp);
         return false;
     }
@@ -156,11 +156,11 @@ void voice_video_sink_drive(VoiceVideoSink* sink, VoiceConnection* connection, b
     sink->deadline_ms = 0;
     if (!connection)
         return;
-    const auto codec = connection->media.has_description ? connection->media.video_codec : VoiceVideoCodec::none;
-    if (codec != sink->codec) {
-        sink->codec = codec;
+    const u32 offer = connection->media.has_description ? connection->media.video_offer : 0;
+    if (offer != sink->offer) {
+        sink->offer = offer;
         if (sink->rtp_ready)
-            bind_codec(*sink);
+            bind_codecs(*sink);
     }
     update_wants(*sink, *connection);
     if (!sink->rtp_ready)
@@ -235,7 +235,7 @@ void voice_video_sink_stop(VoiceVideoSink* sink) noexcept {
     for (auto& pending : sink->pending_keyframes)
         InterlockedExchange(&pending, 0);
     sink->rtp_ready = false;
-    sink->codec = VoiceVideoCodec::none;
+    sink->offer = 0;
     sink->feedback_bytes = 0;
     sink->deadline_ms = 0;
 }
@@ -257,6 +257,10 @@ void voice_video_sink_request_keyframe(VoiceVideoSink* sink, u32 ssrc) noexcept 
 
 u64 voice_video_sink_deadline(const VoiceVideoSink& sink) noexcept {
     return sink.deadline_ms;
+}
+
+u32 voice_video_sink_decodable(const VoiceVideoSink& sink) noexcept {
+    return sink.frames.decodable ? sink.frames.decodable(sink.frames.context) : 0;
 }
 
 u32 voice_video_users(const VoiceConnection& connection, const VoiceVideoSink* sink, u64 self_user_id,

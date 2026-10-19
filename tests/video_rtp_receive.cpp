@@ -138,6 +138,24 @@ void test_h265(Check check) noexcept {
     rtp_video_assembly_begin(&a, {out, 8});
     check(rtp_h265_push(&a, view(ap), false) == RtpDepacketize::overflow && !a.bytes,
           "H.265 overflow keeps nothing");
+    rtp_video_assembly_begin(&a, {out, sizeof(out)});
+    const u8 ap_one[]{0x60, 0x01, 0x00, 0x03, 0x44, 0x01, 0xc1}, layered[]{0x26, 0x09, 0xaf};
+    check(rtp_h265_push(&a, view(ap_one), false) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(layered), false) == RtpDepacketize::appended &&
+              equal_hex({out, a.bytes}, "000000014401c1" "000000012609af") && !a.damaged,
+          "H.265 accepts a one-unit AP and passes other layers' NAL units to the decoder, which skips them");
+    rtp_video_assembly_begin(&a, {out, sizeof(out)});
+    const u8 restart[]{0x62, 0x01, 0x93, 0xe1};
+    check(rtp_h265_push(&a, view(s), false) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(restart), false) == RtpDepacketize::appended &&
+              rtp_h265_push(&a, view(e), false) == RtpDepacketize::appended &&
+              equal_hex({out, a.bytes}, "000000012601e1d3") && a.damaged,
+          "H.265 FU restart drops the unfinished fragment and marks the unit damaged");
+    rtp_video_assembly_begin(&a, {out, sizeof(out)});
+    check(rtp_h265_push(&a, view(e), false) == RtpDepacketize::damaged && !a.bytes &&
+              rtp_h265_push(&a, view(s), false) == RtpDepacketize::appended && !rtp_video_assembly_finish(&a) &&
+              a.damaged,
+          "H.265 FU end without a start, and a start without an end, leave nothing");
     const u8 trail_start[]{0x02, 0x01, 0x80}, trail_next[]{0x02, 0x01, 0x40}, vps[]{0x40, 0x01},
         fu_start[]{0x62, 0x01, 0x81, 0x80}, ap_vps[]{0x60, 0x01, 0x00, 0x02, 0x40, 0x01};
     check(rtp_h265_starts_access_unit(view(trail_start)) && !rtp_h265_starts_access_unit(view(trail_next)) &&
@@ -418,7 +436,7 @@ void test_receiver_feedback(Check check) noexcept {
     const VideoRtpCodecBinding duplicate[]{{101, 102, VideoRtpCodec::h264}, {102, 0, VideoRtpCodec::h265}};
     const VideoRtpCodecBinding reserved[]{{72, 0, VideoRtpCodec::h264}};
     check(!video_rtp_set_codecs(&r, {duplicate, 2}) && !video_rtp_set_codecs(&r, {reserved, 1}) &&
-              r.codec_count == 2,
+              r.codec_count == 3,
           "video codec table rejects payload type collisions and RTCP-mux reserved types");
     const u8 idr[]{0x65, 0x88, 1, 2}, inter[]{0x41, 0x9a, 3, 4};
     u64 now = 5'000'000;

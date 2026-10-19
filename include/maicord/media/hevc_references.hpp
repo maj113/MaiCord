@@ -19,7 +19,7 @@ struct HevcReferencePlan {
     u8 before[8]{}, following[8]{}, long_term[8]{};
     u8 before_count{}, following_count{}, long_count{};
 };
-HevcError hevc_reference_plan(const HevcReferenceState&, const HevcSps&, const HevcPicture&, u8 surface,
+HevcError hevc_reference_plan(const HevcReferenceState&, const HevcSps&, const HevcPictureHeader&, u8 surface,
                               HevcReferencePlan*) noexcept;
 u32 hevc_reference_surfaces(const HevcReferenceState&) noexcept;
 } // namespace maicord

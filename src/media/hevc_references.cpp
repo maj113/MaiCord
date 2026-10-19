@@ -7,7 +7,7 @@ u32 hevc_reference_surfaces(const HevcReferenceState& s) noexcept {
             mask |= 1u << s.pictures[i].surface;
     return mask;
 }
-HevcError hevc_reference_plan(const HevcReferenceState& s, const HevcSps& a, const HevcPicture& p,
+HevcError hevc_reference_plan(const HevcReferenceState& s, const HevcSps& a, const HevcPictureHeader& p,
                               u8 surface, HevcReferencePlan* output) noexcept {
     if (!output || s.count > 15 || surface >= 32 || a.poc_bits < 4 || a.poc_bits > 16 || !a.max_buffering ||
         a.max_buffering > 15 || p.short_term.negative + p.short_term.positive > 15 ||

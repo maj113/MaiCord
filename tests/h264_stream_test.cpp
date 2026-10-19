@@ -1,4 +1,5 @@
 #include "maicord/media/h264_stream.hpp"
+#include "maicord/media/gpu_video_frame.hpp"
 #include "h264_stream_fixture.hpp"
 
 namespace maicord {
@@ -250,7 +251,7 @@ int state_tests() noexcept {
     w.clear(); write_p(&w.out, &w.bits, sps, pps, 2, 0); run(&r, w.view(), 3000);
     // Zero-latency output: each picture leaves as soon as it is decoded.
     if (r.output_count != 3 || !r.outputs[0].keyframe || r.outputs[1].keyframe || r.outputs[0].rtp_timestamp != 1000 ||
-        r.outputs[2].rtp_timestamp != 3000 || r.reinitializations != 1 || state->surfaces != 6 || state->reorder)
+        r.outputs[2].rtp_timestamp != 3000 || r.reinitializations != 1 || state->surfaces != 6 + kVideoStreamPresentationSurfaces || state->reorder)
         return 161;
     // Repeated identical parameter sets mid-stream are harmless.
     w.clear();

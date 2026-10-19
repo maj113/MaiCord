@@ -7,6 +7,7 @@
 namespace maicord {
 int h264_state_tests() noexcept;
 int h264_stream_tests() noexcept;
+int hevc_stream_tests() noexcept;
 namespace {
 
 struct BitsWriter {
@@ -565,6 +566,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_h264_tests_entry() noexcept 
     if (!status) status = maicord::configuration_tests();
     if (!status) status = maicord::h264_state_tests();
     if (!status) status = maicord::h264_stream_tests();
+    if (!status) status = maicord::hevc_stream_tests();
     if (status) {
         char text[] = "h264 tests failed: 000\n";
         text[19] = static_cast<char>('0' + status / 100 % 10);

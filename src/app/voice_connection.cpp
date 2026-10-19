@@ -159,9 +159,11 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
     if (opcode == 14) {
         // Optional codec renegotiation; a malformed update keeps the call.
         VoiceSessionUpdate update{};
-        if (voice_decode_session_update(value.envelope.data, scratch, 64, &update).ok())
+        if (voice_decode_session_update(value.envelope.data, scratch, 64, &update).ok()) {
             voice_media_session_update(&connection->media, update);
-        else
+            if (update.has_video_codec)
+                voice_log(kInfo, "session_update", "video_codec", static_cast<u64>(update.video));
+        } else
             voice_log(kWarning, "session_update_malformed");
         return true;
     }
@@ -190,8 +192,11 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
         connection->media_error = voice_connection_description(connection, value.envelope.data, scratch, 64,
                                                                connection->socket.now_ms);
         if (connection->media_error == VoiceMediaSetupError::none) {
-            voice_log(kInfo, "session_description", "mode", connection->media.selected_mode, "dave_version",
-                      connection->media.dave_protocol_version);
+            const VoiceLogField fields[]{{"mode", connection->media.selected_mode},
+                                         {"dave_version", connection->media.dave_protocol_version},
+                                         {"video_offer", connection->media.video_offer},
+                                         {"video_codec", static_cast<u64>(connection->media.video_codec)}};
+            voice_log_fields(kInfo, "session_description", {fields, 4});
             if (!voice_connection_dave_description(connection, connection->socket.now_ms)) {
                 fail(connection, VoiceConnectionError::protocol, "dave_session_failed");
                 voice_media_clear(&connection->media);
@@ -341,21 +346,26 @@ VoiceProtocolCommand voice_connection_protocol_command(const VoiceConnection& co
         command.write.error = GatewayCommandError::invalid_input;
         return command;
     }
-    static constexpr VoiceCodecOffer h264_decode[]{{VoiceVideoCodec::h264, false, true}};
+    VoiceCodecOffer offers[kVoiceVideoMaximumCodecs];
+    const u32 count = voice_video_decode_offers(connection.video_decodable, {offers, kVoiceVideoMaximumCodecs});
+    for (u32 i = 0; i != count; ++i)
+        command.video_offer |= voice_video_codec_bit(offers[i].codec);
     command.write = voice_gateway_write_select_protocol_media(
         {{{external.address, external.address_bytes}, external.port, command.mode},
-         ConstSlice<VoiceCodecOffer>{h264_decode, 1},
+         ConstSlice<VoiceCodecOffer>{offers, count},
          {connection.rtc_connection_id, kVoiceRtcConnectionIdBytes}},
         output);
     return command;
 }
 bool voice_connection_protocol_submitted(VoiceConnection* connection, const VoiceProtocolCommand& command,
                                          u64 now_ms) noexcept {
-    return connection && command.write.ok() && command.write.bytes && can_select(*connection) &&
-           !deadline_due(now_ms, connection->protocol_deadline_ms) &&
-           command.ready_revision == connection->ready_revision &&
-           command.mode == offered_cipher(*connection) &&
-           voice_media_protocol_selected(&connection->media, command.mode);
+    if (!connection || !command.write.ok() || !command.write.bytes || !can_select(*connection) ||
+        deadline_due(now_ms, connection->protocol_deadline_ms) ||
+        command.ready_revision != connection->ready_revision || command.mode != offered_cipher(*connection) ||
+        !voice_media_protocol_selected(&connection->media, command.mode))
+        return false;
+    connection->media.video_offer = command.video_offer;
+    return true;
 }
 VoiceMediaSetupError voice_connection_description(VoiceConnection* connection, JsonValue data,
                                                   Slice<u32> scratch, u32 maximum_depth,

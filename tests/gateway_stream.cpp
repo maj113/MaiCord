@@ -289,11 +289,16 @@ void test_control(Check check) noexcept {
 
 struct FrameCapture {
     u32 ssrc, ended, calls;
+    VoiceVideoCodec codec;
     bool intact;
 };
-bool capture_frame(void* context, u32 ssrc, ConstSlice<u8>, u32, bool, bool intact) noexcept {
+u32 capture_decodable(void*) noexcept {
+    return voice_video_codec_bit(VoiceVideoCodec::h265);
+}
+bool capture_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8>, u32, bool, bool intact) noexcept {
     auto& capture = *static_cast<FrameCapture*>(context);
     capture.ssrc = ssrc;
+    capture.codec = codec;
     capture.intact = intact;
     ++capture.calls;
     return true;
@@ -312,16 +317,20 @@ void test_session(Check check) noexcept {
     static GatewayStreamSession session;
     static VoiceVideoSink call;
     FrameCapture capture{};
-    gateway_stream_session_set_target(&session, {&capture, capture_frame, capture_end});
+    gateway_stream_session_set_target(&session, {&capture, capture_frame, capture_end, capture_decodable});
     const auto frames = gateway_stream_session_frames(&session);
     const u8 frame[4]{0, 0, 0, 1};
-    check(frames.push_frame(frames.context, 0x1234, {frame, 4}, 90000, true, true) && capture.calls == 1 &&
-              capture.ssrc == (0x1234u | kGatewayStreamVideoSsrcTag) && capture.intact,
-          "stream video reaches the call decoders under a tagged SSRC");
-    check(frames.push_frame(frames.context, 0x1234, {frame, 4}, 93000, false, false) && capture.calls == 2 &&
-              !capture.intact,
+    check(frames.push_frame(frames.context, 0x1234, VoiceVideoCodec::h265, {frame, 4}, 90000, true, true) &&
+              capture.calls == 1 && capture.ssrc == (0x1234u | kGatewayStreamVideoSsrcTag) && capture.intact &&
+              capture.codec == VoiceVideoCodec::h265,
+          "stream video reaches the call decoders under a tagged SSRC with its codec");
+    check(frames.decodable && frames.decodable(frames.context) == voice_video_codec_bit(VoiceVideoCodec::h265),
+          "the stream connection offers the call decoders' codecs");
+    check(frames.push_frame(frames.context, 0x1234, VoiceVideoCodec::h264, {frame, 4}, 93000, false, false) &&
+              capture.calls == 2 && !capture.intact,
           "stream frames keep their not-intact mark on the way to the decoders");
-    check(!frames.push_frame(frames.context, 0x8000'0001u, {frame, 4}, 0, true, true) && capture.calls == 2 &&
+    check(!frames.push_frame(frames.context, 0x8000'0001u, VoiceVideoCodec::h264, {frame, 4}, 0, true, true) &&
+              capture.calls == 2 &&
               session.frames_untagged == 1,
           "stream SSRCs that collide with the tag are dropped");
     gateway_stream_session_want_video(&session, 77, false);

@@ -42,6 +42,9 @@ inline constexpr u64 kGpuVideoCodedPixels = u64{4096} * 2368;
 constexpr bool gpu_video_frame_visible_valid(u32 width, u32 height) noexcept {
     return width && height && width <= 4096 && height <= 4096 && u64{width} * height <= kGpuVideoVisiblePixels;
 }
+// Decoder slices a live stream keeps beyond its DPB: the newest presented
+// picture and one held by a reader (zero-copy presentation).
+inline constexpr u8 kVideoStreamPresentationSurfaces = 2;
 // Composer video posters are reduced on the GPU to the local thumbnail
 // extent (kLocalPreviewThumbnailExtent) with an integer box step.
 inline constexpr u32 kGpuVideoPosterExtent = 400;

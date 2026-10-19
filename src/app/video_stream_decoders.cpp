@@ -1,5 +1,7 @@
 #include "maicord/app/video_stream_decoders.hpp"
-#include "maicord/platform/h264_gpu_stream_decoder.hpp"
+#include "maicord/app/voice_log.hpp"
+#include "maicord/platform/gpu_stream_decoder.hpp"
+#include "maicord/protocol/voice_video_signaling.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
@@ -31,16 +33,13 @@ void request(VideoStreamDecoders* decoders, u32 ssrc) noexcept {
 }
 
 // Decode thread: publish the newest picture of this SSRC.
-void on_frame(void* context, u32 ssrc, const H264StreamFrame& frame) noexcept {
+void on_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
     if (!frame.gpu || !frame.gpu->texture) return;
     AcquireSRWLockExclusive(decoders->lock.native());
     if (auto* stream = find(decoders, ssrc)) {
-        if (stream->latest.texture != frame.gpu->texture || stream->latest.luma != frame.gpu->luma ||
-            stream->latest.chroma != frame.gpu->chroma) {
-            retain_frame(*frame.gpu);
-            release_frame(stream->latest);
-        }
+        retain_frame(*frame.gpu);
+        release_frame(stream->latest);
         stream->latest = *frame.gpu;
         stream->rtp_timestamp = frame.rtp_timestamp;
         stream->display_width = frame.display_width;
@@ -96,28 +95,29 @@ bool push_frame(void* context, u32 ssrc, ConstSlice<u8> frame, u32 rtp_timestamp
     }
     for (u32 i = 0; i < kVideoStreamDecoderStreams; ++i)
         if (decoders->waiting_ssrc[i] == ssrc) { decoders->waiting_ssrc[i] = 0; decoders->waiting_ms[i] = 0; }
-    H264StreamDecoder* decoder =
-        h264_stream_decoder_create({device, ssrc, {decoders, on_frame, on_keyframe}, false});
+    GpuStreamDecoder* decoder =
+        gpu_stream_decoder_create({device, ssrc, {decoders, on_frame, on_keyframe}, decoder_codec, false});
     device->Release(); // The decoder keeps its own reference.
     if (!decoder) return false;
+    GpuStreamDecoder* replaced = nullptr;
     AcquireSRWLockExclusive(decoders->lock.native());
-    VideoStreamDecoders::Stream* slot = nullptr;
+    VideoStreamDecoders::Stream* slot = find(decoders, ssrc);
+    if (slot) replaced = detach(slot); // The stream switched codec at this keyframe.
     for (auto& candidate : decoders->streams)
-        if (!candidate.decoder) {
-            slot = &candidate;
-            break;
-        }
+        if (!slot && !candidate.decoder) slot = &candidate;
     if (slot) {
         *slot = {};
         slot->decoder = decoder;
         slot->ssrc = ssrc;
+        slot->codec = codec;
     }
     ReleaseSRWLockExclusive(decoders->lock.native());
+    gpu_stream_decoder_destroy(replaced);
     if (!slot) {
-        h264_stream_decoder_destroy(decoder);
+        gpu_stream_decoder_destroy(decoder);
         return false;
     }
-    return h264_stream_decoder_push(decoder, frame, rtp_timestamp);
+    return gpu_stream_decoder_push(decoder, frame, rtp_timestamp);
 }
 
 void end_stream(void* context, u32 ssrc) noexcept {
@@ -125,9 +125,14 @@ void end_stream(void* context, u32 ssrc) noexcept {
     if (!decoders) return;
     AcquireSRWLockExclusive(decoders->lock.native());
     auto* stream = find(decoders, ssrc);
-    H264StreamDecoder* decoder = stream ? detach(stream) : nullptr;
+    GpuStreamDecoder* decoder = stream ? detach(stream) : nullptr;
     ReleaseSRWLockExclusive(decoders->lock.native());
-    h264_stream_decoder_destroy(decoder);
+    gpu_stream_decoder_destroy(decoder);
+}
+
+u32 decodable(void* context) noexcept {
+    auto* decoders = static_cast<VideoStreamDecoders*>(context);
+    return static_cast<u32>(InterlockedCompareExchange(&decoders->decodable, 0, 0));
 }
 
 } // namespace
@@ -156,7 +161,7 @@ void video_stream_decoders_set_requester(VideoStreamDecoders* decoders, VideoKey
 }
 
 VideoFrameSink video_stream_decoders_sink(VideoStreamDecoders* decoders) noexcept {
-    return {decoders, push_frame, end_stream};
+    return {decoders, push_frame, end_stream, decodable};
 }
 
 bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoStreamFrame* output) noexcept {
@@ -164,6 +169,9 @@ bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoS
     bool found = false;
     AcquireSRWLockShared(decoders->lock.native());
     if (const auto* stream = find(decoders, ssrc); stream && stream->latest.texture) {
+        // Under the lock that orders on_frame: the decoder sees this hold
+        // before it can pick a slice for its next picture.
+        gpu_stream_decoder_hold(stream->decoder, stream->latest.subresource);
         retain_frame(stream->latest);
         *output = {stream->latest, ssrc, stream->rtp_timestamp, stream->sequence, stream->display_width,
                    stream->display_height, stream->keyframe, {}};
@@ -175,15 +183,16 @@ bool video_stream_decoders_frame(VideoStreamDecoders* decoders, u32 ssrc, VideoS
 
 void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
     if (!decoders) return;
-    H264StreamDecoder* detached[kVideoStreamDecoderStreams]{};
+    GpuStreamDecoder* detached[kVideoStreamDecoderStreams]{};
     AcquireSRWLockExclusive(decoders->lock.native());
     for (u32 i = 0; i < kVideoStreamDecoderStreams; ++i)
         if (decoders->streams[i].decoder) detached[i] = detach(&decoders->streams[i]);
     decoders->keyframes = {};
     ID3D11Device* device = decoders->device;
     decoders->device = nullptr;
+    InterlockedExchange(&decoders->decodable, 0);
     ReleaseSRWLockExclusive(decoders->lock.native());
-    for (auto* decoder : detached) h264_stream_decoder_destroy(decoder);
+    for (auto* decoder : detached) gpu_stream_decoder_destroy(decoder);
     if (device) device->Release();
 }
 
