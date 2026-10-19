@@ -359,7 +359,7 @@ __declspec(noinline) bool normalize_flag_cells(Utf8View text, ConstSlice<StyledS
 }
 
 __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const TextSystem& system,const NativeFormat* format,Utf8View text,
-    ConstSlice<TextStyleSpan> styles,float em,bool geometry,bool editor,u8 presentation,bool alphabetic,bool fallback=false,bool rtl=false,bool mixed=false) noexcept {
+    ConstSlice<TextStyleSpan> styles,float em,bool geometry,bool editor,u8 presentation,bool alphabetic,bool fallback=false,bool rtl=false,bool mixed=false,bool plain_tried=false) noexcept {
     constexpr u32 font_flags=text_style_bold|text_style_italic|text_style_monospace;
     const bool emoji=presentation!=0;
     // Font preparation resets the transient arena; complete it before storing
@@ -372,7 +372,9 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     // scratch; source-unit fields temporarily carry script and direction.
     const u32 replay_first=(text.bytes+alignof(StyledSpan)-1)&~(alignof(StyledSpan)-1);
     Slice<StyledSpan> replay{reinterpret_cast<StyledSpan*>(script_bytes+replay_first),fallback?static_cast<u32>((scratch_bytes-replay_first)/sizeof(StyledSpan)):0};
-    bool changed=false;u32 count=presentation_spans(text,styles,presentation,nullptr,nullptr,&system,format,alphabetic?script_bytes:nullptr,fallback,&changed,editor,mixed?directions:nullptr,replay);if(!count||count>text.bytes||(fallback&&!changed&&!rtl&&!mixed))return false;
+    // A fallback pass that maps nothing to another face only repeats a failed
+    // plain pass. Without that pass (text of base-less ignorables) it is the shape.
+    bool changed=false;u32 count=presentation_spans(text,styles,presentation,nullptr,nullptr,&system,format,alphabetic?script_bytes:nullptr,fallback,&changed,editor,mixed?directions:nullptr,replay);if(!count||count>text.bytes||(fallback&&!changed&&!rtl&&!mixed&&plain_tried))return false;
     arena_reset(&owner.scratch);auto spans=take<StyledSpan>(owner.scratch,count);if(!spans.data)return false;
     auto* resolved=spans.data;
     if(count<=replay.count){for(u32 i=0;i<count;++i){resolved[i]=replay[i];script_bytes[i]=static_cast<u8>(replay[i].first_unit);if(mixed)directions[i]=static_cast<u8>(replay[i].end_unit);}}
@@ -406,8 +408,9 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
             // policy; font-dependent paint cuts can change their clusters. With
             // browser invisibles on, a leading ZWNJ is the hidden-ignorable
             // substitute and opens a script run (also after a line break), so
-            // it is not rejected here.
-            if(!rtl&&!mixed&&!selected&&at==span.first_byte&&at&&((cp.codepoint==0x200c&&!text_browser_invisibles())||cp.codepoint==0x200d||(cp.codepoint==10&&text.data[at-1]=='\r')))return false;
+            // it is not rejected here. Nothing joins across a hard line break.
+            if(!rtl&&!mixed&&!selected&&at==span.first_byte&&at&&((cp.codepoint==0x200c&&!text_browser_invisibles())||
+               (cp.codepoint==0x200d&&text.data[at-1]!='\n'&&text.data[at-1]!='\r')||(cp.codepoint==10&&text.data[at-1]=='\r')))return false;
             if(plain){u16 glyph=0;plain=nominal_scalar_is_simple(cp.codepoint);
                 if(plain){const u32 offset=cp.codepoint-32u;if(offset<plan.ascii_count)glyph=static_cast<u16>(plan.ascii_first+offset);
                     else plain=sfnt_cmap_glyph(font->cmap,cp.codepoint,0,&glyph)==SfntStatus::ok;
@@ -741,7 +744,7 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     if(owner.last_valid&&owner.last_styled&&(owner.last_mode&119)==mode&&(!geometry||owner.styled_lines.count)&&owner.last_format==format&&owner.last_em==em&&owner.last_style_em==system.em_size&&owner.last_fixed_weight==system.fixed_weight&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
        owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)&&owner.last_styles.count==styles.count&&bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan)))++owner.reuses;
     else if((fallback_only||!prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended))&&
-        !prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended,true,rtl,mixed))return false;
+        !prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended,true,rtl,mixed,!fallback_only))return false;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;NativeParagraphLayout layout{};const float tab_stop=format->tab_stop;
     if(plan_storage){if(!plan_storage->allocate(owner,shape.cluster_count))return false;fit=plan_storage->fit;}
     const auto transient_mark=arena_mark(&owner.scratch);

@@ -15,6 +15,7 @@
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/text/paragraph_hits.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/dwrite.hpp"
@@ -166,6 +167,145 @@ void test_default_ignorables(Check check) noexcept {
     const u32 bytes = text_hide_default_ignorables(utf8_literal("b\xEF\xB8\x8F\xF3\xA0\x84\x80!"), {out, 32});
     check(bytes == 9 && bytes_equal(out, "b\xE2\x80\x8C\xCD\x8F\xCD\x8F!", 9),
           "orphan_selectors_become_same_length_invisible_scalars");
+}
+
+struct Glyphs {
+    bool ok;
+    u32 notdef;
+    u32 lines;
+    float width;
+    float advance;
+};
+Glyphs shape_glyphs(Utf8View text, float width = 1000) noexcept {
+    ShapedText output{};
+    Glyphs result{};
+    if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}))
+        return result;
+    result.ok = text_shape_utf8_styled(&text_system, text, {}, width, 4096, {utf16, 1024}, &output).ok();
+    for (u32 i = 0; i < output.glyph_count; ++i) {
+        result.notdef += output.glyphs[i].index == 0 ? 1u : 0u;
+        result.advance += output.glyphs[i].advance;
+    }
+    result.lines = output.line_count;
+    result.width = output.width;
+    shaped_text_reset(&output);
+    return result;
+}
+// No missing glyph, no advance and no measured width.
+bool draws_nothing(Utf8View text) noexcept {
+    const Glyphs g = shape_glyphs(text);
+    const auto m = text_measure_utf8_styled(&text_system, text, {}, 1000, 1000, {utf16, 1024});
+    return g.ok && g.notdef == 0 && close_to(g.width, 0) && close_to(g.advance, 0) && m.ok() && close_to(m.width, 0);
+}
+// "[#ff0000,#000000]" in tag characters: hidden profile colours in a bio.
+constexpr u32 kHiddenColors[]{0xE005B, 0xE0023, 0xE0066, 0xE0066, 0xE0030, 0xE0030, 0xE0030, 0xE0030, 0xE002C,
+                              0xE0023, 0xE0030, 0xE0030, 0xE0030, 0xE0030, 0xE0030, 0xE0030, 0xE005D};
+u32 append(char* out, u32 n, const char* ascii) noexcept {
+    for (u32 i = 0; ascii[i]; ++i)
+        out[n++] = ascii[i];
+    return n;
+}
+u32 append_hidden_colors(char* out, u32 n) noexcept {
+    for (u32 cp : kHiddenColors)
+        n += encode(cp, out + n);
+    return n;
+}
+
+// Default-ignorables without a base draw nothing and take no width: alone,
+// leading, on lines of their own and at wrapped line ends. They once failed the
+// native item, whose fallback drew one missing glyph.
+void test_baseless_ignorables(Check check) noexcept {
+    char text[256];
+    u32 n = append_hidden_colors(text, 0);
+    const auto measured = text_measure_utf8_styled(&text_system, {text, n}, {}, 1000, 1000, {utf16, 1024});
+    check(n == 68 && measured.utf16_units == 34 && draws_nothing({text, n}), "hidden_tag_bio_draws_nothing");
+
+    const float hello = shape_glyphs(utf8_literal("Hello")).width;
+    n = append(text, append_hidden_colors(text, append(text, 0, "hi ")), " x");
+    const Glyphs inside = shape_glyphs({text, n});
+    const Glyphs plain = shape_glyphs(utf8_literal("hi  x"));
+    n = append_hidden_colors(text, append(text, 0, "Hello\n"));
+    const Glyphs after_break = shape_glyphs({text, n});
+    check(inside.ok && inside.notdef == 0 && close_to(inside.width, plain.width) && after_break.ok &&
+              after_break.notdef == 0 && after_break.lines == 2 && close_to(after_break.width, hello),
+          "hidden_tags_inside_text_take_no_width");
+
+    // Lines holding only ignorables, and ignorables ending wrapped lines.
+    n = append(text, append_hidden_colors(text, 0), "\n\xCD\x8F\n\xE2\x80\x8C\xE2\x81\xA0");
+    const Glyphs only = shape_glyphs({text, n});
+    const float narrow = hello + 4;
+    const Glyphs wrapped_plain = shape_glyphs(utf8_literal("Hello world"), narrow);
+    n = append_hidden_colors(text, append(text, append_hidden_colors(text, append(text, 0, "Hello")), " world"));
+    const Glyphs wrapped = shape_glyphs({text, n}, narrow);
+    check(only.ok && only.notdef == 0 && only.lines == 3 && close_to(only.width, 0) && wrapped_plain.lines == 2 &&
+              wrapped.ok && wrapped.notdef == 0 && wrapped.lines == 2 && close_to(wrapped.width, wrapped_plain.width),
+          "ignorable_only_lines_and_wrapped_line_ends_take_no_width");
+
+    // Each ignorable alone, doubled, on two lines and leading a word.
+    const u32 ignorables[]{0x00AD, 0x034F, 0x061C, 0x115F, 0x180E, 0x200B, 0x200C, 0x200D, 0x200E, 0x2060,
+                           0x2064, 0x3164, 0xFE00, 0xFE0F, 0xFEFF, 0xE0001, 0xE0020, 0xE007F, 0xE0100};
+    bool alone = true, leading = true;
+    for (u32 cp : ignorables) {
+        n = encode(cp, text);
+        alone = alone && draws_nothing({text, n});
+        n += encode(cp, text + n);
+        alone = alone && draws_nothing({text, n});
+        n = append(text, encode(cp, text), "\n");
+        n += encode(cp, text + n);
+        alone = alone && draws_nothing({text, n});
+        n = append(text, encode(cp, text), "Hello");
+        const Glyphs word = shape_glyphs({text, n});
+        leading = leading && word.ok && word.notdef == 0 && close_to(word.width, hello);
+    }
+    check(alone, "each_ignorable_alone_draws_nothing");
+    check(leading, "each_ignorable_leading_a_word_takes_no_width");
+
+    // Subdivision flags keep their tags; hidden tags beside a flag add nothing.
+    const auto england = utf8_literal("\xF0\x9F\x8F\xB4\xF3\xA0\x81\xA7\xF3\xA0\x81\xA2\xF3\xA0\x81\xA5"
+                                      "\xF3\xA0\x81\xAE\xF3\xA0\x81\xA7\xF3\xA0\x81\xBF");
+    const Glyphs flag = shape_glyphs(england);
+    n = append_hidden_colors(text, 0);
+    copy_bytes(text + n, england.data, england.bytes);
+    n = append_hidden_colors(text, n + england.bytes);
+    const Glyphs flanked = shape_glyphs({text, n});
+    check(flag.ok && flag.notdef == 0 && flag.width > 8 && flanked.ok && flanked.notdef == 0 &&
+              close_to(flanked.width, flag.width),
+          "subdivision_flag_keeps_tags_beside_hidden_tags");
+
+    // Carets over hidden text keep the source UTF-16 offsets: "hi " + tags +
+    // " x" has the carets of "hi  x", the space and tags forming one cluster.
+    NativeParagraphHitCluster hit_clusters[2][64];
+    NativeParagraphHitLine hit_lines[2][4];
+    float advances[2][256];
+    SfntFontLineParts parts[2][2];
+    NativeParagraphHits geometry[2]{};
+    const auto hits = [&](u32 i, Utf8View source) noexcept {
+        const TextShapingView shaping(source);
+        NativeParagraphHitStorage storage{{hit_clusters[i], 64}, {hit_lines[i], 4}, {advances[i], 256}, &geometry[i],
+                                          {parts[i], 2}};
+        TextMeasureResult measure{};
+        return shaping.text.bytes == source.bytes &&
+               native_text_candidate_hits(text_system, shaping.text, 1000, 1000, TextWrapping::wrap, storage,
+                                          &measure) &&
+               measure.ok() && geometry[i].source_units == measure.utf16_units;
+    };
+    const auto caret = [&](u32 i, u32 unit) noexcept {
+        NativeParagraphHitMetric metric{};
+        float x = -1;
+        return native_paragraph_hit_position(geometry[i], unit, false, &metric, &x) == SfntStatus::ok ? x : -1.0f;
+    };
+    n = append(text, append_hidden_colors(text, append(text, 0, "hi ")), " x");
+    bool carets = hits(0, {text, n}) && hits(1, utf8_literal("hi  x")) && geometry[0].source_units == 39;
+    for (u32 unit = 0; carets && unit <= 39; ++unit) {
+        if (unit > 3 && unit < 37 && (unit & 1) == 0)
+            continue; // inside a surrogate pair
+        const u32 plain_unit = unit < 3 ? unit : unit < 37 ? 2 : unit - 34;
+        carets = close_to(caret(0, unit), caret(1, plain_unit));
+    }
+    NativeParagraphHitPoint end{};
+    carets = carets && native_paragraph_hit_point(geometry[0], 1000, 0, &end) == SfntStatus::ok &&
+             end.source_position == 39;
+    check(carets, "carets_over_hidden_tags_keep_source_offsets");
 }
 
 MessageMarkdownResult parse(Utf8View source, char* output, u32* styles, TextStyleSpan* spans,
@@ -1896,6 +2036,7 @@ void test_embed_parity(Check check) noexcept {
     const bool previous = text_browser_invisibles();
     text_set_browser_invisibles(true);
     test_default_ignorables(check);
+    test_baseless_ignorables(check);
     test_markdown(check);
     test_link_hits(check);
     test_calendar(check);
