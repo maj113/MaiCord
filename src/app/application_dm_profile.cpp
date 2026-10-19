@@ -10,6 +10,7 @@
 #include "application_user_actions.hpp"
 
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -26,25 +27,89 @@ constexpr u32 kCacheCapacity = 4;
 struct CachedProfile {
     UserProfile data;
     u64 user_id, used_ms, loaded_at, failed_at;
+    u32 seeded_revision;
     u16 status;
 };
 struct DmProfilePanel {
     ProfileScene scene;
     CachedProfile cache[kCacheCapacity];
-    // The shown user and the request in flight (zero: none).
-    u64 shown, requested, retry_at;
-    bool fetch;
+    // Public applications whose icons stand in for missing activity art, as
+    // the popout keeps them (application_profile.cpp); the batch in flight.
+    ProfileApplication applications[kProfileApplicationCapacity];
+    u32 application_count, application_next, asked_count;
+    u64 asked[kUserActivityMaximum];
+    // The shown user, the profile request in flight (zero: none) and when
+    // the profile or the icons may next be asked for.
+    u64 shown, requested, retry_at, icons_retry_at;
+    bool fetch, icons_requested;
 };
 DmProfilePanel* g_panel;
 
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
 }
+bool application_known(u64 id) noexcept {
+    for (u32 i = 0; i < g_panel->application_count; ++i)
+        if (g_panel->applications[i].id == id)
+            return true;
+    return false;
+}
+void remember_application(u64 id, Utf8View icon) noexcept {
+    auto& p = *g_panel;
+    ProfileApplication* slot = nullptr;
+    for (u32 i = 0; i < p.application_count && !slot; ++i)
+        if (p.applications[i].id == id)
+            slot = &p.applications[i];
+    if (!slot) {
+        if (p.application_count < kProfileApplicationCapacity)
+            slot = &p.applications[p.application_count++];
+        else {
+            slot = &p.applications[p.application_next];
+            p.application_next = (p.application_next + 1) % kProfileApplicationCapacity;
+        }
+    }
+    slot->id = id;
+    slot->icon.bytes = static_cast<u16>(icon.bytes <= sizeof(slot->icon.data) ? icon.bytes : 0);
+    copy_bytes(slot->icon.data, icon.data, slot->icon.bytes);
+    p.scene.applications = {p.applications, p.application_count};
+}
+// Laid-out cards that would show an application icon not known yet.
+bool missing_icons() noexcept {
+    const auto& s = g_panel->scene;
+    for (u32 i = 0; i < s.missing_icon_count; ++i)
+        if (s.missing_icons[i] && !application_known(s.missing_icons[i]))
+            return true;
+    return false;
+}
+// Takes over icons the popout already fetched; true when any was new.
+bool adopt_popout_icons() noexcept {
+    const auto& s = g_panel->scene;
+    const auto* p = g_app.profile;
+    bool adopted = false;
+    for (u32 i = 0; p && i < s.missing_icon_count; ++i) {
+        const u64 id = s.missing_icons[i];
+        for (u32 k = 0; id && k < p->application_count && !application_known(id); ++k)
+            if (p->applications[k].id == id) {
+                remember_application(id, p->applications[k].icon.view());
+                adopted = true;
+            }
+    }
+    return adopted;
+}
+bool icons_due(u64 now) noexcept {
+    return g_panel->scene.active && !g_panel->requested && !g_panel->icons_requested &&
+           g_panel->icons_retry_at <= now && missing_icons();
+}
 // The scheduler admits the fetch once due (application_scheduler).
 void update_wake() noexcept {
-    g_app.dm_profile_wake_ms = g_panel && g_panel->scene.active && g_panel->fetch && !g_panel->requested
-                                   ? maximum<u64>(1, g_panel->retry_at)
-                                   : 0;
+    u64 wake = 0;
+    if (g_panel && g_panel->scene.active && !g_panel->requested && !g_panel->icons_requested) {
+        if (g_panel->fetch)
+            wake = maximum<u64>(1, g_panel->retry_at);
+        else if (missing_icons())
+            wake = maximum<u64>(1, g_panel->icons_retry_at);
+    }
+    g_app.dm_profile_wake_ms = wake;
 }
 bool repaint() noexcept {
     return refresh_account_text(true) && (!g_app.window || application_request_frame() != FALSE);
@@ -88,6 +153,7 @@ bool fresh(const CachedProfile& entry, u64 now) noexcept {
 void seed(CachedProfile* entry) noexcept {
     auto& users = g_app.account_ui->user_store;
     auto& d = entry->data;
+    entry->seeded_revision = users.revision;
     const auto assign = [](auto* to, Utf8View from) noexcept {
         to->bytes = static_cast<u16>(minimum<u32>(sizeof(to->data), from.bytes));
         copy_bytes(to->data, from.data, to->bytes);
@@ -153,10 +219,13 @@ bool show(u64 user, UiRect slot) noexcept {
         return false;
     entry->used_ms = now;
     const bool changed = g_panel->shown != user || !s.active;
+    // Until the profile loads, the panel shows what the user store knows,
+    // including what it learns meanwhile.
+    if (!entry->loaded_at && (changed || entry->seeded_revision != g_app.account_ui->user_store.revision))
+        seed(entry);
+    s.applications = {g_panel->applications, g_panel->application_count};
     if (changed) {
         g_panel->shown = user;
-        if (!entry->loaded_at && !entry->failed_at)
-            seed(entry);
         // Fetched on showing when stale, never on a timer while shown.
         g_panel->fetch = !fresh(*entry, now) && !adopt_popout(entry, now);
         g_panel->retry_at = 0;
@@ -300,6 +369,8 @@ void application_dm_profile_synchronize() noexcept {
                        ui_rect_width(slot) >= kUiDmProfilePanelWidth - 1 && ui_rect_height(slot) > 0;
     if (!shown || !show(user, slot))
         hide();
+    else if (adopt_popout_icons())
+        relayout();
     update_wake();
     tick_clock();
 }
@@ -312,14 +383,48 @@ ProfileScene* application_dm_profile_scene() noexcept {
     return g_panel && g_panel->scene.active ? &g_panel->scene : nullptr;
 }
 bool application_dm_profile_pending(u64 now) noexcept {
-    return g_panel && g_panel->scene.active && g_panel->fetch && !g_panel->requested && g_panel->retry_at <= now &&
-           g_app.account.api.profile_get;
+    return g_panel && g_panel->scene.active && g_app.account.api.profile_get &&
+           ((g_panel->fetch && !g_panel->requested && !g_panel->icons_requested && g_panel->retry_at <= now) ||
+            icons_due(now));
 }
 bool application_dm_profile_submit(u64 request_id, u64 now) noexcept {
     if (!application_dm_profile_pending(now))
         return false;
     auto& host = g_app.account;
     const u64 user = g_panel->shown;
+    if (!g_panel->fetch || g_panel->retry_at > now) {
+        // GET /applications/public for the cards' missing icons, as the popout asks.
+        char ids[kUserActivityMaximum * 21];
+        u32 used = 0, count = 0;
+        const auto& s = g_panel->scene;
+        for (u32 i = 0; i < s.missing_icon_count && count < kUserActivityMaximum; ++i) {
+            const u64 id = s.missing_icons[i];
+            if (!id || application_known(id))
+                continue;
+            if (used)
+                ids[used++] = ',';
+            used += decimal_write(ids + used, id);
+            g_panel->asked[count++] = id;
+        }
+        const RestClientSubmitResult result =
+            host.api.profile_get(host.instance, user, 0, request_id, 5, {ids, used});
+        if (result.error == RestClientSubmitError::busy) {
+            g_panel->icons_retry_at = now + kBusyRetryMs;
+            update_wake();
+            return false;
+        }
+        if (!result.ok()) {
+            // Not retried: the card keeps its placeholder.
+            for (u32 i = 0; i < count; ++i)
+                remember_application(g_panel->asked[i], {});
+            update_wake();
+            return false;
+        }
+        g_panel->asked_count = count;
+        g_panel->icons_requested = true;
+        update_wake();
+        return true;
+    }
     // with_mutual_guilds and the mutual friends with their count, as the full profile asks.
     const RestClientSubmitResult result = host.api.profile_get(host.instance, user, 0, request_id, 0, {});
     if (result.error == RestClientSubmitError::busy) {
@@ -341,18 +446,49 @@ bool application_dm_profile_submit(u64 request_id, u64 now) noexcept {
     update_wake();
     return true;
 }
+namespace {
+void visit_application(void*, u64 id, Utf8View icon) noexcept {
+    for (u32 i = 0; i < g_panel->asked_count; ++i)
+        if (g_panel->asked[i] == id)
+            remember_application(id, icon);
+}
+bool icons_response(const RestClientResponse& response, Utf8View body) noexcept {
+    g_panel->icons_requested = false;
+    if (response.error == RestClientError::none && response.status_code == 200)
+        user_activity_applications_decode(body, {g_app.account_ui->profile_decode.structurals, 16384},
+                                          visit_application, nullptr);
+    // Unknown or failed IDs are not asked for again this session; a rate
+    // limit tries again later.
+    if (response.status_code == 429)
+        g_panel->icons_retry_at = now_ms() + 5000;
+    else
+        for (u32 i = 0; i < g_panel->asked_count; ++i)
+            if (!application_known(g_panel->asked[i]))
+                remember_application(g_panel->asked[i], {});
+    g_panel->asked_count = 0;
+    const bool ok = !g_panel->scene.active || relayout();
+    update_wake();
+    return ok;
+}
+} // namespace
 bool application_dm_profile_response(const RestClientResponse& response, Utf8View body) noexcept {
-    if (!g_panel || !g_panel->requested || !g_app.account_ui)
+    if (!g_panel || !g_app.account_ui)
+        return true;
+    if (g_panel->icons_requested)
+        return icons_response(response, body);
+    if (!g_panel->requested)
         return true;
     const u64 user = g_panel->requested;
     g_panel->requested = 0;
+    // The shown user may have changed meanwhile: its own fetch is due now.
+    update_wake();
     auto* entry = find(user);
     if (!entry)
         return true;
     const u64 now = maximum<u64>(1, now_ms());
     entry->status = response.status_code;
-    const bool parsed = response.error == RestClientError::none && response.status_code == 200 &&
-                        g_app.account_ui->profile_decode.decode_into(body, user, 0, entry->data);
+    const bool ok = response.error == RestClientError::none && response.status_code == 200;
+    const bool parsed = ok && g_app.account_ui->profile_decode.decode_into(body, user, 0, entry->data);
     if (parsed) {
         entry->loaded_at = now;
         entry->failed_at = 0;
@@ -361,14 +497,19 @@ bool application_dm_profile_response(const RestClientResponse& response, Utf8Vie
         user_store_set_avatar(&users, user, entry->data.avatar.view());
         user_appearance_upsert(&users.appearance, entry->data.user_appearance);
         ++users.revision;
-    } else
+    } else {
         entry->failed_at = now;
+        if (ok)
+            log_u64(LogLevel::warning, "profile", "panel_decode_rejected_bytes", body.bytes);
+    }
     if (g_panel->shown != user || !g_panel->scene.active)
         return true;
     auto& s = g_panel->scene;
     s.phase = parsed || entry->loaded_at ? ProfilePhase::ready : ProfilePhase::failed;
     s.http_status = response.status_code;
-    return relayout();
+    const bool laid_out = relayout();
+    update_wake();
+    return laid_out;
 }
 bool application_dm_profile_hover(UiPoint point) noexcept {
     auto* s = application_dm_profile_scene();

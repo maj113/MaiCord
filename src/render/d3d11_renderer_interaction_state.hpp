@@ -241,7 +241,7 @@ inline bool d3d11_renderer_tooltip_visible(const D3D11Renderer& renderer) noexce
            !d3d11_renderer_active(renderer.poll_voters_scene) &&
            !d3d11_renderer_message_modal_active(renderer) && !(renderer_settings_page_visible(renderer)) &&
            !d3d11_renderer_active(renderer.friends_requests_scene) &&
-           !d3d11_renderer_active(renderer.profile_scene) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_active(renderer.popup_scene) &&
            !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer) &&
            ui_tooltip_visible(*renderer.tooltip_scene);
 }

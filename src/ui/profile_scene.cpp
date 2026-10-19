@@ -27,9 +27,12 @@ constexpr u32 capacity = 320;
 constexpr u32 kXs = kTextStyleSizeCodeXs, kSm = kTextStyleSizeCodeSm, kMd = kTextStyleSizeCodeMd,
               kLg = text_style_heading_2, kXl = text_style_heading_1;
 constexpr float kPopoutWidth = 300, kPopoutBanner = 105, kModalBanner = 140;
-// The DM profile panel: a square 120 DIP banner, the 80 DIP avatar 72 from the
-// top, a 44 DIP "View Full Profile" bar; mutual list rows 40 DIPs.
-constexpr float kPanelBanner = 120, kPanelAvatarTop = 72, kPanelFooter = 44, kPanelRow = 40;
+// The DM profile panel (the official sidebar redesign): a card inset 8 DIPs
+// in its slot with a 2 DIP border (a Nitro theme's gradient), a 105 DIP banner,
+// the 80 DIP avatar 16 and 57 from the card's corner, a 44 DIP "View Full
+// Profile" bar; mutual list rows 40 DIPs.
+constexpr float kPanelInset = 8, kPanelBorder = 2, kPanelBanner = 105, kPanelAvatarTop = 57 - kPanelBorder,
+                kPanelFooter = 44, kPanelRow = 40;
 constexpr u16 kNoPart = 0xFFFF;
 // A card's changing parts (indices into parts): the timer chip's label and
 // glyph, the progress bar's ends and track.
@@ -1835,9 +1838,10 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     s->preview_height = mh;
     return finish(s, viewport);
 }
-// The DM profile panel (Discord's user profile sidebar): fills its slot
-// (anchor), sections 12 apart 16 from the sides, the body scrolling between
-// the header and the "View Full Profile" bar.
+// The DM profile panel (Discord's user profile sidebar): a card inset in its
+// slot (anchor), sections 12 apart 16 from the sides, the body scrolling
+// between the header and the "View Full Profile" bar. Geometry below is
+// relative to the card's inside (within its border).
 float panel_mutual_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool friends,
                            float visible_top, float visible_bottom) noexcept {
     const auto& p = *s->profile;
@@ -1882,18 +1886,20 @@ float panel_mutual_section(ProfileScene* s, UiWidgetHandle owner, float left, fl
     return y - top;
 }
 bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
-    const UiRect slot = s->anchor;
+    const UiRect outer = ui_rect_inset(s->anchor, {kPanelInset, kPanelInset, kPanelInset, kPanelInset});
+    const UiRect slot = ui_rect_inset(outer, {kPanelBorder, kPanelBorder, kPanelBorder, kPanelBorder});
     const float W = ui_rect_width(slot), H = ui_rect_height(slot);
     if (W < 120 || H < kPanelBanner + kPanelFooter)
         return false;
     const float x0 = 16, content = W - 32;
-    s->rectangle = s->card = s->effect_area = slot;
+    s->rectangle = outer;
+    s->card = s->effect_area = slot;
     auto* frame = add(s, s->root, {slot.left - viewport.left, slot.top - viewport.top, slot.right - viewport.left,
                                    slot.bottom - viewport.top});
     if (!frame)
         return false;
     s->panel = frame->widget;
-    header_geometry(s, {0, 0, W, kPanelBanner}, x0, kPanelAvatarTop, 80);
+    header_geometry(s, {0, 0, W, kPanelBanner}, 16 - kPanelBorder, kPanelAvatarTop, 80);
     if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand))
         return false;
     u8 order[kUserActivityMaximum];
@@ -2336,21 +2342,26 @@ bool bubble_paint(PaintStream* paint, UiRect r, const Palette& c, float radius) 
            paint_stream_push_rounded(paint, big.left + 1, r.top + 1, big.right - 1, big.bottom - 1, c.bubble,
                                      big_radius - 1);
 }
-// The DM panel fills its slot edge to edge: the surface, or a Nitro theme's
-// colours (P down to the banner's end, then a blend to S) under the overlay.
-bool panel_background(const ProfileScene& s, const Palette& c, PaintStream* paint) noexcept {
+// The DM panel's card, inline beside the chat (no shadow): the surface in a
+// 1 DIP ring, or a Nitro theme's colours (P down to the banner's end, then a
+// blend to S) showing as its 2 DIP border around the overlay.
+bool panel_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
+    const float radius = theme.scale.radius_md;
     const auto r = s.rectangle;
     if (!s.themed)
-        return paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.surface);
+        return paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, c.surface,
+                                                theme.tokens.border.subtle, radius, 1);
+    const auto inner = profile_scene_card_mask(s, theme);
     const float split = minimum(r.bottom, s.banner.bottom);
-    return paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.primary) &&
+    return paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.primary, radius) &&
            (split >= r.bottom ||
-            paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary, c.secondary, 0)) &&
-           paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.overlay);
+            paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary, c.secondary, radius)) &&
+           paint_stream_push_rounded(paint, inner.rectangle.left, inner.rectangle.top, inner.rectangle.right,
+                                     inner.rectangle.bottom, c.overlay, inner.radius);
 }
 bool card_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
     if (panel(s))
-        return panel_background(s, c, paint);
+        return panel_background(s, theme, c, paint);
     const float radius = theme.scale.radius_md;
     const auto r = s.rectangle;
     if (!s.themed)
@@ -2431,8 +2442,9 @@ ProfileCardMask profile_scene_card_mask(const ProfileScene& s, const Theme& them
         const float radius = theme.scale.radius_xl;
         return {{s.card.left, s.card.top, s.card.right, s.card.bottom + radius}, radius};
     }
+    // The panel's card keeps its 2 DIP border themed or not.
     if (panel(s))
-        return {s.rectangle, 0};
+        return {s.card, maximum(0.f, theme.scale.radius_md - kPanelBorder)};
     if (!s.themed)
         return {s.rectangle, theme.scale.radius_md};
     return {ui_rect_inset(s.rectangle, {2, 2, 2, 2}), maximum(0.f, theme.scale.radius_md - 2)};

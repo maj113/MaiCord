@@ -60,6 +60,7 @@
 #include "maicord/app/message_send_tracker.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "../../src/render/shaped_text_cache.hpp"
@@ -12354,6 +12355,7 @@ int run_probe() noexcept {
             copy(&panel_profile.pronouns, utf8_literal("they/them"));
             copy(&panel_profile.bio, utf8_literal("Synthetic profile beside a direct message."));
             panel_profile.has_theme = true;
+            panel_profile.premium_type = 2;
             panel_profile.theme_colors[0] = 0x2F4A6D;
             panel_profile.theme_colors[1] = 0x6A3D7A;
             panel_profile.mutual_guild_count = 1;
@@ -12362,8 +12364,22 @@ int run_probe() noexcept {
             friend_record.user_id = 123;
             friend_record.type = RelationshipType::friend_;
             friend_record.presence = RelationshipPresence::online;
-            constexpr auto presence = utf8_literal(
-                R"({"activities":[{"type":2,"name":"Spotify","details":"Track","state":"Panchiko","party":{"id":"spotify:1"}}]})");
+            // Listening (timed) and a game; the game leads the header.
+            static char presence_text[512];
+            u32 presence_bytes = 0;
+            const auto put = [&](Utf8View v) noexcept {
+                copy_bytes(presence_text + presence_bytes, v.data, v.bytes);
+                presence_bytes += v.bytes;
+            };
+            const u64 unix_now = clock_unix_milliseconds();
+            put(utf8_literal(R"({"activities":[{"type":2,"name":"Spotify","details":"Track","state":"Panchiko",)"
+                             R"("party":{"id":"spotify:1"},"timestamps":{"start":)"));
+            presence_bytes += decimal_write(presence_text + presence_bytes, unix_now - 65'000);
+            put(utf8_literal(R"(,"end":)"));
+            presence_bytes += decimal_write(presence_text + presence_bytes, unix_now + 210'000);
+            put(utf8_literal(R"(}},{"type":0,"name":"Synthetic Quest","application_id":"777","details":"Lv.12",)"
+                             R"("state":"Region"}]})"));
+            const Utf8View presence{presence_text, presence_bytes};
             const auto scan = json_scan_structurals_avx1(presence, {activity_structurals, 256});
             UserActivitySet listening{};
             bool has = false;
@@ -12415,7 +12431,10 @@ int run_probe() noexcept {
             ++g_probe.users.revision;
             const u64 outcome = (sourced ? 1u : 0u) | (slot ? 2u : 0u) | (opened ? 4u : 0u) |
                                 (presented ? 8u : 0u) | (view_full ? 16u : 0u) | (header ? 32u : 0u) |
-                                (activity.glyph == UiActivityGlyph::music ? 64u : 0u) |
+                                (activity.glyph == UiActivityGlyph::game &&
+                                         utf8_equal(activity.line, utf8_literal("Synthetic Quest +1"))
+                                     ? 64u
+                                     : 0u) |
                                 (g_probe.chat_state.home_selected ? 128u : 0u);
             if (outcome != 255 || !synchronize_probe_shell_layout()) {
                 log_u64(LogLevel::error, "probe", "dm_profile_panel_outcome", outcome);

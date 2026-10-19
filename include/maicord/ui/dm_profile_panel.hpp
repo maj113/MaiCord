@@ -5,10 +5,10 @@
 namespace maicord {
 // The side slot beside a conversation: a server channel or group DM shows the
 // member list there, a one-to-one DM the recipient's profile (the official
-// client's user profile sidebar: 340 DIPs, only in windows at least 1132 DIPs
-// wide). The header toggle and Ctrl+U switch whichever applies; each choice is
-// remembered on its own.
-inline constexpr float kUiDmProfilePanelWidth = 340.f;
+// client's user profile sidebar: a 300 DIP card inset 8 DIPs, only in windows
+// at least 1132 DIPs wide). The header toggle and Ctrl+U switch whichever
+// applies; each choice is remembered on its own.
+inline constexpr float kUiDmProfilePanelWidth = 316.f;
 inline constexpr float kUiDmProfilePanelMinimumWindowWidth = 1132.f;
 enum class UiSidePanel : u8 { none, members, profile };
 inline constexpr u8 kUiSidePanelNoChannel = 0;

@@ -1,5 +1,6 @@
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/activity_status.hpp"
+#include "maicord/ui/profile_activity.hpp"
 #include "maicord/ui/private_channel_title.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/decimal.hpp"
@@ -244,6 +245,50 @@ bool ui_private_header_overlay_paint(const UiScene& scene, const UiPrivateRowSou
            activity.glyph == UiActivityGlyph::none ||
            ui_icon_paint(stream, ui_activity_glyph_icon(activity.glyph), activity.icon, theme.text_secondary);
 }
+namespace {
+// The header's line: the first activity by the official priority (competing,
+// streaming, playing, then the rest; rich presence, then the newer first),
+// and "+N" for the other distinct activities while no custom status text
+// takes the line. Custom status is never counted.
+Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+                     UiActivityGlyph* glyph) noexcept {
+    const Utf8View plain = ui_private_peer_activity(source, channel_id, storage, glyph);
+    u64 peer[2]{};
+    UserActivitySet set{};
+    if (!plain.bytes || !ui_private_row_group_members(*source.state, channel_id, peer) ||
+        !user_activity_find(source.users->activities, peer[0], &set))
+        return plain;
+    u8 order[kUserActivityMaximum];
+    const u32 ordered = profile_activity_order(set, {order, kUserActivityMaximum});
+    u32 count = 0;
+    for (u32 i = 0; i < ordered; ++i)
+        if (set.items[order[i]].type != UserActivityType::custom) order[count++] = order[i];
+    if (!count) return plain;
+    const auto* global = user_appearance_find(source.users->appearance, peer[0]);
+    char text[kAppearanceActivityBytes];
+    UiActivityStatus status{};
+    if (!ui_activity_status(&set.items[order[0]], user_appearance_find_activity(source.users->appearance, peer[0]),
+                            global && global->bot, {text, sizeof(text)}, &status))
+        return plain;
+    *glyph = status.glyph;
+    u32 used = 0;
+    const auto put = [&](Utf8View value) noexcept {
+        const u32 bytes = utf8_truncated_length(value, static_cast<u32>(storage.count) - used);
+        copy_bytes(storage.data + used, value.data, bytes);
+        used += bytes;
+    };
+    if (status.emoji.bytes) {
+        put(status.emoji);
+        if (status.text.bytes) put(utf8_literal(" "));
+    }
+    put(status.text);
+    if (count > 1 && status.text.data == text && !(global && global->bot)) {
+        char digits[24] = {' ', '+'};
+        put({digits, 2 + decimal_write(digits + 2, count - 1)});
+    }
+    return {storage.data, used};
+}
+} // namespace
 bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
                                 Slice<char> storage, UiPrivateHeaderActivity* output) noexcept {
     *output = {};
@@ -252,7 +297,7 @@ bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& 
     const auto* channel = source.state ? chat_state_store_find_channel(*source.state, channel_id) : nullptr;
     if (!title || !label || !channel || channel->type != 1 || !source.measure || scene.view != UiShellView::private_channels)
         return false;
-    output->line = ui_private_peer_activity(source, channel_id, storage, &output->glyph);
+    output->line = header_line(source, channel_id, storage, &output->glyph);
     if (!output->line.bytes) return false;
     // The name as the header shows it (shell_text_presentation): after the avatar, one line.
     char name_storage[512];

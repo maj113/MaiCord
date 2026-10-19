@@ -9,6 +9,7 @@
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"
+#include "../render/d3d11_renderer_interaction_state.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -541,8 +542,37 @@ void run() noexcept {
         check(delayed, "tooltip Profile: a badge shows its description after 300 ms");
         check(above, "tooltip Profile: the badge tooltip sits above the badge, centred");
         check(next && across, "tooltip Profile: moving to the next badge shows its tooltip at once");
+        // Each profile surface draws its badge tooltips (the renderer's gate).
+        const auto badge_drawn = [&](const char* label) noexcept {
+            application_tooltip_clear();
+            const UiLayoutNode* badge = nullptr;
+            for (u32 i = 0; i < card.part_count && !badge; ++i)
+                if (card.parts[i].media == ProfileMediaKind::badge)
+                    badge = ui_widget_manager_layout_node(card.widgets, card.parts[i].widget);
+            bool drawn = false;
+            if (badge) {
+                move((badge->rectangle.left + badge->rectangle.right) * .5f,
+                     (badge->rectangle.top + badge->rectangle.bottom) * .5f);
+                const u64 at = application_tooltip_next_wake();
+                drawn = (!at || application_tooltip_synchronize(at)) &&
+                        shows(utf8_literal("Subscriber since Jan 1, 2020")) &&
+                        d3d11_renderer_tooltip_visible(g_app.renderer);
+            }
+            check(drawn, label);
+        };
+        badge_drawn("tooltip Profile: the popout draws its badge tooltip");
+        card.presentation = ProfilePresentation::modal;
+        profile_scene_layout(&card, viewport, true);
+        badge_drawn("tooltip Profile: the full profile draws its badge tooltip");
         application_tooltip_clear();
         g_app.renderer.profile_scene = nullptr;
+        card.presentation = ProfilePresentation::panel;
+        card.anchor = {684, 48, 1000, 700};
+        profile_scene_layout(&card, viewport, true);
+        g_app.renderer.dm_profile_panel = &card;
+        badge_drawn("tooltip Profile: the DM panel draws its badge tooltip");
+        application_tooltip_clear();
+        g_app.renderer.dm_profile_panel = nullptr;
         profile_scene_release(&card);
     }
     ui_scene_release(&g_app.shell_scene);
