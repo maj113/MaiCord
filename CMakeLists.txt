@@ -1,33 +1,18 @@
 cmake_minimum_required(VERSION 3.28)
 
-# Reject source-contained caches before compiler discovery creates output.
-# Resolve links and compare case-insensitively on the Windows build host.
-function(maicord_require_external_path candidate description)
-    file(REAL_PATH "${CMAKE_SOURCE_DIR}" source_root)
-    file(REAL_PATH "${candidate}" output_root BASE_DIRECTORY "${CMAKE_BINARY_DIR}")
-    if(CMAKE_HOST_WIN32)
-        string(TOLOWER "${source_root}" source_root)
-        string(TOLOWER "${output_root}" output_root)
-    endif()
-    cmake_path(IS_PREFIX source_root "${output_root}" NORMALIZE inside_source)
-    if(inside_source)
-        message(FATAL_ERROR "${description} must be outside the MaiCord source tree. Use the sibling MaiCord-build directory.")
-    endif()
-endfunction()
-maicord_require_external_path("${CMAKE_BINARY_DIR}" "Build directory")
-
+# One Release configuration in the sibling MaiCord-build/Release directory,
+# checked before compiler discovery writes anything.
 file(REAL_PATH "${CMAKE_SOURCE_DIR}/../MaiCord-build/Release" maicord_release_directory)
 file(REAL_PATH "${CMAKE_BINARY_DIR}" maicord_binary_directory)
-string(TOLOWER "${maicord_release_directory}" maicord_release_directory_compare)
-string(TOLOWER "${maicord_binary_directory}" maicord_binary_directory_compare)
-if(NOT maicord_release_directory_compare STREQUAL maicord_binary_directory_compare)
+string(TOLOWER "${maicord_release_directory}" maicord_release_directory)
+string(TOLOWER "${maicord_binary_directory}" maicord_binary_directory)
+if(NOT maicord_release_directory STREQUAL maicord_binary_directory)
     message(FATAL_ERROR "Use the single MaiCord-build/Release build directory.")
 endif()
 if(CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     message(FATAL_ERROR "MaiCord uses one Release configuration.")
 endif()
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
-set(CMAKE_CONFIGURATION_TYPES Release CACHE STRING "Build configurations" FORCE)
 
 project(MaiCord VERSION 0.3.3 LANGUAGES C CXX RC ASM_MASM)
 

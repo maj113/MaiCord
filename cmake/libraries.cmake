@@ -278,18 +278,18 @@ maicord_library(maicord_font
     src/text/colr_variations.cpp src/text/font_axes.cpp
     LIBS maicord_core maicord_unicode ntdll)
 # Compact the shared Indic ordering routine; keep /O2, /Ob1 and LTCG.
-set_property(SOURCE src/text/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Release>:/Os>")
+set_property(SOURCE src/text/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS /Os)
 
 maicord_library(maicord_text
     src/ui/text.cpp src/ui/native_text_candidate.cpp src/ui/native_text_catalog.cpp src/core/log.cpp
     LIBS maicord_core maicord_font maicord_ui advapi32 gdi32)
 # Keep the native layout adapter compact while retaining optimization and LTCG,
 # and compact only the explicitly scoped cold catalog discovery/publication.
-set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Release>:/Os>")
+set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY COMPILE_OPTIONS /Os)
 set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY
-    COMPILE_DEFINITIONS "$<$<CONFIG:Release>:MAICORD_COMPACT_TEXT_ADAPTER=1>")
+    COMPILE_DEFINITIONS MAICORD_COMPACT_TEXT_ADAPTER=1)
 set_property(SOURCE src/ui/native_text_catalog.cpp APPEND PROPERTY
-    COMPILE_DEFINITIONS "$<$<CONFIG:Release>:MAICORD_COMPACT_CATALOG_SETUP=1>")
+    COMPILE_DEFINITIONS MAICORD_COMPACT_CATALOG_SETUP=1)
 
 maicord_library(maicord_render_core
     src/render/animation_frame_cache.cpp src/render/glyph_atlas.cpp src/render/glyph_quad_bounds.cpp

@@ -1,6 +1,5 @@
 # Temporary deterministic tests. tools/build.ps1 -Test configures them in the
-# Release cache, builds and runs the suite, removes every test output and
-# configures the cache back to shipping-only.
+# Release cache, builds and runs the suite and removes every test output.
 set(MAICORD_TEST_TIMEOUT_SCALE 1 CACHE STRING "Multiplier applied to every per-test timeout (hosted CI runners)")
 option(MAICORD_BUILD_TESTS "Enable temporary deterministic test targets" OFF)
 set(MAICORD_TEST_PROFILE_NAMES "" CACHE STRING "Selected tests needing isolated profile directories; empty means all tests")
@@ -27,7 +26,7 @@ if(MAICORD_BUILD_TESTS AND MAICORD_TEST_PROFILE_DIRECTORY)
     endif()
 endif()
 if(NOT MAICORD_BUILD_TESTS)
-    file(REMOVE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "${CMAKE_BINARY_DIR}/maicord-test-shards.txt"
+    file(REMOVE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "${CMAKE_BINARY_DIR}/maicord-tests.txt"
                 "${CMAKE_BINARY_DIR}/CTestTestfile.cmake")
     unset(MAICORD_TEST_PROFILE_DIRECTORY CACHE)
     unset(MAICORD_TEST_PROFILE_NAMES CACHE)
@@ -51,11 +50,11 @@ maicord_share_test_objects(maicord_test_targets)
 set_property(TARGET ${maicord_test_targets} PROPERTY EXCLUDE_FROM_ALL TRUE)
 list(JOIN maicord_test_targets "\n" maicord_test_target_manifest)
 file(WRITE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "${maicord_test_target_manifest}\n")
-maicord_write_test_shards("${CMAKE_BINARY_DIR}/maicord-test-shards.txt" ${maicord_test_targets})
 
 # Per-test environment: no Python bytecode in the source tree and, for the
 # selected tests (all by default), the private profile directories.
 get_property(maicord_registered_tests DIRECTORY PROPERTY TESTS)
+maicord_write_test_manifest("${CMAKE_BINARY_DIR}/maicord-tests.txt" ${maicord_registered_tests})
 set(maicord_test_profile_index 0)
 foreach(maicord_registered_test IN LISTS maicord_registered_tests)
     set_property(TEST ${maicord_registered_test} APPEND PROPERTY

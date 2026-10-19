@@ -1402,8 +1402,8 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 20 LABELS native-text-long
     TEST maicord_native_long_text --long-text-check
     TEST maicord_native_long_editor --long-editor-check)
 foreach(sample RANGE 0 5)
-    add_test(NAME maicord_native_editor_capacity_${sample} COMMAND MaiCordNativeAppLineTests --retained-editor-check ${sample})
-    set_tests_properties(maicord_native_editor_capacity_${sample} PROPERTIES LABELS "native-text-editor-capacity" TIMEOUT 2)
+    maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 2 LABELS native-text-editor-capacity
+        TEST maicord_native_editor_capacity_${sample} --retained-editor-check ${sample})
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_standard_scripts --standard-script-profile --family "Segoe UI" 400)
@@ -1524,8 +1524,8 @@ maicord_add_tests(MaiCordNativeAppLineTests
 maicord_add_tests(MaiCordNativeAppLineTests ENVIRONMENT MAICORD_CJK_SAMPLE=14
     TEST maicord_native_cjk_supplementary --cjk-paragraph-profile --family "Segoe UI" 400)
 foreach(mode paragraph editor)
-    add_test(NAME maicord_native_light_fallback_${mode} COMMAND MaiCordNativeAppLineTests --cjk-${mode}-profile --family "Microsoft JhengHei UI" 400)
-    set_tests_properties(maicord_native_light_fallback_${mode} PROPERTIES ENVIRONMENT "MAICORD_CJK_SAMPLE=16")
+    maicord_add_tests(MaiCordNativeAppLineTests ENVIRONMENT MAICORD_CJK_SAMPLE=16
+        TEST maicord_native_light_fallback_${mode} --cjk-${mode}-profile --family "Microsoft JhengHei UI" 400)
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_height_overflow --height-overflow-profile --family "Segoe UI" 400
@@ -1538,12 +1538,10 @@ maicord_add_tests(MaiCordNativeAppLineTests
 set(maicord_matrix_profile_index 0)
 foreach(maicord_matrix_profile IN ITEMS ellipsis_hits multiline_hits
         multiline_private_hits styled decorations)
-    add_test(NAME maicord_native_matrix_${maicord_matrix_profile}
-        COMMAND MaiCordNativeAppLineTests --matrix-profile ${maicord_matrix_profile_index}
+    maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 20 COST 40 ENVIRONMENT LOCALAPPDATA=
+        LABELS native-text-hits native-text-styled native-text-decorations native-text-quick
+        TEST maicord_native_matrix_${maicord_matrix_profile} --matrix-profile ${maicord_matrix_profile_index}
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
-    set_tests_properties(maicord_native_matrix_${maicord_matrix_profile} PROPERTIES
-        LABELS "native-text-hits;native-text-styled;native-text-decorations;native-text-quick"
-        TIMEOUT 20 COST 40 ENVIRONMENT "LOCALAPPDATA=")
     math(EXPR maicord_matrix_profile_index "${maicord_matrix_profile_index} + 1")
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests

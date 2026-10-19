@@ -4,15 +4,7 @@
 # that consume an output list it as a source (see libraries.cmake).
 
 find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
-find_program(MAICORD_FXC_EXECUTABLE NAMES fxc.exe fxc
-    HINTS
-        "$ENV{WindowsSdkVerBinPath}/x64"
-        "$ENV{WindowsSdkBinPath}/x64"
-        "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/bin/${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}/x64"
-        "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots;KitsRoot10]/bin/${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}/x64")
-if(NOT MAICORD_FXC_EXECUTABLE)
-    message(FATAL_ERROR "The Windows SDK fxc.exe shader compiler was not found.")
-endif()
+find_program(MAICORD_FXC_EXECUTABLE fxc HINTS "$ENV{WindowsSdkVerBinPath}/x64" REQUIRED)
 set(MAICORD_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${MAICORD_GENERATED_DIRECTORY}")
 
@@ -43,7 +35,7 @@ add_custom_target(maicord_emoji_catalog_data
     DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
 
 # The icon manifest (its order defines UiIcon) and its vendored SVG sources.
-file(GLOB MAICORD_ICON_SOURCES CONFIGURE_DEPENDS
+file(GLOB MAICORD_ICON_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons/*.svg"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original/*.svg")
 set(MAICORD_ICON_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack.inc")
@@ -61,7 +53,7 @@ add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
 
 # Regional-flag SVGs ship deflate-compressed in groups; the generator packs
 # the committed Twemoji sources and the account DLL inflates a group on demand.
-file(GLOB MAICORD_REGIONAL_FLAG_SOURCES CONFIGURE_DEPENDS
+file(GLOB MAICORD_REGIONAL_FLAG_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
 set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")
 add_custom_command(

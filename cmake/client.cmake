@@ -24,9 +24,6 @@ target_link_options(MaiCordAccount PRIVATE
     /EXPORT:maicord_account_get_api,@135,NONAME
     /SUBSYSTEM:WINDOWS,6.02
     /MANIFEST:NO)
-if(MAICORD_GENERATE_LINK_MAPS)
-    target_link_options(MaiCordAccount PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordAccount.map")
-endif()
 
 add_executable(MaiCord WIN32
     src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
@@ -136,9 +133,6 @@ set_target_properties(MaiCord PROPERTIES
 target_link_options(MaiCord PRIVATE
     /ENTRY:maicord_entry
     /SUBSYSTEM:WINDOWS,6.02)
-if(MAICORD_GENERATE_LINK_MAPS)
-    target_link_options(MaiCord PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCord.map")
-endif()
 # Startup: DLLs the device prestart does not need map on first use instead of
 # before the entry point, which the prestart waits for. The renderer maps
 # dcomp, shell32, ole32 and advapi32 (which GPU drivers import) on the main
@@ -307,11 +301,11 @@ function(maicord_compact_sources)
     foreach(file IN LISTS files)
         get_source_file_property(options "${file}" COMPILE_OPTIONS)
         if(NOT options MATCHES "/Os")
-            set_property(SOURCE "${file}" APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Release>:/Os>")
+            set_property(SOURCE "${file}" APPEND PROPERTY COMPILE_OPTIONS /Os)
         endif()
     endforeach()
 endfunction()
-file(GLOB MAICORD_COLD_APPLICATION_SOURCES CONFIGURE_DEPENDS
+file(GLOB MAICORD_COLD_APPLICATION_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/update_*.cpp")
 maicord_compact_sources(
@@ -528,7 +522,7 @@ function(maicord_precompile_application_sources target)
         # The Os stub carries /Os first, the position of the cold sources' own option.
         set(options "/Yc${header}" "/Fp${pch}")
         if(mode STREQUAL "Os")
-            list(PREPEND options "$<$<CONFIG:Release>:/Os>")
+            list(PREPEND options /Os)
         endif()
         set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
         # The PCH object holds the header's code; every image using the PCH links it.
