@@ -39,8 +39,12 @@ namespace maicord {
 // CHANNEL_INFO and the voice channel start time and status updates; guild
 // sticker events carry the sticker array from READY, GUILD_CREATE and
 // GUILD_STICKERS_UPDATE.
-inline constexpr u32 kAccountModuleApiVersion = 134;
-inline constexpr u16 kAccountModuleApiOrdinal = 134;
+// v135: GatewayMessagePollVoteEvent carries batched; MESSAGE_POLL_VOTE_ADD_MANY
+// arrives as batched message_poll_vote_add descriptors sharing one sequence.
+// GatewayClientThreadListSync takes a flags byte from reserved (members known).
+// Unknown-kind dispatch_route markers carry the event name.
+inline constexpr u32 kAccountModuleApiVersion = 135;
+inline constexpr u16 kAccountModuleApiOrdinal = 135;
 
 static_assert(kAccountModuleApiOrdinal == kAccountModuleApiVersion);
 

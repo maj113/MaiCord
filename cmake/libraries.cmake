@@ -114,6 +114,7 @@ maicord_library(maicord_notification_sound_assets src/app/notification_sound_ass
 
 maicord_library(maicord_account_paths
     src/app/account_paths.cpp src/app/account_inventory.cpp src/app/account_switch.cpp
+    src/app/account_reconnect.cpp
     LIBS maicord_core kernel32)
 maicord_library(maicord_account_host src/app/account_logout_stop.cpp src/app/account_host.cpp LIBS kernel32)
 

@@ -1224,6 +1224,46 @@ GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
     return result;
 }
 
+GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
+    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth, u64 now_ms,
+    bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
+    GatewayReactionBatchCursor* cursor) noexcept {
+    if (!publish || envelope.opcode != 0 || !envelope.has_sequence || !envelope.has_event_name ||
+        !json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY")))
+        return {{0, GatewayEventDecodeError::invalid_data}, 0, false};
+    struct Binding {
+        const GatewayEnvelope* envelope;
+        u64 now_ms;
+        bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
+        void* context;
+        u32 remaining_prefix;
+    } binding{&envelope, now_ms, publish, context,
+              cursor && cursor->active && cursor->sequence == envelope.sequence ? cursor->published : 0};
+    auto result = gateway_visit_message_poll_vote_add_many(
+        envelope.data, structural_scratch, maximum_depth, &binding,
+        [](void* opaque, const GatewayMessagePollVoteEvent& vote) noexcept {
+            auto& binding = *static_cast<Binding*>(opaque);
+            if (binding.remaining_prefix) {
+                --binding.remaining_prefix;
+                return true;
+            }
+            GatewayClientEvent event = gateway_dispatch_event(GatewayClientDispatchKind::message_poll_vote_add,
+                                                              binding.envelope->sequence, binding.now_ms);
+            event.has_sequence = binding.envelope->has_sequence;
+            event.poll_vote = vote;
+            return binding.publish(binding.context, event, {});
+        });
+    if (result.ok() && binding.remaining_prefix)
+        result.decoded.error = GatewayEventDecodeError::invalid_data;
+    if (cursor) {
+        if (result.ok())
+            *cursor = {};
+        else if (result.cancelled)
+            *cursor = {envelope.sequence, result.visited, result.visited != 0};
+    }
+    return result;
+}
+
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientEvent* event,
@@ -1587,6 +1627,47 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     gateway_client_append_notification_sidecar(envelope, structural_scratch, content_scratch,
                                                self_user_id, event, payload);
     return route_error(GatewayClientDispatchRouteError::none);
+}
+
+void gateway_client_route_failure_event(const GatewayEnvelope& envelope,
+                                        const GatewayClientDispatchRouteResult& routed, u64 now_ms,
+                                        GatewayClientEvent* event) noexcept {
+    if (!event)
+        return;
+    const auto named = [&](Utf8View name) noexcept {
+        return json_string_equals_ascii(envelope.event_name, name);
+    };
+    event->kind = GatewayClientEventKind::dispatch;
+    event->sequence = envelope.sequence;
+    event->has_sequence = envelope.has_sequence;
+    event->timestamp_ms = now_ms;
+    event->failure_stage = GatewayClientFailureStage::dispatch_route;
+    event->event_decode_error = routed.event_error;
+    event->json_scan_error = routed.scan_error;
+    event->json_read_error = routed.read_error;
+    event->route_error_offset = routed.error_offset;
+    event->route_detail = routed.detail;
+    const bool message_event = named(utf8_literal("MESSAGE_CREATE")) || named(utf8_literal("MESSAGE_UPDATE")) ||
+                               named(utf8_literal("MESSAGE_DELETE")) || named(utf8_literal("MESSAGE_DELETE_BULK"));
+    const bool reaction_event =
+        named(utf8_literal("MESSAGE_REACTION_ADD_MANY")) || named(utf8_literal("MESSAGE_REACTION_ADD")) ||
+        named(utf8_literal("MESSAGE_REACTION_REMOVE")) || named(utf8_literal("MESSAGE_REACTION_REMOVE_ALL")) ||
+        named(utf8_literal("MESSAGE_REACTION_REMOVE_EMOJI")) || named(utf8_literal("MESSAGE_POLL_VOTE_ADD")) ||
+        named(utf8_literal("MESSAGE_POLL_VOTE_REMOVE")) || named(utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY"));
+    const bool private_event = named(utf8_literal("READY_SUPPLEMENTAL")) ||
+                               named(utf8_literal("CHANNEL_RECIPIENT_ADD")) ||
+                               named(utf8_literal("CHANNEL_RECIPIENT_REMOVE"));
+    const bool relationship_event = named(utf8_literal("RELATIONSHIP_ADD")) ||
+                                    named(utf8_literal("RELATIONSHIP_UPDATE")) ||
+                                    named(utf8_literal("RELATIONSHIP_REMOVE"));
+    event->dispatch_kind = relationship_event ? GatewayClientDispatchKind::relationship_state_incomplete
+                           : private_event    ? GatewayClientDispatchKind::private_state_incomplete
+                           : message_event || reaction_event ? GatewayClientDispatchKind::message_catchup_required
+                                                             : GatewayClientDispatchKind::unknown;
+    event->event_name_bytes = 0;
+    // The other kinds use the union; only the unknown marker has room for a name.
+    if (event->dispatch_kind == GatewayClientDispatchKind::unknown)
+        copy_event_name(envelope.event_name, event);
 }
 
 namespace {

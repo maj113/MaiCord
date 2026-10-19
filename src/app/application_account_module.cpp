@@ -617,6 +617,19 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
             log_u64(LogLevel::warning, "gateway", "dispatch_payload_bytes", event.dispatch_payload_bytes);
             log_u64(LogLevel::warning, "gateway", "dispatch_sequence", event.sequence);
             log_u64(LogLevel::warning, "gateway", "dispatch_event_name_bytes", event.event_name_bytes);
+            if (event.dispatch_kind == GatewayClientDispatchKind::unknown && event.event_name_bytes &&
+                event.event_name_bytes < kGatewayClientEventNameCapacity) {
+                // Protocol event names only ([A-Z0-9_]); anything else is dropped, never echoed.
+                char line[24 + kGatewayClientEventNameCapacity] = "dispatch_event_name=";
+                u32 used = sizeof("dispatch_event_name=") - 1;
+                for (u32 i = 0; i < event.event_name_bytes; ++i) {
+                    const char c = event.event_name[i];
+                    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
+                        line[used++] = c;
+                }
+                line[used] = 0;
+                log_write(LogLevel::warning, "gateway", line);
+            }
             log_u64(LogLevel::warning, "gateway", "dispatch_route_detail", event.route_detail);
             if (event.failure_stage == GatewayClientFailureStage::ready_guild_route)
                 log_u64(LogLevel::warning, "gateway", "ready_guilds_unavailable", event.native_error);
@@ -937,6 +950,29 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
     }
 }
 } // namespace
+
+bool application_account_restart() noexcept {
+    AccountHost& host = g_app.account;
+    if (!g_app.account_ui || g_app.login.visible || host.instance || host.login_instance || host.stop_failed ||
+        application_account_logout_blocked())
+        return false;
+    AccountPaths paths{};
+    if (!account_paths_resolve(&paths).ok() || (!host.module && !application_account_module_load()))
+        return false;
+    application_plugins_account_scope_invalidated();
+    const AccountModuleStartResult started = start_account_worker(paths);
+    if (!started.ok())
+        return false;
+    // The cached shell stays up and usable; READY (or RESUMED) replaces its state.
+    application_log_account_observations(started.status, account_host_observe(&host, started.status));
+    AccountUiRuntime& ui = *g_app.account_ui;
+    if (!message_draft_session_configure(ui.message_draft_session, ui.message_drafts, paths.drafts,
+                                         started.status.profile_id, clock_monotonic_milliseconds()))
+        log_write(LogLevel::warning, "draft", "persistence_configuration_failed");
+    application_channel_memory_start(started.status.profile_id);
+    log_write(LogLevel::info, "account", "session_restarted");
+    return true;
+}
 
 bool application_account_prestart() noexcept {
     // Selects the saved account's slot before any account path resolves.

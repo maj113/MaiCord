@@ -12,6 +12,8 @@ namespace maicord::app_detail {
 void application_account_switch_initialize() noexcept;
 // The account menu offers Switch accounts (a running, idle account).
 bool application_account_switch_available() noexcept;
+// A switch owns the host (stopping, attaching or showing its sign-in).
+bool application_account_switch_busy() noexcept;
 // Builds a panel of the account menu popup.
 bool application_account_switch_panel(UiAccountSwitcherModel* model, u64 owner_id,
                                       UiAccountSwitcherPanel panel) noexcept;

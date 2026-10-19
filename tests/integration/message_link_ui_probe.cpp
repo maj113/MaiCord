@@ -873,6 +873,9 @@ bool application_stop_account() noexcept {
     g_app.account.status.running = false;
     return true;
 }
+void application_account_stop_recoverable(const char*) noexcept {
+    application_stop_account();
+}
 float client_dip_x(LPARAM p) noexcept {
     return static_cast<short>(LOWORD(p)) * 96.f / g_app.renderer.dpi;
 }

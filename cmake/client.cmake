@@ -21,7 +21,7 @@ set_target_properties(MaiCordAccount PROPERTIES
 # DLL ignores, and would cost the image a .rsrc section.
 target_link_options(MaiCordAccount PRIVATE
     /ENTRY:maicord_account_module_entry
-    /EXPORT:maicord_account_get_api,@134,NONAME
+    /EXPORT:maicord_account_get_api,@135,NONAME
     /SUBSYSTEM:WINDOWS,6.02
     /MANIFEST:NO)
 if(MAICORD_GENERATE_LINK_MAPS)
@@ -44,6 +44,7 @@ add_executable(MaiCord WIN32
     src/app/application_keyboard_focus.cpp src/app/application_account_module.cpp
     src/app/account_module_decoders.cpp src/app/account_module_cdn_urls.cpp src/app/application_account_logout.cpp
     src/app/application_account_pump.cpp src/app/application_account_presentation.cpp
+    src/app/application_account_reconnect.cpp
     src/app/application_thread_starter.cpp src/app/application_channel_session.cpp
     src/app/application_channel_snapshots.cpp src/app/application_commands.cpp src/app/application_composer.cpp
     src/app/application_message_feedback.cpp src/app/application_reply_draft.cpp

@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
 #include "gateway_decode.hpp"
@@ -334,6 +335,91 @@ bool vote_member(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return nonzero_u32(value, &context.value.answer_id);
 }
+
+struct VoteBatchRoot {
+    Vote header;
+    JsonValue votes;
+    bool votes_seen;
+};
+bool vote_batch_root(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& root = *static_cast<VoteBatchRoot*>(opaque);
+    if (json_string_equals_ascii(name, utf8_literal("votes"))) {
+        if (root.votes_seen || value.kind != JsonValueKind::array) {
+            root.header.error = root.votes_seen ? GatewayEventDecodeError::duplicate_field
+                                                : GatewayEventDecodeError::invalid_data;
+            return false;
+        }
+        root.votes_seen = true;
+        root.votes = value;
+        return true;
+    }
+    // Per-vote fields belong to the entries.
+    if (json_string_equals_ascii(name, utf8_literal("user_id")) ||
+        json_string_equals_ascii(name, utf8_literal("answer_id")))
+        return true;
+    return vote_member(&root.header, name, value);
+}
+struct VoteBatchGroup {
+    JsonValue users;
+    u32 answer_id, seen;
+    GatewayEventDecodeError error;
+};
+bool vote_batch_group(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& group = *static_cast<VoteBatchGroup*>(opaque);
+    if (json_string_equals_ascii(name, utf8_literal("answer_id")))
+        return accept_member(&group.seen, 1u, nonzero_u32(value, &group.answer_id), &group.error);
+    if (json_string_equals_ascii(name, utf8_literal("users"))) {
+        if (!accept_member(&group.seen, 2u, value.kind == JsonValueKind::array, &group.error))
+            return false;
+        group.users = value;
+    }
+    return true;
+}
+struct VoteBatchVisit {
+    JsonIndexedDocument document;
+    GatewayMessagePollVoteEvent event;
+    void* context;
+    bool (*visit)(void*, const GatewayMessagePollVoteEvent&) noexcept;
+    GatewayReactionBatchVisitResult result;
+    u32 depth;
+};
+bool vote_batch_read(VoteBatchVisit& batch, JsonReadResult read,
+                     GatewayEventDecodeError error = GatewayEventDecodeError::none) noexcept {
+    if (read.ok())
+        return true;
+    if (!batch.result.cancelled && batch.result.decoded.ok())
+        batch.result.decoded = read_failure(error, read);
+    return false;
+}
+bool vote_batch_user(void* opaque, u32, JsonValue value) noexcept {
+    auto& batch = *static_cast<VoteBatchVisit*>(opaque);
+    if (!canonical_snowflake(value, &batch.event.user_id)) {
+        batch.result.decoded = decode_failure(GatewayEventDecodeError::invalid_user, value.source_offset);
+        return false;
+    }
+    if (batch.visit) {
+        if (!batch.visit(batch.context, batch.event)) {
+            batch.result.cancelled = true;
+            return false;
+        }
+        ++batch.result.visited;
+    }
+    return true;
+}
+bool vote_batch_entry(void* opaque, u32, JsonValue value) noexcept {
+    auto& batch = *static_cast<VoteBatchVisit*>(opaque);
+    VoteBatchGroup group{};
+    if (!vote_batch_read(batch, json_visit_indexed_object(batch.document, value, batch.depth, vote_batch_group, &group),
+                         group.error))
+        return false;
+    if (group.seen != 3) {
+        batch.result.decoded = decode_failure(GatewayEventDecodeError::missing_required_field, value.source_offset);
+        return false;
+    }
+    batch.event.answer_id = group.answer_id;
+    return vote_batch_read(
+        batch, json_visit_indexed_array(batch.document, group.users, batch.depth, vote_batch_user, &batch));
+}
 } // namespace
 GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonIndexedDocument& document,
                                                      u32 maximum_depth, Slice<char> text_output,
@@ -448,5 +534,39 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
         return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     *output = context.value;
     return decode_failure(GatewayEventDecodeError::none);
+}
+GatewayReactionBatchVisitResult gateway_visit_message_poll_vote_add_many(
+    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, void* context,
+    bool (*visit)(void*, const GatewayMessagePollVoteEvent&) noexcept) noexcept {
+    if (!visit || data.kind != JsonValueKind::object || !data.source.data || !data.source.bytes ||
+        !maximum_depth || !structural_scratch.data || !structural_scratch.count ||
+        structural_scratch.count > ~u32{0} / sizeof(u32) ||
+        overlap(data.source.data, data.source.bytes, structural_scratch.data,
+                static_cast<u64>(structural_scratch.count) * sizeof(u32)))
+        return {decode_failure(GatewayEventDecodeError::invalid_input), 0, false};
+    const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
+    if (!scan.ok())
+        return {decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error), 0, false};
+    VoteBatchVisit batch{};
+    batch.document = {data.source, {structural_scratch.data, scan.count}};
+    batch.depth = maximum_depth;
+    VoteBatchRoot root{};
+    if (!vote_batch_read(batch, json_visit_indexed_object(batch.document, data, maximum_depth, vote_batch_root, &root),
+                         root.header.error))
+        return batch.result;
+    if ((root.header.fields & 3) != 3 || !root.votes_seen)
+        return {decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset), 0, false};
+    batch.event = root.header.value;
+    batch.event.add = true;
+    batch.event.batched = true;
+    // No callback observes a valid prefix of a malformed batch.
+    if (!vote_batch_read(batch, json_visit_indexed_array(batch.document, root.votes, maximum_depth,
+                                                         vote_batch_entry, &batch)))
+        return batch.result;
+    batch.context = context;
+    batch.visit = visit;
+    vote_batch_read(batch,
+                    json_visit_indexed_array(batch.document, root.votes, maximum_depth, vote_batch_entry, &batch));
+    return batch.result;
 }
 } // namespace maicord

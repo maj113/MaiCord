@@ -901,6 +901,12 @@ maicord_test(MaiCordDownloadsRuntimeTests ENTRY maicord_application_downloads_ru
     INCLUDES src/app
     TIMEOUT 15
     TEST maicord_downloads_runtime)
+# Account restart schedule: backoff with jitter, attempt cap, user stops, banner states and wakes.
+maicord_test(MaiCordAccountReconnectTests ENTRY maicord_account_reconnect_tests_entry
+    SOURCES tests/account_reconnect.cpp
+    LIBS maicord_account_paths maicord_core kernel32
+    TIMEOUT 5
+    TEST maicord_account_reconnect)
 # Toast queue: order, merge, overflow, timing by update and wake counts, placement and paint.
 maicord_test(MaiCordToastTests ENTRY maicord_toast_tests_entry
     SOURCES tests/toast.cpp

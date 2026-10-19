@@ -1062,6 +1062,19 @@ void thread_join_gateway() noexcept {
     constexpr u64 resynced[]{10, 21};
     check(joined_at(21) == kBase + 180 && joined_at(25) == 0 && w.listed(resynced),
           "thread joins: a sync without a thread's membership marks it unjoined");
+
+    // A guild subscription's sync omits `members` (Discord's own client treats it as optional).
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"THREAD_LIST_SYNC","d":{"guild_id":"7","threads":[)"
+              R"({"id":"21","parent_id":"10","type":11,"name":"a","thread_metadata":{"archived":false}},)"
+              R"({"id":"26","parent_id":"10","type":11,"name":"e","thread_metadata":{"archived":false}}],)"
+              R"("most_recent_messages":[]}})")),
+          "thread joins: THREAD_LIST_SYNC without members applies");
+    const auto* unknown = chat_state_store_find_channel(w.store, 26);
+    check(joined_at(21) == kBase + 180 && unknown && !unknown->thread_self_joined_known && w.listed(resynced),
+          "thread joins: a sync without members keeps known memberships and leaves new ones unknown");
+    check(!w.apply(utf8_literal(R"({"op":0,"t":"THREAD_LIST_SYNC","d":{"guild_id":"7","members":[]}})")),
+          "thread joins: THREAD_LIST_SYNC still requires threads");
 }
 
 void run() noexcept {

@@ -266,8 +266,91 @@ void reaction_batch_checks(void (*check)(bool, const char*) noexcept) noexcept {
           "reaction batch rejects scratch aliasing before overwriting its source");
 }
 } // namespace
+struct VoteBatchCapture {
+    GatewayMessagePollVoteEvent votes[8];
+    u32 calls, stop_after;
+    bool bridge_invalid;
+};
+bool vote_batch_sink(void* opaque, const GatewayMessagePollVoteEvent& vote) noexcept {
+    auto& capture = *static_cast<VoteBatchCapture*>(opaque);
+    const u32 index = capture.calls++;
+    if (capture.stop_after && index >= capture.stop_after)
+        return false;
+    if (index < 8)
+        capture.votes[index] = vote;
+    return true;
+}
+bool vote_batch_publish_sink(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    auto& capture = *static_cast<VoteBatchCapture*>(opaque);
+    GatewayMessagePollVoteEvent vote{};
+    const bool decoded = gateway_client_event_as_message_poll_vote(event, payload, &vote);
+    capture.bridge_invalid = capture.bridge_invalid || !decoded ||
+                             event.dispatch_kind != GatewayClientDispatchKind::message_poll_vote_add ||
+                             !event.has_sequence || event.sequence != 92 || event.timestamp_ms != 1234 ||
+                             !vote.batched || !vote.add;
+    return decoded && vote_batch_sink(opaque, vote);
+}
+// MESSAGE_POLL_VOTE_ADD_MANY: one batched vote add per user, atomic validation, resumable prefix.
+void poll_vote_batch_checks(void (*check)(bool, const char*) noexcept) noexcept {
+    VoteBatchCapture capture{};
+    const auto visit = [&](Utf8View body) noexcept {
+        return gateway_visit_message_poll_vote_add_many({body, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
+                                                        &capture, vote_batch_sink);
+    };
+    constexpr auto batch = utf8_literal(
+        R"({"channel_id":"7","message_id":"77","guild_id":"9","votes":[{"answer_id":1,"users":["11","12"]},{"answer_id":2,"users":["13"],"extra":true}]})");
+    const auto accepted = visit(batch);
+    check(accepted.ok() && accepted.visited == 3 && capture.calls == 3 && capture.votes[0].user_id == 11 &&
+              capture.votes[0].answer_id == 1 && capture.votes[1].user_id == 12 && capture.votes[1].answer_id == 1 &&
+              capture.votes[2].user_id == 13 && capture.votes[2].answer_id == 2 && capture.votes[2].channel_id == 7 &&
+              capture.votes[2].message_id == 77 && capture.votes[2].has_guild && capture.votes[2].guild_id == 9 &&
+              capture.votes[2].add && capture.votes[2].batched,
+          "poll vote batch visits one batched add per answer user in wire order");
+    capture = {};
+    check(visit(utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[]})")).ok() &&
+              visit(utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[{"answer_id":1,"users":[]}]})")).ok() &&
+              !capture.calls,
+          "poll vote batch empty arrays are validated no-ops");
+    const Utf8View malformed[]{
+        utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[{"answer_id":1,"users":["11"]},{"answer_id":0,"users":["12"]}]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[{"answer_id":1,"users":["11"]},{"answer_id":2,"users":["0"]}]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[{"answer_id":1,"users":["11"]},{"users":["12"]}]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[{"answer_id":1,"answer_id":2,"users":["11"]}]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77","votes":[],"votes":[]})"),
+        utf8_literal(R"({"channel_id":"7","votes":[{"answer_id":1,"users":["11"]}]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77"})")};
+    bool atomic = true;
+    for (const auto body : malformed) {
+        capture = {};
+        const auto rejected = visit(body);
+        atomic = atomic && !rejected.ok() && !rejected.cancelled && !capture.calls;
+    }
+    check(atomic, "poll vote batch rejects malformed or incomplete batches before any vote");
+    capture = {};
+    GatewayEnvelope envelope{};
+    envelope.data = {batch, 0, JsonValueKind::object};
+    envelope.event_name = {utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY"), 0, false};
+    envelope.sequence = 92;
+    envelope.has_sequence = true;
+    envelope.has_event_name = true;
+    capture.stop_after = 1;
+    GatewayReactionBatchCursor cursor{};
+    const auto cancelled = gateway_client_publish_poll_vote_batch(envelope, {f.structurals, 2048}, 32, 1234,
+                                                                  vote_batch_publish_sink, &capture, &cursor);
+    check(cancelled.cancelled && cancelled.visited == 1 && !capture.bridge_invalid && cursor.active &&
+              cursor.sequence == 92 && cursor.published == 1,
+          "poll vote batch bridge keeps the published prefix when the mailbox stops it");
+    capture = {};
+    const auto resumed = gateway_client_publish_poll_vote_batch(envelope, {f.structurals, 2048}, 32, 1234,
+                                                                vote_batch_publish_sink, &capture, &cursor);
+    check(resumed.ok() && resumed.visited == 3 && capture.calls == 2 && !capture.bridge_invalid &&
+              capture.votes[0].user_id == 12 && capture.votes[1].user_id == 13 && !cursor.active,
+          "poll vote batch bridge resumes with only the remaining votes as message_poll_vote_add descriptors");
+}
+
 void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexcept {
     reaction_batch_checks(check);
+    poll_vote_batch_checks(check);
     f.used = 0;
     check(decode(complete_poll, true).ok() && f.output.present && f.output.fields == 63 &&
               f.output.answers.count == 2 && f.output.answers[0].answer_id == 7 &&

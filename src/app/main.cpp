@@ -1,3 +1,4 @@
+#include "application_account_reconnect.hpp"
 #include "application_activity.hpp"
 #include "maicord/text/visibility.hpp"
 #include "application_message_feedback.hpp"
@@ -567,6 +568,8 @@ int application_run() noexcept {
             exit_code = 7;
             break;
         }
+        if (!logout_blocked)
+            application_account_reconnect_tick(restart_now_ms);
         const bool account_work =
             !logout_blocked && (account_signal || application_nonvisual_wake_due(restart_now_ms) ||
                                 application_notifications_gateway_pending(&g_app));
@@ -644,8 +647,7 @@ int application_run() noexcept {
             if ((!video_overlay_only && !background_only &&
                  !application_pump_visible_static_media(&repaint)) ||
                 !application_video_pump(&repaint)) {
-                log_write(LogLevel::error, "media", "static_media_pump_failed");
-                application_stop_account();
+                application_account_stop_recoverable("static_media_pump_failed");
             }
             application_received_attachment_pump();
             application_search_content_pump();

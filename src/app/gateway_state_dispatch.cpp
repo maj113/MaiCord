@@ -1823,7 +1823,8 @@ GatewayClientDispatchRouteResult route_thread_sync(const GatewayEnvelope& envelo
     if (!scan.ok() || !self) return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
     ThreadSyncRoot root{};
     const auto read = json_visit_value_object(envelope.data, {scratch.data, scan.count}, depth, thread_sync_field, &root);
-    if (!read.ok() || (root.seen & 13) != 13) return route_error(GatewayClientDispatchRouteError::decode,
+    // guild_id and threads are required; channel_ids and members are optional.
+    if (!read.ok() || (root.seen & 5) != 5) return route_error(GatewayClientDispatchRouteError::decode,
         root.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::missing_required_field : root.error);
     PayloadWriter writer{storage, 0};
     GatewayClientThreadListSync header{};
@@ -1836,13 +1837,16 @@ GatewayClientDispatchRouteResult route_thread_sync(const GatewayEnvelope& envelo
     const auto channels = append_channel_array(root.threads, scratch, {objects, 512}, depth, root.guild,
                                                &writer, &header.thread_count, &overwrite_count, self);
     if (!channels.ok()) return route_error(GatewayClientDispatchRouteError::decode, channels.error);
-    const auto member_scan = json_scan_structurals_avx1(root.members.source, scratch);
-    if (!member_scan.ok()) return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
-    ThreadSyncMembers members{&writer, {objects, 512}, self, depth, writer.used};
-    const auto member_read = json_visit_value_array(root.members, {scratch.data, member_scan.count}, depth, thread_sync_member, &members);
-    if (!member_read.ok()) return route_error(GatewayClientDispatchRouteError::decode,
-        members.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::invalid_json : members.error);
-    header.member_count = members.count;
+    if (root.seen & 8) {
+        const auto member_scan = json_scan_structurals_avx1(root.members.source, scratch);
+        if (!member_scan.ok()) return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
+        ThreadSyncMembers members{&writer, {objects, 512}, self, depth, writer.used};
+        const auto member_read = json_visit_value_array(root.members, {scratch.data, member_scan.count}, depth, thread_sync_member, &members);
+        if (!member_read.ok()) return route_error(GatewayClientDispatchRouteError::decode,
+            members.error == GatewayEventDecodeError::none ? GatewayEventDecodeError::invalid_json : members.error);
+        header.member_count = members.count;
+        header.flags = gateway_client_thread_sync_members_known;
+    }
     event->dispatch_kind = GatewayClientDispatchKind::thread_list_sync;
     event->thread_sync = header;
     event->dispatch_payload_bytes = writer.used;

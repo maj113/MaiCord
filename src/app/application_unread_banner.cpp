@@ -1,6 +1,7 @@
 #include "application_private_channel.hpp"
 #include "application_content_point.hpp"
 #include "application_unread_banner.hpp"
+#include "application_account_reconnect.hpp"
 #include "application_cursor.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
@@ -25,6 +26,8 @@ namespace maicord::app_detail {
 namespace {
 UiUnreadBannerScene g_banner{};
 bool g_pressed_inside{};
+// The card shows the account's connection notice, which outranks the conversation's.
+bool g_connection_notice{};
 
 bool motion_allowed() noexcept {
     return !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion && !g_app.renderer.live_resize &&
@@ -156,6 +159,10 @@ u64 viewing_guild(u64 channel_id) noexcept {
 }
 bool perform(UiUnreadBannerAction action) noexcept {
     const u64 channel = g_banner.view.channel_id;
+    if (g_connection_notice && action == UiUnreadBannerAction::notice_primary)
+        return application_account_reconnect_now();
+    if (g_connection_notice && action == UiUnreadBannerAction::notice_secondary)
+        return false;
     application_read_state_activity();
     // View as role: back to Roles, or exit.
     if (const u64 guild = action == UiUnreadBannerAction::notice_primary ||
@@ -193,8 +200,13 @@ bool application_unread_banner_synchronize(u64 now_ms) noexcept {
     const bool presented = input(&in);
     if (presented)
         projection = unread_banner_project(in);
-    char view_title[kUiBannerNoticeTitleBytes];
-    UiBannerNotice notice = presented ? conversation_notice(in.channel_id) : UiBannerNotice{};
+    char view_title[kUiBannerNoticeTitleBytes], connection_text[kUiBannerNoticeTextBytes];
+    UiBannerNotice notice =
+        presented ? application_account_connection_notice({connection_text, sizeof(connection_text)})
+                  : UiBannerNotice{};
+    g_connection_notice = notice.id != 0;
+    if (presented && !notice.id)
+        notice = conversation_notice(in.channel_id);
     if (presented && !notice.id)
         notice = application_view_as_role_notice(in.channel_id, {view_title, sizeof(view_title)});
     if (notice.id && !projection.view.channel_id)
@@ -298,7 +310,7 @@ void application_unread_banner_release() noexcept {
     if (g_app.renderer.unread_banner_scene == &g_banner)
         g_app.renderer.unread_banner_scene = nullptr;
     ui_unread_banner_clear(&g_banner);
-    g_pressed_inside = false;
+    g_pressed_inside = g_connection_notice = false;
 }
 
 } // namespace maicord::app_detail

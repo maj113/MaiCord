@@ -11,6 +11,7 @@
 
 #include "application_account_module.hpp"
 #include "application_account_logout.hpp"
+#include "application_account_reconnect.hpp"
 #include "application_voice.hpp"
 #include "application_account_presentation.hpp"
 #include "application_account_pump.hpp"
@@ -177,7 +178,7 @@ struct BrowserGatewayDrain {
     u64 poll_sequence;
     u64 poll_ready_self;
     u8 source_index;
-    bool poll_has_sequence, poll_checked, poll_current;
+    bool poll_has_sequence, poll_checked, poll_current, poll_batched;
     bool pending, force, all, forum_metadata, navigation_message_receipt;
 };
 BrowserGatewayDrain* navigation_gateway_drain;
@@ -198,8 +199,10 @@ bool accept_poll_receipt() noexcept {
     auto& ui = *g_app.account_ui;
     const u8 bit = static_cast<u8>(1u << drain->source_index);
     if (drain->poll_has_sequence) {
+        // Votes expanded from one MESSAGE_POLL_VOTE_ADD_MANY share its sequence.
+        const u64 last = ui.poll_source_sequences[drain->source_index];
         if ((ui.poll_source_sequence_mask & bit) &&
-            drain->poll_sequence <= ui.poll_source_sequences[drain->source_index])
+            (drain->poll_sequence < last || (drain->poll_sequence == last && !drain->poll_batched)))
             return false;
         ui.poll_source_sequences[drain->source_index] = drain->poll_sequence;
         ui.poll_source_sequence_mask |= bit;
@@ -272,6 +275,9 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
         return popped;
     drain.poll_sequence = event->sequence;
     drain.poll_has_sequence = event->has_sequence;
+    drain.poll_batched = event->kind == GatewayClientEventKind::dispatch &&
+                         event->dispatch_kind == GatewayClientDispatchKind::message_poll_vote_add &&
+                         event->poll_vote.batched;
     drain.poll_checked = drain.poll_current = false;
     drain.pending_scope = {};
     drain.pending_thread = 0;
@@ -317,6 +323,7 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
             application_channel_snapshots_reset();
         }
     }
+    application_account_connection_observe(event->kind);
     if (event->kind == GatewayClientEventKind::ready ||
         event->kind == GatewayClientEventKind::reconnecting ||
         event->kind == GatewayClientEventKind::closed || event->kind == GatewayClientEventKind::failed ||
@@ -753,9 +760,7 @@ bool application_pump_account() noexcept {
             static_cast<u8>(UserAccountCoordinatorError::authentication_rejected));
     }
     if (!drain_account_events()) {
-        // The shell stays up on cached state after this stop; never silent.
-        log_write(LogLevel::error, "account", g_drain_failure);
-        application_stop_account();
+        application_account_stop_recoverable(g_drain_failure);
         return false;
     }
     application_scoped_read_synchronize();

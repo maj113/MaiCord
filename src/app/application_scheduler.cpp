@@ -1,3 +1,4 @@
+#include "application_account_reconnect.hpp"
 #include "application_activity.hpp"
 #include "application_channel_memory.hpp"
 #include "application_guild_banner.hpp"
@@ -127,6 +128,7 @@ u64 application_next_wake_at_ms() noexcept {
     add(application_notifications_next_wake(&g_app));
     add(application_voice_next_wake());
     add(application_presence_next_wake());
+    add(application_account_reconnect_next_wake());
     if (!application_thread_browser_read_blocked())
         add(media_url_next_wake(g_app.media_urls));
     if (g_app.account_ui) {

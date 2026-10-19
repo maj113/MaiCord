@@ -887,11 +887,15 @@ enum class GatewayClientThreadSyncScope : u8 {
 // THREAD_LIST_SYNC payload: parent ids, thread records, then one entry per
 // joined thread: its id (u64 LE) and join time in seconds (u32 LE).
 inline constexpr u32 kGatewayThreadSyncMemberBytes = 12;
+// Discord omits `members` (a subscription's sync); listed threads then keep
+// their known membership instead of reading as left.
+inline constexpr u8 gateway_client_thread_sync_members_known = 1;
 struct GatewayClientThreadListSync {
     u64 guild_id, self_user_id;
     u32 parent_count, thread_count, member_count;
     GatewayClientThreadSyncScope scope;
-    u8 reserved[3];
+    u8 flags;
+    u8 reserved[2];
 };
 
 struct GatewayClientMemberListUpdate {
@@ -1370,6 +1374,12 @@ inline GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     return gateway_client_route_dispatch(envelope, structural_scratch, maximum_depth, content_scratch,
                                          bulk_ids, 0, event, payload);
 }
+// The pointer-free marker queued in place of a dispatch its route rejected:
+// error metadata, the recovery kind its event family needs, and for the
+// remaining (unknown) kind the event name. Never payload contents.
+void gateway_client_route_failure_event(const GatewayEnvelope& envelope,
+                                        const GatewayClientDispatchRouteResult& routed, u64 now_ms,
+                                        GatewayClientEvent* event) noexcept;
 // Supplies `bytes` of committed storage for one oversized record, at a fixed
 // base address. It may wait for the consumer to release the previous one.
 struct GatewayClientLargeRecord {

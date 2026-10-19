@@ -342,6 +342,8 @@ struct GatewayMessagePollVoteEvent {
     u32 answer_id;
     bool add;
     bool has_guild;
+    // One of several votes sharing a MESSAGE_POLL_VOTE_ADD_MANY sequence.
+    bool batched;
 };
 
 struct GatewayMessageRichScratch {

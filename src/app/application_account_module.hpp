@@ -31,6 +31,9 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
 void application_log_gateway_event(const GatewayClientEvent& event) noexcept;
 void application_log_account_observations(const AccountModuleStatus& status, u32 observations) noexcept;
 bool application_stop_account() noexcept;
+// Starts the saved account again under the retained shell after a stop that
+// kept its UI. False when another owner holds the host or the start failed.
+bool application_account_restart() noexcept;
 // Main-thread quiescence retains borrowed account UI storage until stop joins.
 void application_prepare_account_stop() noexcept;
 void application_account_stop_observed(const AccountHostStopResult& result, bool had_account) noexcept;

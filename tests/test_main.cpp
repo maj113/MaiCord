@@ -25666,6 +25666,41 @@ void test_account_session_store() noexcept {
     expect(DeleteFileW(path) || GetLastError() == ERROR_FILE_NOT_FOUND,
            "account_user_session_store_cleanup");
 }
+// A rejected dispatch is queued as a pointer-free marker: the recovery kind of
+// its family, and for the rest the event name (never payload text).
+void test_gateway_route_failure_marker() noexcept {
+    u32 structurals[256]{};
+    const auto marker = [&](Utf8View wire, GatewayClientEvent* event) noexcept {
+        GatewayEnvelope envelope{};
+        if (!gateway_decode_envelope(wire, {structurals, 256}, 16, &envelope).ok())
+            return false;
+        GatewayClientDispatchRouteResult routed{};
+        routed.error = GatewayClientDispatchRouteError::decode;
+        routed.event_error = GatewayEventDecodeError::missing_required_field;
+        gateway_client_route_failure_event(envelope, routed, 77, event);
+        return true;
+    };
+    GatewayClientEvent unknown{};
+    const bool named =
+        marker(utf8_literal(R"({"op":0,"s":7,"t":"THREAD_LIST_SYNC","d":{"guild_id":"1","secret":"x"}})"), &unknown);
+    expect(named && unknown.kind == GatewayClientEventKind::dispatch &&
+               unknown.dispatch_kind == GatewayClientDispatchKind::unknown && unknown.sequence == 7 &&
+               unknown.has_sequence && unknown.timestamp_ms == 77 &&
+               unknown.failure_stage == GatewayClientFailureStage::dispatch_route &&
+               unknown.event_decode_error == GatewayEventDecodeError::missing_required_field &&
+               unknown.event_name_bytes == 16 &&
+               maicord::bytes_equal(unknown.event_name, "THREAD_LIST_SYNC", 17) && !unknown.dispatch_payload_bytes,
+           "gateway_route_failure_marker_names_skipped_event");
+    GatewayClientEvent votes{};
+    expect(marker(utf8_literal(R"({"op":0,"s":8,"t":"MESSAGE_POLL_VOTE_ADD_MANY","d":{}})"), &votes) &&
+               votes.dispatch_kind == GatewayClientDispatchKind::message_catchup_required &&
+               !votes.event_name_bytes,
+           "gateway_route_failure_marker_poll_vote_batch_requests_message_catchup");
+    GatewayClientEvent supplemental{};
+    expect(marker(utf8_literal(R"({"op":0,"s":2,"t":"READY_SUPPLEMENTAL","d":{}})"), &supplemental) &&
+               supplemental.dispatch_kind == GatewayClientDispatchKind::private_state_incomplete,
+           "gateway_route_failure_marker_supplemental_marks_private_state_incomplete");
+}
 void test_gateway_client_contract() noexcept {
     const GatewayUserClientConfiguration configuration{
         GatewayUserProperties{utf8_literal("Windows"), utf8_literal("Discord Client"),
@@ -26259,6 +26294,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_account_module_contract();
     maicord::test_account_profile();
     maicord::test_account_session_store();
+    maicord::test_gateway_route_failure_marker();
     maicord::test_gateway_client_contract();
     maicord::test_network_loopback();
     maicord::test_tls_client_bootstrap();

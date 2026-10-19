@@ -590,7 +590,8 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         sync.parent_count > 4096 || sync.thread_count > 4096 ||
         (sync.scope != GatewayClientThreadSyncScope::guild && sync.scope != GatewayClientThreadSyncScope::parents) ||
         (sync.scope == GatewayClientThreadSyncScope::guild && sync.parent_count) ||
-        sync.reserved[0] || sync.reserved[1] || sync.reserved[2] ||
+        (sync.flags & ~gateway_client_thread_sync_members_known) || sync.reserved[0] || sync.reserved[1] ||
+        (!(sync.flags & gateway_client_thread_sync_members_known) && sync.member_count) ||
         !state_payload_disjoint(*store, payload) ||
         !state_payload_disjoint(*store, {reinterpret_cast<const u8*>(&event), sizeof(event)}))
         return apply_error(ChatStateApplyError::invalid_payload);
@@ -636,8 +637,10 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         if (!thread_sync_input(&inputs, i, &input)) return apply_error(ChatStateApplyError::invalid_payload);
         u32 join_seconds = 0;
         const bool listed_joined = joined_in(payload, members_begin, sync.member_count, input.id, &join_seconds);
-        input.thread_self_joined = input.thread_self_joined || listed_joined;
-        input.thread_self_joined_known = true;
+        if (sync.flags & gateway_client_thread_sync_members_known) {
+            input.thread_self_joined = input.thread_self_joined || listed_joined;
+            input.thread_self_joined_known = true;
+        }
         if (listed_joined && join_seconds)
             input.thread_join_seconds = join_seconds;
         const auto applied = chat_state_store_upsert_channel(store, input);

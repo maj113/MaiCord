@@ -5,6 +5,7 @@
 #include "../src/app/application_account_pump.hpp"
 #include "../src/app/application_account_module.hpp"
 #include "../src/app/application_account_logout.hpp"
+#include "../src/app/application_account_reconnect.hpp"
 #include "../src/app/application_scoped_read.hpp"
 #include "../src/app/application_scoped_read_menu.hpp"
 #include "../src/app/application_media.hpp"
@@ -17,6 +18,7 @@
 #include "../src/app/application_notifications.hpp"
 #include "../src/app/application_thread_header_activation.hpp"
 #include "../src/app/application_video.hpp"
+#include "../src/app/gateway_dispatch_common.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
@@ -95,6 +97,9 @@ bool poll_follow_ready;
 bool poll_seed_selected_channel;
 u8 poll_follow_payload[4096]{};
 u32 poll_follow_bytes;
+// Payload-free votes expanded from one batch, popped in order.
+GatewayClientEvent poll_batch_events[4]{};
+u32 poll_batch_count, poll_batch_next;
 bool scoped_gateway_replace_scope;
 u8 scoped_gateway_payload[kGatewayBulkDeleteMaximumIds * sizeof(u64)]{};
 u32 scoped_gateway_payload_bytes;
@@ -201,6 +206,10 @@ GatewayClientPopResult application_pop_account_gateway(void*, GatewayClientEvent
     ++normal_pops;
     if (event)
         *event = {};
+    if (!scoped_gateway_event_ready && poll_batch_next < poll_batch_count && event) {
+        *event = poll_batch_events[poll_batch_next++];
+        return {0, GatewayClientPopError::none};
+    }
     if (!scoped_gateway_event_ready && poll_follow_ready && event) {
         if (poll_seed_selected_channel) {
             poll_seed_selected_channel = false;
@@ -338,6 +347,13 @@ void application_message_reaction_message_deleted(u64 channel_id, u64 message_id
 bool application_stop_account() noexcept {
     ++stops;
     return true;
+}
+void application_account_stop_recoverable(const char*) noexcept {
+    application_stop_account();
+}
+void application_account_connection_observe(GatewayClientEventKind) noexcept {}
+u64 application_account_reconnect_next_wake() noexcept {
+    return 0;
 }
 void application_record_presentation_failure(const char*) noexcept {
     ++presentation_failures;
@@ -1481,7 +1497,37 @@ void test_poll_gateway_receipts() noexcept {
             ui.message_poll_store.revision == first_revision &&
             message_poll_store_find(ui.message_poll_store, 900)->answers[0].count == first_count,
             "duplicate raw source sequence cannot count the same poll vote twice");
-        constexpr auto update = utf8_literal(R"({"op":0,"s":4,"t":"MESSAGE_UPDATE","d":{"id":"900","channel_id":"70","poll":{"results":{"is_finalized":true,"answer_counts":[{"id":1,"count":7,"me_voted":false}]}}}})");
+        // The own optimistic vote, then a debounced batch that echoes it beside two others.
+        const bool own = message_poll_store_own_vote(&ui.message_poll_store, 900, 70, 42, 1).ok();
+        constexpr auto votes = utf8_literal(R"({"channel_id":"70","message_id":"900","votes":[{"answer_id":1,"users":["42","44","45"]}]})");
+        GatewayEnvelope batch{};
+        batch.data = {votes, 0, JsonValueKind::object};
+        batch.event_name = {utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY"), 0, false};
+        batch.sequence = 4;
+        batch.has_sequence = batch.has_event_name = true;
+        poll_batch_count = poll_batch_next = 0;
+        const auto expanded = gateway_client_publish_poll_vote_batch(
+            batch, {object_structurals, 1024}, 32, 1,
+            [](void*, const GatewayClientEvent& vote, ConstSlice<u8>) noexcept {
+                if (poll_batch_count == 4)
+                    return false;
+                poll_batch_events[poll_batch_count++] = vote;
+                return true;
+            },
+            nullptr);
+        reset_counts();
+        const bool pumped = own && expanded.ok() && poll_batch_count == 3 && application_pump_account();
+        const auto* batched = message_poll_store_find(ui.message_poll_store, 900);
+        check(pumped && poll_batch_next == 3 && batched && batched->answers[0].count == first_count + 3 &&
+                  batched->answers[0].me_voted,
+              "poll vote batch applies every vote of its sequence and never recounts the own optimistic vote");
+        poll_batch_count = poll_batch_next = 0;
+        constexpr auto late = utf8_literal(R"({"op":0,"s":4,"t":"MESSAGE_POLL_VOTE_ADD","d":{"channel_id":"70","message_id":"900","user_id":"46","answer_id":1}})");
+        reset_counts();
+        check(queue(late) && application_pump_account() &&
+                  message_poll_store_find(ui.message_poll_store, 900)->answers[0].count == first_count + 3,
+              "a single vote reusing a batch sequence is still rejected as a replay");
+        constexpr auto update = utf8_literal(R"({"op":0,"s":5,"t":"MESSAGE_UPDATE","d":{"id":"900","channel_id":"70","poll":{"results":{"is_finalized":true,"answer_counts":[{"id":1,"count":7,"me_voted":false}]}}}})");
         reset_counts(); g_app.frame_pending = false; g_app.window = reinterpret_cast<HWND>(1);
         check(queue(update) && application_pump_account() &&
             ui.message_poll_store.revision != first_revision && g_app.frame_pending,

@@ -30,6 +30,12 @@ GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
     Slice<char> name_scratch, u64 now_ms,
     bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
     GatewayReactionBatchCursor* cursor = nullptr) noexcept;
+// MESSAGE_POLL_VOTE_ADD_MANY under the same contract: each vote becomes a
+// batched message_poll_vote_add with the envelope's sequence.
+GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
+    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth, u64 now_ms,
+    bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
+    GatewayReactionBatchCursor* cursor = nullptr) noexcept;
 
 // A member's user object as member-list and thread-member records carry it.
 // field_detail is the last visited field (ordinal << 8 | JSON kind), kept for

@@ -48,4 +48,13 @@ GatewayReactionBatchVisitResult gateway_visit_message_reaction_add_many(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> name_scratch,
     void* context, bool (*visit)(void*, const GatewayMessageReactionEvent&) noexcept) noexcept;
 
+struct GatewayMessagePollVoteEvent;
+// MESSAGE_POLL_VOTE_ADD_MANY (debounced votes, {channel_id, message_id,
+// guild_id?, votes: [{answer_id, users: [id]}]}) under the same contract:
+// the whole batch validates first, then one vote add per user entry is
+// visited in wire order with batched set.
+GatewayReactionBatchVisitResult gateway_visit_message_poll_vote_add_many(
+    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, void* context,
+    bool (*visit)(void*, const GatewayMessagePollVoteEvent&) noexcept) noexcept;
+
 } // namespace maicord

@@ -2079,15 +2079,21 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             u64 bulk_ids[kGatewayBulkDeleteMaximumIds]{};
             GatewayClientDispatchRouteResult routed{};
             const bool supplemental = named(utf8_literal("READY_SUPPLEMENTAL"));
-            const bool reaction_batch = named(utf8_literal("MESSAGE_REACTION_ADD_MANY"));
+            const bool vote_batch = named(utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY"));
+            const bool reaction_batch = vote_batch || named(utf8_literal("MESSAGE_REACTION_ADD_MANY"));
             if (reaction_batch) {
                 runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
                 RelationshipStreamBinding binding{client, runtime};
-                const auto batch = gateway_client_publish_reaction_batch(
-                    event.envelope, main_index_view(runtime), 64,
-                    {reinterpret_cast<char*>(runtime->handshake_output + kMessageBytes),
-                     kMessageReactionMaximumEmojiNameBytes},
-                    now_ms, publish_relationship_stream, &binding, &runtime->reaction_batch);
+                const auto batch =
+                    vote_batch
+                        ? gateway_client_publish_poll_vote_batch(event.envelope, main_index_view(runtime), 64,
+                                                                 now_ms, publish_relationship_stream, &binding,
+                                                                 &runtime->reaction_batch)
+                        : gateway_client_publish_reaction_batch(
+                              event.envelope, main_index_view(runtime), 64,
+                              {reinterpret_cast<char*>(runtime->handshake_output + kMessageBytes),
+                               kMessageReactionMaximumEmojiNameBytes},
+                              now_ms, publish_relationship_stream, &binding, &runtime->reaction_batch);
                 runtime->mailbox_deadline_ms = 0;
                 if (batch.cancelled)
                     return resume_reconnect(client, runtime, now_ms);
@@ -2199,33 +2205,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 // pointer-free recovery marker; the UI catches up message
                 // state through REST while the session continues at the next
                 // sequence.
-                dispatch.timestamp_ms = now_ms;
-                dispatch.failure_stage = GatewayClientFailureStage::dispatch_route;
-                dispatch.event_decode_error = routed.event_error;
-                dispatch.json_scan_error = routed.scan_error;
-                dispatch.json_read_error = routed.read_error;
-                dispatch.route_error_offset = routed.error_offset;
-                dispatch.route_detail = routed.detail;
-                const bool message_event =
-                    named(utf8_literal("MESSAGE_CREATE")) || named(utf8_literal("MESSAGE_UPDATE")) ||
-                    named(utf8_literal("MESSAGE_DELETE")) || named(utf8_literal("MESSAGE_DELETE_BULK"));
-                const bool reaction_event =
-                    reaction_batch || named(utf8_literal("MESSAGE_REACTION_ADD")) ||
-                    named(utf8_literal("MESSAGE_REACTION_REMOVE")) ||
-                    named(utf8_literal("MESSAGE_REACTION_REMOVE_ALL")) ||
-                    named(utf8_literal("MESSAGE_REACTION_REMOVE_EMOJI")) ||
-                    named(utf8_literal("MESSAGE_POLL_VOTE_ADD")) ||
-                    named(utf8_literal("MESSAGE_POLL_VOTE_REMOVE"));
-                const bool private_event = supplemental || named(utf8_literal("CHANNEL_RECIPIENT_ADD")) ||
-                                           named(utf8_literal("CHANNEL_RECIPIENT_REMOVE"));
-                const bool relationship_event = named(utf8_literal("RELATIONSHIP_ADD")) ||
-                                                named(utf8_literal("RELATIONSHIP_UPDATE")) ||
-                                                named(utf8_literal("RELATIONSHIP_REMOVE"));
-                dispatch.dispatch_kind =
-                    relationship_event ? GatewayClientDispatchKind::relationship_state_incomplete
-                    : private_event    ? GatewayClientDispatchKind::private_state_incomplete
-                    : message_event || reaction_event ? GatewayClientDispatchKind::message_catchup_required
-                                                      : GatewayClientDispatchKind::unknown;
+                gateway_client_route_failure_event(event.envelope, routed, now_ms, &dispatch);
                 if (!publish_event_payload(client, runtime, dispatch, ConstSlice<u8>{}))
                     return resume_reconnect(client, runtime, now_ms);
                 if (reaction_batch)

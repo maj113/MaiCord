@@ -537,6 +537,10 @@ void application_account_switch_initialize() noexcept {
     log_u64(LogLevel::info, "account", "saved_accounts", g_switch.inventory.count);
 }
 
+bool application_account_switch_busy() noexcept {
+    return busy();
+}
+
 bool application_account_switch_available() noexcept {
     return g_switch.initialized && !busy() && !application_account_logout_locked() && g_app.account.instance &&
            !g_app.account.stop_failed && g_app.account_ui && g_app.account_ui->chat_state.self_user_id &&

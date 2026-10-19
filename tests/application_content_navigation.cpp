@@ -418,6 +418,9 @@ bool application_stop_account() noexcept {
     // explicitly releases it. Preserve those IDs to expose false-success bugs.
     return true;
 }
+void application_account_stop_recoverable(const char*) noexcept {
+    application_stop_account();
+}
 bool pump_message_history() noexcept {
     ++content_navigation_test::history_calls;
     return content_navigation_test::history_ok;

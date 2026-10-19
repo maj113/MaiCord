@@ -1,3 +1,4 @@
+#include "application_account_reconnect.hpp"
 #include "application_channel_memory.hpp"
 #include "application_guild_community.hpp"
 #include "application_guild_menu.hpp"
@@ -139,7 +140,7 @@ bool select_content_channel(u64 channel_id) noexcept {
     if ((selected.changed || was_friends || was_browser) &&
         (!synchronize_navigation_view() || !synchronize_selected_channel() ||
          ((was_friends || was_browser) && !synchronize_shell_layout()) || !refresh_account_text())) {
-        application_stop_account();
+        application_account_stop_recoverable("channel_selection_sync_failed");
         return false;
     }
     if (selected.changed || was_friends || was_browser) {
@@ -351,7 +352,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     if (selected.changed || was_friends || was_browser) {
         if (!synchronize_navigation_view() || !synchronize_selected_channel() ||
             !synchronize_shell_layout()) {
-            application_stop_account();
+            application_account_stop_recoverable("navigation_selection_sync_failed");
             return true;
         }
     }
@@ -372,7 +373,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     }
     if (selected.changed || reveal || was_friends || was_browser) {
         if (!refresh_account_text(reveal)) {
-            application_stop_account();
+            application_account_stop_recoverable("navigation_text_refresh_failed");
             return true;
         }
         if (reveal && guild && !animate_guild_rail_scroll_from(rail_before))
