@@ -4,8 +4,8 @@ namespace maicord {
 // GSUB and metrics are borrowed from the parent plan. Script lookup roots (the
 // parent's for Latin) and any GPOS subset the parent lacks live in the caller's state
 // arena; parent and state must stay live. Horizontal en-US Latin, Greek, Cyrillic,
-// Hebrew, Han, kana, Hangul, Armenian, Georgian, Ethiopic, Cherokee, Runic and
-// unformatted Egyptian; kana composition is left to the font. The internal tag jamo
+// Hebrew, Han, kana, Hangul, Armenian, Georgian, Ethiopic, Cherokee, Runic,
+// unformatted Egyptian and simple_script.hpp; kana composition is left to the font. The internal tag jamo
 // selects old Hangul's ordered feature stages instead of hang; script tag 0 selects
 // the Common frontend.
 struct NativeAlphabeticPlan {

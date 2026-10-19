@@ -42,8 +42,8 @@ constexpr u32 capacity=32;
 constexpr u32 maximum_bindings=256;
 constexpr u16 arabic_script=48;
 constexpr u16 egyptian_script=464,runic_script=480,egyptian_missing_script=496;
-// Simple scripts (native_text_script.hpp profiles 64..78, shifted by three).
-constexpr u16 bamum_script=512,yi_script=528,vai_script=544,tifinagh_script=560,syllabics_script=576,nko_script=592,ol_chiki_script=608,lisu_script=624;
+// Simple scripts: native_text_script.hpp profiles, shifted by three.
+constexpr u16 simple_script_first=native_simple_script_profile<<3,simple_script_end=simple_script_first+16*simple_script_count;
 constexpr u16 devanagari_script=224,ethiopic_script=240,cherokee_script=256,tamil_script=272,bengali_script=288,odia_script=336,telugu_script=352,kannada_script=368,malayalam_script=384,sinhala_script=400,khmer_script=416,myanmar_script=432,tibetan_script=448;
 constexpr bool form_script(u16 script) noexcept {
     return script>=bengali_script&&script<=malayalam_script&&(script-bengali_script)%16==0;
@@ -332,11 +332,8 @@ const NativeAlphabeticPlan* alphabetic_profile(NativeTextContext& owner,const Bi
         case ethiopic_script:tag=sfnt_tag('e','t','h','i');break;case cherokee_script:tag=sfnt_tag('c','h','e','r');break;
         case egyptian_script:case egyptian_missing_script:tag=sfnt_tag('e','g','y','p');break;case runic_script:tag=sfnt_tag('r','u','n','r');break;
         case thai_script:tag=sfnt_tag('t','h','a','i');break;case lao_script:tag=sfnt_tag('l','a','o',' ');break;
-        case bamum_script:tag=sfnt_tag('b','a','m','u');break;case yi_script:tag=sfnt_tag('y','i',' ',' ');break;
-        case vai_script:tag=sfnt_tag('v','a','i',' ');break;case tifinagh_script:tag=sfnt_tag('t','f','n','g');break;
-        case syllabics_script:tag=sfnt_tag('c','a','n','s');break;case nko_script:tag=sfnt_tag('n','k','o',' ');break;
-        case ol_chiki_script:tag=sfnt_tag('o','l','c','k');break;case lisu_script:tag=sfnt_tag('l','i','s','u');break;
-        case 128:break;default:return nullptr;
+        case 128:break;default:if(script<simple_script_first||script>=simple_script_end||script%16)return nullptr;
+            tag=simple_script_tags.values[(script-simple_script_first)/16];
     }
     for(auto* p=owner.alphabetic_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.script_tag==tag&&p->plan.independent==independent&&p->plan.allow_missing==allow_missing)return &p->plan;
     auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<AlphabeticProfile>(&arena);

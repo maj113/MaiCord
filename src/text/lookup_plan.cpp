@@ -1,4 +1,5 @@
 #include "maicord/text/lookup_plan.hpp"
+#include "maicord/text/simple_script.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "layout_language.hpp"
 #include "lookup_plan_finish.hpp"
@@ -104,12 +105,8 @@ bool sfnt_alphabetic_script_supported(u32 script) noexcept {
         case sfnt_tag('h','a','n','g'):case sfnt_tag('j','a','m','o'):case sfnt_tag('a','r','m','n'):
         case sfnt_tag('g','e','o','r'):case sfnt_tag('t','h','a','i'):case sfnt_tag('l','a','o',' '):
         case sfnt_tag('e','t','h','i'):case sfnt_tag('c','h','e','r'):
-        case sfnt_tag('e','g','y','p'):case sfnt_tag('r','u','n','r'):
-        // Simple scripts: nominal glyphs, no reordering or required forms.
-        case sfnt_tag('b','a','m','u'):case sfnt_tag('y','i',' ',' '):case sfnt_tag('v','a','i',' '):
-        case sfnt_tag('t','f','n','g'):case sfnt_tag('c','a','n','s'):case sfnt_tag('n','k','o',' '):
-        case sfnt_tag('o','l','c','k'):case sfnt_tag('l','i','s','u'):return true;
-        default:return false;
+        case sfnt_tag('e','g','y','p'):case sfnt_tag('r','u','n','r'):return true;
+        default:for(const u32 tag:simple_script_tags.values)if(tag==script)return true;return false;
     }
 }
 SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,u32 script,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
