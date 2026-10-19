@@ -92,10 +92,10 @@ bool reply_label_equal(const MessageComposerScene& scene, Utf8View label) noexce
 }
 
 bool composer_can_send(const MessageComposer& model, bool channel_allows,
-                       MessageComposerAttachmentInput attachments) noexcept {
+                       MessageComposerAttachmentInput attachments, u8 premium_type) noexcept {
     const bool present = attachments.label.bytes != 0;
     return (!present || (attachments.ready && attachments.can_attach)) &&
-           message_composer_can_send(model, channel_allows, kMessageComposerDefaultMaximumCodepoints,
+           message_composer_can_send(model, channel_allows, message_composer_maximum_codepoints(premium_type),
                                      present || attachments.retained_content);
 }
 
@@ -1067,6 +1067,8 @@ MessageComposerSceneResult message_composer_scene_update(
         return failure(scene, MessageComposerSceneError::invalid_input);
     }
     message_composer_scene_bind_theme_styles(scene, scene->theme_styles);
+    if (projection && projection->state)
+        scene->premium_type = projection->state->self_premium_type;
     if (scene->model != model) {
         if (scene->model && scene->model->atomic_spans.data == scene->atomic_spans)
             scene->model->atomic_spans = {};
@@ -1111,7 +1113,7 @@ MessageComposerSceneResult message_composer_scene_update(
     const bool voice_controls = voice_bar && voice != UiComposerVoiceMode::sending;
     const bool send_enabled = voice == UiComposerVoiceMode::available ? can_send
                               : voice_bar ? voice_controls
-                                          : composer_can_send(*model, can_send, attachments) &&
+                                          : composer_can_send(*model, can_send, attachments, scene->premium_type) &&
                                                 (!reply_message_id || !reply_mention_visible || reply_sendable);
     const auto enabled_if = [](bool enabled) noexcept {
         return static_cast<u16>(ui_widget_hit_test | ui_widget_focusable | (enabled ? ui_widget_enabled : 0));
@@ -1410,7 +1412,8 @@ bool message_composer_scene_can_send(const MessageComposerScene& scene) noexcept
            (!scene.reply_message_id || !scene.reply_mention_visible || scene.reply_sendable) &&
            composer_can_send(*scene.model, scene.channel_allows_send,
                              {message_composer_scene_attachment_label(scene), scene.attachments_ready,
-                              scene.can_attach, scene.retained_content});
+                              scene.can_attach, scene.retained_content},
+                             scene.premium_type);
 }
 
 bool message_composer_scene_set_voice(MessageComposerScene* scene, const UiComposerVoiceView* view) noexcept {

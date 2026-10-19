@@ -324,5 +324,17 @@ void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexce
         message_composer_controller_take_completion(&controller, &completion) && completion.history_observed &&
         completion.kind == MessageSendCompletionKind::accepted && !controller.request_count && !controller.inflight_nonce,
         "queued expiry cannot overwrite history confirmation before the late transport receipt");
+    static char long_text[4096], letters[3000];
+    for (auto& c : letters) c = 'a';
+    MessageComposer long_composer{};
+    bool filled = message_composer_initialize(&long_composer, {long_text, sizeof(long_text)});
+    message_composer_reset(&long_composer, 7, false);
+    filled = filled && message_composer_insert_utf8(&long_composer, {letters, sizeof(letters)}) == MessageComposerResult::changed;
+    check(filled && message_composer_codepoints(long_composer) == 3000 &&
+        message_composer_maximum_codepoints(0) == 2000 && message_composer_maximum_codepoints(1) == 2000 &&
+        message_composer_maximum_codepoints(3) == 2000 && message_composer_maximum_codepoints(2) == 4000 &&
+        !message_composer_can_send(long_composer, true, message_composer_maximum_codepoints(3)) &&
+        message_composer_can_send(long_composer, true, message_composer_maximum_codepoints(2)),
+        "only full Nitro sends messages past 2000 characters");
 }
 }

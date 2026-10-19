@@ -971,7 +971,9 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
             if (application_composer_text_input_composing())
                 return true;
             if (!repeated &&
-                message_composer_codepoints(*edit) <= kMessageComposerDefaultMaximumCodepoints &&
+                message_composer_codepoints(*edit) <=
+                    message_composer_maximum_codepoints(
+                        g_app.account_ui ? g_app.account_ui->chat_state.self_premium_type : u8{0}) &&
                 edit->bytes) {
                 if (!snapshot_message(&p->pending_message, message_composer_text(*edit)))
                     return true;

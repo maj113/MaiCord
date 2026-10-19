@@ -9,6 +9,12 @@ namespace maicord {
 
 inline constexpr u32 kMessageComposerMaximumBytes = 16 * 1024;
 inline constexpr u32 kMessageComposerDefaultMaximumCodepoints = 2'000;
+inline constexpr u32 kMessageComposerPremiumMaximumCodepoints = 4'000;
+static_assert(kMessageComposerPremiumMaximumCodepoints * 4 <= kMessageComposerMaximumBytes);
+// Only full Nitro (premium_type 2) raises the message length.
+constexpr u32 message_composer_maximum_codepoints(u8 premium_type) noexcept {
+    return premium_type == 2 ? kMessageComposerPremiumMaximumCodepoints : kMessageComposerDefaultMaximumCodepoints;
+}
 inline constexpr float kMessageComposerMinimumHeight = 48.0f;
 inline constexpr float kMessageComposerMaximumHeight = 208.0f;
 

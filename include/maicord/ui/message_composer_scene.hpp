@@ -219,6 +219,8 @@ struct MessageComposerScene {
     bool geometry_dirty;
     // Visible plugin_slots, from the composer toolbar plugin query.
     u8 plugin_count;
+    // The account's premium_type, from the last projection (message length).
+    u8 premium_type;
     // Voice message presentation (borrowed from the host until the next set).
     UiComposerVoiceMode voice_mode;
     const UiComposerVoiceView* voice;

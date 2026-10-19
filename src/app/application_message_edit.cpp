@@ -250,7 +250,8 @@ bool queue_message_edit() noexcept {
         return true;
     const Utf8View content = message_composer_text(g_app.message_composer);
     if (!message_composer_can_send(g_app.message_composer, g_app.message_composer_scene.channel_allows_send,
-                                   kMessageComposerDefaultMaximumCodepoints,
+                                   message_composer_maximum_codepoints(
+                                       g_app.account_ui->chat_state.self_premium_type),
                                    retained_rich_content(*record)) ||
         content.bytes > kMessageComposerMaximumBytes ||
         !message_edit_runtime_reserve(&edit, content.bytes, edit.saved_draft_bytes)) {

@@ -354,8 +354,9 @@ MessageComposerControllerResult queue_send(
     if (!controller_valid(controller) || !composer || (source && attachments.count) || author_id == 0 || now_unix_ms == 0 || now_monotonic_ms == 0 ||
         (attachment_sizes.count && (!attachment_sizes.data || attachment_sizes.count != attachments.count)) ||
         sticker_ids.count > kMessageCreateMaximumStickerCount || (!sticker_ids.data && sticker_ids.count) ||
+        // The composer gates the account's own limit; this is the longest any account may send.
         !message_composer_can_send(*composer, channel_allows_send,
-            kMessageComposerDefaultMaximumCodepoints, attachments.count != 0 || sticker_ids.count != 0)) {
+            kMessageComposerPremiumMaximumCodepoints, attachments.count != 0 || sticker_ids.count != 0)) {
         return controller_error(controller, MessageComposerControllerError::invalid_input);
     }
     const bool active_source = composer == controller->composer;
