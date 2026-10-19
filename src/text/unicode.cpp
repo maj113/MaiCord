@@ -2,10 +2,16 @@
 
 namespace maicord {
 namespace {
-struct MirrorEntry {u32 code_point,paired;};
-struct BracketEntry {u32 code_point,paired;u8 type;};
-static_assert(sizeof(MirrorEntry)==8 && sizeof(BracketEntry)==12);
 #include "generated/unicode_data.inc"
+constexpr u32 mirror_count=sizeof(unicode_mirror_points)/sizeof(unicode_mirror_points[0]);
+// Index of a BMP mirror pair, else mirror_count. Branchless lower bound.
+u32 mirror_slot(u32 code_point) noexcept {
+    if(code_point>0xffff)return mirror_count;
+    u32 base=0;
+    for(u32 n=mirror_count;n>1;){const u32 half=n/2;base=unicode_mirror_points[base+half]<=code_point?base+half:base;n-=half;}
+    return unicode_mirror_points[base]==code_point?base:mirror_count;
+}
+u32 mirror_paired(u32 code_point,u32 slot) noexcept {return code_point+static_cast<u32>(static_cast<i16>(unicode_mirror_values[slot])>>2);}
 }
 const UnicodeProperties* unicode_properties(u32 code_point) noexcept {
     if(code_point>0x10ffff)return nullptr;
@@ -18,25 +24,16 @@ const UnicodeProperties* unicode_properties(u32 code_point) noexcept {
     return &unicode_records[value&0x7fff];
 }
 u32 unicode_bidi_mirror(u32 code_point) noexcept {
-    u32 lo=0,hi=sizeof(unicode_mirrors)/sizeof(unicode_mirrors[0]);
-    while(lo<hi) {
-        const u32 mid=lo+(hi-lo)/2;const auto entry=unicode_mirrors[mid];
-        if(code_point==entry.code_point)return entry.paired;
-        if(code_point<entry.code_point)hi=mid;else lo=mid+1;
-    }
-    return code_point;
+    const u32 slot=mirror_slot(code_point);
+    return slot<mirror_count?mirror_paired(code_point,slot):code_point;
 }
 UnicodeBracket unicode_bidi_bracket(u32 code_point) noexcept {
-    u32 lo=0,hi=sizeof(unicode_brackets)/sizeof(unicode_brackets[0]);
-    while(lo<hi) {
-        const u32 mid=lo+(hi-lo)/2;const auto entry=unicode_brackets[mid];
-        if(code_point==entry.code_point)return {entry.paired,static_cast<UnicodeBracketType>(entry.type)};
-        if(code_point<entry.code_point)hi=mid;else lo=mid+1;
-    }
-    return {code_point,UnicodeBracketType::none};
+    const u32 slot=mirror_slot(code_point);
+    if(slot==mirror_count||!(unicode_mirror_values[slot]&3))return {code_point,UnicodeBracketType::none};
+    return {mirror_paired(code_point,slot),static_cast<UnicodeBracketType>(unicode_mirror_values[slot]&3)};
 }
 usize unicode_property_data_bytes() noexcept {
     return sizeof(unicode_ascii)+sizeof(unicode_top)+sizeof(unicode_middle)+sizeof(unicode_leaves)+sizeof(unicode_records)+
-           sizeof(unicode_mirrors)+sizeof(unicode_brackets);
+           sizeof(unicode_mirror_points)+sizeof(unicode_mirror_values);
 }
 } // namespace maicord

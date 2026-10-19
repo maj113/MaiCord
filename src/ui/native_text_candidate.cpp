@@ -227,9 +227,9 @@ bool itemized_text(Utf8View text,bool* has_emoji=nullptr) noexcept {
         if(cp.codepoint==0x20e3&&at){const auto previous=static_cast<u8>(text.data[at-1]);if(previous=='#'||previous=='*'||previous-'0'<10u)return false;}
         // Hebrew with unmatched bracket pairs is rejected here and keeps the
         // general renderer route.
-        const auto bracket=unicode_bidi_bracket(cp.codepoint);
-        if(paired&&bracket.type==UnicodeBracketType::open){if(depth==61)paired=false;else closing[depth++]=bracket.paired;}
-        else if(paired&&bracket.type==UnicodeBracketType::close){if(!depth||closing[depth-1]!=cp.codepoint)paired=false;else --depth;}
+        if(paired&&p->has(UnicodeFlag::bidi_mirrored)){const auto bracket=unicode_bidi_bracket(cp.codepoint);
+            if(bracket.type==UnicodeBracketType::open){if(depth==61)paired=false;else closing[depth++]=bracket.paired;}
+            else if(bracket.type==UnicodeBracketType::close){if(!depth||closing[depth-1]!=cp.codepoint)paired=false;else --depth;}}
         at+=cp.width;
     }return (hebrew||symbols||(common&&non_ascii))&&(!hebrew||(paired&&!depth));
 }

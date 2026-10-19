@@ -55,6 +55,23 @@ def cpp_array(kind, name, values, width=16):
     return f'static constexpr {kind} {name}[] = {{\n{body}\n}};\n'
 
 
+def mirror_arrays(mirrors, brackets):
+    """Sorted BMP mirror pairs; each value packs the signed mirror delta above
+    the paired-bracket type (0 none, 1 open, 2 close). Every paired bracket is
+    its own mirror, so one table answers both lookups."""
+    pairs = dict(mirrors)
+    kinds = {cp: kind for cp, _, kind in brackets}
+    if len(pairs) != len(mirrors) or any(pairs.get(cp) != paired for cp, paired, _ in brackets):
+        raise ValueError('Every paired bracket must be its own Bidi_Mirroring_Glyph')
+    points, values = sorted(pairs), []
+    for cp in points:
+        delta = pairs[cp] - cp
+        if pairs[cp] > 0xffff or cp > 0xffff or not -0x2000 <= delta < 0x2000:
+            raise ValueError(f'Mirror {cp:x} does not fit the packed BMP table')
+        values.append((delta & 0x3fff) << 2 | kinds.get(cp, 0))
+    return cpp_array('u16', 'unicode_mirror_points', points) + cpp_array('u16', 'unicode_mirror_values', values)
+
+
 def tier(values, shift, uniform):
     size = 1 << shift
     pages, ids, flat = {}, [], []
@@ -269,8 +286,7 @@ def main():
     data += cpp_array('u16', 'unicode_top', top) + cpp_array('u16', 'unicode_middle', middle) + cpp_array('u16', 'unicode_leaves', leaves)
     data += 'static constexpr UnicodeProperties unicode_records[] = {\n'
     data += '\n'.join('    {{' + ','.join(f'0x{(v>>(32*i))&0xffffffff:08x}u' for i in range(words)) + '}},' for v in records) + '\n};\n'
-    data += 'static constexpr MirrorEntry unicode_mirrors[] = {\n' + '\n'.join(f'    {{{cp},{value}}},' for cp, value in mirrors) + '\n};\n'
-    data += 'static constexpr BracketEntry unicode_brackets[] = {\n' + '\n'.join(f'    {{{cp},{value},{kind}}},' for cp, value, kind in brackets) + '\n};\n'
+    data += mirror_arrays(mirrors, brackets)
     hpath = args.repo / 'include/maicord/text/generated/unicode_data.hpp'
     dpath = args.repo / 'src/text/generated/unicode_data.inc'
     hpath.parent.mkdir(parents=True, exist_ok=True); dpath.parent.mkdir(parents=True, exist_ok=True)
@@ -278,7 +294,7 @@ def main():
     gpath = args.repo / 'tests/generated/grapheme_break_test.inc'
     gpath.parent.mkdir(parents=True, exist_ok=True)
     gpath.write_text(notice + f'static constexpr u32 grapheme_vector_count={grapheme_count};\n' + cpp_array('u32','grapheme_vectors',graphemes), encoding='utf-8')
-    auxiliary_bytes = 256 + len(mirrors)*8 + len(brackets)*12
+    auxiliary_bytes = 256 + len(mirrors)*4
     report = {'unicode_version': '17.0.0', 'ucd_sha256': digest(args.ucd.read_bytes()), 'sources': used_sources,
               'fields': [{'ucd': k, 'getter': g, 'enum': e, 'values': enumerations.get(k), 'offset': offsets[i], 'width': widths[i]}
                          for i, (k,e,g,*_) in enumerate(FIELDS)],

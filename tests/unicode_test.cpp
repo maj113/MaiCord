@@ -27,9 +27,19 @@ bool cases() noexcept {
     if(unicode_properties(0xd800)->general_category()!=UnicodeGeneralCategory::cs || unicode_is_scalar(0xd800) || unicode_is_scalar(0xdfff) ||
        !unicode_is_scalar(0x10ffff) || unicode_properties(0x10ffff)->general_category()!=UnicodeGeneralCategory::cn ||
        unicode_properties(0x110000) || unicode_properties(~0u) || unicode_is_scalar(~0u))return false;
+    // Unicode 17 has 428 mirror pairs and 64 paired-bracket pairs, all in the
+    // BMP; each pairing is an involution and only mirrored scalars pair.
+    u32 mirrored=0,opening=0,closing=0;
+    for(u32 cp=0;cp<0x110000;++cp){const u32 paired=unicode_bidi_mirror(cp);const auto pair=unicode_bidi_bracket(cp);
+        if(paired!=cp){++mirrored;if(cp>0xffff||unicode_bidi_mirror(paired)!=cp||!unicode_properties(cp)->has(UnicodeFlag::bidi_mirrored))return false;}
+        if(pair.type==UnicodeBracketType::none){if(pair.paired!=cp)return false;continue;}
+        const auto back=unicode_bidi_bracket(pair.paired);
+        if(pair.paired!=paired||back.paired!=cp||back.type==pair.type)return false;
+        opening+=pair.type==UnicodeBracketType::open;closing+=pair.type==UnicodeBracketType::close;}
+    if(mirrored!=428||opening!=64||closing!=64)return false;
     const auto bracket=unicode_bidi_bracket('(');
     return unicode_bidi_mirror('(')==')' && unicode_bidi_mirror(0x2208)==0x220b && bracket.paired==')' && bracket.type==UnicodeBracketType::open &&
-           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==51222;
+           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==47974;
 }
 u8 output_buffer[16384];u32 output_used=0;
 bool flush(HANDLE file) noexcept {
