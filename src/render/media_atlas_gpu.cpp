@@ -138,12 +138,17 @@ HRESULT create_png_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept 
     return result;
 }
 
+// Dynamic buffers live in CPU-visible memory mapped into the process. One
+// that a large image grew past this is replaced by the next small upload.
+inline constexpr u32 kRetainedDynamicUploadBytes = 4u * 1024u * 1024u;
+
 HRESULT ensure_dynamic_raw_buffer(ID3D11Device* device, u32 required_bytes, ID3D11Buffer** buffer,
                                   ID3D11ShaderResourceView** view, u32* capacity) noexcept {
-    if (*buffer && *view && *capacity >= required_bytes) {
+    const bool shrink = *capacity > kRetainedDynamicUploadBytes && required_bytes <= *capacity / 4u;
+    if (*buffer && *view && *capacity >= required_bytes && !shrink) {
         return S_OK;
     }
-    const u32 aligned = retained_upload_capacity(*capacity, required_bytes);
+    const u32 aligned = retained_upload_capacity(shrink ? 0u : *capacity, required_bytes);
     if (aligned == 0) {
         return E_INVALIDARG;
     }
@@ -167,7 +172,8 @@ HRESULT ensure_dynamic_raw_buffer(ID3D11Device* device, u32 required_bytes, ID3D
     if (FAILED(result)) {
         com_release(replacement_view);
         com_release(replacement_buffer);
-        return result;
+        // A failed shrink keeps the larger buffer.
+        return shrink && *buffer && *view ? S_OK : result;
     }
     com_release(*view);
     com_release(*buffer);

@@ -525,6 +525,7 @@ DWORD WINAPI media_worker_entry(void* opaque) noexcept {
         // A new request cannot replace the command while this worker is busy.
         const AccountMediaWorkItem& work = lane->command;
         account_media_release_audio_source(&lane->media);
+        account_media_trim_scanlines(&lane->media);
         // A composer poster was copied into the atlas when its frame was taken;
         // its decoder and sparse source never outlive the next lane command.
         if (account_media_local_video_resident(&lane->media))

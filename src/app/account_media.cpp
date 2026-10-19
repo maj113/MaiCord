@@ -1095,6 +1095,18 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
     }
     return {replacement, capacity};
 }
+// The lane's own scanline storage: the tail of the owned allocation, or a
+// separate one when the encoded cache is shared.
+u8* base_scanlines(AccountMedia* media) noexcept {
+    if (media->owns_cache) {
+        auto* base = static_cast<u8*>(media->allocation) + kOwnedAllocationBytes - kScanlineStorageBytes;
+        return VirtualAlloc(base, kScanlineStorageBytes, MEM_COMMIT, PAGE_READWRITE) ? base : nullptr;
+    }
+    if (!media->allocation)
+        media->allocation = VirtualAlloc(nullptr, kScanlineStorageBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    return static_cast<u8*>(media->allocation);
+}
+
 AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCache* shared_cache) noexcept {
     if (!media || (shared_cache && (!shared_cache->entries || !shared_cache->storage))) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
@@ -1140,6 +1152,19 @@ AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCach
 }
 
 } // namespace
+
+bool account_media_trim_scanlines(AccountMedia* media) noexcept {
+    if (!media || !media->started || !media->expanded_scanlines || media->frame_ready)
+        return false;
+    u8* base = base_scanlines(media);
+    if (!base)
+        return false;
+    VirtualFree(media->expanded_scanlines, 0, MEM_RELEASE);
+    media->expanded_scanlines = nullptr;
+    media->pipeline.scanline_storage = base;
+    media->pipeline.scanline_capacity = kScanlineStorageBytes;
+    return true;
+}
 
 bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
                                  u16 cache_generation) noexcept {

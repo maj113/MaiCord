@@ -19,6 +19,7 @@
 #include "maicord/media/webp_thumbnail.hpp"
 #include "maicord/render/media_atlas.hpp"
 #include "maicord/render/media_atlas_gpu.hpp"
+#include "../src/render/media_atlas_gpu_internal.hpp"
 #include "webp_fixture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
@@ -253,6 +254,28 @@ void check_vp8(const char* name, ConstSlice<u8> encoded, u64 id, u64 expected_ha
     check(expected_hash == 0 || hash == expected_hash, name, hash);
 }
 
+// A large image's dynamic upload buffer (CPU-visible memory) is replaced by
+// the next small upload instead of staying mapped.
+void check_upload_shrink() noexcept {
+    using media_atlas_gpu_detail::ensure_dynamic_raw_buffer;
+    ID3D11Buffer* buffer = nullptr;
+    ID3D11ShaderResourceView* view = nullptr;
+    u32 capacity = 0;
+    const bool grown = SUCCEEDED(ensure_dynamic_raw_buffer(g_device, 16u << 20, &buffer, &view, &capacity)) &&
+                       capacity == 16u << 20;
+    const bool kept = SUCCEEDED(ensure_dynamic_raw_buffer(g_device, 8u << 20, &buffer, &view, &capacity)) &&
+                      capacity == 16u << 20;
+    const bool shrunk = SUCCEEDED(ensure_dynamic_raw_buffer(g_device, 64u << 10, &buffer, &view, &capacity)) &&
+                        capacity == 64u << 10;
+    const bool small = SUCCEEDED(ensure_dynamic_raw_buffer(g_device, 4096, &buffer, &view, &capacity)) &&
+                       capacity == 64u << 10 && buffer && view;
+    if (view)
+        view->Release();
+    if (buffer)
+        buffer->Release();
+    check(grown && kept && shrunk && small, "dynamic_upload_shrinks_after_large_image", capacity);
+}
+
 int run() noexcept {
     g = static_cast<State*>(VirtualAlloc(nullptr, sizeof(State), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!g) {
@@ -320,6 +343,7 @@ int run() noexcept {
     }
     check(lossy >= 1, "vp8_corpus_images", lossy);
     check_vp8("vp8_damage_detected", {kWebpLossy32x24, sizeof(kWebpLossy32x24)}, 3003, 0, true);
+    check_upload_shrink();
 
     media_atlas_gpu_release(&g->gpu);
     g_staging->Release();

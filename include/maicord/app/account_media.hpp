@@ -366,6 +366,9 @@ AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, M
                                                           u64 unix_now_seconds) noexcept;
 bool account_media_pump(AccountMedia* media, u64 monotonic_now_ms, u64 unix_now_seconds) noexcept;
 bool account_media_take_frame(AccountMedia* media, AccountMediaFrame* frame) noexcept;
+// Returns scanline storage a large decode grew past the lane's own, once its
+// frame is taken; the next decode grows again if it needs to.
+bool account_media_trim_scanlines(AccountMedia* media) noexcept;
 bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
                                  u16 cache_generation = 0) noexcept;
 bool account_media_audio_matches(const AccountMedia*, MediaAssetKey, u16 cache_generation = 0) noexcept;

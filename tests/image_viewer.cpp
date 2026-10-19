@@ -537,6 +537,14 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
             check(last[0] == 255 && last[1] == 0 && last[2] == 0,
                   "large PNG preserves pixels beyond the former preview ceiling");
         }
+        const u8* expanded = media.pipeline.scanline_storage;
+        check(account_media_trim_scanlines(&media) && !media.expanded_scanlines &&
+                  media.pipeline.scanline_storage != expanded && media.pipeline.scanline_capacity < 5u * 1024u * 1024u &&
+                  !account_media_trim_scanlines(&media),
+              "large PNG decode scratch returns to the lane's own storage before the next command");
+        const auto again = cdn_media_pipeline_admit_static_png(
+            &media.pipeline, key, policy, {kPngGrowthFixture, sizeof(kPngGrowthFixture)});
+        check(again.decoded() && media.expanded_scanlines, "a later large PNG grows the scratch again");
         check(account_media_stop(&media, 1000), "large PNG scratch owner releases cleanly");
     }
 }
