@@ -1,4 +1,5 @@
 #include "maicord/platform/taskbar_attention.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/gdi.hpp"
@@ -61,8 +62,15 @@ void text(Slice<u32> pixels, u32 extent, const u8* glyphs, u32 count) noexcept {
             }
 }
 HICON create_icon(u8 badge, u32 extent) noexcept {
-    static u32 pixels[kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent];
-    static u8 resource[sizeof(BITMAPINFOHEADER) + sizeof(pixels) + kTaskbarBadgeMaximumExtent * 8];
+    struct Scratch {
+        u32 pixels[kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent];
+        u8 resource[sizeof(BITMAPINFOHEADER) + sizeof(pixels) + kTaskbarBadgeMaximumExtent * 8];
+    };
+    ScratchPages<Scratch> scratch;
+    if (!scratch.data)
+        return nullptr;
+    u32* pixels = scratch.data->pixels;
+    u8* resource = scratch.data->resource;
     if (!taskbar_attention_render_badge(badge, extent, {pixels, extent * extent}))
         return nullptr;
     BITMAPINFOHEADER header{};
@@ -72,7 +80,7 @@ HICON create_icon(u8 badge, u32 extent) noexcept {
     header.biPlanes = 1;
     header.biBitCount = 32;
     header.biCompression = BI_RGB;
-    clear_bytes(resource, sizeof(resource));
+    // Fresh scratch pages are zero, so the AND mask is already clear.
     copy_bytes(resource, &header, sizeof(header));
     u8* rows = resource + sizeof(header);
     for (u32 y = 0; y < extent; ++y) // bottom-up

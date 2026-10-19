@@ -1,4 +1,5 @@
 #include "maicord/app/link_trust.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
@@ -258,8 +259,10 @@ bool link_trust_decode(ConstSlice<u8> input, LinkTrustStore* store) noexcept {
         return false;
     // Large decode scratch stays off the stack; the caller's store is only
     // replaced once the whole record is valid.
-    static LinkTrustStore decoded;
-    decoded = {};
+    ScratchPages<LinkTrustStore> scratch;
+    if (!scratch.data)
+        return false;
+    LinkTrustStore& decoded = *scratch.data;
     u32 at = 8;
     const auto entry = [&](Utf8View* value) noexcept {
         if (at >= body)
@@ -311,20 +314,21 @@ bool link_trust_load_file(const wchar_t* path, LinkTrustStore* store) noexcept {
         return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
     }
     Win32LargeInteger size{};
-    static u8 record[kLinkTrustFileBytes];
+    ScratchPages<u8[kLinkTrustFileBytes]> record;
     u32 native_error = 0;
     const bool read =
-        GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kLinkTrustFileBytes &&
-        file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native_error);
+        record.data && GetFileSizeEx(file, size.native()) && size.QuadPart > 0 &&
+        size.QuadPart <= kLinkTrustFileBytes &&
+        file_persistence_read_complete(file, {*record.data, static_cast<u32>(size.QuadPart)}, &native_error);
     CloseHandle(file);
-    return read && link_trust_decode({record, static_cast<u32>(size.QuadPart)}, store);
+    return read && link_trust_decode({*record.data, static_cast<u32>(size.QuadPart)}, store);
 }
 
 bool link_trust_save_file(const wchar_t* path, const LinkTrustStore& store) noexcept {
-    static u8 record[kLinkTrustFileBytes];
-    const u32 bytes = link_trust_encode(store, {record, sizeof(record)});
+    ScratchPages<u8[kLinkTrustFileBytes]> record;
+    const u32 bytes = record.data ? link_trust_encode(store, {*record.data, kLinkTrustFileBytes}) : 0;
     const u32 length = wide_length(path, 32768);
-    return bytes && length && file_persistence_write_atomic(path, length, {record, bytes}).ok();
+    return bytes && length && file_persistence_write_atomic(path, length, {*record.data, bytes}).ok();
 }
 
 } // namespace maicord

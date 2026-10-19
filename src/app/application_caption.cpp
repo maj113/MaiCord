@@ -1,4 +1,5 @@
 #include "application_caption.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "app_icon.hpp"
 #include "application_frame_presentation.hpp"
@@ -227,9 +228,9 @@ void synchronize_icon(u32 dpi) noexcept {
         static_cast<u32>(application_theme().scale.caption_icon * static_cast<float>(dpi) / 96.0f + .5f);
     if (extent == g_caption.icon_extent || !g_app.renderer_ready)
         return;
-    static u32 pixels[kAppIconLargestExtent * kAppIconLargestExtent];
-    if (app_icon_decode(g_app.instance, extent, pixels) &&
-        renderer_set_caption_icon(&g_app.renderer, pixels, extent))
+    ScratchPages<u32[kAppIconLargestExtent * kAppIconLargestExtent]> pixels;
+    if (pixels.data && app_icon_decode(g_app.instance, extent, *pixels.data) &&
+        renderer_set_caption_icon(&g_app.renderer, *pixels.data, extent))
         g_caption.icon_extent = extent;
 }
 

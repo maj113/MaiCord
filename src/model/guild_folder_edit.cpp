@@ -1,4 +1,5 @@
 #include "maicord/model/guild_folder_edit.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -173,10 +174,6 @@ bool same_layout(const GuildFolderSettings& a, const GuildFolderSettings& b) noe
     }
     return true;
 }
-// Editing scratch is far larger than a comfortable stack frame; edits run on
-// the UI thread only.
-Tree g_tree;
-GuildFolderSettings g_built;
 } // namespace
 
 u32 guild_folders_find_folder(const GuildFolderSettings& settings, u64 folder_id) noexcept {
@@ -203,10 +200,17 @@ GuildFolderEditError guild_folders_canonical(const GuildFolderSettings* current,
                                              GuildFolderSettings* output) noexcept {
     if (!output)
         return E::input;
-    static GuildDisplayEntry entries[kGuildFoldersMaximumGuilds];
-    const u32 count = guild_display_order_build(current, state, {entries, kGuildFoldersMaximumGuilds});
-    auto& built = g_built;
-    built = {};
+    // Editing scratch is far larger than a comfortable stack frame.
+    struct Scratch {
+        GuildDisplayEntry entries[kGuildFoldersMaximumGuilds];
+        GuildFolderSettings built;
+    };
+    ScratchPages<Scratch> scratch;
+    if (!scratch.data)
+        return E::capacity;
+    const GuildDisplayEntry* entries = scratch.data->entries;
+    const u32 count = guild_display_order_build(current, state, {scratch.data->entries, kGuildFoldersMaximumGuilds});
+    auto& built = scratch.data->built;
     for (u32 i = 0; i < count; ++i) {
         const auto& entry = entries[i];
         const bool folder =
@@ -240,7 +244,14 @@ GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFold
     if (!settings || !source.id || !target.id || (source.id == target.id && source.folder == target.folder) ||
         static_cast<u8>(drop) > static_cast<u8>(GuildFolderDrop::combine))
         return E::input;
-    auto& tree = g_tree;
+    struct Scratch {
+        Tree tree;
+        GuildFolderSettings built;
+    };
+    ScratchPages<Scratch> scratch;
+    if (!scratch.data)
+        return E::capacity;
+    auto& tree = scratch.data->tree;
     if (!load(*settings, &tree))
         return E::input;
     u32 target_node = 0, target_index = 0;
@@ -299,7 +310,7 @@ GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFold
                 return E::capacity;
         }
     }
-    auto& built = g_built;
+    auto& built = scratch.data->built;
     const E stored = store(tree, &built);
     if (stored != E::none)
         return stored;

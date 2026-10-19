@@ -1,4 +1,5 @@
 #include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/list_navigation.hpp"
 #include "maicord/ui/virtual_list.hpp"
@@ -465,7 +466,9 @@ GuildRailHit guild_rail_scene_page(GuildRailScene* scene, const NavigationView& 
         const NavigationView* view;
         u64 tops[kTops], extents[kTops];
     };
-    static Source source;
+    ScratchPages<Source> scratch;
+    if (!scratch.data) return {};
+    Source& source = *scratch.data;
     source.view = &view;
     float top = kGuildRailTopInset;
     for (u32 i = 0; i < view.guild_count; ++i) {

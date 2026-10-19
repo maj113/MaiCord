@@ -1,4 +1,5 @@
 #include "maicord/platform/uia_provider.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/ui/accessibility.hpp"
 
@@ -1083,8 +1084,11 @@ HRESULT STDMETHODCALLTYPE value_set(void* self, const wchar_t* text) noexcept {
     int units = 0;
     while (text[units] && units < static_cast<int>(kUiAccessValueMaximumBytes))
         ++units;
-    static char utf8[kUiAccessValueMaximumBytes * 3];
-    const int bytes = units ? WideCharToMultiByte(CP_UTF8, 0, text, units, utf8, static_cast<int>(sizeof(utf8)), nullptr, nullptr) : 0;
+    ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
+    if (!scratch.data)
+        return E_OUTOFMEMORY;
+    char* utf8 = *scratch.data;
+    const int bytes = units ? WideCharToMultiByte(CP_UTF8, 0, text, units, utf8, static_cast<int>(sizeof(*scratch.data)), nullptr, nullptr) : 0;
     if (units && bytes <= 0)
         return E_INVALIDARG;
     return request(element, UiAccessAction::set_value, 0, {utf8, static_cast<u32>(bytes)});
@@ -1579,9 +1583,12 @@ HRESULT STDMETHODCALLTYPE range_find_text(void* self, BSTR needle, BOOL backward
     int units = 0;
     while (needle[units] && units < static_cast<int>(kUiAccessValueMaximumBytes))
         ++units;
-    static char pattern[kUiAccessValueMaximumBytes * 3];
+    ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
+    if (!scratch.data)
+        return E_OUTOFMEMORY;
+    char* pattern = *scratch.data;
     const int bytes =
-        units ? WideCharToMultiByte(CP_UTF8, 0, needle, units, pattern, static_cast<int>(sizeof(pattern)), nullptr, nullptr)
+        units ? WideCharToMultiByte(CP_UTF8, 0, needle, units, pattern, static_cast<int>(sizeof(*scratch.data)), nullptr, nullptr)
               : 0;
     if (bytes <= 0)
         return E_INVALIDARG;
@@ -1685,7 +1692,10 @@ HRESULT STDMETHODCALLTYPE range_text(void* self, int maximum_length, BSTR* out) 
         return kElementNotAvailable;
     const auto* runtime = range->host->runtime;
     const Utf8View part{text.text.data + range->start, range->end - range->start};
-    static wchar_t wide[kUiAccessValueMaximumBytes + 1];
+    ScratchPages<wchar_t[kUiAccessValueMaximumBytes + 1]> scratch;
+    if (!scratch.data)
+        return E_OUTOFMEMORY;
+    wchar_t* wide = *scratch.data;
     int units = part.bytes ? MultiByteToWideChar(CP_UTF8, 0, part.data, static_cast<int>(part.bytes), wide,
                                                  static_cast<int>(kUiAccessValueMaximumBytes))
                            : 0;

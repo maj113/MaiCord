@@ -1,4 +1,5 @@
 #include "maicord/platform/system_tray.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -236,8 +237,12 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
 
 HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalette& palette, u32 extent) noexcept {
     static_assert(sizeof(BITMAPINFOHEADER) == 40);
-    alignas(u32) static u8 resource[sizeof(BITMAPINFOHEADER) +
-        kTrayIconMaximumExtent * kTrayIconMaximumExtent * sizeof(u32) + kTrayIconMaximumExtent * 8];
+    ScratchPages<u8[sizeof(BITMAPINFOHEADER) + kTrayIconMaximumExtent * kTrayIconMaximumExtent * sizeof(u32) +
+                    kTrayIconMaximumExtent * 8]>
+        scratch;
+    if (!scratch.data)
+        return nullptr;
+    u8* resource = *scratch.data;
     auto* pixels = reinterpret_cast<u32*>(resource + sizeof(BITMAPINFOHEADER));
     if (!tray_icon_render(state, badge, palette, extent,
                           {pixels, kTrayIconMaximumExtent * kTrayIconMaximumExtent}))

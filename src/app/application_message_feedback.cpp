@@ -1,4 +1,5 @@
 #include "application_message_feedback.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
@@ -134,7 +135,10 @@ bool application_composer_prepare_send(bool* handled) noexcept {
         *handled = true;
         return true;
     }
-    static char output[kMessageComposerMaximumBytes];
+    ScratchPages<char[kMessageComposerMaximumBytes]> scratch;
+    if (!scratch.data)
+        return true;
+    char* output = *scratch.data;
     const ComposerTextCommand command =
         composer_text_command_parse(message_composer_text(composer), {output, kMessageComposerMaximumBytes});
     switch (command.kind) {

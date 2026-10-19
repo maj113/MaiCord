@@ -1,4 +1,5 @@
 #include "app_icon.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -29,11 +30,19 @@ bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
     const auto* encoded = image_data ? static_cast<const u8*>(LockResource(image_data)) : nullptr;
     if (!encoded)
         return false;
-    static PngImage png;
-    static DeflateWorkspace workspace;
-    static u8 scanlines[(kLargest * 4 + 1) * kLargest];
-    const auto decoded = png_decode_scanlines({encoded, SizeofResource(module, image)}, &png, &workspace,
-                                              {scanlines, static_cast<u32>(sizeof(scanlines))});
+    struct Scratch {
+        PngImage png;
+        DeflateWorkspace workspace;
+        u8 scanlines[(kLargest * 4 + 1) * kLargest];
+    };
+    ScratchPages<Scratch> scratch;
+    if (!scratch.data)
+        return false;
+    PngImage& png = scratch.data->png;
+    const u8* scanlines = scratch.data->scanlines;
+    const auto decoded = png_decode_scanlines({encoded, SizeofResource(module, image)}, &png,
+                                              &scratch.data->workspace,
+                                              {scratch.data->scanlines, static_cast<u32>(sizeof(Scratch::scanlines))});
     if (!decoded.ok() || png.width != best || png.height != best || png.color_type != 6 ||
         png.bit_depth != 8)
         return false;

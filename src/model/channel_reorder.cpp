@@ -1,4 +1,5 @@
 #include "maicord/model/channel_reorder.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/protocol/guild_admin.hpp"
 
 namespace maicord {
@@ -64,8 +65,10 @@ bool categories(const ChatStateStore& state, u64 guild_id, Ordering* output) noe
 // Guild-wide order of one channel group: uncategorized, then by category.
 bool group(const ChatStateStore& state, u64 guild_id, ChannelSortGroup kind, const Ordering& category_order,
            Ordering* output) noexcept {
-    static Ordering members;
-    members.count = 0;
+    ScratchPages<Ordering> scratch;
+    if (!scratch.data)
+        return false;
+    Ordering& members = *scratch.data;
     for (u32 order = 0; order < state.channel_count; ++order) {
         const auto& channel = state.channels[state.channel_order[order]];
         if (channel_sort_group(channel.type) != kind || !listed(state, channel, guild_id))
@@ -166,7 +169,15 @@ u32 channel_reorder_plan(const ChatStateStore& state, u64 source_id, u64 target_
     Resolved r{};
     if (!output.data || !resolve(state, source_id, target_id, drop, &r))
         return ~0u;
-    static Ordering category_order, old_order, new_order;
+    struct Orders {
+        Ordering category, old, next;
+    };
+    ScratchPages<Orders> scratch;
+    if (!scratch.data)
+        return ~0u;
+    Ordering& category_order = scratch.data->category;
+    Ordering& old_order = scratch.data->old;
+    Ordering& new_order = scratch.data->next;
     if (!categories(state, r.source->guild_id, &category_order))
         return ~0u;
     if (r.group == ChannelSortGroup::category)

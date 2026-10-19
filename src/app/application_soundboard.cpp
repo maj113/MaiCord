@@ -7,6 +7,7 @@
 #include "maicord/app/account_soundboard.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/stable_storage.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -19,7 +20,8 @@
 
 namespace maicord::app_detail {
 namespace {
-constexpr u32 kSoundCapacity = 640;
+// Nitro members can play every server's sounds; storage commits as lists load.
+constexpr u32 kSoundCapacity = 8192;
 constexpr u32 kListCapacity = 256;
 constexpr u32 kLoadCapacity = 96;
 constexpr u32 kQueueCapacity = 8;
@@ -70,7 +72,7 @@ struct Picker {
     u64 error_until_ms;
 };
 struct SoundboardState {
-    SoundboardSound sounds[kSoundCapacity];
+    SoundboardSound* sounds;
     u32 sound_count;
     GuildLoad loads[kLoadCapacity];
     u32 load_count;
@@ -90,6 +92,7 @@ struct SoundboardState {
     u32 revision;
 };
 SoundboardState board{};
+StableStorage g_sound_storage;
 // JSON token scratch and decoded-list staging (~570 KB), committed on the first
 // soundboard payload rather than with the image: writable image pages are
 // charged to every session, and most sessions never receive one.
@@ -167,8 +170,14 @@ void upsert_sound(const SoundboardSound& sound) noexcept {
         *existing = sound;
         return;
     }
-    if (board.sound_count < kSoundCapacity)
-        board.sounds[board.sound_count++] = sound;
+    if (board.sound_count == g_sound_storage.capacity &&
+        ((!g_sound_storage.arena.base &&
+          !stable_storage_initialize(&g_sound_storage, kSoundCapacity, 0, sizeof(SoundboardSound),
+                                     alignof(SoundboardSound))) ||
+         !stable_storage_grow(&g_sound_storage, board.sound_count + 1)))
+        return;
+    board.sounds = stable_storage_data<SoundboardSound>(g_sound_storage);
+    board.sounds[board.sound_count++] = sound;
 }
 void clear_guild(u64 guild_id) noexcept {
     u32 kept = 0;
