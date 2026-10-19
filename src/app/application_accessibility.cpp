@@ -113,6 +113,7 @@ struct StatusObserver {
     u64 quick_summary, search_summary;
     const char* connection;
     u32 failed_count;
+    u32 toast_serial;
     MessageComposerPhase composer_phase;
     bool voice_connected;
     bool primed, mentions_primed;
@@ -1781,6 +1782,18 @@ void observe_uploads(StatusObserver& status, bool primed) noexcept {
     }
 }
 
+// Each toast is read once as it appears; failures interrupt.
+void observe_toast(StatusObserver& status, bool primed) noexcept {
+    const auto& toasts = g_app.toasts;
+    const Utf8View text = ui_toast_current_text(toasts);
+    if (!text.bytes || toasts.serial == status.toast_serial)
+        return;
+    status.toast_serial = toasts.serial;
+    if (primed)
+        announce(text, ui_toast_current_kind(toasts) == UiToastKind::failure,
+                 utf8_literal("MaiCord.Toast"));
+}
+
 // Joining and leaving voice.
 void observe_voice(StatusObserver& status, bool primed) noexcept {
     const auto* session = g_app.account_ui ? &g_app.account_ui->voice_session : nullptr;
@@ -1867,6 +1880,7 @@ void observe_status(u64 now_ms) noexcept {
     observe_connection(status, primed);
     observe_sends(status, primed);
     observe_uploads(status, primed);
+    observe_toast(status, primed);
     observe_voice(status, primed);
     observe_results(status, primed);
     observe_mentions(status, now_ms);

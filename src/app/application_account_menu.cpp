@@ -1,5 +1,6 @@
 #include "application_downloads.hpp"
 #include "application_account_menu.hpp"
+#include "application_toast.hpp"
 #include "application_account_logout.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
@@ -323,7 +324,7 @@ bool application_account_menu_action(u32 value) noexcept {
     if (value == static_cast<u32>(UiAccountMenuAction::copy_user_id)) {
         char digits[20]{};
         const u32 count = message_context_format_snowflake(user, {digits, 20});
-        const bool copied = count && clipboard_write_utf8(g_app.window, {digits, count});
+        const bool copied = application_copy_text({digits, count}, kToastIdCopied, kToastIdCopyFailed);
         return refresh_account_frame(true) && copied;
     }
     return false;

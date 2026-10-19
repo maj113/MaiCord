@@ -308,6 +308,11 @@ bool clipboard_publish(void*, UINT format, HGLOBAL data) noexcept {
 }
 void clipboard_close(void*) noexcept {
 }
+bool newest_toast(UiToastKind kind, Utf8View label) noexcept {
+    const auto& t = g_app.toasts;
+    return t.count && t.entries[t.count - 1].kind == kind &&
+           utf8_equal({t.entries[t.count - 1].text, t.entries[t.count - 1].bytes}, label);
+}
 bool seed_media(u64 id, u64 attachment, Utf8View filename, Utf8View content_type, u32 width = 0,
                 u32 height = 0) noexcept {
     const auto inserted = message_store_upsert(&g_app.message_view.store, {id, 101, 3, 1, 0, {}, 0});
@@ -412,6 +417,8 @@ void attachment_menu_tests() noexcept {
             utf8_equal({clipboard.text, static_cast<u32>(lstrlenA(clipboard.text))},
                        {source.url, source.url_bytes}),
         "Attachment menu: Copy Image Link publishes the signed CDN URL as text through the clipboard sink");
+    check(newest_toast(UiToastKind::success, utf8_literal("Link Copied!")),
+          "Attachment menu: Copy Image Link confirms with a Link Copied! toast");
     check(!application_downloads_context_action(kReceivedAttachmentActionCopyLink) &&
               clipboard.opens == opens_before + 1,
           "Attachment menu: a consumed menu cannot act again");
@@ -426,11 +433,15 @@ void attachment_menu_tests() noexcept {
               clipboard.formats[1] == RegisterClipboardFormatW(L"PNG") &&
               clipboard.formats[2] == RegisterClipboardFormatW(L"HTML Format"),
           "Attachment menu: Copy Image publishes CF_DIBV5, PNG and HTML Format from the resident tier");
+    check(newest_toast(UiToastKind::success, utf8_literal("Image Copied!")),
+          "Attachment menu: Copy Image confirms with an Image Copied! toast");
     const u32 publishes = clipboard.opens;
     resident_key = {};
     check(open_menu(520, 620) && application_downloads_context_action(row_action("Copy Image")) &&
               clipboard.opens == publishes,
           "Attachment menu: Copy Image with no resident pixels leaves the clipboard alone");
+    check(newest_toast(UiToastKind::failure, utf8_literal("Unable to copy image")),
+          "Attachment menu: a failed Copy Image shows the failure toast");
 
     // Stale or foreign menus never act.
     check(open_menu(523, 623), "Attachment menu: reopen audio menu");
@@ -449,6 +460,18 @@ void attachment_menu_tests() noexcept {
     application_downloads_pump();
     check(picker_starts == pickers + 1, "Attachment menu: Save File reaches the native chooser");
     clipboard_sink_install(previous);
+    DownloadJob named{};
+    const auto name = [&](Utf8View chosen, Utf8View original) noexcept {
+        named.chosen_name_bytes = static_cast<u16>(chosen.bytes);
+        copy_bytes(named.chosen_name, chosen.data, chosen.bytes);
+        named.source.filename_bytes = static_cast<u16>(original.bytes);
+        copy_bytes(named.source.filename, original.data, original.bytes);
+        return image_file(named);
+    };
+    check(name(utf8_literal("cat.PNG"), utf8_literal("x.bin")) && name({}, utf8_literal("cat.webp")) &&
+              !name(utf8_literal("cat.png.txt"), utf8_literal("cat.png")) &&
+              !name({}, utf8_literal(".png")),
+          "Downloads saves confirm as Image Saved by the chosen name's image extension");
 }
 
 // Regression: the cursor once ran the Save button's press handler on every
@@ -716,9 +739,12 @@ void run() noexcept {
     application_downloads_pump();
     check(q->jobs[0].admitted && q->jobs[0].transfer.committed_bytes == 3 && !q->active,
           "Downloads admitted transfer survives hidden panel and navigation");
+    ui_toast_clear(&g_app.toasts);
     finish();
     check(q->jobs[0].phase == JobPhase::saved && q->jobs[0].path && !q->jobs[0].admitted,
           "Downloads saved receipt retains path only after worker drain");
+    check(g_app.toasts.count == 1 && newest_toast(UiToastKind::success, utf8_literal("Attachment Saved")),
+          "Downloads completed save confirms with one Attachment Saved toast");
     ui.active_channel_id = 101;
     application_downloads_open();
     dismiss_all();
@@ -741,6 +767,8 @@ void run() noexcept {
           "Downloads cleanup failure is visible while worker and staging ownership remain retained");
     transfer_reap = true;
     application_downloads_pump();
+    check(newest_toast(UiToastKind::failure, utf8_literal("Unable to save attachment")),
+          "Downloads failed save shows the failure toast once the worker drains");
     dismiss_all();
     const auto previous_starts = picker_starts;
     application_downloads_begin(500, 600);

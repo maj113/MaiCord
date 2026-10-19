@@ -23,6 +23,8 @@
 #include "application_settings.hpp"
 #include "application_plugins.hpp"
 #include "application_theme_editor.hpp"
+#include "application_toast.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/app/account_download.hpp"
 #include "maicord/app/received_attachment_open.hpp"
 #include "maicord/platform/file_picker.hpp"
@@ -568,12 +570,30 @@ void log_failure(const HttpsFileDownloadResult& transfer) noexcept {
     if (transfer.status_code)
         log_u64(LogLevel::warning, "download", "failed_status", transfer.status_code);
 }
+// Pictures confirm as images, by the saved name's extension.
+bool image_file(const DownloadJob& j) noexcept {
+    const Utf8View name = j.chosen_name_bytes ? Utf8View{j.chosen_name, j.chosen_name_bytes}
+                                              : Utf8View{j.source.filename, j.source.filename_bytes};
+    constexpr Utf8View kImages[]{utf8_literal(".png"), utf8_literal(".jpg"), utf8_literal(".jpeg"),
+                                 utf8_literal(".gif"), utf8_literal(".webp"), utf8_literal(".avif")};
+    for (const auto extension : kImages)
+        if (name.bytes > extension.bytes &&
+            ascii_equal_ignore_case({name.data + name.bytes - extension.bytes, extension.bytes}, extension))
+            return true;
+    return false;
+}
+void toast_result(const DownloadJob& j) noexcept {
+    const bool image = image_file(j);
+    application_toast_result(j.phase == JobPhase::saved, image ? kToastImageSaved : kToastAttachmentSaved,
+                             image ? kToastImageSaveFailed : kToastAttachmentSaveFailed);
+}
 void fail_job(ApplicationDownloads& q, DownloadJob& j, HttpsFileDownloadError error) noexcept {
     j.phase = JobPhase::failed;
     j.transfer.error = error;
     j.resolution = {};
     log_failure(j.transfer);
     q.reveal = true;
+    toast_result(j);
     changed(q);
 }
 void cancel_job(ApplicationDownloads& q, u32 index) noexcept {
@@ -1237,6 +1257,7 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
     const bool copied = read && clipboard_write_image(g_app.window, pixels, width, height, width * 4,
                                                       {source.url, source.url_bytes});
     VirtualFree(pixels, 0, MEM_RELEASE);
+    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
     if (!copied)
         log_write(LogLevel::warning, "downloads",
                   read ? "copy_image_clipboard_failed" : "copy_image_not_resident");
@@ -1283,6 +1304,8 @@ bool application_downloads_pump() noexcept {
                             log_failure(state.transfer);
                             q->reveal = true;
                         }
+                        if (j.phase != JobPhase::cancelled)
+                            toast_result(j);
                         changed(*q);
                     }
                 }
@@ -1473,7 +1496,8 @@ bool application_downloads_context_action(u32 action) noexcept {
             found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
         if (!message || message->revision != source.revision)
             return true;
-        if (action == kReceivedAttachmentActionCopyLink && !clipboard_write_utf8(g_app.window, url))
+        if (action == kReceivedAttachmentActionCopyLink &&
+            !application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
             log_write(LogLevel::warning, "downloads", "copy_link_failed");
         if (action == kReceivedAttachmentActionOpenLink)
             application_open_content_url(url);
@@ -1485,7 +1509,8 @@ bool application_downloads_context_action(u32 action) noexcept {
         const Utf8View link{q->menu_link, q->menu_link_bytes};
         if (action == kReceivedAttachmentActionSave)
             return begin_source(source);
-        if (action == kReceivedAttachmentActionCopyLink && !clipboard_write_utf8(g_app.window, link))
+        if (action == kReceivedAttachmentActionCopyLink &&
+            !application_copy_text(link, kToastLinkCopied, kToastLinkCopyFailed))
             log_write(LogLevel::warning, "downloads", "copy_link_failed");
         if (action == kReceivedAttachmentActionOpenLink)
             application_open_content_url(link);
@@ -1499,7 +1524,7 @@ bool application_downloads_context_action(u32 action) noexcept {
             copy_image(source, q->menu_format);
         return true;
     case kReceivedAttachmentActionCopyLink:
-        if (!clipboard_write_utf8(g_app.window, url))
+        if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
             log_write(LogLevel::warning, "downloads", "copy_link_failed");
         return true;
     case kReceivedAttachmentActionOpenLink:

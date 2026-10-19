@@ -1,4 +1,5 @@
 #include "application_user_actions.hpp"
+#include "application_toast.hpp"
 #include "application_account_presentation.hpp"
 #include "application_commands.hpp"
 #include "application_composer.hpp"
@@ -650,7 +651,9 @@ bool application_user_menu_activate(u32 action) noexcept {
         dismiss_popup();
         char id[20];
         const u32 bytes = g_app.preferences.developer_mode ? format_id(user, id) : 0;
-        return !bytes || clipboard_write_utf8(g_app.window, {id, bytes}) || true;
+        if (bytes)
+            application_copy_text({id, bytes}, kToastIdCopied, kToastIdCopyFailed);
+        return true;
     }
     case A::report: {
         dismiss_popup();

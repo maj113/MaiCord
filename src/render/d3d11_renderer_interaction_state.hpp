@@ -261,6 +261,13 @@ inline bool d3d11_renderer_unread_banner_visible(const D3D11Renderer& renderer) 
 inline u32 d3d11_renderer_unread_banner_revision(const D3D11Renderer& renderer) noexcept {
     return d3d11_renderer_unread_banner_visible(renderer) ? renderer.unread_banner_scene->revision : 0;
 }
+// Toasts show over every surface except the sign-in screen.
+inline bool d3d11_renderer_toast_visible(const D3D11Renderer& renderer) noexcept {
+    return renderer.toast_scene && !renderer.login_visible && ui_toast_visible(*renderer.toast_scene);
+}
+inline u32 d3d11_renderer_toast_revision(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_toast_visible(renderer) ? renderer.toast_scene->revision : 0;
+}
 // The header search bar stays over the thread browser as its search entry
 // point; the host never opens the results pane while the browser is open.
 inline bool d3d11_renderer_search_visible(const D3D11Renderer& renderer) noexcept {
@@ -384,7 +391,8 @@ inline u32 d3d11_renderer_interaction_text_active_mask(const D3D11Renderer& rend
     if (renderer_settings_page_visible(renderer))
         return (d3d11_renderer_forum_form_active(renderer) ? d3d11_interaction_text_forum_form : 0) |
                (1u << 6) | (d3d11_renderer_settings_popup(renderer) ? d3d11_interaction_text_popup : 0) |
-               (d3d11_renderer_text_form_active(renderer) ? d3d11_interaction_text_form : 0);
+               (d3d11_renderer_text_form_active(renderer) ? d3d11_interaction_text_form : 0) |
+               (d3d11_renderer_toast_visible(renderer) ? 1u << 24 : 0);
     u32 mask = renderer_theme_editor_visible(renderer) ? (1u << 13) : 0;
     if (d3d11_renderer_media_picker_visible(renderer))
         mask |= 1u << 12;
@@ -399,6 +407,8 @@ inline u32 d3d11_renderer_interaction_text_active_mask(const D3D11Renderer& rend
         mask |= 1u << 10;
     if (d3d11_renderer_unread_banner_visible(renderer))
         mask |= 1u << 20;
+    if (d3d11_renderer_toast_visible(renderer))
+        mask |= 1u << 24;
     if (d3d11_renderer_call_visible(renderer))
         mask |= 1u << 21;
     if (d3d11_renderer_stream_card_visible(renderer))
@@ -466,6 +476,8 @@ inline bool d3d11_renderer_visit_interaction_text_sources(const D3D11Renderer& r
            visit(&D3D11Renderer::interaction_text_tooltip_revision, d3d11_renderer_tooltip_revision(renderer)) &&
            visit(&D3D11Renderer::interaction_text_unread_banner_revision,
                  d3d11_renderer_unread_banner_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_toast_revision,
+                 d3d11_renderer_toast_revision(renderer)) &&
            visit(&D3D11Renderer::interaction_text_search_revision,
                  d3d11_renderer_search_visible(renderer) ? renderer.search_scene->revision : 0) &&
            visit(&D3D11Renderer::interaction_text_pinned_messages_revision,

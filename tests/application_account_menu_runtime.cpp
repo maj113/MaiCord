@@ -166,6 +166,10 @@ void run() noexcept {
               utf8_equal({copied, copied_bytes}, utf8_literal("18446744073709551615")),
           "account menu runtime: Copy user ID uses bounded exact20-digit formatting and typed clipboard "
           "output");
+    const auto& toast = g_app.toasts.entries[0];
+    check(g_app.toasts.count == 1 && toast.kind == UiToastKind::success &&
+              utf8_equal({toast.text, toast.bytes}, utf8_literal("Copied ID")),
+          "account menu runtime: Copy user ID confirms with a Copied ID toast");
     self_status.profile_id = 4;
     self_status.self_user_id = ~u64{0};
     self_status.revision = 1;

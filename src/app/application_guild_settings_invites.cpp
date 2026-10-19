@@ -1,8 +1,12 @@
 #include "application_guild_settings_internal.hpp"
+#include "application_toast.hpp"
 #include "maicord/core/time.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
+// Each row: Copy Link for everyone, Revoke for managers.
+constexpr Utf8View kInviteActions[]{utf8_literal("Copy Link"), utf8_literal("Revoke")};
+constexpr u32 kInviteCopy = 0, kInviteRevoke = 1;
 
 void project_invites(Bank& bank) noexcept {
     auto& p = *owner;
@@ -47,8 +51,8 @@ void project_invites(Bank& bank) noexcept {
         } else
             bank.add(utf8_literal("never expires"));
         const auto description = bank.since(start);
-        push({kRowBase + i, code, description, UiSettingsControlKind::action, editable(), false, {}, 0,
-              utf8_literal("Revoke"), nullptr},
+        push({kRowBase + i, code, description, UiSettingsControlKind::buttons, true, false,
+              {kInviteActions, editable() ? 2u : 1u}, 0, {}, nullptr},
              {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
 }
@@ -74,11 +78,26 @@ void confirm_revoke_invite(u32 index) noexcept {
     application_text_form_open(request);
 }
 
+// The invite's full link, as the Invite People modal copies it.
+bool copy_invite(u32 index) noexcept {
+    const auto& invite = owner->invites[index];
+    char link[96];
+    Bank bank{link, sizeof(link), 0};
+    bank.add(utf8_literal("https://discord.gg/"));
+    bank.add({invite.code, invite.code_bytes});
+    return application_copy_text(bank.since(0), kToastInviteCopied, kToastLinkCopyFailed);
+}
+
 void activate(const SettingsLayerActivation& activation) noexcept {
     auto& p = *owner;
     const u64 id = activation.value.target.control_id;
-    if (id >= kRowBase && id < kRowBase + p.invite_count && activation.button && !busy())
-        confirm_revoke_invite(static_cast<u32>(id - kRowBase));
+    if (id < kRowBase || id >= kRowBase + p.invite_count)
+        return;
+    const u32 index = static_cast<u32>(id - kRowBase), choice = activation.value.selected_choice;
+    if (choice == kInviteCopy)
+        copy_invite(index);
+    else if (choice == kInviteRevoke && editable() && !busy())
+        confirm_revoke_invite(index);
 }
 
 bool ensure_data() noexcept {

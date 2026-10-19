@@ -1,4 +1,5 @@
 #include "application_guild_community.hpp"
+#include "application_toast.hpp"
 #include "application_content_input.hpp"
 #include "application_user_actions.hpp"
 #include "maicord/ui/user_context_menu.hpp"
@@ -509,7 +510,7 @@ bool activate_message_link_action(u32 action) noexcept {
     if (!url.bytes)
         return true;
     if (action == kMessageLinkActionCopy) {
-        if (!clipboard_write_utf8(g_app.window, url))
+        if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
             log_write(LogLevel::warning, "message", "copy_link_failed");
         return true;
     }
@@ -526,7 +527,7 @@ bool copy_message_link(u64 message_id) noexcept {
                                                            record->id,
                                                            Slice<char>{link, kMessageContextMaximumLinkBytes})
                              : 0;
-    return bytes != 0 && clipboard_write_utf8(g_app.window, Utf8View{link, bytes});
+    return application_copy_text({link, bytes}, kToastLinkCopied, kToastLinkCopyFailed);
 }
 
 // Shift copies the "channel-message" form, as the official client does.
@@ -540,7 +541,8 @@ bool copy_message_id(u64 message_id, bool with_channel) noexcept {
             id[bytes++] = '-';
     }
     const u32 message_bytes = message_context_format_snowflake(message_id, Slice<char>{id + bytes, 20});
-    return message_bytes != 0 && clipboard_write_utf8(g_app.window, Utf8View{id, bytes + message_bytes});
+    return application_copy_text({id, message_bytes ? bytes + message_bytes : 0}, kToastMessageIdCopied,
+                                 kToastIdCopyFailed);
 }
 
 bool begin_reply_from_action(u64 message_id, bool without_mention) noexcept {
@@ -1189,8 +1191,8 @@ bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
                g_app.popup_owner_kind == PopupOwnerKind::message) {
         const MessageStoreResult found = message_store_find(g_app.message_view.store, owner_id);
         applied = found.ok() &&
-                  clipboard_write_utf8(g_app.window,
-                                       message_store_content(g_app.message_view.store, found.handle));
+                  application_copy_text(message_store_content(g_app.message_view.store, found.handle),
+                                        kToastTextCopied, kToastCopyFailed);
     } else if (action == static_cast<u32>(MessageContextAction::copy_message_link) &&
                g_app.popup_owner_kind == PopupOwnerKind::message) {
         applied = copy_message_link(owner_id);
@@ -1271,7 +1273,7 @@ bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
                                                      popup_action_copy_guild_id, {&current, 1})
                               ? message_context_format_snowflake(owner_id, {id, 20})
                               : 0;
-        applied = bytes && clipboard_write_utf8(g_app.window, {id, bytes});
+        applied = application_copy_text({id, bytes}, kToastIdCopied, kToastIdCopyFailed);
     } else if (action == popup_action_close_dm &&
                g_app.popup_owner_kind == PopupOwnerKind::private_channel) {
         const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, owner_id);
@@ -1288,9 +1290,8 @@ bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     } else if (action == popup_action_copy_member_name &&
                g_app.popup_owner_kind == PopupOwnerKind::member) {
         const UserRecord* user = user_store_find(g_app.account_ui->user_store, owner_id);
-        applied =
-            user && clipboard_write_utf8(g_app.window,
-                                         user_store_name(g_app.account_ui->user_store, *user));
+        applied = user && application_copy_text(user_store_name(g_app.account_ui->user_store, *user),
+                                                kToastUsernameCopied, kToastCopyFailed);
     } else if (action == static_cast<u32>(MessageContextAction::copy_id) &&
                g_app.popup_owner_kind == PopupOwnerKind::message && g_app.preferences.developer_mode) {
         applied = copy_message_id(owner_id, shift_pressed);
@@ -1298,7 +1299,7 @@ bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
                g_app.preferences.developer_mode) {
         char id[20]{};
         const u32 bytes = message_context_format_snowflake(owner_id, Slice<char>{id, 20});
-        applied = bytes != 0 && clipboard_write_utf8(g_app.window, Utf8View{id, bytes});
+        applied = application_copy_text({id, bytes}, kToastIdCopied, kToastIdCopyFailed);
     }
     if (!applied) {
         log_u64(LogLevel::warning, "ui", "popup_action_not_applied", action);

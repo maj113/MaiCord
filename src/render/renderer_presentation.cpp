@@ -346,6 +346,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     // A hidden tooltip contributes nothing to the stamp.
     if (d3d11_renderer_tooltip_visible(renderer))
         s.pointer(renderer.tooltip_scene).push(renderer.tooltip_scene->revision);
+    if (d3d11_renderer_toast_visible(renderer))
+        s.pointer(renderer.toast_scene).push(renderer.toast_scene->revision);
     s.pointer(renderer.friends_requests_scene);
     if (const auto* requests = renderer.friends_requests_scene) {
         s.push(requests->active)

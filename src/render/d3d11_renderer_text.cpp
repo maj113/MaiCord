@@ -1380,7 +1380,16 @@ struct TextOverlayBoundaries {
     u32 poll_start{}, poll_end{};
     // Profile editor overlays on a settings page (~0u: none this frame).
     u32 settings_preview_start{~0u}, settings_preview_end{~0u}, settings_dialog_start{~0u}, settings_dialog_end{~0u};
+    // The toast's text closes the stream (~0u: none this frame).
+    u32 toast_start{~0u};
 };
+bool project_toast_text(const D3D11Renderer* renderer, const Theme& theme, UiTextOutput* output,
+                        TextOverlayBoundaries* boundaries) noexcept {
+    if (!d3d11_renderer_toast_visible(*renderer))
+        return true;
+    boundaries->toast_start = output->emitter->count;
+    return ui_toast_text_output(*renderer->toast_scene, theme, output);
+}
 
 bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTextCommand* native,
                             UiTextCommand* neutral) noexcept {
@@ -1578,8 +1587,10 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
                                              theme, &output))
             return false;
         boundaries->forum_end = emitter->count;
-        return !form || text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
-                                              theme, &output);
+        if (form && !text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
+                                           theme, &output))
+            return false;
+        return project_toast_text(renderer, theme, &output, boundaries);
     }
     // The call view leads the side-panel text range, above the base content.
     if (d3d11_renderer_call_visible(*renderer) &&
@@ -1702,7 +1713,8 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
            (!renderer_settings_page_visible(*renderer) ||
             ui_settings_scene_text_output(*renderer->settings_scene, theme, &output)) &&
            (!d3d11_renderer_tooltip_visible(*renderer) ||
-            ui_tooltip_text_output(*renderer->tooltip_scene, theme, &output));
+            ui_tooltip_text_output(*renderer->tooltip_scene, theme, &output)) &&
+           project_toast_text(renderer, theme, &output, boundaries);
 }
 struct TextRasterConsumer {
     D3D11Renderer* renderer;
@@ -1757,6 +1769,8 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
             renderer->form_text_first_batch = renderer->content_text->batch_count;
         if (ordinal == bounds.forum_end)
             renderer->forum_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.toast_start)
+            renderer->toast_text_first_batch = renderer->content_text->batch_count;
         boundary = ordinal == 0 || ordinal == bounds.friends_end || ordinal == bounds.media_picker_start ||
                    ordinal == bounds.media_picker_end || ordinal == bounds.menu_start ||
                    ordinal == bounds.profile_start || ordinal == bounds.profile_end ||
@@ -1765,6 +1779,7 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
                    ordinal == bounds.theme_editor_start || ordinal == bounds.theme_editor_end ||
                    ordinal == bounds.settings_preview_start || ordinal == bounds.settings_preview_end ||
                    ordinal == bounds.settings_dialog_start || ordinal == bounds.settings_dialog_end ||
+                   ordinal == bounds.toast_start ||
                    ((form || settings) && (ordinal == bounds.form_start || ordinal == bounds.forum_end));
     }
     const bool page = raster.overlay && renderer_settings_page_visible(*renderer) &&
@@ -2315,6 +2330,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     renderer->overlay_text_first_batch = storage->batch_count;
     renderer->form_text_first_batch = ~0u;
     renderer->menu_text_first_batch = ~0u;
+    renderer->toast_text_first_batch = ~0u;
     renderer->friends_requests_text_end_batch = storage->batch_count;
     renderer->media_picker_text_first_batch = renderer->media_picker_text_end_batch = storage->batch_count;
     reset_motion_text_ranges(renderer, storage->batch_count);
@@ -2345,7 +2361,8 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         raster_boundaries.theme_editor_end != boundaries.theme_editor_end ||
         raster_boundaries.menu_start != boundaries.menu_start ||
         raster_boundaries.form_start != boundaries.form_start ||
-        raster_boundaries.forum_end != boundaries.forum_end)
+        raster_boundaries.forum_end != boundaries.forum_end ||
+        raster_boundaries.toast_start != boundaries.toast_start)
         return false;
     if (boundaries.friends_end == overlay.count)
         renderer->friends_requests_text_end_batch = storage->batch_count;
@@ -2383,6 +2400,8 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         renderer->form_text_first_batch = storage->batch_count;
     if (boundaries.forum_end == overlay.count)
         renderer->forum_text_end_batch = storage->batch_count;
+    if (boundaries.toast_start == overlay.count)
+        renderer->toast_text_first_batch = storage->batch_count;
     if (prefix.storage)
         prefix.build_serial = storage->rebuilds + 1;
     if (prefix.shell.storage) {

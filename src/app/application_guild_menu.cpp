@@ -1,4 +1,5 @@
 #include "application_guild_menu.hpp"
+#include "application_toast.hpp"
 
 #include "application_account_logout.hpp"
 #include "application_account_presentation.hpp"
@@ -118,7 +119,7 @@ bool open_settings_pages(u64 guild_id) noexcept {
 bool copy_guild_id(u64 guild_id) noexcept {
     char text[20]{};
     const u32 bytes = message_context_format_snowflake(guild_id, {text, sizeof(text)});
-    return bytes && clipboard_write_utf8(g_app.window, {text, bytes});
+    return application_copy_text({text, bytes}, kToastIdCopied, kToastIdCopyFailed);
 }
 } // namespace
 

@@ -375,6 +375,9 @@ u64 application_video_next_wake() noexcept {
 u64 application_tooltip_next_wake() noexcept {
     return tooltip_wake;
 }
+u64 application_toast_next_wake() noexcept {
+    return 0;
+}
 u64 application_guild_banner_next_wake() noexcept {
     return 0;
 }

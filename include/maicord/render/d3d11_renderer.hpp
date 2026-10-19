@@ -37,6 +37,7 @@
 #include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/tooltip.hpp"
 #include "maicord/ui/unread_banner_scene.hpp"
+#include "maicord/ui/toast.hpp"
 #include "maicord/ui/friends_scene.hpp"
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
@@ -389,6 +390,10 @@ struct D3D11Renderer {
     const UiThemeEditorScene* theme_editor_scene;
     const UiTooltipScene* tooltip_scene;
     const UiUnreadBannerScene* unread_banner_scene;
+    // Drawn last, above every layer, at toast_opacity from its first batches.
+    const UiToastScene* toast_scene;
+    u32 toast_paint_first_batch, toast_text_first_batch;
+    float toast_opacity;
     const UiFriendsScene* friends_scene;
     const UiFriendsScene* friends_requests_scene;
     const UiSearchScene* search_scene;
@@ -447,6 +452,7 @@ struct D3D11Renderer {
     u32 interaction_text_theme_editor_revision;
     u32 interaction_text_tooltip_revision;
     u32 interaction_text_unread_banner_revision;
+    u32 interaction_text_toast_revision;
     u32 interaction_text_friends_revision;
     u32 interaction_text_friends_requests_revision;
     const MessageTextPresentation* message_text;

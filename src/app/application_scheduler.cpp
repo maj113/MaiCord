@@ -20,6 +20,7 @@
 #include "application_notifications.hpp"
 #include "application_video.hpp"
 #include "application_tooltip.hpp"
+#include "application_toast.hpp"
 #include "application_search.hpp"
 #include "application_search_navigation.hpp"
 #include "application_pinned_messages.hpp"

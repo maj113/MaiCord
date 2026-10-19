@@ -887,6 +887,20 @@ maicord_test(MaiCordDownloadsRuntimeTests ENTRY maicord_application_downloads_ru
     INCLUDES src/app
     TIMEOUT 15
     TEST maicord_downloads_runtime)
+# Toast queue: order, merge, overflow, timing by update and wake counts, placement and paint.
+maicord_test(MaiCordToastTests ENTRY maicord_toast_tests_entry
+    SOURCES tests/toast.cpp
+    LIBS maicord_core maicord_ui kernel32 user32
+    TIMEOUT 5
+    TEST maicord_toast)
+# Server Settings invite rows: Copy Link through the clipboard sink, its toast and Revoke.
+maicord_test(MaiCordInviteCopyRuntimeTests ENTRY maicord_invite_copy_runtime_entry
+    SOURCES tests/application_invite_copy_runtime.cpp src/app/application_state.cpp src/core/log.cpp
+    LIBS ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime maicord_text maicord_render_core
+        kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10
+    TEST maicord_invite_copy_runtime)
 maicord_test(MaiCordTlsStreamTailTests ENTRY maicord_tls_stream_tail_entry
     SOURCES tests/tls_stream_tail_entry.cpp src/platform/tls_stream.cpp
     LIBS maicord_core maicord_platform kernel32 ws2_32 secur32 bcrypt crypt32
@@ -1624,6 +1638,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         src/app/application_state.cpp tests/integration/video_retention_probe.cpp
         tests/integration/video_scene_ui_probe.cpp tests/integration/audio_scene_ui_probe.cpp
         tests/integration/tooltip_ui_probe.cpp tests/integration/account_menu_ui_probe.cpp
+        tests/integration/toast_ui_probe.cpp
         tests/integration/search_ui_probe.cpp tests/integration/application_media_animation_ui_probe.cpp
         src/app/application_media.cpp src/app/application_media_animation.cpp
         src/app/application_media_requests.cpp tests/integration/menu_row_ui_probe.cpp

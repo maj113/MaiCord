@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "application_toast.hpp"
 #include "application_content_point.hpp"
 #include "application_image_viewer.hpp"
 #include "application_cursor.hpp"
@@ -253,6 +254,7 @@ bool copy_image() noexcept {
     const bool copied =
         read && clipboard_write_image(g_app.window, pixels, width, height, width * 4, current_url());
     VirtualFree(pixels, 0, MEM_RELEASE);
+    application_toast_result(copied, kToastImageCopied, kToastImageCopyFailed);
     if (copied) {
         auto& scene = g_app.image_viewer.scene;
         scene.copied = true;

@@ -59,6 +59,7 @@
 #include "application_video.hpp"
 #include "application_tooltip.hpp"
 #include "application_unread_banner.hpp"
+#include "application_toast.hpp"
 #include "application_guild_folders.hpp"
 #include "application_guild_invite.hpp"
 #include "application_taskbar_attention.hpp"
@@ -762,6 +763,7 @@ int application_run() noexcept {
     application_notifications_prepare_shutdown(&g_app);
     application_tooltip_release();
     application_unread_banner_release();
+    application_toast_release();
     application_guild_folders_release();
     application_guild_invite_release();
     application_taskbar_attention_release();

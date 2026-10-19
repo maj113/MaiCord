@@ -1,4 +1,5 @@
 #include "application_guild_settings_internal.hpp"
+#include "application_toast.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/clipboard.hpp"
@@ -229,7 +230,9 @@ void activate(const SettingsLayerActivation& activation) noexcept {
     if (id == control_widget_id || id == control_widget_json) {
         char text[96];
         Bank bank{text, sizeof(text), 0};
-        clipboard_write_utf8(g_app.window, widget_text(bank, id == control_widget_json));
+        const bool json = id == control_widget_json;
+        application_copy_text(widget_text(bank, json), json ? kToastLinkCopied : kToastIdCopied,
+                              json ? kToastLinkCopyFailed : kToastIdCopyFailed);
         return;
     }
     if (!can_manage_guild())

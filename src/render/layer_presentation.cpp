@@ -119,4 +119,25 @@ bool renderer_set_settings_modal_progress(D3D11Renderer* renderer, float progres
     return true;
 }
 
+bool renderer_set_toast_opacity(D3D11Renderer* renderer, float opacity) noexcept {
+    if (!renderer)
+        return false;
+    opacity = opacity >= 0 && opacity <= 1 ? opacity : 1;
+    if (renderer->toast_opacity == opacity)
+        return false;
+    renderer->toast_opacity = opacity;
+    const UiRect rectangle = renderer->toast_scene ? renderer->toast_scene->rectangle : UiRect{};
+    if (renderer->dpi && rectangle.left < rectangle.right && rectangle.top < rectangle.bottom) {
+        // The popover shadow below it reaches 12 DIP out and 6 DIP down.
+        constexpr float fringe = 20;
+        const float pixels = 96.f / static_cast<float>(renderer->dpi);
+        presentation_damage_add(&renderer->presentation_damage,
+                                {rectangle.left - fringe, rectangle.top - fringe, rectangle.right + fringe,
+                                 rectangle.bottom + fringe},
+                                {0, 0, static_cast<float>(renderer->width) * pixels,
+                                 static_cast<float>(renderer->height) * pixels});
+    }
+    return true;
+}
+
 } // namespace maicord

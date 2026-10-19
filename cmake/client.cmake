@@ -63,6 +63,7 @@ add_executable(MaiCord WIN32
     src/app/application_login_auth.cpp src/app/application_login_input.cpp src/app/application_login_ui.cpp
     src/app/application_ui_runtime.cpp src/app/account_permission_storage.cpp src/app/application_media.cpp
     src/app/application_video.cpp src/app/application_tooltip.cpp src/app/application_reaction_tooltip.cpp
+    src/app/application_toast.cpp
     src/app/application_account_menu.cpp
     src/app/application_account_switch.cpp src/app/application_search.cpp src/app/application_search_content.cpp
     src/app/application_search_navigation.cpp src/app/application_thread_actions.cpp

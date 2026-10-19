@@ -84,6 +84,7 @@
 #include "navigation_gaps_ui_probe.hpp"
 #include "theme_typography_ui_probe.hpp"
 #include "tooltip_ui_probe.hpp"
+#include "toast_ui_probe.hpp"
 #include "account_menu_ui_probe.hpp"
 #include "search_ui_probe.hpp"
 #include "pinned_messages_ui_probe.hpp"
@@ -10705,6 +10706,14 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 254;
+    }
+    if (GetEnvironmentVariableW(L"MAICORD_TOAST_UI_PROBE", nullptr, 0)) {
+        const bool valid = initialize_fixture(true) && toast_ui_probe(g_probe.renderer, probe_capture_frame);
+        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
+                  valid ? "toast_native_ui_passed" : "toast_native_ui_failed");
+        renderer_shutdown(&g_probe.renderer);
+        DestroyWindow(g_probe.window);
+        return valid ? 0 : 276;
     }
     if(GetEnvironmentVariableW(L"MAICORD_CATALOG_APNG_UI_PROBE",nullptr,0)) {
         const bool valid=initialize_fixture(true) && probe_catalog_apng();

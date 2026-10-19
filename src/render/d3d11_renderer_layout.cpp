@@ -699,6 +699,13 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
     return true;
 }
 
+// The toast's own batches close every paint stream; d3d11_renderer_draw
+// draws them after all other layers.
+bool queue_toast(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    renderer->toast_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    return !d3d11_renderer_toast_visible(*renderer) ||
+           ui_toast_paint(*renderer->toast_scene, theme, &renderer->paint_stream);
+}
 bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
     renderer->inline_media_first_batch = renderer->media_batch_count;
     for (u32 layer = 0; layer < static_cast<u32>(RendererInlineMediaLayer::count); ++layer) {
@@ -1038,7 +1045,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return (!d3d11_renderer_text_form_active(*renderer) ||
                 text_form_paint(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                                 &renderer->paint_stream)) &&
-               queue_inline_flags(renderer);
+               queue_toast(renderer, theme) && queue_inline_flags(renderer);
     }
     renderer->paint_stream.scrollbar_viewport = renderer->scrollbar_viewport;
     if (d3d11_renderer_active(renderer->popup_scene)) {
@@ -2351,6 +2358,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (d3d11_renderer_tooltip_visible(*renderer) &&
             !ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
+        if (!queue_toast(renderer, theme))
+            return layout_step_failed(__LINE__);
         return queue_inline_flags(renderer);
 
     }
@@ -2613,6 +2622,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (!ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
+    if (!queue_toast(renderer, theme))
+        return layout_step_failed(__LINE__);
     return queue_inline_flags(renderer);
 }
 

@@ -1,4 +1,5 @@
 #include "application_guild_lifecycle.hpp"
+#include "application_toast.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_channel_overview.hpp"
@@ -563,7 +564,7 @@ void copy_link() noexcept {
     char text[64];
     Bank bank{text, sizeof(text), 0};
     const auto link = invite_link(bank);
-    if (clipboard_write_utf8(g_app.window, link))
+    if (application_copy_text(link, kToastInviteCopied, kToastLinkCopyFailed))
         p.copied_until = deadline_after(clock_monotonic_milliseconds(), kCopiedMs);
 }
 void start_pick() noexcept {

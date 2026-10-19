@@ -315,6 +315,8 @@ struct Application {
     ApplicationNotifications* notifications;
     ApplicationVideo* video;
     ApplicationTooltip* tooltip;
+    // The toast queue (application_toast.hpp); zero is empty.
+    UiToastScene toasts;
     ApplicationAccountMenu* account_menu;
     ApplicationAccountLogout* account_logout;
     u64 account_logout_lifetime_serial;

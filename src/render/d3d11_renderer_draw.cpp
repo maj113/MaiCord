@@ -500,6 +500,7 @@ struct ShellBackdropView {
     TextFormSurface* text_form;
     ForumPostSurface* forum_form;
     const UiTooltipScene* tooltip;
+    const UiToastScene* toast;
     const UiWidgetManager* focus;
     const UiImageViewer* image;
     ProfileScene* profile;
@@ -509,7 +510,8 @@ struct ShellBackdropView {
     ShellBackdropView(D3D11Renderer* owner, bool hide_text) noexcept
         : renderer(owner), settings(owner->settings_scene), editor(owner->theme_editor_scene),
           popup(owner->popup_scene), text_form(owner->text_form), forum_form(owner->forum_form),
-          tooltip(owner->tooltip_scene), focus(owner->focus_owner), image(owner->image_viewer),
+          tooltip(owner->tooltip_scene), toast(owner->toast_scene), focus(owner->focus_owner),
+          image(owner->image_viewer),
           profile(owner->profile_scene), bar(owner->message_action_bar), reactions(owner->reaction_viewer),
           text(owner->content_text) {
         owner->settings_scene = nullptr;
@@ -518,6 +520,7 @@ struct ShellBackdropView {
         owner->text_form = nullptr;
         owner->forum_form = nullptr;
         owner->tooltip_scene = nullptr;
+        owner->toast_scene = nullptr;
         owner->focus_owner = nullptr;
         owner->image_viewer = nullptr;
         owner->profile_scene = nullptr;
@@ -533,6 +536,7 @@ struct ShellBackdropView {
         renderer->text_form = text_form;
         renderer->forum_form = forum_form;
         renderer->tooltip_scene = tooltip;
+        renderer->toast_scene = toast;
         renderer->focus_owner = focus;
         renderer->image_viewer = image;
         renderer->profile_scene = profile;
@@ -870,7 +874,12 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     renderer->draw_calls_last_frame = 0;
     renderer->media_draws_last_frame = 0;
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
-    const u32 paint_batch_count = renderer->paint_stream.batch_count;
+    // A visible toast's batches close both streams; every layer below ends
+    // before them and the toast draws last.
+    const bool toast = d3d11_renderer_toast_visible(*renderer);
+    const u32 stream_paint_batches = renderer->paint_stream.batch_count;
+    const u32 paint_batch_count =
+        toast ? minimum(renderer->toast_paint_first_batch, stream_paint_batches) : stream_paint_batches;
     const u32 text_batch_count = renderer->content_text ? renderer->content_text->batch_count : 1u;
     const bool login_form = renderer->login_visible && renderer->login_form_text && renderer->text_form &&
                             renderer->text_form->scene && renderer->text_form->scene->active;
@@ -884,7 +893,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
           d3d11_renderer_video_scene_visible(*renderer) || d3d11_renderer_audio_scene_visible(*renderer) ||
           d3d11_renderer_poll_scene_visible(*renderer) || d3d11_renderer_poll_voters_visible(*renderer) ||
           d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_search_visible(*renderer) ||
-          d3d11_renderer_unread_banner_visible(*renderer) ||
+          d3d11_renderer_unread_banner_visible(*renderer) || toast ||
           d3d11_renderer_pinned_messages_visible(*renderer) ||
           d3d11_renderer_quick_switcher_visible(*renderer) || d3d11_renderer_inbox_visible(*renderer) ||
           d3d11_renderer_message_forward_visible(*renderer) || d3d11_renderer_download_visible(*renderer) ||
@@ -903,8 +912,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const u32 base_text_end = renderer->content_text
                                   ? minimum(renderer->overlay_text_first_batch, text_batch_count)
                                   : text_batch_count;
-    const u32 visible_text_end =
+    const u32 stream_text_end =
         interaction_overlay && interaction_text_current ? text_batch_count : base_text_end;
+    const u32 visible_text_end =
+        toast ? maximum(base_text_end, minimum(renderer->toast_text_first_batch, stream_text_end))
+              : stream_text_end;
     if (!interaction_text_current && text_batch_count > base_text_end) {
         saturating_increment(renderer->stale_interaction_text_suppressions);
     }
@@ -1263,6 +1275,22 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                !text(editor_text_first, editor_text_end, false) || !paint(editor_paint_end, form_paint) ||
                !text(editor_text_end, form_text, false) || !forms(form_paint, form_text, true)) {
         goto draw_failed;
+    }
+    if (toast) {
+        const float opacity = renderer->toast_opacity;
+        const LayerBatchRange toast_paint[1]{{paint_batch_count, stream_paint_batches, opacity}};
+        const LayerBatchRange toast_text[1]{{visible_text_end, stream_text_end, opacity}};
+        const auto paint_toast = [&](u32 begin, u32 limit) noexcept {
+            return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
+        };
+        const auto text_toast = [&](u32 begin, u32 limit) noexcept {
+            return draw_gpu_text(renderer, &submission, theme, begin, limit, false, damage);
+        };
+        if (!draw_opacity_batches(renderer, paint_batch_count, stream_paint_batches, toast_paint,
+                                  current_opacity, paint_toast) ||
+            !draw_opacity_batches(renderer, visible_text_end, stream_text_end, toast_text, current_opacity,
+                                  text_toast))
+            goto draw_failed;
     }
     if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&
         !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,

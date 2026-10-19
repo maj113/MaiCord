@@ -16,6 +16,7 @@
 #include "application_guild_folders.hpp"
 #include "application_user_settings.hpp"
 #include "application_unread_banner.hpp"
+#include "application_toast.hpp"
 #include "application_downloads.hpp"
 #include "application_gif_favorite_star.hpp"
 #include "application_load_trace.hpp"
@@ -278,6 +279,7 @@ bool application_present_frame() noexcept {
     if (!application_message_hover_observe_scroll())
         return present_rejected("message_hover");
     application_unread_banner_synchronize(clock_monotonic_milliseconds());
+    application_toast_synchronize(clock_monotonic_milliseconds());
     // Every surface has now published its final edit/focus/scroll projection.
     // Refresh a stale retained suffix before the draw guard can suppress it.
     if (!renderer_refresh_interaction_text(&g_app.renderer, application_theme()))

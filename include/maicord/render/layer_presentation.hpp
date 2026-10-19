@@ -26,5 +26,8 @@ bool renderer_set_layer_opacity(D3D11Renderer*, RendererLayerSurface, float) noe
 bool renderer_set_popup_scale(D3D11Renderer*, float scale, float origin_x, float origin_y) noexcept;
 // Settings dialog entrance in [0, 1]: scrim opacity, dialog opacity and scale.
 bool renderer_set_settings_modal_progress(D3D11Renderer*, float) noexcept;
+// Toast layer opacity in [0, 1] (invalid values: 1); damages the toast's
+// current rectangle and shadow. Returns whether it changed.
+bool renderer_set_toast_opacity(D3D11Renderer*, float) noexcept;
 
 } // namespace maicord

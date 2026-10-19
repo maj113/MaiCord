@@ -1,4 +1,5 @@
 #include "application_guild_community.hpp"
+#include "application_toast.hpp"
 #include "application_guild_card.hpp"
 #include "application_action_captcha.hpp"
 #include "application_account_presentation.hpp"
@@ -1187,7 +1188,7 @@ void toggle_interest(const ScheduledEvent& e, bool interested) noexcept {
 void copy_event_link() noexcept {
     char link[96];
     const u32 bytes = scheduled_event_write_link(owner->guild_id, owner->event_id, {link, sizeof(link)});
-    if (bytes && clipboard_write_utf8(g_app.window, {link, bytes}))
+    if (application_copy_text({link, bytes}, kToastLinkCopied, kToastLinkCopyFailed))
         owner->copied_until = deadline_after(clock_monotonic_milliseconds(), kCopiedMs);
 }
 void open_menu(Menu menu, UiRect anchor) noexcept {
