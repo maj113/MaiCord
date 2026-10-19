@@ -408,10 +408,11 @@ bool message_group_neighbors(const MessageScene& scene, const MessageRecord& pre
         if (cached) cached->ready = false;
         return false;
     }
+    // Delivery state is not a boundary: a pending or failed send groups exactly
+    // as its confirmed form will.
     if (previous.channel_id != current.channel_id || previous.author_id == 0 ||
         previous.author_id != current.author_id || previous.timestamp_ms == 0 ||
         current.timestamp_ms == 0 || current.timestamp_ms < previous.timestamp_ms ||
-        previous.delivery != current.delivery ||
         previous.content_availability != current.content_availability) {
         if (cached) cached->ready = false;
         return false;

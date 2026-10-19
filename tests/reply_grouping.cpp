@@ -3,6 +3,7 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/app/message_send_tracker.hpp"
 
 namespace maicord {
 namespace {
@@ -49,6 +50,149 @@ bool set_reply(Fixture& f, u64 id, GatewayMessageReferenceState state) noexcept 
         event.reference.content = utf8_literal("hmmm");
     }
     return message_rich_store_apply(&f.rich, id, record->revision, event).ok();
+}
+
+// Optimistic sends: synthetic channel 7, self author 9.
+constexpr u64 kSelf = 9;
+constexpr u64 kStart = 1'700'000'000'000ull;
+MessageSendTracker tracker;
+
+constexpr u64 snowflake_at(u64 unix_ms, u64 low) noexcept {
+    return ((unix_ms - kSnowflakeEpochMilliseconds) << 22) | low;
+}
+
+bool setup_send(Fixture& f, u64 previous_author) noexcept {
+    return message_store_initialize(&f.store, {f.records, count}, {f.order, count}, {f.text, sizeof(f.text)}) &&
+        message_rich_store_initialize(&f.rich, {f.rich_records, count}, {f.rich_order, count},
+                                      {f.rich_text, sizeof(f.rich_text)}) &&
+        message_store_upsert(&f.store, {snowflake_at(kStart, 1), 7, previous_author, kStart, 0,
+                                        utf8_literal("earlier"), 0}).ok() &&
+        ui_variable_list_initialize(&f.list, {f.heights, count}, {f.fenwick, count}, 1, ui_extent_units(57)) &&
+        message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000), true) &&
+        message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+        message_scene_initialize_owned(&f.scene, &f.timeline, count, count, {f.widget_storage, widgets},
+                                       {f.nodes, widgets}) &&
+        message_send_tracker_initialize(&tracker);
+}
+
+// One converged frame: layout, simulated text measurement, relayout.
+bool send_frame(Fixture& f) noexcept {
+    const UiRect viewport{0, 0, 740, 1000};
+    bool ok = message_scene_update(&f.scene, viewport).ok();
+    for (u32 i = 0; ok && i < f.store.count; ++i) {
+        bool changed = false;
+        ok = message_scene_set_text_metrics(&f.scene, i, 18, 16, true, nullptr, nullptr, {}, &changed);
+    }
+    return ok && message_scene_update(&f.scene, viewport).ok();
+}
+
+bool row_reply_header(const Fixture& f, u64 id) noexcept {
+    const auto* rich = message_rich_store_find(f.rich, id);
+    return rich && message_rich_has_header(*rich);
+}
+
+struct SendRow {
+    bool ok, grouped, header;
+    u32 units;
+    MessageDeliveryState delivery;
+};
+
+SendRow send_row(const Fixture& f) noexcept {
+    const auto* row = message_scene_find_row(f.scene, 1);
+    const auto* avatar = row ? message_scene_layout_node(f.scene, row->avatar) : nullptr;
+    const auto* record = row ? message_store_resolve(f.store, row->message) : nullptr;
+    if (!row || !avatar || !record || (ui_rect_height(avatar->rectangle) == 0.0f) != row->grouped)
+        return {};
+    return {true, row->grouped, row_reply_header(f, record->id), ui_variable_list_item_units(f.list, 1),
+            record->delivery};
+}
+
+bool echo(Fixture& f, u64 nonce, u64 id, u64 timestamp, Utf8View content, u64 reply_to) noexcept {
+    GatewayMessageEvent event{};
+    event.id = id;
+    event.channel_id = 7;
+    event.author_id = kSelf;
+    event.timestamp_ms = timestamp;
+    event.content = content;
+    event.nonce = nonce;
+    event.fields = gateway_message_field_id | gateway_message_field_channel_id | gateway_message_field_author_id |
+        gateway_message_field_timestamp | gateway_message_field_content | gateway_message_field_nonce;
+    if (reply_to) {
+        event.type = 19;
+        event.fields |= gateway_message_field_message_reference | gateway_message_field_referenced_message;
+        event.reference.message_id = reply_to;
+        event.reference.channel_id = 7;
+        event.reference.author_id = kSelf;
+        event.reference.author_name = utf8_literal("Self");
+        event.reference.content = utf8_literal("earlier");
+        event.reference.state = GatewayMessageReferenceState::available;
+    }
+    return message_send_tracker_observe_gateway(&tracker, &f.timeline, nonce, 7, kSelf, id, 50).ok() &&
+        message_timeline_apply_created(&f.timeline, event).ok();
+}
+
+void test_pending_grouping(void (*check)(bool, const char*) noexcept) noexcept {
+    Fixture& f = fixture;
+    const u64 sent_at = kStart + 6 * 60'000ull;
+    bool ready = setup_send(f, kSelf);
+    const auto begun = ready ? message_send_tracker_begin(&tracker, &f.timeline, 7, kSelf, utf8_literal("pending"),
+                                                          sent_at, 10) : MessageSendBeginResult{};
+    ready = ready && begun.ok() && send_frame(f);
+    const SendRow pending = send_row(f);
+    check(ready && pending.ok && pending.grouped && !pending.header &&
+              pending.delivery == MessageDeliveryState::pending,
+          "pending_send_after_own_message_within_seven_minutes_is_grouped");
+    const bool failed = ready && message_send_tracker_observe_http(&tracker, &f.timeline, begun.nonce, 400,
+        MessageSendHttpDisposition::terminal_failure, 20).ok() && send_frame(f);
+    const SendRow failed_row = send_row(f);
+    check(failed && failed_row.ok && failed_row.grouped && failed_row.units == pending.units &&
+              failed_row.delivery == MessageDeliveryState::failed,
+          "failed_send_keeps_grouping_and_height");
+    const bool retried = failed && message_send_tracker_retry(&tracker, &f.timeline, begun.nonce, 30).ok() &&
+        send_frame(f);
+    const SendRow retried_row = send_row(f);
+    check(retried && retried_row.ok && retried_row.grouped && retried_row.units == pending.units &&
+              retried_row.delivery == MessageDeliveryState::pending,
+          "retried_send_keeps_grouping_and_height");
+    const u64 id = snowflake_at(sent_at + 300, 2);
+    const bool echoed = retried && echo(f, begun.nonce, id, sent_at + 300, utf8_literal("pending"), 0) &&
+        message_scene_update(&f.scene, f.scene.viewport).ok();
+    const auto* unmeasured = message_scene_find_row(f.scene, 1);
+    const bool grouped_first_frame = echoed && unmeasured && unmeasured->grouped && unmeasured->message_id == id;
+    const bool settled = grouped_first_frame && send_frame(f);
+    const SendRow confirmed = send_row(f);
+    check(settled && confirmed.ok && confirmed.grouped && confirmed.units == pending.units &&
+              confirmed.delivery == MessageDeliveryState::authoritative && f.store.count == 2,
+          "send_echo_replaces_pending_row_without_group_or_height_change");
+    message_scene_release(&f.scene);
+
+    ready = setup_send(f, 10) &&
+        message_send_tracker_begin(&tracker, &f.timeline, 7, kSelf, utf8_literal("pending"), kStart + 60'000, 10).ok() &&
+        send_frame(f);
+    const SendRow other_author = send_row(f);
+    message_scene_release(&f.scene);
+    ready = ready && setup_send(f, kSelf) &&
+        message_send_tracker_begin(&tracker, &f.timeline, 7, kSelf, utf8_literal("pending"),
+                                   kStart + kMessageGroupIntervalMilliseconds + 1'000, 10).ok() &&
+        send_frame(f);
+    const SendRow stale = send_row(f);
+    check(ready && other_author.ok && !other_author.grouped && stale.ok && !stale.grouped,
+          "pending_send_after_another_author_or_seven_minutes_starts_group");
+    message_scene_release(&f.scene);
+
+    ready = setup_send(f, kSelf);
+    const auto reply = ready ? message_send_tracker_begin(&tracker, &f.timeline, 7, kSelf, utf8_literal("reply"),
+                                                          sent_at, 10) : MessageSendBeginResult{};
+    ready = ready && reply.ok() && message_timeline_set_local_reply(&f.timeline, reply.nonce, snowflake_at(kStart, 1)) &&
+        send_frame(f);
+    const SendRow quoted = send_row(f);
+    const bool reply_echoed = ready && echo(f, reply.nonce, snowflake_at(sent_at + 300, 3), sent_at + 300,
+                                            utf8_literal("reply"), snowflake_at(kStart, 1)) && send_frame(f);
+    const SendRow reply_confirmed = send_row(f);
+    check(ready && quoted.ok && !quoted.grouped && quoted.header && reply_echoed && reply_confirmed.ok &&
+              !reply_confirmed.grouped && reply_confirmed.header && reply_confirmed.units == quoted.units,
+          "pending_reply_carries_its_quote_and_echo_keeps_header_and_height");
+    message_scene_release(&f.scene);
 }
 }
 
@@ -210,5 +354,6 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
             "unread_divider_cannot_project_another_channel_into_the_selected_timeline");
         message_scene_release(&f.scene);
     }
+    test_pending_grouping(check);
 }
 } // namespace maicord

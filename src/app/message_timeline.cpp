@@ -155,6 +155,46 @@ __declspec(noinline) bool insert_local_attachments(
     }
     return message_rich_store_apply(timeline->rich_store, input.id, revision, rich).ok();
 }
+
+// Fills an unknown same-channel reply quote from its resident target.
+__declspec(noinline) bool resolve_resident_reference(const MessageTimeline& timeline, u64 channel_id,
+                                                     GatewayMessageReference* reference) noexcept {
+    const auto target = message_store_find(*timeline.store, reference->message_id);
+    const auto* referenced = target.ok() ? message_store_resolve(*timeline.store, target.handle) : nullptr;
+    if (!referenced || referenced->channel_id != channel_id ||
+        referenced->content_availability != MessageContentAvailability::available)
+        return false;
+    reference->author_id = referenced->author_id;
+    reference->content = message_store_content(*timeline.store, target.handle);
+    reference->state = GatewayMessageReferenceState::available;
+    reference->message_type = static_cast<u8>(referenced->type < 256 ? referenced->type : 0);
+    u8 content_flags = 0;
+    if (referenced->flags & (1u << 13))
+        content_flags |= gateway_reference_voice_message;
+    if (referenced->flags & (1u << 15))
+        content_flags |= gateway_reference_components_v2;
+    if (const auto* rich = message_rich_store_find(*timeline.rich_store, referenced->id)) {
+        if (rich->attachment_count)
+            content_flags |= gateway_reference_attachments;
+        if (rich->embed_count)
+            content_flags |= gateway_reference_embeds;
+        if (rich->sticker_count)
+            content_flags |= gateway_reference_stickers;
+        if (rich->interaction.id)
+            content_flags |= gateway_reference_interaction;
+        if (rich->voice_message)
+            content_flags |= gateway_reference_voice_message;
+        // A lone image/gifv link shows no text (its simple embed replaces it).
+        const auto& embed = rich->embeds[0];
+        const Utf8View url = message_rich_store_string(*timeline.rich_store, embed.url);
+        if (rich->embed_count == 1 && !embed.title.bytes && !embed.description.bytes &&
+            (embed.type == GatewayMessageEmbedType::image || embed.type == GatewayMessageEmbedType::gifv) &&
+            utf8_equal(reference->content, url))
+            reference->content = {};
+    }
+    reference->content_flags = content_flags;
+    return true;
+}
 } // namespace
 
 u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept {
@@ -505,6 +545,28 @@ bool message_timeline_set_delivery(MessageTimeline* timeline, u64 message_id, Me
     return true;
 }
 
+bool message_timeline_set_local_reply(MessageTimeline* timeline, u64 message_id, u64 reply_message_id) noexcept {
+    if (validate_timeline(timeline) != MessageTimelineError::none || !message_id || !reply_message_id ||
+        message_id == reply_message_id)
+        return false;
+    const MessageStoreResult found = message_store_find(*timeline->store, message_id);
+    const MessageRecord* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
+    if (!record || record->delivery == MessageDeliveryState::authoritative)
+        return false;
+    if (!timeline->rich_store)
+        return true;
+    GatewayMessageEvent rich{};
+    rich.id = message_id;
+    rich.reference.message_id = reply_message_id;
+    rich.reference.channel_id = record->channel_id;
+    rich.reference.state = GatewayMessageReferenceState::unknown;
+    // An unresolved quote would draw "could not be loaded" until the echo.
+    if (!resolve_resident_reference(*timeline, record->channel_id, &rich.reference))
+        return true;
+    rich.fields = gateway_message_field_message_reference | gateway_message_field_referenced_message;
+    return message_rich_store_apply(timeline->rich_store, message_id, record->revision, rich).ok();
+}
+
 static MessageTimelineApplyResult apply_decoded_message(
     MessageTimeline* timeline, const GatewayMessageEvent& message, bool create,
     MessageContentAvailability content_availability) noexcept {
@@ -617,45 +679,9 @@ static MessageTimelineApplyResult apply_decoded_message(
                                   cached->reference.state == GatewayMessageReferenceState::deleted);
         if (enriched.reference.state == GatewayMessageReferenceState::unknown && !known_quote &&
             enriched.reference.message_id != message.id &&
-            enriched.reference.channel_id == message.channel_id) {
-            const auto target = message_store_find(*timeline->store, enriched.reference.message_id);
-            const auto* referenced =
-                target.ok() ? message_store_resolve(*timeline->store, target.handle) : nullptr;
-            if (referenced && referenced->channel_id == message.channel_id &&
-                referenced->content_availability == MessageContentAvailability::available) {
-                enriched.reference.author_id = referenced->author_id;
-                enriched.reference.content = message_store_content(*timeline->store, target.handle);
-                enriched.reference.state = GatewayMessageReferenceState::available;
-                enriched.reference.message_type = static_cast<u8>(referenced->type < 256 ? referenced->type : 0);
-                u8 content_flags = 0;
-                if (referenced->flags & (1u << 13))
-                    content_flags |= gateway_reference_voice_message;
-                if (referenced->flags & (1u << 15))
-                    content_flags |= gateway_reference_components_v2;
-                if (const auto* rich = message_rich_store_find(*timeline->rich_store, referenced->id)) {
-                    if (rich->attachment_count)
-                        content_flags |= gateway_reference_attachments;
-                    if (rich->embed_count)
-                        content_flags |= gateway_reference_embeds;
-                    if (rich->sticker_count)
-                        content_flags |= gateway_reference_stickers;
-                    if (rich->interaction.id)
-                        content_flags |= gateway_reference_interaction;
-                    if (rich->voice_message)
-                        content_flags |= gateway_reference_voice_message;
-                    // A lone image/gifv link shows no text (its simple embed replaces it).
-                    const auto& embed = rich->embeds[0];
-                    const Utf8View url = message_rich_store_string(*timeline->rich_store, embed.url);
-                    if (rich->embed_count == 1 && !embed.title.bytes && !embed.description.bytes &&
-                        (embed.type == GatewayMessageEmbedType::image ||
-                         embed.type == GatewayMessageEmbedType::gifv) &&
-                        utf8_equal(enriched.reference.content, url))
-                        enriched.reference.content = {};
-                }
-                enriched.reference.content_flags = content_flags;
-                enriched.fields |= gateway_message_field_referenced_message;
-            }
-        }
+            enriched.reference.channel_id == message.channel_id &&
+            resolve_resident_reference(*timeline, message.channel_id, &enriched.reference))
+            enriched.fields |= gateway_message_field_referenced_message;
         if (!resident ||
             !message_rich_store_apply(timeline->rich_store, message.id, resident->revision, enriched)
                  .ok()) {

@@ -64,13 +64,17 @@ __declspec(noinline) bool restore_request(MessageComposerController* controller,
         local[i].description = references[i].description; local[i].size = sizes[i];
         local_voice(references[i], &local[i]);
     }
-    return message_timeline_insert_local(controller->timeline,
+    if (!message_timeline_insert_local(controller->timeline,
         {request.nonce, request.channel_id, request.author_id, request.created_at_ms, 0,
             !request.text_bytes && request.forward_reference.message_id ? kForwardPlaceholder :
             !request.text_bytes && request.sticker_count ? kStickerPlaceholder :
                 Utf8View{reinterpret_cast<const char*>(controller->request_text + request.text_offset), request.text_bytes}, 0,
             MessageContentAvailability::available, failed ? MessageDeliveryState::failed : MessageDeliveryState::pending},
-        controller->timeline->rich_store ? ConstSlice<GatewayMessageAttachment>{local, count} : ConstSlice<GatewayMessageAttachment>{}).ok();
+        controller->timeline->rich_store ? ConstSlice<GatewayMessageAttachment>{local, count} : ConstSlice<GatewayMessageAttachment>{}).ok())
+        return false;
+    if (request.reply_message_id)
+        message_timeline_set_local_reply(controller->timeline, request.nonce, request.reply_message_id);
+    return true;
 }
 
 bool controller_valid(const MessageComposerController* controller) noexcept {
@@ -428,6 +432,9 @@ MessageComposerControllerResult queue_send(
     if (!begun.ok()) {
         return controller_error(controller, tracker_error(begun.error));
     }
+    // Best effort: the send is committed; an unquoted preview only loses its header early.
+    if (reply_message_id)
+        message_timeline_set_local_reply(controller->timeline, begun.nonce, reply_message_id);
     ++controller->request_sequence;
     if (controller->request_sequence == 0) {
         ++controller->request_sequence;

@@ -97,6 +97,10 @@ MessageTimelineApplyResult message_timeline_remove_local(
 bool message_timeline_set_delivery(MessageTimeline* timeline, u64 message_id,
                                    MessageDeliveryState delivery,
                                    MessageTimelineInvalidation* invalidation) noexcept;
+// Gives a local preview the reply quote its echo will carry, so it groups and
+// measures like the confirmed message. A non-resident target is left unquoted.
+// False only for invalid input, a missing or confirmed record, or a rich-store failure.
+bool message_timeline_set_local_reply(MessageTimeline* timeline, u64 message_id, u64 reply_message_id) noexcept;
 // Applies a fully decoded authoritative create without a Gateway envelope or
 // sequence. Shares resident eviction, rich content and layout with live events.
 MessageTimelineApplyResult message_timeline_apply_created(
