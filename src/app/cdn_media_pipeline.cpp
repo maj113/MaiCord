@@ -82,19 +82,14 @@ bool static_image_key_valid(MediaAssetKey key, MediaAttachmentFormat format) noe
         break;
     case MediaAssetKind::attachment: {
         const MediaAttachmentFormat stored = media_asset_attachment_format(key);
-        // Large JPEG renditions arrive as PNG from the media proxy.
         matches = stored == format ||
-                  (format == MediaAttachmentFormat::jpeg && stored == MediaAttachmentFormat::unknown) ||
-                  (format == MediaAttachmentFormat::png && stored == MediaAttachmentFormat::jpeg);
+                  (format == MediaAttachmentFormat::jpeg && stored == MediaAttachmentFormat::unknown);
         break;
     }
     case MediaAssetKind::profile_image:
-    case MediaAssetKind::embed: {
-        const MediaAttachmentFormat stored = media_asset_embed_format(key);
-        matches = stored == format ||
-                  (format == MediaAttachmentFormat::png && stored == MediaAttachmentFormat::jpeg);
+    case MediaAssetKind::embed:
+        matches = media_asset_embed_format(key) == format;
         break;
-    }
     default:
         break;
     }
@@ -268,20 +263,20 @@ bool reduced_jpeg_row(void* context, u32 y, const u8* rgba) noexcept {
 }
 
 // Decodes a JPEG past the GPU coefficient path's extent into oriented
-// straight RGBA8 at the coarsest DCT scale reaching kReducedJpegExtent.
-CdnStaticJpegResult reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+// straight RGBA8 at the coarsest DCT scale reaching `target`, at most
+// `limit` px per side.
+CdnStaticJpegResult reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 target, u32 limit,
                                       CdnStaticJpegState success_state) noexcept {
     CdnStaticJpegResult result{};
     result.state = CdnStaticJpegState::decode_rejected;
     pipeline->jpeg_workspace = ::new (pipeline->jpeg_workspace) JpegWorkspace;
     JpegThumbnailLayout layout{};
     result.decode.parse =
-        jpeg_thumbnail_parse(encoded, kReducedJpegExtent, &result.image, pipeline->jpeg_workspace, &layout);
+        jpeg_thumbnail_parse(encoded, target, &result.image, pipeline->jpeg_workspace, &layout);
     result.decode.error = result.decode.parse.error;
     if (!result.decode.ok())
         return result;
-    // Bounds the output to what the coefficient path accepts (sources to 4096 px).
-    if (layout.width > kJpegDimensionMaximum || layout.height > kJpegDimensionMaximum) {
+    if (layout.width > limit || layout.height > limit) {
         result.decode.error = JpegError::dimensions;
         return result;
     }
@@ -340,8 +335,11 @@ CdnStaticJpegResult decode_jpeg_bytes(CdnMediaPipeline* pipeline, MediaAssetKey 
     }
     pipeline->jpeg_workspace = ::new (pipeline->jpeg_workspace) JpegWorkspace;
     result.decode = jpeg_decode_coefficients(encoded, &result.image, pipeline->jpeg_workspace);
-    if (key.kind == MediaAssetKind::profile_image && result.decode.error == JpegError::dimensions)
-        return reduce_jpeg_bytes(pipeline, encoded, success_state);
+    if (result.decode.error == JpegError::dimensions || result.decode.error == JpegError::encoded_limit) {
+        const bool profile = key.kind == MediaAssetKind::profile_image;
+        return reduce_jpeg_bytes(pipeline, encoded, profile ? kReducedJpegExtent : kReducedJpegPreviewExtent,
+                                 profile ? kJpegDimensionMaximum : kReducedJpegPreviewExtent, success_state);
+    }
     if (!result.decode.ok()) {
         result.state = CdnStaticJpegState::decode_rejected;
         return result;

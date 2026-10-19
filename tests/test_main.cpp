@@ -12128,7 +12128,7 @@ void test_encoded_media_cache_dense_index() noexcept {
 // Profile artwork past the GPU decoder's 512 px (Spotify's 640 px album art)
 // decodes once, reduced to the card's 160 px, from a response and from cache.
 void test_cdn_reduced_jpeg_pipeline() noexcept {
-    static u8 encoded[8'192], oriented[8'192], scanlines[96 * 1024];
+    static u8 encoded[8'192], oriented[8'192], scanlines[640 * 480 * 4];
     static u8 storage[8 * kEncodedMediaCachePageBytes];
     EncodedMediaCacheEntry entries[4]{};
     u16 owners[8]{};
@@ -12174,14 +12174,13 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
     expect(turned.decoded() && turned.rgba_width == 120 && turned.rgba_height == 160 &&
                pixel(turned, 119, 0) >= 156 && pixel(turned, 0, 0) <= 132,
            "cdn_pipeline_large_profile_jpeg_applies_exif_orientation");
-    // Other media keeps the exact GPU path and its extent limit.
+    // Attachment renditions past the GPU path decode at full size.
     const auto attachment = cdn_media_pipeline_admit_static_jpeg(
         &pipeline, media_asset_attachment(7003), policy(fixture.encoded_bytes), {encoded, fixture.encoded_bytes});
-    expect(attachment.state == CdnStaticJpegState::decode_rejected &&
-               attachment.decode.error == JpegError::dimensions &&
-               encoded_media_cache_find(&cache, media_asset_attachment(7003), 2'010).state ==
-                   EncodedMediaCacheLookupState::miss,
-           "cdn_pipeline_large_attachment_jpeg_still_rejected");
+    expect(attachment.decoded() && !attachment.coefficients && attachment.rgba_width == 640 &&
+               attachment.rgba_height == 480 && attachment.rgba8.count == 640u * 480u * 4u &&
+               pixel(attachment, 0, 0) >= 156 && pixel(attachment, 639, 479) <= 132,
+           "cdn_pipeline_large_attachment_jpeg_decodes_full_size_on_the_cpu");
 }
 
 void test_cdn_static_png_pipeline() noexcept {
@@ -13003,36 +13002,6 @@ void test_account_media_cached_frame() noexcept {
                png_attachment_frame.source_message_revision == 10 && !media.client_started,
            "account_media_png_attachment_cache_hit_preserves_owner");
 
-    const MediaAssetKey large_jpeg_key =
-        media_asset_attachment(8'010, MediaAttachmentFormat::jpeg, MediaResolutionTier::px1024);
-    const EncodedMediaCacheStoreResult large_jpeg_stored = encoded_media_cache_store(
-        &media.cache, large_jpeg_key, ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes},
-        EncodedMediaCachePolicy{byte_literal("\"account-attachment-large-jpeg\""), 2'000, true, false});
-    AccountMediaAttachmentRequest large_jpeg{
-        utf8_literal("https://cdn.discordapp.com/attachments/99/8010/a.jpg"
-                     "?ex=1000&is=900&hm="
-                     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
-        large_jpeg_key,
-        7'007,
-        14,
-        1'024,
-        576,
-        CdnImageType::png,
-        {0, 0, 0}};
-    const AccountMediaRequestResult large_jpeg_requested =
-        account_media_request_attachment(&media, large_jpeg, 1'004, 1'104);
-    AccountMediaFrame large_jpeg_frame{};
-    const bool large_jpeg_taken = account_media_take_frame(&media, &large_jpeg_frame);
-    large_jpeg.proxy_width = 512;
-    large_jpeg.proxy_height = 288;
-    const AccountMediaRequestResult small_jpeg_as_png =
-        account_media_request_attachment(&media, large_jpeg, 1'004, 1'104);
-    expect(large_jpeg_stored.stored() && large_jpeg_requested.state == AccountMediaRequestState::ready &&
-               large_jpeg_taken && large_jpeg_frame.kind == AccountMediaFrameKind::png_scanlines &&
-               media_asset_key_equal(large_jpeg_frame.key, large_jpeg_key) &&
-               small_jpeg_as_png.state == AccountMediaRequestState::invalid,
-           "account_media_large_jpeg_rendition_decodes_as_proxy_png");
-
     const MediaAssetKey png_embed_key =
         media_asset_embed(7'005, 12, 0, MediaEmbedResource::thumbnail, MediaAttachmentFormat::png, false,
                           MediaResolutionTier::px512);
@@ -13156,6 +13125,40 @@ void test_account_media_cached_frame() noexcept {
                mismatched_format_result.state == AccountMediaRequestState::invalid &&
                !media.jpeg_workspace && !media.client_started,
            "account_media_attachment_miss_requires_signed_url_owner");
+
+    const MediaAssetKey large_jpeg_key =
+        media_asset_attachment(8'010, MediaAttachmentFormat::jpeg, MediaResolutionTier::px1024);
+    static u8 large_jpeg_encoded[64 * 1024];
+    JpegFixtureResult large_jpeg_fixture{};
+    const bool large_jpeg_built =
+        build_marked_jpeg_fixture({large_jpeg_encoded, sizeof(large_jpeg_encoded)}, 1'024, 576, &large_jpeg_fixture);
+    const EncodedMediaCacheStoreResult large_jpeg_stored = encoded_media_cache_store(
+        &media.cache, large_jpeg_key, ConstSlice<u8>{large_jpeg_encoded, large_jpeg_fixture.encoded_bytes},
+        EncodedMediaCachePolicy{byte_literal("\"account-attachment-large-jpeg\""), 2'000, true, false});
+    AccountMediaAttachmentRequest large_jpeg{
+        utf8_literal("https://cdn.discordapp.com/attachments/99/8010/a.jpg"
+                     "?ex=1000&is=900&hm="
+                     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+        large_jpeg_key,
+        7'007,
+        14,
+        1'024,
+        576,
+        CdnImageType::jpeg,
+        {0, 0, 0}};
+    const AccountMediaRequestResult large_jpeg_requested =
+        account_media_request_attachment(&media, large_jpeg, 1'004, 1'104);
+    AccountMediaFrame large_jpeg_frame{};
+    const bool large_jpeg_taken = account_media_take_frame(&media, &large_jpeg_frame);
+    large_jpeg.image_type = CdnImageType::png;
+    const AccountMediaRequestResult jpeg_as_png =
+        account_media_request_attachment(&media, large_jpeg, 1'004, 1'104);
+    expect(large_jpeg_built && large_jpeg_stored.stored() &&
+               large_jpeg_requested.state == AccountMediaRequestState::ready && large_jpeg_taken &&
+               large_jpeg_frame.kind == AccountMediaFrameKind::straight_rgba8 && large_jpeg_frame.width == 1'024 &&
+               large_jpeg_frame.height == 576 && media_asset_key_equal(large_jpeg_frame.key, large_jpeg_key) &&
+               jpeg_as_png.state == AccountMediaRequestState::invalid,
+           "account_media_large_jpeg_rendition_decodes_on_the_cpu");
 
     JpegFixtureResult jpeg_fixture{};
     expect(
@@ -16602,12 +16605,8 @@ void test_media_presentation_policy() noexcept {
     expect(media_preview_extent_cap(MediaAttachmentFormat::jpeg) == 2048 &&
                media_preview_extent_cap(MediaAttachmentFormat::webp) == 512 &&
                screenshot.resolution == MediaResolutionTier::px1024 && screenshot.width == 1024 &&
-               screenshot.height == 576 &&
-               media_preview_proxy_png(MediaAttachmentFormat::jpeg, screenshot.width, screenshot.height) &&
-               !media_preview_proxy_png(MediaAttachmentFormat::jpeg, 512, 288) &&
-               !media_preview_proxy_png(MediaAttachmentFormat::webp, 1'024, 576) &&
-               !media_preview_proxy_png(MediaAttachmentFormat::png, 1'024, 576),
-           "media_presentation_large_jpeg_previews_come_as_png");
+               screenshot.height == 576,
+           "media_presentation_large_jpeg_previews_share_the_png_cap");
 
     const MediaAssetKey attachment =
         media_asset_attachment(70, MediaAttachmentFormat::png, compact.resolution);
