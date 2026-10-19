@@ -161,6 +161,7 @@ enum class MessageHistoryRequestOwner : u8 {
     activity_sharing,
     soundboard,
     reaction_tooltip,
+    dm_profile,
     count,
 };
 
@@ -418,6 +419,9 @@ struct Application {
     MessageHistoryRequestOwner details_request_owner;
     u64 primary_request_id;
     u64 details_request_id;
+    // When the DM profile panel's fetch may next be admitted, and its shown
+    // activity timers next tick (a visual deadline); zero: none.
+    u64 dm_profile_wake_ms, dm_profile_clock_ms;
     AttachmentRefresh attachment_refresh;
     ReplyReferenceRefresh reply_refresh;
     MediaUrlResolver media_urls;

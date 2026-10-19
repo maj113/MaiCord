@@ -62,6 +62,37 @@ bool paint_glyph(PaintStream* paint, UiCaptionPart part, bool maximized, const U
 
 } // namespace
 
+UiCaptionTitle ui_caption_title(const UiCaptionTitleInput& in) noexcept {
+    if (!in.signed_in)
+        return {utf8_literal("MaiCord"), UiIcon::count, {}};
+    if (!in.home && !in.friends && in.guild_id && in.guild_name.bytes)
+        return {in.guild_name, UiIcon::guild,
+                in.guild_icon_variant ? media_asset_guild_icon(in.guild_id, in.guild_icon_variant, false)
+                                      : MediaAssetKey{}};
+    if (!in.friends && in.home && (in.private_type == 1 || in.private_type == 3))
+        return {utf8_literal("Direct Messages"), UiIcon::direct_message, {}};
+    if (in.friends)
+        return {utf8_literal("Friends"), UiIcon::members, {}};
+    return {{}, UiIcon::count, {}};
+}
+float ui_caption_title_text_limit(const UiCaptionBarLayout& layout, bool icon, float icon_extent) noexcept {
+    const float span = minimum(layout.title.right - layout.title.left, layout.width * .5f);
+    return maximum(0.0f, span - (icon ? icon_extent + kUiCaptionTitleGap : 0.0f));
+}
+UiCaptionTitlePlacement ui_caption_title_place(const UiCaptionBarLayout& layout, float text_width, bool icon,
+                                               float icon_extent) noexcept {
+    const float lead = icon ? icon_extent + kUiCaptionTitleGap : 0.0f;
+    const float group = lead + maximum(0.0f, text_width);
+    const float left =
+        maximum(layout.title.left, minimum((layout.width - group) * .5f, layout.title.right - group));
+    UiCaptionTitlePlacement placement{{}, left + lead};
+    if (icon) {
+        const float top = (layout.height - icon_extent) * .5f;
+        placement.icon = {left, top, left + icon_extent, top + icon_extent};
+    }
+    return placement;
+}
+
 float ui_caption_bar_height(const Theme& theme) noexcept {
     return theme.scale.caption_height;
 }
@@ -115,6 +146,7 @@ UiCaptionBarLayout ui_caption_bar_layout(const Theme& theme, float width, const 
     }
     const float title_left = minimum(layout.icon.right + padding, right);
     layout.title = {title_left, 0, maximum(title_left, right - padding), height};
+    layout.title_glyph = UiIcon::count;
     return layout;
 }
 
@@ -221,6 +253,9 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
         return UiRect{left, top, left + icon, top + icon};
     };
     const Color idle = state.active ? tokens.icon : tokens.icon_inactive;
+    if (layout.title_glyph != UiIcon::count && ui_rect_has_area(layout.title_icon) &&
+        !ui_icon_paint(paint, layout.title_glyph, layout.title_icon, ui_caption_bar_title_color(theme, state)))
+        return false;
     if (state.settings && layout.settings.right > layout.settings.left) {
         bool pressed = false;
         const bool lit = lit_part(UiCaptionPart::settings, &pressed);

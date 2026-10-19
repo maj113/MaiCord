@@ -6,6 +6,7 @@
 #include "application_guild_invite_inactive.hpp"
 #include "application_private_channel_inactive.hpp"
 #include "application_soundboard_inactive.hpp"
+#include "application_dm_profile_inactive.hpp"
 #include "../src/app/application_message_history.cpp"
 #include "../src/app/application_message_send.cpp"
 #include "application_composer_text_input.hpp"

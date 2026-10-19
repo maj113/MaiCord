@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/message_typing_presentation.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 #include "maicord/model/chat_state.hpp"
 
 namespace maicord {
@@ -360,7 +361,7 @@ UiLayoutStyle typing_style(const UiResolvedThemeStyles* styles = nullptr) noexce
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(kComposerTypingHeight);
-    style.padding = UiInsets{22.0f, 0.0f, composer_metrics(styles).composer_padding, 0.0f};
+    style.padding = UiInsets{kUiTypingLabelInset, 0.0f, composer_metrics(styles).composer_padding, 0.0f};
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |

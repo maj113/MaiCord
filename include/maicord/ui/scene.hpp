@@ -159,9 +159,14 @@ struct UiScene {
     u32 layout_metrics_revision;
     u16 generation;
     u8 layout_variant;
+    // The metrics flags of the last layout.
+    u16 layout_flags;
     UiShellView view;
     // Host state: the server header popout is open (chevron becomes an X).
     bool guild_menu_expanded;
+    // Host state: the member toggle switches the DM profile (a one-to-one DM),
+    // which the window is too narrow for while unavailable.
+    bool side_panel_profile, side_panel_unavailable;
 };
 
 struct UiVirtualRange {
@@ -192,6 +197,12 @@ bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept;
 void ui_scene_release(UiScene* scene) noexcept;
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept;
+// The flags that decide the header's controls.
+inline constexpr u16 kUiShellHeaderFlags =
+    static_cast<u16>(ui_shell_layout_pins | ui_shell_layout_threads | ui_shell_layout_private);
+// The last layout used other header flags than `flags` (a channel's type or
+// permissions arrived since): the host lays the shell out again.
+bool ui_scene_header_stale(const UiScene& scene, u16 flags) noexcept;
 // Composer content width using layout's pane visibility and margins, without
 // constructing widgets or running a layout pass.
 float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) noexcept;

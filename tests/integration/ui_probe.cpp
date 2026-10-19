@@ -52,6 +52,8 @@
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/ui/private_channel_title.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
+#include "maicord/ui/dm_profile_panel.hpp"
+#include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/friends_media.hpp"
 #include "maicord/app/message_view_runtime.hpp"
@@ -434,6 +436,9 @@ u64 probe_resize_geometry_signature() noexcept {
     return hash;
 }
 
+// The DM profile panel stage: a one-to-one DM gives its slot to the profile.
+bool g_probe_dm_profile = false;
+
 bool synchronize_probe_shell_layout(Utf8View typing_label = {},
                                     MessageComposerAttachmentInput attachments = {},
                                     float navigation_width = 0, float member_width = 0,
@@ -461,6 +466,12 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
             metrics.flags = ui_shell_layout_navigation;
         if (selected && channel_is_private(selected->type))
             metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_private);
+        g_probe.shell_scene.side_panel_profile = g_probe_dm_profile && selected && selected->type == 1;
+        if (g_probe.shell_scene.side_panel_profile) {
+            metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_members);
+            metrics.member_sidebar_width = kUiDmProfilePanelWidth;
+            metrics.revision += 300000u;
+        }
     }
     wchar_t pins_option[2]{};
     if (!friends && GetEnvironmentVariableW(L"MAICORD_UI_PINNED_MESSAGES_PROBE", pins_option, 2) == 1 &&
@@ -12320,6 +12331,94 @@ int run_probe() noexcept {
         if (!peer_drawn)
             return 14;
         log_write(LogLevel::info, "probe", "private_peer_avatar_and_generated_label_passed");
+        // The DM profile panel beside the one-to-one DM (a Nitro-themed
+        // synthetic profile) and the header's activity after the name.
+        {
+            static UserProfile panel_profile{};
+            static ProfileScene panel{};
+            static RelationshipRecord online_records[2]{};
+            static RelationshipStore online{};
+            static u32 activity_structurals[256];
+            const auto copy = [](auto* to, Utf8View from) noexcept {
+                to->bytes = static_cast<u16>(from.bytes);
+                copy_bytes(to->data, from.data, from.bytes);
+            };
+            panel_profile = {};
+            panel_profile.user_id = 123;
+            copy(&panel_profile.display_name, utf8_literal("Mai"));
+            copy(&panel_profile.username, utf8_literal("mai.native"));
+            copy(&panel_profile.pronouns, utf8_literal("they/them"));
+            copy(&panel_profile.bio, utf8_literal("Synthetic profile beside a direct message."));
+            panel_profile.has_theme = true;
+            panel_profile.theme_colors[0] = 0x2F4A6D;
+            panel_profile.theme_colors[1] = 0x6A3D7A;
+            panel_profile.mutual_guild_count = 1;
+            panel_profile.mutual_guilds[0].id = 1;
+            RelationshipRecord friend_record{};
+            friend_record.user_id = 123;
+            friend_record.type = RelationshipType::friend_;
+            friend_record.presence = RelationshipPresence::online;
+            constexpr auto presence = utf8_literal(
+                R"({"activities":[{"type":2,"name":"Spotify","details":"Track","state":"Panchiko","party":{"id":"spotify:1"}}]})");
+            const auto scan = json_scan_structurals_avx1(presence, {activity_structurals, 256});
+            UserActivitySet listening{};
+            bool has = false;
+            const bool sourced =
+                relationship_store_initialize(&online, {online_records, 2}) &&
+                relationship_store_upsert(&online, friend_record).ok() && scan.ok() &&
+                user_activities_decode({presence, {activity_structurals, scan.count}},
+                                       {presence, 0, JsonValueKind::object}, 123, &listening, &has) &&
+                user_activity_upsert(&g_probe.users.activities, listening);
+            ++g_probe.users.revision;
+            const UiPrivateRowSource rows{&g_probe.chat_state, &g_probe.users, &online, nullptr,
+                                          &g_probe.text_measure_cache};
+            g_probe.navigation.private_rows = &rows;
+            g_probe_dm_profile = true;
+            // A narrower channel list keeps a readable chat beside the panel at the probe's DPI.
+            const UiNode* slot = sourced && synchronize_probe_shell_layout({}, {}, 200)
+                                     ? ui_scene_resolve_semantic(g_probe.shell_scene, UiSemantic::member_sidebar)
+                                     : nullptr;
+            panel.presentation = ProfilePresentation::panel;
+            panel.phase = ProfilePhase::ready;
+            panel.reduced_motion = true;
+            panel.presence = UiPresence::online;
+            panel.relation = 1;
+            panel.measure = &g_probe.text_measure_cache;
+            const float width_dip = static_cast<float>(g_probe.renderer.width) * 96.0f /
+                                    static_cast<float>(maximum<u32>(g_probe.renderer.dpi, 1));
+            const float height_dip = static_cast<float>(g_probe.renderer.height) * 96.0f /
+                                     static_cast<float>(maximum<u32>(g_probe.renderer.dpi, 1));
+            const bool opened = slot && profile_scene_open(&panel, &panel_profile, &g_probe.chat_state, &g_probe.users,
+                                                           g_probe.chat_state.self_user_id, slot->rectangle,
+                                                           {0, 0, width_dip, height_dip});
+            g_probe.renderer.dm_profile_panel = opened ? &panel : nullptr;
+            char activity_line[192];
+            UiPrivateHeaderActivity activity{};
+            const bool header = ui_private_header_activity(g_probe.shell_scene, rows, 9998,
+                                                           {activity_line, sizeof(activity_line)}, &activity);
+            const bool presented = opened && rebuild_probe_content_text() &&
+                                   probe_present(&g_probe.renderer, kDefaultTheme) &&
+                                   probe_capture_frame(L"dm-profile-panel.bmp");
+            bool view_full = false;
+            for (u32 i = 0; opened && i < panel.part_count; ++i)
+                view_full = view_full || (panel.parts[i].action == ProfileAction::expand &&
+                                          panel.parts[i].look == ProfileLook::row);
+            g_probe.renderer.dm_profile_panel = nullptr;
+            profile_scene_release(&panel);
+            g_probe.navigation.private_rows = nullptr;
+            g_probe_dm_profile = false;
+            user_activity_upsert(&g_probe.users.activities, {123, 0, 0, {}});
+            ++g_probe.users.revision;
+            const u64 outcome = (sourced ? 1u : 0u) | (slot ? 2u : 0u) | (opened ? 4u : 0u) |
+                                (presented ? 8u : 0u) | (view_full ? 16u : 0u) | (header ? 32u : 0u) |
+                                (activity.glyph == UiActivityGlyph::music ? 64u : 0u) |
+                                (g_probe.chat_state.home_selected ? 128u : 0u);
+            if (outcome != 255 || !synchronize_probe_shell_layout()) {
+                log_u64(LogLevel::error, "probe", "dm_profile_panel_outcome", outcome);
+                return 14;
+            }
+            log_write(LogLevel::info, "probe", "dm_profile_panel_and_header_activity_passed");
+        }
         // Group DM: generated icon from member avatars, member count, presence and header actions.
         RelationshipRecord relation_records[2]{};
         RelationshipStore relations{};

@@ -212,6 +212,10 @@ struct MessageComposerScene {
     // Status line tone when not an error: 0 neutral, 1 accent, 2 positive,
     // 3 warning, 4 critical (plugin notices).
     u8 status_tone;
+    // The status line is someone typing, not a notice: its dots pulse at
+    // typing_phase (typing_indicator.hpp), which the host's frame clock sets.
+    bool typing_dots;
+    u16 typing_phase;
     bool geometry_dirty;
     // Visible plugin_slots, from the composer toolbar plugin query.
     u8 plugin_count;

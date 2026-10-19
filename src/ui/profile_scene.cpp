@@ -27,6 +27,9 @@ constexpr u32 capacity = 320;
 constexpr u32 kXs = kTextStyleSizeCodeXs, kSm = kTextStyleSizeCodeSm, kMd = kTextStyleSizeCodeMd,
               kLg = text_style_heading_2, kXl = text_style_heading_1;
 constexpr float kPopoutWidth = 300, kPopoutBanner = 105, kModalBanner = 140;
+// The DM profile panel: a square 120 DIP banner, the 80 DIP avatar 72 from the
+// top, a 44 DIP "View Full Profile" bar; mutual list rows 40 DIPs.
+constexpr float kPanelBanner = 120, kPanelAvatarTop = 72, kPanelFooter = 44, kPanelRow = 40;
 constexpr u16 kNoPart = 0xFFFF;
 // A card's changing parts (indices into parts): the timer chip's label and
 // glyph, the progress bar's ends and track.
@@ -74,6 +77,9 @@ bool interactive(const ProfileScene& s) noexcept {
 }
 bool modal(const ProfileScene& s) noexcept {
     return s.presentation == ProfilePresentation::modal;
+}
+bool panel(const ProfileScene& s) noexcept {
+    return s.presentation == ProfilePresentation::panel;
 }
 // Resolved colours of one card: the profile's own theme colours when it has
 // one, else the application theme.
@@ -1820,6 +1826,181 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     s->preview_height = mh;
     return finish(s, viewport);
 }
+// The DM profile panel (Discord's user profile sidebar): fills its slot
+// (anchor), sections 12 apart 16 from the sides, the body scrolling between
+// the header and the "View Full Profile" bar.
+float panel_mutual_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool friends,
+                           float visible_top, float visible_bottom) noexcept {
+    const auto& p = *s->profile;
+    const u32 n = friends ? p.mutual_friends_count : p.mutual_guild_count;
+    const u32 count = friends ? p.mutual_friend_count : p.mutual_guild_count;
+    if (!count)
+        return 0;
+    auto& text = labels(s).mutual_text[friends ? 0 : 1];
+    text.bytes = 0;
+    append(&text, friends ? utf8_literal("Mutual Friends \xE2\x80\x94 ") : utf8_literal("Mutual Servers \xE2\x80\x94 "));
+    append_number(&text, count);
+    const bool open = s->sections & (friends ? 2u : 1u);
+    if (!add(s, owner, {left - 8, top, left + width + 8, top + 32}, {},
+             friends ? ProfileAction::friends : ProfileAction::servers, 0, ProfileLook::row) ||
+        !add(s, owner, {left, top + 7, left + width - 24, top + 25}, text.view(), ProfileAction::none, kSm,
+             ProfileLook::plain, ProfileTone::strong) ||
+        !icon(s, owner, {left + width - 16, top + 8, left + width, top + 24},
+              open ? UiIcon::chevron_down : UiIcon::chevron_right, ProfileAction::none))
+        return -1;
+    float y = top + 32;
+    if (!open)
+        return y - top;
+    // Rows outside the scrolled viewport only take their space.
+    for (u32 i = 0; i < n; ++i, y += kPanelRow) {
+        if (y + kPanelRow < visible_top || y > visible_bottom)
+            continue;
+        const auto& peer = friends ? p.mutual_friends[i] : p.mutual_guilds[i];
+        Utf8View name = peer.name.view();
+        if (!friends && s->state)
+            if (const auto* guild = chat_state_store_find_guild(*s->state, peer.id))
+                name = chat_state_store_guild_name(*s->state, *guild);
+        auto* row = add(s, owner, {left - 8, y, left + width + 8, y + kPanelRow}, {},
+                        friends ? ProfileAction::open_friend : ProfileAction::open_server, 0, ProfileLook::row);
+        auto* face = row ? add(s, owner, {left, y + 6, left + 28, y + 34}) : nullptr;
+        if (!face)
+            return -1;
+        row->source = face->source = static_cast<u16>(i);
+        face->media = friends ? ProfileMediaKind::peer_avatar : ProfileMediaKind::peer_guild;
+        if (name.bytes && !add(s, owner, {left + 40, y + 11, left + width, y + 29}, name, ProfileAction::none, kSm))
+            return -1;
+    }
+    return y - top;
+}
+bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
+    const UiRect slot = s->anchor;
+    const float W = ui_rect_width(slot), H = ui_rect_height(slot);
+    if (W < 120 || H < kPanelBanner + kPanelFooter)
+        return false;
+    const float x0 = 16, content = W - 32;
+    s->rectangle = s->card = s->effect_area = slot;
+    auto* frame = add(s, s->root, {slot.left - viewport.left, slot.top - viewport.top, slot.right - viewport.left,
+                                   slot.bottom - viewport.top});
+    if (!frame)
+        return false;
+    s->panel = frame->widget;
+    header_geometry(s, {0, 0, W, kPanelBanner}, x0, kPanelAvatarTop, 80);
+    if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand))
+        return false;
+    u8 order[kUserActivityMaximum];
+    const u32 cards = activity_cards(s, order);
+    const float bubble_left = x0 + 80 + 12;
+    const float bubble = status_bubble(s, s->panel, bubble_left, kPanelBanner - 7, minimum(181.f, W - 12 - bubble_left));
+    if (bubble < 0)
+        return false;
+    // Header: banner plus 39 (the avatar's lower half), 8 below.
+    const float header_bottom = maximum(kPanelBanner + 39, bubble ? kPanelBanner - 7 + bubble : 0.f) + 8;
+    const float footer_top = H - kPanelFooter;
+    auto* body = add(s, s->panel, {0, header_bottom, W, maximum(header_bottom + 1, footer_top)}, {},
+                     ProfileAction::none, 0, ProfileLook::plain, ProfileTone::normal, true);
+    if (!body)
+        return false;
+    s->body = body->widget;
+    const float visible_top = s->scroll, visible_bottom = s->scroll + (footer_top - header_bottom);
+    float y = 0;
+    const auto section = [&](float height) noexcept {
+        if (height > 0)
+            y += height + 12;
+        return height >= 0;
+    };
+    if (s->phase == ProfilePhase::failed &&
+        !section(add(s, s->body, {x0, y, x0 + content, y + 18}, utf8_literal("Unable to load parts of profile"),
+                     ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted)
+                     ? 18.f
+                     : -1.f))
+        return false;
+    if (!section(name_block(s, s->body, x0, y, content, false)) || !section(notices(s, s->body, x0, y, content, false)))
+        return false;
+    for (u32 i = 0; i < cards; ++i)
+        if (!section(activity_card(s, s->body, x0, y, x0 + content, i, order[i], activity_now(*s), ProfileAction::card)))
+            return false;
+    {
+        // Bio and Member Since share one card (12 inside, 12 apart).
+        const u32 first = s->part_count;
+        auto* card = add(s, s->body, {x0, y, x0 + content, y + 1}, {}, ProfileAction::none, 0, ProfileLook::card);
+        if (!card)
+            return false;
+        const float inner = content - 24;
+        float cy = y + 12;
+        if (profile_display(*s->profile).bio.bytes) {
+            const float h = heading(s, s->body, x0 + 12, cy, inner, utf8_literal("Bio"));
+            const float b = h < 0 ? -1.f : biography(s, s->body, x0 + 12, cy + h, inner, false);
+            if (b < 0)
+                return false;
+            if (b == 0)
+                --s->part_count;
+            else
+                cy += h + b + 12;
+        }
+        const float since = member_since(s, s->body, x0 + 12, cy, inner);
+        if (since < 0 || !place(s, card->widget, {x0, y, x0 + content, cy + since + 12}))
+            return false;
+        static_cast<void>(first);
+        y += cy + since + 12 - y + 12;
+    }
+    if (!self(*s) && !bot(*s) && (s->profile->mutual_guild_count || s->profile->mutual_friend_count)) {
+        const float servers = panel_mutual_section(s, s->body, x0, y, content, false, visible_top, visible_bottom);
+        if (servers < 0)
+            return false;
+        y += servers;
+        if (servers && s->profile->mutual_friend_count) {
+            if (!add(s, s->body, {x0, y + 4, x0 + content, y + 5}, {}, ProfileAction::none, 0, ProfileLook::rule))
+                return false;
+            y += 9;
+        }
+        if (!section(panel_mutual_section(s, s->body, x0, y, content, true, visible_top, visible_bottom)))
+            return false;
+        if (servers && !s->profile->mutual_friend_count)
+            y += 12;
+    }
+    if (!section(plugin_section(s, s->body, x0, y, content)))
+        return false;
+    const float body_content = y > 0 ? y - 12 + 16 : 16;
+    // "View Full Profile": a full-width bar under a 1 DIP rule.
+    if (!add(s, s->panel, {0, footer_top, W, footer_top + 1}, {}, ProfileAction::none, 0, ProfileLook::rule) ||
+        !add(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, {}, ProfileAction::expand, 0, ProfileLook::row))
+        return false;
+    constexpr auto label = utf8_literal("View Full Profile");
+    const float label_width = text_width(s, label, W - 32, kSm | text_style_bold) + 1;
+    if (!add(s, s->panel, {(W - label_width) * .5f, footer_top + 1, (W + label_width) * .5f, H}, label,
+             ProfileAction::none, kSm | text_style_bold))
+        return false;
+    if (interactive(*s) && !self(*s)) {
+        float bx = W - 12 - 32;
+        if (!icon(s, s->panel, {bx, 12, bx + 32, 44}, UiIcon::ellipsis, ProfileAction::more, ProfileTone::normal,
+                  ProfileLook::header_button))
+            return false;
+        bx -= 40;
+        if (!bot(*s) && s->relation != 4) {
+            const UiIcon glyph = s->relation == 1 ? UiIcon::user_check
+                                 : s->relation >= 2 ? UiIcon::recent
+                                                    : UiIcon::user_plus;
+            if (!icon(s, s->panel, {bx, 12, bx + 32, 44}, glyph,
+                      s->relation ? ProfileAction::relationship : ProfileAction::add_friend, ProfileTone::normal,
+                      ProfileLook::header_button))
+                return false;
+        }
+    }
+    const auto absolute = [&](UiRect r) noexcept {
+        return UiRect{slot.left + r.left, slot.top + r.top, slot.left + r.right, slot.top + r.bottom};
+    };
+    s->banner = absolute(s->banner);
+    s->avatar = absolute(s->avatar);
+    s->decoration = absolute(s->decoration);
+    s->status = absolute(s->status);
+    s->scroll_viewport = absolute({0, header_bottom, W, footer_top});
+    s->content_height = body_content;
+    s->scroll = minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport)));
+    s->preview_height = H;
+    if (!scroll_container(s, s->body, s->scroll))
+        return false;
+    return finish(s, viewport);
+}
 } // namespace
 
 const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle handle) noexcept {
@@ -1906,7 +2087,7 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
                                   role_editable(policy, s->state->roles[i]);
     }
     s->note_editing = s->note_editing && s->note_visible && !self(*s) && modal(*s);
-    s->edit.active = interactive(*s) && (s->note_editing || (!modal(*s) && can_message(*s)));
+    s->edit.active = interactive(*s) && (s->note_editing || (!modal(*s) && !panel(*s) && can_message(*s)));
     auto root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add(&s->widgets, ui_widget_invalid_handle(),
                                             {1,
@@ -1916,7 +2097,7 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
     if (!root.ok())
         return false;
     s->root = root.handle;
-    if (!(modal(*s) ? layout_modal(s, viewport) : layout_popout(s, viewport)))
+    if (!(modal(*s) ? layout_modal(s, viewport) : panel(*s) ? layout_panel(s, viewport) : layout_popout(s, viewport)))
         return false;
     // Timers tick only while one shows (the Activity tab, not scrolled away).
     const auto& l = labels(s);
@@ -2118,7 +2299,7 @@ Color card_backdrop(const ProfileScene& s, const Palette& c, float y, bool hot) 
             base = over(veil, base);
         }
     } else if (s.themed) {
-        const float split = r.top + 2 + kPopoutBanner;
+        const float split = panel(s) ? s.banner.bottom : r.top + 2 + kPopoutBanner;
         const float t = y <= split || r.bottom <= split ? 0.f : minimum(1.f, (y - split) / (r.bottom - split));
         base = over(c.overlay, mix(c.primary, c.secondary, t));
     }
@@ -2146,7 +2327,21 @@ bool bubble_paint(PaintStream* paint, UiRect r, const Palette& c, float radius) 
            paint_stream_push_rounded(paint, big.left + 1, r.top + 1, big.right - 1, big.bottom - 1, c.bubble,
                                      big_radius - 1);
 }
+// The DM panel fills its slot edge to edge: the surface, or a Nitro theme's
+// colours (P down to the banner's end, then a blend to S) under the overlay.
+bool panel_background(const ProfileScene& s, const Palette& c, PaintStream* paint) noexcept {
+    const auto r = s.rectangle;
+    if (!s.themed)
+        return paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.surface);
+    const float split = minimum(r.bottom, s.banner.bottom);
+    return paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.primary) &&
+           (split >= r.bottom ||
+            paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary, c.secondary, 0)) &&
+           paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.overlay);
+}
 bool card_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
+    if (panel(s))
+        return panel_background(s, c, paint);
     const float radius = theme.scale.radius_md;
     const auto r = s.rectangle;
     if (!s.themed)
@@ -2543,7 +2738,10 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                        p.wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
                        UiTextOverflow::ellipsis,
                        style ? profile_name_face(style->name.font_id) : UiTextFace::normal,
-                       style ? profile_name_effect(style->name, true, s.name_started_ms) : UiTextEffect{},
+                       // The always-shown panel animates its name only under the pointer.
+                       style ? profile_name_effect(style->name, !panel(s) || s.hovered,
+                                                   panel(s) ? s.hover_changed_ms : s.name_started_ms)
+                             : UiTextEffect{},
                        bio ? ConstSlice<TextStyleSpan>{s.bio_styles, s.bio_style_count} : ConstSlice<TextStyleSpan>{}}))
             return false;
     }

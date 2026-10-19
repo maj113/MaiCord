@@ -326,6 +326,19 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 return true;
         }
     }
+    // The DM profile panel beside a one-to-one DM (no profile effect).
+    if (const auto* panel = application.renderer.dm_profile_panel; panel && panel->active && content_media_visible()) {
+        for (u32 i = 0; i < panel->part_count; ++i) {
+            ProfileMedia media{};
+            if (!profile_media_resolve(*panel, i, &media) || media.domain || !media.url.bytes)
+                continue;
+            bool stop = false;
+            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
+                return false;
+            if (stop)
+                return true;
+        }
+    }
     // The profile editor's preview card and its picker tiles (CDN images;
     // picked images are local previews and never fetched).
     if (auto* preview = application_profile_editor_preview()) {

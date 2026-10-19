@@ -1454,6 +1454,9 @@ void application_animation_activity_synchronize() noexcept {
     else
         animation_visual_runtime_resume(&g_app.animations, now);
 }
+bool application_window_inactive() noexcept {
+    return g_window_inactive;
+}
 void application_animation_window_active(bool active) noexcept {
     if (g_window_inactive == !active)
         return;
@@ -1479,6 +1482,11 @@ bool application_preferences_member_visibility(bool visible) noexcept {
     persist();
     if (g_app.settings)
         project(*g_app.settings);
+    return synchronize_shell_layout() && refresh_account_text(true) && application_request_frame();
+}
+bool application_preferences_dm_profile_visibility(bool visible) noexcept {
+    g_app.preferences.dm_profile_visible = visible;
+    persist();
     return synchronize_shell_layout() && refresh_account_text(true) && application_request_frame();
 }
 bool application_settings_commit_preferences() noexcept {

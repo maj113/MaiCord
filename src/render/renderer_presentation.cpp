@@ -583,8 +583,18 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(scene.layout_passes)
             .push(scene.channel_allows_send)
             .caret(scene.caret_visible)
+            .push(scene.typing_dots)
             .widgets(scene.widgets);
+        // A dots step repaints only their quads: outside the structure (paint
+        // diff damage) and the shell segment (drawn in the composer overlay).
+        const TimelineInputs timeline(&stamp);
+        s.push(stamp.structural ? 0u : scene.typing_phase);
     }
+    s.pointer(renderer.dm_profile_panel);
+    if (!content_hidden && renderer.dm_profile_panel)
+        s.push(renderer.dm_profile_panel->active)
+            .push(renderer.dm_profile_panel->revision)
+            .widgets(renderer.dm_profile_panel->widgets);
     s.pointer(renderer.member_list_scene);
     if (!content_hidden && renderer.member_list_scene) {
         const MemberListScene& scene = *renderer.member_list_scene;

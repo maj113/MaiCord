@@ -109,6 +109,8 @@ inline const char* rest_owner_name(MessageHistoryRequestOwner owner) noexcept {
         return "activity_sharing";
     case MessageHistoryRequestOwner::soundboard:
         return "soundboard";
+    case MessageHistoryRequestOwner::dm_profile:
+        return "dm_profile";
     case MessageHistoryRequestOwner::count:
         break;
     }

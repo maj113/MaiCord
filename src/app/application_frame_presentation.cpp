@@ -59,12 +59,14 @@
 #include "application_account_module.hpp"
 #include "application_message_interaction.hpp"
 #include "application_profile.hpp"
+#include "application_dm_profile.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/ui/spinner.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
 #include "maicord/core/decimal.hpp"
 
@@ -140,6 +142,26 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
         viewer->spinner_phase = g_loading_spinner.phase;
 }
 
+UiTypingDotsClock g_typing_dots{};
+
+// As the official client: an inactive window holds the dots at full size.
+bool typing_dots_animate() noexcept {
+    return !g_app.preferences.reduced_motion && !application_window_inactive() &&
+           !(g_app.window && IsIconic(g_app.window));
+}
+// The "is typing" dots step only while someone types in the shown chat; the
+// composer scene paints the sampled phase (shell_presentation).
+void synchronize_typing_dots(u64 now_ms) noexcept {
+    auto& renderer = g_app.renderer;
+    auto& scene = g_app.message_composer_scene;
+    const bool visible = g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
+                         renderer.message_composer_scene == &scene && scene.active && scene.typing_dots &&
+                         scene.typing_label_bytes && !application_friends_active() &&
+                         !d3d11_renderer_thread_browser_visible(renderer);
+    ui_typing_dots_clock_tick(&g_typing_dots, now_ms, visible, typing_dots_animate());
+    scene.typing_phase = g_typing_dots.phase;
+}
+
 void record_first_present() noexcept {
     if (!g_app.first_present_recorded) {
         g_app.first_present_recorded = true;
@@ -155,10 +177,12 @@ void record_first_present() noexcept {
 } // namespace
 
 u64 application_loading_spinner_wake() noexcept {
-    return g_loading_spinner.visible ? g_loading_spinner.wake_ms : 0;
+    const u64 spinner = g_loading_spinner.visible ? g_loading_spinner.wake_ms : 0;
+    const u64 dots = g_typing_dots.visible ? g_typing_dots.wake_ms : 0;
+    return spinner && dots ? minimum(spinner, dots) : spinner ? spinner : dots;
 }
 bool application_loading_spinner_due(u64 now_ms) noexcept {
-    return ui_spinner_clock_due(g_loading_spinner, now_ms);
+    return ui_spinner_clock_due(g_loading_spinner, now_ms) || ui_typing_dots_clock_due(g_typing_dots, now_ms);
 }
 
 namespace {
@@ -195,6 +219,8 @@ bool application_present_frame() noexcept {
     if (ui_spinner_clock_due(g_loading_spinner, clock_monotonic_milliseconds()))
         ui_spinner_clock_tick(&g_loading_spinner, clock_monotonic_milliseconds(), true,
                               g_app.preferences.reduced_motion);
+    if (ui_typing_dots_clock_due(g_typing_dots, clock_monotonic_milliseconds()))
+        ui_typing_dots_clock_tick(&g_typing_dots, clock_monotonic_milliseconds(), true, typing_dots_animate());
     // A due entrance must consume its deadline even when later scene/text
     // preparation rejects this draw. Retained permits cannot repeatedly wake
     // against the same past-due opacity sample. Reconcile final scene keys again
@@ -221,6 +247,7 @@ bool application_present_frame() noexcept {
         return present_rejected("theme_foreground");
     if (!application_friends_synchronize())
         return present_rejected("friends");
+    application_dm_profile_synchronize();
     application_self_status_synchronize();
     application_user_settings_synchronize();
     if (!application_account_menu_synchronize())
@@ -290,6 +317,7 @@ bool application_present_frame() noexcept {
     // After every surface published its scene: sample the spinner phase for
     // this frame and arm (or disarm) the next spinner step.
     synchronize_loading_spinners(clock_monotonic_milliseconds());
+    synchronize_typing_dots(clock_monotonic_milliseconds());
     MAICORD_PERF_MARK("frame_surfaces");
     const u64 before =
         static_cast<u64>(g_app.renderer.full_present_draws) + g_app.renderer.partial_present_draws;

@@ -1,3 +1,4 @@
+#include "application_dm_profile.hpp"
 #include "application_invite_cards.hpp"
 #include "application_message_components.hpp"
 #include "application_shortcuts.hpp"
@@ -276,6 +277,7 @@ void application_release_account_ui(Application& application) noexcept {
     application.message_mutation_notice = {};
     if (&application == &g_app) {
         application_profile_release();
+        application_dm_profile_release();
         application_image_viewer_close();
         application_text_form_close(false, false);
         application_thread_creation_release();

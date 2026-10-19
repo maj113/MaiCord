@@ -2,6 +2,7 @@
 
 #include "app_icon.hpp"
 #include "application_frame_presentation.hpp"
+#include "application_friends.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "application_tooltip.hpp"
@@ -319,16 +320,25 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
     }
 }
 
-Utf8View caption_title() noexcept {
+// The current place, as the official client's title bar names it.
+UiCaptionTitle caption_title() noexcept {
+    UiCaptionTitleInput in{};
     const auto* ui = g_app.account_ui;
-    if (ui && !g_app.login.visible && !ui->chat_state.home_selected && ui->chat_state.selected_guild_id) {
-        const GuildRecord* guild =
-            chat_state_store_find_guild(ui->chat_state, ui->chat_state.selected_guild_id);
-        const Utf8View name = guild ? chat_state_store_guild_name(ui->chat_state, *guild) : Utf8View{};
-        if (name.bytes)
-            return name;
+    in.signed_in = ui && !g_app.login.visible;
+    if (in.signed_in) {
+        const auto& state = ui->chat_state;
+        in.friends = application_friends_active();
+        in.home = state.home_selected;
+        const ChannelRecord* channel = chat_state_store_find_channel(state, state.selected_channel_id);
+        in.private_type = channel && channel_is_private(channel->type) ? channel->type : 0;
+        if (const GuildRecord* guild = state.home_selected ? nullptr
+                                                           : chat_state_store_find_guild(state, state.selected_guild_id)) {
+            in.guild_id = guild->id;
+            in.guild_icon_variant = guild->icon_hash_bytes ? guild->icon_variant : 0;
+            in.guild_name = chat_state_store_guild_name(state, *guild);
+        }
     }
-    return utf8_literal("MaiCord");
+    return ui_caption_title(in);
 }
 
 } // namespace

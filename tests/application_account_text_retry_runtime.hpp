@@ -7,8 +7,8 @@
 #include "../src/app/application_attachments.hpp"
 
 namespace maicord::account_text_retry_runtime_test {
-inline bool active{}, reject{}, settings{}, friends{}, last_force{};
-inline u32 attempts{}, accepted_width{}, shell_syncs{};
+inline bool active{}, reject{}, settings{}, friends{}, last_force{}, pins{}, threads{};
+inline u32 attempts{}, accepted_width{}, shell_syncs{}, shell_layouts{};
 } // namespace maicord::account_text_retry_runtime_test
 namespace maicord::app_detail {
 const UiPrivateRowSource* application_private_channel_rows() noexcept {
@@ -37,7 +37,14 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
 }
 bool synchronize_shell_layout() noexcept {
     ++account_text_retry_runtime_test::shell_syncs;
+    ++account_text_retry_runtime_test::shell_layouts;
     return true;
+}
+bool application_pinned_messages_available() noexcept {
+    return account_text_retry_runtime_test::pins;
+}
+bool application_thread_browser_available(u64) noexcept {
+    return account_text_retry_runtime_test::threads;
 }
 bool synchronize_shell_widget_scenes() noexcept {
     ++account_text_retry_runtime_test::shell_syncs;
@@ -227,6 +234,32 @@ inline void run(void (*check)(bool, const char*) noexcept) noexcept {
               "typing expiry: an expired record leaves no overdue wake behind covered or unchanged text");
     }
     settings = friends = false;
+    // Launch restores a channel before READY: its header lays out without Pins
+    // or Threads. Permissions arriving later must lay the header out again.
+    ui.text_rebuild_retry_at_ms = 0;
+    UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
+    pins = threads = false;
+    const bool laid_out = ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
+                          ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, metrics, 1280, 800);
+    const u32 layouts = shell_layouts;
+    ++ui.chat_state.permission_mutations;
+    check(laid_out && refresh_account_text(false) && shell_layouts == layouts &&
+              !ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::pins_toggle),
+          "header layout: unchanged channel rights keep the header");
+    pins = threads = true;
+    ++ui.chat_state.permission_mutations;
+    check(refresh_account_text(false) && shell_layouts == layouts + 1,
+          "header layout: Pins and Threads arriving after the first layout re-lay the header out");
+    metrics.flags = static_cast<u16>(metrics.flags | shell_header_flags(false));
+    metrics.revision = 2;
+    ++ui.chat_state.permission_mutations;
+    check(ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, metrics, 1280, 800) &&
+              ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::pins_toggle) &&
+              ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::threads_toggle) &&
+              refresh_account_text(false) && shell_layouts == layouts + 1,
+          "header layout: the re-laid header shows both buttons and settles");
+    ui_scene_release(&g_app.shell_scene);
+    pins = threads = false;
     auto* old_ui = g_app.account_ui;
     g_app.account_ui = nullptr;
     check(application_wait_timeout(overdue, overdue * 1000, true) == INFINITE &&

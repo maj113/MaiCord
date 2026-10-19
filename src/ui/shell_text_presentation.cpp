@@ -194,6 +194,18 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         reject_atomically(stream);
         return false;
     }
+    // A one-to-one DM's activity follows the name (its glyph: private_channel_rows).
+    char activity_line[192];
+    UiPrivateHeaderActivity activity{};
+    if (selected_channel && navigation.private_rows && title_label &&
+        ui_private_header_activity(scene, *navigation.private_rows, selected_channel->id,
+                                   {activity_line, sizeof(activity_line)}, &activity) &&
+        !append_command(scene.widgets, title_label->widget, activity.line, activity.text, title_label->rectangle,
+                        theme.text_secondary, stream, UiTextAlignment::start, UiTextAlignment::center,
+                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, kTextStyleSizeCodeSm, true)) {
+        reject_atomically(stream);
+        return false;
+    }
 
     if (channel_header) {
         const GuildRecord* selected_guild =

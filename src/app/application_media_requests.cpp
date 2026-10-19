@@ -342,6 +342,9 @@ bool ApplicationMediaPump::media_key_is_current(MediaAssetKey key) noexcept {
     // media is hidden beneath it.
     if (profile_editor_key_current(key))
         return true;
+    if (const auto* panel = application.renderer.dm_profile_panel;
+        panel && panel->active && content_media_visible() && profile_scene_shows(*panel, key))
+        return true;
     if (key.kind == MediaAssetKind::local_draft_preview)
         return !(application.renderer.settings_scene && application.renderer.settings_scene->active) &&
                application_local_preview_key_current(key);

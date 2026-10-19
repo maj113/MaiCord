@@ -582,8 +582,13 @@ bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShel
     scene->height = height;
     scene->layout_variant = variant;
     scene->layout_metrics_revision = metrics.revision;
+    scene->layout_flags = metrics.flags;
     scene->view = view;
     return true;
+}
+
+bool ui_scene_header_stale(const UiScene& scene, u16 flags) noexcept {
+    return scene.count != 0 && ((scene.layout_flags ^ flags) & kUiShellHeaderFlags) != 0;
 }
 
 float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) noexcept {

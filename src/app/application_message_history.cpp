@@ -1,3 +1,4 @@
+#include "application_dm_profile.hpp"
 #include "application_activity.hpp"
 #include "application_invite_cards.hpp"
 #include "application_message_components.hpp"
@@ -152,6 +153,7 @@ static void trace_rest_scheduler() noexcept {
                                                        (profile->pending || profile->effect_pending) &&
                                                        profile->retry_at <= now_ms);
     mark(MessageHistoryRequestOwner::commands, application_commands_pending(now_ms));
+    mark(MessageHistoryRequestOwner::dm_profile, application_dm_profile_pending(now_ms));
     for (const auto& request : ui.message_composer_controller.requests)
         mark(MessageHistoryRequestOwner::message_send,
              request.occupied && (request.phase == MessageComposerRequestPhase::queued ||
@@ -215,7 +217,8 @@ static void trace_rest_scheduler() noexcept {
                                  owner == MessageHistoryRequestOwner::stage ||
                                  owner == MessageHistoryRequestOwner::soundboard ||
                                  owner == MessageHistoryRequestOwner::message_components ||
-                                 owner == MessageHistoryRequestOwner::invite_cards;
+                                 owner == MessageHistoryRequestOwner::invite_cards ||
+                                 owner == MessageHistoryRequestOwner::dm_profile;
             const auto blocker =
                 details ? g_app.details_request_owner : g_app.message_history_request_owner;
             TraceRecord wait("queue_wait");
@@ -390,6 +393,8 @@ static constexpr DetailsLane kDetailsLanes[] = {
                        MessageHistoryRequestOwner::invite_cards>,
     admit_details_lane<application_soundboard_pending, application_soundboard_submit,
                        MessageHistoryRequestOwner::soundboard>,
+    admit_details_lane<application_dm_profile_pending, application_dm_profile_submit,
+                       MessageHistoryRequestOwner::dm_profile>,
 };
 
 static void admit_details_request(u64 now) noexcept {
@@ -839,6 +844,7 @@ static constexpr ResponseRoute kResponseRoutes[] = {
     {MessageHistoryRequestOwner::friends, route_response<application_friends_response>},
     {MessageHistoryRequestOwner::commands, route_response<application_commands_response>},
     {MessageHistoryRequestOwner::user_profile, route_response<application_profile_response>, true},
+    {MessageHistoryRequestOwner::dm_profile, route_response<application_dm_profile_response>, true},
     {MessageHistoryRequestOwner::message_reaction, route_message_reaction},
 };
 

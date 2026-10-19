@@ -1,5 +1,7 @@
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/activity_status.hpp"
+#include "maicord/ui/private_channel_title.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -50,6 +52,34 @@ bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noe
     if (!source.users || ui_private_row_status(source, channel_id) != UiPrivateRowStatus::online) return false;
     return client_status_mobile_online(user_store_client_status(*source.users, private_row_peer(source, channel_id)));
 }
+Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+                                  UiActivityGlyph* glyph) noexcept {
+    if (glyph) *glyph = UiActivityGlyph::none;
+    const ChannelRecord* channel = nullptr;
+    if (!source.state || !source.users || !storage.data || !record(*source.state, channel_id, &channel) ||
+        channel->type != 1)
+        return {};
+    // The online peer's activity line (activity_status.hpp).
+    u64 peer[2]{};
+    if (!ui_private_row_group_members(*source.state, channel_id, peer) ||
+        ui_private_row_status(source, channel_id) == UiPrivateRowStatus::offline)
+        return {};
+    char line[kAppearanceActivityBytes];
+    UiActivityStatus status{};
+    if (!ui_user_activity_status(*source.users, peer[0], user_appearance_find_activity(source.users->appearance, peer[0]),
+                                 {line, sizeof(line)}, &status))
+        return {};
+    if (glyph) *glyph = status.glyph;
+    u32 used = 0;
+    if (status.emoji.bytes && status.emoji.bytes + 1u <= static_cast<u32>(storage.count)) {
+        copy_bytes(storage.data, status.emoji.data, status.emoji.bytes);
+        used = status.emoji.bytes;
+        if (status.text.bytes) storage.data[used++] = ' ';
+    }
+    const u32 text = utf8_truncated_length(status.text, static_cast<u32>(storage.count) - used);
+    copy_bytes(storage.data + used, status.text.data, text);
+    return {storage.data, used + text};
+}
 Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
                                  UiActivityGlyph* glyph) noexcept {
     if (glyph) *glyph = UiActivityGlyph::none;
@@ -60,29 +90,7 @@ Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_i
         return utf8_literal("Typing…");
     if (metadata->request_flags & private_request_spam) return utf8_literal("Possible spam");
     if (metadata->request_flags & private_request_pending) return utf8_literal("Message request");
-    if (channel->type == 1 && storage.data && source.users) {
-        // The online peer's activity line (activity_status.hpp).
-        u64 peer[2]{};
-        if (!ui_private_row_group_members(*source.state, channel_id, peer) ||
-            ui_private_row_status(source, channel_id) == UiPrivateRowStatus::offline)
-            return {};
-        char line[kAppearanceActivityBytes];
-        UiActivityStatus status{};
-        if (!ui_user_activity_status(*source.users, peer[0],
-                                     user_appearance_find_activity(source.users->appearance, peer[0]),
-                                     {line, sizeof(line)}, &status))
-            return {};
-        if (glyph) *glyph = status.glyph;
-        u32 used = 0;
-        if (status.emoji.bytes && status.emoji.bytes + 1u <= static_cast<u32>(storage.count)) {
-            copy_bytes(storage.data, status.emoji.data, status.emoji.bytes);
-            used = status.emoji.bytes;
-            if (status.text.bytes) storage.data[used++] = ' ';
-        }
-        const u32 text = utf8_truncated_length(status.text, static_cast<u32>(storage.count) - used);
-        copy_bytes(storage.data + used, status.text.data, text);
-        return {storage.data, used + text};
-    }
+    if (channel->type == 1) return ui_private_peer_activity(source, channel_id, storage, glyph);
     if (channel->type != 3 || !storage.data) return {};
     const auto recipients = private_channel_store_recipients(*source.state->private_channels, *metadata);
     u64 members = 1;
@@ -227,8 +235,48 @@ bool ui_private_header_overlay_paint(const UiScene& scene, const UiPrivateRowSou
     const auto* channel = source.state ? chat_state_store_find_channel(*source.state, channel_id) : nullptr;
     const auto avatar = ui_private_header_avatar(scene);
     if (!channel || !channel_is_private(channel->type) || !ui_rect_has_area(avatar)) return true;
-    return decorations(stream, source, channel_id, ui_private_avatar_shape(source.state, channel_id, channel->type),
-                       avatar, theme.base_lower, nullptr, theme);
+    if (!decorations(stream, source, channel_id, ui_private_avatar_shape(source.state, channel_id, channel->type),
+                     avatar, theme.base_lower, nullptr, theme))
+        return false;
+    char line[192];
+    UiPrivateHeaderActivity activity{};
+    return !ui_private_header_activity(scene, source, channel_id, {line, sizeof(line)}, &activity) ||
+           activity.glyph == UiActivityGlyph::none ||
+           ui_icon_paint(stream, ui_activity_glyph_icon(activity.glyph), activity.icon, theme.text_secondary);
+}
+bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
+                                Slice<char> storage, UiPrivateHeaderActivity* output) noexcept {
+    *output = {};
+    const auto* title = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_bar));
+    const auto* label = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_label));
+    const auto* channel = source.state ? chat_state_store_find_channel(*source.state, channel_id) : nullptr;
+    if (!title || !label || !channel || channel->type != 1 || !source.measure || scene.view != UiShellView::private_channels)
+        return false;
+    output->line = ui_private_peer_activity(source, channel_id, storage, &output->glyph);
+    if (!output->line.bytes) return false;
+    // The name as the header shows it (shell_text_presentation): after the avatar, one line.
+    char name_storage[512];
+    const Utf8View name = private_channel_title(*source.state, source.users, *channel, {name_storage, sizeof(name_storage)});
+    const float left = label->rectangle.left + kUiPrivateHeaderAvatar + 8.f;
+    const float room = label->rectangle.right - left;
+    UiTextMeasureValue measured{};
+    if (!name.bytes || room <= 0 ||
+        !ui_text_measure_cache_measure(source.measure,
+                                       {{0x484E414D, hash64_bytes(kHash64Seed, name.data, name.bytes), 0, 0, 0},
+                                        name,
+                                        {},
+                                        {room, 64},
+                                        true,
+                                        UiTextFace::normal},
+                                       &measured)
+             .ok())
+        return false;
+    const float start = left + minimum(room, measured.size.width) + kUiPrivateHeaderActivityGap;
+    if (label->rectangle.right - start < kUiPrivateHeaderActivityMinimum) return false;
+    const UiRect line{start, title->rectangle.top, label->rectangle.right, title->rectangle.bottom};
+    output->icon = output->glyph != UiActivityGlyph::none ? ui_activity_glyph_rectangle(line) : UiRect{};
+    output->text = ui_activity_glyph_text(line, output->glyph);
+    return ui_rect_width(output->text) > 0;
 }
 UiRect ui_private_member_crown_rectangle(UiRect label, float name_width) noexcept {
     const float middle = (label.top + label.bottom) * .5f, half = kUiPrivateMemberCrownExtent * .5f;

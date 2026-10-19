@@ -203,6 +203,10 @@ static bool run_shortcut(ShortcutAction action, bool repeated) noexcept {
     case A::toggle_inbox:
         return application_inbox_available() && application_inbox_toggle();
     case A::toggle_members:
+        // Ctrl+U: the recipient's profile in a one-to-one DM, as in the official client.
+        if (g_app.shell_scene.side_panel_profile)
+            return g_app.shell_scene.side_panel_unavailable ||
+                   application_preferences_dm_profile_visibility(!g_app.preferences.dm_profile_visible);
         return application_preferences_member_visibility(!g_app.member_pane_visible);
     case A::emoji_picker:
         return application_media_picker_open(UiMediaPickerKind::emoji);

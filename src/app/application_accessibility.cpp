@@ -572,9 +572,12 @@ void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidge
         break;
     case UiSemantic::member_toggle:
         info->role = UiAccessRole::toggle_button;
-        info->name = utf8_literal("Member list");
+        info->name = g_app.shell_scene.side_panel_profile ? utf8_literal("User profile") : utf8_literal("Member list");
         info->actions = ui_access_action_toggle;
-        info->state |= ui_access_toggleable | (g_app.member_pane_visible ? ui_access_checked : 0);
+        info->state |= ui_access_toggleable | ((g_app.shell_scene.side_panel_profile ? g_app.preferences.dm_profile_visible
+                                                                                    : g_app.member_pane_visible)
+                                                   ? ui_access_checked
+                                                   : 0);
         info->leaf = true;
         break;
     case UiSemantic::pins_toggle:

@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/media_atlas.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
@@ -42,6 +43,12 @@ struct RendererCaption {
     ID3D11ShaderResourceView* icon_view;
     ID3D11Buffer* icon_quad;
     u32 icon_extent;
+    // The title's glyph, or a server icon from the media atlas once resident
+    // (image_drawn: its quad is in image_quad).
+    UiIcon title_glyph;
+    MediaAssetKey title_image;
+    ID3D11Buffer* image_quad;
+    bool image_drawn;
     UiCaptionBarState state;
     u64 stamp;
     u64 text_key;
@@ -92,6 +99,15 @@ u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& capti
     // Whole percent steps of download progress.
     hash = hash64_mix(hash, static_cast<u64>(s.progress * 100.0f));
     hash = hash64_counted_bytes(hash, caption.title, caption.title_bytes);
+    hash = hash64_mix(hash, static_cast<u64>(caption.title_glyph));
+    hash = hash64_bytes(hash, &caption.title_image, sizeof(caption.title_image));
+    // A server icon draws once resident, from where the atlas holds it.
+    if (media_asset_key_valid(caption.title_image) && renderer.media_atlas) {
+        const MediaAtlasResult image = media_atlas_peek(renderer.media_atlas, caption.title_image);
+        const u32 place[6]{image.ok() ? 1u : 0u, image.x, image.y, image.width, renderer.media_gpu.width,
+                           renderer.media_gpu.height};
+        hash = hash64_bytes(hash, place, sizeof(place));
+    }
     // The backdrop gradient spans caption and content.
     const u32 geometry[5]{renderer.width, renderer.caption_height, renderer.height, renderer.dpi,
                           caption.icon_extent};
@@ -126,7 +142,10 @@ bool same_theme(const Theme& a, const Theme& b) noexcept {
 }
 
 u64 caption_text_seed(const RendererCaption& caption) noexcept {
-    return hash64_counted_bytes(kHash64Seed, caption.title, caption.title_bytes);
+    // The icon's room limits the text.
+    const u64 seed = hash64_counted_bytes(kHash64Seed, caption.title, caption.title_bytes);
+    return hash64_bytes(hash64_mix(seed, static_cast<u64>(caption.title_glyph)), &caption.title_image,
+                        sizeof(caption.title_image));
 }
 
 // The band is exactly the reserved rows, whatever the scale rounded to.
@@ -244,24 +263,77 @@ bool append_line(D3D11Renderer* renderer, const CaptionLine& line, GlyphQuad* ou
     return false;
 }
 
-// One title line, centred in the band but kept inside the title span.
-bool append_title(D3D11Renderer* renderer, RendererCaption* caption, const UiCaptionBarLayout& layout,
-                  Color color, u32* count) noexcept {
+// The resident server icon of the title, if any.
+bool title_image(const D3D11Renderer& renderer, const RendererCaption& caption, MediaAtlasResult* image) noexcept {
+    if (!media_asset_key_valid(caption.title_image) || !renderer.media_atlas || !renderer.media_gpu.texture_view)
+        return false;
+    *image = media_atlas_peek(renderer.media_atlas, caption.title_image);
+    return image->ok() && image->width && image->height;
+}
+
+// One title line after its icon, the two centred as a group in the band but
+// kept inside the title span; the icon's box goes to `layout` for the paint
+// pass (a glyph) or `image` (a server icon).
+bool append_title(D3D11Renderer* renderer, RendererCaption* caption, UiCaptionBarLayout* layout, Color color,
+                  u32* count, UiRect* image) noexcept {
     *count = 0;
+    *image = {};
     if (!caption->title_bytes || !renderer->glyph_text.ready)
         return true;
-    const float span = layout.title.right - layout.title.left;
-    if (span <= 0)
+    MediaAtlasResult resident_image{};
+    const bool resident = title_image(*renderer, *caption, &resident_image);
+    const bool icon = resident || caption->title_glyph != UiIcon::count;
+    const float extent = resident ? kUiCaptionTitleImage : kUiCaptionTitleGlyph;
+    const float limit = ui_caption_title_text_limit(*layout, icon, extent);
+    if (limit <= 0)
         return true;
     CaptionLine& line = caption->title_line;
-    if (!shape_line(renderer, &line, {caption->title, caption->title_bytes}, text_style_none, text_size_sm, span,
-                    layout.height))
+    if (!shape_line(renderer, &line, {caption->title, caption->title_bytes}, text_style_none, text_size_sm, limit,
+                    layout->height))
         return false;
-    const float width = line.shape.width;
-    const float origin_x =
-        minimum(maximum((layout.width - width) * .5f, layout.title.left), layout.title.right - width);
-    return append_line(renderer, line, caption->glyphs, color, origin_x, (layout.height - line.shape.height) * .5f,
-                       count);
+    const auto placement = ui_caption_title_place(*layout, line.shape.width, icon, extent);
+    if (resident)
+        *image = placement.icon;
+    else if (icon) {
+        layout->title_icon = placement.icon;
+        layout->title_glyph = caption->title_glyph;
+    }
+    return append_line(renderer, line, caption->glyphs, color, placement.text_left,
+                       (layout->height - line.shape.height) * .5f, count);
+}
+
+// The server icon on whole pixels, rounded like the official client's.
+bool upload_image_quad(D3D11Renderer* renderer, RendererCaption* caption, UiRect box, float radius) noexcept {
+    caption->image_drawn = false;
+    MediaAtlasResult image{};
+    if (!ui_rect_has_area(box) || !title_image(*renderer, *caption, &image))
+        return true;
+    if (!create_buffer(renderer->graphics.device, static_cast<u32>(sizeof(MediaQuad)), &caption->image_quad))
+        return false;
+    const float scale = static_cast<float>(renderer->dpi) / 96.0f;
+    const auto pixel = [&](float dip) noexcept {
+        return static_cast<float>(static_cast<i32>(dip * scale + .5f)) / scale;
+    };
+    box = {pixel(box.left), pixel(box.top), pixel(box.right), pixel(box.bottom)};
+    const float width = 1.0f / static_cast<float>(maximum<u32>(renderer->media_gpu.width, 1));
+    const float height = 1.0f / static_cast<float>(maximum<u32>(renderer->media_gpu.height, 1));
+    const MediaQuad quad{box.left,
+                         box.top,
+                         box.right,
+                         box.bottom,
+                         (static_cast<float>(image.x) + .5f) * width,
+                         (static_cast<float>(image.y) + .5f) * height,
+                         (static_cast<float>(image.x + image.width) - .5f) * width,
+                         (static_cast<float>(image.y + image.height) - .5f) * height,
+                         1,
+                         radius,
+                         0,
+                         0,
+                         box};
+    if (!upload(renderer->graphics.context, caption->image_quad, &quad, static_cast<u32>(sizeof(quad))))
+        return false;
+    caption->image_drawn = true;
+    return true;
 }
 
 // The content repaints the pixels a tooltip leaves; before the frame's
@@ -349,8 +421,13 @@ bool content_covers_tooltip(const D3D11Renderer& renderer, const RendererCaption
 
 } // namespace
 
+bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& state, Utf8View title) noexcept {
+    return renderer_set_caption(renderer, state, UiCaptionTitle{title, UiIcon::count, {}});
+}
+
 bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& state,
-                          Utf8View title) noexcept {
+                          const UiCaptionTitle& title_content) noexcept {
+    const Utf8View title = title_content.text;
     if (!renderer)
         return false;
     auto* caption = renderer->caption;
@@ -388,6 +465,8 @@ bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& stat
         caption->title_bytes = bytes;
         caption->title_line.shaped = false;
     }
+    caption->title_glyph = title_content.glyph;
+    caption->title_image = title_content.image;
     return true;
 }
 
@@ -433,7 +512,8 @@ bool d3d11_renderer_caption_pending(D3D11Renderer* renderer, const Theme& theme)
         const u64 text_key =
             hash64_mix(hash64_mix(hash64_mix(caption_text_seed(*caption), renderer->width), renderer->dpi),
                        hash64_bytes(kHash64Seed, &theme.scale, sizeof(theme.scale)));
-        if (text_key != caption->text_key) {
+        // A server icon turning resident narrows the text's room too.
+        if (text_key != caption->text_key || media_asset_key_valid(caption->title_image)) {
             caption->text_key = text_key;
             caption->title_line.shaped = caption->tooltip_line.shaped = false;
         }
@@ -454,23 +534,25 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         return true;
     auto* context = renderer->graphics.context;
     auto& pipeline = renderer->pipeline;
-    const UiCaptionBarLayout layout = caption_layout(*renderer, *caption, theme);
+    UiCaptionBarLayout layout = caption_layout(*renderer, *caption, theme);
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
     if (!caption->built || caption->built_key != build_key(*renderer, *caption) ||
         !same_theme(caption->built_theme, theme)) {
         caption->built = false;
         u32 glyph_count = 0, tooltip_glyphs = 0;
+        UiRect image{};
         caption->buttons_first_quad = 0;
         caption->scrim_quad = ~0u;
         // The stream culls to its viewport: the band and the content a tooltip
         // hangs into.
-        if (!paint_stream_reset(&caption->paint, layout.width,
+        // The title first: its icon's box depends on the shaped text.
+        if (!append_title(renderer, caption, &layout, ui_caption_bar_title_color(theme, caption->state),
+                          &glyph_count, &image) ||
+            !paint_stream_reset(&caption->paint, layout.width,
                                 layout.height + dips(renderer->height, renderer->dpi)) ||
             !ui_caption_bar_paint(&caption->paint, theme, layout, caption->state, scale,
                                   &caption->buttons_first_quad) ||
             caption->paint.rejected || !append_scrim(caption, layout) ||
-            !append_title(renderer, caption, layout, ui_caption_bar_title_color(theme, caption->state),
-                          &glyph_count) ||
             !append_tooltip(renderer, caption, theme, layout, glyph_count, &tooltip_glyphs) ||
             !create_buffer(renderer->graphics.device,
                            static_cast<u32>(sizeof(PaintQuad)) * kCaptionPaintCapacity,
@@ -480,6 +562,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
                            &caption->glyph_buffer) ||
             !upload_paint(renderer, caption, ui_icon_theme_weight(theme)) ||
             !upload_icon_quad(renderer, caption, layout) ||
+            !upload_image_quad(renderer, caption, image, theme.scale.radius_sm) ||
             (glyph_count + tooltip_glyphs &&
              !upload(context, caption->glyph_buffer, caption->glyphs,
                      (glyph_count + tooltip_glyphs) * static_cast<u32>(sizeof(GlyphQuad))))) {
@@ -569,6 +652,17 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
         ID3D11ShaderResourceView* media_views[3]{caption->icon_view, nullptr, nullptr};
+        context->PSSetShaderResources(0, 3, media_views);
+        context->DrawInstanced(6, 1, 0, 0);
+        ++renderer->draw_calls_last_frame;
+    }
+    if (caption->image_drawn && renderer->media_gpu.texture_view) {
+        const UINT media_stride = sizeof(MediaQuad);
+        context->IASetInputLayout(pipeline.media_input_layout);
+        context->IASetVertexBuffers(0, 1, &caption->image_quad, &media_stride, &offset);
+        context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
+        context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
+        ID3D11ShaderResourceView* media_views[3]{renderer->media_gpu.texture_view, nullptr, nullptr};
         context->PSSetShaderResources(0, 3, media_views);
         context->DrawInstanced(6, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
@@ -685,6 +779,7 @@ void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {
     com_release(caption->glyph_buffer);
     com_release(caption->icon_view);
     com_release(caption->icon_quad);
+    com_release(caption->image_quad);
     shaped_text_reset(&caption->title_line.shape);
     shaped_text_reset(&caption->tooltip_line.shape);
     paint_stream_release(&caption->paint);

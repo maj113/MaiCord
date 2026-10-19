@@ -1805,10 +1805,20 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->content_text->message_geometry_quads = message_presentation.geometry_quads;
     }
 
+    // The DM profile panel: its card, then its media with the shell's; its
+    // foreground follows above that media, its text with the shell's.
+    const ProfileScene* dm_panel =
+        !content_hidden && d3d11_renderer_active(renderer->dm_profile_panel) ? renderer->dm_profile_panel : nullptr;
+    u32 dm_panel_effects = 0;
+    if (dm_panel && (!profile_scene_paint(*dm_panel, theme, &renderer->paint_stream) ||
+                     !queue_profile_media(renderer, *dm_panel, theme, &dm_panel_effects)))
+        return layout_step_failed(__LINE__);
     // Avatar textures are submitted as media after the base shell geometry.
     // Start a separate paint layer for badges that must remain above those
     // textures regardless of media residency.
     renderer->media_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    if (dm_panel && !profile_scene_foreground(*dm_panel, theme, &renderer->paint_stream, nullptr, renderer->dpi))
+        return layout_step_failed(__LINE__);
     if (!content_hidden) {
         const UiVideoPlayAffordanceStyle affordance{};
         for (u32 i = 0; i < message_media_stream.count; ++i) {

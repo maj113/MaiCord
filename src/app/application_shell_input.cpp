@@ -99,8 +99,8 @@ PaneResizeKind pane_resize_hit(float x, float y) noexcept {
         return PaneResizeKind::channels;
     const UiNode* members =
         ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_sidebar));
-    // Search results borrow the member slot at a fixed width; no grip there.
-    if (members && !d3d11_renderer_search_visible(g_app.renderer) &&
+    // Search results and the DM profile take the member slot at a fixed width; no grip there.
+    if (members && !d3d11_renderer_search_visible(g_app.renderer) && !g_app.shell_scene.side_panel_profile &&
         ui_splitter_hit(members->rectangle, UiSplitterEdge::left, x, y))
         return PaneResizeKind::members;
     return PaneResizeKind::none;
@@ -401,6 +401,10 @@ bool handle_shell_click(LPARAM lparam) noexcept {
     if (!widget || widget->id != static_cast<u32>(UiSemantic::member_toggle) + 1u) {
         return false;
     }
+    // A one-to-one DM toggles the recipient's profile instead (disabled while too narrow).
+    if (g_app.shell_scene.side_panel_profile)
+        return g_app.shell_scene.side_panel_unavailable ||
+               application_preferences_dm_profile_visibility(!g_app.preferences.dm_profile_visible);
     return application_preferences_member_visibility(!g_app.member_pane_visible);
 }
 

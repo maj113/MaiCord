@@ -101,6 +101,7 @@ u64 application_next_wake_at_ms() noexcept {
         add(application_poll_next_wake());
         add(application_member_moderation_next_wake());
         add(application_account_settings_next_wake());
+        add(g_app.dm_profile_wake_ms);
     }
     add(application_media_picker_next_wake());
     add(application_gif_favorites_next_wake());
@@ -215,8 +216,10 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         limit_timeout(timeout, now_ms, application_background_next_wake(now_ms));
         limit_timeout(timeout, now_ms, application_video_next_wake());
         limit_timeout(timeout, now_ms, application_tooltip_next_wake());
+        limit_timeout(timeout, now_ms, application_toast_next_wake());
         limit_timeout(timeout, now_ms, application_guild_banner_next_wake());
         limit_timeout(timeout, now_ms, application_voice_timer_next_wake());
+        limit_timeout(timeout, now_ms, g_app.dm_profile_clock_ms);
         limit_timeout(timeout, now_ms, application_surface_motion_next_wake(now_ms));
         limit_timeout(timeout, now_ms, application_loading_spinner_wake());
         // Once a visual frame is due, DXGI paces it. An overdue visual timer
@@ -292,8 +295,10 @@ bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
            application_smooth_scroll_active() || application_animation_frame_due(now_us) ||
            deadline_due(now_ms, application_video_next_wake()) ||
            deadline_due(now_ms, application_tooltip_next_wake()) ||
+           deadline_due(now_ms, application_toast_next_wake()) ||
            deadline_due(now_ms, application_guild_banner_next_wake()) ||
            deadline_due(now_ms, application_voice_timer_next_wake()) ||
+           deadline_due(now_ms, g_app.dm_profile_clock_ms) ||
            deadline_due(now_ms, application_surface_motion_next_wake(now_ms)) ||
            deadline_due(now_ms, application_search_edit_next_wake()) ||
            deadline_due(now_ms, application_media_picker_caret_wake()) ||

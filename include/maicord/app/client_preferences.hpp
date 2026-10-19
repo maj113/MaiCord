@@ -44,6 +44,8 @@ struct ClientPreferences {
     bool spellcheck = true;
     // Opt-in: scan running programs for registered games (Activity privacy).
     bool game_detection = false;
+    // The recipient's profile beside a one-to-one DM.
+    bool dm_profile_visible = true;
     // Space between message groups: 0 = default for the display mode,
     // 1..5 = 0, 4, 8, 16, 24 px.
     u8 message_group_spacing = 0;
@@ -98,8 +100,8 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
 // Bytes 48..56 hold the three effect profiles; 58..59 hold the expression
 // drawer width (little-endian u16). Bytes 57 and 60..65 are reserved and ignored.
 // Byte 66 bits: 0 taskbar flash off, 1 unread badge off, 2 minimize to tray
-// off, 3 start minimized, 4 spellcheck off, 5 game detection on (defaults
-// encode as zero bits).
+// off, 3 start minimized, 4 spellcheck off, 5 game detection on, 6 DM profile
+// panel hidden (defaults encode as zero bits).
 // A stored effect id outside the catalog restores "none" with its default
 // tuning. Bytes 68..71 hold the two pane widths (little-endian u16; zero in
 // records written before they existed, which restores the theme defaults).

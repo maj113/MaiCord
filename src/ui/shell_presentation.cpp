@@ -20,6 +20,7 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/ui/composer_voice_bar.hpp"
 #include "maicord/model/guild_member_store.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
@@ -677,7 +678,9 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             return false;
     }
     if (member_toggle) {
-        if (!ui_button_icon_paint(stream, scene.widgets, member_toggle->widget, UiIcon::members, theme,
+        // A one-to-one DM's toggle shows the recipient's profile.
+        if (!ui_button_icon_paint(stream, scene.widgets, member_toggle->widget,
+                                  scene.side_panel_profile ? UiIcon::user_circle : UiIcon::members, theme,
                                   members != nullptr, false, UiButtonSurface::palette)) {
             return false;
         }
@@ -976,21 +979,16 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             !shell_presentation_paint_reply_mention(*composer_scene, theme, stream))
             return false;
     }
-    if (message_composer_scene_typing_label(*composer_scene).bytes != 0) {
-        const float center = (typing->rectangle.top + typing->rectangle.bottom) * 0.5f;
-        for (u32 index = 0; index < 3; ++index) {
-            const float left = typing->rectangle.left + 4.0f + static_cast<float>(index) * 5.0f;
-            if (!push_rounded(stream, left, center - 2.0f, left + 4.0f, center + 2.0f,
-                              (composer_scene->status_is_error || composer_scene->status_tone == 4 ? theme.notification
-                              : composer_scene->status_tone == 3                        ? theme.tokens.text.warning
-                              : composer_scene->status_tone == 2                        ? theme.tokens.text.positive
-                              : composer_scene->status_tone == 1                        ? theme.accent
-                                                                                        : theme.text_primary),
-                              2.0f)) {
-                return false;
-            }
-        }
-    }
+    // Typing dots animate in the composer overlay; a notice keeps resting ones.
+    if (message_composer_scene_typing_label(*composer_scene).bytes != 0 && !composer_scene->typing_dots &&
+        !ui_typing_dots_paint(stream, ui_typing_dots_row(typing->rectangle),
+                              composer_scene->status_is_error || composer_scene->status_tone == 4 ? theme.notification
+                              : composer_scene->status_tone == 3 ? theme.tokens.text.warning
+                              : composer_scene->status_tone == 2 ? theme.tokens.text.positive
+                              : composer_scene->status_tone == 1 ? theme.accent
+                                                                 : theme.text_primary,
+                              kUiTypingDotsRest))
+        return false;
     if (composer_presentation && composer_presentation->geometry_active && composer_scene->model->focused) {
         for (u32 i = 0; i < composer_presentation->composition.count; ++i) {
             auto mark = composer_presentation->composition[i];
@@ -1029,6 +1027,17 @@ UiRect caret_pixel_rectangle(UiRect caret, UiRect clip, u32 dpi) noexcept {
 bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene,
                                                const MessageComposerPresentationInput& input,
                                                const Theme& theme, PaintStream* paint, u32 dpi) noexcept {
+    // Typing dots: always three quads, so a step changes only their geometry
+    // and the renderer limits its damage to them.
+    if (scene && scene->active && scene->typing_dots && message_composer_scene_typing_label(*scene).bytes) {
+        const auto* typing = message_composer_scene_layout_node(*scene, MessageComposerControl::typing_indicator);
+        if (typing && (!paint_stream_push_clip(paint, typing->rectangle.left, typing->rectangle.top,
+                                               typing->rectangle.right, typing->rectangle.bottom) ||
+                       !ui_typing_dots_paint(paint, ui_typing_dots_row(typing->rectangle), theme.text_primary,
+                                             scene->typing_phase) ||
+                       !paint_stream_pop_clip(paint)))
+            return false;
+    }
     // Spelling marks stay visible without focus; the caret needs it.
     const bool focused = scene && scene->model && scene->model->focused;
     if (!scene || !scene->active || !scene->model || !input.geometry_active || (!focused && !input.composition.count))

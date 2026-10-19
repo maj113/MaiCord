@@ -1,5 +1,7 @@
 #pragma once
 
+#include "maicord/media/asset.hpp"
+#include "maicord/ui/icon.hpp"
 #include "maicord/ui/paint.hpp"
 
 namespace maicord {
@@ -69,7 +71,45 @@ struct UiCaptionBarLayout {
     float fill_radius;
     // Span the title is centred in, between the icon and the trailing items.
     UiRect title;
+    // The title's leading glyph (the renderer places it beside the shaped
+    // text; UiIcon::count or an empty box draws none).
+    UiRect title_icon;
+    UiIcon title_glyph;
 };
+
+// What the bar's centre names, as the official client's app title bar: the
+// selected server (its icon and name), "Direct Messages" while a DM or group
+// DM is open, "Friends" on Home without one, and nothing elsewhere (message
+// requests). Settings keep the title of the view beneath. Signed out, the
+// app's name.
+struct UiCaptionTitleInput {
+    bool signed_in, friends, home;
+    // The selected conversation's channel type (1 DM, 3 group DM), 0 none.
+    u8 private_type;
+    u64 guild_id;
+    u32 guild_icon_variant;
+    Utf8View guild_name;
+};
+struct UiCaptionTitle {
+    Utf8View text;
+    // A glyph before the text (UiIcon::count: none); for a server, its icon
+    // (image), with the glyph standing in until the image is resident.
+    UiIcon glyph;
+    MediaAssetKey image;
+};
+UiCaptionTitle ui_caption_title(const UiCaptionTitleInput&) noexcept;
+// Server icons are 16 DIP rounded squares, glyphs 18 DIPs, 8 from the text.
+inline constexpr float kUiCaptionTitleImage = 16.f, kUiCaptionTitleGlyph = 18.f, kUiCaptionTitleGap = 8.f;
+// The text's width limit: the title span and half the bar, less the icon.
+float ui_caption_title_text_limit(const UiCaptionBarLayout&, bool icon, float icon_extent) noexcept;
+// The icon and text centred as one group in the bar, kept inside the title
+// span; `text_width` is the shaped (already limited) text width.
+struct UiCaptionTitlePlacement {
+    UiRect icon;
+    float text_left;
+};
+UiCaptionTitlePlacement ui_caption_title_place(const UiCaptionBarLayout&, float text_width, bool icon,
+                                               float icon_extent) noexcept;
 
 // Height in DIPs from the theme (caption_height scale).
 float ui_caption_bar_height(const Theme& theme) noexcept;

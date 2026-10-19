@@ -214,6 +214,34 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
     }
     if (title_ink[0] < 20 || title_ink[1] < 20)
         return fail(80);
+    // A view's glyph leads its centred title ("Direct Messages" with the DM
+    // icon): the group's ink starts half the glyph and its gap further left.
+    {
+        const UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+        const auto leading_ink = [&](const UiCaptionTitle& title, bool capture) noexcept -> i32 {
+            ProbeTargetReadback image{};
+            if (!renderer_set_caption(&renderer, state, title) || !draw(renderer, theme) ||
+                probe_target_readback(renderer, &image))
+                return -1;
+            i32 first = -1;
+            for (u32 x = px(layout.title.left); first < 0 && x < px(layout.title.right); ++x)
+                for (u32 y = caption / 4; y < caption * 3 / 4; ++y)
+                    if (!matches(read(image, x, y), background, 12)) {
+                        first = static_cast<i32>(x);
+                        break;
+                    }
+            if (capture && !probe_write_capture(image, L"titlebar_direct_messages.bmp"))
+                return -1;
+            return first;
+        };
+        const i32 plain = leading_ink({utf8_literal("Direct Messages"), UiIcon::count, {}}, false);
+        const i32 glyph = leading_ink({utf8_literal("Direct Messages"), UiIcon::direct_message, {}}, true);
+        if (plain < 0 || glyph < 0 ||
+            plain - glyph < static_cast<i32>((kUiCaptionTitleGlyph + kUiCaptionTitleGap) * .25f * scale))
+            return fail(81);
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")))
+            return fail(82);
+    }
     // The sign-in screen: Settings and a ready update in the caption.
     {
         const UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::ready, true, 1};

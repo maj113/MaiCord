@@ -51,7 +51,8 @@ enum Surface : u64 {
     profile_peers,
     pinned_messages,
     thread_browser,
-    inbox
+    inbox,
+    dm_profile
 };
 
 // Virtualized surfaces describe their full range, not just materialized rows.
@@ -66,6 +67,13 @@ bool read_surface(void*, u64 key, UiScrollRange* range) noexcept {
         if (!profile)
             return false;
         const auto binding = profile_scene_scroll_binding(&g_app.profile->scene, key == profile_peers);
+        return binding.read(binding.context, binding.key, range);
+    }
+    if (key == dm_profile) {
+        auto* panel = g_app.renderer.dm_profile_panel;
+        if (!panel || !panel->active || g_app.popup_scene.active || g_app.reaction_viewer.active)
+            return false;
+        const auto binding = profile_scene_scroll_binding(panel);
         return binding.read(binding.context, binding.key, range);
     }
     if (application_thread_browser_read_blocked() &&
@@ -203,6 +211,10 @@ bool write_surface(void*, u64 key, double offset, bool* changed) noexcept {
         const auto binding = profile_scene_scroll_binding(&g_app.profile->scene, key == profile_peers);
         return binding.write(binding.context, binding.key, offset, changed);
     }
+    case dm_profile: {
+        const auto binding = profile_scene_scroll_binding(g_app.renderer.dm_profile_panel);
+        return binding.write(binding.context, binding.key, offset, changed);
+    }
     case composer: {
         auto& edit = g_app.renderer.composer_layout;
         if (!text_edit_layout_scroll(&edit, static_cast<float>(offset - before.offset)))
@@ -259,7 +271,7 @@ void update_scrollbar_hover(float x, float y) noexcept {
         inbox,
         profile_peers, profile_details, command_categories,
         suggestions,   reaction_types,  reaction_users,    thread_browser, pinned_messages, composer, guilds,
-        channels,      members,         messages};
+        channels,      members,         dm_profile,        messages};
     for (const auto surface : order) {
         UiScrollRange range{};
         if (read_surface(nullptr, surface, &range) && ui_rect_contains(range.viewport, x, y)) {
@@ -371,7 +383,7 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
     constexpr Surface order[] = {profile_peers,     profile_details, reaction_types,     reaction_users,
                                  command_categories, suggestions,
                                  thread_browser, pinned_messages,    composer,       guilds,             channels, members,
-                                 messages};
+                                 dm_profile,     messages};
     for (const auto surface : order) {
         const auto result = wheel(surface);
         if (result != UiScrollDispatch::unhandled) {

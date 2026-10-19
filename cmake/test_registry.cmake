@@ -688,6 +688,13 @@ maicord_test(MaiCordAccountMenuRuntimeTests ENTRY maicord_account_menu_runtime_e
     INCLUDES src/app
     TIMEOUT 10
     TEST maicord_account_menu_runtime)
+maicord_test(MaiCordDmProfileTests ENTRY maicord_dm_profile_tests_entry
+    SOURCES tests/dm_profile_panel.cpp src/app/application_dm_profile.cpp src/app/application_state.cpp
+        src/core/log.cpp
+    LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32
+    INCLUDES src/app
+    TIMEOUT 10
+    TEST maicord_dm_profile)
 maicord_test(MaiCordProfileRuntimeTests ENTRY maicord_profile_runtime_entry
     SOURCES tests/application_profile_runtime.cpp src/app/application_profile.cpp
         src/app/application_state.cpp src/core/log.cpp

@@ -824,6 +824,9 @@ bool application_thread_browser_toggle() noexcept {
 bool application_preferences_member_visibility(bool) noexcept {
     return unexpected();
 }
+bool application_preferences_dm_profile_visibility(bool) noexcept {
+    return unexpected();
+}
 bool application_downloads_open() noexcept {
     return unexpected();
 }

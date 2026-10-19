@@ -1529,11 +1529,14 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
 bool project_shell_member_text(D3D11Renderer* renderer, const Theme& theme,
                                UiTextEmitter* emitter) noexcept {
     if (d3d11_renderer_login_form_text(*renderer) || renderer_settings_page_visible(*renderer) ||
-        d3d11_renderer_active(renderer->friends_scene) ||
-        d3d11_renderer_thread_browser_visible(*renderer) || !renderer->member_list_scene)
+        d3d11_renderer_active(renderer->friends_scene) || d3d11_renderer_thread_browser_visible(*renderer))
         return true;
     UiTextOutput output{nullptr, emitter};
-    return shell_text_presentation_member_output(*renderer->member_list_scene, theme, &output);
+    // The DM profile panel's text goes with the member slot's.
+    return (!renderer->member_list_scene ||
+            shell_text_presentation_member_output(*renderer->member_list_scene, theme, &output)) &&
+           (!d3d11_renderer_active(renderer->dm_profile_panel) ||
+            profile_scene_text_output(*renderer->dm_profile_panel, theme, &output, nullptr));
 }
 bool project_shell_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter) noexcept {
     return project_shell_static_text(renderer, theme, emitter) &&

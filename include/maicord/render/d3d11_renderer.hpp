@@ -340,6 +340,9 @@ struct D3D11Renderer {
     // stamp; animation ticks repaint only these areas.
     UiRect text_effect_bounds[kTextEffectCapacity];
     ProfileScene* profile_scene;
+    // The DM profile panel in the shell's member slot (a ProfileScene in panel
+    // presentation): base content, drawn with the shell's paint, media and text.
+    ProfileScene* dm_profile_panel;
     RendererTypographyOwner* typography_owner;
     u32 typography_revision;
     u16 text_measure_revision;
@@ -680,6 +683,9 @@ void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept;
 // Caption state and title for the next frame. The caption is redrawn, and
 // presented as its own dirty rectangle, only when its appearance changes.
 bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& state, Utf8View title) noexcept;
+// The same with the title's glyph or server icon (ui_caption_title).
+bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& state,
+                          const UiCaptionTitle& title) noexcept;
 // The app icon for the caption: `extent` x `extent` premultiplied BGRA, kept
 // as one texture until another extent replaces it. Needs renderer_set_caption.
 bool renderer_set_caption_icon(D3D11Renderer* renderer, const u32* pixels, u32 extent) noexcept;

@@ -13,8 +13,9 @@ void application_record_presentation_failure(const char* stage) noexcept;
 void application_record_presentation_success() noexcept;
 void application_resize_client(HWND window) noexcept;
 void application_resize_surface(u32 width, u32 height) noexcept;
-// Shared loading-spinner frame clock (pins, inbox, thread browser). Sampled
-// once per presented frame; zero while no spinner is on screen.
+// Shared visual step clock: loading spinners (pins, inbox, thread browser)
+// and the composer's typing dots. Sampled once per presented frame; zero while
+// neither is on screen.
 u64 application_loading_spinner_wake() noexcept;
 bool application_loading_spinner_due(u64 now_ms) noexcept;
 

@@ -1,3 +1,4 @@
+#include "application_dm_profile.hpp"
 #include "application_navigation_drag.hpp"
 #include "application_content_point.hpp"
 #include "application_shortcuts.hpp"
@@ -246,6 +247,8 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             g_pointer_leave_armed = false;
             if (g_app.renderer_ready && !application_message_hover_leave())
                 log_write(LogLevel::error, "ui", "message_hover_leave_failed");
+            // The DM profile's name effect animates only under the pointer.
+            application_dm_profile_hover({-1, -1});
         }
         if (message == WM_KILLFOCUS)
             application_video_blur();
@@ -448,6 +451,9 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (message_action_bar_hit_test(g_app.message_action_bar, client_dip_x(lparam), client_dip_y(lparam))
                 .inside)
             return 0;
+        // The DM profile panel tracks the pointer leaving it as well.
+        if (!g_app.login.visible && application_dm_profile_hover({client_dip_x(lparam), client_dip_y(lparam)}))
+            return 0;
         if (g_app.login.visible || handle_shell_hover(lparam) ||
             handle_navigation_hover(lparam) || handle_composer_hover(lparam) || handle_member_hover(lparam))
             return 0;
@@ -522,6 +528,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (application_gif_favorite_star_press(client_dip_x(lparam), client_dip_y(lparam)) ||
             application_message_media_reveal_at(client_dip_x(lparam), client_dip_y(lparam)) ||
             application_image_viewer_open_at(client_dip_x(lparam), client_dip_y(lparam)) ||
+            application_dm_profile_click({client_dip_x(lparam), client_dip_y(lparam)}) ||
             handle_member_click(lparam) || handle_message_click(lparam) || handle_content_click(lparam) ||
             handle_navigation_click(lparam))
             return 0;

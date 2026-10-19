@@ -3,11 +3,13 @@
 #include "application_call.hpp"
 #include "application_thread_starter.hpp"
 #include "application_stage.hpp"
+#include "application_voice_channels.hpp"
 #include "application_account_presentation.hpp"
 #include "application_account_pump.hpp"
 #include "application_account_text_retry.hpp"
 #include "application_account_module.hpp"
 #include "application_profile.hpp"
+#include "application_dm_profile.hpp"
 #include "application_composer_input.hpp"
 #include "application_message_feedback.hpp"
 #include "application_composer.hpp"
@@ -361,6 +363,8 @@ bool synchronize_shell_widget_scenes() noexcept {
                     ? application_plugins_composer_notice_tone()
                     : u8{0})
                 .ok());
+        // Someone typing animates the dots; a notice in that row does not.
+        g_app.message_composer_scene.typing_dots = typing_label.bytes && typing_label.data == typing_label_storage;
         if (g_app.message_composer_pointer_selection &&
             !g_app.message_composer_scene.widgets.captured.generation) {
             end_message_composer_pointer_selection();
@@ -378,7 +382,8 @@ bool synchronize_shell_widget_scenes() noexcept {
             g_app.account_ui ? &g_app.account_ui->guild_member_store : nullptr,
             g_app.account_ui ? &g_app.account_ui->user_store : nullptr,
             g_app.account_ui ? &g_app.account_ui->chat_state : nullptr,
-            !friends && members ? members->rectangle : UiRect{}, g_app.member_list_scene.scroll_dips);
+            !friends && members && !g_app.shell_scene.side_panel_profile ? members->rectangle : UiRect{},
+            g_app.member_list_scene.scroll_dips);
         MAICORD_SHELL_SCENE_STEP(member_scene.ok());
         if (g_app.member_list_scene.rebuilds != member_rebuilds)
             log_member_presentation();
@@ -416,10 +421,7 @@ bool synchronize_shell_layout() noexcept {
         metrics.member_sidebar_top = theme_metrics.shell_header_height;
     metrics.navigation_gutter_before = theme_metrics.shell_gutter;
     metrics.content_gutter_before = theme_metrics.shell_gutter;
-    if (application_pinned_messages_available())
-        metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins);
-    if (application_thread_browser_available())
-        metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_threads);
+    metrics.flags = static_cast<u16>(metrics.flags | shell_header_flags(friends));
     const UiShellView view = friends ? UiShellView::friends
                              : g_app.account_ui && g_app.account_ui->chat_state.home_selected
                                  ? UiShellView::private_channels
@@ -432,8 +434,6 @@ bool synchronize_shell_layout() noexcept {
             : nullptr;
     const bool group_dm = home && selected && selected->type == 3;
     const bool empty_home = home && !g_app.account_ui->chat_state.selected_channel_id;
-    if (!friends && home && selected && channel_is_private(selected->type))
-        metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_private);
     metrics.navigation_width =
         g_app.channel_pane_width > 0.0f ? g_app.channel_pane_width : metrics.navigation_width;
     metrics.member_sidebar_width =
@@ -443,6 +443,16 @@ bool synchronize_shell_layout() noexcept {
     }
     if (friends || (home && !group_dm))
         metrics.member_sidebar_width = 0.0f;
+    // A one-to-one DM: the recipient's profile takes the slot (dm_profile_panel.hpp).
+    const UiSidePanelInput side_input = application_side_panel_input();
+    const UiSidePanelPlan side = ui_side_panel_plan(side_input);
+    g_app.shell_scene.side_panel_profile = !friends && home && side_input.channel_type == 1;
+    g_app.shell_scene.side_panel_unavailable = g_app.shell_scene.side_panel_profile && side.unavailable;
+    if (g_app.shell_scene.side_panel_profile) {
+        metrics.member_sidebar_width = side.width;
+        if (side.panel == UiSidePanel::profile)
+            metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_members);
+    }
     if (empty_home)
         metrics.flags = static_cast<u16>(metrics.flags & ~static_cast<u16>(ui_shell_layout_composer));
     // Search results take the member-pane slot, so the chat column and its
@@ -645,6 +655,22 @@ bool rebuild_account_text_cache() noexcept {
 }
 
 #endif
+// The header's controls (pins, threads, DM actions) by what the selected
+// channel allows now: its type and permissions may arrive after the layout.
+u16 shell_header_flags(bool friends) noexcept {
+    u16 flags = 0;
+    if (application_pinned_messages_available())
+        flags |= ui_shell_layout_pins;
+    if (application_thread_browser_available())
+        flags |= ui_shell_layout_threads;
+    const auto* ui = g_app.account_ui;
+    const auto* selected =
+        ui ? chat_state_store_find_channel(ui->chat_state, ui->chat_state.selected_channel_id) : nullptr;
+    if (!friends && ui && ui->chat_state.home_selected && selected && channel_is_private(selected->type))
+        flags |= ui_shell_layout_private;
+    return flags;
+}
+
 namespace {
 bool account_text_sources_stale(const AccountUiRuntime& ui) noexcept {
     const MessageStore& messages = g_app.message_view.store;
@@ -767,8 +793,12 @@ bool refresh_shell_text(bool force) noexcept {
         (home &&
          (ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::composer)) !=
           nullptr) != (ui.chat_state.selected_channel_id != 0));
-    const bool synchronized = composer_height_changed || scope_changed ? synchronize_shell_layout()
-                                                                       : synchronize_shell_widget_scenes();
+    // A channel's permissions or type arriving after the first layout (launch
+    // restores the channel before READY) changes its header controls.
+    const bool header_stale = ui_scene_header_stale(g_app.shell_scene, shell_header_flags(false));
+    const bool synchronized = composer_height_changed || scope_changed || header_stale
+                                  ? synchronize_shell_layout()
+                                  : synchronize_shell_widget_scenes();
     const bool autocomplete_stale = ui.rendered_user_revision != ui.user_store.revision ||
                                     ui.rendered_private_revision != private_revision ||
                                     ui.rendered_emoji_mutations != ui.chat_state.emoji_mutations ||

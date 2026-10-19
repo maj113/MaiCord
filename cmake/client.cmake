@@ -92,7 +92,7 @@ add_executable(MaiCord WIN32
     src/app/application_media_requests.cpp src/app/application_message_delete.cpp
     src/app/application_private_conversation.cpp src/app/application_private_channel.cpp
     src/app/application_message_edit.cpp src/app/application_message_mutation_notice.cpp
-    src/app/application_profile.cpp src/app/application_member_moderation.cpp
+    src/app/application_profile.cpp src/app/application_dm_profile.cpp src/app/application_member_moderation.cpp
     src/app/application_message_reaction.cpp src/app/application_message_send.cpp
     src/app/application_mention_confirmation.cpp src/app/application_message_history.cpp
     src/app/application_read_state.cpp src/app/application_scoped_read.cpp

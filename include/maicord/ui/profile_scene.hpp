@@ -78,11 +78,13 @@ enum class ProfilePhase : u8 {
 };
 // Where the card is presented: the click popout, the full profile modal, or
 // the profile editor's live preview (a non-interactive popout-sized card at
-// the anchor's top-left, without footer or close; it reports its height).
+// the anchor's top-left, without footer or close; it reports its height), or
+// the DM profile panel filling its slot (the anchor) beside a one-to-one DM.
 enum class ProfilePresentation : u8 {
     popout,
     modal,
-    preview
+    preview,
+    panel
 };
 // Which side of its anchor a popout opens on.
 enum class ProfilePlacement : u8 {
@@ -244,6 +246,9 @@ struct ProfileScene {
     u8 relation;
     ProfilePlacement placement;
     bool active, roles_busy, roles_expanded, can_manage_roles;
+    // The panel's expanded mutual lists: 1 servers, 2 friends (host-toggled
+    // through the servers and friends actions).
+    u8 sections;
     // Pointer over the card: the note button shows and the effect dims.
     bool hovered;
     u64 hover_changed_ms;

@@ -26,6 +26,8 @@ void application_preferences_apply() noexcept;
 void application_animation_activity_synchronize() noexcept;
 // WM_ACTIVATE: the official client pauses chat and identity animations while unfocused.
 void application_animation_window_active(bool active) noexcept;
+// The main window lost activation (WM_ACTIVATE); shown unactivated counts as active.
+bool application_window_inactive() noexcept;
 HANDLE application_preferences_notification() noexcept;
 void application_preferences_poll() noexcept;
 void application_preferences_shutdown() noexcept;
@@ -38,6 +40,8 @@ u32 application_settings_owner_bytes() noexcept;
 // Monotonic owner lifetime, retained after release; never wraps or resets.
 u64 application_settings_lifetime() noexcept;
 bool application_preferences_member_visibility(bool visible) noexcept;
+// The DM profile panel's remembered choice (dm_profile_panel.hpp).
+bool application_preferences_dm_profile_visibility(bool visible) noexcept;
 // Persists splitter widths once after a completed drag; true when queued.
 bool application_preferences_persist_pane_widths() noexcept;
 bool application_settings_commit_preferences() noexcept;

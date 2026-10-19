@@ -17,6 +17,7 @@
 #include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"
+#include "maicord/ui/dm_profile_panel.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"
@@ -91,8 +92,9 @@ bool shell_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* targ
     if (widget->id == static_cast<u32>(UiSemantic::settings) + 1)
         label = utf8_literal("User settings");
     else if (widget->id == static_cast<u32>(UiSemantic::member_toggle) + 1)
-        label = g_app.preferences.member_pane_visible ? utf8_literal("Hide member list")
-                                                      : utf8_literal("Show member list");
+        label = ui_side_panel_toggle_label(g_app.shell_scene.side_panel_profile, g_app.shell_scene.side_panel_unavailable,
+                                           g_app.shell_scene.side_panel_profile ? g_app.preferences.dm_profile_visible
+                                                                                : g_app.preferences.member_pane_visible);
     else if (widget->id == static_cast<u32>(UiSemantic::pins_toggle) + 1)
         label = utf8_literal("Pinned messages");
     else if (widget->id == static_cast<u32>(UiSemantic::inbox_toggle) + 1)
@@ -120,7 +122,9 @@ bool shell_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* targ
             return false;
         label = utf8_literal("Your account");
     }
-    return widget_target(manager, handle, scope, widget->id, g_app.preferences.member_pane_visible,
+    return widget_target(manager, handle, scope, widget->id,
+                         g_app.shell_scene.side_panel_profile ? g_app.preferences.dm_profile_visible
+                                                              : g_app.preferences.member_pane_visible,
                          widget->id, label, target);
 }
 // Call view controls; the scene owns its labels and state (mute, fullscreen).
@@ -606,6 +610,20 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexc
     if (g_app.renderer.pinned_messages_scene &&
         ui_pinned_messages_scene_contains(*g_app.renderer.pinned_messages_scene, point.x, point.y))
         return pinned_target(point, false, scope, target);
+    // The DM profile panel's hints (badges, cut-off activity lines).
+    if (const auto* panel = g_app.renderer.dm_profile_panel;
+        panel && panel->active && ui_rect_contains(panel->rectangle, point.x, point.y)) {
+        const auto handle = profile_scene_hit_test(*panel, point.x, point.y);
+        UiRect anchor{};
+        const Utf8View label = profile_scene_hint(*panel, handle, &anchor);
+        if (!label.bytes)
+            return false;
+        // Badges take the profile card's 300 ms badge delay and sweep.
+        const auto* part = profile_scene_part(*panel, handle);
+        const u32 action = part && part->media == ProfileMediaKind::badge ? kProfileBadgeTooltip : 0x5802u;
+        *target = {{{&panel->widgets, handle}, scope, panel->opens, handle.slot, action}, anchor, label};
+        return true;
+    }
     if (!application_thread_browser_read_blocked() &&
         (application_video_tooltip_target(point, false, scope, target) ||
          message_target(point, scope, target) ||

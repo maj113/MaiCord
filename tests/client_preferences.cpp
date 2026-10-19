@@ -162,7 +162,7 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
     checksum();
     const bool spacing_bound = reject(ClientPreferencesError::format);
     reset();
-    record[66] = 64;
+    record[66] = 128;
     checksum();
     check(spacing_bound && reject(ClientPreferencesError::format),
           "preferences: v9 unknown attention flags and spacing codes are rejected");
@@ -180,6 +180,12 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
               record[66] == 32 && client_preferences_decode({record, 80}, &decoded).ok() &&
               decoded.game_detection && !client_preferences_equal(decoded, defaults),
           "preferences: opt-in game detection bit roundtrips at byte 66 and defaults off");
+    auto panel = defaults;
+    panel.dm_profile_visible = false;
+    check(defaults.dm_profile_visible && client_preferences_encode(panel, {record, 80}).ok() && record[66] == 64 &&
+              client_preferences_decode({record, 80}, &decoded).ok() && !decoded.dm_profile_visible &&
+              client_preferences_equal(decoded, panel) && !client_preferences_equal(decoded, defaults),
+          "preferences: the DM profile panel defaults shown and its hidden bit roundtrips at byte 66");
     auto picker = defaults;
     picker.expression_picker_width = 750;
     check(reset() && byte_load_le16(record + 58) == 0 &&

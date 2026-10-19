@@ -334,7 +334,7 @@ const UiPrivateRowSource* application_private_channel_rows() noexcept {
     static UiPrivateRowSource source{};
     if (!g_app.account_ui) return nullptr;
     source = {&g_app.account_ui->chat_state, &g_app.account_ui->user_store, application_friends_relationships(),
-              &g_app.account_ui->typing_store};
+              &g_app.account_ui->typing_store, &g_app.account_ui->text_measure_cache};
     return &source;
 }
 bool application_private_channel_row_close(u64 channel_id, float x, float y) noexcept {
