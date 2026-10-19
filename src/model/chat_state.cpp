@@ -1525,7 +1525,16 @@ bool chat_state_store_set_thread_join_time(ChatStateStore* store, u64 thread_id,
         !channel.thread_self_joined)
         return false;
     if (channel.thread_join_seconds != seconds) {
+        // The join time is the unread baseline of a thread without an ACK.
+        const bool old_unread = chat_state_store_channel_unread(*store, channel);
+        const u32 mentions = chat_state_store_channel_visible(*store, channel) ? channel.mention_count : 0;
         channel.thread_join_seconds = seconds;
+        const bool new_unread = chat_state_store_channel_unread(*store, channel);
+        if (old_unread != new_unread) {
+            adjust_guild_activity(mutable_guild(store, channel.guild_id), old_unread, mentions, new_unread,
+                                  mentions);
+            ++store->activity_mutations;
+        }
         saturating_increment(channel.revision);
         ++store->channel_mutations;
     }

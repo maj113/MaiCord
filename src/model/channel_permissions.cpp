@@ -85,11 +85,44 @@ u64 channel_permissions(const ChatStateStore& store, const SelfPermissionScope& 
     return permission_compute_from_base(scope.raw_base, scope.guild, scope.member, overwrites, scope.options);
 }
 
+constexpr u64 kDiscordEpochMs = 1'420'070'400'000ull;
+constexpr u32 kGuildResourceChannelFlag = 1u << 7;
+
+// Discord's guild read state: a thread is unread only while joined and active;
+// voice text chat, resource channels, channels outside channel opt-in and muted
+// channels count only with a mention. Without an ACK a joined thread reads
+// from 5 s before the join, other channels from their creation.
 bool channel_activity_visible(const ChatStateStore& store,
                               const ChannelRecord& channel) noexcept {
-    return chat_state_store_channel_visible(store, channel) && !channel.notification_muted &&
-           channel.last_message_id >
-               (channel.last_read_message_id ? channel.last_read_message_id : channel.id);
+    if (!chat_state_store_channel_visible(store, channel))
+        return false;
+    const bool thread = channel_is_thread(channel.type);
+    if (channel_is_private(channel.type)) {
+        if (channel.notification_muted)
+            return false;
+    } else if (thread) {
+        if (!channel.thread_self_joined_known || !channel.thread_self_joined ||
+            (channel.thread_archived_known && channel.thread_archived) || channel.notification_muted)
+            return false;
+    } else if (!channel.mention_count) {
+        if (channel.notification_muted || channel_is_voice_chat(channel.type) ||
+            (channel.guild_id && (channel.flags & kGuildResourceChannelFlag)))
+            return false;
+        if (channel.guild_id) {
+            const GuildRecord* guild = chat_state_store_find_guild(store, channel.guild_id);
+            if (guild && guild->channel_opt_in && !channel.opted_in)
+                return false;
+        }
+    }
+    if (!channel.last_message_id)
+        return false;
+    const u64 cursor = channel.last_read_message_id;
+    // Without a server read state the cursor is the channel's creation.
+    if (thread && channel.thread_join_seconds && !channel.read_state_known && (!cursor || cursor == channel.id)) {
+        const u64 baseline = u64{channel.thread_join_seconds} * 1000 - 5000;
+        return (channel.last_message_id >> 22) + kDiscordEpochMs > baseline;
+    }
+    return channel.last_message_id > (cursor ? cursor : channel.id);
 }
 
 void adjust_guild_activity(GuildRecord* guild, bool old_unread, u32 old_mentions, bool new_unread,
@@ -114,6 +147,22 @@ void collect_channel_activity(const ChatStateStore& store, const ChannelRecord& 
     }
     saturating_increment_if(channel_activity_visible(store, channel), *unread);
     *mentions += minimum(channel.mention_count, ~0u - *mentions);
+}
+
+// Recounts one guild after a guild-wide input of the unread predicate changed.
+void recount_guild_activity(ChatStateStore* store, GuildRecord* guild) noexcept {
+    u32 unread = 0, mentions = 0;
+    for (u32 order = 0; order < store->channel_count; ++order) {
+        const ChannelRecord& channel = store->channels[store->channel_order[order]];
+        if (channel.guild_id == guild->id)
+            collect_channel_activity(*store, channel, &unread, &mentions);
+    }
+    if (guild->unread_channels != unread || guild->mention_count != mentions) {
+        guild->unread_channels = unread;
+        guild->mention_count = mentions;
+        saturating_increment(guild->revision);
+        ++store->activity_mutations;
+    }
 }
 
 } // namespace
@@ -422,6 +471,7 @@ bool chat_state_store_set_guild_channel_opt_in(ChatStateStore* store, u64 guild_
     if (!guild || guild->channel_opt_in == enabled)
         return false;
     guild->channel_opt_in = enabled;
+    recount_guild_activity(store, guild);
     saturating_increment(guild->revision);
     ++store->guild_mutations;
     ++store->channel_mutations;
@@ -432,7 +482,14 @@ bool chat_state_store_set_channel_opted_in(ChatStateStore* store, u64 channel_id
     ChannelRecord* channel = mutable_channel(store, channel_id);
     if (!channel || channel->opted_in == opted_in)
         return false;
+    const bool old_unread = channel_activity_visible(*store, *channel);
     channel->opted_in = opted_in;
+    const bool new_unread = channel_activity_visible(*store, *channel);
+    if (old_unread != new_unread) {
+        const u32 mentions = chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
+        adjust_guild_activity(mutable_guild(store, channel->guild_id), old_unread, mentions, new_unread, mentions);
+        ++store->activity_mutations;
+    }
     saturating_increment(channel->revision);
     ++store->channel_mutations;
     return true;

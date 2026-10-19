@@ -16,11 +16,11 @@ bool reserve(void* context, u32 required) noexcept {
 struct Fixture {
     ChatStateStore state;
     GuildRecord guild;
-    ChannelRecord channels[4];
-    u16 guild_order[1], channel_order[4];
+    ChannelRecord channels[8];
+    u16 guild_order[1], channel_order[8];
     u8 names[1024];
     ReadStateStore reads;
-    ReadStateEntry pending[4];
+    ReadStateEntry pending[8];
     RoleRecord roles[1];
     PermissionOverwriteRecord overwrites[1];
     Backing backing;
@@ -30,9 +30,9 @@ bool initialize() noexcept {
     auto& f = fixture;
     f.backing = {};
     return chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1},
-        {f.channels, 4}, {f.channel_order, 4}, {f.names, sizeof(f.names)}) &&
+        {f.channels, 8}, {f.channel_order, 8}, {f.names, sizeof(f.names)}) &&
         chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() &&
-        read_state_initialize(&f.reads, {f.pending, 4}) &&
+        read_state_initialize(&f.reads, {f.pending, 8}) &&
         read_state_set_reserve(&f.reads, reserve, &f.backing) &&
         read_state_bind(&f.state, &f.reads);
 }
@@ -43,6 +43,19 @@ bool channel(u64 id, u64 last, u8 type = 0) noexcept {
     input.name = utf8_literal("Channel"); input.name_known = true;
     return chat_state_store_upsert_channel(&fixture.state, input).ok();
 }
+// A thread of channel 80; join_seconds is the member's join time.
+bool thread(u64 id, u64 last, bool joined, bool archived = false, u32 join_seconds = 0) noexcept {
+    ChannelInput input{};
+    input.id = id; input.guild_id = 7; input.parent_id = 80; input.type = 11;
+    input.last_message_id = last; input.last_message_known = true;
+    input.name = utf8_literal("Thread"); input.name_known = true;
+    input.thread_self_joined_known = input.thread_archived_known = input.thread_active_known = true;
+    input.thread_self_joined = joined; input.thread_archived = archived; input.thread_listed_active = !archived;
+    input.thread_join_seconds = joined ? join_seconds : 0;
+    return chat_state_store_upsert_channel(&fixture.state, input).ok();
+}
+// A message ID at a Unix time in milliseconds.
+constexpr u64 snowflake(u64 unix_ms) noexcept { return (unix_ms - 1'420'070'400'000ull) << 22; }
 ReadStateEntry entry(u64 id, u64 cursor, u32 mentions) noexcept {
     return {id, cursor, mentions, 70'000, 0x80000005u,
         read_state_cursor | read_state_mentions | read_state_last_viewed | read_state_flags, {}};
@@ -186,17 +199,64 @@ void test_read_state_model(void (*check)(bool, const char*) noexcept) noexcept {
         read_state_upsert(&f.state, entry(80, 100, 0), 50) &&
         read_state_upsert(&f.state, entry(81, 120, 2), 50) &&
         f.guild.unread_channels == 2 && f.guild.mention_count == 2, "read model: mute fixture has two unread channels");
-    check(chat_state_store_set_channel_mute(&f.state, 81, true, true) && !chat_state_store_channel_unread(f.state, *find(81)) &&
-        f.guild.unread_channels == 1 && f.guild.mention_count == 2 && find(81)->notification_dimmed,
-        "read model: muted channel leaves unread aggregate but keeps its mention badge");
-    check(!chat_state_store_set_channel_mute(&f.state, 81, true, true) && f.guild.unread_channels == 1,
+    check(chat_state_store_set_channel_mute(&f.state, 81, true, true) && chat_state_store_channel_unread(f.state, *find(81)) &&
+        f.guild.unread_channels == 2 && f.guild.mention_count == 2 && find(81)->notification_dimmed,
+        "read model: a muted channel with a mention stays unread and keeps its badge");
+    check(!chat_state_store_set_channel_mute(&f.state, 81, true, true) && f.guild.unread_channels == 2,
         "read model: repeating a mute projection is not a mutation");
-    check(chat_state_store_set_channel_mute(&f.state, 80, true, false) && !f.guild.unread_channels &&
+    check(chat_state_store_set_channel_mute(&f.state, 80, true, false) && f.guild.unread_channels == 1 &&
+        !chat_state_store_channel_unread(f.state, *find(80)) &&
         chat_state_store_set_guild_mute(&f.state, 7, true) && f.guild.notification_muted,
-        "read model: guild mute projection mutes every channel and marks the guild");
-    check(chat_state_store_set_channel_mute(&f.state, 81, false, false) && f.guild.unread_channels == 1 &&
+        "read model: a muted channel without mentions leaves the unread aggregate");
+    check(chat_state_store_set_channel_mute(&f.state, 80, false, false) && f.guild.unread_channels == 2 &&
         read_state_mark_local(&f.state, 80, 150, 90'000, 1) && f.guild.unread_channels == 1,
-        "read model: unmute restores unread and muted reads stay out of the aggregate");
+        "read model: unmute restores unread and a read channel leaves the aggregate");
+
+    // The guild unread pill follows the official client's guild read state;
+    // every channel the list hides must also stay out of it.
+    check(initialize() && channel(80, 100) && read_state_upsert(&f.state, entry(80, 100, 0), 50) &&
+        thread(90, 500, false) && !chat_state_store_channel_unread(f.state, *find(90)) && !f.guild.unread_channels,
+        "read model: a thread the member has not joined is never unread");
+    check(thread(91, 500, true, true) && !chat_state_store_channel_unread(f.state, *find(91)) && !f.guild.unread_channels,
+        "read model: an archived joined thread is never unread");
+    constexpr u32 joined_at = 1'700'000'000;
+    check(thread(92, snowflake(u64{joined_at} * 1000 - 10'000), true, false, joined_at) &&
+        !chat_state_store_channel_unread(f.state, *find(92)) && !f.guild.unread_channels,
+        "read model: a joined thread without an ACK reads from its join time");
+    check(chat_state_store_note_message(&f.state, 92, snowflake(u64{joined_at} * 1000 + 1'000), 3, false, false, false, false) &&
+        chat_state_store_channel_unread(f.state, *find(92)) && f.guild.unread_channels == 1,
+        "read model: a message after the join makes the joined thread unread");
+    f.state.self_user_id = 1;
+    check(chat_state_store_set_thread_self_membership(&f.state, 92, 1, false) &&
+        !chat_state_store_channel_unread(f.state, *find(92)) && !f.guild.unread_channels,
+        "read model: leaving a thread drops it from the guild unread aggregate");
+    check(channel(81, 0, 2) && chat_state_store_note_message(&f.state, 81, 300, 3, false, false, false, false) &&
+        !chat_state_store_channel_unread(f.state, *find(81)) && !f.guild.unread_channels,
+        "read model: voice text chat is not unread without a mention");
+    check(chat_state_store_note_message(&f.state, 81, 301, 3, true, false, false, false) &&
+        chat_state_store_channel_unread(f.state, *find(81)) && f.guild.unread_channels == 1 && f.guild.mention_count == 1,
+        "read model: a mention makes voice text chat unread");
+    check(read_state_mark_local(&f.state, 81, 301, 0, 0) && !f.guild.unread_channels && !f.guild.mention_count,
+        "read model: reading voice text chat clears it");
+    {
+        ChannelInput resource{};
+        resource.id = 82; resource.guild_id = 7; resource.type = 0; resource.flags = 1u << 7;
+        resource.last_message_id = 400; resource.last_message_known = true;
+        resource.name = utf8_literal("Resource"); resource.name_known = true;
+        check(chat_state_store_upsert_channel(&f.state, resource).ok() &&
+            !chat_state_store_channel_unread(f.state, *find(82)) && !f.guild.unread_channels,
+            "read model: a guild resource channel is not unread");
+    }
+    check(channel(83, 400) && f.guild.unread_channels == 1 &&
+        chat_state_store_set_guild_channel_opt_in(&f.state, 7, true) && !f.guild.unread_channels &&
+        !chat_state_store_channel_unread(f.state, *find(83)),
+        "read model: channel opt-in recounts and drops channels the member has not opted into");
+    check(chat_state_store_set_channel_opted_in(&f.state, 83, true) && f.guild.unread_channels == 1 &&
+        chat_state_store_set_channel_opted_in(&f.state, 83, false) && !f.guild.unread_channels &&
+        chat_state_store_set_guild_channel_opt_in(&f.state, 7, false) && f.guild.unread_channels == 1,
+        "read model: opting in or out of a channel moves it in the guild unread aggregate");
+    check(thread(93, 0, true, false, joined_at) && !chat_state_store_channel_unread(f.state, *find(93)) &&
+        f.guild.unread_channels == 1, "read model: a joined thread without messages is not unread");
 
     check(initialize() && channel(80, 100), "read model: hidden channel fixture initializes");
     check(chat_state_store_bind_permissions(&f.state, {f.roles, 1}, {f.overwrites, 1}) &&
