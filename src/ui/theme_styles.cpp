@@ -407,6 +407,7 @@ bool ui_theme_gradient_emphasis(const Theme& theme, UiThemeEmphasis* output) noe
             break;
     }
     value.selected.alpha = alpha;
+    value.tint = background_color_from_oklab({light ? .5 : .66, a, b});
     *output = value;
     return true;
 }
@@ -416,6 +417,11 @@ bool ui_theme_resolve_emphasis(Theme* theme) noexcept {
         return false;
     // Table defaults over the current palette identify untouched values.
     TokenResolution defaults{theme, nullptr, {}, {}, {}, {}};
+    // Neutral white/black glass leans halfway to the hue, keeping its alpha.
+    const auto glass = [&](Color neutral) noexcept {
+        return Color{(neutral.red + derived.tint.red) * .5f, (neutral.green + derived.tint.green) * .5f,
+                     (neutral.blue + derived.tint.blue) * .5f, neutral.alpha};
+    };
     const struct {
         UiThemeToken id;
         Color* slot;
@@ -430,6 +436,11 @@ bool ui_theme_resolve_emphasis(Theme* theme) noexcept {
          ui_theme_color_alpha(derived.outline, theme->tokens.mention.background.alpha)},
         {UiThemeToken::mention_bar, &theme->tokens.mention.bar,
          ui_theme_color_alpha(derived.outline, theme->tokens.mention.bar.alpha)},
+        {UiThemeToken::state_tint, &theme->tokens.state.tint, derived.tint},
+        {UiThemeToken::state_hover, &theme->tokens.state.hover, glass(theme->tokens.state.hover)},
+        {UiThemeToken::state_pressed, &theme->tokens.state.pressed, glass(theme->tokens.state.pressed)},
+        {UiThemeToken::fill_subtle, &theme->tokens.fill.subtle, glass(theme->tokens.fill.subtle)},
+        {UiThemeToken::fill_muted, &theme->tokens.fill.muted, glass(theme->tokens.fill.muted)},
     };
     for (const auto& target : targets) {
         const u32 id = static_cast<u32>(target.id);

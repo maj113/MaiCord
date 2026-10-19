@@ -100,10 +100,20 @@ inline Color ui_background_surface_color(const Theme& theme, Color color, float 
     return color;
 }
 // Hover adds one glass highlight; it must not add an intensity-dependent
-// opaque canvas over the color underneath.
+// opaque canvas over the color underneath. The glass keeps the tone of the
+// (neutral) color it is given but takes the hue of state.tint, shaded toward
+// black or tinted toward white, so it reads as the theme rather than gray.
 inline Color ui_background_hover_color(const Theme& theme, Color color, float opacity = .20f) noexcept {
     if (!ui_background_active(theme))
         return color;
+    const Color hue = theme.tokens.state.tint;
+    const auto tone = [](Color c) noexcept { return .2126f * c.red + .7152f * c.green + .0722f * c.blue; };
+    const float want = tone(color), have = tone(hue);
+    const float shade = want <= have ? (have > 0 ? want / have : 0) : 1;
+    const float lift = want > have ? (want - have) / (1 - have) : 0;
+    color.red = hue.red * shade + (1 - hue.red) * lift;
+    color.green = hue.green * shade + (1 - hue.green) * lift;
+    color.blue = hue.blue * shade + (1 - hue.blue) * lift;
     color.alpha *= opacity >= 0 ? minimum(opacity, 1.f) : 0;
     return color;
 }

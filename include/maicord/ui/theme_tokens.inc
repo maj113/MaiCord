@@ -55,6 +55,9 @@ MAICORD_THEME_GROUP_END(border)
 MAICORD_THEME_GROUP(state)
 MAICORD_THEME_TOKEN(state, hover, RGBA(1, 1, 1, .10f), RGBA(0, 0, 0, .06f))
 MAICORD_THEME_TOKEN(state, pressed, RGBA(1, 1, 1, .16f), RGBA(0, 0, 0, .10f))
+// Hue of the translucent hover/selected glass over a gradient
+// (ui_background_hover_color); a chromatic gradient derives it from its stops.
+MAICORD_THEME_TOKEN(state, tint, P(interactive), P(interactive))
 MAICORD_THEME_GROUP_END(state)
 
 MAICORD_THEME_GROUP(fill)

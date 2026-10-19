@@ -232,6 +232,36 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
     }
     check(mentions, "mention tokens: gradient message highlights follow the theme hue, retain their opacity "
                     "and readable message text, and leave inline styles untouched");
+    // Hover/selected glass and the neutral state/fill tokens follow the theme hue.
+    const auto aligned = [](Color first, Color second) noexcept {
+        const auto x = background_color_oklab(first), y = background_color_oklab(second);
+        const double cross = x.a * y.b - x.b * y.a;
+        return x.a * y.a + x.b * y.b > 0 && cross * cross < .04 * (x.a * x.a + x.b * x.b) * (y.a * y.a + y.b * y.b);
+    };
+    const auto tone = [](Color c) noexcept { return .2126f * c.red + .7152f * c.green + .0722f * c.blue; };
+    bool glass = true;
+    for (const auto& theme : gradients) {
+        const auto& defaults = theme.appearance == ThemeAppearance::light ? kLightTheme : kDefaultTheme;
+        const auto& state = theme.tokens.state;
+        const Color sources[]{theme.surface_high, theme.interactive, theme.interactive_hover};
+        for (const Color source : sources) {
+            const Color hover = ui_background_hover_color(theme, source, .28f);
+            glass = glass && close_to(hover.alpha, source.alpha * .28f) && aligned(hover, state.tint) &&
+                    tone(hover) - tone(source) < .01f && tone(source) - tone(hover) < .01f;
+        }
+        glass = glass && aligned(state.tint, theme.tokens.emphasis.outline) &&
+                state.hover.alpha == defaults.tokens.state.hover.alpha &&
+                state.pressed.alpha == defaults.tokens.state.pressed.alpha &&
+                theme.tokens.fill.subtle.alpha == defaults.tokens.fill.subtle.alpha &&
+                theme.tokens.fill.muted.alpha == defaults.tokens.fill.muted.alpha &&
+                aligned(state.hover, state.tint) && aligned(state.pressed, state.tint) &&
+                aligned(theme.tokens.fill.subtle, state.tint) && aligned(theme.tokens.fill.muted, state.tint);
+    }
+    for (const auto& theme : flats)
+        glass = glass && same(theme.tokens.state.tint, theme.interactive) &&
+                same(ui_background_hover_color(theme, theme.surface_high, .2f), theme.surface_high);
+    check(glass, "state tokens: gradient hover/selected glass keeps its tone and opacity but takes the theme "
+                 "hue, as do the state and fill overlays; flat themes keep their opaque neutrals");
     Theme translucent = kDefaultTheme;
     translucent.accent.alpha = .5f;
     translucent = ui_theme_resolve_defaults(translucent);

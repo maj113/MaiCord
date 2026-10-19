@@ -124,16 +124,18 @@ u32 ui_theme_contrast_warnings(const Theme&, UiThemeContrastWarning*, u32 capaci
 // background stop; fill lightness is searched until text.on_accent (or the
 // better opaque endpoint) reaches 4.5:1, outline until it reaches 3:1 over the
 // floating and primary backgrounds, and the selected tint alpha until normal
-// text keeps 4.5:1 even at the highest elevation boost. Writes nothing and
-// returns false for a flat or achromatic theme.
+// text keeps 4.5:1 even at the highest elevation boost. tint is the hue at a
+// mid lightness for hover/selected glass. Writes nothing and returns false for
+// a flat or achromatic theme.
 struct UiThemeEmphasis {
-    Color fill, text, outline, selected;
+    Color fill, text, outline, selected, tint;
 };
 bool ui_theme_gradient_emphasis(const Theme&, UiThemeEmphasis*) noexcept;
-// Publication-time projection: every emphasis token (and border.focus) whose
-// value still equals its table default over the current palette is replaced
-// by the gradient-derived value. Authored overrides and flat themes keep their
-// values. Idempotent; runs on the published copy so documents never bake it.
+// Publication-time projection: every emphasis token (and border.focus, the
+// mention highlight and the state/fill glass) whose value still equals its
+// table default over the current palette is replaced by the gradient-derived
+// value. Authored overrides and flat themes keep their values. Idempotent;
+// runs on the published copy so documents never bake it.
 bool ui_theme_resolve_emphasis(Theme*) noexcept;
 // Selected-tint alpha boost at the highest elevation (ui_elevation_selected).
 inline constexpr float kUiThemeEmphasisElevationBoost = 1.5f;
