@@ -249,9 +249,9 @@ bool compare_windows_variations(const SfntFace& face,const ColrFont& font,IDWrit
             metric("axes_fixed16_biased",static_cast<u32>(fixed_coordinates[axis]*65536+65536));
             metric("axes_condition_biased",static_cast<u32>(condition_coordinates[axis]+16384));
         }
-        if(!ok || font_axis_coordinates(axes,mappings,{settings,count},{coordinates,count},{},FontAxisPrecision::paint_reader)!=SfntStatus::ok){ok=false;break;}
+        if(!ok || font_axis_coordinates(axes,mappings,{settings,count},{coordinates,count},{},FontAxisPrecision::full)!=SfntStatus::ok){ok=false;break;}
         ColrVariationInstance instance{};
-        if(colr_variation_instance_prepare(data,{coordinates,count},{variation_scalars,32767},&instance,1000000,ColrVariationMode::paint_reader)!=SfntStatus::ok){ok=false;break;}
+        if(colr_variation_instance_prepare(data,{coordinates,count},{variation_scalars,32767},&instance,1000000,ColrVariationMode::quantized)!=SfntStatus::ok){ok=false;break;}
         IDWriteFontFace5* selected=nullptr;IDWriteFontFace7* selected7=nullptr;IDWritePaintReader* reader=nullptr;
         HRESULT hr=resource->CreateFontFace(DWRITE_FONT_SIMULATIONS_NONE,values,count,&selected);
         if(SUCCEEDED(hr))hr=selected->QueryInterface(__uuidof(IDWriteFontFace7),reinterpret_cast<void**>(&selected7));

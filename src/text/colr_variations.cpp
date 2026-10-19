@@ -12,13 +12,13 @@ SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock&
         if(base==0xffffffff)return SfntStatus::ok;
         if(base>0xffffffffu-field)return SfntStatus::malformed;
     }
-    // The Windows paint reader forms per-field indices with uint32 wrapping before
-    // map lookup, including a base of 0xffffffff. Kept apart from the standard policy.
+    // Quantized mode forms per-field indices with uint32 wrapping before map
+    // lookup, including a base of 0xffffffff.
     u32 index=0;const auto status=variation_index_map_get(instance.map,base+field,&index);
     if(status!=SfntStatus::ok)return status;
     const auto computed=item_variation_delta_cached(instance.instance,index,value,&block,
-        instance.mode==ColrVariationMode::paint_reader?VariationArithmetic::float_32:VariationArithmetic::wide);
-    if(computed==SfntStatus::ok && instance.mode==ColrVariationMode::paint_reader)*value=floor_value(*value+.5);
+        instance.mode==ColrVariationMode::quantized?VariationArithmetic::float_32:VariationArithmetic::wide);
+    if(computed==SfntStatus::ok && instance.mode==ColrVariationMode::quantized)*value=floor_value(*value+.5);
     return computed;
 }
 double floor_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)-(static_cast<double>(n)>value?1:0);}
@@ -52,7 +52,7 @@ SfntStatus colr_variation_instance_prepare(const ColrVariationData& data,ConstSl
     if(!data.present){output->mode=mode;return SfntStatus::ok;}
     ColrVariationInstance result{};
     const auto status=variation_instance_prepare(data.store,coordinates,storage,&result.instance,work,
-        mode==ColrVariationMode::paint_reader?VariationCoordinatePrecision::fixed_16:VariationCoordinatePrecision::full);
+        mode==ColrVariationMode::quantized?VariationCoordinatePrecision::fixed_16:VariationCoordinatePrecision::full);
     if(status!=SfntStatus::ok)return status;
     result.map=data.map;result.present=true;result.mode=mode;*output=result;return SfntStatus::ok;
 }
@@ -88,7 +88,7 @@ SfntStatus colr_resolve_clip(const ColrVariationInstance& instance,const ColrCli
         if(!(values[i]>=-9.e18 && values[i]<=9.e18))return SfntStatus::malformed;
         values[i]=i<2?floor_value(values[i]):ceil_value(values[i]);
     }
-    if(instance.mode==ColrVariationMode::paint_reader && (values[0]>=values[2] || values[1]>=values[3])) {
+    if(instance.mode==ColrVariationMode::quantized && (values[0]>=values[2] || values[1]>=values[3])) {
         output->variation_index=0xffffffff;return SfntStatus::ok;
     }
     *output={values[0],values[1],values[2],values[3],0xffffffff,true,false};return SfntStatus::ok;

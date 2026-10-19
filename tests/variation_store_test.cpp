@@ -145,7 +145,7 @@ bool resolver() noexcept {
             if(colr_resolve_clip(instance,clip,&resolved)!=SfntStatus::ok || resolved.minimum_x!=54 || resolved.minimum_y!=85 ||
                resolved.maximum_x!=96 || resolved.maximum_y!=106 || resolved.variable)return false;
             ColrVariationInstance compatible{};const double fractional[]{.125,.5};ColrPaintValues adjusted{};
-            if(colr_variation_instance_prepare(data,{fractional,2},{scalars,16},&compatible,1000,ColrVariationMode::paint_reader)!=SfntStatus::ok ||
+            if(colr_variation_instance_prepare(data,{fractional,2},{scalars,16},&compatible,1000,ColrVariationMode::quantized)!=SfntStatus::ok ||
                colr_resolve_paint_values(compatible,paint,&adjusted)!=SfntStatus::ok || adjusted.values[0]!=16)return false;
             ColrClip empty{10,10,0,0,0xffffffff,true,true};
             if(colr_resolve_clip(compatible,empty,&resolved)!=SfntStatus::ok || resolved.present || resolved.maximum_x)return false;

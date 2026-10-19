@@ -128,7 +128,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
         ColrVariationData data{};status=colr_variation_data_open(c.font,&data);if(status!=SfntStatus::ok)return failed(o,24,static_cast<u32>(status));
         const ConstSlice<double> coordinates=instance->geometry.variation?instance->geometry.variation->coordinates:ConstSlice<double>{};
         auto scalars=take<double>(c.scalars,data.present?data.store.region_count:0);
-        status=colr_variation_instance_prepare(data,coordinates,scalars,&c.variation,1000000,ColrVariationMode::paint_reader);
+        status=colr_variation_instance_prepare(data,coordinates,scalars,&c.variation,1000000,ColrVariationMode::quantized);
         if(status!=SfntStatus::ok)return failed(o,25,static_cast<u32>(status));c.binding=binding;
     }
     struct OutlineContext {NativeGlyphOutlines** owner;u16 face_id;NativeFontSession* fonts;NativeFontRunHandle run;} outline{pointer,face_id,fonts,run};

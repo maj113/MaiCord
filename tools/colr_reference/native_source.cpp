@@ -25,7 +25,7 @@ bool NativePaintContext::open(const wchar_t* path) noexcept {
     double coordinates[64]{};
     if(variation_data.store.axis_count>64 ||
        colr_variation_instance_prepare(variation_data,{coordinates,variation_data.store.axis_count},{scalars,32767},&instance,1000000,
-                                       ColrVariationMode::paint_reader)!=SfntStatus::ok)return false;
+                                       ColrVariationMode::quantized)!=SfntStatus::ok)return false;
     cursor.font=&color;cursor.variation=&instance;cursor.frames={frames,65};cursor.stop_storage={stops,65535};
     cursor.outline_context=this;cursor.outline_provider=outline;cursor.foreground={1,1,1,1};cursor.palette=0;
     cursor.outline_capacity_font=is_tt?&tt:nullptr;

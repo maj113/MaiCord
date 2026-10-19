@@ -35,10 +35,10 @@ double product_error(double a,double b,double product) noexcept {
     const double ca=split*a,cb=split*b,ah=ca-(ca-a),bh=cb-(cb-b),al=a-ah,bl=b-bh;
     return ((ah*bh-product)+ah*bl+al*bh)+al*bl;
 }
-void sincos_halfturn(double angle,bool compatibility,double* sine,double* cosine,bool short_polynomial=true) noexcept {
+void sincos_halfturn(double angle,bool quantized,double* sine,double* cosine,bool short_polynomial=true) noexcept {
     constexpr double pi=3.1415926535897932384626433832795;
     double x=0,sign=1;
-    if(compatibility) {
+    if(quantized) {
         // Windows first converts half turns to float radians. Preserve that
         // rounding even for large varied angles, then reduce accurately.
         const float radians=scalar(angle)*3.1415927410125732421875f;
@@ -77,7 +77,7 @@ void sincos_halfturn(double angle,bool compatibility,double* sine,double* cosine
     for(u32 i=1;i<=12;++i){st*=-xx/((2*i)*(2*i+1.0));ct*=-xx/((2*i-1.0)*(2*i));sv+=st;cv+=ct;}
     *sine=sv;*cosine=cv*sign;
 }
-float tangent(double angle,bool compatibility) noexcept {double s=0,c=0;sincos_halfturn(angle,compatibility,&s,&c,false);return scalar(s/c);}
+float tangent(double angle,bool quantized) noexcept {double s=0,c=0;sincos_halfturn(angle,quantized,&s,&c,false);return scalar(s/c);}
 ColrMatrix multiply(ColrMatrix a,ColrMatrix b) noexcept {
     return {a.m11*b.m11+a.m12*b.m21,a.m11*b.m12+a.m12*b.m22,
             a.m21*b.m11+a.m22*b.m21,a.m21*b.m12+a.m22*b.m22,
@@ -91,9 +91,9 @@ ColrMatrix transform(const ColrNativeSource& s,u32 format,const double* v) noexc
     if(format==14){m.dx=distance(s,v[0]);m.dy=-distance(s,v[1]);return m;}
     if(format==16 || format==18){m.m11=scalar(v[0]);m.m22=scalar(v[1]);if(format==18){cx=distance(s,v[2]);cy=-distance(s,v[3]);m.dx=cx*(1-m.m11);m.dy=cy*(1-m.m22);}return m;}
     if(format==20 || format==22){m.m11=m.m22=scalar(v[0]);if(format==22){cx=distance(s,v[1]);cy=-distance(s,v[2]);m.dx=cx*(1-m.m11);m.dy=cy*(1-m.m22);}return m;}
-    const bool compatibility=s.variation->mode==ColrVariationMode::paint_reader;
-    if(format==24 || format==26){double sn=0,cs=0;sincos_halfturn(v[0],compatibility,&sn,&cs);m.m11=m.m22=scalar(cs);m.m12=negative(scalar(sn));m.m21=scalar(sn);if(format==26){cx=distance(s,v[1]);cy=negative(distance(s,v[2]));}}
-    if(format==28 || format==30){m.m21=tangent(v[0],compatibility);m.m12=negative(tangent(v[1],compatibility));if(format==30){cx=distance(s,v[2]);cy=negative(distance(s,v[3]));}}
+    const bool quantized=s.variation->mode==ColrVariationMode::quantized;
+    if(format==24 || format==26){double sn=0,cs=0;sincos_halfturn(v[0],quantized,&sn,&cs);m.m11=m.m22=scalar(cs);m.m12=negative(scalar(sn));m.m21=scalar(sn);if(format==26){cx=distance(s,v[1]);cy=negative(distance(s,v[2]));}}
+    if(format==28 || format==30){m.m21=tangent(v[0],quantized);m.m12=negative(tangent(v[1],quantized));if(format==30){cx=distance(s,v[2]);cy=negative(distance(s,v[3]));}}
     m.dx=cx-(cx*m.m11+cy*m.m21);m.dy=cy-(cx*m.m12+cy*m.m22);
     return m;
 }
@@ -120,11 +120,10 @@ bool resolve(ColrNativeSource& s,ColrSourceFrame& frame,const ColrPaint& raw,Col
         const u32 extend=line.extend;
         if(format==4){out->kind=ColrPaintKind::linear_gradient;p.linearGradient={extend,line.count,distance(s,v[0]),-distance(s,v[1]),distance(s,v[2]),-distance(s,v[3]),distance(s,v[4]),-distance(s,v[5])};}
         else if(format==6){
-            // Windows paint readers sign-extend encoded radius words. Reproduced
-            // only in the compatibility policy; standard COLR radii stay unsigned
-            // before variations apply.
-            const bool compatibility=s.variation->mode==ColrVariationMode::paint_reader;
-            const double r0=v[2]-(compatibility && raw.values[2]>=32768?65536:0),r1=v[5]-(compatibility && raw.values[5]>=32768?65536:0);
+            // Quantized mode sign-extends encoded radius words; standard COLR
+            // radii stay unsigned before variations apply.
+            const bool quantized=s.variation->mode==ColrVariationMode::quantized;
+            const double r0=v[2]-(quantized && raw.values[2]>=32768?65536:0),r1=v[5]-(quantized && raw.values[5]>=32768?65536:0);
             out->kind=ColrPaintKind::radial_gradient;p.radialGradient={extend,line.count,distance(s,v[0]),-distance(s,v[1]),distance(s,r0),distance(s,v[3]),-distance(s,v[4]),distance(s,r1)};
         }
         else {out->kind=ColrPaintKind::sweep_gradient;p.sweepGradient={extend,line.count,distance(s,v[0]),-distance(s,v[1]),scalar((v[2]+1)*180),scalar((v[3]+1)*180)};}
@@ -156,7 +155,7 @@ bool resolve(ColrNativeSource& s,ColrSourceFrame& frame,const ColrPaint& raw,Col
     }
     if(format==11){frame.child[0]=raw.child[0];out->kind=ColrPaintKind::color_glyph;p.colorGlyph.glyphIndex=raw.glyph;frame.child_count=1;return clip_box(s,raw.glyph,&p.colorGlyph.clipBox);}
     if(format>=12 && format<=30){
-        if(raw.variable && s.variation->mode==ColrVariationMode::paint_reader && format==18) {
+        if(raw.variable && s.variation->mode==ColrVariationMode::quantized && format==18) {
             // Windows reader quirk in nonuniform VarScaleAroundCenter:
             // both center deltas modify X; Y retains its unvaried coordinate.
             values.values[2]+=values.values[3]-raw.values[3];values.values[3]=raw.values[3];

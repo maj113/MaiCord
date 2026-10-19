@@ -39,7 +39,7 @@ bool no_outline(void*,u16,GlyphOutline*) noexcept {return false;}
 bool cases() noexcept {
     fixture();SfntFace face{};ColrFont font{};
     if(sfnt_open({bytes,sizeof(bytes)},0,&face)!=SfntStatus::ok || colr_open(face,&font)!=SfntStatus::ok)return false;
-    ColrVariationInstance instance{};instance.mode=ColrVariationMode::paint_reader;
+    ColrVariationInstance instance{};instance.mode=ColrVariationMode::quantized;
     ColrSourceFrame frames[65]{};ColrResolvedColorStop scratch[3]{};ColrNativeSource cursor{};
     cursor.font=&font;cursor.variation=&instance;cursor.frames={frames,65};cursor.stop_storage={scratch,3};cursor.outline_provider=no_outline;cursor.foreground={1,1,1,1};cursor.inverse_em=.001f;
     ColrPaintElement root{},child{};ColrRect clip{};ColrPaintSource source{};u32 bits=0;
@@ -62,7 +62,7 @@ bool cases() noexcept {
     if(colr_source_begin(&cursor,2,1000,&root,&clip,&source)!=SfntStatus::ok || root.paint.radialGradient.radius0>=0)return false;
     instance.mode=ColrVariationMode::standard;
     if(colr_source_begin(&cursor,2,1000,&root,&clip,&source)!=SfntStatus::ok || root.paint.radialGradient.radius0!=40.f)return false;
-    instance.mode=ColrVariationMode::paint_reader;
+    instance.mode=ColrVariationMode::quantized;
     if(colr_source_begin(&cursor,3,1000,&root,&clip,&source)!=SfntStatus::ok || source.first_child(source.context,&child) || cursor.status!=SfntStatus::malformed)return false;
     if(colr_source_begin(&cursor,6,1000,&root,&clip,&source)!=SfntStatus::ok || root.kind!=ColrPaintKind::layers || root.paint.layers.childCount!=1 ||
        !source.first_child(source.context,&child) || child.kind!=ColrPaintKind::solid_glyph)return false;
@@ -98,7 +98,7 @@ bool legacy_payload_cases() noexcept {
 }
 bool numeric_cases() noexcept {
     fixture();auto* p=bytes+256;p[220]=24;p16(p+224,4109);
-    SfntFace face{};ColrFont font{};ColrVariationInstance instance{};instance.mode=ColrVariationMode::paint_reader;
+    SfntFace face{};ColrFont font{};ColrVariationInstance instance{};instance.mode=ColrVariationMode::quantized;
     ColrSourceFrame frames[65]{};ColrNativeSource cursor{};cursor.font=&font;cursor.variation=&instance;cursor.frames={frames,65};cursor.outline_provider=no_outline;cursor.foreground={1,1,1,1};cursor.inverse_em=.001f;
     ColrPaintElement root{};ColrRect clip{};ColrPaintSource source{};u32 bits=0;
     if(sfnt_open({bytes,sizeof(bytes)},0,&face)!=SfntStatus::ok || colr_open(face,&font)!=SfntStatus::ok || colr_source_begin(&cursor,1,1000,&root,&clip,&source)!=SfntStatus::ok)return false;
@@ -114,14 +114,14 @@ bool numeric_cases() noexcept {
     p16(p+462,1);p16(p+464,0x8001);p16(p+466,1);p16(p+468,0);p32(p+470,2000000000);
     ColrVariationData data{};double coordinate=.125,scalar=0;
     if(colr_open(face,&font)!=SfntStatus::ok || colr_variation_data_open(font,&data)!=SfntStatus::ok ||
-       colr_variation_instance_prepare(data,{&coordinate,1},{&scalar,1},&instance,1000,ColrVariationMode::paint_reader)!=SfntStatus::ok ||
+       colr_variation_instance_prepare(data,{&coordinate,1},{&scalar,1},&instance,1000,ColrVariationMode::quantized)!=SfntStatus::ok ||
        colr_source_begin(&cursor,1,1000,&root,&clip,&source)!=SfntStatus::ok)return false;
     copy_bytes(&bits,&root.paint.transform.m11,4);if(bits!=0xbf7dff0a)return false;
     // Windows applies both center deltas to X for nonuniform VarScaleAroundCenter.
     p[220]=19;p16(p+224,8192);p16(p+226,12288);p16(p+228,100);p16(p+230,200);p32(p+232,0);
     p16(p+462,4);p16(p+464,1);p16(p+470,0);p16(p+472,0);p16(p+474,0);p16(p+476,10);coordinate=1;
     if(colr_open(face,&font)!=SfntStatus::ok || colr_variation_data_open(font,&data)!=SfntStatus::ok ||
-       colr_variation_instance_prepare(data,{&coordinate,1},{&scalar,1},&instance,1000,ColrVariationMode::paint_reader)!=SfntStatus::ok ||
+       colr_variation_instance_prepare(data,{&coordinate,1},{&scalar,1},&instance,1000,ColrVariationMode::quantized)!=SfntStatus::ok ||
        colr_source_begin(&cursor,1,1000,&root,&clip,&source)!=SfntStatus::ok)return false;
     if(!(root.paint.transform.dx>.054f && root.paint.transform.dx<.056f && root.paint.transform.dy>-.051f))return false;
     instance.mode=ColrVariationMode::standard;
@@ -129,7 +129,7 @@ bool numeric_cases() noexcept {
     // Per-field index wrapping is confined to the compatibility policy.
     p[220]=15;p16(p+224,1);p16(p+226,2);p32(p+228,0xffffffff);p16(p+470,100);
     if(colr_open(face,&font)!=SfntStatus::ok || colr_variation_data_open(font,&data)!=SfntStatus::ok ||
-       colr_variation_instance_prepare(data,{&coordinate,1},{&scalar,1},&instance,1000,ColrVariationMode::paint_reader)!=SfntStatus::ok ||
+       colr_variation_instance_prepare(data,{&coordinate,1},{&scalar,1},&instance,1000,ColrVariationMode::quantized)!=SfntStatus::ok ||
        colr_source_begin(&cursor,1,1000,&root,&clip,&source)!=SfntStatus::ok || !(root.paint.transform.dy<-.101f))return false;
     instance.mode=ColrVariationMode::standard;
     return colr_source_begin(&cursor,1,1000,&root,&clip,&source)==SfntStatus::ok && root.paint.transform.dy>-.003f;
@@ -172,7 +172,7 @@ bool glyph_child_cases() noexcept {
     struct Release {u8* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{memory};
     DWORD old=0;if(!VirtualProtect(memory+4096,4096,PAGE_NOACCESS,&old))return false;
     auto* table=memory+4096-font.table.count;copy_bytes(table,font.table.data,font.table.count);font.table.data=table;
-    ColrVariationInstance instance{};instance.mode=ColrVariationMode::paint_reader;
+    ColrVariationInstance instance{};instance.mode=ColrVariationMode::quantized;
     ColrSourceFrame frames[65]{};ColrResolvedColorStop scratch[3]{};ColrNativeSource cursor{};
     cursor.font=&font;cursor.variation=&instance;cursor.frames={frames,65};cursor.stop_storage={scratch,3};
     cursor.outline_provider=no_outline;cursor.inverse_em=.001f;cursor.foreground={1,1,1,1};
@@ -189,13 +189,13 @@ bool glyph_child_cases() noexcept {
     const i16 encoded_alpha[]{-32768,-16384,-1,0,1,8192,16384,32767};
     const float expected_alpha[]{-2.f,-1.f,-1.f/16384,0.f,1.f/16384,.5f,1.f,32767.f/16384};
     for(u32 policy=0;policy<2;++policy)for(u8 format=2;format<=3;++format)for(u32 i=0;i<8;++i){
-        instance.mode=policy?ColrVariationMode::standard:ColrVariationMode::paint_reader;
+        instance.mode=policy?ColrVariationMode::standard:ColrVariationMode::quantized;
         table[156]=format;p16(table+159,static_cast<u16>(encoded_alpha[i]));
         const float expected=policy?(i<3?0.f:i==7?1.f:expected_alpha[i]):expected_alpha[i];
         if(colr_source_begin(&cursor,0,100,&root,&clip,&source)!=SfntStatus::ok ||
            root.kind!=ColrPaintKind::solid_glyph || root.paint.solidGlyph.color.value.a!=expected)return false;
     }
-    instance.mode=ColrVariationMode::paint_reader;
+    instance.mode=ColrVariationMode::quantized;
     for(u8 format=2;format<=3;++format){
         table[156]=format;p16(table+157,2);
         if(colr_source_begin(&cursor,0,100,&root,&clip,&source)!=SfntStatus::malformed)return false;
@@ -264,7 +264,7 @@ bool static_value_cases() noexcept {
             else {constexpr u8 counts[]{2,2,4,1,3,1,3,2,4};for(u32 i=0;i<counts[(format-14)/2];++i)p16(p+224+i*2,static_cast<u16>(field));}
         }
         SfntFace face{};ColrFont font{};ColrVariationInstance instance{};
-        instance.mode=policy?ColrVariationMode::standard:ColrVariationMode::paint_reader;
+        instance.mode=policy?ColrVariationMode::standard:ColrVariationMode::quantized;
         ColrSourceFrame frames[65]{};ColrNativeSource cursor{};
         cursor.font=&font;cursor.variation=&instance;cursor.frames={frames,65};
         cursor.outline_provider=no_outline;cursor.inverse_em=.001f;cursor.foreground={1,1,1,1};

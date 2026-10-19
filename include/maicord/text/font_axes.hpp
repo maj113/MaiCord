@@ -18,10 +18,10 @@ struct FontNamedInstance {
 struct AxisSegmentMap { ConstSlice<u8> pairs; bool enabled; };
 struct FontAxisMappings { ConstSlice<AxisSegmentMap> axes; };
 struct FontAxisSetting { u32 tag; double value; };
-// Fixed16 supplies a separate F2DOT14 condition coordinate for GSUB/GPOS and
-// GETVARIATION. Paint-reader precision matches the Windows COLR path; other
-// Windows consumers are not guaranteed to agree.
-enum class FontAxisPrecision : u8 { fixed16, paint_reader };
+// Fixed16 rounds user coordinates to 16.16 and supplies a separate F2DOT14
+// condition coordinate for GSUB/GPOS and GETVARIATION. Full keeps the user
+// coordinate's double precision (the quantized COLR path).
+enum class FontAxisPrecision : u8 { fixed16, full };
 
 SfntStatus font_axes_table_open(ConstSlice<u8> table,FontAxes* output,u32 work_limit=1000000) noexcept;
 SfntStatus font_axes_open(const SfntFace& face,FontAxes* output,u32 work_limit=1000000) noexcept;

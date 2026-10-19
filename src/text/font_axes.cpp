@@ -135,7 +135,7 @@ SfntStatus font_axis_coordinates(const FontAxes& axes,const FontAxisMappings& ma
         if(user<low)user=low;if(user>high)user=high;
         if(precision==FontAxisPrecision::fixed16)user=quantized(user);
         double value=user<normal?(user-normal)/(normal-low):user>normal?(user-normal)/(high-normal):0;
-        // Windows paint-reader coordinates are quantized before avar mapping.
+        // Normalized coordinates are quantized before avar mapping.
         value=quantized(value);
         if(mappings.axes.count)value=remap(mappings.axes[i],value);
         value=quantized(value);if(value < -1)value=-1;if(value>1)value=1;

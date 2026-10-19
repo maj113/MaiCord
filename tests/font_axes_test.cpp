@@ -47,7 +47,7 @@ bool normalization() noexcept {
     const FontAxisSetting positive[]{{weight,650},{width,1000000},{weight,525}};
     if(font_axis_coordinates(axes,mappings,{positive,3},{output,2})!=SfntStatus::ok || output[0]!=.5 || output[1]!=1)return false;
     const FontAxisSetting avar_round[]{{weight,325},{width,150}};
-    if(font_axis_coordinates(axes,mappings,{avar_round,2},{output,2},{},FontAxisPrecision::paint_reader)!=SfntStatus::ok || output[0]!=-10922.0/65536)return false;
+    if(font_axis_coordinates(axes,mappings,{avar_round,2},{output,2},{},FontAxisPrecision::full)!=SfntStatus::ok || output[0]!=-10922.0/65536)return false;
     if(font_axis_coordinates(axes,mappings,{}, {output,2})!=SfntStatus::ok || output[0]!=0 || output[1]!=0)return false;
     const FontAxisSetting negative[]{{weight,-1.e200},{sfnt_tag('T','E','S','T'),10}};
     if(font_axis_coordinates(axes,mappings,{negative,2},{output,2})!=SfntStatus::ok || output[0]!=-1 || output[1]!=0)return false;

@@ -83,7 +83,7 @@ void compare_paint_program(const SfntFace& native,IDWritePaintReader* reader,IDW
     else {
         ColrFont font{};ColrVariationData data{};ColrVariationInstance instance{};ColrNativeSource cursor{};ColrRect box{};double coordinates[64]{};
         bool prepared=(context.is_tt || context.is_cff) && colr_open(native,&font)==SfntStatus::ok && colr_variation_data_open(font,&data)==SfntStatus::ok && data.store.axis_count<=64 &&
-            colr_variation_instance_prepare(data,{coordinates,data.store.axis_count},{region_scalars,32767},&instance,1000000,ColrVariationMode::paint_reader)==SfntStatus::ok;
+            colr_variation_instance_prepare(data,{coordinates,data.store.axis_count},{region_scalars,32767},&instance,1000000,ColrVariationMode::quantized)==SfntStatus::ok;
         cursor.font=&font;cursor.variation=selected_instance?selected_instance:&instance;cursor.frames={source_frames,65};cursor.stop_storage={resolved_stops,65535};
         cursor.outline_context=&context;cursor.outline_provider=outline;cursor.foreground={1,1,1,1};cursor.palette=0;
         cursor.inverse_em=1.f/(context.is_tt?context.tt.metrics.units_per_em:context.cff.units_per_em);

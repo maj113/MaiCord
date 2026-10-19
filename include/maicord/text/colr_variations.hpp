@@ -8,11 +8,11 @@ struct ColrVariationData {
     VariationIndexMap map;
     bool present;
 };
-// Standard keeps fractional deltas and clamps opacity. Paint-reader mode
-// follows Windows coordinate/delta rounding, float accumulation, per-field
-// index wrapping and raw opacity handling. It is not a full match of the
-// Windows renderer.
-enum class ColrVariationMode : u8 { standard, paint_reader };
+// Standard keeps fractional deltas and clamps opacity. Quantized mode uses
+// 16.16 coordinates, single-precision accumulation, integer-rounded deltas,
+// wrapping per-field indices and unclamped opacity, matching the system COLR
+// renderer's arithmetic (not its full output).
+enum class ColrVariationMode : u8 { standard, quantized };
 struct ColrVariationInstance {
     VariationInstance instance;
     VariationIndexMap map;
