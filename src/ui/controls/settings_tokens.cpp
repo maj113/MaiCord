@@ -142,6 +142,10 @@ UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
     m.grip_width = 20;
     m.accent_dot = 12;
     m.lead_gap = 12;
+    m.list_icon = 24;
+    m.list_column = 96;
+    m.list_action = s.button_small;
+    m.tristate_segment = 32;
     m.focus_gap = theme.scale.space_1;
     m.focus_width = theme.scale.space_1;
     m.ring_gap = theme.scale.space_1;

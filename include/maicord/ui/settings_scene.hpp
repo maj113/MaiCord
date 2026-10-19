@@ -76,7 +76,8 @@ inline constexpr float kUiSettingsFooterInset = 12;
 // labels, choices and controls are borrowed until update/release. The host owns
 // values, persistence and action dispatch, including plugin module callbacks.
 // Category rows head the controls that follow; notice rows show status text
-// with an optional action button.
+// with an optional action button. A single-line edit row's action_label is a
+// primary button beside its field (a list search with its create button).
 struct UiSettingsControl {
     u64 id;
     Utf8View label, description;
@@ -102,7 +103,7 @@ enum UiSettingsPresentationFlag : u8 {
     ui_settings_presentation_link = 1u << 1,
     // Action rows: a drag handle leads the row.
     ui_settings_presentation_grip = 1u << 2,
-    // Segments: deny / neutral / allow glyphs instead of choice labels.
+    // Segments: the tri-state permission switch (deny / neutral / allow).
     ui_settings_presentation_tristate = 1u << 3,
     // Action rows: a circular avatar with the label's initials leads the row.
     ui_settings_presentation_avatar = 1u << 4,
@@ -137,6 +138,34 @@ struct UiSettingsAvatarMedia {
     MediaAssetKey key;
     u8 hash_bytes;
     char hash[kUiSettingsAvatarHashBytes];
+};
+
+// Administration list rows (UiSettingsPageContent::list_items), by style:
+// row: an action row as a table row. The lead glyph (tinted with the row
+// accent), a lock when locked, the label, a count column (choices[0], then
+// count_icon) and up to two trailing icon buttons shown on hover or focus.
+// card: a raised action row with a lead tile, label, description and a
+// chevron. header: a category row naming the count column (choices[0]),
+// aligned with the rows below it. UiIcon::count leaves a glyph out; set
+// every icon of a styled entry. Pointer activations of a row report the part
+// (UiSettingsListPart) in selected_choice; the keyboard reports the row.
+enum class UiSettingsListStyle : u8 {
+    none,
+    row,
+    card,
+    header
+};
+enum UiSettingsListPart : u32 {
+    ui_settings_list_row,
+    ui_settings_list_count,
+    ui_settings_list_action,
+};
+inline constexpr u32 kUiSettingsListActions = 2;
+struct UiSettingsListItem {
+    UiSettingsListStyle style;
+    UiIcon lead, count_icon;
+    UiIcon actions[kUiSettingsListActions];
+    bool locked;
 };
 
 inline constexpr u32 kUiSettingsPageFormat = 0x53544731u;
@@ -176,6 +205,8 @@ struct UiSettingsPageContent {
     float aside_width = 0, aside_height = 0;
     u32 aside_row = 0;
     Utf8View aside_label{};
+    // Null, or one entry per control (UiSettingsListItem).
+    const UiSettingsListItem* list_items = nullptr;
 };
 
 enum class UiSettingsTargetKind : u8 {
@@ -396,13 +427,16 @@ bool ui_settings_scene_palette_hover(UiSettingsScene*, UiSettingsTarget, float x
 // Radio rows resolve the option under the pointer.
 bool ui_settings_scene_radio_pointer(const UiSettingsScene&, UiSettingsTarget, float x, float y,
                                      UiSettingsActivation*) noexcept;
-// Notice and action rows activate only on their button.
+// Notice and action rows activate only on their button (list rows on the
+// whole row); edit rows with an action_label on the button beside the field.
 bool ui_settings_scene_button_hit(const UiSettingsScene&, UiSettingsTarget, float x, float y) noexcept;
-// Segments and swatches rows resolve the option under the pointer.
+// Segments and swatches rows resolve the option under the pointer; list rows
+// the part (UiSettingsListPart).
 bool ui_settings_scene_option_pointer(const UiSettingsScene&, UiSettingsTarget, float x, float y,
                                       UiSettingsActivation*) noexcept;
-// Full rectangle of one option of a radio or segments row (what the pointer
-// helpers above hit-test); false for other kinds or an unmaterialized row.
+// Full rectangle of one option of a radio or segments row, or one part of a
+// list row (what the pointer helpers above hit-test); false for other kinds
+// or an unmaterialized row.
 bool ui_settings_scene_choice_rectangle(const UiSettingsScene&, UiSettingsTarget, u32 choice, UiRect*) noexcept;
 // The leading drag handle of a grip row.
 bool ui_settings_scene_grip_hit(const UiSettingsScene&, UiSettingsTarget, float x, float y) noexcept;

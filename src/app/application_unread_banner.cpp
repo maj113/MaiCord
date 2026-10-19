@@ -6,6 +6,7 @@
 #include "application_attachments.hpp"
 #include "application_content_input.hpp"
 #include "application_friends.hpp"
+#include "application_guild_settings.hpp"
 #include "application_profile.hpp"
 #include "application_read_state.hpp"
 #include "application_scrolling.hpp"
@@ -15,6 +16,7 @@
 #include "application_thread_browser.hpp"
 #include "maicord/app/unread_banner_projection.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/permission_compute.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -145,9 +147,22 @@ UiBannerNotice conversation_notice(u64 channel_id) noexcept {
     }
     return notice;
 }
+// The guild of a channel whose server is viewed as roles, or zero.
+u64 viewing_guild(u64 channel_id) noexcept {
+    const auto& state = g_app.account_ui->chat_state;
+    const auto* channel = chat_state_store_find_channel(state, channel_id);
+    return channel && channel->guild_id && chat_state_store_viewing_as(state, channel->guild_id) ? channel->guild_id
+                                                                                                : 0;
+}
 bool perform(UiUnreadBannerAction action) noexcept {
     const u64 channel = g_banner.view.channel_id;
     application_read_state_activity();
+    // View as role: back to Roles, or exit.
+    if (const u64 guild = action == UiUnreadBannerAction::notice_primary ||
+                                  action == UiUnreadBannerAction::notice_secondary
+                              ? viewing_guild(channel)
+                              : 0)
+        return application_view_as_role_end(guild, action == UiUnreadBannerAction::notice_primary);
     switch (action) {
     case UiUnreadBannerAction::notice_primary:
         return application_private_channel_accept_request(channel);
@@ -178,7 +193,10 @@ bool application_unread_banner_synchronize(u64 now_ms) noexcept {
     const bool presented = input(&in);
     if (presented)
         projection = unread_banner_project(in);
-    const UiBannerNotice notice = presented ? conversation_notice(in.channel_id) : UiBannerNotice{};
+    char view_title[kUiBannerNoticeTitleBytes];
+    UiBannerNotice notice = presented ? conversation_notice(in.channel_id) : UiBannerNotice{};
+    if (presented && !notice.id)
+        notice = application_view_as_role_notice(in.channel_id, {view_title, sizeof(view_title)});
     if (notice.id && !projection.view.channel_id)
         projection.view.channel_id = in.channel_id;
     const bool notice_changed = ui_unread_banner_set_notice(&g_banner, &notice);

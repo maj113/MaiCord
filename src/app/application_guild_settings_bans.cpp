@@ -85,13 +85,11 @@ void project_bans(Bank& bank) noexcept {
                   utf8_literal("Bans by default are by account and IP. A user can circumvent an IP ban by using a "
                                "proxy. Ban circumvention can be made very hard by enabling phone verification in "
                                "Safety Setup.")));
-    push({control_search, utf8_literal("Search bans"), {}, UiSettingsControlKind::edit, editable(), false, {}, 0, {},
+    // The search field with its Search button beside it.
+    push({control_search, {}, {}, UiSettingsControlKind::edit, editable(), false, {}, 0, utf8_literal("Search"),
           &editor_view(editor_search, control_search, utf8_literal("Search Bans by User Id or Username"),
                        editable())});
     const bool searching = busy() && p.request.op == Op::ban_search;
-    push({control_more, {}, {}, UiSettingsControlKind::action, editable() && !searching && connected(), false, {}, 0,
-          utf8_literal("Search"), nullptr},
-         {UiSettingsVariant::primary, ui_settings_presentation_compact, kUiSettingsNoDefault});
     const auto& store = p.bans;
     if (p.bans_failed)
         push(notice(utf8_literal("Couldn't load bans"), p.status, utf8_literal("Try again")),
@@ -174,7 +172,7 @@ void search() noexcept {
 void activate(const SettingsLayerActivation& activation) noexcept {
     auto& p = *owner;
     const u64 id = activation.value.target.control_id;
-    if (id == control_more) {
+    if (id == control_search) {
         search();
         return;
     }

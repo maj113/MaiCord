@@ -106,6 +106,7 @@
 #include "empty_decoration_probe.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "channel_overview_probe.hpp"
+#include "guild_roles_probe.hpp"
 #include "native_pane_glyph_stress_probe.hpp"
 #include "scoped_search_ui_probe.hpp"
 #include "search_polish_ui_probe.hpp"
@@ -10402,6 +10403,16 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return valid ? 0 : static_cast<int>(g_probe.failure_stage != 0 ? g_probe.failure_stage : 7u);
+    }
+    wchar_t guild_roles_only[2]{};
+    if (GetEnvironmentVariableW(L"MAICORD_UI_GUILD_ROLES_PROBE", guild_roles_only, 2) == 1 &&
+        guild_roles_only[0] == L'1') {
+        const bool valid = initialize_fixture(true) && guild_roles_ui_probe(g_probe.renderer);
+        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
+                  valid ? "guild_roles_native_ui_passed" : "guild_roles_native_ui_failed");
+        renderer_shutdown(&g_probe.renderer);
+        DestroyWindow(g_probe.window);
+        return valid ? 0 : 279;
     }
     wchar_t channel_overview_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_UI_CHANNEL_OVERVIEW_PROBE", channel_overview_only, 2) == 1 &&

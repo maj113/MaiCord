@@ -119,13 +119,24 @@ bool ui_settings_close_paint(PaintStream*, const UiSettingsTokens&, UiRect circl
 bool ui_settings_dialog_close_paint(PaintStream*, const UiSettingsTokens&, UiRect target, UiControlState) noexcept;
 Color ui_settings_close_color(const UiSettingsTokens&, UiControlState) noexcept;
 
-// Segmented options: joined square buttons at a row's end. Tri-state groups
-// show deny / neutral / allow glyphs tinted critical, subtle and positive.
+// Segmented options: square buttons at a row's end.
 float ui_segments_width(const UiSettingsTokens&, u32 count) noexcept;
 UiRect ui_segments_option(const UiSettingsTokens&, UiRect group, u32 count, u32 index) noexcept;
 u32 ui_segments_hit(const UiSettingsTokens&, UiRect group, u32 count, float x, float y) noexcept;
 bool ui_segments_paint(PaintStream*, const UiSettingsTokens&, UiRect group, u32 count, u32 selected, u32 hovered,
-                       bool tristate, UiControlState) noexcept;
+                       UiControlState) noexcept;
+
+// Tri-state permission switch: deny / neutral / allow as three joined
+// segments in one bordered group (tristate_segment by segment_size each).
+// The selected segment fills critical, neutral or positive; the others tint
+// their glyph. Every point of the group resolves to a segment.
+inline constexpr u32 kUiTristateCount = 3;
+float ui_tristate_width(const UiSettingsTokens&) noexcept;
+float ui_tristate_radius(const UiSettingsTokens&) noexcept;
+UiRect ui_tristate_option(const UiSettingsTokens&, UiRect group, u32 index) noexcept;
+u32 ui_tristate_hit(const UiSettingsTokens&, UiRect group, float x, float y) noexcept;
+bool ui_tristate_paint(PaintStream*, const UiSettingsTokens&, UiRect group, u32 selected, u32 hovered,
+                       UiControlState) noexcept;
 
 // Compact colour grid: small rounded squares; the selected one shows a check.
 u32 ui_color_grid_columns(const UiSettingsTokens&, float width) noexcept;

@@ -133,6 +133,7 @@ bool ui_unread_banner_set_notice(UiUnreadBannerScene* scene, const UiBannerNotic
         return changed;
     }
     const bool changed = scene->notice_id != n.id || scene->notice_warning != n.warning || scene->notice_busy != n.busy ||
+                         scene->notice_glyph != n.icon ||
                          scene->notice_title_bytes != title_bytes || scene->notice_text_bytes != text_bytes ||
                          scene->notice_primary_bytes != primary_bytes || scene->notice_secondary_bytes != secondary_bytes ||
                          !bytes_equal(scene->notice_title, title, title_bytes) ||
@@ -144,6 +145,7 @@ bool ui_unread_banner_set_notice(UiUnreadBannerScene* scene, const UiBannerNotic
     scene->notice_id = n.id;
     scene->notice_warning = n.warning;
     scene->notice_busy = n.busy;
+    scene->notice_glyph = n.icon;
     copy_bytes(scene->notice_title, title, title_bytes);
     copy_bytes(scene->notice_text, text, text_bytes);
     copy_bytes(scene->notice_primary, primary, primary_bytes);
@@ -345,7 +347,11 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
              ui_surface_paint(paint, r, theme, UiElevation::banner, st.notice_radius, &fill, &border) &&
              // A tone stripe along the leading edge marks warnings.
              paint_stream_push_rounded(paint, r.left, r.top, r.left + 4, r.bottom, tone, theme.scale.radius_xs) &&
-             ui_icon_paint(paint, scene.notice_warning ? UiIcon::shield_alert : UiIcon::inbox, scene.notice_icon, tone);
+             ui_icon_paint(paint,
+                           scene.notice_glyph < UiIcon::count ? scene.notice_glyph
+                           : scene.notice_warning            ? UiIcon::shield_alert
+                                                             : UiIcon::inbox,
+                           scene.notice_icon, tone);
         const bool busy = scene.notice_busy;
         if (ok && scene.notice_primary_bytes) {
             const auto b = scene.notice_primary_rect;

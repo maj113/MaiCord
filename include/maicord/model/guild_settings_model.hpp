@@ -69,6 +69,23 @@ bool guild_settings_role_deletable(const GuildSettingsAccess&, const RoleRecord&
 // Bits this account may grant to a role or override; the owner and
 // administrators may grant any known bit.
 PermissionSet guild_settings_grantable(const GuildSettingsAccess&) noexcept;
+// Why a role is read-only to this account: no Manage Roles, it is the
+// account's highest role, or it ranks above it.
+enum class GuildRoleLock : u8 {
+    none,
+    no_permission,
+    highest,
+    above,
+};
+GuildRoleLock guild_settings_role_lock(const GuildSettingsAccess&, const RoleRecord&) noexcept;
+// View Server as Role: Manage Server and Manage Roles (the owner and
+// administrators hold both), for a role below the account's highest role or
+// that role itself; the owner may view as any role.
+bool guild_settings_can_view_as_role(const GuildSettingsAccess&, const RoleRecord&) noexcept;
+// The account's guild-level permissions (its real roles, two-factor gate
+// applied) with one role's permissions replaced by a draft's.
+PermissionSet guild_settings_self_permissions_with(const ChatStateStore&, const GuildSettingsAccess&, u64 role_id,
+                                                   PermissionSet role_permissions) noexcept;
 
 // Roles of a guild by hierarchy, highest first, @everyone last. Returns the
 // number written; rows beyond output are dropped.
@@ -237,6 +254,21 @@ bool guild_role_name_valid(Utf8View) noexcept;
 bool guild_role_patch(const GuildRoleDraft& baseline, const GuildRoleDraft& draft, RolePatch* patch) noexcept;
 // Sets or clears one bit when grantable; unknown bits of the role survive.
 bool guild_role_toggle(GuildRoleDraft*, const GuildSettingsAccess&, PermissionSet bit, bool enabled) noexcept;
+// Why one permission of a role draft cannot change: the account lacks it, or
+// clearing it would take it from the account (its own role or @everyone).
+enum class GuildPermissionLock : u8 {
+    none,
+    missing,
+    self,
+};
+GuildPermissionLock guild_role_permission_lock(const ChatStateStore&, const GuildSettingsAccess&,
+                                               const GuildRoleDraft&, PermissionSet bit) noexcept;
+// Clear permissions: the draft grants something and clearing it all takes
+// nothing from the account.
+bool guild_role_can_clear(const ChatStateStore&, const GuildSettingsAccess&, const GuildRoleDraft&) noexcept;
+// Whether a role list order differs from the stored hierarchy (both highest
+// first, @everyone last): the Roles list's unsaved state.
+bool guild_settings_order_changed(const ChatStateStore&, u64 guild_id, ConstSlice<u64> order) noexcept;
 
 // Role colours: 0 means none. Hex parsing accepts "#RRGGBB" or "RRGGBB".
 inline constexpr u32 kGuildRoleColorCount = 20;

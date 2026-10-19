@@ -31,6 +31,9 @@ struct UiSettingsMetrics {
     // Administration rows: segmented options, colour grid, chips and row leads.
     float segment_size, segment_gap, color_cell, color_gap, chip_height, chip_gap, chip_padding, avatar_size,
         grip_width, accent_dot, lead_gap;
+    // List rows: the lead glyph, the count column and a trailing icon button;
+    // the tri-state switch's segment width.
+    float list_icon, list_column, list_action, tristate_segment;
     // Rings around a control: keyboard focus, and the selection of a swatch
     // or colour cell. Each stroke's inner edge sits its gap outside the shape.
     float focus_gap, focus_width, ring_gap, ring_width;

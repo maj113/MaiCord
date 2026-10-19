@@ -5,6 +5,7 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/unread_banner_scene.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
@@ -51,4 +52,12 @@ u32 application_guild_settings_owner_bytes() noexcept;
 void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept;
 // Opens the name form for a new channel from the server or category menu.
 bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8 type) noexcept;
+// View Server as Role (chat_state_store_view_as_roles): start closes Server
+// Settings and lands on a channel the role can see; end restores the
+// account's permissions, optionally reopening Roles. The notice is the
+// banner over a guild timeline while its view lasts (zero id otherwise);
+// its title is written to `text`.
+bool application_view_as_role_start(u64 guild_id, u64 role_id) noexcept;
+bool application_view_as_role_end(u64 guild_id, bool back_to_settings) noexcept;
+UiBannerNotice application_view_as_role_notice(u64 channel_id, Slice<char> text) noexcept;
 } // namespace maicord::app_detail

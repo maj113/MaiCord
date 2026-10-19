@@ -138,6 +138,12 @@ enum Control : u64 {
     control_bulk,
     // System message toggles: this base plus the suppress bit's index.
     control_message = 64,
+    // Roles: the editor's tabs, Clear permissions, View Server as Role and
+    // the @everyone card.
+    control_role_tabs = 80,
+    control_clear,
+    control_view_as,
+    control_everyone,
     control_permission_category = 100,
     control_permission = 200,
 };
@@ -273,6 +279,7 @@ struct Settings {
     UiSettingsControl controls[kControlCapacity];
     UiSettingsControlPresentation presentation[kControlCapacity];
     UiSettingsAvatarMedia avatar_media[kControlCapacity];
+    UiSettingsListItem list_items[kControlCapacity];
     u32 control_count;
     UiSettingsEditor editors[editor_count];
     UiSettingsFooter footer;
@@ -322,6 +329,8 @@ struct Settings {
     u32 counts;
     bool counts_requested;
     u64 editing_role, open_after_create;
+    // The role editor's tab (Display, Permissions).
+    u8 role_tab;
     GuildRoleDraft role_base, role_draft;
     bool role_conflict, role_echo, role_missing, hex_invalid;
     u64 role_echo_until;

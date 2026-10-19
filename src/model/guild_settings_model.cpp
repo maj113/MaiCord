@@ -219,6 +219,41 @@ bool guild_settings_role_editable(const GuildSettingsAccess& access, const RoleR
     return (access.sections & guild_settings_roles) && guild_settings_role_below(access, role);
 }
 
+GuildRoleLock guild_settings_role_lock(const GuildSettingsAccess& access, const RoleRecord& role) noexcept {
+    if (!(access.sections & guild_settings_roles))
+        return GuildRoleLock::no_permission;
+    if (guild_settings_role_below(access, role))
+        return GuildRoleLock::none;
+    return role.id == access.top_role_id ? GuildRoleLock::highest : GuildRoleLock::above;
+}
+
+bool guild_settings_can_view_as_role(const GuildSettingsAccess& access, const RoleRecord& role) noexcept {
+    if (!access.resolved || role.guild_id != access.guild_id)
+        return false;
+    if (access.owner)
+        return true;
+    return permission_has(access.permissions, kPermissionManageGuild) &&
+           permission_has(access.permissions, kPermissionManageRoles) &&
+           (role.id == access.guild_id || role.id == access.top_role_id || guild_settings_role_below(access, role));
+}
+
+PermissionSet guild_settings_self_permissions_with(const ChatStateStore& store, const GuildSettingsAccess& access,
+                                                   u64 role_id, PermissionSet role_permissions) noexcept {
+    const auto* guild = chat_state_store_find_guild(store, access.guild_id);
+    if (!guild || !access.resolved)
+        return 0;
+    u64 roles[kGuildRoleMaximum];
+    u32 count = 0;
+    for (u32 i = 0; i < store.role_count && count < kGuildRoleMaximum; ++i)
+        if (store.roles[i].guild_id == access.guild_id && store.roles[i].id != access.guild_id &&
+            store.roles[i].self_assigned)
+            roles[count++] = store.roles[i].id;
+    const auto permission_guild = chat_state_store_permission_guild(store, access.guild_id);
+    const PermissionMember self{store.self_user_id, {roles, count}, 0, guild_self_quarantined(guild->settings)};
+    return permission_compute_from_base(permission_compute_base_with(permission_guild, self, role_id, role_permissions),
+                                        permission_guild, self, {}, {0, store.self_mfa == SelfMfaState::disabled});
+}
+
 bool guild_settings_role_deletable(const GuildSettingsAccess& access, const RoleRecord& role) noexcept {
     return guild_settings_role_editable(access, role) && !role.managed && role.id != access.guild_id;
 }
@@ -730,6 +765,40 @@ bool guild_role_toggle(GuildRoleDraft* draft, const GuildSettingsAccess& access,
         return false;
     draft->permissions = enabled ? draft->permissions | bit : draft->permissions & ~bit;
     return true;
+}
+
+GuildPermissionLock guild_role_permission_lock(const ChatStateStore& store, const GuildSettingsAccess& access,
+                                               const GuildRoleDraft& draft, PermissionSet bit) noexcept {
+    if ((access.permissions & bit) != bit)
+        return GuildPermissionLock::missing;
+    if ((draft.permissions & bit) != bit)
+        return GuildPermissionLock::none;
+    const PermissionSet without =
+        guild_settings_self_permissions_with(store, access, draft.role_id, draft.permissions & ~bit);
+    return (without & bit) == bit ? GuildPermissionLock::none : GuildPermissionLock::self;
+}
+
+bool guild_role_can_clear(const ChatStateStore& store, const GuildSettingsAccess& access,
+                          const GuildRoleDraft& draft) noexcept {
+    if (!draft.permissions)
+        return false;
+    const PermissionSet with = guild_settings_self_permissions_with(store, access, draft.role_id, draft.permissions);
+    return guild_settings_self_permissions_with(store, access, draft.role_id, 0) == with;
+}
+
+bool guild_settings_order_changed(const ChatStateStore& store, u64 guild_id, ConstSlice<u64> order) noexcept {
+    const RoleRecord* stored[kGuildRoleMaximum];
+    const u32 count = guild_settings_sorted_roles(store, guild_id, {stored, kGuildRoleMaximum});
+    u32 seen = 0;
+    for (u32 i = 0; i < order.count; ++i) {
+        // Roles deleted since the draft drop out of it.
+        if (!chat_state_store_find_role(store, guild_id, order[i]))
+            continue;
+        if (seen >= count || stored[seen]->id != order[i])
+            return true;
+        ++seen;
+    }
+    return seen != count;
 }
 
 bool guild_role_color_parse(Utf8View text, u32* color) noexcept {

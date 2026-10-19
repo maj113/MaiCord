@@ -263,7 +263,7 @@ Utf8View status() noexcept {
     if (selected_permissions() || !owner->text) {
         if (owner->request_id && owner->op != Op::fetch)
             return utf8_literal("Saving changes…");
-        return utf8_literal("You have unsaved changes.");
+        return utf8_literal("Careful — you have unsaved changes!");
     }
     if (c.phase == ChannelOverviewPhase::permission_lost)
         return utf8_literal("You no longer have permission to edit this channel.");
@@ -279,7 +279,7 @@ Utf8View status() noexcept {
         return utf8_literal("Channel name must contain 1–100 characters.");
     if (c.failure != ChannelOverviewFailure::none)
         return utf8_literal("Couldn't confirm the save. Your changes are kept.");
-    return c.dirty_fields ? utf8_literal("You have unsaved changes.") : Utf8View{};
+    return c.dirty_fields ? utf8_literal("Careful — you have unsaved changes!") : Utf8View{};
 }
 
 u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept {

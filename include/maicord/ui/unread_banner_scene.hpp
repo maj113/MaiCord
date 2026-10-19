@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/ui/icon.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/transition.hpp"
@@ -31,6 +32,7 @@ struct UiBannerNotice {
     Utf8View title, description, primary, secondary; // primary may be empty
     bool warning; // Warning tone and shield icon; otherwise neutral with an inbox icon.
     bool busy;    // Actions wait for the request in flight.
+    UiIcon icon = UiIcon::count; // Replaces the tone's icon unless count.
 };
 
 struct UiUnreadBannerStyle {
@@ -56,6 +58,7 @@ struct UiUnreadBannerScene {
     char notice_primary[kUiBannerNoticeActionBytes], notice_secondary[kUiBannerNoticeActionBytes];
     u8 notice_title_bytes, notice_text_bytes, notice_primary_bytes, notice_secondary_bytes;
     bool notice_warning, notice_busy;
+    UiIcon notice_glyph;
 };
 
 // "12 new messages since 3:04 PM"; estimated counts gain a "+" suffix.

@@ -336,7 +336,9 @@ struct RoleRecord {
     u8 in_prompt : 1;
     // tags.guild_connections is present: a linked role, listed last in profile pills.
     u8 linked : 1;
-    u8 reserved : 1;
+    // View server as role (chat_state_store_view_as_roles): a viewed role;
+    // on @everyone, the guild's view is active.
+    u8 viewing : 1;
     // colors.secondary_color / tertiary_color: RGB | kRoleColorPresent or zero.
     u32 secondary_color;
     u32 tertiary_color;

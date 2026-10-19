@@ -241,6 +241,7 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation present
     owner->controls[owner->control_count] = control;
     owner->presentation[owner->control_count] = presentation;
     owner->avatar_media[owner->control_count] = {};
+    owner->list_items[owner->control_count] = {};
     return owner->control_count++;
 }
 void popup_row(u32 index, Utf8View label, u32 action, u32 flags) noexcept {
@@ -392,7 +393,7 @@ Utf8View footer_status() noexcept {
         if (invalid.bytes)
             return invalid;
     }
-    return utf8_literal("You have unsaved changes.");
+    return utf8_literal("Careful — you have unsaved changes!");
 }
 bool can_save() noexcept {
     return editable() && connected() && ops().can_save && ops().can_save();
@@ -451,6 +452,7 @@ bool project_page() noexcept {
                                     : ConstSlice<UiSettingsControl>{};
         content.presentation = selected ? p.presentation : nullptr;
         content.avatar_media = selected ? p.avatar_media : nullptr;
+        content.list_items = selected ? p.list_items : nullptr;
         content.footer = selected ? &p.footer : nullptr;
         if (selected) {
             if (p.page == Page::roles && p.editing_role) {
@@ -460,6 +462,9 @@ bool project_page() noexcept {
                 content.title = bank.since(start);
             } else
                 content.title = page_definition(p.page).label;
+            content.description = p.page == Page::roles && !p.editing_role
+                                      ? utf8_literal("Use roles to group your server members and assign permissions.")
+                                      : Utf8View{};
             ++content.revision;
         }
     }
@@ -943,7 +948,8 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         return;
     }
     const u64 id = target.control_id;
-    if (editor_of(id) != editor_count) {
+    // A field's own button (the role search's Create Role) acts; the field focuses.
+    if (editor_of(id) != editor_count && !(activation.pointer && activation.button)) {
         settings_layer_focus(&p.layer, target);
         return;
     }

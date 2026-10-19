@@ -46,16 +46,21 @@ PermissionSet apply_overwrites(PermissionSet base, u64 guild_id, const Permissio
 
 } // namespace
 
-PermissionSet permission_compute_base(const PermissionGuild& guild, const PermissionMember& member) noexcept {
+PermissionSet permission_compute_base_with(const PermissionGuild& guild, const PermissionMember& member,
+                                           u64 role_id, PermissionSet role_permissions) noexcept {
     if (guild.owner_id && member.user_id == guild.owner_id)
         return kPermissionAll;
     PermissionSet base = 0;
     for (u32 i = 0; i < guild.roles.count; ++i) {
         const auto& role = guild.roles[i];
         if (role.guild_id == guild.guild_id && (role.id == guild.guild_id || has_role(member, role.id)))
-            base |= role.permissions;
+            base |= role_id && role.id == role_id ? role_permissions : role.permissions;
     }
     return (base & kPermissionAdministrator) ? kPermissionAll : base;
+}
+
+PermissionSet permission_compute_base(const PermissionGuild& guild, const PermissionMember& member) noexcept {
+    return permission_compute_base_with(guild, member, 0, 0);
 }
 
 PermissionSet permission_compute_from_base(PermissionSet permissions, const PermissionGuild& guild,

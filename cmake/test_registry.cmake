@@ -580,6 +580,13 @@ maicord_test(MaiCordGuildSettingsTests ENTRY maicord_guild_settings_entry
     LIBS maicord_core maicord_protocol maicord_model kernel32
     TIMEOUT 10
     TEST maicord_guild_settings)
+# Role manager: tri-state permissions and switch, role reorder and
+# hierarchy, View Server as Role and the role editor's locks and drafts.
+maicord_test(MaiCordRoleManagerTests ENTRY maicord_role_manager_entry
+    SOURCES tests/role_manager.cpp
+    LIBS maicord_core maicord_text maicord_ui maicord_protocol maicord_model kernel32 user32
+    TIMEOUT 10
+    TEST maicord_role_manager)
 # Members search, bulk ban and ban search: exact bodies, targets, replies,
 # paging and the transport.
 maicord_test(MaiCordGuildModerationTests ENTRY maicord_guild_moderation_entry
@@ -1775,10 +1782,11 @@ endforeach()
 foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_TITLE CATALOG_APNG_UI INBOX_UI
         LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI NOTIFICATION_SETTINGS_UI PLUGIN_CATALOG_UI
         PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI TOOLTIP_UI TRANSPARENT_GUILD_UI USER_SETTINGS_UI UI_CHANNEL_OVERVIEW
+        UI_GUILD_ROLES
         UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
         UI_INLINE_FLAGS
         UI_MEDIA_UNDERLAY UI_MESSAGE_FORWARD UI_PANE_GLYPH_STRESS UI_PINNED_MESSAGES UI_QUICK_SWITCHER
-        UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER)
+        UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER TOAST_UI)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)
     string(REGEX REPLACE "^ui_(.*)$" "\\1_ui" maicord_ui_gate_name "${maicord_ui_gate_name}")
     maicord_ui_probe_test(maicord_${maicord_ui_gate_name}_probe ${maicord_ui_gate}_PROBE BOOTSTRAP

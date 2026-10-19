@@ -139,10 +139,29 @@ bool resolve_color(const UiSettingsScene& scene, u64 control_id, u32 choice, Col
     *color = {((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, 1};
     return true;
 }
-// Action rows may carry list decorations: chips are their choices.
+// A styled list entry that fits its control: rows and cards on action rows,
+// headers on category rows.
+const UiSettingsListItem* list_item(const UiSettingsPageContent& content, u32 index) noexcept {
+    if (!content.list_items || index >= content.controls.count)
+        return nullptr;
+    const auto& item = content.list_items[index];
+    const auto kind = content.controls[index].kind;
+    const bool fits = item.style == UiSettingsListStyle::header
+                          ? kind == UiSettingsControlKind::category
+                          : (item.style == UiSettingsListStyle::row || item.style == UiSettingsListStyle::card) &&
+                                kind == UiSettingsControlKind::action;
+    return fits ? &item : nullptr;
+}
+bool list_style(const UiSettingsPageContent& content, u32 index, UiSettingsListStyle style) noexcept {
+    const auto* item = list_item(content, index);
+    return item && item->style == style;
+}
+// Action rows may carry list decorations: chips are their choices (list
+// rows use choices[0] as their count instead).
 bool chips(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto& c = content.controls[index];
-    return c.kind == UiSettingsControlKind::action && c.choices.data && c.choices.count && c.choices.count <= 16;
+    return c.kind == UiSettingsControlKind::action && c.choices.data && c.choices.count && c.choices.count <= 16 &&
+           !list_item(content, index);
 }
 float button_label_width(Utf8View label) noexcept {
     return ui_settings_text_width(label, kUiSettingsDescriptionEm) * 1.08f;
@@ -202,6 +221,75 @@ struct RowLayout {
     UiRect row, label, description, control, lead, chips, value;
     float height;
 };
+// The trailing columns of a list row: the count column, then the icon
+// buttons; header rows align their column title with it.
+float list_trailing(const UiSettingsMetrics& m) noexcept {
+    return m.list_column + (m.list_action + m.chip_gap) * kUiSettingsListActions;
+}
+// Parts of a list row or card, from its row rectangle.
+struct ListParts {
+    UiRect content, icon, lock, column, chevron;
+    UiRect actions[kUiSettingsListActions];
+};
+ListParts list_parts(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index,
+                     UiRect row) noexcept {
+    const auto& m = t.metric;
+    ListParts parts{};
+    const auto* item = list_item(content, index);
+    if (!item)
+        return parts;
+    const float cy = (row.top + row.bottom) * .5f;
+    if (item->style == UiSettingsListStyle::card) {
+        // A raised card inside the row's vertical padding.
+        const float inset = m.row_padding * .5f;
+        parts.content = {row.left, row.top + inset, row.right, row.bottom - inset};
+        const float pad = m.notice_padding, tile = m.avatar_size;
+        parts.icon = {parts.content.left + pad, cy - tile * .5f, parts.content.left + pad + tile, cy + tile * .5f};
+        const float right = parts.content.right - pad;
+        parts.chevron = {right - m.list_icon, cy - m.list_icon * .5f, right, cy + m.list_icon * .5f};
+        return parts;
+    }
+    parts.content = {row.left + m.lead_gap, row.top, row.right - m.lead_gap, row.bottom};
+    // Every row keeps the grip's slot so glyphs align whether it drags or not.
+    float x = parts.content.left + m.grip_width + m.chip_gap;
+    parts.icon = {x, cy - m.list_icon * .5f, x + m.list_icon, cy + m.list_icon * .5f};
+    // The lock keeps a fixed slot so names line up on every row.
+    x = parts.icon.right + m.chip_gap * 2;
+    const float lock = m.list_icon * .75f;
+    parts.lock = {x, cy - lock * .5f, x + lock, cy + lock * .5f};
+    float right = parts.content.right;
+    for (u32 i = kUiSettingsListActions; i-- > 0;) {
+        parts.actions[i] = {right - m.list_action, cy - m.list_action * .5f, right, cy + m.list_action * .5f};
+        right -= m.list_action + m.chip_gap;
+    }
+    parts.column = {right - m.list_column, cy - m.list_action * .5f, right - m.chip_gap, cy + m.list_action * .5f};
+    return parts;
+}
+// The count column's glyph after its text.
+UiRect list_count_icon(const UiSettingsTokens& t, const UiSettingsControl& c, UiRect column) noexcept {
+    const float size = t.metric.list_icon * .75f, cy = (column.top + column.bottom) * .5f;
+    const float text = c.choices.count ? ui_settings_text_width(c.choices[0], kUiSettingsLabelEm) * 1.04f : 0;
+    const float left = minimum(column.left + text + t.metric.chip_gap, column.right - size);
+    return {left, cy - size * .5f, left + size, cy + size * .5f};
+}
+// The part of a list row under a point (UiSettingsListPart), or ~0u.
+u32 list_part(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index, UiRect row, float x,
+              float y) noexcept {
+    const auto* item = list_item(content, index);
+    if (!item || !ui_rect_contains(row, x, y))
+        return ~0u;
+    if (item->style != UiSettingsListStyle::row)
+        return ui_settings_list_row;
+    const auto parts = list_parts(t, content, index, row);
+    for (u32 i = 0; i < kUiSettingsListActions; ++i)
+        if (item->actions[i] != UiIcon::count && ui_rect_contains(parts.actions[i], x, y))
+            return ui_settings_list_action + i;
+    const auto& c = content.controls[index];
+    if ((item->count_icon != UiIcon::count || (c.choices.count && c.choices[0].bytes)) &&
+        ui_rect_contains(parts.column, x, y))
+        return ui_settings_list_count;
+    return ui_settings_list_row;
+}
 // Width taken by a row's leading handle, avatar or dot.
 float lead_width(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index) noexcept {
     if (content.controls[index].kind != UiSettingsControlKind::action)
@@ -235,7 +323,14 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
     RowLayout r{};
     if (c.kind == UiSettingsControlKind::category) {
         const float gap = index ? m.category_gap : 0;
-        const float right = left + width - (link(content, index) ? 24 : 0);
+        float right = left + width - (link(content, index) ? 24 : 0);
+        if (list_style(content, index, UiSettingsListStyle::header)) {
+            // The column title sits over the list rows' count column.
+            const float column_right = left + width - m.lead_gap - (m.list_action + m.chip_gap) * kUiSettingsListActions;
+            r.value = {column_right - m.list_column, top + gap, column_right - m.chip_gap,
+                       top + gap + kUiSettingsLabelLine};
+            right = minimum(right, r.value.left - m.control_gap);
+        }
         r.label = {left, top + gap, right, top + gap + kUiSettingsLabelLine};
         float bottom = r.label.bottom;
         if (c.description.bytes) {
@@ -285,6 +380,34 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
         r.row = {left, top, left + width, top + r.height};
         return r;
     }
+    if (const auto* item = list_item(content, index)) {
+        if (item->style == UiSettingsListStyle::card) {
+            const float pad = m.notice_padding, inset = m.row_padding * .5f;
+            const float text_left = left + pad + m.avatar_size + m.lead_gap;
+            const float text_width = maximum(1.f, left + width - pad - m.list_icon - m.control_gap - text_left);
+            const float text_height = text_block(m, c.label, c.description, text_width);
+            const float inner = maximum(m.avatar_size, text_height);
+            r.height = inset * 2 + pad * 2 + inner;
+            r.row = {left, top, left + width, top + r.height};
+            const float text_top = top + inset + pad + (inner - text_height) * .5f;
+            r.label = {text_left, text_top, text_left + text_width, text_top + kUiSettingsLabelLine};
+            if (c.description.bytes)
+                r.description = {text_left, r.label.bottom + m.label_gap, text_left + text_width,
+                                 text_top + text_height};
+            return r;
+        }
+        const float pad = m.row_padding * .5f, inner = maximum(kUiSettingsLabelLine, m.list_action);
+        r.height = pad * 2 + inner;
+        r.row = {left, top, left + width, top + r.height};
+        const auto parts = list_parts(t, content, index, r.row);
+        const float text_left = parts.lock.right + m.lead_gap;
+        const float label_top = top + pad + (inner - kUiSettingsLabelLine) * .5f;
+        r.lead = {parts.content.left, top + pad, text_left, top + pad + inner};
+        r.label = {text_left, label_top, maximum(text_left, parts.column.left - m.control_gap),
+                   label_top + kUiSettingsLabelLine};
+        r.value = parts.column;
+        return r;
+    }
     const bool compact = has_flag(content, index, ui_settings_presentation_compact);
     const float pad = compact ? m.row_padding * .5f : m.row_padding;
     // Sections start at their title and end with the divider spacing.
@@ -301,7 +424,9 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
         control_width = ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(c.action_label)),
         control_height = m.button_small;
     else if (c.kind == UiSettingsControlKind::segments)
-        control_width = ui_segments_width(t, c.choices.count), control_height = m.segment_size;
+        control_width = has_flag(content, index, ui_settings_presentation_tristate) ? ui_tristate_width(t)
+                                                                                     : ui_segments_width(t, c.choices.count),
+        control_height = m.segment_size;
     const bool side = side_control(c.kind);
     const float lead = lead_width(t, content, index);
     const float text_left = left + lead;
@@ -367,6 +492,15 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
         const float control_right =
             c.kind == UiSettingsControlKind::choice ? left + minimum(width, 360.f) : left + width;
         r.control = {left, control_top, control_right, control_top + height};
+        if (c.kind == UiSettingsControlKind::edit && c.action_label.bytes) {
+            // The button beside the field (a list search's create button).
+            const float button =
+                ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(c.action_label));
+            const float middle = (r.control.top + r.control.bottom) * .5f;
+            r.value = {r.control.right - button, middle - m.button_small * .5f, r.control.right,
+                       middle + m.button_small * .5f};
+            r.control.right = maximum(r.control.left + 1, r.value.left - m.control_gap);
+        }
         if (c.kind == UiSettingsControlKind::slider && marks(content, index)) {
             const float inset = slider_mark_inset(t, c);
             r.control.left += inset, r.control.right -= inset;
@@ -629,8 +763,10 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
             return false;
         // Notices may be text only; a radio group's options can stand alone
         // under the category row that names them (report steps).
+        // A search field may stand on its placeholder alone.
         if (!c.label.bytes && !(c.kind == UiSettingsControlKind::notice && c.description.bytes) &&
-            c.kind != UiSettingsControlKind::radio)
+            c.kind != UiSettingsControlKind::radio &&
+            !(c.kind == UiSettingsControlKind::edit && c.editor && c.editor->placeholder.bytes))
             return false;
         const bool choices = c.kind == UiSettingsControlKind::choice || c.kind == UiSettingsControlKind::palette ||
                              c.kind == UiSettingsControlKind::slider || c.kind == UiSettingsControlKind::radio ||
@@ -662,8 +798,16 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
                     return false;
         // Buttonless action rows are list items and need a list decoration.
         if (c.kind == UiSettingsControlKind::action && !c.action_label.bytes && !chips(content, i) &&
-            !accent(content, i) && !has_flag(content, i, ui_settings_presentation_avatar | ui_settings_presentation_grip))
+            !accent(content, i) && !list_item(content, i) &&
+            !has_flag(content, i, ui_settings_presentation_avatar | ui_settings_presentation_grip))
             return false;
+        if (const auto* item = list_item(content, i)) {
+            if (item->lead > UiIcon::count || item->count_icon > UiIcon::count ||
+                item->actions[0] > UiIcon::count || item->actions[1] > UiIcon::count)
+                return false;
+            if (c.choices.count && (!c.choices.data || !valid_text(c.choices[0])))
+                return false;
+        }
         if (editor_kind(c.kind) && (!c.editor || !valid_text(c.editor->view.text) ||
                                     !valid_text(c.editor->placeholder) || !geometry_valid(c.editor->geometry)))
             return false;
@@ -1004,11 +1148,13 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
     default:
         break;
     }
-    // Toggles, selects, editors, notice and row buttons: the control itself.
+    // Toggles, selects, editors, notice and row buttons: the control itself
+    // (and the button beside an edit field).
     RowLayout row{};
     UiRect clip{};
     return row_layout_for(scene, layout_tokens(scene), handle, index, &row, &clip) &&
-           ui_rect_contains(ui_rect_overlap(row.control, clip), x, y);
+           (ui_rect_contains(ui_rect_overlap(row.control, clip), x, y) ||
+            (c.kind == UiSettingsControlKind::edit && ui_rect_contains(ui_rect_overlap(row.value, clip), x, y)));
 }
 u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& content, const UiSettingsStyle& style,
                      UiRect viewport, UiPageKey page, u32 registry_revision) noexcept {
@@ -1041,6 +1187,8 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
         hash = hash64_bytes(hash, c.action_label.data, c.action_label.bytes);
         if (content.presentation)
             hash = hash64_bytes(hash, &content.presentation[i], sizeof(UiSettingsControlPresentation));
+        if (const auto* item = list_item(content, i))
+            hash = hash64_bytes(hash, item, sizeof(UiSettingsListItem));
         if (chips(content, i))
             for (u32 j = 0; j < c.choices.count; ++j)
                 hash = hash64_bytes(hash, c.choices[j].data, c.choices[j].bytes);
@@ -1939,7 +2087,14 @@ bool ui_settings_scene_radio_pointer(const UiSettingsScene& scene, UiSettingsTar
     return true;
 }
 bool ui_settings_scene_button_hit(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y) noexcept {
-    const auto* c = ui_settings_scene_control(scene, target);
+    u32 index = 0;
+    const auto* c = ui_settings_scene_control(scene, target, &index);
+    if (c && c->kind == UiSettingsControlKind::edit && c->action_label.bytes && c->enabled) {
+        RowLayout row{};
+        UiRect clip{};
+        return row_layout_for(scene, layout_tokens(scene), target_handle(scene, target), index, &row, &clip) &&
+               ui_rect_contains(ui_rect_overlap(row.value, clip), x, y);
+    }
     UiSettingsControlGeometry geometry{};
     return c && (c->kind == UiSettingsControlKind::notice || c->kind == UiSettingsControlKind::action) &&
            ui_settings_scene_control_geometry(scene, target, &geometry) && ui_rect_contains(geometry.clip, x, y);
@@ -1994,12 +2149,33 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, UiSettingsTa
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
     UiSettingsControlGeometry geometry{};
-    if (!output || !ui_coordinate_valid(x) || !ui_coordinate_valid(y) || !c || !c->enabled ||
-        !option_kind(c->kind) || !ui_settings_scene_control_geometry(scene, target, &geometry) ||
+    if (!output || !ui_coordinate_valid(x) || !ui_coordinate_valid(y) || !c || !c->enabled)
+        return false;
+    if ((list_item(scene.content, index) && c->kind == UiSettingsControlKind::action) ||
+        (c->kind == UiSettingsControlKind::edit && c->action_label.bytes)) {
+        // List rows report their part; an edit row its button as choice 0.
+        const auto t = layout_tokens(scene);
+        RowLayout row{};
+        UiRect clip{};
+        if (!row_layout_for(scene, t, target_handle(scene, target), index, &row, &clip) ||
+            !ui_rect_contains(clip, x, y))
+            return false;
+        const u32 part = c->kind == UiSettingsControlKind::edit
+                             ? (ui_rect_contains(row.value, x, y) ? 0u : ~0u)
+                             : list_part(t, scene.content, index, row.row, x, y);
+        if (part == ~0u)
+            return false;
+        *output = {target, c->kind, c->checked, part};
+        return true;
+    }
+    if (!option_kind(c->kind) || !ui_settings_scene_control_geometry(scene, target, &geometry) ||
         !ui_rect_contains(geometry.clip, x, y))
         return false;
     const auto t = layout_tokens(scene);
-    const u32 choice = c->kind == UiSettingsControlKind::segments ? ui_segments_hit(t, geometry.field, c->choices.count, x, y)
+    const bool tristate = has_flag(scene.content, index, ui_settings_presentation_tristate);
+    const u32 choice = c->kind == UiSettingsControlKind::segments
+                           ? (tristate ? ui_tristate_hit(t, geometry.field, x, y)
+                                       : ui_segments_hit(t, geometry.field, c->choices.count, x, y))
                        : c->kind == UiSettingsControlKind::swatches
                            ? ui_color_grid_hit(t, geometry.field, c->choices.count, x, y)
                            : option_hit(t, *c, geometry.field, x, y);
@@ -2010,8 +2186,22 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, UiSettingsTa
 }
 bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, UiSettingsTarget target, u32 choice,
                                         UiRect* output) noexcept {
-    const auto* c = ui_settings_scene_control(scene, target);
+    u32 index = 0;
+    const auto* c = ui_settings_scene_control(scene, target, &index);
     UiSettingsControlGeometry geometry{};
+    if (output && c && list_style(scene.content, index, UiSettingsListStyle::row)) {
+        const auto t = layout_tokens(scene);
+        RowLayout row{};
+        if (!row_layout_for(scene, t, target_handle(scene, target), index, &row))
+            return false;
+        const auto parts = list_parts(t, scene.content, index, row.row);
+        *output = choice == ui_settings_list_row     ? row.row
+                  : choice == ui_settings_list_count ? parts.column
+                  : choice - ui_settings_list_action < kUiSettingsListActions
+                      ? parts.actions[choice - ui_settings_list_action]
+                      : UiRect{};
+        return ui_rect_has_area(*output);
+    }
     if (!output || !c || choice >= c->choices.count ||
         (c->kind != UiSettingsControlKind::radio && c->kind != UiSettingsControlKind::segments &&
          c->kind != UiSettingsControlKind::tabs && c->kind != UiSettingsControlKind::buttons &&
@@ -2019,9 +2209,12 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, UiSettings
         !ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
     const auto t = layout_tokens(scene);
-    *output = c->kind == UiSettingsControlKind::radio      ? ui_radio_option(t, geometry.field, choice)
-              : c->kind == UiSettingsControlKind::segments ? ui_segments_option(t, geometry.field, c->choices.count, choice)
-                                                           : option_rect(t, *c, geometry.field, choice);
+    const bool tristate = has_flag(scene.content, index, ui_settings_presentation_tristate);
+    *output = c->kind == UiSettingsControlKind::radio ? ui_radio_option(t, geometry.field, choice)
+              : c->kind == UiSettingsControlKind::segments
+                  ? (tristate ? ui_tristate_option(t, geometry.field, choice)
+                              : ui_segments_option(t, geometry.field, c->choices.count, choice))
+                  : option_rect(t, *c, geometry.field, choice);
     return ui_rect_has_area(*output);
 }
 bool ui_settings_scene_grip_hit(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y) noexcept {
@@ -2205,6 +2398,94 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
 }
 
 namespace {
+// A list row: hover fill, grip, lead glyph, lock, count glyph and the icon
+// buttons (on hover or focus), then a hairline before the next list row.
+bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
+                    const RowLayout& r, u32 index, const UiSettingsListItem& item, UiControlState state,
+                    bool highlighted) noexcept {
+    const auto& c = scene.content.controls[index];
+    const auto& tc = t.color;
+    const float alpha = c.enabled ? 1.f : t.disabled_alpha;
+    const auto parts = list_parts(t, scene.content, index, r.row);
+    const u32 hovered_part = state.hovered ? scene.palette_hovered_index : ~0u;
+    bool ok = true;
+    if (item.style == UiSettingsListStyle::card) {
+        const auto box = parts.content;
+        const float radius = t.metric.control_radius;
+        const float tile_radius = maximum(radius - t.metric.notice_padding, theme.scale.radius_sm);
+        ok = paint_stream_push_rounded_border(paint, box.left, box.top, box.right, box.bottom,
+                                              state.hovered && c.enabled ? tc.mod_normal : tc.mod_subtle,
+                                              tc.border_subtle, radius, 1) &&
+             paint_stream_push_rounded(paint, parts.icon.left, parts.icon.top, parts.icon.right, parts.icon.bottom,
+                                       tc.mod_strong, tile_radius);
+        if (ok && item.lead != UiIcon::count) {
+            const float inset = (ui_rect_width(parts.icon) - t.metric.list_icon) * .5f;
+            ok = ui_icon_paint(paint, item.lead,
+                               {parts.icon.left + inset, parts.icon.top + inset, parts.icon.right - inset,
+                                parts.icon.bottom - inset},
+                               ui_settings_color_alpha(tc.text_strong, alpha));
+        }
+        if (ok)
+            ok = ui_icon_paint(paint, UiIcon::chevron_right, parts.chevron,
+                               ui_settings_color_alpha(state.hovered ? tc.text_strong : tc.text_subtle, alpha));
+        const float ring = t.metric.focus_gap + t.metric.focus_width;
+        if (ok && state.focused)
+            ok = ui_settings_focus_paint(paint, t, {box.left + ring, box.top + ring, box.right - ring,
+                                                    box.bottom - ring},
+                                         maximum(0.f, radius - ring));
+        return ok;
+    }
+    if (!highlighted && state.hovered && c.enabled)
+        ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + theme.scale.space_1, r.row.right,
+                                       r.row.bottom - theme.scale.space_1, ui_settings_color_alpha(tc.mod_subtle, .7f),
+                                       t.metric.control_radius);
+    // Draggable rows always show their handle; it brightens on hover.
+    if (ok && has_flag(scene.content, index, ui_settings_presentation_grip))
+        ok = ui_admin_grip_paint(paint, t, {parts.content.left, r.row.top, parts.icon.left, r.row.bottom},
+                                 state.hovered, c.enabled);
+    if (ok && item.lead != UiIcon::count) {
+        // The lead glyph wears the row accent (a role's colour) as ink and a
+        // light underlay.
+        Color ink = tc.text_subtle;
+        if (accent(scene.content, index))
+            resolve_color(scene, c.id, kUiSettingsAccentChoice, &ink);
+        ok = ui_icon_paint_styled(paint, item.lead, parts.icon,
+                                  {ui_settings_color_alpha(ink, alpha), ui_settings_color_alpha(ink, .35f * alpha), 0});
+    }
+    if (ok && item.locked)
+        ok = ui_icon_paint(paint, UiIcon::lock, parts.lock, ui_settings_color_alpha(tc.text_subtle, alpha));
+    if (ok && item.count_icon != UiIcon::count)
+        ok = ui_icon_paint(paint, item.count_icon, list_count_icon(t, c, parts.column),
+                           ui_settings_color_alpha(hovered_part == ui_settings_list_count ? tc.text_strong
+                                                                                          : tc.text_subtle,
+                                                   alpha));
+    // Icon buttons appear with the pointer or keyboard focus on the row.
+    for (u32 i = 0; ok && (state.hovered || state.focused) && i < kUiSettingsListActions; ++i) {
+        if (item.actions[i] == UiIcon::count)
+            continue;
+        const auto b = parts.actions[i];
+        const bool hot = hovered_part == ui_settings_list_action + i;
+        ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
+                                       hot ? (state.pressed ? tc.mod_strong : tc.mod_normal) : tc.mod_subtle,
+                                       t.metric.control_radius);
+        const float inset = (ui_rect_width(b) - t.metric.list_icon * .75f) * .5f;
+        if (ok)
+            ok = ui_icon_paint(paint, item.actions[i], {b.left + inset, b.top + inset, b.right - inset, b.bottom - inset},
+                               ui_settings_color_alpha(hot ? tc.text_strong : tc.text_default, alpha));
+    }
+    // The ring stays inside the row so the list's clip keeps all of it.
+    const float ring = t.metric.focus_gap + t.metric.focus_width;
+    if (ok && state.focused)
+        ok = ui_settings_focus_paint(paint, t, {r.row.left + ring, r.row.top + ring, r.row.right - ring,
+                                                r.row.bottom - ring},
+                                     t.metric.control_radius);
+    // Rows of one list are divided by hairlines inside their content edges.
+    if (ok && list_style(scene.content, index + 1, UiSettingsListStyle::row))
+        ok = paint_stream_push(paint, parts.content.left, r.row.bottom - 1, parts.content.right, r.row.bottom,
+                               tc.border_subtle);
+    return ok;
+}
+
 bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
                UiWidgetHandle handle, const Entry& entry, u32 dpi) noexcept {
     const auto& c = scene.content.controls[entry.source_index];
@@ -2230,13 +2511,16 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     // Only list rows that are themselves the action get a hover fill; a row
     // with its own button highlights just that button.
     else if (ok && c.kind == UiSettingsControlKind::action && has_flag(scene.content, index, ui_settings_presentation_compact) &&
-             !c.action_label.bytes && state.hovered && c.enabled)
+             !c.action_label.bytes && state.hovered && c.enabled && !list_item(scene.content, index))
         ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + 2, r.row.right, r.row.bottom - 2,
                                        ui_settings_color_alpha(tc.mod_subtle, .7f), t.metric.control_radius);
     if (ok && scene.drop_row == index + 1 && !dragged) {
         const float y = scene.drop_after ? r.row.bottom - 1 : r.row.top + 1;
         ok = paint_stream_push_rounded(paint, r.row.left, y - 1.5f, r.row.right, y + 1.5f, tc.brand, 1.5f);
     }
+    if (const auto* item = c.kind == UiSettingsControlKind::action ? list_item(scene.content, index) : nullptr)
+        return ok && paint_list_row(scene, theme, t, paint, r, index, *item, state,
+                                    dragged || has_flag(scene.content, index, ui_settings_presentation_selected));
     if (ok && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.lead)) {
         const float alpha = c.enabled ? 1.f : .5f;
         UiRect lead = r.lead;
@@ -2296,9 +2580,11 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         return ui_switch_paint(paint, t, r.control, c.checked, motion, scene.reduced_motion, state);
     }
     case UiSettingsControlKind::segments:
+        if (has_flag(scene.content, index, ui_settings_presentation_tristate))
+            return ui_tristate_paint(paint, t, r.control, c.selected_choice,
+                                     state.hovered ? scene.palette_hovered_index : ~0u, state);
         return ui_segments_paint(paint, t, r.control, c.choices.count, c.selected_choice,
-                                 state.hovered ? scene.palette_hovered_index : ~0u,
-                                 has_flag(scene.content, index, ui_settings_presentation_tristate), state);
+                                 state.hovered ? scene.palette_hovered_index : ~0u, state);
     case UiSettingsControlKind::swatches:
         for (u32 i = 0; i < c.choices.count; ++i) {
             UiControlState option = state;
@@ -2387,6 +2673,13 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         UiSettingsControlGeometry geometry{};
         if (!ui_settings_scene_control_geometry(scene, entry.target, &geometry))
             return true;
+        if (ui_rect_has_area(r.value)) {
+            UiControlState button = state;
+            button.hovered = state.hovered && scene.palette_hovered_index == 0;
+            button.focused = false;
+            if (!ui_settings_button_paint(paint, t, r.value, UiSettingsButtonVariant::primary, button))
+                return false;
+        }
         return ui_input_shell_paint(paint, t, r.control, {c.enabled, state.hovered, false, view.focused},
                                     field_error(scene.content, entry.source_index)) &&
                ui_edit_field_paint_content(paint, ui_rect_overlap(geometry.text, geometry.clip), view,
@@ -2668,6 +2961,9 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
     const float dim = c.enabled ? 1.f : .5f;
     if (c.kind == UiSettingsControlKind::category) {
         const bool is_link = link(scene.content, entry.source_index);
+        if (ui_rect_has_area(r.value) && c.choices.count &&
+            !text(stream, scene, handle, c.choices[0], r.value, tc.text_subtle, text_eyebrow))
+            return false;
         return text(stream, scene, handle, c.label, r.label,
                     is_link && state.hovered ? tc.text_strong : ui_settings_color_alpha(tc.text_strong, dim),
                     text_heading) &&
@@ -2690,6 +2986,17 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
                 return false;
         }
         return true;
+    }
+    if (list_style(scene.content, entry.source_index, UiSettingsListStyle::card))
+        return text(stream, scene, handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_heading) &&
+               text(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim),
+                    text_description, UiTextAlignment::start, UiTextWrapping::wrap, UiTextAlignment::start);
+    if (list_style(scene.content, entry.source_index, UiSettingsListStyle::row)) {
+        const bool count_hovered = state.hovered && scene.palette_hovered_index == ui_settings_list_count;
+        return text(stream, scene, handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_label) &&
+               (!c.choices.count ||
+                text(stream, scene, handle, c.choices[0], r.value,
+                     ui_settings_color_alpha(count_hovered ? tc.text_strong : tc.text_default, dim), text_label));
     }
     const Color label_color = c.kind == UiSettingsControlKind::notice &&
                                       variant(scene.content, entry.source_index) == UiSettingsVariant::critical
@@ -2822,6 +3129,14 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
     }
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline: {
+        if (ui_rect_has_area(r.value) && c.action_label.bytes) {
+            UiControlState button = state;
+            button.hovered = state.hovered && scene.palette_hovered_index == 0;
+            if (!text(stream, scene, handle, c.action_label, r.value,
+                      ui_settings_button_text(t, UiSettingsButtonVariant::primary, button), text_button,
+                      UiTextAlignment::center))
+                return false;
+        }
         const auto& editor = *c.editor;
         if (!geometry_valid(editor.geometry))
             return false;
