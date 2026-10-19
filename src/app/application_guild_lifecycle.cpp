@@ -899,12 +899,14 @@ Utf8View failure(const RestClientResponse& response) noexcept {
 }
 } // namespace
 
-bool application_guild_lifecycle_open_invite(u64 guild_id) noexcept {
+bool application_guild_lifecycle_open_invite(u64 guild_id, u64 channel_id) noexcept {
     if (!application_account_available() || !g_app.account.api.guild_admin)
         return false;
     const auto& s = state();
     const auto* guild = chat_state_store_find_guild(s, guild_id);
-    const u64 selected = !s.home_selected && s.selected_guild_id == guild_id ? s.selected_channel_id : 0;
+    const u64 selected = channel_id                                                     ? channel_id
+                         : !s.home_selected && s.selected_guild_id == guild_id ? s.selected_channel_id
+                                                                                : 0;
     const u64 channel = guild_context_invite_channel(s, guild_id, selected);
     if (!guild || !channel || !can_open())
         return false;

@@ -1,6 +1,7 @@
 #include "application_user_actions.hpp"
 #include "application_content_point.hpp"
 #include "application_voice.hpp"
+#include "application_voice_channels.hpp"
 #include "application_call.hpp"
 #include "application_stage.hpp"
 #include "application_shortcuts.hpp"
@@ -34,7 +35,6 @@ struct VoiceUi {
     bool loaded, dirty, monitor, mute_before_deafen, users_dirty, menu_dragging, save_pending;
     char menu_label[48];
     u32 menu_label_bytes;
-    UiVoiceElapsedClock timer;
 };
 VoiceUi voice{};
 
@@ -128,7 +128,6 @@ bool same_view(const UiVoicePanelView& a, const UiVoicePanelView& b) noexcept {
            a.pressed == b.pressed;
 }
 void refresh_view() noexcept {
-    voice.view.elapsed = &voice.timer;
     UiVoicePanelView next = voice.view;
     const auto* s = session();
     const bool joined = s && in_call(*s);
@@ -148,10 +147,6 @@ void refresh_view() noexcept {
     // The worker's speaker list is current every pump; the audio status that
     // also reports speech is polled once a second.
     next.speaking = joined && (gateway_voice_self_speaking(*s) || voice.status.transmitting);
-    // The channel list shows guild voice channels only.
-    if (ui_voice_elapsed_observe(&voice.timer, next.guild_id ? next.channel_id : 0,
-                                 next.state == UiVoicePanelState::connected, clock_monotonic_milliseconds()))
-        application_repaint();
     if (next.state == UiVoicePanelState::hidden && (next.hovered == UiVoiceControl::disconnect ||
                                                     next.hovered == UiVoiceControl::channel))
         next.hovered = UiVoiceControl::none;
@@ -228,6 +223,7 @@ void application_voice_pump() noexcept {
     } else if (!(s && in_call(*s)) && !voice.monitor)
         voice.status = {};
     refresh_view();
+    application_voice_channels_pump();
     application_voice_settings_tick();
     if (voice.save_pending && !(GetKeyState(VK_LBUTTON) & 0x8000)) {
         voice.save_pending = false;
@@ -312,33 +308,13 @@ bool application_voice_toggle_deafen() noexcept {
     return true;
 }
 
-u64 application_voice_timer_next_wake() noexcept {
-    return ui_voice_elapsed_next_wake(voice.timer);
-}
-
-void application_voice_timer_tick(u64 now_ms) noexcept {
-    if (!voice.timer.started_ms)
-        return;
-    const bool window_hidden = !g_app.window || IsIconic(g_app.window) || !IsWindowVisible(g_app.window);
-    const auto& scene = g_app.shell_navigation_scene;
-    bool visible = false;
-    for (u32 i = 0; !window_hidden && scene.active && !renderer_settings_hides_shell(g_app.renderer) && i < scene.count;
-         ++i) {
-        if (scene.rows[i].view.id != voice.timer.channel_id)
-            continue;
-        const auto* layout = shell_navigation_scene_layout_node(scene, scene.rows[i]);
-        visible = layout && ui_rect_has_area(ui_rect_intersection(layout->rectangle, scene.viewport));
-        break;
-    }
-    if (ui_voice_elapsed_tick(&voice.timer, now_ms, visible))
-        application_repaint();
-}
-
 UiVoicePanelView application_voice_view() noexcept {
     return voice.view;
 }
 
 bool application_voice_shell_click(float x, float y) noexcept {
+    if (application_voice_channels_click(x, y))
+        return true;
     switch (hit(x, y)) {
     case UiVoiceControl::mute:
         return application_voice_toggle_mute();
@@ -381,6 +357,8 @@ const VoiceState* application_voice_participant_at(float x, float y, UiRect* row
 }
 
 bool application_voice_shell_hover(float x, float y) noexcept {
+    if (application_voice_channels_hover(x, y))
+        return true;
     const auto control = hit(x, y);
     if (control != voice.view.hovered) {
         voice.view.hovered = control;
@@ -390,7 +368,7 @@ bool application_voice_shell_hover(float x, float y) noexcept {
 }
 
 bool application_voice_hand_cursor(float x, float y) noexcept {
-    return hit(x, y) != UiVoiceControl::none;
+    return application_voice_channels_hand_cursor(x, y) || hit(x, y) != UiVoiceControl::none;
 }
 
 Utf8View application_voice_tooltip(float x, float y, UiRect* anchor, u32* identity) noexcept {

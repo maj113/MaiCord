@@ -27,6 +27,7 @@
 #include "gateway_subscription_thread_owner.hpp"
 #include "gateway_self_status_owner.hpp"
 #include "maicord/app/gateway_member_request_owner.hpp"
+#include "maicord/app/gateway_channel_info_requests.hpp"
 #include "maicord/app/rest_client.hpp"
 #if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
 #include "gateway_self_status_test.hpp"
@@ -86,6 +87,7 @@ enum class SendPurpose : u8 {
     self_status,
     guild_members,
     stream,
+    channel_info,
 };
 
 struct GatewayClientRuntime {
@@ -126,6 +128,7 @@ struct GatewayClientRuntime {
     GatewaySubscriptionThreadOwner thread_subscription_owner;
     GatewaySelfStatusOwner self_status;
     GatewayMemberRequestOwner member_requests;
+    GatewayChannelInfoRequests channel_info; // Under subscription_lock.
     u8* self_status_group;
     u32 self_status_group_bytes;
     GatewaySelfStatusError self_status_error;
@@ -192,6 +195,7 @@ struct GatewayClientRuntime {
     GatewayClientIdentity identity;
     u64 rate_deadline_ms;
     u64 member_deadline_ms;
+    u64 channel_info_deadline_ms;
     u64 reconnect_deadline_ms;
     u64 self_user_id;
     GatewayStateRecovery state_recovery;
@@ -707,6 +711,8 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     deadline =
         earliest_deadline(deadline, runtime->member_deadline_ms > now_ms ? runtime->member_deadline_ms : 0);
     deadline = earliest_deadline(
+        deadline, runtime->channel_info_deadline_ms > now_ms ? runtime->channel_info_deadline_ms : 0);
+    deadline = earliest_deadline(
         deadline, gateway_state_recovery_deadline(runtime->state_recovery,
                                                   load_phase(client) == GatewayClientPhase::ready));
     if (runtime->outbound.count != 0 && runtime->send_purpose == SendPurpose::none &&
@@ -932,6 +938,7 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     gateway_self_status_reset_connection(&runtime->self_status);
     gateway_member_request_reset_connection(&runtime->member_requests, !runtime->resume.valid);
     runtime->member_deadline_ms = 0;
+    runtime->channel_info_deadline_ms = 0;
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     runtime->self_status_deadline_ms = 0;
     runtime->rate_deadline_ms = 0;
@@ -1556,6 +1563,31 @@ OutboundDrive drive_member_requests(GatewayClientRuntime* runtime, u64 now_ms) n
     return result;
 }
 
+// Request Channel Info (opcode 43), once per guild per session.
+OutboundDrive drive_channel_info(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready ||
+        runtime->identity != GatewayClientIdentity::normal_user)
+        return OutboundDrive::idle;
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    const u64 guild = gateway_channel_info_next(runtime->channel_info, now_ms);
+    runtime->channel_info_deadline_ms = gateway_channel_info_deadline(runtime->channel_info, now_ms);
+    if (!guild) {
+        ReleaseSRWLockExclusive(&runtime->subscription_lock);
+        return OutboundDrive::idle;
+    }
+    if (!acquire_send(runtime, now_ms)) {
+        ReleaseSRWLockExclusive(&runtime->subscription_lock);
+        return OutboundDrive::rate_limited;
+    }
+    const auto command =
+        gateway_write_channel_info_request(guild, {runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+    const auto result = send_control_command(runtime, command, SendPurpose::channel_info);
+    if (result == OutboundDrive::sending)
+        gateway_channel_info_sent(&runtime->channel_info, guild);
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+    return result;
+}
+
 OutboundDrive drive_application_output(GatewayClient* client, GatewayClientRuntime* runtime,
                                        u64 now_ms) noexcept {
     if (runtime->send_purpose != SendPurpose::none) {
@@ -1579,7 +1611,10 @@ OutboundDrive drive_application_output(GatewayClient* client, GatewayClientRunti
     // Finite targeted batches precede last-write-wins viewport subscriptions;
     // continuous sidebar scrolling cannot starve visible-author metadata.
     const auto members = drive_member_requests(runtime, now_ms);
-    return members == OutboundDrive::idle ? drive_guild_subscription(runtime, now_ms) : members;
+    if (members != OutboundDrive::idle)
+        return members;
+    const auto subscription = drive_guild_subscription(runtime, now_ms);
+    return subscription == OutboundDrive::idle ? drive_channel_info(runtime, now_ms) : subscription;
 }
 
 enum class PlaintextDrive : u8 {
@@ -1946,6 +1981,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             AcquireSRWLockExclusive(&runtime->subscription_lock);
             gateway_state_recovery_ready(&runtime->state_recovery);
             gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, true);
+            gateway_channel_info_reset_session(&runtime->channel_info);
             if (gateway_self_status_bind(&runtime->self_status, event.ready.user_id))
                 self_settings_observe_locked(runtime, event.ready.user_settings_proto, false);
             else {
@@ -1965,6 +2001,9 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
         }
         if (event.kind == GatewaySessionEventKind::resumed) {
             InterlockedIncrement64(&client->frecency_settings_revision);
+            AcquireSRWLockExclusive(&runtime->subscription_lock);
+            gateway_channel_info_reset_session(&runtime->channel_info);
+            ReleaseSRWLockExclusive(&runtime->subscription_lock);
             gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, false);
             publish_voice_snapshot(client, runtime);
             runtime->deadline_ms = 0;
@@ -1993,6 +2032,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     gateway_member_request_rate_limited(&runtime->member_requests, limited, now_ms);
                     runtime->member_deadline_ms =
                         gateway_member_request_deadline(runtime->member_requests, now_ms);
+                    gateway_channel_info_rate_limited(&runtime->channel_info, limited, now_ms);
+                    runtime->channel_info_deadline_ms = gateway_channel_info_deadline(runtime->channel_info, now_ms);
                     ReleaseSRWLockExclusive(&runtime->subscription_lock);
                 }
                 checkpoint_resume_sequence(runtime);
@@ -2225,6 +2266,9 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             if (!dispatch_published)
                 return resume_reconnect(client, runtime, now_ms);
             if (dispatch.dispatch_kind == GatewayClientDispatchKind::guild_create) {
+                AcquireSRWLockExclusive(&runtime->subscription_lock);
+                gateway_channel_info_forget(&runtime->channel_info, dispatch.state.id);
+                ReleaseSRWLockExclusive(&runtime->subscription_lock);
                 RelationshipStreamBinding guild_voice{client, runtime};
                 if (!gateway_client_publish_stage_instances(
                         event.envelope.data, dispatch.state.id, main_index_view(runtime),
@@ -3056,6 +3100,22 @@ bool gateway_client_request_guild_members(GatewayClient* client,
     bool admitted = gateway_member_request_admit(&runtime->member_requests, request, GetTickCount64());
     if (admitted && !wake_worker(client, &runtime->subscription_signal)) {
         runtime->member_requests = prior;
+        admitted = false;
+    }
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+    return admitted;
+}
+
+bool gateway_client_request_channel_info(GatewayClient* client, u64 guild_id) noexcept {
+    if (!client || !client->runtime || !client->worker.thread || !guild_id)
+        return false;
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    if (runtime->identity != GatewayClientIdentity::normal_user || runtime->stopping || runtime->failed)
+        return false;
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    bool admitted = gateway_channel_info_admit(&runtime->channel_info, guild_id);
+    if (admitted && !wake_worker(client, &runtime->subscription_signal)) {
+        gateway_channel_info_unqueue(&runtime->channel_info, guild_id);
         admitted = false;
     }
     ReleaseSRWLockExclusive(&runtime->subscription_lock);

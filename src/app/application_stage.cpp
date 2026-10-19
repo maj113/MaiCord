@@ -2,6 +2,7 @@
 #include "application_call.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
+#include "application_voice_channels.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/stage_policy.hpp"
@@ -15,9 +16,10 @@ constexpr u32 kQueueCapacity = 8;
 constexpr u64 kNoticeMs = 6'000;
 constexpr u64 kBusyRetryMs = 250;
 
+static_assert(kStageVoiceStatusMaximumBytes >= kStageTopicMaximumBytes);
 struct QueuedRequest {
     StageRequest request;
-    char topic[kStageTopicMaximumBytes];
+    char topic[kStageVoiceStatusMaximumBytes]; // A stage topic or a voice channel status.
     u64 account_scope;
 };
 struct TopicForm {
@@ -282,6 +284,15 @@ const StageInstanceStore& application_stage_instances() noexcept {
     return stage.instances;
 }
 
+bool application_stage_queue_voice_status(u64 guild_id, u64 channel_id, Utf8View status) noexcept {
+    StageRequest request{};
+    request.operation = StageOperation::voice_status;
+    request.guild_id = guild_id;
+    request.channel_id = channel_id;
+    request.topic = status;
+    return enqueue(request);
+}
+
 bool application_stage_channel(u64 channel_id) noexcept {
     return channel_of(channel_id) != nullptr;
 }
@@ -413,7 +424,10 @@ bool application_stage_submit(u64 request_id, u64 now) noexcept {
     }
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "stage", "request_refused", static_cast<u64>(submitted.error));
-        set_notice(queued.request.channel_id, failure_text(queued.request.operation));
+        if (queued.request.operation == StageOperation::voice_status)
+            application_voice_channels_status_result(queued.request.channel_id, false, 0);
+        else
+            set_notice(queued.request.channel_id, failure_text(queued.request.operation));
         drop_head();
         return false;
     }
@@ -432,6 +446,12 @@ bool application_stage_response(const RestClientResponse& response, Utf8View) no
     stage.in_flight_request = 0;
     const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
                     response.status_code < 300;
+    if (operation == StageOperation::voice_status) {
+        if (!ok)
+            log_u64(LogLevel::warning, "stage", "voice_status_failed", response.status_code);
+        application_voice_channels_status_result(channel_id, ok, response.status_code);
+        return true;
+    }
     if (!ok) {
         log_u64(LogLevel::warning, "stage", "request_failed", response.status_code);
         set_notice(channel_id, failure_text(operation));

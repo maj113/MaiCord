@@ -9,6 +9,8 @@ namespace maicord {
 inline constexpr u8 kStageChannelType = 13;
 inline constexpr u32 kStageTopicMaximumCodepoints = 120;
 inline constexpr u32 kStageTopicMaximumBytes = kStageTopicMaximumCodepoints * 4;
+inline constexpr u32 kStageVoiceStatusMaximumCodepoints = 500;
+inline constexpr u32 kStageVoiceStatusMaximumBytes = kStageVoiceStatusMaximumCodepoints * 4;
 inline constexpr u32 kStageMaximumTargetBytes = 96;
 inline constexpr u32 kStageMaximumBodyBytes = 4096;
 inline constexpr u64 kStageRouteBase = 0x5354414745000000ull; // "STAGE"
@@ -26,6 +28,7 @@ enum class StageOperation : u8 {
     start,                 // POST /stage-instances
     update_topic,          // PATCH /stage-instances/{channel}
     end,                   // DELETE /stage-instances/{channel}
+    voice_status,          // PUT /channels/{channel}/voice-status {status} (a voice channel, not a stage)
     count
 };
 
@@ -39,7 +42,7 @@ struct StageRequest {
     u64 guild_id, channel_id;
     u64 user_id;     // invite_to_speak / move_to_audience
     u64 unix_ms;     // request_to_speak / invite_to_speak timestamp
-    Utf8View topic;  // start / update_topic: 1..120 code points
+    Utf8View topic;  // start / update_topic: 1..120 code points; voice_status: 0..500 (empty clears)
 };
 static_assert(sizeof(StageRequest) == 56);
 
@@ -53,6 +56,8 @@ struct StageWriteResult {
 };
 
 bool stage_topic_valid(Utf8View topic) noexcept;
+// A voice channel status: one line of at most 500 code points; empty clears it.
+bool stage_voice_status_valid(Utf8View status) noexcept;
 bool stage_request_valid(const StageRequest&) noexcept;
 RestMethod stage_method(StageOperation) noexcept;
 bool stage_has_body(StageOperation) noexcept;

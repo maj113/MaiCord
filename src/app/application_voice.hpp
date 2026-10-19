@@ -9,8 +9,8 @@ namespace maicord::app_detail {
 // mute/deafen, the voice user menu and the settings meter.
 void application_voice_pump() noexcept;
 u64 application_voice_next_wake() noexcept;
-// The connected channel row's elapsed timer: a visual wake once per displayed
-// second while the row is on screen; the tick repaints when the label changes.
+// Voice channel timers and the invite row countdown
+// (application_voice_channels.cpp): visual wakes only while one is on screen.
 u64 application_voice_timer_next_wake() noexcept;
 void application_voice_timer_tick(u64 now_ms) noexcept;
 float application_voice_panel_reserve() noexcept;

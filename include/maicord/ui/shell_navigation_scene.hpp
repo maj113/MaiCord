@@ -11,10 +11,13 @@ inline constexpr u32 kShellNavigationOverscanRows = 2;
 // Voice channel rows grow by one sub-row per connected user.
 inline constexpr float kShellNavigationVoiceHeadHeight = 32.0f;
 inline constexpr float kShellNavigationVoiceUserHeight = 24.0f;
-// A live stage shows its topic on one line under the head.
+// A live stage's topic or a voice channel's status takes one line under the
+// head; "Invite to Voice" follows the connected channel's users.
 inline constexpr float kShellNavigationStageTopicHeight = 20.0f;
+inline constexpr float kShellNavigationVoiceInviteHeight = 32.0f;
 constexpr float shell_navigation_voice_top(const ChannelViewRow& row) noexcept {
-    return kShellNavigationVoiceHeadHeight + (row.stage_live ? kShellNavigationStageTopicHeight : 0.0f);
+    return kShellNavigationVoiceHeadHeight +
+           (row.stage_live || row.voice_subtitle ? kShellNavigationStageTopicHeight : 0.0f);
 }
 
 // Threads draw with a spine instead of an icon: a rail under the

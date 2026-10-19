@@ -839,7 +839,7 @@ bool application_guild_settings_create_channel(u64, u64, u8 type) noexcept {
     fixture->creation_type = type;
     return true;
 }
-bool application_guild_lifecycle_open_invite(u64) noexcept {
+bool application_guild_lifecycle_open_invite(u64, u64) noexcept {
     ++fixture->invites;
     return true;
 }

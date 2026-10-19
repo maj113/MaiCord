@@ -1249,6 +1249,9 @@ bool WINAPI module_guild_members_request(void* instance,
 void WINAPI module_guild_members_query_cancel(void* instance) noexcept {
     gateway_client_cancel_guild_member_query(module_gateway(instance));
 }
+bool WINAPI module_channel_info(void* instance, u64 guild_id) noexcept {
+    return gateway_client_request_channel_info(module_gateway(instance), guild_id);
+}
 RestClientSubmitResult WINAPI module_gif_favorites(void* instance,
                                                    AccountGifFavoritesOperation operation,
                                                    ConstSlice<u8> patch_json,
@@ -2091,6 +2094,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         },
         maicord::module_guild_moderation,
         maicord::module_guild_members_query_cancel,
+        maicord::module_channel_info,
     };
     return true;
 }

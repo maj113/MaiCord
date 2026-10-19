@@ -15,7 +15,9 @@ namespace maicord::app_detail {
 // channel moves are sent from here too. Requests use the DETAILS lane through application_channel_overview,
 // which forwards to this owner while its modal is open.
 
-bool application_guild_lifecycle_open_invite(u64 guild_id) noexcept;
+// channel_id: the channel to invite to when it allows invites (else the
+// server's usual invite channel).
+bool application_guild_lifecycle_open_invite(u64 guild_id, u64 channel_id = 0) noexcept;
 bool application_guild_lifecycle_open_create() noexcept;
 bool application_guild_lifecycle_open_join() noexcept;
 bool application_guild_lifecycle_leave(u64 guild_id) noexcept;

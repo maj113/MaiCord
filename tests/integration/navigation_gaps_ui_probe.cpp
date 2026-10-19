@@ -6,7 +6,7 @@
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
-#include "maicord/ui/voice_panel.hpp"
+#include "maicord/model/voice_channel_info_store.hpp"
 
 namespace maicord {
 namespace {
@@ -41,26 +41,34 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
         return fail(3);
     renderer.unread_banner_scene = nullptr;
 
-    // Voice elapsed timer on a voice row (else the first channel row).
-    static UiVoiceElapsedClock timer;
-    timer = {};
-    for (u32 i = 0; i < view->channel_count && !timer.channel_id; ++i)
+    // A voice row with a session timer, a status and "Invite to Voice".
+    static VoiceChannelInfoStore info;
+    static UiVoiceChannelExtras extras;
+    voice_channel_info_store_reset(&info);
+    extras = {};
+    u64 voice = 0;
+    for (u32 i = 0; i < view->channel_count && !voice; ++i)
         if (view->channel_rows[i].type == 2)
-            timer.channel_id = view->channel_rows[i].id;
-    for (u32 i = 0; i < view->channel_count && !timer.channel_id; ++i)
-        if (view->channel_rows[i].type != 4)
-            timer.channel_id = view->channel_rows[i].id;
-    timer.started_ms = 1;
-    timer.label_bytes = static_cast<u8>(ui_voice_elapsed_format(3'723'000, timer.label, sizeof(timer.label)));
-    static UiVoicePanelView panel;
-    panel = {};
-    panel.elapsed = &timer;
-    const UiVoicePanelView* previous_panel = view->voice_panel;
-    view->voice_panel = &panel;
-    const bool timer_drawn = timer.channel_id && present(renderer, sync);
-    log_u64(LogLevel::info, "probe", "navigation_voice_timer_drawn", timer_drawn);
-    view->voice_panel = previous_panel;
-    if (!timer_drawn || (capture && !capture(L"navigation-voice-timer.bmp")))
+            voice = view->channel_rows[i].id;
+    constexpr u64 now_s = 1'790'000'000;
+    if (!voice || !voice_channel_info_store_set_start(&info, state.selected_guild_id, voice, now_s - 3'723) ||
+        !voice_channel_info_store_set_status(&info, state.selected_guild_id, voice,
+                                             utf8_literal("Pairing on the glyph atlas <:wave:123>")))
+        return fail(6);
+    extras.info = &info;
+    extras.invite_channel_id = voice;
+    extras.clock_s = now_s;
+    extras.revision = 1;
+    const UiVoiceChannelExtras* previous_extras = view->voice_extras;
+    view->voice_extras = &extras;
+    const bool extras_drawn = navigation_view_refresh_voice(view) && present(renderer, sync);
+    const auto* row = navigation_view_find_channel(*view, voice);
+    const bool drawn = extras_drawn && row && row->voice_subtitle && row->voice_invite;
+    log_u64(LogLevel::info, "probe", "navigation_voice_extras_drawn", drawn);
+    const bool captured = !capture || capture(L"navigation-voice-channels.bmp");
+    view->voice_extras = previous_extras;
+    navigation_view_refresh_voice(view);
+    if (!drawn || !captured)
         return fail(6);
 
     // One folder holding the first two guilds, collapsed then expanded.

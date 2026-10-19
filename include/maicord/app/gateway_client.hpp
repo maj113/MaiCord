@@ -235,6 +235,12 @@ enum class GatewayClientDispatchKind : u8 {
     channel_cursor_update,
     // GUILD_APPLICATION_COMMAND_INDEX_UPDATE: state.guild_id only; no payload.
     guild_command_index_update,
+    // Voice channel extras, verbatim JSON (voice_channel_info.hpp decodes them):
+    // CHANNEL_INFO (opcode 43 answers), VOICE_CHANNEL_START_TIME_UPDATE and
+    // VOICE_CHANNEL_STATUS_UPDATE.
+    channel_info,
+    voice_channel_start_time_update,
+    voice_channel_status_update,
 };
 
 enum class GatewayClientDispatchRouteError : u8 {
@@ -1224,6 +1230,9 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
 bool gateway_client_subscribe_guild_members(GatewayClient* client,
                                             const GatewayGuildSubscription& subscription) noexcept;
 bool gateway_client_request_guild_members(GatewayClient*, const GatewayGuildMemberRequest&) noexcept;
+// Queues Request Channel Info (opcode 43) for a guild's voice channel statuses
+// and start times; false when it was already asked this session or is queued.
+bool gateway_client_request_channel_info(GatewayClient*, u64 guild_id) noexcept;
 void gateway_client_cancel_guild_member_request(GatewayClient*) noexcept;
 // Retires only name-query interest, including server-rejected replay authority.
 void gateway_client_cancel_guild_member_query(GatewayClient*) noexcept;

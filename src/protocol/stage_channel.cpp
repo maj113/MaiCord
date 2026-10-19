@@ -12,7 +12,7 @@ bool user_operation(StageOperation operation) noexcept {
     return operation == StageOperation::invite_to_speak || operation == StageOperation::move_to_audience;
 }
 bool instance_operation(StageOperation operation) noexcept {
-    return operation >= StageOperation::start && operation < StageOperation::count;
+    return operation >= StageOperation::start && operation <= StageOperation::end;
 }
 bool timestamp_operation(StageOperation operation) noexcept {
     return operation == StageOperation::request_to_speak || operation == StageOperation::invite_to_speak;
@@ -45,6 +45,21 @@ bool stage_topic_valid(Utf8View topic) noexcept {
     return visible && codepoints <= kStageTopicMaximumCodepoints;
 }
 
+bool stage_voice_status_valid(Utf8View status) noexcept {
+    if (!status.bytes)
+        return true;
+    if (!status.data || status.bytes > kStageVoiceStatusMaximumBytes || !utf8_validate(status).valid)
+        return false;
+    u32 codepoints = 0;
+    for (u32 i = 0; i < status.bytes; ++i) {
+        const u8 c = static_cast<u8>(status.data[i]);
+        if (c == '\n' || c == '\r')
+            return false;
+        codepoints += (c & 0xc0) != 0x80;
+    }
+    return codepoints <= kStageVoiceStatusMaximumCodepoints;
+}
+
 bool stage_request_valid(const StageRequest& r) noexcept {
     if (r.operation >= StageOperation::count || !r.channel_id)
         return false;
@@ -56,6 +71,8 @@ bool stage_request_valid(const StageRequest& r) noexcept {
         return false;
     if (r.operation == StageOperation::start || r.operation == StageOperation::update_topic)
         return stage_topic_valid(r.topic) && (r.privacy_level <= kStagePrivacyGuildOnly);
+    if (r.operation == StageOperation::voice_status)
+        return stage_voice_status_valid(r.topic);
     return true;
 }
 
@@ -65,6 +82,8 @@ RestMethod stage_method(StageOperation operation) noexcept {
         return RestMethod::post;
     case StageOperation::end:
         return RestMethod::delete_method;
+    case StageOperation::voice_status:
+        return RestMethod::put;
     default:
         return RestMethod::patch;
     }
@@ -82,6 +101,8 @@ RestRouteKey stage_route(const StageRequest& r) noexcept {
         return {kStageRouteBase + 2, r.guild_id, RestMethod::patch, RestMajorParameter::guild};
     if (r.operation == StageOperation::start)
         return {kStageRouteBase + 3, 0, RestMethod::post, RestMajorParameter::none};
+    if (r.operation == StageOperation::voice_status)
+        return {kStageRouteBase + 5, r.channel_id, RestMethod::put, RestMajorParameter::channel};
     return {kStageRouteBase + 4, 0, stage_method(r.operation), RestMajorParameter::none};
 }
 
@@ -96,6 +117,9 @@ StageWriteResult stage_write_target(const StageRequest& r, Slice<u8> output) noe
              protocol_writer_append_literal(&w, "/voice-states/");
         ok = ok && (self_operation(r.operation) ? protocol_writer_append_literal(&w, "@me")
                                                 : protocol_writer_append_u64(&w, r.user_id));
+    } else if (r.operation == StageOperation::voice_status) {
+        ok = ok && protocol_writer_append_literal(&w, "/channels/") && protocol_writer_append_u64(&w, r.channel_id) &&
+             protocol_writer_append_literal(&w, "/voice-status");
     } else {
         ok = ok && protocol_writer_append_literal(&w, "/stage-instances");
         if (r.operation != StageOperation::start)
@@ -152,6 +176,10 @@ StageWriteResult stage_write_body(const StageRequest& r, Slice<u8> output) noexc
     case StageOperation::update_topic:
         ok = ok && protocol_writer_append_literal(&w, "\"topic\":") && protocol_writer_append_json_string(&w, r.topic) &&
              protocol_writer_append_literal(&w, ",\"privacy_level\":") && protocol_writer_append_u64(&w, privacy(r));
+        break;
+    case StageOperation::voice_status:
+        ok = ok && protocol_writer_append_literal(&w, "\"status\":") &&
+             protocol_writer_append_json_string(&w, r.topic.bytes ? r.topic : utf8_literal(""));
         break;
     default:
         ok = false;

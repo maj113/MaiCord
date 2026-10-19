@@ -35,8 +35,12 @@ namespace maicord {
 // parental policy. Matching host/module semantics retain the same layout.
 // v133: Gateway descriptors invalidate guild command indexes. Matching
 // host/module semantics retain the same layout.
-inline constexpr u32 kAccountModuleApiVersion = 133;
-inline constexpr u16 kAccountModuleApiOrdinal = 133;
+// v134: channel_info (opcode 43) is appended; Gateway descriptors carry
+// CHANNEL_INFO and the voice channel start time and status updates; guild
+// sticker events carry the sticker array from READY, GUILD_CREATE and
+// GUILD_STICKERS_UPDATE.
+inline constexpr u32 kAccountModuleApiVersion = 134;
+inline constexpr u16 kAccountModuleApiOrdinal = 134;
 
 static_assert(kAccountModuleApiOrdinal == kAccountModuleApiVersion);
 

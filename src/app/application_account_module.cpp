@@ -467,6 +467,9 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     application_user_settings_gateway(*event, {payload_output.data, popped.payload_bytes});
     application_private_channel_gateway(*event);
     application_stage_gateway(*event, {payload_output.data, popped.payload_bytes});
+    application_voice_channels_gateway(*event, popped.payload_bytes <= payload_output.count
+                                                   ? ConstSlice<u8>{payload_output.data, popped.payload_bytes}
+                                                   : ConstSlice<u8>{});
     application_soundboard_gateway(*event, {payload_output.data, popped.payload_bytes});
     application_guild_community_gateway(*event, {payload_output.data, popped.payload_bytes});
     application_notifications_gateway(&g_app, *event, {payload_output.data, popped.payload_bytes});

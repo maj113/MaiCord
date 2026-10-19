@@ -111,6 +111,36 @@ void test_instances() noexcept {
           "stage account: ending deletes the instance without a body");
 }
 
+// A voice channel's status: PUT /channels/{id}/voice-status, channel-major.
+void test_voice_status() noexcept {
+    using M = RestMethod;
+    using P = RestMajorParameter;
+    auto status = request(StageOperation::voice_status);
+    status.topic = utf8_literal("Late night \"jam\" \xF0\x9F\x8E\xB8");
+    check(submitted(status, M::put, P::channel, 20, utf8_literal("/api/v9/channels/20/voice-status"),
+                    utf8_literal("{\"status\":\"Late night \\\"jam\\\" \xF0\x9F\x8E\xB8\"}")),
+          "voice status: setting it puts the status on the channel");
+    check(submitted(request(StageOperation::voice_status), M::put, P::channel, 20,
+                    utf8_literal("/api/v9/channels/20/voice-status"), utf8_literal(R"({"status":""})")),
+          "voice status: an empty status clears it");
+    char text[kStageVoiceStatusMaximumBytes + 4];
+    for (auto& c : text)
+        c = 'a';
+    status.topic = {text, kStageVoiceStatusMaximumCodepoints};
+    const bool longest = stage_request_valid(status);
+    status.topic = {text, kStageVoiceStatusMaximumCodepoints + 1};
+    const bool too_long = stage_request_valid(status);
+    status.topic = utf8_literal("one\ntwo");
+    const bool lines = stage_request_valid(status);
+    // 500 four-byte code points fit; the byte limit follows the code points.
+    for (u32 i = 0; i + 4 <= kStageVoiceStatusMaximumBytes; i += 4)
+        copy_bytes(text + i, "\xF0\x9F\x8E\xB8", 4);
+    status.topic = {text, kStageVoiceStatusMaximumBytes};
+    const bool wide = stage_request_valid(status);
+    check(longest && !too_long && !lines && wide,
+          "voice status: one line of up to 500 code points");
+}
+
 void test_rejections() noexcept {
     RestClient* rest = reinterpret_cast<RestClient*>(&capture);
     const u32 before = capture.submissions;
@@ -186,6 +216,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_stage_entry() noexce
     using namespace maicord::stage_account_test;
     test_voice_states();
     test_instances();
+    test_voice_status();
     test_rejections();
     constexpr char pass[] = "PASS stage requests\n";
     constexpr char fail[] = "FAIL stage requests\n";

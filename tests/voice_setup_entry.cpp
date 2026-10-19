@@ -45,6 +45,7 @@ void test_voice_udp(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_udp_handoff(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_state_store(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_elapsed_timer(void (*check)(bool, const char*) noexcept) noexcept;
+void test_voice_channel_info(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_gateway_policy(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_jitter_buffer(void (*check)(bool, const char*) noexcept) noexcept;
 void test_voice_playback(void (*check)(bool, const char*) noexcept) noexcept;
@@ -110,6 +111,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_tests_entry() noexcept
     maicord::test_voice_udp_handoff(maicord::check);
     maicord::test_voice_state_store(maicord::check);
     maicord::test_voice_elapsed_timer(maicord::check);
+    maicord::test_voice_channel_info(maicord::check);
     maicord::test_voice_gateway_policy(maicord::check);
     maicord::test_voice_jitter_buffer(maicord::check);
     maicord::test_voice_playback(maicord::check);

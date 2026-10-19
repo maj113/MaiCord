@@ -338,9 +338,10 @@ inline constexpr u32 kAccountUiMarkdownCacheBytes = 16 + sizeof(MessageMarkdownC
 inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel_record_storage);
 // The literal base predates these members: a text measurement of 808 bytes, a guild record of 120,
 // appearance and activity stores of two StableStorage + 16 each, a 288-byte chat state store, and
-// the channel, name, emoji and emoji-role storage that has since moved to the demand tail.
+// the channel, name, emoji and emoji-role storage that has since moved to the demand tail, and
+// the navigation view's voice extras binding (16 bytes).
 static_assert(kAccountUiFixedBytes ==
-              4'261'168 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'168 + 16 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

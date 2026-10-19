@@ -644,6 +644,9 @@ struct AccountModuleApi {
     // v126: cancels only the member name query, including a retained retry.
     // Visible-author batches keep their separate cancellation path.
     void(WINAPI* guild_members_query_cancel)(void*) noexcept;
+    // v134: Request Channel Info (opcode 43) for a guild's voice channel
+    // statuses and start times; the worker sends it once per guild per session.
+    bool(WINAPI* channel_info)(void*, u64 guild_id) noexcept;
 };
 
 // This is the only executable/DLL boundary. The module loads the DPAPI profile
@@ -657,7 +660,8 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 136);
-static_assert(sizeof(AccountModuleApi) == 1176);
+static_assert(sizeof(AccountModuleApi) == 1184);
+static_assert(offsetof(AccountModuleApi, channel_info) == 1176);
 static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 1168);
 static_assert(offsetof(AccountModuleApi, guild_moderation) == 1160);
 static_assert(offsetof(AccountModuleApi, decoders) == 960);

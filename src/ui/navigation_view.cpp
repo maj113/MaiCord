@@ -1,6 +1,8 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/stage_instance_store.hpp"
+#include "maicord/model/voice_channel_info_store.hpp"
+#include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/model/private_channel_store.hpp"
@@ -189,10 +191,24 @@ bool row_changed(const ChannelViewRow& left, const ChannelViewRow& right) noexce
            left.type != right.type || left.depth != right.depth || left.selected != right.selected ||
            left.selectable != right.selectable || left.unread != right.unread || left.collapsed != right.collapsed ||
            left.voice_count != right.voice_count || left.muted != right.muted ||
-           left.stage_live != right.stage_live;
+           left.stage_live != right.stage_live || left.voice_subtitle != right.voice_subtitle ||
+           left.voice_invite != right.voice_invite;
 }
 bool stage_live(const NavigationView& view, u64 channel_id, u8 type) noexcept {
     return type == 13 && view.stage_instances && stage_instance_store_find(*view.stage_instances, channel_id);
+}
+// Statuses belong to GUILD_VOICE channels only.
+bool voice_subtitle(const NavigationView& view, u64 channel_id, u8 type) noexcept {
+    const auto* extras = view.voice_extras;
+    if (type != 2 || !extras)
+        return false;
+    if (channel_id == extras->status_channel_id)
+        return true;
+    const auto* info = extras->info ? voice_channel_info_store_find(*extras->info, channel_id) : nullptr;
+    return info && info->status_bytes;
+}
+bool voice_invite(const NavigationView& view, u64 channel_id, u8 type) noexcept {
+    return type == 2 && view.voice_extras && channel_id == view.voice_extras->invite_channel_id;
 }
 
 u16 voice_count(const NavigationView& view, u64 channel_id, u8 type) noexcept {
@@ -601,6 +617,8 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             voice_count(*view, channel.id, channel.type),
             channel.notification_dimmed,
             stage_live(*view, channel.id, channel.type),
+            voice_subtitle(*view, channel.id, channel.type),
+            voice_invite(*view, channel.id, channel.type),
         };
         channel_changed = channel_changed || row_changed(view->channel_rows[order + lead], row);
         view->channel_rows[order + lead] = row;
@@ -623,6 +641,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     view->connected_voice_stale = false;
     view->source_voice_revision = view->voice_states ? view->voice_states->revision : 0;
     view->source_stage_revision = view->stage_instances ? view->stage_instances->revision : 0;
+    view->source_extras_revision = view->voice_extras ? view->voice_extras->revision : 0;
     view->source_folder_revision = view->folder_revision;
     view->source_events_revision = view->events_revision;
     view->source_requests_revision = view->requests_revision;
@@ -665,12 +684,18 @@ bool navigation_view_refresh_voice(NavigationView* view) noexcept {
         auto& row = view->channel_rows[i];
         const u16 count = voice_count(*view, row.id, row.type);
         const bool live = stage_live(*view, row.id, row.type);
-        changed = changed || count != row.voice_count || live != row.stage_live;
+        const bool subtitle = voice_subtitle(*view, row.id, row.type);
+        const bool invite = voice_invite(*view, row.id, row.type);
+        changed = changed || count != row.voice_count || live != row.stage_live || subtitle != row.voice_subtitle ||
+                  invite != row.voice_invite;
         row.voice_count = count;
         row.stage_live = live;
+        row.voice_subtitle = subtitle;
+        row.voice_invite = invite;
     }
     view->source_voice_revision = view->voice_states ? view->voice_states->revision : 0;
     view->source_stage_revision = view->stage_instances ? view->stage_instances->revision : 0;
+    view->source_extras_revision = view->voice_extras ? view->voice_extras->revision : 0;
     saturating_increment_if(changed, view->channel_revision);
     saturating_increment_if(changed, view->revision);
     return changed;

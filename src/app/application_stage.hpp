@@ -23,6 +23,11 @@ bool application_stage_activate(u64 channel_id, UiCallControl control, u64 user_
 // Voice cadence: an invitation to speak opens the call view on its banner.
 void application_stage_pump() noexcept;
 
+// Queues PUT /channels/{id}/voice-status (a voice channel's status, empty
+// clears it) on the stage queue; application_voice_channels_status_result
+// receives the outcome.
+bool application_stage_queue_voice_status(u64 guild_id, u64 channel_id, Utf8View status) noexcept;
+
 // DETAILS lane.
 bool application_stage_pending(u64 now_ms) noexcept;
 bool application_stage_submit(u64 request_id, u64 now_ms) noexcept;

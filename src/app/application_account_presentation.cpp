@@ -136,6 +136,7 @@ bool synchronize_navigation_view() noexcept {
     ui.navigation_view.voice_states = &ui.voice_states;
     ui.navigation_view.private_rows = application_private_channel_rows();
     ui.navigation_view.stage_instances = &application_stage_instances();
+    ui.navigation_view.voice_extras = &application_voice_channels_extras();
     application_guild_community_navigation(&ui.navigation_view);
     application_private_channel_navigation(&ui.navigation_view);
     // The official Home badge: incoming friend requests plus message requests.
@@ -150,7 +151,9 @@ bool synchronize_navigation_view() noexcept {
         ++ui.navigation_view.requests_revision;
     }
     const bool voice_current = ui.navigation_view.source_voice_revision == ui.voice_states.revision &&
-                               ui.navigation_view.source_stage_revision == application_stage_instances().revision;
+                               ui.navigation_view.source_stage_revision == application_stage_instances().revision &&
+                               ui.navigation_view.source_extras_revision ==
+                                   application_voice_channels_extras().revision;
     if (ui.navigation_view.source_guild_mutations == ui.chat_state.guild_mutations &&
         ui.navigation_view.source_channel_mutations == ui.chat_state.channel_mutations &&
         ui.navigation_view.source_selection_revision == ui.chat_state.selection_revision &&

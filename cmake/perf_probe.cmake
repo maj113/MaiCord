@@ -13,7 +13,7 @@ endif()
 maicord_program(MaiCordPerfAccount SHARED ENTRY maicord_perf_account_entry
     SOURCES tools/perf/perf_account.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model kernel32
-    LINK_OPTIONS /EXPORT:maicord_account_get_api,@133,NONAME /EXPORT:maicord_perf_account_control
+    LINK_OPTIONS /EXPORT:maicord_account_get_api,@134,NONAME /EXPORT:maicord_perf_account_control
         /EXPORT:maicord_perf_account_counters
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 get_target_property(maicord_perf_probe_sources MaiCord SOURCES)

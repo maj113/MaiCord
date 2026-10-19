@@ -1319,6 +1319,13 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
             interaction = GatewayClientDispatchKind::soundboard_sounds;
         else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_BULK_BAN_UPDATE")))
             interaction = GatewayClientDispatchKind::guild_bulk_ban_update;
+        // Voice channel statuses and start times (voice_channel_info.hpp).
+        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_INFO")))
+            interaction = GatewayClientDispatchKind::channel_info;
+        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_CHANNEL_START_TIME_UPDATE")))
+            interaction = GatewayClientDispatchKind::voice_channel_start_time_update;
+        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_CHANNEL_STATUS_UPDATE")))
+            interaction = GatewayClientDispatchKind::voice_channel_status_update;
         if (interaction != GatewayClientDispatchKind::none) {
             if (envelope.data.kind == JsonValueKind::object &&
                 envelope.data.source.bytes <= content_scratch.count) {

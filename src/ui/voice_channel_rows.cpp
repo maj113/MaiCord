@@ -3,6 +3,7 @@
 #include "maicord/ui/voice_panel.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/voice_channel_info_store.hpp"
 
 namespace maicord {
 bool ui_voice_participant_row(const ChannelViewRow& row, UiRect row_rectangle,
@@ -54,16 +55,6 @@ u32 two_digits(char* output, u64 value) noexcept {
     output[1] = static_cast<char>('0' + value % 10);
     return 2;
 }
-bool set_label(UiVoiceElapsedClock* clock, u64 second) noexcept {
-    char text[kUiVoiceElapsedBytes];
-    const u32 bytes = ui_voice_elapsed_format(second * 1'000, text, sizeof(text));
-    clock->shown_second = second;
-    if (bytes == clock->label_bytes && bytes_equal(text, clock->label, bytes))
-        return false;
-    copy_bytes(clock->label, text, bytes);
-    clock->label_bytes = static_cast<u8>(bytes);
-    return true;
-}
 } // namespace
 
 u32 ui_voice_elapsed_format(u64 elapsed_ms, char* output, u32 capacity) noexcept {
@@ -82,34 +73,92 @@ u32 ui_voice_elapsed_format(u64 elapsed_ms, char* output, u32 capacity) noexcept
     return used + two_digits(output + used, seconds % 60);
 }
 
-bool ui_voice_elapsed_observe(UiVoiceElapsedClock* clock, u64 channel_id, bool established, u64 now_ms) noexcept {
+bool ui_voice_timer_tick(UiVoiceTimerClock* clock, u64 now_ms, u64 unix_ms, bool visible, bool focused) noexcept {
     if (!clock)
         return false;
-    if (channel_id != clock->channel_id) {
-        const bool had_label = clock->label_bytes != 0;
-        *clock = {};
-        clock->channel_id = channel_id;
-        if (!channel_id || !established)
-            return had_label;
+    if (!visible) {
+        clock->visible = false;
+        clock->wake_ms = 0;
+        return false;
     }
-    if (!channel_id || clock->started_ms || !established)
-        return false;
-    clock->started_ms = now_ms ? now_ms : 1;
-    return set_label(clock, 0);
+    const bool shown = clock->visible;
+    clock->visible = true;
+    const u64 second = unix_ms / 1'000, period = focused ? 1 : kUiVoiceTimerSlowSeconds;
+    // Coming on screen, a missed boundary or a clock set back shows the time at once.
+    const bool changed = second != clock->shown_s &&
+                         (!shown || second >= clock->shown_s + period || second < clock->shown_s);
+    if (changed)
+        clock->shown_s = second;
+    const u64 next_ms = (clock->shown_s + period) * 1'000;
+    clock->wake_ms = now_ms + (next_ms > unix_ms ? next_ms - unix_ms : 1);
+    return changed;
 }
 
-bool ui_voice_elapsed_tick(UiVoiceElapsedClock* clock, u64 now_ms, bool visible) noexcept {
-    if (!clock)
-        return false;
-    clock->visible = visible;
-    if (!clock->started_ms)
-        return false;
-    const u64 second = now_ms > clock->started_ms ? (now_ms - clock->started_ms) / 1'000 : 0;
-    return second != clock->shown_second && set_label(clock, second) && visible;
+u32 ui_voice_timer_label(const ChannelViewRow& row, const UiVoiceChannelExtras* extras, char* output,
+                         u32 capacity) noexcept {
+    if (row.type != 2 || row.mention_count || !extras || !extras->info || !extras->clock_s)
+        return 0;
+    const auto* info = voice_channel_info_store_find(*extras->info, row.id);
+    if (!info || !info->start_s)
+        return 0;
+    const u64 elapsed = extras->clock_s > info->start_s ? extras->clock_s - info->start_s : 0;
+    return ui_voice_elapsed_format(elapsed * 1'000, output, capacity);
 }
 
-u64 ui_voice_elapsed_next_wake(const UiVoiceElapsedClock& clock) noexcept {
-    return clock.started_ms && clock.visible ? clock.started_ms + (clock.shown_second + 1) * 1'000 : 0;
+bool ui_voice_invite_observe(UiVoiceInviteCountdown* countdown, u64 connected_channel_id) noexcept {
+    if (!countdown || countdown->channel_id == connected_channel_id)
+        return false;
+    const bool shown = ui_voice_invite_channel(*countdown) != 0;
+    *countdown = {connected_channel_id, 0, false, false};
+    return shown || connected_channel_id;
+}
+
+bool ui_voice_invite_tick(UiVoiceInviteCountdown* countdown, u64 now_ms, bool running) noexcept {
+    if (!countdown || !ui_voice_invite_channel(*countdown))
+        return false;
+    if (!running) {
+        countdown->counting = false;
+        return false;
+    }
+    if (!countdown->counting) {
+        countdown->counting = true;
+        countdown->deadline_ms = now_ms + kUiVoiceInviteDismissMs;
+        return false;
+    }
+    return now_ms >= countdown->deadline_ms && ui_voice_invite_dismiss(countdown);
+}
+
+bool ui_voice_invite_dismiss(UiVoiceInviteCountdown* countdown) noexcept {
+    if (!countdown || !ui_voice_invite_channel(*countdown))
+        return false;
+    countdown->dismissed = true;
+    countdown->counting = false;
+    return true;
+}
+
+UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle) noexcept {
+    const float left = row_rectangle.left + 34.0f + static_cast<float>(row.depth) * 12.0f;
+    const float top = row_rectangle.top + kShellNavigationVoiceHeadHeight - 4.0f;
+    return {left, top, maximum(left, row_rectangle.right - 10.0f), top + kShellNavigationStageTopicHeight};
+}
+
+bool ui_voice_invite_row(const ChannelViewRow& row, UiRect row_rectangle, UiVoiceInviteRow* output) noexcept {
+    if (!output || !row.voice_invite)
+        return false;
+    const float top = row_rectangle.top + shell_navigation_voice_top(row) +
+                      static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight;
+    const float left = row_rectangle.left + 30.0f + static_cast<float>(row.depth) * 12.0f;
+    const float right = maximum(left, row_rectangle.right - 8.0f);
+    UiVoiceInviteRow result{};
+    result.row = {left, top + 2.0f, right, top + kShellNavigationVoiceInviteHeight - 2.0f};
+    const float middle = top + kShellNavigationVoiceInviteHeight * 0.5f;
+    result.icon = {left + 4.0f, middle - 12.0f, left + 28.0f, middle + 12.0f};
+    result.close = {maximum(result.icon.right, right - 28.0f), middle - 12.0f, maximum(result.icon.right, right - 4.0f),
+                    middle + 12.0f};
+    result.label = {result.icon.right + 8.0f, top, maximum(result.icon.right + 8.0f, result.close.left - 4.0f),
+                    top + kShellNavigationVoiceInviteHeight};
+    *output = result;
+    return true;
 }
 
 UiRect ui_voice_elapsed_rectangle(UiRect label, u32 bytes, float gap, float* name_right) noexcept {

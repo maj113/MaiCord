@@ -11,6 +11,7 @@
 #include "maicord/ui/navigation_foreground.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/ui/voice_panel.hpp"
+#include "maicord/model/voice_channel_info_store.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/plugin_slot_surfaces.hpp"
@@ -173,6 +174,52 @@ bool paint_voice_participants(PaintStream* stream, const ShellNavigationScene& s
             return false;
     }
     return true;
+}
+
+// The pencil leading "Set a channel status", and the "Invite to Voice" row.
+bool paint_voice_extras(PaintStream* stream, const ShellNavigationScene& scene,
+                        const ShellNavigationRowWidget& row_widget, UiRect row_rectangle,
+                        const UiVoiceChannelExtras& extras, const Theme& theme) noexcept {
+    const auto& row = row_widget.view;
+    const auto* info = extras.info ? voice_channel_info_store_find(*extras.info, row.id) : nullptr;
+    if (row.voice_subtitle && !(info && info->status_bytes)) {
+        const UiRect line = ui_voice_status_rectangle(row, row_rectangle);
+        const float middle = (line.top + line.bottom) * 0.5f;
+        const UiRect pencil{line.left, middle - 7.0f, line.left + 14.0f, middle + 7.0f};
+        const bool hovered = extras.status_hovered && extras.status_channel_id == row.id;
+        if (!ui_icon_paint(stream, UiIcon::edit, pencil,
+                           hovered ? theme.text_primary : ui_icon_role_color(theme, UiIconRole::muted)) ||
+            !record_content(stream, scene.widgets, row_widget.widget, pencil, UiLayoutContentKind::icon,
+                            ui_layout_content_bounds_allow_overlap))
+            return false;
+    }
+    UiVoiceInviteRow invite{};
+    if (!ui_voice_invite_row(row, row_rectangle, &invite))
+        return true;
+    const auto& r = invite.row;
+    if (extras.invite_hovered &&
+        (!push_rounded(stream, r.left, r.top, r.right, r.bottom,
+                       ui_background_hover_color(theme, theme.surface_high, .20f), theme.scale.radius_sm) ||
+         !record_content(stream, scene.widgets, row_widget.widget, r, UiLayoutContentKind::decoration,
+                         ui_layout_content_bounds_allow_overlap)))
+        return false;
+    const UiRect& disc = invite.icon;
+    const float cx = (disc.left + disc.right) * 0.5f, cy = (disc.top + disc.bottom) * 0.5f;
+    if (!push_rounded(stream, disc.left, disc.top, disc.right, disc.bottom, theme.surface_high,
+                      ui_rect_width(disc) * 0.5f) ||
+        !ui_icon_paint(stream, UiIcon::user_plus, {cx - 7.0f, cy - 7.0f, cx + 7.0f, cy + 7.0f},
+                       extras.invite_hovered ? theme.text_primary : theme.text_secondary) ||
+        !record_content(stream, scene.widgets, row_widget.widget, disc, UiLayoutContentKind::icon,
+                        ui_layout_content_bounds_allow_overlap))
+        return false;
+    if (!extras.invite_hovered)
+        return true;
+    const UiRect& c = invite.close;
+    const float x = (c.left + c.right) * 0.5f, y = (c.top + c.bottom) * 0.5f;
+    return ui_icon_paint(stream, UiIcon::close, {x - 8.0f, y - 8.0f, x + 8.0f, y + 8.0f},
+                         extras.invite_close_hovered ? theme.text_primary : ui_icon_role_color(theme, UiIconRole::muted)) &&
+           record_content(stream, scene.widgets, row_widget.widget, c, UiLayoutContentKind::control,
+                          ui_layout_content_bounds_allow_overlap);
 }
 
 Color folder_color(const Theme& theme, const GuildViewRow& row, float alpha) noexcept {
@@ -494,9 +541,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     shell_navigation_scene_resolve(*channel_scene, channel_scene->widgets.hovered);
                 const bool row_hovered = hovered == &row_widget;
                 const float row_top = row_rectangle.top;
-                // Voice rows extend below their 32-DIP head for connected users.
-                const float row_height = row.voice_count || row.stage_live ? kShellNavigationVoiceHeadHeight
-                                                                           : ui_rect_height(row_rectangle);
+                // Voice rows extend below their head (and status line) for users and the invite row.
+                const float row_height = row.voice_count || row.stage_live || row.voice_subtitle || row.voice_invite
+                                             ? shell_navigation_voice_top(row)
+                                             : ui_rect_height(row_rectangle);
                 const float selected_right = row_rectangle.right - 8.0f;
                 const bool thread = shell_navigation_thread_row(row) && !channel_is_private(row.type);
                 const auto sibling = [&](u32 at) noexcept {
@@ -583,6 +631,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                         !paint_voice_participants(stream, *channel_scene, row_widget, row_rectangle,
                                                   *navigation->voice_states, channel_navigation->rectangle,
                                                   theme))
+                        return false;
+                    if (navigation->voice_extras &&
+                        !paint_voice_extras(stream, *channel_scene, row_widget, row_rectangle, *navigation->voice_extras,
+                                            theme))
                         return false;
                     // The dragged row sits back under a veil of the list colour.
                     if (channel_scene->drag.active && channel_scene->drag.source_id == row.id) {

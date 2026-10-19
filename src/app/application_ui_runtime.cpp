@@ -5,6 +5,7 @@
 #include "application_stream.hpp"
 #include "application_guild_card.hpp"
 #include "application_stage.hpp"
+#include "application_voice_channels.hpp"
 #include "application_soundboard.hpp"
 #include "application_inbox.hpp"
 #include "application_downloads.hpp"
@@ -145,6 +146,7 @@ void release_overlay_owners() noexcept {
     application_stream_release();
     application_guild_card_release();
     application_stage_release();
+    application_voice_channels_release();
     application_soundboard_release();
     application_message_components_release();
     application_invite_cards_release();

@@ -159,7 +159,7 @@ maicord_library(maicord_protocol
     src/protocol/user_guild_settings.cpp
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.
-    src/protocol/cdn_icon_hash.cpp src/protocol/guild_moderation.cpp
+    src/protocol/cdn_icon_hash.cpp src/protocol/guild_moderation.cpp src/protocol/voice_channel_info.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)
@@ -398,7 +398,7 @@ maicord_library(maicord_model
     src/model/desktop_notification_queue.cpp src/model/notification_sound_policy.cpp
     src/model/notification_sound_admission.cpp src/model/notification_retention.cpp
     src/model/permission_grid.cpp src/model/guild_settings_model.cpp src/model/channel_settings_model.cpp
-    src/model/guild_detail_store.cpp src/model/guild_member_search.cpp
+    src/model/guild_detail_store.cpp src/model/guild_member_search.cpp src/model/voice_channel_info_store.cpp
     LIBS maicord_core maicord_edit_history maicord_protocol)
 
 maicord_library(maicord_message_runtime

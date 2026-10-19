@@ -67,6 +67,8 @@ struct ChannelViewRow {
     u16 voice_count; // Connected users drawn under a voice channel row.
     bool muted;      // Own or category notification mute, drawn dimmed.
     bool stage_live; // Stage channel with a live stage instance (topic line, green icon).
+    bool voice_subtitle; // Voice channel status, or "Set a channel status", under the name.
+    bool voice_invite;   // "Invite to Voice" after the users (the connected channel).
 };
 
 struct ChannelSortKey {
@@ -120,6 +122,9 @@ struct NavigationView {
     // Borrowed live stages (topic line under stage channel rows); may be null.
     const struct StageInstanceStore* stage_instances;
     u32 source_stage_revision;
+    // Borrowed voice channel statuses, timers and the invite row; may be null.
+    const struct UiVoiceChannelExtras* voice_extras;
+    u32 source_extras_revision;
     // Host-set: show the events row for the selected server with this count
     // ("N Events", or "Events" at zero). Bump events_revision on change.
     bool events_row;
@@ -181,8 +186,9 @@ const GuildViewRow* navigation_view_find_guild(const NavigationView& view,
 const ChannelViewRow* navigation_view_find_channel(const NavigationView& view,
                                                                   u64 channel_id) noexcept;
 inline constexpr u32 kNavigationVoiceRowsMaximum = 99;
-// Recounts voice_count from view->voice_states (and stage_live from
-// view->stage_instances) after a voice-state or stage change.
+// Recounts voice_count from view->voice_states (stage_live from
+// view->stage_instances, the voice extras flags from view->voice_extras)
+// after a voice-state, stage or extras change.
 bool navigation_view_refresh_voice(NavigationView* view) noexcept;
 // Guild rows that represent selectable guilds (folder headers and
 // conversation pins excluded).

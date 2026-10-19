@@ -1,5 +1,7 @@
 #include "maicord/ui/badge.hpp"
 #include "maicord/model/stage_instance_store.hpp"
+#include "maicord/model/voice_channel_info_store.hpp"
+#include "maicord/protocol/voice_channel_info.hpp"
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/ui/background_presentation.hpp"
@@ -371,18 +373,17 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                         return false;
                     }
                 }
-                // The connected channel's elapsed timer ends the name line.
-                if (const auto* timer = navigation.voice_panel ? navigation.voice_panel->elapsed : nullptr;
-                    timer && timer->label_bytes && timer->channel_id == row.id) {
+                // A voice session's elapsed time ends the name line.
+                char timer[kUiVoiceElapsedBytes];
+                if (const u32 timer_bytes = ui_voice_timer_label(row, navigation.voice_extras, timer, sizeof(timer))) {
                     UiRect line = label_layout->content_rectangle;
                     line.right = text_right;
-                    const UiRect box =
-                        ui_voice_elapsed_rectangle(line, timer->label_bytes, theme.scale.space_4, &text_right);
+                    const UiRect box = ui_voice_elapsed_rectangle(line, timer_bytes, theme.scale.space_4, &text_right);
                     name_rectangle.right = minimum(name_rectangle.right, text_right);
-                    if (!append_command(channel_scene.widgets, row_widget.label, {timer->label, timer->label_bytes},
+                    if (!append_command(channel_scene.widgets, row_widget.label, {timer, timer_bytes},
                                         box, visible_clip, theme.tokens.text.positive, stream, UiTextAlignment::end,
                                         UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::clip,
-                                        text_style_subtext)) {
+                                        text_style_subtext, true)) {
                         reject_atomically(stream);
                         return false;
                     }
@@ -416,6 +417,48 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                         clip, ui_background_muted_text_color(theme), stream, UiTextAlignment::start,
                                         UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
                                         text_style_subtext)) {
+                        reject_atomically(stream);
+                        return false;
+                    }
+                }
+                // A voice channel's status, or the connected channel's offer to set one.
+                if (const auto* extras = row.voice_subtitle ? navigation.voice_extras : nullptr) {
+                    const auto* info =
+                        extras->info ? voice_channel_info_store_find(*extras->info, row.id) : nullptr;
+                    char display[kVoiceChannelStatusMaximumBytes];
+                    const u32 display_bytes =
+                        info && info->status_bytes
+                            ? voice_channel_status_display(voice_channel_info_status(*extras->info, *info),
+                                                           {display, sizeof(display)})
+                            : 0;
+                    UiRect line = ui_voice_status_rectangle(row, layout->rectangle);
+                    if (!display_bytes)
+                        line.left = minimum(line.right, line.left + 18.0f); // After the pencil.
+                    const UiRect clip = ui_rect_intersection(line, channel_navigation->rectangle);
+                    const bool hovered_line = extras->status_hovered && extras->status_channel_id == row.id;
+                    if (ui_rect_has_area(clip) &&
+                        !append_command(channel_scene.widgets, row_widget.widget,
+                                        display_bytes ? Utf8View{display, display_bytes}
+                                                      : utf8_literal("Set a channel status"),
+                                        line, clip,
+                                        hovered_line ? theme.text_primary : ui_background_muted_text_color(theme),
+                                        stream, UiTextAlignment::start, UiTextAlignment::center,
+                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, text_style_subtext,
+                                        display_bytes != 0)) {
+                        reject_atomically(stream);
+                        return false;
+                    }
+                }
+                UiVoiceInviteRow invite{};
+                if (navigation.voice_extras && ui_voice_invite_row(row, layout->rectangle, &invite)) {
+                    const UiRect clip = ui_rect_intersection(invite.label, channel_navigation->rectangle);
+                    if (ui_rect_has_area(clip) &&
+                        !append_command(channel_scene.widgets, row_widget.widget, utf8_literal("Invite to Voice"),
+                                        invite.label, clip,
+                                        navigation.voice_extras->invite_hovered ? theme.text_primary
+                                                                                : theme.text_secondary,
+                                        stream, UiTextAlignment::start, UiTextAlignment::center,
+                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis)) {
                         reject_atomically(stream);
                         return false;
                     }

@@ -100,7 +100,8 @@ float shell_navigation_row_height(const ChannelViewRow& row) noexcept {
         return kUiPrivateRowHeight;
     return row.type == 4 ? 28.0f
                          : shell_navigation_voice_top(row) +
-                               static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight;
+                               static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight +
+                               (row.voice_invite ? kShellNavigationVoiceInviteHeight : 0.0f);
 }
 
 float shell_navigation_content_height(const NavigationView* view) noexcept {
