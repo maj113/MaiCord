@@ -1589,7 +1589,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     }
     const MediaPresentationRequest proxy = media_presentation_request(
         selected.media->width, selected.media->height, preview_width, preview_height,
-        application.renderer.dpi, media_preview_extent_cap(selected.format));
+        application.renderer.dpi, media_preview_extent_cap(selected.format, selected.animated));
     const MediaAssetKey key =
         search_store ? media_asset_search_embed(message.id, message.revision, static_cast<u8>(embed_index),
                                                 selected.resource, selected.format, selected.animated,

@@ -154,9 +154,9 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
             continue;
         const float scale = minimum(1.0f, minimum(400.0f / item.pixels.width, 300.0f / item.pixels.height));
         const auto tier = media_resolution_tier_for_display(item.pixels.width * scale, item.pixels.height * scale,
-                                                            dpi, media_preview_extent_cap(selected.format));
+                                                            dpi, media_preview_extent_cap(selected.format, selected.animated));
         const auto large =
-            media_preview_extent_cap(selected.format) > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512;
+            media_preview_extent_cap(selected.format, selected.animated) > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512;
         const u32 revision = viewer.search_result ? viewer.search_source.publication_revision : viewer.message_revision;
         const auto make = [&](MediaResolutionTier resolution) noexcept {
             return viewer.search_result
@@ -725,7 +725,7 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
             OpenRequest request{preview, MessageSceneRichItemKind::embed, member, MediaEmbedResource::none,
                                 row.forwarded_snapshot};
             const auto tier = media_resolution_tier_for_display(width, height, g_app.renderer.dpi,
-                                                                media_preview_extent_cap(selected.format));
+                                                                media_preview_extent_cap(selected.format, selected.animated));
             request.fallback =
                 media_asset_embed(message->id, message->revision, static_cast<u8>(member), selected.resource,
                                   selected.format, selected.animated, tier, row.forwarded_snapshot);

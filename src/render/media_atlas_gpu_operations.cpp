@@ -122,7 +122,7 @@ static MediaAtlasGpuResult upload_straight_rgba8_surface(
     const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
     if (!gpu || !atlas || !device || !context || !target || !texture_uav ||
         !media_asset_key_valid(key) || width == 0 || height == 0 ||
-        width > kWebpDimensionMaximum || height > kWebpDimensionMaximum || row_pitch < minimum_pitch ||
+        width > kPngDimensionMaximum || height > kPngDimensionMaximum || row_pitch < minimum_pitch ||
         required > straight_rgba8.count || (!straight_rgba8.data && straight_rgba8.count != 0) ||
         surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
         static_cast<u32>(width) + atlas->allocations.padding * 2u > atlas->allocations.width ||

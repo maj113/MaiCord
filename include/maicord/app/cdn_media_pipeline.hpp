@@ -59,6 +59,10 @@ enum class CdnStaticJpegState : u8 {
 // rendition, up to the preview cap, for attachments and embeds.
 inline constexpr u32 kReducedJpegExtent = 160;
 inline constexpr u32 kReducedJpegPreviewExtent = 2048;
+// Still lossy WebPs past the GPU path's 512 px decode on the CPU one
+// macroblock row at a time, box-reduced to fit this extent; still lossless
+// ones decode whole up to kWebpLosslessDimensionMaximum.
+inline constexpr u32 kReducedWebpExtent = 2048;
 
 struct CdnStaticJpegResult {
     JpegImage image;

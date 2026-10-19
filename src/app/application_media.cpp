@@ -404,7 +404,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                     if (message_rich_embed_resource_select(rich_store, rich->embeds[index],
                                                            media_asset_embed_resource(viewer_key),
                                                            &selected)) {
-                        const float extent = static_cast<float>(media_preview_extent_cap(selected.format)) *
+                        const float extent = static_cast<float>(media_preview_extent_cap(selected.format, selected.animated)) *
                                              96.0f / application.renderer.dpi;
                         bool stop = false;
                         if (!request_visible_embed_media(*message, *rich, index, extent, extent, now_ms,

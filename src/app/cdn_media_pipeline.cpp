@@ -1,5 +1,8 @@
 #include "maicord/app/cdn_media_pipeline.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/media/webp_alpha.hpp"
+#include "maicord/media/webp_thumbnail.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/crt.hpp"
@@ -167,6 +170,117 @@ CdnStaticPngResult decode_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encod
     return result;
 }
 
+bool ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
+    if (required > 0xFFFFFFFFull)
+        return false;
+    if (pipeline->grow_scanlines && required > pipeline->scanline_capacity) {
+        const auto grown = pipeline->grow_scanlines(pipeline->scanline_owner, static_cast<u32>(required));
+        if (grown.data && grown.count >= required) {
+            pipeline->scanline_storage = grown.data;
+            pipeline->scanline_capacity = grown.count;
+        }
+    }
+    return required <= pipeline->scanline_capacity;
+}
+
+// Rows box-filtered by an integer factor into straight RGBA8; colour is
+// alpha-weighted so transparent pixels do not darken edges.
+struct ReducedWebpRows {
+    u8* output;
+    u32* sums; // per output column: weighted R, G, B, alpha, samples
+    u32 source_width, source_height, scale, width;
+};
+
+bool reduced_webp_row(void* context, u32 y, const u8* rgba) noexcept {
+    auto& r = *static_cast<ReducedWebpRows*>(context);
+    if (r.scale == 1) {
+        copy_bytes(r.output + static_cast<usize>(y) * r.width * 4u, rgba, r.width * 4u);
+        return true;
+    }
+    for (u32 x = 0; x < r.source_width; ++x) {
+        u32* sum = r.sums + (x / r.scale) * 5u;
+        const u32 alpha = rgba[x * 4u + 3u];
+        sum[0] += rgba[x * 4u] * alpha;
+        sum[1] += rgba[x * 4u + 1u] * alpha;
+        sum[2] += rgba[x * 4u + 2u] * alpha;
+        sum[3] += alpha;
+        ++sum[4];
+    }
+    if ((y + 1u) % r.scale != 0 && y + 1u != r.source_height)
+        return true;
+    u8* out = r.output + static_cast<usize>(y / r.scale) * r.width * 4u;
+    for (u32 x = 0; x < r.width; ++x) {
+        u32* sum = r.sums + x * 5u;
+        const u32 alpha = sum[3];
+        for (u32 c = 0; c < 3; ++c)
+            out[x * 4u + c] = alpha ? static_cast<u8>((sum[c] + alpha / 2u) / alpha) : 0;
+        out[x * 4u + 3u] = sum[4] ? static_cast<u8>((alpha + sum[4] / 2u) / sum[4]) : 0;
+        for (u32 c = 0; c < 5; ++c)
+            sum[c] = 0;
+    }
+    return true;
+}
+
+// A still lossy WebP past the GPU path decodes on the CPU into straight RGBA8
+// at most `extent` px per side; a compressed ALPH plane decodes whole first.
+CdnStaticWebpResult reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 extent,
+                                      CdnStaticWebpState success_state) noexcept {
+    CdnStaticWebpResult result{};
+    result.state = CdnStaticWebpState::decode_rejected;
+    result.decode.error = WebpError::dimensions;
+    WebpThumbnailLayout layout{};
+    if (webp_thumbnail_parse(encoded, &layout) != WebpThumbnailError::none)
+        return result;
+    const u32 longest = maximum(layout.width, layout.height);
+    const u32 scale = longest > extent ? (longest + extent - 1u) / extent : 1u;
+    const u32 width = (layout.width + scale - 1u) / scale, height = (layout.height + scale - 1u) / scale;
+    const auto align = [](u64 value) noexcept { return (value + 15u) & ~15ull; };
+    const u64 pixels = u64{layout.width} * layout.height;
+    const u64 output_bytes = align(u64{width} * height * 4u);
+    const u64 alpha_bytes = layout.alpha_chunk.data ? align(pixels) : 0;
+    const u64 row_bytes = align(u64{width} * 5u * sizeof(u32)) + layout.workspace_bytes;
+    // The ALPH decoder's ARGB scratch is free again before the rows decode.
+    const u64 tail = maximum(layout.alpha_chunk.data ? pixels * 4u : 0ull, row_bytes);
+    if (!ensure_scanlines(pipeline, output_bytes + alpha_bytes + tail + 16u)) {
+        result.decode.error = WebpError::output_capacity;
+        return result;
+    }
+    u8* base = reinterpret_cast<u8*>((reinterpret_cast<usize>(pipeline->scanline_storage) + 15u) & ~usize{15});
+    u8* alpha = base + output_bytes;
+    u8* scratch = alpha + alpha_bytes;
+    if (layout.alpha_chunk.data) {
+        if (!pipeline->webp_workspace)
+            return result;
+        const auto decoded = webp_alpha_decode(layout.alpha_chunk, layout.width, layout.height,
+                                               pipeline->webp_workspace, {scratch, static_cast<u32>(pixels * 4u)},
+                                               {alpha, static_cast<u32>(pixels)});
+        if (!decoded.ok()) {
+            result.decode.error = decoded.lossless.error != WebpError::none ? decoded.lossless.error
+                                                                            : WebpError::transform;
+            return result;
+        }
+        layout.alpha = {alpha, static_cast<u32>(pixels)};
+        layout.alpha_filter = 0;
+    }
+    u32* sums = reinterpret_cast<u32*>(scratch);
+    clear_bytes(sums, width * 5u * sizeof(u32));
+    ReducedWebpRows rows{base, sums, layout.width, layout.height, scale, width};
+    const u32 sums_bytes = static_cast<u32>(align(u64{width} * 5u * sizeof(u32)));
+    if (webp_thumbnail_decode(layout, {scratch + sums_bytes, layout.workspace_bytes}, reduced_webp_row, &rows) !=
+        WebpThumbnailError::none) {
+        result.decode.error = WebpError::bitstream;
+        return result;
+    }
+    result.image.width = width;
+    result.image.height = height;
+    result.image.has_alpha = layout.alpha.data != nullptr;
+    result.rgba8 = {base, width * height * 4u};
+    result.decode.rgba_bytes = width * height * 4u;
+    result.decode.error = WebpError::none;
+    result.state = success_state;
+    return result;
+}
+
 CdnStaticWebpResult decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
                                       CdnStaticWebpState success_state) noexcept {
     CdnStaticWebpResult result{};
@@ -175,6 +289,8 @@ CdnStaticWebpResult decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8>
     }
     WebpImage parsed_image{};
     const WebpParseResult parsed = webp_parse(encoded, &parsed_image);
+    if (parsed.error == WebpError::dimensions)
+        return reduce_webp_bytes(pipeline, encoded, kReducedWebpExtent, success_state);
     if (!parsed.ok()) {
         result.decode.parse = parsed;
         result.decode.error = parsed.error;
@@ -185,6 +301,7 @@ CdnStaticWebpResult decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8>
         if (!pipeline->webp_workspace) {
             return {.state = CdnStaticWebpState::invalid};
         }
+        ensure_scanlines(pipeline, u64{parsed_image.width} * parsed_image.height * 4u);
         result.decode =
             webp_lossless_decode_rgba8(encoded, &result.image, pipeline->webp_workspace,
                                        Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});

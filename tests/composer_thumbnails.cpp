@@ -587,10 +587,11 @@ void test_webp_thumbnails(Check check) noexcept {
     const u32 compressed = build_zero_webp(large, 48, 32, true, 0, alpha_plane);
     large[12 + 18 + 8] = 1; // ALPH compression 1: VP8L-coded alpha
     const auto alpha_error = webp_thumbnail_parse({large, compressed}, &layout);
+    const bool alpha_chunk = layout.alpha_chunk.data == large + 12 + 18 + 8 && !layout.alpha.data;
     const auto truncated = webp_thumbnail_parse({large, 16}, &layout);
-    check(lossless_error == WebpThumbnailError::unsupported_lossless &&
-              alpha_error == WebpThumbnailError::unsupported_alpha && truncated == WebpThumbnailError::container,
-          "lossless, compressed-alpha and truncated WebPs fall back to the file icon");
+    check(lossless_error == WebpThumbnailError::unsupported_lossless && alpha_error == WebpThumbnailError::none &&
+              alpha_chunk && truncated == WebpThumbnailError::container,
+          "lossless and truncated WebPs are refused; a compressed alpha plane is left to the caller");
 }
 
 void test_spoiler_blur(Check check) noexcept {

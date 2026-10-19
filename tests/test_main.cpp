@@ -9097,7 +9097,7 @@ void test_reaction_picker() noexcept {
     reaction_picker_release(&personalized);
     reaction_picker_release(&picker);
     expect(sizeof(ReactionPickerModel) < 512 && picker.storage.base == nullptr &&
-               picker.result_catalog_indices == nullptr,
+               picker.results == nullptr,
            "reaction_picker_releases_lazy_working_set");
 }
 
@@ -12181,6 +12181,160 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
                attachment.rgba_height == 480 && attachment.rgba8.count == 640u * 480u * 4u &&
                pixel(attachment, 0, 0) >= 156 && pixel(attachment, 639, 479) <= 132,
            "cdn_pipeline_large_attachment_jpeg_decodes_full_size_on_the_cpu");
+}
+
+// Bits appended least significant first, as VP8L reads them.
+struct WebpBitWriter {
+    u8* data;
+    u32 bits;
+    void put(u32 value, u32 count) noexcept {
+        for (u32 i = 0; i < count; ++i, ++bits) {
+            if (!(bits & 7u))
+                data[bits / 8u] = 0;
+            data[bits / 8u] = static_cast<u8>(data[bits / 8u] | (((value >> i) & 1u) << (bits & 7u)));
+        }
+    }
+    // A one-symbol prefix code: no bits per pixel.
+    void single(u32 symbol) noexcept {
+        put(1, 1);
+        put(0, 1);
+        put(symbol > 1 ? 1u : 0u, 1);
+        put(symbol, symbol > 1 ? 8u : 1u);
+    }
+};
+// A constant-colour VP8L image stream: no transforms, cache or meta codes.
+u32 write_constant_vp8l_stream(u8* out, u8 red, u8 green, u8 blue, u8 alpha) noexcept {
+    WebpBitWriter w{out, 0};
+    w.put(0, 3);
+    w.single(green);
+    w.single(red);
+    w.single(blue);
+    w.single(alpha);
+    w.single(0);
+    return (w.bits + 7u) / 8u;
+}
+// A keyframe whose partitions are all zero decodes to flat grey (RGB 130
+// in the first subblock row, 132 below); an optional VP8L-coded ALPH plane.
+u32 build_large_lossy_webp(u8* out, u32 width, u32 height, bool alpha, u8 alpha_value) noexcept {
+    constexpr u32 first_partition = 48u * 1024u, tokens = 64u * 1024u;
+    const u32 vp8_bytes = 10 + first_partition + tokens;
+    copy_bytes(out, "RIFF", 4);
+    copy_bytes(out + 8, "WEBP", 4);
+    u32 at = 12;
+    if (alpha) {
+        copy_bytes(out + at, "VP8X", 4);
+        byte_store_le32(out + at + 4, 10);
+        clear_bytes(out + at + 8, 10);
+        out[at + 8] = 0x10;
+        const u32 w = width - 1, h = height - 1;
+        out[at + 12] = static_cast<u8>(w);
+        out[at + 13] = static_cast<u8>(w >> 8);
+        out[at + 14] = static_cast<u8>(w >> 16);
+        out[at + 15] = static_cast<u8>(h);
+        out[at + 16] = static_cast<u8>(h >> 8);
+        out[at + 17] = static_cast<u8>(h >> 16);
+        at += 18;
+        u8* chunk = out + at + 8;
+        chunk[0] = 1; // VP8L-coded, unfiltered
+        const u32 bytes = 1 + write_constant_vp8l_stream(chunk + 1, 0, alpha_value, 0, 0);
+        copy_bytes(out + at, "ALPH", 4);
+        byte_store_le32(out + at + 4, bytes);
+        if (bytes & 1u)
+            chunk[bytes] = 0;
+        at += 8 + bytes + (bytes & 1u);
+    }
+    copy_bytes(out + at, "VP8 ", 4);
+    byte_store_le32(out + at + 4, vp8_bytes);
+    u8* frame = out + at + 8;
+    const u32 tag = (1u << 4) | (first_partition << 5);
+    frame[0] = static_cast<u8>(tag);
+    frame[1] = static_cast<u8>(tag >> 8);
+    frame[2] = static_cast<u8>(tag >> 16);
+    frame[3] = 0x9D;
+    frame[4] = 0x01;
+    frame[5] = 0x2A;
+    frame[6] = static_cast<u8>(width);
+    frame[7] = static_cast<u8>(width >> 8);
+    frame[8] = static_cast<u8>(height);
+    frame[9] = static_cast<u8>(height >> 8);
+    clear_bytes(frame + 10, first_partition + tokens);
+    at += 8 + vp8_bytes;
+    byte_store_le32(out + 4, at - 8);
+    return at;
+}
+u32 build_constant_lossless_webp(u8* out, u32 width, u32 height, u8 red, u8 green, u8 blue) noexcept {
+    copy_bytes(out, "RIFF", 4);
+    copy_bytes(out + 8, "WEBPVP8L", 8);
+    u8* payload = out + 20;
+    payload[0] = 0x2F;
+    const u32 header = (width - 1) | ((height - 1) << 14);
+    byte_store_le32(payload + 1, header);
+    const u32 bytes = 5 + write_constant_vp8l_stream(payload + 5, red, green, blue, 255);
+    byte_store_le32(out + 16, bytes);
+    if (bytes & 1u)
+        payload[bytes] = 0;
+    const u32 total = 20 + bytes + (bytes & 1u);
+    byte_store_le32(out + 4, total - 8);
+    return total;
+}
+
+// Still WebPs past the GPU paths' 512 px: lossy ones stream on the CPU (and
+// reduce past 2048), lossless ones decode whole, both as straight RGBA8.
+void test_cdn_reduced_webp_pipeline() noexcept {
+    static u8 encoded[160 * 1024], scanlines[12u << 20];
+    static u8 storage[64 * kEncodedMediaCachePageBytes];
+    EncodedMediaCacheEntry entries[8]{};
+    u16 owners[64]{};
+    EncodedMediaCache cache{};
+    CdnMediaPipeline pipeline{};
+    const bool ready =
+        encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}) &&
+        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}) &&
+        cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace);
+    const auto policy = [](u32 bytes) noexcept {
+        return CdnResponseResult{byte_literal("\"webp-1\""), {}, 2'100, 0, bytes, 200,
+                                 CdnResponseDisposition::accept_body, CdnHttpError::none, true, false};
+    };
+    const auto key = [](u64 id) noexcept {
+        return media_asset_attachment(id, MediaAttachmentFormat::webp, MediaResolutionTier::px2048);
+    };
+    const auto pixel = [](const CdnStaticWebpResult& r, u32 x, u32 y) noexcept {
+        u32 value = 0;
+        copy_bytes(&value, r.rgba8.data + (y * r.image.width + x) * 4u, 4);
+        return value;
+    };
+    u32 bytes = build_large_lossy_webp(encoded, 1104, 600, false, 0);
+    const auto lossy = cdn_media_pipeline_admit_static_webp(&pipeline, key(9001), policy(bytes), {encoded, bytes}, {});
+    expect(ready && lossy.state == CdnStaticWebpState::decoded_response && lossy.image.width == 1104 &&
+               lossy.image.height == 600 && lossy.image.codec == WebpCodec::none &&
+               lossy.rgba8.count == 1104u * 600u * 4u && pixel(lossy, 0, 0) == 0xFF828282u &&
+               pixel(lossy, 1103, 599) == 0xFF848484u,
+           "cdn_pipeline_large_lossy_webp_decodes_full_size_on_the_cpu");
+    const auto hit = cdn_media_pipeline_lookup_static_webp(&pipeline, key(9001), 2'010);
+    expect(hit.state == CdnStaticWebpState::decoded_cache_hit && hit.image.width == 1104 &&
+               pixel(hit, 500, 300) == 0xFF848484u,
+           "cdn_pipeline_large_lossy_webp_decodes_again_from_cache");
+    bytes = build_large_lossy_webp(encoded, 2400, 160, false, 0);
+    const auto reduced = cdn_media_pipeline_admit_static_webp(&pipeline, key(9002), policy(bytes), {encoded, bytes}, {});
+    expect(reduced.decoded() && reduced.image.width == 1200 && reduced.image.height == 80 &&
+               pixel(reduced, 600, 40) == 0xFF848484u,
+           "cdn_pipeline_lossy_webp_past_2048_reduces_by_a_box_filter");
+    bytes = build_large_lossy_webp(encoded, 1104, 64, true, 0x80);
+    const auto alpha = cdn_media_pipeline_admit_static_webp(&pipeline, key(9003), policy(bytes), {encoded, bytes}, {});
+    expect(alpha.decoded() && alpha.image.width == 1104 && alpha.image.has_alpha &&
+               (pixel(alpha, 700, 40) >> 24) == 0x80 && (pixel(alpha, 700, 40) & 0xFFu) == 0x84,
+           "cdn_pipeline_large_lossy_webp_applies_a_vp8l_coded_alpha_plane");
+    bytes = build_constant_lossless_webp(encoded, 1024, 600, 10, 20, 30);
+    const auto lossless =
+        cdn_media_pipeline_admit_static_webp(&pipeline, key(9004), policy(bytes), {encoded, bytes}, {});
+    expect(lossless.decoded() && lossless.image.width == 1024 && lossless.image.height == 600 &&
+               lossless.rgba8.count == 1024u * 600u * 4u && pixel(lossless, 1023, 599) == 0xFF1E140Au,
+           "cdn_pipeline_lossless_webp_past_512_decodes_whole_on_the_cpu");
+    bytes = build_constant_lossless_webp(encoded, 2049, 8, 10, 20, 30);
+    const auto oversized =
+        cdn_media_pipeline_admit_static_webp(&pipeline, key(9005), policy(bytes), {encoded, bytes}, {});
+    expect(!oversized.decoded() && oversized.decode.error == WebpError::dimensions,
+           "cdn_pipeline_lossless_webp_past_2048_is_rejected");
 }
 
 void test_cdn_static_png_pipeline() noexcept {
@@ -16603,7 +16757,8 @@ void test_media_presentation_policy() noexcept {
     const MediaPresentationRequest screenshot = media_presentation_request(
         1'920, 1'080, 550.0f, 309.375f, 96, media_preview_extent_cap(MediaAttachmentFormat::jpeg));
     expect(media_preview_extent_cap(MediaAttachmentFormat::jpeg) == 2048 &&
-               media_preview_extent_cap(MediaAttachmentFormat::webp) == 512 &&
+               media_preview_extent_cap(MediaAttachmentFormat::webp) == 2048 &&
+               media_preview_extent_cap(MediaAttachmentFormat::webp, true) == 512 &&
                screenshot.resolution == MediaResolutionTier::px1024 && screenshot.width == 1024 &&
                screenshot.height == 576,
            "media_presentation_large_jpeg_previews_share_the_png_cap");
@@ -26266,6 +26421,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_encoded_media_cache_dense_index();
     maicord::test_cdn_static_png_pipeline();
     maicord::test_cdn_reduced_jpeg_pipeline();
+    maicord::test_cdn_reduced_webp_pipeline();
     maicord::test_cdn_gif_metadata_reuse();
     maicord::test_account_media_cached_frame();
     maicord::test_account_media_worker_decode_boundary();

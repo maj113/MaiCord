@@ -4,11 +4,11 @@
 
 namespace maicord {
 
-// CPU decode of still lossy WebPs beyond the 512 px GPU path, for local
-// thumbnails. VP8 keyframes are parsed, reconstructed and loop-filtered one
-// macroblock row at a time, so memory is a few rows wide whatever the image
-// height. Lossless (VP8L), animated and losslessly compressed alpha images
-// are reported unsupported; uncompressed ALPH planes are applied.
+// CPU decode of still lossy WebPs beyond the 512 px GPU path. VP8 keyframes
+// are parsed, reconstructed and loop-filtered one macroblock row at a time, so
+// memory is a few rows wide whatever the image height. Lossless (VP8L) and
+// animated images are reported unsupported; uncompressed ALPH planes are
+// applied, and a losslessly compressed one is left to the caller (alpha_chunk).
 inline constexpr u32 kWebpThumbnailEncodedMaximumBytes = 16u * 1024u * 1024u;
 
 enum class WebpThumbnailError : u8 {
@@ -28,6 +28,9 @@ enum class WebpThumbnailError : u8 {
 struct WebpThumbnailLayout {
     ConstSlice<u8> vp8;   // the VP8 chunk payload
     ConstSlice<u8> alpha; // raw alpha samples (width * height), or empty
+    // A compressed ALPH payload (with its header byte): decode it with
+    // webp_alpha_decode and set alpha (unfiltered, alpha_filter 0) first.
+    ConstSlice<u8> alpha_chunk;
     u32 width;
     u32 height;
     u32 workspace_bytes; // caller-owned scratch for webp_thumbnail_decode

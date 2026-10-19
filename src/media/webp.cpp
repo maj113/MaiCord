@@ -436,10 +436,12 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
             const u32 header = byte_load_le32(payload + 1);
             const u32 width = (header & 0x3FFFu) + 1;
             const u32 height = (header >> 14 & 0x3FFFu) + 1;
-            if ((header >> 29) != 0 || width > kWebpDimensionMaximum || height > kWebpDimensionMaximum) {
-                return parse_failure(result, width > kWebpDimensionMaximum || height > kWebpDimensionMaximum
-                                                 ? WebpError::dimensions
-                                                 : WebpError::bitstream);
+            if ((header >> 29) != 0 || width > kWebpLosslessDimensionMaximum ||
+                height > kWebpLosslessDimensionMaximum) {
+                return parse_failure(result,
+                                     width > kWebpLosslessDimensionMaximum || height > kWebpLosslessDimensionMaximum
+                                         ? WebpError::dimensions
+                                         : WebpError::bitstream);
             }
             if (vp8x_seen && (canvas_width != width || canvas_height != height)) {
                 return parse_failure(result, WebpError::dimensions);
@@ -1092,7 +1094,7 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
         return result;
     }
     auto* pixels = reinterpret_cast<u32*>(rgba_output.data);
-    if (!decode_entropy_image(&state, decoded_width, image->height, true, pixels, kWebpPixelMaximum)) {
+    if (!decode_entropy_image(&state, decoded_width, image->height, true, pixels, kWebpLosslessPixelMaximum)) {
         result.error = state.error;
         return result;
     }
@@ -1211,8 +1213,8 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(ConstSlice<u8> bitstre
         return result;
     }
     *image = WebpImage{};
-    if (width > kWebpDimensionMaximum || height > kWebpDimensionMaximum ||
-        static_cast<u64>(width) * height > kWebpPixelMaximum) {
+    if (width > kWebpLosslessDimensionMaximum || height > kWebpLosslessDimensionMaximum ||
+        static_cast<u64>(width) * height > kWebpLosslessPixelMaximum) {
         result.parse.error = WebpError::dimensions;
         result.error = WebpError::dimensions;
         return result;

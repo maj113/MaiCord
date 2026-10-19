@@ -65,9 +65,9 @@ WebpAlphaDecodeResult webp_alpha_decode(
         return alpha_failure(result, WebpAlphaError::invalid_input);
     }
     if (width == 0 || height == 0 ||
-        width > kWebpDimensionMaximum ||
-        height > kWebpDimensionMaximum ||
-        static_cast<u64>(width) * height > kWebpPixelMaximum) {
+        width > kWebpLosslessDimensionMaximum ||
+        height > kWebpLosslessDimensionMaximum ||
+        static_cast<u64>(width) * height > kWebpLosslessPixelMaximum) {
         return alpha_failure(result, WebpAlphaError::dimensions);
     }
     const u32 pixel_count = width * height;

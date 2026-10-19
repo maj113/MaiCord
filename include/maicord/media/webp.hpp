@@ -5,9 +5,14 @@
 namespace maicord {
 
 inline constexpr u32 kWebpEncodedMaximumBytes = 2u * 1024u * 1024u;
+// The GPU lossy path and animation frames.
 inline constexpr u32 kWebpDimensionMaximum = 512;
 inline constexpr u32 kWebpPixelMaximum =
     kWebpDimensionMaximum * kWebpDimensionMaximum;
+// Still lossless images and ALPH planes decode on the CPU up to the PNG
+// extent; their entropy images keep the 512 px workspace bound below.
+inline constexpr u32 kWebpLosslessDimensionMaximum = 2048;
+inline constexpr u32 kWebpLosslessPixelMaximum = kWebpLosslessDimensionMaximum * kWebpLosslessDimensionMaximum;
 inline constexpr u32 kVp8lHuffmanGroupCapacity = 256;
 inline constexpr u32 kVp8lHuffmanSymbolCapacity = 65'536;
 inline constexpr u32 kVp8lTransformPixelCapacity =

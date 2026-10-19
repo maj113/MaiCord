@@ -2223,7 +2223,7 @@ AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const Acco
             return result(AccountMediaRequestState::failed, AccountMediaError::decode);
     } else if (format == MediaAttachmentFormat::webp) {
         WebpThumbnailLayout layout{};
-        if (webp_thumbnail_parse(encoded, &layout) != WebpThumbnailError::none)
+        if (webp_thumbnail_parse(encoded, &layout) != WebpThumbnailError::none || layout.alpha_chunk.data)
             return result(AccountMediaRequestState::failed, AccountMediaError::decode);
         ThumbnailMemory scratch;
         u8* base = scratch.allocate(layout.workspace_bytes);

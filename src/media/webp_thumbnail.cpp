@@ -626,12 +626,16 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
     if (alph.data) {
         // Header byte: compression (bits 0-1), filter (2-3), preprocessing.
         const u8 info = alph[0];
-        if ((info & 3u) != 0)
+        if ((info & 3u) == 1u)
+            layout->alpha_chunk = alph;
+        else if ((info & 3u) != 0)
             return WebpThumbnailError::unsupported_alpha;
-        if (alph.count - 1u < static_cast<u64>(frame.width) * frame.height)
+        else if (alph.count - 1u < static_cast<u64>(frame.width) * frame.height)
             return WebpThumbnailError::container;
-        layout->alpha = {alph.data + 1, frame.width * static_cast<u32>(frame.height)};
-        layout->alpha_filter = static_cast<u8>((info >> 2) & 3u);
+        if (!layout->alpha_chunk.data) {
+            layout->alpha = {alph.data + 1, frame.width * static_cast<u32>(frame.height)};
+            layout->alpha_filter = static_cast<u8>((info >> 2) & 3u);
+        }
     }
     const u64 bytes = carve(nullptr, frame.width).bytes;
     if (bytes > 0x7FFFFFFFull)

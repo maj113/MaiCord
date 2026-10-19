@@ -1686,7 +1686,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                     ? media_resolution_tier_for_display(
                           command.rectangle.right - command.rectangle.left,
                           command.rectangle.bottom - command.rectangle.top, renderer->dpi,
-                          media_preview_extent_cap(static_cast<MediaAttachmentFormat>(command.format)))
+                          media_preview_extent_cap(static_cast<MediaAttachmentFormat>(command.format),
+                                                   command.animated))
                     : MediaResolutionTier::original;
             switch (command.kind) {
             case MessageMediaCommandKind::attachment:

@@ -278,10 +278,13 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     append(&url, format == MediaAttachmentFormat::png   ? utf8_literal(".png")
                  : format == MediaAttachmentFormat::gif ? utf8_literal(".gif")
                                                         : utf8_literal(".webp"));
-    // Banners are fetched at 600 (the 300 DIP popout at 2x, the modal's 400);
-    // the modal's 120 DIP avatar wants 256.
+    // Banners are fetched at 600 (the 300 DIP popout at 2x, the modal's 400),
+    // animated WebP ones at the 512 its frames decode to; the modal's 120 DIP
+    // avatar wants 256.
     const bool large = part.media == ProfileMediaKind::avatar && ui_rect_width(result.rectangle) > 96;
-    append(&url, part.media == ProfileMediaKind::banner ? utf8_literal("?size=600")
+    const bool animated_webp = animated && format == MediaAttachmentFormat::webp;
+    append(&url, part.media == ProfileMediaKind::banner ? animated_webp ? utf8_literal("?size=512")
+                                                                         : utf8_literal("?size=600")
                  : large                                ? utf8_literal("?size=256")
                                                         : utf8_literal("?size=128"));
     if (animated && format == MediaAttachmentFormat::webp)
