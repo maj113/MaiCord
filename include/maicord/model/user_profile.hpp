@@ -144,7 +144,8 @@ struct UserProfile {
     ProfileString<40> joined_at;
     u32 theme_colors[2], guild_theme_colors[2], accent_color;
     u64 effect_sku_id, guild_effect_sku_id;
-    u64 roles[128];
+    // guild_member.roles; guilds allow 250 roles.
+    u64 roles[256];
     // User badges, then the guild member's (guild_badges).
     ProfileBadge badges[24];
     ProfileConnection connections[16];

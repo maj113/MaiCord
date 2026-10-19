@@ -282,7 +282,7 @@ void test_moderation() noexcept {
           "moderation: members cached");
     const auto* truncated = guild_member_store_find(model.members, kGuild, 24);
     check(truncated && !guild_member_store_role_ids_known(*truncated) &&
-              !guild_member_store_role_ids(*truncated).count &&
+              !guild_member_store_role_ids(model.members, *truncated).count &&
               !guild_member_store_set_timeout(&model.members, kGuild, 99, 1),
           "member store: more roles than retained is unknown; timeouts of uncached members are refused");
     constexpr u8 everything = moderation_action_nickname | moderation_action_timeout | moderation_action_kick |

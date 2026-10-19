@@ -1,13 +1,18 @@
 #pragma once
 
+#include "maicord/core/stable_storage.hpp"
 #include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 
 inline constexpr u32 kGuildMemberNicknameMaximumBytes = 128;
-// Assigned role IDs retained inline for permission and hierarchy checks.
-// Members with more roles keep only derived display data and need a fetch.
+// Assigned role IDs retained inline. A member with more keeps the whole list
+// in the store's role overflow (guild_member_store_enable_role_overflow).
 inline constexpr u32 kGuildMemberRoleIdCapacity = 16;
+// Guilds allow 250 roles; a member's list never holds @everyone.
+inline constexpr u32 kGuildMemberRoleMaximum = 256;
+// Overflow compaction sorts at most this many member records.
+inline constexpr u32 kGuildMemberRoleOverflowMembers = 1'024;
 
 enum class GuildMemberStatus : u8 {
     unknown,
@@ -34,14 +39,28 @@ struct GuildMemberRecord {
     GuildMemberStatus status;
     bool roles_known;
     bool occupied;
-    bool truncated_roles;
+    // Every assigned role is retained (inline, or in the overflow past 16).
+    bool role_ids_complete;
     char nickname[kGuildMemberNicknameMaximumBytes];
     bool visible_pinned;
+    bool communication_disabled_known;
+    // The first assigned roles; the overflow span holds the whole list.
     u64 role_ids[kGuildMemberRoleIdCapacity];
     // Unix seconds; zero when not timed out.
     u32 communication_disabled_until;
-    bool role_ids_complete;
-    bool communication_disabled_known;
+    // Overflow offset + 1 of the role_count IDs; zero when inline.
+    u32 role_overflow;
+};
+
+// Contiguous role lists of members past the inline capacity, reserved on
+// first use and committed in pages. Released spans are reused at the tail or
+// by compaction, which also returns pages.
+struct GuildMemberRoleOverflow {
+    StableStorage storage;
+    u32 limit; // reserved IDs; zero disables overflow
+    u32 used;
+    u32 wasted;
+    u32 compactions;
 };
 
 inline constexpr u32 kMemberListMaximumScopes = 8;
@@ -114,6 +133,7 @@ struct GuildMemberStore {
     // Advances whenever every member's visible pin is cleared (fills padding).
     u32 user_pin_epoch;
     MemberListPinnedRange visible;
+    GuildMemberRoleOverflow role_overflow;
     MemberListPositionTable positions;
 };
 
@@ -140,6 +160,12 @@ struct GuildMemberStoreResult {
 bool guild_member_store_initialize(GuildMemberStore* store,
                                            Slice<GuildMemberRecord> records,
                                            Slice<u32> order) noexcept;
+// Keeps complete role lists past the inline 16 for up to `members_with_maximum`
+// members holding every role; address space is reserved on first use. Without
+// it such members keep their display data but not their role IDs.
+bool guild_member_store_enable_role_overflow(GuildMemberStore* store, u32 members_with_maximum) noexcept;
+// Releases the role overflow; the records stay.
+void guild_member_store_release(GuildMemberStore* store) noexcept;
 // Fresh READY withdraws Gateway list positions but keeps cached guild
 // identities, profile data, resolved roles and presence. RESUMED keeps list
 // residency and must not call this.
@@ -177,10 +203,11 @@ const GuildMemberRecord* guild_member_store_find(const GuildMemberStore& store,
 bool guild_member_store_set_status(GuildMemberStore* store, u64 guild_id, u64 user_id,
                                            GuildMemberStatus status) noexcept;
 Utf8View guild_member_store_nickname(const GuildMemberRecord& record) noexcept;
-// True when the record holds the complete assigned role list.
+// True when the store holds the complete assigned role list.
 bool guild_member_store_role_ids_known(const GuildMemberRecord& record) noexcept;
-// The assigned roles, or an empty slice when unknown/truncated.
-ConstSlice<u64> guild_member_store_role_ids(const GuildMemberRecord& record) noexcept;
+// Every assigned role, or an empty slice when unknown or incomplete. The view
+// lasts until the next store mutation.
+ConstSlice<u64> guild_member_store_role_ids(const GuildMemberStore& store, const GuildMemberRecord& record) noexcept;
 // Records an observed communication_disabled_until (zero clears). Uncached
 // members are a no-op that returns false.
 bool guild_member_store_set_timeout(GuildMemberStore* store, u64 guild_id, u64 user_id,

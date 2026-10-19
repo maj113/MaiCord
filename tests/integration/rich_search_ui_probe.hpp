@@ -19,7 +19,7 @@ inline constexpr u64 kMixedId = 1'270'000'000'000'000'000ull;
 struct DecodeScratch {
     u32 page_structurals[2048]{},message_structurals[1024]{};
     char text[16384]{};
-    u64 mention_roles[100]{},member_roles[100]{};
+    u64 mention_roles[100]{},member_roles[kGatewayMessageMemberRoleMaximumIds]{};
     GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum]{};
     GatewayMessageReaction reactions[kGatewayMessageReactionMaximum]{};
     GatewayMessageAttachment attachments[kGatewayMessageAttachmentMaximum]{},snapshot_attachments[kGatewayMessageAttachmentMaximum]{};
@@ -29,7 +29,7 @@ struct DecodeScratch {
     GatewayMessageComponent components[kGatewayMessageComponentMaximum]{},snapshot_components[kGatewayMessageComponentMaximum]{};
     GatewayMessageNamedUser snapshot_mentions[kGatewayMessageMentionUserMaximum]{};
     MessageSearchRichScratch view() noexcept {
-        return {{mention_roles,100},{member_roles,100},{mention_users,kGatewayMessageMentionUserMaximum},
+        return {{mention_roles,100},{member_roles,kGatewayMessageMemberRoleMaximumIds},{mention_users,kGatewayMessageMentionUserMaximum},
             {{reactions,kGatewayMessageReactionMaximum},{attachments,kGatewayMessageAttachmentMaximum},
              {embeds,kGatewayMessageEmbedMaximum},{fields,kGatewayMessageEmbedFieldMaximum},
              {stickers,kGatewayMessageStickerMaximum},{components,kGatewayMessageComponentMaximum},

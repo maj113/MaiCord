@@ -21,7 +21,7 @@ struct PollFixture {
     GatewayMessageSticker stickers[3], child_stickers[3];
     GatewayMessageComponent components[40], child_components[40];
     GatewayMessageNamedUser users[100], child_users[100];
-    u64 roles[100], member_roles[100];
+    u64 roles[100], member_roles[kGatewayMessageMemberRoleMaximumIds];
     MessageSearchGroup groups[2];
     MessageSearchMessage search_messages[2];
     GatewayMessagePoll output;
@@ -662,7 +662,7 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
     query.limit = 2;
     query.has = search_has_poll;
     const MessageSearchRichScratch search_scratch{
-        {f.roles, 100}, {f.member_roles, 100}, {f.users, 100}, rich()};
+        {f.roles, 100}, {f.member_roles, kGatewayMessageMemberRoleMaximumIds}, {f.users, 100}, rich()};
     f.sink_calls = 0;
     const auto search = decode_message_search_page(
         {reinterpret_cast<const char*>(f.generated), writer.used}, query, {f.structurals, 2048},

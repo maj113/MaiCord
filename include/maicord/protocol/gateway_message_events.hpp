@@ -8,7 +8,8 @@ inline constexpr u32 kGatewayMessageContentMaximumBytes = 16 * 1024;
 inline constexpr u32 kGatewayBulkDeleteMaximumIds = 100;
 inline constexpr u32 kGatewayMessageMentionRoleMaximumIds = 100;
 inline constexpr u32 kGatewayMessageMentionUserMaximum = 100;
-inline constexpr u32 kGatewayMessageMemberRoleMaximumIds = 100;
+// Guilds allow 250 roles; longer member lists are rejected.
+inline constexpr u32 kGatewayMessageMemberRoleMaximumIds = 256;
 inline constexpr u32 kGatewayMessageUserNameMaximumBytes = 128;
 inline constexpr u32 kGatewayMessageAvatarHashMaximumBytes = 34;
 inline constexpr u32 kGatewayMessageReactionMaximum = 20;
@@ -446,6 +447,9 @@ struct GatewayMessageEvent {
         interaction_metadata_present;
     bool pinned;
     u8 forwarding_features; // object presence only; body remains in the shared JSON scratch
+    // member.roles did not fit the caller's scratch: member_roles is empty and
+    // the author's roles are unknown.
+    bool member_roles_partial;
     GatewayMessageSnapshot snapshot;
     GatewayMessagePoll poll;
     GatewayMessageThread thread;

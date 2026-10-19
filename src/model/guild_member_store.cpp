@@ -1,5 +1,6 @@
 #include "maicord/model/guild_member_store.hpp"
 
+#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/role_policy.hpp"
@@ -89,6 +90,77 @@ u32 least_recent_slot(const GuildMemberStore& store) noexcept {
     return result_pinned ? store.capacity : result;
 }
 
+// Role overflow: each heavy member's whole list, contiguous, bump-allocated;
+// released spans are reclaimed at the tail or by compaction.
+u64* overflow_data(const GuildMemberStore& store) noexcept {
+    return const_cast<u64*>(stable_storage_data<u64>(store.role_overflow.storage));
+}
+void overflow_shrink(GuildMemberStore* store) noexcept {
+    auto& o = store->role_overflow;
+    if (!o.storage.arena.base)
+        return;
+    if (o.wasted >= o.used)
+        o.used = o.wasted = 0;
+    stable_storage_shrink(&o.storage, o.used);
+}
+void overflow_release(GuildMemberStore* store, GuildMemberRecord& record) noexcept {
+    if (!record.role_overflow)
+        return;
+    auto& o = store->role_overflow;
+    const u32 offset = record.role_overflow - 1;
+    record.role_overflow = 0;
+    if (offset + record.role_count == o.used)
+        o.used = offset;
+    else
+        o.wasted += record.role_count;
+    if (o.wasted >= o.used)
+        overflow_shrink(store);
+}
+// Slides live spans down in offset order and returns the freed pages.
+void overflow_compact(GuildMemberStore* store) noexcept {
+    auto& o = store->role_overflow;
+    u32 slots[kGuildMemberRoleOverflowMembers];
+    u32 count = 0;
+    for (u32 slot = 0; slot < store->capacity; ++slot)
+        if (store->records[slot].occupied && store->records[slot].role_overflow)
+            slots[count++] = slot;
+    const GuildMemberRecord* records = store->records;
+    heap_sort(slots, count, [records](u32 left, u32 right) noexcept {
+        return records[left].role_overflow < records[right].role_overflow;
+    });
+    u64* data = overflow_data(*store);
+    u32 cursor = 0;
+    for (u32 i = 0; i < count; ++i) {
+        auto& record = store->records[slots[i]];
+        const u32 offset = record.role_overflow - 1;
+        if (offset != cursor)
+            copy_bytes(data + cursor, data + offset, record.role_count * 8u);
+        record.role_overflow = cursor + 1;
+        cursor += record.role_count;
+    }
+    o.used = cursor;
+    o.wasted = 0;
+    saturating_increment(o.compactions);
+    stable_storage_shrink(&o.storage, o.used);
+}
+// A span of `count` ids, or null when overflow is off or full.
+u64* overflow_take(GuildMemberStore* store, u32 count, u32* offset) noexcept {
+    auto& o = store->role_overflow;
+    if (!o.limit || count > o.limit)
+        return nullptr;
+    if (!o.storage.arena.base &&
+        !stable_storage_initialize(&o.storage, o.limit, 0, sizeof(u64), alignof(u64)))
+        return nullptr;
+    // Reuse released spans before committing more pages.
+    if (o.used + count > o.storage.capacity && (o.wasted >= count || o.used + count > o.limit))
+        overflow_compact(store);
+    if (o.used + count > o.limit || !stable_storage_reserve(&o.storage, o.used + count))
+        return nullptr;
+    *offset = o.used;
+    o.used += count;
+    return overflow_data(*store) + *offset;
+}
+
 bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     if (slot >= store->capacity || !store->records[slot].occupied) {
         return false;
@@ -100,6 +172,7 @@ bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     if (!found || store->order[order_index] != slot) {
         return false;
     }
+    overflow_release(store, store->records[slot]);
     const u16 generation = next_generation(store->records[slot].generation);
     store->records[slot] = GuildMemberRecord{};
     store->records[slot].generation = generation;
@@ -120,12 +193,17 @@ void resolve_roles(const ChatStateStore& state, u64 guild_id, ConstSlice<u64> ro
     *group_position = display.hoist ? display.hoist->position : 0;
 }
 
-bool role_ids_equal(const GuildMemberRecord& record, ConstSlice<u64> role_ids) noexcept {
-    if (record.role_ids_complete != (role_ids.count <= kGuildMemberRoleIdCapacity))
+// An incomplete record compares its inline prefix, so an unchanged list does
+// not churn revisions while the overflow is off or full.
+bool role_ids_equal(const GuildMemberStore& store, const GuildMemberRecord& record,
+                    ConstSlice<u64> role_ids) noexcept {
+    if (record.role_count != minimum<u32>(role_ids.count, kGuildMemberRoleMaximum))
         return false;
-    const u32 retained = minimum(role_ids.count, kGuildMemberRoleIdCapacity);
-    for (u32 index = 0; index < retained; ++index)
-        if (record.role_ids[index] != role_ids[index])
+    const u64* held = record.role_overflow ? overflow_data(store) + (record.role_overflow - 1) : record.role_ids;
+    const u32 compared =
+        record.role_ids_complete ? record.role_count : minimum(role_ids.count, kGuildMemberRoleIdCapacity);
+    for (u32 index = 0; index < compared; ++index)
+        if (held[index] != role_ids[index])
             return false;
     return true;
 }
@@ -137,16 +215,29 @@ void store_nickname(GuildMemberRecord& record, Utf8View nickname) noexcept {
     record.nickname_bytes = static_cast<u16>(nickname.bytes);
 }
 
-void store_roles(GuildMemberRecord& record, ConstSlice<u64> role_ids, u64 color_role_id, u32 role_color) noexcept {
+void store_roles(GuildMemberStore* store, GuildMemberRecord& record, ConstSlice<u64> role_ids, u64 color_role_id,
+                 u32 role_color) noexcept {
+    const u32 count = minimum<u32>(role_ids.count, kGuildMemberRoleMaximum);
+    // A list of the same length past 16 rewrites its span in place.
+    if (record.role_overflow && record.role_count != count)
+        overflow_release(store, record);
     record.color_role_id = color_role_id;
     record.role_color = role_color;
-    record.role_count = static_cast<u16>(minimum<u32>(role_ids.count, 0xFFFFu));
+    record.role_count = static_cast<u16>(count);
     record.roles_known = true;
-    record.truncated_roles = role_ids.count > 0xFFFFu;
-    const u32 retained = minimum(role_ids.count, kGuildMemberRoleIdCapacity);
+    const u32 retained = minimum(count, kGuildMemberRoleIdCapacity);
     for (u32 index = 0; index < kGuildMemberRoleIdCapacity; ++index)
         record.role_ids[index] = index < retained ? role_ids[index] : 0;
     record.role_ids_complete = role_ids.count <= kGuildMemberRoleIdCapacity;
+    if (role_ids.count <= kGuildMemberRoleIdCapacity || role_ids.count > kGuildMemberRoleMaximum)
+        return;
+    u32 offset = record.role_overflow ? record.role_overflow - 1 : 0;
+    u64* span = record.role_overflow ? overflow_data(*store) + offset : overflow_take(store, count, &offset);
+    if (!span)
+        return;
+    copy_bytes(span, role_ids.data, count * 8u);
+    record.role_overflow = offset + 1;
+    record.role_ids_complete = true;
 }
 
 // Per-list positions (MemberListPositionTable). Scope slots index store.lists.
@@ -361,6 +452,28 @@ bool guild_member_store_initialize(GuildMemberStore* store,
     return true;
 }
 
+bool guild_member_store_enable_role_overflow(GuildMemberStore* store, u32 members_with_maximum) noexcept {
+    if (!store || !store->records || store->capacity > kGuildMemberRoleOverflowMembers || !members_with_maximum ||
+        members_with_maximum > store->capacity || store->role_overflow.storage.arena.base)
+        return false;
+    store->role_overflow.limit = members_with_maximum * kGuildMemberRoleMaximum;
+    return true;
+}
+
+void guild_member_store_release(GuildMemberStore* store) noexcept {
+    if (!store)
+        return;
+    for (u32 slot = 0; store->records && slot < store->capacity; ++slot) {
+        auto& record = store->records[slot];
+        if (record.role_overflow) {
+            record.role_overflow = 0;
+            record.role_ids_complete = false;
+        }
+    }
+    stable_storage_release(&store->role_overflow.storage);
+    store->role_overflow = {};
+}
+
 void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
     if (!store || !store->records || !store->order)
         return;
@@ -400,6 +513,7 @@ void guild_member_store_retire_role_authority(GuildMemberStore* store) noexcept 
         auto& member = store->records[i];
         if (!member.occupied || !member.roles_known)
             continue;
+        overflow_release(store, member);
         member.roles_known = false;
         member.role_count = 0;
         member.role_color = 0;
@@ -468,8 +582,7 @@ GuildMemberStoreResult guild_member_store_upsert(
         !found || nickname_changed ||
         (roles_known && (!record.roles_known || record.group_role_id != group_role_id ||
                          record.color_role_id != color_role_id || record.role_color != role_color ||
-                         record.role_count != minimum<u32>(role_ids.count, 0xFFFFu) ||
-                         !role_ids_equal(record, role_ids))) ||
+                         !role_ids_equal(*store, record, role_ids))) ||
         record.status != resolved_status || record.list_index != resolved_list_index ||
         record.list_id != resolved_list_id;
     if (resolved_list_index != ~0u && list_index != ~0u && resolved_list_index == list_index &&
@@ -511,7 +624,7 @@ GuildMemberStoreResult guild_member_store_upsert(
     if (roles_known) {
         record.group_role_id = group_role_id;
         record.group_position = group_position;
-        store_roles(record, role_ids, color_role_id, role_color);
+        store_roles(store, record, role_ids, color_role_id, role_color);
     }
     record.status = resolved_status;
     record.list_index = resolved_list_index;
@@ -563,8 +676,7 @@ GuildMemberInPlaceResult guild_member_store_update_in_place(
     const bool roles_changed =
         roles_known && (!record.roles_known || record.color_role_id != color_role_id ||
                         record.role_color != role_color ||
-                        record.role_count != minimum<u32>(role_ids.count, 0xFFFFu) ||
-                        !role_ids_equal(record, role_ids));
+                        !role_ids_equal(*store, record, role_ids));
     result.changed = nickname_changed || roles_changed || resolved_status != record.status;
     saturating_increment(store->clock);
     record.last_seen = store->clock;
@@ -573,7 +685,7 @@ GuildMemberInPlaceResult guild_member_store_update_in_place(
     if (nickname_changed)
         store_nickname(record, nickname);
     if (roles_changed)
-        store_roles(record, role_ids, color_role_id, role_color);
+        store_roles(store, record, role_ids, color_role_id, role_color);
     result.label_changed = nickname_changed;
     record.status = resolved_status;
     saturating_increment(record.revision);
@@ -612,14 +724,15 @@ bool guild_member_store_set_status(GuildMemberStore* store, u64 guild_id, u64 us
 }
 
 bool guild_member_store_role_ids_known(const GuildMemberRecord& record) noexcept {
-    return record.occupied && record.roles_known && record.role_ids_complete && !record.truncated_roles &&
-           record.role_count <= kGuildMemberRoleIdCapacity;
+    return record.occupied && record.roles_known && record.role_ids_complete &&
+           (record.role_count <= kGuildMemberRoleIdCapacity || record.role_overflow);
 }
 
-ConstSlice<u64> guild_member_store_role_ids(const GuildMemberRecord& record) noexcept {
-    return guild_member_store_role_ids_known(record)
-               ? ConstSlice<u64>{record.role_ids, record.role_count}
-               : ConstSlice<u64>{};
+ConstSlice<u64> guild_member_store_role_ids(const GuildMemberStore& store, const GuildMemberRecord& record) noexcept {
+    if (!guild_member_store_role_ids_known(record))
+        return {};
+    return record.role_overflow ? ConstSlice<u64>{overflow_data(store) + (record.role_overflow - 1), record.role_count}
+                                : ConstSlice<u64>{record.role_ids, record.role_count};
 }
 
 bool guild_member_store_set_timeout(GuildMemberStore* store, u64 guild_id, u64 user_id,

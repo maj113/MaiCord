@@ -123,7 +123,8 @@ bool populate(AccountUiRuntime& ui) noexcept {
          need(guild_member_store_observe_list(&ui.guild_member_store, kGuild, 77, 42, 7, true, true, false, 0, 42),
               "plugin read setup: member list");
 
-    ok = ok && need(voice_state_store_initialize_sparse(&ui.voice_states, {ui.voice_state_records, 8}) &&
+    static VoiceState voice_records[8];
+    ok = ok && need(voice_state_store_initialize_sparse(&ui.voice_states, {voice_records, 8}) &&
          voice_state_store_apply(&ui.voice_states, kGuild, kChannel, kOther, voice_self_mute | voice_deaf) ==
              VoiceStateResult::changed,
                     "plugin read setup: voice");

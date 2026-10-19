@@ -759,14 +759,15 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     const auto policy = role_edit_policy(*s->state, p.guild_id);
     // The profile lists the member's roles in wire order; pills follow the role hierarchy,
     // linked roles last.
-    const RoleRecord* ranked[128];
+    constexpr u32 kRoles = sizeof(p.roles) / sizeof(p.roles[0]);
+    const RoleRecord* ranked[kRoles];
     u32 ranked_count = 0;
-    for (u32 i = 0; i < p.role_count && i < 128; ++i)
+    for (u32 i = 0; i < p.role_count && i < kRoles; ++i)
         if (const auto* role = chat_state_store_find_role(*s->state, p.guild_id, p.roles[i]))
             ranked[ranked_count++] = role;
     heap_sort(ranked, ranked_count,
               [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_pill_before(*left, *right); });
-    RoleItem items[128];
+    RoleItem items[kRoles];
     u32 count = 0;
     for (u32 i = 0; i < ranked_count; ++i) {
         const auto* role = ranked[i];
@@ -802,8 +803,16 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     auto& more_text = labels(s).roles_more;
     more_text.bytes = 0;
     float more_width = 0;
-    const bool collapse = clamp && s->roles_expanded;
-    if (clamp && !s->roles_expanded && lines(count, false, 0) > 2) {
+    // Up to three parts a pill; parts left for the sections below bound how
+    // many show before "+N".
+    const u32 room = capacity > s->part_count + 64 ? (capacity - s->part_count - 64) / 3 : 0;
+    const bool collapse = clamp && s->roles_expanded && count <= room;
+    if (count > room && (!clamp || s->roles_expanded)) {
+        visible = room;
+        append(&more_text, utf8_literal("+"));
+        append_number(&more_text, count - visible);
+        more_width = maximum(24.f, text_width(s, more_text.view(), width, kXs) + 16);
+    } else if (clamp && !s->roles_expanded && lines(count, false, 0) > 2) {
         for (visible = count; visible > 0; --visible) {
             more_text.bytes = 0;
             append(&more_text, utf8_literal("+"));

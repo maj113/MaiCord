@@ -464,6 +464,37 @@ bool visit_mention_role(void* opaque, u32 index, JsonValue value) noexcept {
     return true;
 }
 
+// Member roles are kept whole or not at all: past the scratch (a shared
+// history pool) they are validated and reported partial.
+struct MemberRoleContext {
+    Slice<u64> ids;
+    GatewayEventDecodeError error;
+    u32 count;
+    bool partial;
+};
+
+bool visit_member_role(void* opaque, u32 index, JsonValue value) noexcept {
+    auto* context = static_cast<MemberRoleContext*>(opaque);
+    u64 id = 0;
+    if (!json_value_to_snowflake(value, &id) || index >= kGatewayMessageMemberRoleMaximumIds) {
+        context->error = GatewayEventDecodeError::invalid_data;
+        return false;
+    }
+    if (index >= context->ids.count) {
+        context->partial = true;
+        return true;
+    }
+    for (u32 previous = 0; previous < index; ++previous) {
+        if (context->ids[previous] == id) {
+            context->error = GatewayEventDecodeError::duplicate_field;
+            return false;
+        }
+    }
+    context->ids[index] = id;
+    context->count = index + 1;
+    return true;
+}
+
 bool visit_member_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MemberContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("nick"))) {
@@ -529,14 +560,15 @@ GatewayEventDecodeResult decode_member(MessageContext* context, Slice<u32> struc
         return decode_failure(GatewayEventDecodeError::scan_failed, role_scan.error_offset,
                               role_scan.error);
     }
-    MentionRoleContext roles{member_role_scratch, GatewayEventDecodeError::none, 0};
+    MemberRoleContext roles{member_role_scratch, GatewayEventDecodeError::none, 0, false};
     const JsonReadResult role_read = json_visit_value_array(
         member.roles, ConstSlice<u32>{structural_scratch.data, role_scan.count}, maximum_depth,
-        visit_mention_role, &roles);
-    if (!role_read.ok() || roles.count > kGatewayMessageMemberRoleMaximumIds) {
+        visit_member_role, &roles);
+    if (!role_read.ok()) {
         return read_failure(roles.error, role_read);
     }
-    context->event.member_roles = ConstSlice<u64>{member_role_scratch.data, roles.count};
+    context->event.member_roles_partial = roles.partial;
+    context->event.member_roles = ConstSlice<u64>{member_role_scratch.data, roles.partial ? 0u : roles.count};
     return decode_failure(GatewayEventDecodeError::none);
 }
 

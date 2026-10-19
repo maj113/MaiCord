@@ -68,7 +68,7 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
             result.block = ModerationBlock::unresolved;
             return result;
         }
-        const ConstSlice<u64> target_roles = guild_member_store_role_ids(*target);
+        const ConstSlice<u64> target_roles = guild_member_store_role_ids(members, *target);
         const auto* mine_top = chat_state_store_highest_role(state, guild_id, {self_roles, self_count});
         const auto* their_top = chat_state_store_highest_role(state, guild_id, target_roles);
         const bool above = mine_top && (!their_top || role_rank_above(*mine_top, their_top->position,
@@ -80,7 +80,7 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
     }
     u8 allowed = result.visible;
     if (member_known) {
-        const PermissionMember them{target_user_id, guild_member_store_role_ids(*target), 0};
+        const PermissionMember them{target_user_id, guild_member_store_role_ids(members, *target), 0};
         if (permission_compute_base(scope, them) & kPermissionAdministrator) {
             allowed &= static_cast<u8>(~moderation_action_timeout);
             result.block = ModerationBlock::target_admin;

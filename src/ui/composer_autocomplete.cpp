@@ -521,7 +521,7 @@ void append_mention_users(ComposerAutocomplete* autocomplete, const MessageCompo
             if (!rank)
                 continue;
             if (permissions && guild_member_store_role_ids_known(member)) {
-                const PermissionMember subject{member.user_id, guild_member_store_role_ids(member),
+                const PermissionMember subject{member.user_id, guild_member_store_role_ids(*member_store, member),
                                                member.communication_disabled_until};
                 if (!(chat_state_store_member_permissions(state, guild_id, composer.channel_id, subject, {}) &
                       kPermissionViewChannel))

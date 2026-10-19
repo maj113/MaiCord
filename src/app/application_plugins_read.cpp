@@ -186,11 +186,11 @@ bool read_member(void*, u64 guild_id, u64 user_id, mc_member_info* info) noexcep
     info->status = status_value(member->status);
     if (member->roles_known) {
         info->flags |= MC_MEMBER_ROLES;
-        const auto roles = guild_member_store_role_ids(*member);
-        const u32 count = minimum<u32>(roles.count, 16);
-        for (u32 i = 0; i < count; ++i) info->role_ids[i] = roles[i];
+        // The first 16 in wire order; the inline prefix holds them.
+        const u32 count = minimum<u32>(member->role_count, 16);
+        for (u32 i = 0; i < count; ++i) info->role_ids[i] = member->role_ids[i];
         info->role_count = count;
-        if (member->truncated_roles || roles.count > 16) info->flags |= MC_MEMBER_TRUNCATED;
+        if (member->role_count > 16) info->flags |= MC_MEMBER_TRUNCATED;
     }
     if (member->communication_disabled_known && member->communication_disabled_until) {
         const u64 until = static_cast<u64>(member->communication_disabled_until) * 1000u;

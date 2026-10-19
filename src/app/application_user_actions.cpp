@@ -177,7 +177,7 @@ u32 collect_roles(u64 guild_id, u64 user_id, u64* ids, bool* held, u32 capacity)
     const auto* member = guild_member_store_find(g_app.account_ui->guild_member_store, guild_id, user_id);
     if (!member || !guild_member_store_role_ids_known(*member))
         return 0;
-    const auto member_roles = guild_member_store_role_ids(*member);
+    const auto member_roles = guild_member_store_role_ids(g_app.account_ui->guild_member_store, *member);
     // Rank every editable role before cutting to the menu size; the store holds them by id.
     const RoleRecord* found[kGuildRoleMaximum];
     u32 count = 0;
@@ -862,11 +862,12 @@ bool application_user_actions_submit(u64 now) noexcept {
         // IDs in order, with the role appended or filtered out.
         const auto* member =
             guild_member_store_find(g_app.account_ui->guild_member_store, s.role_guild, s.role_user);
-        u64 roles[kGuildMemberRoleIdCapacity + 1];
+        u64 roles[kGuildMemberRoleMaximum + 1];
         const u32 count =
             member && guild_member_store_role_ids_known(*member)
-                ? guild_admin_member_roles_toggle(guild_member_store_role_ids(*member), s.role_id,
-                                                  s.role_add, {roles, kGuildMemberRoleIdCapacity + 1})
+                ? guild_admin_member_roles_toggle(
+                      guild_member_store_role_ids(g_app.account_ui->guild_member_store, *member), s.role_id,
+                      s.role_add, {roles, kGuildMemberRoleMaximum + 1})
                 : ~0u;
         if (!role_editable(chat(), s.role_guild, s.role_id) || !api.guild_admin || count == ~0u) {
             s.role_override_id = 0;

@@ -477,7 +477,7 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
             banner_found =
                 profile_media_resolve(scene, i, &media) &&
                 utf8_equal(media.url.view(), utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/"
-                                                          "banners/a_guild.webp?size=600&animated=true")) &&
+                                                          "banners/a_guild.webp?size=512&animated=true")) &&
                 !ui_rect_has_area(media.mask) && media.clip.bottom <= scene.banner.bottom;
             const auto guild_key = media.key;
             profile.guild_banner = {};
@@ -486,7 +486,7 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
                 utf8_equal(
                     media.url.view(),
                     utf8_literal(
-                        "https://cdn.discordapp.com/banners/42/a_global.webp?size=600&animated=true")) &&
+                        "https://cdn.discordapp.com/banners/42/a_global.webp?size=512&animated=true")) &&
                 guild_key.id != media.key.id;
         }
     check(banner_found, "profile_animated_banner_url_matches_decoder_and_guild_scope");

@@ -185,7 +185,7 @@ bool peer_item(void* opaque, u32 i, JsonValue v) noexcept {
 }
 bool role_item(void* opaque, u32 i, JsonValue v) noexcept {
     auto& p = *static_cast<UserProfile*>(opaque);
-    if (i >= 128)
+    if (i >= sizeof(p.roles) / sizeof(p.roles[0]))
         return true;
     if (!number(v, &p.roles[p.role_count]) || !p.roles[p.role_count])
         return false;

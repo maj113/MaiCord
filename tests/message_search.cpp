@@ -34,7 +34,7 @@ MessageSearchDecodeResult decode(DecodeFixture* fixture, Utf8View body,
 struct RichSearchFixture {
     u32 page_structurals[32768], message_structurals[16384]; u8 body[65536]; char text[65536];
     MessageSearchGroup groups[25]; MessageSearchMessage messages[125];
-    u64 roles[100], member_roles[100]; GatewayMessageReaction reactions[20];
+    u64 roles[100], member_roles[kGatewayMessageMemberRoleMaximumIds]; GatewayMessageReaction reactions[20];
     GatewayMessageAttachment attachments[10], child_attachments[10];
     GatewayMessageEmbed embeds[10], child_embeds[10];
     GatewayMessageEmbedField fields[64], child_fields[64];
@@ -45,7 +45,7 @@ struct RichSearchFixture {
     char saved_content[2][64], saved_author[2][64], saved_child_user[2][64];
     u32 calls, cumulative_text, first_text, reject_at; bool full, maximum_page, valid;
     MessageSearchRichScratch scratch() noexcept {
-        return {{roles, 100}, {member_roles, 100}, {users, 100},
+        return {{roles, 100}, {member_roles, kGatewayMessageMemberRoleMaximumIds}, {users, 100},
             {{reactions, 20}, {attachments, 10}, {embeds, 10}, {fields, 64}, {stickers, 3}, {components, 40},
             {{child_attachments, 10}, {child_embeds, 10}, {child_fields, 64}, {child_stickers, 3},
              {child_components, 40}, {child_users, 100}}}};
