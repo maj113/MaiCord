@@ -373,14 +373,62 @@ template <usize Count> constexpr ConstSlice<u8> byte_literal(const char (&text)[
     return ConstSlice<u8>{reinterpret_cast<const u8*>(text), static_cast<u32>(Count - 1)};
 }
 
+const char* volatile g_last_check = "none";
+
 void expect(bool condition, const char* name) noexcept {
     ++g_checks;
+    g_last_check = name;
     if (!condition) {
         ++g_failures;
         test_write_text("FAIL ");
         test_write_text(name);
         test_write_text("\r\n");
     }
+}
+
+void write_hex(u64 value) noexcept {
+    char digits[19] = {'0', 'x'};
+    u32 count = 2;
+    for (u32 shift = 64; shift;) {
+        shift -= 4;
+        const u32 nibble = static_cast<u32>(value >> shift) & 15u;
+        if (nibble || count > 2 || !shift)
+            digits[count++] = static_cast<char>(nibble < 10 ? '0' + nibble : 'A' + nibble - 10);
+    }
+    digits[count] = 0;
+    test_write_text(digits);
+}
+
+// Names the crashing module offset and the last check reached; CTest shows it.
+LONG WINAPI report_crash(EXCEPTION_POINTERS* info) noexcept {
+    const EXCEPTION_RECORD& record = *info->ExceptionRecord;
+    const auto address = reinterpret_cast<u64>(record.ExceptionAddress);
+    HMODULE module = nullptr;
+    wchar_t path[260]{};
+    char name[64]{};
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCWSTR>(record.ExceptionAddress), &module)) {
+        const DWORD length = GetModuleFileNameW(module, path, 260);
+        u32 start = length < 260 ? length : 0;
+        while (start && path[start - 1] != L'\\')
+            --start;
+        for (u32 i = 0; i < 63 && start + i < length; ++i)
+            name[i] = path[start + i] < 128 ? static_cast<char>(path[start + i]) : '?';
+    }
+    test_write_text("CRASH ");
+    write_hex(record.ExceptionCode);
+    test_write_text(" at ");
+    test_write_text(name[0] ? name : "?");
+    test_write_text("+");
+    write_hex(address - reinterpret_cast<u64>(module));
+    if (record.ExceptionCode == 0xC0000005u && record.NumberParameters >= 2) {
+        test_write_text(record.ExceptionInformation[0] ? " writing " : " reading ");
+        write_hex(record.ExceptionInformation[1]);
+    }
+    test_write_text(" after check ");
+    test_write_text(g_last_check);
+    test_write_text("\r\n");
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 bool bytes_equal(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
@@ -24315,8 +24363,9 @@ void test_tls_stream_contract() noexcept {
         "tls_stream_rejects_authority_and_buffer_aliasing");
 }
 
+// Bounded generously: a resolver given up on while pending is still written by Winsock.
 NetworkPollResult poll_network_completion(NetworkLoop* loop, NetworkOperationKind kind) noexcept {
-    for (u32 attempt = 0; attempt < 8; ++attempt) {
+    for (u32 attempt = 0; attempt < 120; ++attempt) {
         const NetworkPollResult result = network_loop_poll(loop, 250);
         if (result.state != NetworkPollState::timeout &&
             (result.state != NetworkPollState::completion || result.completion.kind == kind)) {
@@ -24398,6 +24447,11 @@ void test_network_resolver() noexcept {
     }
 
     network_loop_release(&loop);
+    // The cancelled lookup can still be running on a Winsock thread, so the
+    // last loop release must leave Winsock initialized.
+    const SOCKET probe = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    expect(probe != INVALID_SOCKET, "network_loop_release_keeps_winsock_for_cancelled_lookups");
+    if (probe != INVALID_SOCKET) closesocket(probe);
 }
 
 struct TestNetworkWorkerContext {
@@ -25973,6 +26027,7 @@ void test_runtime_memory() noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
+    SetUnhandledExceptionFilter(maicord::report_crash);
     maicord::test_runtime_memory();
     maicord::test_deadline_policy();
     maicord::test_spsc_queue();

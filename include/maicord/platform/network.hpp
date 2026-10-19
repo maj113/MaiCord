@@ -228,6 +228,9 @@ struct NetworkPollResult {
     NetworkPollState state;
 };
 
+// The first successful initialization also pins one Winsock reference for the
+// process lifetime: a cancelled lookup outlives its completion, so releasing
+// the last loop must not unload Winsock.
 NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept;
 void network_loop_release(NetworkLoop* loop) noexcept;
 

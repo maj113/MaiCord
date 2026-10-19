@@ -6,6 +6,8 @@
 namespace maicord {
 namespace {
 
+volatile LONG g_winsock_pinned = 0;
+
 NetworkResult success() noexcept {
     return NetworkResult{0, NetworkError::none};
 }
@@ -70,6 +72,12 @@ NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
     if (LOBYTE(data.wVersion) != 2 || HIBYTE(data.wVersion) != 2) {
         network_loop_release(loop);
         return failure(NetworkError::winsock_startup, WSAVERNOTSUPPORTED);
+    }
+    // A cancelled GetAddrInfoExW lookup keeps running on a Winsock pool thread
+    // after its WSA_E_CANCELLED completion, and the last WSACleanup frees the
+    // namespace catalog under it. Pin one reference for the process lifetime.
+    if (InterlockedCompareExchange(&g_winsock_pinned, 1, 0) == 0 && WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+        InterlockedExchange(&g_winsock_pinned, 0);
     }
 
     loop->completion_port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1);

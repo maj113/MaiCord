@@ -224,6 +224,8 @@ typedef void __stdcall TP_TIMER_CALLBACK(PTP_CALLBACK_INSTANCE Instance, PVOID C
 typedef TP_TIMER_CALLBACK* PTP_TIMER_CALLBACK;
 typedef DWORD(__stdcall* PTHREAD_START_ROUTINE)(LPVOID lpThreadParameter);
 typedef PTHREAD_START_ROUTINE LPTHREAD_START_ROUTINE;
+typedef LONG(__stdcall* PTOP_LEVEL_EXCEPTION_FILTER)(struct _EXCEPTION_POINTERS* ExceptionInfo);
+typedef PTOP_LEVEL_EXCEPTION_FILTER LPTOP_LEVEL_EXCEPTION_FILTER;
 typedef void(__stdcall* PTIMERAPCROUTINE)(LPVOID lpArgToCompletionRoutine, DWORD dwTimerLowValue,
     DWORD dwTimerHighValue);
 typedef struct _PROC_THREAD_ATTRIBUTE_LIST* LPPROC_THREAD_ATTRIBUTE_LIST;
@@ -231,6 +233,7 @@ typedef struct _PROC_THREAD_ATTRIBUTE_LIST* LPPROC_THREAD_ATTRIBUTE_LIST;
 MAICORD_SYS_TYPES_BEGIN
 struct _BY_HANDLE_FILE_INFORMATION;
 struct _CONTEXT;
+struct _EXCEPTION_POINTERS;
 struct _EXCEPTION_RECORD;
 struct _EXCEPTION_REGISTRATION_RECORD;
 struct _FILE_ATTRIBUTE_TAG_INFO;
@@ -281,6 +284,7 @@ enum _EXCEPTION_DISPOSITION {
     ExceptionCollidedUnwind
 };
 typedef _EXCEPTION_DISPOSITION EXCEPTION_DISPOSITION;
+#define EXCEPTION_CONTINUE_SEARCH 0
 // <winnt.h>
 union _LARGE_INTEGER {
     struct {
@@ -469,6 +473,14 @@ struct _EXCEPTION_RECORD {
     DWORD NumberParameters;
     ULONG_PTR ExceptionInformation[15];
 };
+typedef _EXCEPTION_RECORD EXCEPTION_RECORD;
+typedef EXCEPTION_RECORD* PEXCEPTION_RECORD;
+struct _EXCEPTION_POINTERS {
+    PEXCEPTION_RECORD ExceptionRecord;
+    PCONTEXT ContextRecord;
+};
+typedef _EXCEPTION_POINTERS EXCEPTION_POINTERS;
+typedef EXCEPTION_POINTERS* PEXCEPTION_POINTERS;
 struct _EXCEPTION_REGISTRATION_RECORD {
     struct _EXCEPTION_REGISTRATION_RECORD* Next;
     PEXCEPTION_ROUTINE Handler;
@@ -1075,6 +1087,8 @@ extern "C" __declspec(dllimport) BOOL WINAPI SetHandleInformation(HANDLE hObject
 extern "C" __declspec(dllimport) DWORD WINAPI GetLastError();
 extern "C" __declspec(dllimport) void WINAPI SetLastError(DWORD dwErrCode);
 extern "C" __declspec(dllimport) UINT WINAPI SetErrorMode(UINT uMode);
+extern "C" __declspec(dllimport) LPTOP_LEVEL_EXCEPTION_FILTER WINAPI SetUnhandledExceptionFilter(
+    LPTOP_LEVEL_EXCEPTION_FILTER lpTopLevelExceptionFilter);
 
 // <profileapi.h>
 extern "C" __declspec(dllimport) BOOL WINAPI QueryPerformanceCounter(LARGE_INTEGER* lpPerformanceCount);
