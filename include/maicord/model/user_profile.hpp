@@ -140,7 +140,8 @@ struct UserProfile {
     ProfileString<128> username, display_name, nickname;
     ProfileString<34> avatar, banner, guild_banner;
     ProfileString<kProfileBioMaximumUtf8Bytes> bio, guild_bio;
-    ProfileString<64> pronouns, guild_pronouns;
+    // 40 code points (the API's limit), up to 4 bytes each.
+    ProfileString<160> pronouns, guild_pronouns;
     ProfileString<40> joined_at;
     u32 theme_colors[2], guild_theme_colors[2], accent_color;
     u64 effect_sku_id, guild_effect_sku_id;

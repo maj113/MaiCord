@@ -148,9 +148,13 @@ bool connection_item(void* opaque, u32 i, JsonValue v) noexcept {
     Field f[] = {{utf8_literal("type")}, {utf8_literal("name")}, {utf8_literal("verified")},
                  {utf8_literal("metadata")}};
     auto& b = c.profile->connections[c.profile->connection_count];
-    if (!object(*c.doc, v, f) || !string(f[0].value, &b.type) || !string(f[1].value, &b.name) ||
-        !boolean(f[2].value, &b.verified))
+    if (!object(*c.doc, v, f))
         return false;
+    // A connection whose fields do not fit is left out, not the profile.
+    if (!string(f[0].value, &b.type) || !string(f[1].value, &b.name) || !boolean(f[2].value, &b.verified)) {
+        b = {};
+        return true;
+    }
     // Platform metadata is loosely typed; only a string created_at is read.
     Field m[] = {{utf8_literal("created_at")}};
     if (f[3].value.kind == JsonValueKind::object && object(*c.doc, f[3].value, m) &&
@@ -178,8 +182,11 @@ bool peer_item(void* opaque, u32 i, JsonValue v) noexcept {
     JsonValue name = c.friends ? f[4].value : f[2].value;
     if (!filled(name))
         name = c.friends ? f[3].value : JsonValue{};
-    if (!string(name, &b.name) || !string(c.friends ? f[5].value : f[6].value, &b.icon))
-        return false;
+    // An oversized name or icon drops that field, not the profile.
+    if (!string(name, &b.name))
+        b.name = {};
+    if (!string(c.friends ? f[5].value : f[6].value, &b.icon))
+        b.icon = {};
     ++*c.count;
     return true;
 }
