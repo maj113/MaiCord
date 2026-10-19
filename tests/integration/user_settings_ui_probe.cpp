@@ -120,6 +120,7 @@ u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks
     v = {};
     v.state = app_detail::ApplicationUpdateState::downloading;
     v.channel = UpdateChannel::preview;
+    v.interval = kUpdateDefaultCheckInterval;
     v.own_version = update_version_number(0, 3, 4, 12);
     copy_bytes(v.own_commit, "4d1c9a2", 7);
     v.offer_version = update_version_number(0, 3, 4, 17);

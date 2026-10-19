@@ -605,11 +605,102 @@ void test_settings_rows() noexcept {
         "update settings: errors offer Try again, explain themselves in a critical notice, and rollback names the previous version");
     test_offer_rows();
     test_changelog_rows();
-    UiSettingsSchemaLocation status{}, channel{};
+    v.state = ApplicationUpdateState::up_to_date; v.interval = kUpdateDefaultCheckInterval;
+    check(row(SettingBinding::update_interval) && c.selected_choice == 1 && c.choices.count == 4 && c.enabled &&
+        same(c.choices[0], "Every hour") && same(c.choices[1], "Every 4 hours") && same(c.choices[2], "Every 12 hours") &&
+        same(c.choices[3], "Once a day"), "update settings: the check interval offers four choices, every 4 hours by default");
+    v.state = ApplicationUpdateState::downloading; v.interval = UpdateCheckInterval::day;
+    check(row(SettingBinding::update_interval) && c.selected_choice == 3 && c.enabled,
+        "update settings: the check interval stays changeable during a download");
+    v.state = ApplicationUpdateState::disabled;
+    check(!row(SettingBinding::update_interval), "update settings: an unconfigured build hides the check interval");
+    UiSettingsSchemaLocation status{}, channel{}, interval{};
     const auto* node = settings_catalog_binding(SettingBinding::update_status, &status);
+    UiSettingsSearchHit hits[64]{};
+    const auto found = [&](Utf8View query) noexcept {
+        const u32 n = ui_settings_schema_search(settings_catalog(), query, {hits, 64});
+        for (u32 i = 0; i < n; ++i) if (hits[i].panel == interval.panel && hits[i].node == interval.node) return true;
+        return false;
+    };
+    check(settings_catalog_binding(SettingBinding::update_interval, &interval) && interval.panel == status.panel &&
+        found(utf8_literal("check every")) && found(utf8_literal("hourly")) && found(utf8_literal("frequency")) &&
+        found(utf8_literal("often")) && !found(utf8_literal("stable channel")),
+        "update settings: search finds the check interval by its label and keywords");
     check(node && settings_catalog_binding(SettingBinding::update_channel, &channel) && status.panel == static_cast<u32>(SettingsPanel::updates) &&
         channel.panel == status.panel && same(settings_catalog().panels[status.panel].title, "Updates") &&
         ui_settings_schema_valid(settings_catalog()), "update settings: the Updates panel binds every updater row");
+}
+
+// Check scheduling per interval: jitter bounds, backoff caps, the startup
+// window and rescheduling when the interval changes.
+void test_check_schedule() noexcept {
+    constexpr UpdateCheckInterval choices[]{UpdateCheckInterval::hour, UpdateCheckInterval::four_hours,
+        UpdateCheckInterval::twelve_hours, UpdateCheckInterval::day};
+    constexpr u64 seconds[]{3600, 14400, 43200, 86400}, jitter[]{360, 1440, 3600, 3600};
+    constexpr u32 randoms[]{0u, 12345u, ~0u};
+    const u64 now = 1'000'000;
+    check(kUpdateDefaultCheckInterval == UpdateCheckInterval::four_hours && kUpdateCheckIntervalCount == 4,
+        "update schedule: the default interval is every 4 hours");
+    bool success = true, failure = true, retry = true;
+    for (u32 i = 0; i < 4; ++i) {
+        const u64 s = update_check_interval_seconds(choices[i]);
+        success = success && s == seconds[i] && update_next_check(now, 0, 0, 0, s) == now + s - jitter[i] &&
+            update_next_check(now, 0, 0, ~0u, s) < now + s + jitter[i] && update_next_check(now, 0, 0, ~0u, s) >= now + s - jitter[i];
+        for (u32 r = 0; r < 4000; ++r) {
+            const u64 next = update_next_check(now, 0, 0, r * 7919u, s);
+            success = success && next >= now + s - jitter[i] && next < now + s + jitter[i];
+        }
+        failure = failure && update_next_check(now, 1, 0, 0, s) == now + 300 && update_next_check(now, 2, 0, 0, s) == now + 600;
+        for (u32 f = 1; f < 40; ++f)
+            for (u32 r : randoms) {
+                const u64 next = update_next_check(now, f, 0, r, s);
+                failure = failure && next > now && next <= now + s;
+            }
+        // Long outages settle on the chosen interval, never past it.
+        failure = failure && update_next_check(now, 30, 0, 0, s) == now + s && update_next_check(now, 8, 0, ~0u, s) <= now + s;
+        retry = retry && update_next_check(now, 0, now + s + 5000, 0, s) == now + s + 5000 &&
+            update_next_check(now, 2, now + 9000, 0, s) == now + 9000 && update_next_check(now, 0, now + 10, 0, s) == now + s - jitter[i];
+    }
+    check(success, "update schedule: success waits the interval with jitter of 10% (at most 1 h) either way");
+    check(failure && update_next_check(now, 5, 0, 0, 3600) == now + 3600 && update_next_check(now, 5, 0, 0, 14400) == now + 4800,
+        "update schedule: failure backoff starts at five minutes and is capped at the chosen interval");
+    check(retry, "update schedule: a server retry time later than the next check wins");
+    check(update_next_check(now, 0, 0, 0, 0) == update_next_check(now, 0, 0, 0), "update schedule: a zero interval falls back to a day");
+
+    bool window = true, low = false, high = false;
+    for (u32 r = 0; r < 200; ++r) {
+        const u64 first = update_first_check(now, r);
+        window = window && first >= now + 5 && first <= now + 15;
+        low = low || first == now + 5; high = high || first == now + 15;
+    }
+    check(window && low && high && update_first_check(now, 0) == now + 5 && update_first_check(now, 10) == now + 15,
+        "update schedule: the first check runs 5 to 15 s after the first frame");
+
+    UpdateSchedule schedule{};
+    schedule.next_unix = now + 90;
+    update_schedule_retarget(&schedule, 3600, 0);
+    check(schedule.next_unix == now + 90 && !update_schedule_due(schedule, now + 89) && update_schedule_due(schedule, now + 90),
+        "update schedule: changing the interval before the first check keeps the startup deadline");
+    update_schedule_finish(&schedule, now, 0, 0, 0, 43200);
+    check(schedule.next_unix == now + 43200 - 3600 && schedule.checked_unix == now && !schedule.failures,
+        "update schedule: a finished check schedules the next from the chosen interval");
+    update_schedule_retarget(&schedule, 3600, 0);
+    check(schedule.next_unix == now + 3240 && !update_schedule_due(schedule, now + 3239) && update_schedule_due(schedule, now + 3240),
+        "update schedule: a shorter interval moves the next check earlier");
+    update_schedule_retarget(&schedule, 86400, 0);
+    check(schedule.next_unix == now + 82800, "update schedule: a longer interval moves the next check later");
+    update_schedule_retarget(&schedule, 3600, 0);
+    check(update_schedule_due(schedule, now + 7200) && schedule.checked_unix == now,
+        "update schedule: a check overdue under the new interval is due at once");
+    update_schedule_finish(&schedule, now, 7, 0, 0, 43200);
+    const u64 backoff = schedule.next_unix;
+    update_schedule_retarget(&schedule, 3600, 0);
+    check(backoff == now + 19200 && schedule.next_unix == now + 3600 && schedule.failures == 7,
+        "update schedule: rescheduling after failures keeps the backoff, capped at the new interval");
+    update_schedule_finish(&schedule, now, 1, now + 50000, 0, 14400);
+    update_schedule_retarget(&schedule, 3600, 0);
+    check(schedule.next_unix == now + 50000 && !update_schedule_due(schedule, now + 49999),
+        "update schedule: rescheduling still respects the server retry time");
 }
 
 // ---------------------------------------------------------------- service
@@ -655,6 +746,39 @@ constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999;
 constexpr char pages_manifest[] = "/repo/updates/maicord-stable.manifest.json";
 constexpr char pages_current[] = "/repo/updates/current.json";
 constexpr char pages_signature[] = "/repo/updates/maicord-stable.manifest.json.sig";
+
+// The interval persists beside the channel; missing, old or invalid files give the default.
+void test_interval_store() noexcept {
+    static Temp t{};
+    UpdatePaths paths{};
+    const bool dirs = temporary_root(&t) && update_paths_build({t.base, length(t.base)}, &paths);
+    check(dirs, "update interval: isolated temporary storage"); if (!dirs) return;
+    struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
+    const auto load = [&]() noexcept { return update_interval_load(paths, kUpdateDefaultCheckInterval); };
+    const auto write = [&](const void* data, u32 bytes) noexcept {
+        const HANDLE h = CreateFileW(paths.interval, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        DWORD put = 0; const bool ok = WriteFile(h, data, bytes, &put, nullptr) && put == bytes;
+        return CloseHandle(h) && ok;
+    };
+    check(update_channel_save(paths, UpdateChannel::preview) && load() == UpdateCheckInterval::four_hours,
+        "update interval: a profile with only a channel file gets the default");
+    bool round_trip = true;
+    for (u32 i = 0; i < kUpdateCheckIntervalCount; ++i) {
+        const auto interval = static_cast<UpdateCheckInterval>(i);
+        round_trip = round_trip && update_interval_save(paths, interval) && load() == interval &&
+            update_interval_load(paths, UpdateCheckInterval::hour) == interval;
+    }
+    check(round_trip && update_channel_load(paths, UpdateChannel::stable) == UpdateChannel::preview,
+        "update interval: every choice persists and leaves the channel alone");
+    check(!update_interval_save(paths, static_cast<UpdateCheckInterval>(kUpdateCheckIntervalCount)) && load() == UpdateCheckInterval::day,
+        "update interval: an out-of-range choice is refused and the saved one stays");
+    const u8 invalid = 9, longer[2]{1, 1};
+    check(write(&invalid, 1) && load() == UpdateCheckInterval::four_hours && update_interval_load(paths, UpdateCheckInterval::hour) == UpdateCheckInterval::hour,
+        "update interval: an invalid value gives the fallback");
+    check(write(longer, 2) && load() == UpdateCheckInterval::four_hours, "update interval: a file of the wrong size gives the fallback");
+    check(write(&invalid, 0) && load() == UpdateCheckInterval::four_hours, "update interval: an empty file gives the fallback");
+}
 
 void test_service() noexcept {
 #if defined(MAICORD_UPDATE_PAIR_TEST_EXECUTABLE) && defined(MAICORD_UPDATE_PAIR_TEST_ACCOUNT)
@@ -1109,6 +1233,8 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_redirects_and_schedule();
     maicord::test_http_reader();
     maicord::test_settings_rows();
+    maicord::test_check_schedule();
+    maicord::test_interval_store();
     maicord::test_service();
     maicord::test_preview_replay();
     maicord::test_replay();

@@ -294,16 +294,28 @@ UpdateFetchResult update_fetch(const UpdateTransport& transport, const UpdateLoc
     }
 }
 
-u64 update_next_check(u64 now, u32 failures, u64 retry_at, u32 random) noexcept {
+u64 update_next_check(u64 now, u32 failures, u64 retry_at, u32 random, u64 interval) noexcept {
+    if (!interval) interval = kUpdateCheckIntervalSeconds;
+    const u64 jitter = minimum<u64>(interval / 10, 3600);
     u64 delay;
-    if (!failures) delay = kUpdateCheckIntervalSeconds - 3600 + random % 7200;
+    if (!failures) delay = interval - jitter + (jitter ? random % (2 * jitter) : 0);
     else {
-        delay = failures > 20 ? kUpdateCheckIntervalSeconds : minimum<u64>(kUpdateCheckIntervalSeconds, kUpdateBackoffBaseSeconds << (failures - 1));
+        delay = failures > 20 ? interval : minimum<u64>(interval, kUpdateBackoffBaseSeconds << (failures - 1));
         delay += random % (delay / 4 + 1);
-        delay = minimum<u64>(delay, kUpdateCheckIntervalSeconds);
+        delay = minimum<u64>(delay, interval);
     }
     const u64 next = now + delay;
     return retry_at > next ? retry_at : next;
+}
+
+void update_schedule_finish(UpdateSchedule* s, u64 now, u32 failures, u64 retry_at, u32 random, u64 interval) noexcept {
+    if (!s) return;
+    s->checked_unix = now; s->retry_at_unix = retry_at; s->failures = failures;
+    s->next_unix = update_next_check(now, failures, retry_at, random, interval);
+}
+void update_schedule_retarget(UpdateSchedule* s, u64 interval, u32 random) noexcept {
+    // Until the first check has run, its startup deadline stands.
+    if (s && s->checked_unix) s->next_unix = update_next_check(s->checked_unix, s->failures, s->retry_at_unix, random, interval);
 }
 
 } // namespace maicord

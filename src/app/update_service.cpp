@@ -259,6 +259,7 @@ bool update_paths_build(ConstSlice<wchar_t> base, UpdatePaths* out) noexcept {
     const bool ok = join(p.root, p.base, base.count, L"generations", &p.root_count) &&
         join(p.work, p.base, base.count, L"work", &p.work_count) &&
         join(p.enrollment, p.base, base.count, L"enrollment.bin") && join(p.channel, p.base, base.count, L"channel") &&
+        join(p.interval, p.base, base.count, L"interval") &&
         join(p.journal, p.root, p.root_count, L"install.state") &&
         join(p.acceptance, p.work, p.work_count, L"acceptance.bin", &p.acceptance_count) &&
         join(p.download, p.work, p.work_count, L"package.download", &p.download_count);
@@ -673,21 +674,36 @@ UpdateServiceError update_service_child_open(const UpdateServiceConfig& config, 
     return update_handoff_child_open(command_line, identity, true, child).ok() ? SE::none : SE::launch;
 }
 
-UpdateChannel update_channel_load(const UpdatePaths& paths, UpdateChannel fallback) noexcept {
-    HANDLE h = open_read(paths.channel); u64 bytes = 0; u8 value = 0xff;
+namespace {
+u8 load_choice(const wchar_t* path, u8 maximum, u8 fallback) noexcept {
+    HANDLE h = open_read(path); u64 bytes = 0; u8 value = 0xff;
     const bool ok = regular_size(h, &bytes) && bytes == 1 && read_exact(h, &value, 1);
     close(&h);
-    return ok && value <= static_cast<u8>(UpdateChannel::preview) ? static_cast<UpdateChannel>(value) : fallback;
+    return ok && value <= maximum ? value : fallback;
 }
-bool update_channel_save(const UpdatePaths& input, UpdateChannel channel) noexcept {
+bool save_choice(const UpdatePaths& input, bool interval, u8 value) noexcept {
     UpdatePaths paths = input;
-    if (channel > UpdateChannel::preview || !ensure_storage(&paths)) return false;
-    HANDLE h = CreateFileW(paths.channel, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (!ensure_storage(&paths)) return false;
+    HANDLE h = CreateFileW(interval ? paths.interval : paths.channel, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) return false;
-    const u8 value = static_cast<u8>(channel);
     const bool ok = write_exact(h, &value, 1);
     CloseHandle(h);
     return ok;
+}
+} // namespace
+
+UpdateChannel update_channel_load(const UpdatePaths& paths, UpdateChannel fallback) noexcept {
+    return static_cast<UpdateChannel>(load_choice(paths.channel, static_cast<u8>(UpdateChannel::preview), static_cast<u8>(fallback)));
+}
+bool update_channel_save(const UpdatePaths& paths, UpdateChannel channel) noexcept {
+    return channel <= UpdateChannel::preview && save_choice(paths, false, static_cast<u8>(channel));
+}
+UpdateCheckInterval update_interval_load(const UpdatePaths& paths, UpdateCheckInterval fallback) noexcept {
+    return static_cast<UpdateCheckInterval>(load_choice(paths.interval, kUpdateCheckIntervalCount - 1, static_cast<u8>(fallback)));
+}
+bool update_interval_save(const UpdatePaths& paths, UpdateCheckInterval interval) noexcept {
+    return static_cast<u32>(interval) < kUpdateCheckIntervalCount && save_choice(paths, true, static_cast<u8>(interval));
 }
 
 } // namespace maicord

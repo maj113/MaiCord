@@ -11,9 +11,12 @@
 
 namespace maicord::app_detail {
 namespace {
-constexpr u64 kFirstCheckDelaySeconds = 60, kFirstCheckJitterSeconds = 120;
+// Fallback when the first frame is never presented.
+constexpr u64 kFallbackCheckDelaySeconds = 60, kFallbackCheckJitterSeconds = 120;
 constexpr u64 kProgressIntervalMs = 250;
 constexpr Utf8View channel_names[]{utf8_literal("Stable"), utf8_literal("Preview")};
+constexpr Utf8View interval_names[]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"),
+                                    utf8_literal("Every 12 hours"), utf8_literal("Once a day")};
 using State = ApplicationUpdateState;
 
 struct Worker {
@@ -26,8 +29,9 @@ struct Worker {
     ApplicationUpdatesView view; // guarded by lock
     u64 revision;                // guarded by lock
     u64 progress_at_ms;
+    UpdateSchedule schedule; // worker thread
     u32 failures;
-    bool check_requested, restart_requested, revert_requested, channel_requested, quit;
+    bool check_requested, restart_requested, revert_requested, channel_requested, interval_requested, ready_requested, quit;
     UpdateChangelogDownload download; // worker thread
     UpdateChangelog published;        // guarded by lock
     ApplicationUpdatesChangelogRows rows; // UI thread
@@ -37,7 +41,7 @@ Worker* g_worker;
 ApplicationUpdatesView g_view;
 ApplicationUpdatesText g_text[7];
 u64 g_seen_revision;
-bool g_quit_reported;
+bool g_quit_reported, g_ready_reported;
 
 bool busy_state(State state) noexcept {
     return state == State::checking || state == State::downloading || state == State::installing ||
@@ -161,23 +165,39 @@ u64 run_check(Worker* w, UpdateChannel channel) noexcept {
     refresh_installed(w);
     return result.retry_at_unix;
 }
+UpdateCheckInterval current_interval(Worker* w) noexcept {
+    AcquireSRWLockShared(w->lock.native());
+    const UpdateCheckInterval interval = w->view.interval;
+    ReleaseSRWLockShared(w->lock.native());
+    return interval;
+}
 DWORD WINAPI worker_main(void* parameter) noexcept {
     auto* w = static_cast<Worker*>(parameter);
     refresh_installed(w);
-    u64 next = now_unix() + kFirstCheckDelaySeconds + random32() % kFirstCheckJitterSeconds;
+    auto& schedule = w->schedule;
+    schedule.next_unix = now_unix() + kFallbackCheckDelaySeconds + random32() % kFallbackCheckJitterSeconds;
     for (;;) {
         const u64 now = now_unix();
-        const DWORD timeout = next <= now ? 0 : static_cast<DWORD>(minimum<u64>(next - now, 3600) * 1000);
+        const DWORD timeout = update_schedule_due(schedule, now) ? 0
+            : static_cast<DWORD>(minimum<u64>(schedule.next_unix - now, 3600) * 1000);
         HANDLE handles[]{w->stop, w->wake};
         const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, timeout);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) break;
         AcquireSRWLockExclusive(w->lock.native());
         const bool check = w->check_requested, restart = w->restart_requested, revert = w->revert_requested;
-        const bool channel_changed = w->channel_requested;
+        const bool channel_changed = w->channel_requested, interval_changed = w->interval_requested, ready = w->ready_requested;
         const UpdateChannel channel = w->view.channel;
+        const UpdateCheckInterval interval = w->view.interval;
         w->check_requested = w->restart_requested = w->revert_requested = w->channel_requested = false;
+        w->interval_requested = w->ready_requested = false;
         ReleaseSRWLockExclusive(w->lock.native());
         if (channel_changed) update_channel_save(w->paths, channel);
+        if (ready && !schedule.checked_unix)
+            schedule.next_unix = minimum(schedule.next_unix, update_first_check(now_unix(), random32()));
+        if (interval_changed) {
+            update_interval_save(w->paths, interval);
+            update_schedule_retarget(&schedule, update_check_interval_seconds(interval), random32());
+        }
         if (revert || restart) {
             set_state(w, State::restarting);
             UpdateServiceError error = revert ? update_service_revert(&w->service) : UpdateServiceError::none;
@@ -190,9 +210,10 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
             refresh_installed(w);
             continue;
         }
-        if (!check && !channel_changed && now_unix() < next) continue;
+        if (!check && !channel_changed && !update_schedule_due(schedule, now_unix())) continue;
         const u64 retry_at = run_check(w, channel);
-        next = update_next_check(now_unix(), w->failures, retry_at, random32());
+        update_schedule_finish(&schedule, now_unix(), w->failures, retry_at, random32(),
+            update_check_interval_seconds(current_interval(w)));
     }
     return 0;
 }
@@ -361,6 +382,11 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         }
         control->description = description.view();
         return !disabled;
+    case SettingBinding::update_interval:
+        control->selected_choice = static_cast<u32>(v.interval);
+        control->choices = {interval_names, kUpdateCheckIntervalCount};
+        control->enabled = true;
+        return !disabled;
     case SettingBinding::update_rollback:
         if (disabled || !v.rollback_version) return false;
         description.add(utf8_literal("Go back to ")); add_build(description, v.rollback_version);
@@ -483,11 +509,13 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
     w->view.state = config.configured ? State::idle : State::disabled;
     const bool located = update_paths_default(&w->paths);
     w->view.channel = located ? update_channel_load(w->paths, config.default_channel) : config.default_channel;
+    w->view.interval = located ? update_interval_load(w->paths, kUpdateDefaultCheckInterval) : kUpdateDefaultCheckInterval;
     if (config.configured && !located) { w->view.state = State::error; w->view.error = UpdateServiceError::storage; }
     g_view = w->view;
     g_worker = w;
     UpdateLog("updater").field("configured", config.configured).field("located", located).field("own", config.own_version)
-        .field("channel", static_cast<u8>(w->view.channel)).write();
+        .field("channel", static_cast<u8>(w->view.channel))
+        .field("interval", static_cast<u8>(w->view.interval)).write();
     if (!config.configured || !located) return true;
     w->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     w->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -518,6 +546,15 @@ void application_updates_release() noexcept {
     const HANDLE events[]{w->wake, w->stop, w->notify};
     for (HANDLE h : events) if (h) CloseHandle(h);
     VirtualFree(w, 0, MEM_RELEASE);
+}
+void application_updates_ready() noexcept {
+    Worker* w = g_worker;
+    if (!w || !w->thread || g_ready_reported) return;
+    g_ready_reported = true;
+    AcquireSRWLockExclusive(w->lock.native());
+    w->ready_requested = true;
+    ReleaseSRWLockExclusive(w->lock.native());
+    SetEvent(w->wake);
 }
 HANDLE application_updates_notification() noexcept { return g_worker ? g_worker->notify : nullptr; }
 bool application_updates_poll() noexcept {
@@ -596,7 +633,14 @@ bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
     AcquireSRWLockExclusive(w->lock.native());
     const auto state = w->view.state;
     bool accepted = !busy_state(state);
-    if (accepted) {
+    if (binding == SettingBinding::update_interval) {
+        // A running check does not hold the interval; the worker applies it afterwards.
+        accepted = choice < kUpdateCheckIntervalCount;
+        if (accepted && choice != static_cast<u32>(w->view.interval)) {
+            w->view.interval = static_cast<UpdateCheckInterval>(choice); w->interval_requested = true;
+            ++w->revision;
+        }
+    } else if (accepted) {
         if (binding == SettingBinding::update_status) {
             if (state == State::ready) w->restart_requested = true; else w->check_requested = true;
         } else if (binding == SettingBinding::update_rollback && w->view.rollback_version) w->revert_requested = true;

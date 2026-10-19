@@ -15,6 +15,7 @@ inline constexpr u32 kUpdateFetchMaximumRedirects = 5;
 inline constexpr u64 kUpdateDefaultArtifactCap = 64ull * 1024 * 1024;
 // Releases sign 90-day manifests (7,776,000 s); keep slack for re-signing.
 inline constexpr u64 kUpdateMaximumValiditySeconds = 100ull * 86400;
+// The longest wait between checks, and the cap on server-requested retries.
 inline constexpr u64 kUpdateCheckIntervalSeconds = 86400;
 inline constexpr u64 kUpdateBackoffBaseSeconds = 300;
 inline constexpr u32 kUpdateStableSequence = 999;
@@ -152,9 +153,44 @@ bool update_buffer_sink(void* context, ConstSlice<u8> bytes) noexcept;
 UpdateFetchResult update_fetch(const UpdateTransport&, const UpdateLocation& start, u64 maximum_bytes,
     u64 exact_bytes, UpdateBodySink, void* sink_context, u64 now_unix) noexcept;
 
-// Next automatic check: 24 h after success with +-1 h jitter; otherwise
-// exponential backoff from five minutes up to 24 h with up to 25% jitter,
-// never before a server-requested retry time.
-u64 update_next_check(u64 now_unix, u32 consecutive_failures, u64 retry_at_unix, u32 random) noexcept;
+// How often MaiCord checks in the background.
+enum class UpdateCheckInterval : u8 { hour, four_hours, twelve_hours, day };
+inline constexpr u32 kUpdateCheckIntervalCount = 4;
+// Preview builds land several times a day.
+inline constexpr UpdateCheckInterval kUpdateDefaultCheckInterval = UpdateCheckInterval::four_hours;
+constexpr u64 update_check_interval_seconds(UpdateCheckInterval interval) noexcept {
+    switch (interval) {
+    case UpdateCheckInterval::hour: return 3600;
+    case UpdateCheckInterval::twelve_hours: return 12 * 3600;
+    case UpdateCheckInterval::day: return 86400;
+    default: return 4 * 3600;
+    }
+}
+
+// Next automatic check: interval_seconds after success with jitter of 10%
+// (at most 1 h either way); otherwise exponential backoff from five minutes
+// up to interval_seconds with up to 25% jitter, never before a
+// server-requested retry time.
+u64 update_next_check(u64 now_unix, u32 consecutive_failures, u64 retry_at_unix, u32 random,
+    u64 interval_seconds = kUpdateCheckIntervalSeconds) noexcept;
+
+// The first check after launch runs 5 to 15 s after the first frame is
+// presented.
+inline constexpr u64 kUpdateFirstCheckDelaySeconds = 5, kUpdateFirstCheckJitterSeconds = 10;
+constexpr u64 update_first_check(u64 now_unix, u32 random) noexcept {
+    return now_unix + kUpdateFirstCheckDelaySeconds + random % (kUpdateFirstCheckJitterSeconds + 1);
+}
+// The updater's deadline. Changing the interval moves it to the last check
+// plus the new interval (backoff and retry time kept), which may be past.
+struct UpdateSchedule {
+    u64 next_unix, checked_unix, retry_at_unix;
+    u32 failures;
+};
+void update_schedule_finish(UpdateSchedule*, u64 now_unix, u32 consecutive_failures, u64 retry_at_unix, u32 random,
+    u64 interval_seconds) noexcept;
+void update_schedule_retarget(UpdateSchedule*, u64 interval_seconds, u32 random) noexcept;
+constexpr bool update_schedule_due(const UpdateSchedule& schedule, u64 now_unix) noexcept {
+    return now_unix >= schedule.next_unix;
+}
 
 } // namespace maicord

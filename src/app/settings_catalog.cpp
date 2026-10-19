@@ -227,6 +227,8 @@ constexpr UiSettingsSchemaNode advanced[]{
 };
 
 constexpr Utf8View update_channels[]{utf8_literal("Stable"), utf8_literal("Preview")};
+constexpr Utf8View update_intervals[]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"),
+                                      utf8_literal("Every 12 hours"), utf8_literal("Once a day")};
 constexpr UiSettingsSchemaNode updates[]{
     node(utf8_literal("updates.status"), K::action, utf8_literal("Check for updates"), {},
          utf8_literal("update upgrade version new release download restart"), SettingBinding::update_status, {}, none,
@@ -240,6 +242,10 @@ constexpr UiSettingsSchemaNode updates[]{
          utf8_literal("Preview builds get new features first and may be less stable."),
          utf8_literal("beta preview stable release channel master nightly"), SettingBinding::update_channel,
          {update_channels, 2}, none, {}, dynamic),
+    node(utf8_literal("updates.interval"), K::radio, utf8_literal("Check for updates every"),
+         utf8_literal("MaiCord also checks shortly after it starts."),
+         utf8_literal("frequency interval schedule automatic background hourly daily hour day often how often"),
+         SettingBinding::update_interval, {update_intervals, 4}, none, {}, dynamic),
     node(utf8_literal("updates.rollback"), K::action, utf8_literal("Roll back to previous version"), {},
          utf8_literal("downgrade revert undo previous version"), SettingBinding::update_rollback, {}, none,
          utf8_literal("Roll back"), dynamic),

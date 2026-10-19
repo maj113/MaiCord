@@ -24,6 +24,7 @@ inline constexpr u32 kApplicationUpdatesCommitChars = 7;
 struct ApplicationUpdatesView {
     ApplicationUpdateState state;
     UpdateChannel channel;
+    UpdateCheckInterval interval;
     UpdateServiceError error;
     u64 own_version, ready_version, rollback_version;
     u64 received, total;
@@ -81,10 +82,14 @@ constexpr bool application_updates_changelog_row(u64 control_id) noexcept {
            control_id <= settings_list_control_id(SettingBinding::update_changelog, 0xff);
 }
 
-// UI thread. A background worker checks every 24 h (jitter, backoff,
-// server retry times) and on demand; nothing here blocks on the network.
-// commit: application_update_build_commit().
+// UI thread. A background worker checks at the chosen interval (jitter,
+// backoff, server retry times) and on demand; nothing here blocks on the
+// network. commit: application_update_build_commit().
 bool application_updates_initialize(const UpdateServiceConfig&, Utf8View commit = {}) noexcept;
+// The first frame was presented: the first check follows within seconds. If
+// this never comes (a window hidden at startup), it runs 1 to 3 minutes after
+// launch.
+void application_updates_ready() noexcept;
 void application_updates_release() noexcept;
 HANDLE application_updates_notification() noexcept;
 // Refreshes Settings on change. True once a new version confirmed startup

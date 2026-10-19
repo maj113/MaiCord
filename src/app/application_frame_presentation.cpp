@@ -25,6 +25,7 @@
 #include "application_shutdown_metrics.hpp"
 #endif
 #include "application_caption.hpp"
+#include "application_updates.hpp"
 #include "application_frame_presentation.hpp"
 #include "application_media.hpp"
 #include "application_background.hpp"
@@ -165,6 +166,7 @@ void synchronize_typing_dots(u64 now_ms) noexcept {
 void record_first_present() noexcept {
     if (!g_app.first_present_recorded) {
         g_app.first_present_recorded = true;
+        application_updates_ready();
         log_u64(LogLevel::info, "startup", "first_present_us", application_now_us());
         log_u64(LogLevel::info, "render", "first_frame_quads", g_app.renderer.paint_stream.count);
         log_u64(LogLevel::info, "render", "first_frame_draw_calls", g_app.renderer.draw_calls_last_frame);

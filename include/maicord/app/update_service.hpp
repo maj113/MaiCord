@@ -27,11 +27,12 @@ struct UpdateServiceConfig {
 // malformed pair, or an invalid version, is refused.
 bool update_service_config(Utf8View repository, Utf8View public_key_hex, u64 own_version, UpdateServiceConfig*) noexcept;
 
-// <base>\enrollment.bin, channel, generations\ (journal + g-*), work\
+// <base>\enrollment.bin, channel, interval, generations\ (journal + g-*), work\
 // (acceptance record, download, stage). All on one local fixed volume.
 struct UpdatePaths {
     wchar_t base[kUpdatePathCapacity], root[kUpdatePathCapacity], work[kUpdatePathCapacity];
-    wchar_t enrollment[kUpdatePathCapacity], channel[kUpdatePathCapacity], journal[kUpdatePathCapacity];
+    wchar_t enrollment[kUpdatePathCapacity], channel[kUpdatePathCapacity], interval[kUpdatePathCapacity];
+    wchar_t journal[kUpdatePathCapacity];
     wchar_t acceptance[kUpdatePathCapacity], download[kUpdatePathCapacity];
     u32 root_count, work_count, acceptance_count, download_count;
 };
@@ -126,5 +127,8 @@ UpdateServiceError update_service_child_open(const UpdateServiceConfig&, const U
 
 UpdateChannel update_channel_load(const UpdatePaths&, UpdateChannel fallback) noexcept;
 bool update_channel_save(const UpdatePaths&, UpdateChannel) noexcept;
+// One byte beside the channel; a missing, old or invalid file gives the fallback.
+UpdateCheckInterval update_interval_load(const UpdatePaths&, UpdateCheckInterval fallback) noexcept;
+bool update_interval_save(const UpdatePaths&, UpdateCheckInterval) noexcept;
 
 } // namespace maicord

@@ -39,6 +39,7 @@ enum class SettingBinding : u16 {
     preferences_retry,
     update_status,
     update_channel,
+    update_interval,
     update_rollback,
     update_notice,
     voice_input_device,
