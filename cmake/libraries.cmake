@@ -103,6 +103,9 @@ maicord_library(maicord_platform
     src/platform/desktop_integration.cpp src/platform/system_tray.cpp src/platform/spell_checker.cpp
     src/platform/speech.cpp src/platform/voice_audio_output.cpp src/platform/voice_audio_capture.cpp
     src/platform/window_frame.cpp
+    # Used by the application core and client preferences, which both link this
+    # library: one compile for every image.
+    src/app/file_persistence.cpp
     LIBS maicord_core ws2_32 secur32 bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/notification_pcm.cpp
@@ -120,7 +123,7 @@ maicord_library(maicord_account_host src/app/account_logout_stop.cpp src/app/acc
 
 maicord_library(maicord_client_preferences
     src/app/client_theme_document.cpp src/app/client_theme_storage.cpp src/app/client_preferences.cpp
-    src/app/client_preferences_writer.cpp src/app/file_persistence.cpp src/app/voice_preferences.cpp
+    src/app/client_preferences_writer.cpp src/app/voice_preferences.cpp
     LIBS maicord_core maicord_ui maicord_platform kernel32)
 
 maicord_library(maicord_protocol
@@ -174,7 +177,7 @@ maicord_library(maicord_app_core
     src/app/account_logout.cpp src/app/account_profile_promotion.cpp src/app/account_session_store.cpp
     src/app/captcha_challenge.cpp src/app/cdn_client.cpp src/app/progressive_video_fetch.cpp
     src/app/https_file_upload.cpp src/app/https_file_download.cpp src/app/rest_client.cpp
-    src/app/file_persistence.cpp src/app/gateway_client.cpp src/app/voice_connection_setup.cpp
+    src/app/gateway_client.cpp src/app/voice_connection_setup.cpp
     src/app/voice_connection.cpp src/app/voice_udp_discovery.cpp src/app/voice_media_setup.cpp
     src/app/voice_packet_crypto.cpp src/app/dave_frame_crypto.cpp src/app/dave_key_derivation.cpp
     src/app/mls_exporter.cpp src/app/mls_key_schedule.cpp src/app/mls_signature.cpp src/app/hpke_derivation.cpp

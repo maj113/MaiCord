@@ -35,7 +35,7 @@ add_executable(MaiCord WIN32
     src/app/application_plugins.cpp src/app/application_plugins_sdk.cpp src/app/application_plugins_read.cpp
     src/app/application_plugins_actions.cpp src/app/application_plugins_surfaces.cpp
     src/app/application_plugins_render.cpp src/app/application_plugins_fx.cpp
-    src/app/application_plugins_compose.cpp src/app/application_plugin_menus.cpp src/app/login_continuations.cpp
+    src/app/application_plugins_compose.cpp src/app/application_plugin_menus.cpp
     src/app/application_window.cpp src/app/application_window_runtime.cpp src/app/application_input_routing.cpp
     src/app/application_caption.cpp src/app/app_icon.cpp
     src/app/application_keyboard_focus.cpp src/app/application_account_module.cpp
@@ -100,7 +100,7 @@ add_executable(MaiCord WIN32
     src/app/application_message_interaction.cpp src/app/application_user_actions.cpp
     src/app/application_report.cpp src/app/application_scheduler.cpp src/app/application_shutdown_metrics.cpp
     src/app/application_scrolling.cpp src/app/application_scroll_host.cpp src/app/application_shell_input.cpp
-    src/app/application_pane_resize.cpp src/app/main.cpp src/core/log.cpp $<TARGET_OBJECTS:maicord_runtime>
+    src/app/application_pane_resize.cpp src/app/main.cpp $<TARGET_OBJECTS:maicord_runtime>
     src/app/application_accessibility.cpp src/app/application_updates.cpp src/app/application_update_entry.cpp
     src/app/application_plugin_browser.cpp src/app/application_plugin_browser_worker.cpp
     src/app/application_plugin_browser_entry.cpp src/app/application_plugin_browser_projection.cpp
@@ -311,7 +311,7 @@ file(GLOB MAICORD_COLD_APPLICATION_SOURCES
 maicord_compact_sources(
     SOURCES ${MAICORD_COLD_APPLICATION_SOURCES} src/app/acceptance_record.cpp
         src/app/account_media.cpp src/app/account_media_worker.cpp src/app/regional_flag_assets.cpp
-        src/app/game_detection.cpp src/core/log.cpp src/ui/clipboard.cpp
+        src/app/game_detection.cpp src/app/file_persistence.cpp src/core/log.cpp src/ui/clipboard.cpp
         src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp
         src/platform/network_file.cpp src/platform/file_picker.cpp src/platform/clipboard_attachment.cpp
         src/platform/file_identity.cpp src/platform/timezone.cpp src/platform/secure_buffer.cpp
@@ -479,6 +479,9 @@ endfunction()
 # #pragma of its own and has no definitions of its own, so the PCH holds only
 # declarations it already includes. The options apply only to targets with
 # MAICORD_APPLICATION_PCH, never to test targets compiling the same sources.
+# OBJECT_DEPENDS has no per-target form, so a configuration that does not build
+# the client (MAICORD_TEST_PREBUILT_CLIENT) does not set the PCH up at all,
+# rather than have test objects wait on a PCH that nothing there uses.
 function(maicord_precompile_application_sources target)
     set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_pch.hpp")
     maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp")
@@ -530,4 +533,6 @@ function(maicord_precompile_application_sources target)
     endforeach()
     set_target_properties(${target} PROPERTIES MAICORD_APPLICATION_PCH ON)
 endfunction()
-maicord_precompile_application_sources(MaiCord)
+if(NOT MAICORD_TEST_PREBUILT_CLIENT)
+    maicord_precompile_application_sources(MaiCord)
+endif()
