@@ -93,8 +93,8 @@ inline constexpr u32 kShellNavigationInitialWidgetCapacity = 128;
 inline constexpr u32 kMessageSceneRowCapacity = 192;
 inline constexpr u32 kMessageSceneWidgetCapacity =
     kMessageSceneRowCapacity * kMessageSceneWidgetsPerRow + 1;
-inline constexpr u32 kMessageSceneInitialWidgetCapacity =
-    kMessageSceneRowCapacity * kMessageSceneBaseWidgetsPerRow + 1;
+// A tall window's worth of rows; the storage grows to kMessageSceneWidgetCapacity on demand.
+inline constexpr u32 kMessageSceneInitialWidgetCapacity = 48 * kMessageSceneBaseWidgetsPerRow + 1;
 inline constexpr u32 kMemberListRowCapacity = 128;
 inline constexpr u32 kMemberListWidgetCapacity = 1 + kMemberListRowCapacity * kMemberListWidgetsPerRow;
 inline constexpr u32 kMemberListInitialWidgetCapacity = 128;

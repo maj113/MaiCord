@@ -313,7 +313,8 @@ maicord_compact_sources(
 # channel settings, search, inbox, pins, threads, forum, quick switcher,
 # forwarding, downloads, login, profile, poll creation/voters, context menus),
 # their controllers, sign-in/captcha/remote auth, DAVE/MLS group setup (not
-# frame crypto), voice setup, notifications and one-shot account requests.
+# frame crypto), voice setup, notifications, history page merges (their JSON
+# decode stays /O2) and one-shot account requests.
 # The message scene, composer, pickers, gateway dispatch, media and text stay /O2.
 maicord_compact_sources(
     SOURCES
@@ -346,7 +347,7 @@ maicord_compact_sources(
         src/app/settings_catalog.cpp src/app/voice_settings_binding.cpp
         src/app/private_channel_actions.cpp src/app/private_conversation.cpp
         src/app/message_draft_persistence.cpp src/app/message_attachment_drafts.cpp
-        src/app/bulk_read_ack_controller.cpp src/app/reaction_viewer_controller.cpp
+        src/app/bulk_read_ack_controller.cpp src/app/message_history_sync.cpp src/app/reaction_viewer_controller.cpp
         src/app/reaction_viewer_storage.cpp src/app/command_autocomplete.cpp
         src/platform/desktop_notifications.cpp src/platform/notification_identity.cpp
         src/platform/taskbar_attention.cpp src/platform/clipboard_image.cpp
