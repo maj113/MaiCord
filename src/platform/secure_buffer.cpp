@@ -19,7 +19,7 @@ SecureBufferResult failure(SecureBufferError error, u32 native_error = 0, u32 by
 // undocumented overhead. Only recover that specific failure; ordinary buffers
 // keep the original one-call path and never change working-set policy.
 constexpr SIZE_T kLockRecoveryMinimumLimit = 1024 * 1024;
-constexpr u32 kLockRecoveryExtraPages = 16;
+constexpr u32 kLockRecoveryAttempts = 16;
 
 struct LockBudgetGuard {
     HANDLE mutex;
@@ -77,7 +77,7 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
     const SIZE_T offset = reinterpret_cast<SIZE_T>(address) % page;
     const SIZE_T span = ((offset + bytes + page - 1) / page) * page;
     SIZE_T growth = span;
-    for (u32 attempt = 0; attempt <= kLockRecoveryExtraPages; ++attempt) {
+    for (u32 attempt = 0; attempt < kLockRecoveryAttempts; ++attempt) {
         SIZE_T minimum = 0, maximum = 0;
         DWORD flags = 0;
         if (!GetProcessWorkingSetSizeEx(GetCurrentProcess(), &minimum, &maximum, &flags))
@@ -94,7 +94,9 @@ u32 lock_pages(void* address, u32 bytes) noexcept {
         if (VirtualLock(address, bytes)) return 0;
         error = thread_last_error();
         if (error != ERROR_WORKING_SET_QUOTA) return error;
-        growth = page;
+        // Retries cover the overhead and quota that a concurrent fast-path
+        // lock took after this raise: one page, then doubling to the cap.
+        growth = attempt ? growth * 2 : page;
     }
     return error;
 }

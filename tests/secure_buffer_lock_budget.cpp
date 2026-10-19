@@ -236,7 +236,7 @@ struct ThreadContext {
     PeerInitialize initialize;
     PeerRelease release;
     SecureBuffer buffer;
-    u32 capacity;
+    u32 capacity, error;
     bool ok, freed;
 };
 DWORD WINAPI thread(void* parameter) noexcept {
@@ -244,7 +244,9 @@ DWORD WINAPI thread(void* parameter) noexcept {
     if (WaitForSingleObject(context.start, 10000) != WAIT_OBJECT_0) {
         SetEvent(context.ready); return 1;
     }
-    context.ok = context.initialize(&context.buffer, context.capacity).ok() && all_pages_locked(context.buffer);
+    const auto result = context.initialize(&context.buffer, context.capacity);
+    context.error = result.native_error;
+    context.ok = result.ok() && all_pages_locked(context.buffer);
     SetEvent(context.ready);
     WaitForSingleObject(context.finish, INFINITE);
     void* address = context.buffer.data;
@@ -282,6 +284,7 @@ void real_concurrent_images() noexcept {
     for (u32 i = 0; i < 4; ++i) if (threads[i]) {
         check(WaitForSingleObject(contexts[i].ready, 10000) == WAIT_OBJECT_0 && contexts[i].ok &&
             all_pages_locked(contexts[i].buffer), "lock budget: concurrent EXE/DLL buffers remain locked simultaneously");
+        if (!contexts[i].ok) measurement("lock_budget_concurrent_native_error=", contexts[i].error);
     }
     check(all_pages_locked(baseline), "lock budget: concurrent recovery retains earlier caller lock");
     measurement("lock_budget_concurrent_requested_bytes=", 768 * 1024);
@@ -324,8 +327,8 @@ void failed_allocation(Fault value, u32 expected, u32 closes, u32 releases) noex
         "lock budget: nonquota failure never enters policy recovery");
     if (value == Fault::ceiling || value == Fault::maximum) check(!set_calls,
         "lock budget: absolute cap and existing maximum forbid policy growth");
-    if (value == Fault::persistent_quota) check(set_calls == 17 && lock_calls == 19,
-        "lock budget: undocumented overhead recovery has a finite 17-set/19-lock bound");
+    if (value == Fault::persistent_quota) check(set_calls == 9 && lock_calls == 11 && fake_minimum == 1024 * 1024,
+        "lock budget: doubling recovery reaches the cap in 9 sets/11 locks");
 }
 void controlled_failures() noexcept {
     failed_allocation(Fault::nonquota, ERROR_NOACCESS, 0, 0);
@@ -355,8 +358,8 @@ void controlled_failures() noexcept {
             "lock budget: release wipes transferred allocation without lowering process quota");
         const u32 expected_sets = value == Fault::second_chance ? 0 : value == Fault::extra_pages ? 4 : 1;
         check(set_calls == expected_sets && fake_minimum == 204800 +
-            (value == Fault::second_chance ? 0 : 8192 + (value == Fault::extra_pages ? 3 * 4096 : 0)),
-            "lock budget: page-rounded initial span plus minimal one-page retries");
+            (value == Fault::second_chance ? 0 : 8192 + (value == Fault::extra_pages ? 7 * 4096 : 0)),
+            "lock budget: page-rounded initial span plus 1/2/4-page retries");
     }
     fault = Fault::real; inspect_free = false;
 }
