@@ -110,6 +110,35 @@ MediaAttachmentFormat corpus_format(ImageCorpusKind kind) noexcept {
 constexpr u32 kCorpusCount = sizeof(kImageCorpus) / sizeof(kImageCorpus[0]);
 u8 gif_encoded[256 * 1024], gif_scratch[256 * 1024];
 
+// Two animations whose uncached frames alternate, through idle lanes: counts
+// frames decoded on a lane without the source's retained container parse.
+u32 alternating_parses(bool affinity) noexcept {
+    auto* worker = static_cast<AccountMediaWorker*>(
+        VirtualAlloc(nullptr, sizeof(AccountMediaWorker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!worker)
+        return ~0u;
+    for (auto& lane : worker->lanes)
+        lane.phase = static_cast<LONG>(AccountMediaWorkerPhase::idle);
+    const MediaAssetKey keys[2]{media_asset_sticker(71, 2), media_asset_sticker(72, 2)};
+    u32 parses = 0;
+    for (u32 step = 0; step < 12; ++step) {
+        const MediaAssetKey key = keys[step & 1];
+        const bool advance = step >= 2; // first frames arrive as asset requests
+        u32 index = advance && affinity ? account_media_worker_animation_lane(worker, key)
+                                        : kAccountMediaDecodeLaneCount;
+        if (index == kAccountMediaDecodeLaneCount)
+            index = 0; // first idle lane: animated work starts at lane 0
+        auto& lane = worker->lanes[index];
+        parses += !(lane.initialized && media_asset_key_equal(lane.command.key, key));
+        lane.initialized = true;
+        lane.command.key = key;
+        lane.command.kind =
+            advance ? AccountMediaWorkKind::animation_advance : AccountMediaWorkKind::static_asset;
+    }
+    VirtualFree(worker, 0, MEM_RELEASE);
+    return parses;
+}
+
 void run() noexcept {
     auto* worker = static_cast<AccountMediaWorker*>(
         VirtualAlloc(nullptr, sizeof(AccountMediaWorker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -219,6 +248,10 @@ void run() noexcept {
                                              use.committed <= kAccountMediaWorkerStackBytes / 2));
     }
     check(margin, "media lanes: the deepest decode commits at most half of the lane stack reservation");
+    // 2 first frames + 10 alternating advances: first-idle order re-parses all
+    // 12; with affinity only the first frames and one move to a spare lane.
+    check(alternating_parses(false) == 12 && alternating_parses(true) == 3,
+          "media lanes: alternating animation frames keep to the lane holding their parse");
     const bool stopped = account_media_worker_stop(worker, 5'000);
     check(stopped, "media lanes: stop joins every lane");
     if (stopped)

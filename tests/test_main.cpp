@@ -13581,8 +13581,10 @@ void test_account_media_worker_decode_boundary() noexcept {
     } else {
         reuse_sequences = false;
     }
-    expect(reuse_sequences && serial_store.stored() && observed_advances == 7 && single_hits == 3 && serial_hits == 0,
-           "account_media_worker_gif_metadata_actual_assignment_single_3_hits_serial_4_misses");
+    // Alternating sources keep to their lanes: only the new source's first frame re-parses.
+    expect(reuse_sequences && serial_store.stored() && observed_advances == 7 && single_hits == 3 &&
+               serial_hits == 3,
+           "account_media_worker_gif_metadata_actual_assignment_single_3_hits_serial_3_hits");
     const bool decoded_off_ui = worker.lanes[0].thread_id != 0 && worker.lanes[0].thread_id != GetCurrentThreadId();
     const bool worker_stopped = stop_media_worker_fixture(&worker, "account_media_worker_decode_stop");
 

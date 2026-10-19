@@ -139,6 +139,10 @@ AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* wo
 // Starts an idle lane ahead of its first command (storage and thread), as
 // admission does. Fails for a busy or stopping worker or a lane out of range.
 AccountMediaRequestResult account_media_worker_start_lane(AccountMediaWorker* worker, u32 index) noexcept;
+// Lane for an animation frame: the idle lane whose last command decoded this
+// asset (its pipeline retains the container parse), else an idle lane holding
+// no other animation (started ones first), else kAccountMediaDecodeLaneCount.
+u32 account_media_worker_animation_lane(const AccountMediaWorker* worker, MediaAssetKey key) noexcept;
 AccountMediaRequestResult account_media_worker_request_static_asset(AccountMediaWorker* worker,
                                                                     MediaAssetKey key, u64 monotonic_now_ms,
                                                                     u64 unix_now_seconds) noexcept;

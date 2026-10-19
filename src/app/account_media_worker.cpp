@@ -767,6 +767,10 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
         if (video_lane == kAccountMediaDecodeLaneCount)
             return request_result(AccountMediaRequestState::busy);
     }
+    // Animation frames keep to the lane holding their source's parse instead of
+    // first-idle order, where alternating sources re-parse on every frame.
+    if (video_lane == kAccountMediaDecodeLaneCount && work.kind == AccountMediaWorkKind::animation_advance)
+        video_lane = account_media_worker_animation_lane(worker, work.key);
     for (u32 affinity = 0; affinity < 2; ++affinity)
         for (u32 order = 0; order < lane_count; ++order) {
             // Worker 0 is the latency reserve for animated media. Animated work
@@ -842,6 +846,23 @@ void cleanup_failed_initialize(AccountMediaWorker* worker) noexcept {
 }
 
 } // namespace
+
+u32 account_media_worker_animation_lane(const AccountMediaWorker* worker, MediaAssetKey key) noexcept {
+    u32 spare[2]{kAccountMediaDecodeLaneCount, kAccountMediaDecodeLaneCount}; // started, unstarted
+    for (u32 index = 0; worker && index < kAccountMediaDecodeLaneCount; ++index) {
+        const AccountMediaWorkerLane& lane = worker->lanes[index];
+        if (load_phase(&lane) != AccountMediaWorkerPhase::idle)
+            continue;
+        if (lane.initialized && media_asset_key_equal(lane.command.key, key))
+            return index;
+        u32& slot = spare[lane.initialized ? 0 : 1];
+        if (slot == kAccountMediaDecodeLaneCount &&
+            lane.command.kind != AccountMediaWorkKind::animation_advance &&
+            !(lane.command.key.flags & media_asset_flag_animated))
+            slot = index;
+    }
+    return spare[0] != kAccountMediaDecodeLaneCount ? spare[0] : spare[1];
+}
 
 AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* worker) noexcept {
     if (!worker) {
