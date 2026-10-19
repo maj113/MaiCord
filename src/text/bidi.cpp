@@ -246,7 +246,7 @@ UnicodeBidiStatus unicode_bidi_resolve(Slice<UnicodeBidiCell> cells,UnicodeParag
 UnicodeBidiStatus unicode_bidi_line(ConstSlice<UnicodeBidiCell> cells,u8 base,u32 first,u32 end,Slice<u8> levels,Slice<u32> visual,u32* visual_count) noexcept {
     if(!visual_count)return UnicodeBidiStatus::invalid_input;*visual_count=0;
     if(base>1 || first>end || end>cells.count || (cells.count && !cells.data) || (levels.count && !levels.data) || (visual.count && !visual.data))return UnicodeBidiStatus::invalid_input;
-    const u32 count=end-first;if(levels.count<count || visual.count<count)return UnicodeBidiStatus::output_too_small;
+    const u32 count=end-first;if(levels.count<count || (visual.count<count && (visual.count || visual.data)))return UnicodeBidiStatus::output_too_small;
     for(u32 i=first;i<end;++i) {
         if(cells[i].level>126 && cells[i].level!=unicode_bidi_removed)return UnicodeBidiStatus::invalid_input;
         levels[i-first]=cells[i].level;
@@ -257,6 +257,10 @@ UnicodeBidiStatus unicode_bidi_line(ConstSlice<UnicodeBidiCell> cells,u8 base,u3
     }
     for(u32 j=end;j>first;) {--j;if(levels[j-first]==unicode_bidi_removed)continue;if(!space(cells[j].original))break;levels[j-first]=base;}
     u32 total=0,highest=0,lowest_odd=255;
+    if(!visual.data) {
+        for(u32 i=0;i<count;++i)total+=levels[i]!=unicode_bidi_removed;
+        *visual_count=total;return UnicodeBidiStatus::ok;
+    }
     for(u32 i=first;i<end;++i)if(levels[i-first]!=unicode_bidi_removed) {
         visual[total++]=i;const u32 level=levels[i-first];highest=maximum(highest,level);if(level&1)lowest_odd=minimum(lowest_odd,level);
     }

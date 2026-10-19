@@ -19,6 +19,9 @@ bool unit_cases() noexcept {
     u32 count=0;
     if(unicode_bidi_line({cells,5},0,0,3,{levels,3},{visual,3},&count)!=UnicodeBidiStatus::ok || count!=2 || levels[2]!=0 || visual[0]!=1 || visual[1]!=2 || cells[2].level!=1)return false;
     if(unicode_bidi_line({cells,5},0,0,5,{levels,5},{visual,5},&count)!=UnicodeBidiStatus::ok || count!=3 || visual[0]!=3 || visual[1]!=2 || visual[2]!=1)return false;
+    u8 line_levels[5]{};
+    if(unicode_bidi_line({cells,5},0,0,5,{line_levels,5},{},&count)!=UnicodeBidiStatus::ok || count!=3 || !bytes_equal(line_levels,levels,5) ||
+       unicode_bidi_line({cells,5},0,0,5,{line_levels,5},{visual,4},&count)!=UnicodeBidiStatus::output_too_small)return false;
     if(unicode_bidi_resolve({cells,5},UnicodeParagraphDirection::ltr,{scratch,4},&paragraph)!=UnicodeBidiStatus::output_too_small || paragraph.count)return false;
     cells[0].original=B::b;
     if(unicode_bidi_resolve({cells,5},UnicodeParagraphDirection::ltr,{scratch,5},&paragraph)!=UnicodeBidiStatus::malformed_paragraph)return false;

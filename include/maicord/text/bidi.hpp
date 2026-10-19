@@ -34,8 +34,10 @@ UnicodeBidiStatus unicode_bidi_resolve(Slice<UnicodeBidiCell> cells,UnicodeParag
 // L1/L2 for [first,end). Does not change the paragraph's resolved levels.
 // Output levels are line-relative, visual indices are paragraph-relative.
 // Needs end-first slots in each output; the earlier u32 scratch can be reused
-// as visual storage. Returns X9-removed positions as level 255 and excludes
-// them from visual order. L3/L4, shaping and caret policy are separate stages.
+// as visual storage. An empty visual slice resolves levels only and still
+// counts the visible positions. Returns X9-removed positions as level 255 and
+// excludes them from visual order. L3/L4, shaping and caret policy are
+// separate stages.
 UnicodeBidiStatus unicode_bidi_line(ConstSlice<UnicodeBidiCell> cells,u8 paragraph_level,u32 first,u32 end,
                                   Slice<u8> levels,Slice<u32> visual,u32* visual_count) noexcept;
 } // namespace maicord

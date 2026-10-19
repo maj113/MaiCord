@@ -12,9 +12,11 @@ bool old_hangul_jamo(u32 cp) noexcept {
 }
 bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* levels) noexcept {
     arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);auto classes=take<NativeScriptClass>(owner.scratch,text.bytes);
-    if(!scalars.data||!classes.data)return false;u32 count=0;bool tabs=false,old_hangul=false,plain_ltr=true;
-    for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;scalars[count++]=cp.codepoint;tabs|=cp.codepoint==9;old_hangul|=old_hangul_jamo(cp.codepoint);
-        plain_ltr=plain_ltr&&native_text_ltr_class(unicode_properties(cp.codepoint)->bidi_class());at+=cp.width;}
+    auto cells=take<UnicodeBidiCell>(owner.scratch,text.bytes);
+    if(!scalars.data||!classes.data||!cells.data)return false;u32 count=0;bool tabs=false,old_hangul=false,plain_ltr=true;
+    for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;tabs|=cp.codepoint==9;old_hangul|=old_hangul_jamo(cp.codepoint);
+        const auto type=unicode_properties(cp.codepoint)->bidi_class();plain_ltr=plain_ltr&&native_text_ltr_class(type);
+        cells[count]={cp.codepoint,~0u,~0u,type,type,0,0};scalars[count++]=cp.codepoint;at+=cp.width;}
     if(native_script_resolve({scalars.data,count},classes)!=NativeScriptStatus::ok)return false;
     if(old_hangul){UnicodeGraphemeState state{};u32 first=0;bool old=false;
         for(u32 i=0;i<=count;++i){bool boundary=i==count;if(i<count&&!unicode_grapheme_next(&state,scalars[i],&boundary))return false;
@@ -22,8 +24,7 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
             if(i<count)old|=old_hangul_jamo(scalars[i]);}}
     if(plain_ltr){for(u32 i=0;i<count;++i)levels[i]=0;}
     else {
-    auto cells=take<UnicodeBidiCell>(owner.scratch,text.bytes);auto order=take<u32>(owner.scratch,text.bytes);
-    if(!cells.data||!order.data||unicode_bidi_classify({scalars.data,count},cells)!=UnicodeBidiStatus::ok)return false;
+    auto order=take<u32>(owner.scratch,text.bytes);if(!order.data)return false;
     // In LTR paragraphs a tab supplies L context, including within bracket
     // pairs, so pairs stay intact. S is restored before the standard L1 reset.
     if(tabs)for(u32 i=0;i<count;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::l;
@@ -36,7 +37,7 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
         u8 preceding=0;for(u32 i=first;i<end;++i){auto& cell=cells[i];
             if(cell.level==unicode_bidi_removed){if(scalars[i]>=0x202a&&scalars[i]<=0x202e)cell.level=preceding;}
             else preceding=cell.level;}
-        u32 visual=0;if(unicode_bidi_line({cells.data+first,end-first},0,0,end-first,{levels+first,end-first},order,&visual)!=UnicodeBidiStatus::ok)return false;first=end;}
+        u32 visual=0;if(unicode_bidi_line({cells.data+first,end-first},0,0,end-first,{levels+first,end-first},{},&visual)!=UnicodeBidiStatus::ok)return false;first=end;}
     u8 previous=0;for(u32 i=0;i<count;++i){if(levels[i]==unicode_bidi_removed)levels[i]=previous;else previous=levels[i];}
     }
     // Expand scalar metadata backward into UTF-8 bytes without another array.
