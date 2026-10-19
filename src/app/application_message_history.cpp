@@ -1250,6 +1250,18 @@ static bool pump_message_history_main(bool admit) noexcept {
                         if (accepted.apply.rich_skipped)
                             log_u64(LogLevel::warning, "rest", "message_history_rich_skipped",
                                     accepted.apply.rich_skipped);
+                        // Counts only: a page that leaves decoded messages out of the window.
+                        if (accepted.apply.inserted + accepted.apply.resident < accepted.decode.page.count) {
+                            TraceRecord shortfall("history_shortfall");
+                            shortfall.field("request", response.request_id);
+                            shortfall.field("work", rest_owner_name(owner));
+                            shortfall.field("decoded", accepted.decode.page.count);
+                            shortfall.field("inserted", accepted.apply.inserted);
+                            shortfall.field("resident", accepted.apply.resident);
+                            shortfall.field("skipped", accepted.apply.skipped);
+                            shortfall.field("evicted", accepted.apply.evicted);
+                            log_write(LogLevel::warning, "rest", shortfall.text);
+                        }
                         MessagePollPageInput inputs[kMessageHistoryRequestLimit]{};
                         MessagePollResultTicket tickets[kMessageHistoryRequestLimit]{};
                         u32 poll_count = 0;
@@ -1349,7 +1361,9 @@ static bool pump_message_history_main(bool admit) noexcept {
                     TraceRecord applied("history_applied");
                     applied.field("request", response.request_id);
                     applied.field("work", rest_owner_name(owner));
+                    applied.field("decoded", accepted.decode.page.count);
                     applied.field("inserted", accepted.apply.inserted);
+                    applied.field("resident", accepted.apply.resident);
                     applied.field("channel_epoch", g_app.load_trace.channel_epoch);
                     applied.field("decode_apply_us",
                                   clock_microseconds(g_app.clock, apply_trace.started, clock_now()));

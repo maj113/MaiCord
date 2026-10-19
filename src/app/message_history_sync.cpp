@@ -398,7 +398,7 @@ bool message_history_apply_mention_flags(MessageTimeline* timeline, const ChatSt
 
 MessageHistoryApplyResult message_timeline_apply_history_page(
     MessageTimeline* timeline, ConstSlice<GatewayMessageEvent> messages, MessageHistoryDirection direction,
-    MessageContentAvailability empty_content_availability) noexcept {
+    MessageContentAvailability empty_content_availability, bool fill_below_newest) noexcept {
     if (!timeline || !timeline->store || !timeline->list || !timeline->store->records ||
         !timeline->store->order || !timeline->store->text || !timeline->list->item_units ||
         !timeline->list->fenwick || timeline->store->count != timeline->list->count ||
@@ -467,19 +467,35 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
             selected_count = kept_count - selected_begin;
         }
     }
-    if (selected_count == 0) {
+    // A live create or confirmed send that landed in the empty window while
+    // the latest page was in flight must not hide the page under it.
+    u8 gap[kMessageHistoryMaximumMessages];
+    u32 gap_count = 0;
+    u32 resident = 0;
+    for (u32 index = 0; index < kept_count; ++index) {
+        if (index >= selected_begin && index < selected_begin + selected_count)
+            continue;
+        if (message_store_find(store, page_message(index).id).ok())
+            ++resident;
+        else if (fill_below_newest && direction == MessageHistoryDirection::newer)
+            gap[gap_count++] = static_cast<u8>(index);
+    }
+    if (selected_count == 0 && gap_count == 0) {
         MessageHistoryApplyResult result{};
         result.skipped = skipped;
+        result.resident = resident;
         ++timeline->history_pages;
         return result;
     }
+    const u32 incoming_count = selected_count + gap_count;
     const u32 resident_capacity = minimum(store.capacity, timeline->list->capacity);
-    if (resident_capacity == 0 || selected_count > resident_capacity) {
+    if (resident_capacity == 0 || incoming_count > resident_capacity) {
         return apply_error(MessageHistoryApplyError::capacity);
     }
     u64 incoming_bytes = 0;
-    for (u32 index = 0; index < selected_count; ++index) {
-        incoming_bytes += page_message(selected_begin + index).content.bytes;
+    for (u32 index = 0; index < incoming_count; ++index) {
+        incoming_bytes += page_message(index < selected_count ? selected_begin + index : gap[index - selected_count])
+                              .content.bytes;
         if (incoming_bytes > store.text_capacity) {
             return apply_error(MessageHistoryApplyError::capacity);
         }
@@ -497,8 +513,8 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
             ++removed_locals;
         }
     }
-    u32 eviction_count = store.count + selected_count > resident_capacity
-                             ? store.count + selected_count - resident_capacity
+    u32 eviction_count = store.count + incoming_count > resident_capacity
+                             ? store.count + incoming_count - resident_capacity
                              : 0;
     u64 live_after = store.text_used - store.text_wasted;
     for (u32 index = 0; index < eviction_count; ++index) {
@@ -540,24 +556,31 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
             return apply_error(MessageHistoryApplyError::reconcile, true);
         }
     }
-    for (u32 index = selected_count; index != 0; --index) {
-        const GatewayMessageEvent& message = page_message(selected_begin + index - 1);
+    const auto insert = [&](const GatewayMessageEvent& message, u32* order_index) noexcept {
         const MessageReconcileResult inserted = message_reconcile_create(
             &store, message, resolved_availability(message, empty_content_availability));
         if (!inserted.ok() || !inserted.inserted) {
-            return apply_error(MessageHistoryApplyError::reconcile, true);
+            return false;
         }
+        *order_index = inserted.order_index;
         if (timeline->rich_store &&
             (((message.fields & kHistoryRichFieldMask) != 0) || message.rich_truncations != 0)) {
-            const MessageRecord* resident = message_store_resolve(store, inserted.handle);
-            if (!resident) {
-                return apply_error(MessageHistoryApplyError::reconcile, true);
+            const MessageRecord* record = message_store_resolve(store, inserted.handle);
+            if (!record) {
+                return false;
             }
             // The message itself is resident; rich data the bounded rich store
             // rejects only degrades to the plain message, never fails the page.
-            if (!message_rich_store_apply(timeline->rich_store, message.id, resident->revision, message).ok()) {
+            if (!message_rich_store_apply(timeline->rich_store, message.id, record->revision, message).ok()) {
                 ++rich_skipped;
             }
+        }
+        return true;
+    };
+    for (u32 index = selected_count; index != 0; --index) {
+        u32 order_index = 0;
+        if (!insert(page_message(selected_begin + index - 1), &order_index)) {
+            return apply_error(MessageHistoryApplyError::reconcile, true);
         }
     }
 
@@ -568,9 +591,22 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
         return apply_error(MessageHistoryApplyError::ui_mutation, true);
     }
     const u32 insertion_index = direction == MessageHistoryDirection::older ? 0 : timeline->list->count;
-    if (!ui_variable_list_insert(timeline->list, insertion_index, selected_count,
-                                 timeline->default_item_units, &anchor)) {
+    if (selected_count != 0 && !ui_variable_list_insert(timeline->list, insertion_index, selected_count,
+                                                        timeline->default_item_units, &anchor)) {
         return apply_error(MessageHistoryApplyError::ui_mutation, true);
+    }
+    if (store.count != timeline->list->count) {
+        return apply_error(MessageHistoryApplyError::count_mismatch, true);
+    }
+    // Gap rows go in oldest first, each at its ordered position.
+    for (u32 index = gap_count; index != 0; --index) {
+        u32 order_index = 0;
+        if (!insert(page_message(gap[index - 1]), &order_index)) {
+            return apply_error(MessageHistoryApplyError::reconcile, true);
+        }
+        if (!ui_variable_list_insert(timeline->list, order_index, 1, timeline->default_item_units, &anchor)) {
+            return apply_error(MessageHistoryApplyError::ui_mutation, true);
+        }
     }
     if (store.count != timeline->list->count) {
         return apply_error(MessageHistoryApplyError::count_mismatch, true);
@@ -578,13 +614,16 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     restore_scroll(timeline, &anchor, previous_scroll);
 
     MessageHistoryApplyResult result{};
-    result.inserted = selected_count;
+    result.inserted = incoming_count;
     result.skipped = skipped;
+    result.resident = resident;
     result.rich_skipped = rich_skipped;
     result.evicted = eviction_count + removed_locals;
     result.compactions = store.compactions - previous_compactions;
-    const u32 first_changed =
-        direction == MessageHistoryDirection::older || eviction_count != 0 || removed_locals ? 0 : old_count;
+    const u32 first_changed = direction == MessageHistoryDirection::older || eviction_count != 0 ||
+                                      removed_locals || gap_count
+                                  ? 0
+                                  : old_count;
     const u32 changed_end = maximum(maximum(old_count, before_local_removal), timeline->list->count);
     result.invalidation = MessageTimelineInvalidation{
         first_changed, first_changed < changed_end ? changed_end - first_changed : 1, true,
@@ -592,7 +631,7 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     timeline->evicted += eviction_count + removed_locals;
     timeline->compactions += result.compactions;
     ++timeline->history_pages;
-    timeline->history_inserted += selected_count;
+    timeline->history_inserted += incoming_count;
     return result;
 }
 
@@ -1020,8 +1059,11 @@ MessageHistoryApplyResult message_history_catchup_apply_page(
     if (catchup->incremental) pump->timeline->follow_bottom = false;
     catchup->latest_short = catchup->cursor_after == 0 && messages.count != 0 &&
                             messages.count < catchup->request_limit;
-    const MessageHistoryApplyResult applied = message_timeline_apply_history_page(
-        pump->timeline, messages, MessageHistoryDirection::newer, empty_content_availability);
+    // A latest page (no resident cursor) is the whole newest window; anything
+    // resident arrived during the request.
+    const MessageHistoryApplyResult applied =
+        message_timeline_apply_history_page(pump->timeline, messages, MessageHistoryDirection::newer,
+                                            empty_content_availability, catchup->cursor_after == 0);
     if (!applied.ok()) {
         page_fail<MessageHistoryCatchupState>(catchup, MessageHistoryCatchupFailure::apply);
         if (applied.destructive_failure) {
@@ -1064,6 +1106,22 @@ bool message_history_newer_prefetch_needed(const MessageTimeline& timeline) noex
     if (!timeline.newer_refetch_required || !timeline.list || !timeline.list->count || !timeline.viewport_units) return false;
     const u64 maximum = timeline.list->total_units > timeline.viewport_units ? timeline.list->total_units - timeline.viewport_units : 0;
     return maximum - minimum(maximum, timeline.scroll_units) <= ui_extent_units(500.0f);
+}
+
+bool message_history_window_retainable(const MessageHistoryCatchup& catchup, const MessageHistoryOlder& older,
+                                       const MessageTimeline& timeline, u64 channel_id) noexcept {
+    if (!channel_id || !timeline.store || catchup.channel_id != channel_id ||
+        !message_history_browsing_ready(catchup.state))
+        return false;
+    if (older.channel_id == channel_id && older.state == MessageHistoryOlderState::exhausted)
+        return true;
+    u32 rows = 0;
+    for (u32 index = 0; index < timeline.store->count; ++index) {
+        const MessageRecord* record = ordered_record(*timeline.store, index);
+        if (record && record->delivery == MessageDeliveryState::authoritative)
+            ++rows;
+    }
+    return rows >= catchup.request_limit;
 }
 
 bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimeline* timeline,

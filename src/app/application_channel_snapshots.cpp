@@ -52,8 +52,8 @@ void application_channel_snapshot_capture(u64 channel_id) noexcept {
     const MessageHistoryOlder& older = g_app.message_older;
     const MessageTimeline& timeline = g_app.message_view.timeline;
     // The active channel never has an entry (restore consumes it), so an
-    // incoherent window is simply not retained.
-    if (missed || catchup.channel_id != channel_id || !message_history_browsing_ready(catchup.state) ||
+    // incoherent or partial window is simply not retained.
+    if (missed || !message_history_window_retainable(catchup, older, timeline, channel_id) ||
         g_app.message_pump.resync_required || g_app.pending_message_jump_message_id ||
         !application_channel_readable(g_app, channel_id))
         return;

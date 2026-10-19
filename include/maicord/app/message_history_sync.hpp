@@ -44,6 +44,8 @@ struct MessageHistoryApplyResult {
     u32 skipped;
     // Inserted messages whose rich data (cards, embeds, ...) could not be kept.
     u32 rich_skipped;
+    // Page messages already in the window.
+    u32 resident;
 
     constexpr bool ok() const noexcept {
         return error == MessageHistoryApplyError::none;
@@ -53,11 +55,14 @@ struct MessageHistoryApplyResult {
 // Applies one already-decoded, newest-to-oldest page with at most two list
 // rebuilds when no local outbox rows are loaded: one edge removal and one
 // contiguous insertion. Local rows are removed for controller restoration.
+// A newer page skips rows at or below the newest resident unless
+// `fill_below_newest`: then a latest page also inserts, one by one, the rows
+// it has below messages that landed while it was in flight.
 // All externally supplied data is validated before the first change to the
 // loaded timeline.
 MessageHistoryApplyResult message_timeline_apply_history_page(
     MessageTimeline* timeline, ConstSlice<GatewayMessageEvent> messages, MessageHistoryDirection direction,
-    MessageContentAvailability empty_content_availability) noexcept;
+    MessageContentAvailability empty_content_availability, bool fill_below_newest = false) noexcept;
 
 // Applies one around-message refresh without changing the loaded order.
 // The source revision and attachment identity bind an asynchronous signed-URL
@@ -170,6 +175,12 @@ bool message_history_newer_prefetch_needed(const MessageTimeline& timeline) noex
 constexpr bool message_history_browsing_ready(MessageHistoryCatchupState state) noexcept {
     return state == MessageHistoryCatchupState::complete || state == MessageHistoryCatchupState::paused;
 }
+
+// Whether the channel's window may be kept for its next visit, which only
+// catches up with after=. A window shorter than one page must reach the
+// channel start; anything else is partial and must reload the latest page.
+bool message_history_window_retainable(const MessageHistoryCatchup& catchup, const MessageHistoryOlder& older,
+                                       const MessageTimeline& timeline, u64 channel_id) noexcept;
 
 // Records one user request for older messages. Repeated demands are a
 // no-op while a page/retry is active and after the channel beginning is known.
