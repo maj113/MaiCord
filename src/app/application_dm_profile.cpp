@@ -9,6 +9,7 @@
 #include "application_state.hpp"
 #include "application_user_actions.hpp"
 
+#include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -196,6 +197,18 @@ bool show(u64 user, UiRect slot) noexcept {
 bool open_full(u64 user, UiRect anchor) noexcept {
     return application_profile_open(user, anchor) && (application_profile_expand(user) || true);
 }
+// Shown activity timers (elapsed, track progress) advance each second. True
+// when the scene changed.
+bool tick_clock() noexcept {
+    auto* s = g_panel && g_panel->scene.active ? &g_panel->scene : nullptr;
+    g_app.dm_profile_clock_ms = 0;
+    if (!s || !s->activity_timed)
+        return false;
+    const u64 unix_ms = clock_unix_milliseconds();
+    const bool changed = profile_scene_tick(s, unix_ms);
+    g_app.dm_profile_clock_ms = now_ms() + (1000 - unix_ms % 1000);
+    return changed;
+}
 bool relayout() noexcept {
     return profile_scene_layout(&g_panel->scene, application_viewport_dips(), true) && repaint();
 }
@@ -288,14 +301,12 @@ void application_dm_profile_synchronize() noexcept {
     if (!shown || !show(user, slot))
         hide();
     update_wake();
-    // Shown activity timers (elapsed, track progress) advance each second.
-    auto* s = application_dm_profile_scene();
-    g_app.dm_profile_clock_ms = 0;
-    if (s && s->activity_timed) {
-        const u64 unix_ms = clock_unix_milliseconds();
-        profile_scene_tick(s, unix_ms);
-        g_app.dm_profile_clock_ms = now_ms() + (1000 - unix_ms % 1000);
-    }
+    tick_clock();
+}
+void application_dm_profile_tick(u64 now) noexcept {
+    // A second boundary brings no frame of its own.
+    if (deadline_due(now, g_app.dm_profile_clock_ms) && tick_clock())
+        repaint();
 }
 ProfileScene* application_dm_profile_scene() noexcept {
     return g_panel && g_panel->scene.active ? &g_panel->scene : nullptr;

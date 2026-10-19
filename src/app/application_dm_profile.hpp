@@ -19,6 +19,8 @@ UiSidePanelInput application_side_panel_input() noexcept;
 // the slot and publishes it to the renderer (renderer.dm_profile_panel, which
 // media, tooltips and wheel scrolling read).
 void application_dm_profile_synchronize() noexcept;
+// Loop tick: advances shown activity timers at their second boundary.
+void application_dm_profile_tick(u64 now) noexcept;
 // The shown panel's scene, or null.
 ProfileScene* application_dm_profile_scene() noexcept;
 bool application_dm_profile_pending(u64 now) noexcept;

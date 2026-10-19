@@ -203,7 +203,12 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     limit_timeout(timeout, now_ms, application_login_browser_deadline());
     // One wake per media upload burst: the idle atlas/frame-cache trim.
     limit_timeout(timeout, now_ms, renderer_media_next_trim_ms(g_app.renderer));
-    limit_timeout(timeout, now_ms, application_next_wake_at_ms());
+    // Account deadlines are served by the pump, which needs a running instance
+    // (application_nonvisual_wake_due); a stopped account waits for its reconnect.
+    const bool account_running = g_app.account.instance && !g_app.account.stop_failed;
+    limit_timeout(timeout, now_ms,
+                  account_running ? application_next_wake_at_ms()
+                                  : application_account_reconnect_next_wake());
     const MessageTextPresentation* text = g_app.account_ui ? &g_app.account_ui->message_text : nullptr;
     if (text && !visual_suspended && text->next_timestamp_update_unix_seconds != 0 &&
         application_account_timestamp_refresh_eligible(now_ms)) {

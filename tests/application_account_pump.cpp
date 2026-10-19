@@ -18,6 +18,7 @@
 #include "../src/app/application_notifications.hpp"
 #include "../src/app/application_thread_header_activation.hpp"
 #include "../src/app/application_video.hpp"
+#include "../src/app/application_toast.hpp"
 #include "../src/app/gateway_dispatch_common.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/core/memory.hpp"
@@ -122,7 +123,7 @@ GatewayClientFailureStage diagnostic_stage;
 GatewayClientPopError diagnostic_pop_error;
 bool diagnostic_order_ok, diagnostic_refill, diagnostic_null_source, diagnostic_overlarge;
 u64 profile_wake, command_wake, form_wake, friends_wake, recovery_wake, reset_wake, phone_wake,
-    notification_wake, video_wake, tooltip_wake, surface_wake;
+    notification_wake, video_wake, tooltip_wake, surface_wake, toast_wake, reconnect_wake;
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
@@ -353,7 +354,7 @@ void application_account_stop_recoverable(const char*) noexcept {
 }
 void application_account_connection_observe(GatewayClientEventKind) noexcept {}
 u64 application_account_reconnect_next_wake() noexcept {
-    return 0;
+    return reconnect_wake;
 }
 void application_record_presentation_failure(const char*) noexcept {
     ++presentation_failures;
@@ -392,7 +393,7 @@ u64 application_tooltip_next_wake() noexcept {
     return tooltip_wake;
 }
 u64 application_toast_next_wake() noexcept {
-    return 0;
+    return toast_wake;
 }
 u64 application_guild_banner_next_wake() noexcept {
     return 0;
@@ -732,6 +733,25 @@ void test_frame_deadlines() noexcept {
     check(application_wait_timeout(1000, 1000000, false) == INFINITE &&
               !application_nonvisual_wake_due(1000) && !application_visual_frame_requested(1000, 1000000),
           "overview_cleared_retry_and_caret_deadlines_return_to_wait_driven_idle");
+    // A stopped account keeps its shell; deadlines only the pump serves must not poll.
+    scoped_read_wake = 1000;
+    reconnect_wake = 1400;
+    g_app.account.instance = nullptr;
+    check(application_wait_timeout(1000, 1000000, true) == 400 && !application_nonvisual_wake_due(1000),
+          "stopped_account_waits_for_its_reconnect_without_polling_pump_deadlines");
+    g_app.account.instance = reinterpret_cast<void*>(1);
+    scoped_read_wake = reconnect_wake = 0;
+    // A shown toast's hold ends without a frame of its own.
+    toast_wake = 1400;
+    g_app.frame_pending = false;
+    application_toast_tick(1000);
+    check(!g_app.frame_pending && application_wait_timeout(1000, 1000000, false) == 400,
+          "toast_future_phase_waits_without_a_frame");
+    application_toast_tick(1400);
+    check(g_app.frame_pending && application_visual_frame_requested(1400, 1400000),
+          "due_toast_phase_requests_its_frame");
+    toast_wake = 0;
+    g_app.frame_pending = false;
     const auto original_primary = g_app.message_history_request_owner;
     const auto original_details = g_app.details_request_owner;
     g_app.message_history_request_owner = MessageHistoryRequestOwner::catchup;

@@ -61,6 +61,7 @@
 #include "application_tooltip.hpp"
 #include "application_unread_banner.hpp"
 #include "application_toast.hpp"
+#include "application_dm_profile.hpp"
 #include "application_guild_folders.hpp"
 #include "application_guild_invite.hpp"
 #include "application_taskbar_attention.hpp"
@@ -693,6 +694,8 @@ int application_run() noexcept {
             application_friends_tick(restart_now_ms);
             application_search_tick(restart_now_ms);
             application_voice_timer_tick(restart_now_ms);
+            application_toast_tick(restart_now_ms);
+            application_dm_profile_tick(restart_now_ms);
             application_inbox_trim();
             const u64 poll_wake = application_poll_next_wake();
             if (poll_wake && restart_now_ms >= poll_wake) {

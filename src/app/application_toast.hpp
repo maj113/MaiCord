@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application_state.hpp"
+#include "maicord/core/deadline.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/ui/toast.hpp"
 
@@ -47,6 +48,11 @@ inline bool application_copy_text(Utf8View text, Utf8View copied, Utf8View faile
 bool application_toast_synchronize(u64 now_ms) noexcept;
 // The next due update; zero when no toast is queued or showing.
 u64 application_toast_next_wake() noexcept;
+// Loop tick: the hold and the handover end without a frame of their own.
+inline void application_toast_tick(u64 now_ms) noexcept {
+    if (deadline_due(now_ms, application_toast_next_wake()))
+        application_request_frame();
+}
 void application_toast_release() noexcept;
 
 } // namespace maicord::app_detail

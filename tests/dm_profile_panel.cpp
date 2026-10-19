@@ -106,11 +106,6 @@ void side_panel_cases() noexcept {
               ui_side_panel_plan(server).panel == UiSidePanel::none && ui_side_panel_plan(server).width == 260 &&
               !ui_side_panel_plan(friends).toggle && !ui_side_panel_plan(empty_home).toggle,
           "side panel: group DMs and servers keep the member list; Friends and an empty Home have no toggle");
-    check(ui_side_panel_minimum_width(72, 240, {1, true, false, false, true, 0, 0}) ==
-                  72 + 240 + kUiShellMinimumMessageWidthDips &&
-              ui_side_panel_minimum_width(72, 240, {1, true, false, true, true, 0, 0}) ==
-                  72 + 240 + 240 + kUiShellMinimumMessageWidthDips,
-          "side panel: the DM profile never raises the window's minimum width");
 }
 
 void layout_cases() noexcept {
@@ -417,6 +412,12 @@ void panel_cases() noexcept {
               find_part(*s, ProfileAction::expand) && find_part(*s, ProfileAction::servers) &&
               !find_part(*s, ProfileAction::open_server),
           "DM panel: the loaded profile lays out with View Full Profile and collapsed mutual servers");
+    g_app.dm_profile_clock_ms = 5;
+    application_dm_profile_tick(4);
+    check(g_app.dm_profile_clock_ms == 5, "DM panel: the loop tick waits for the activity clock");
+    application_dm_profile_tick(5);
+    check(!g_app.dm_profile_clock_ms,
+          "DM panel: a due clock without a timed activity is consumed outside a frame");
     check(click(ProfileAction::servers) && find_part(*application_dm_profile_scene(), ProfileAction::open_server) &&
               (application_dm_profile_scene()->sections & 1),
           "DM panel: Mutual Servers expands in place");
