@@ -17,6 +17,9 @@ u32 sfnt_cluster_map_words(u32 text_count) noexcept;
 SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> boundaries,Slice<u64> storage,
                                  SfntClusterMap* output,u64 work_limit=1000000) noexcept;
 SfntStatus sfnt_cluster_map_find(const SfntClusterMap& map,u32 source,u32* first,u32* end) noexcept;
+// Start of the cluster holding a validated source, or 0xffffffff if none.
+u32 sfnt_cluster_map_start(const SfntClusterMap& map,u32 source) noexcept;
+inline bool sfnt_cluster_map_starts(const SfntClusterMap& map,u32 source) noexcept {return (map.storage.data[source>>6]>>(source&63))&1;}
 // Joins the clusters containing the inclusive source range [first,last]. Plan is
 // read-only and returns the work it used. Commit cannot fail when passed
 // that plan and the same unchanged map. Reserve commit_work before other edits.

@@ -48,6 +48,7 @@ SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64
     }
     *output=result;return SfntStatus::ok;
 }
+u32 sfnt_cluster_map_start(const SfntClusterMap& map,u32 source) noexcept {return find(map,source,false);}
 SfntStatus sfnt_cluster_map_find(const SfntClusterMap& map,u32 source,u32* first,u32* end) noexcept {
     if(!first || !end)return SfntStatus::invalid_input;*first=*end=0;if(source>=map.text_count)return SfntStatus::invalid_input;
     *first=find(map,source,false);if(*first==absent)return SfntStatus::invalid_input;

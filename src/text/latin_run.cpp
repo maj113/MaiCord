@@ -148,7 +148,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     auto* control_sources=reinterpret_cast<u8*>(s.shaping.advances.data);
     if(controls||tones){if(!control_sources||static_cast<u64>(s.shaping.advances.count)*sizeof(double)<units)return SfntStatus::output_too_small;for(u32 i=0;i<units;++i)control_sources[i]=0;}
     const bool hebrew=profile&&profile->hebrew_preparation;
-    const auto nominal=native_run_plan_nominal(store,handle);if(!nominal.glyph_limit)return SfntStatus::invalid_input;bool simple=!independent&&!force_shaping&&!hebrew;u32 written=0;
+    const auto nominal=native_run_plan_nominal(store,handle);if(!nominal.glyph_limit)return SfntStatus::invalid_input;bool simple=!independent&&!force_shaping&&!hebrew;u32 written=0;SfntGlyphClassMemo classes;
     // Reuse the plan's validated affine ASCII cmap prefix inside Latin text.
     // Accented scalars and fonts without that prefix keep ordinary cmap lookup.
     const auto map=[&](u32 scalar,u16* glyph,u32 selector=0) noexcept {
@@ -180,7 +180,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
             const bool control=(flags&(ignorable|selector))==ignorable&&!(jamo&&(cp==0x115f||cp==0x1160))&&!(khmer_fallback&&(cp==0x17b4||cp==0x17b5));if(controls&&control)control_sources[source]=1;
             if(tones&&(cp==0x302e||cp==0x302f))control_sources[source]=2;
             simple=simple&&!composed&&!control&&glyph&&nominal_scalar_is_simple(cp)&&(!nominal.participation.count||!(nominal.participation[glyph/64]&(1ull<<(glyph%64))));
-            s.mapped[written++]={{glyph,sfnt_gdef_glyph_class(plan->gdef,glyph),metadata},source};
+            s.mapped[written++]={{glyph,sfnt_gdef_glyph_class(plan->gdef,glyph,classes),metadata},source};
         }i=end;
     }
     if(simple){if(written>s.glyphs.count||written>s.placements.count)return SfntStatus::output_too_small;
