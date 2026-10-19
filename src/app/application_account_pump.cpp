@@ -21,6 +21,7 @@
 #include "application_forum_form.hpp"
 #include "application_thread_header.hpp"
 #include "application_friends.hpp"
+#include "application_channel_memory.hpp"
 #include "application_channel_session.hpp"
 #include "application_media.hpp"
 #include "application_message_history.hpp"
@@ -729,6 +730,7 @@ bool application_pump_account() noexcept {
     const u64 now_ms = clock_monotonic_milliseconds();
     AccountUiRuntime& ui = *g_app.account_ui;
     message_draft_session_persist(ui.message_draft_session, ui.message_drafts, now_ms, false);
+    application_channel_memory_pump(now_ms);
     u32 observations = 0;
     const AccountModuleStatus status =
         account_host_pump(&host, now_ms, clock_unix_milliseconds(), &observations);

@@ -504,7 +504,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         src/app/application_attachment_probe.cpp src/app/attachment_media_probe.cpp
         src/app/application_attachment_allowance.cpp src/app/application_state.cpp
         tests/private_channel_state.cpp tests/private_membership.cpp tests/private_snapshot.cpp
-        tests/gateway_state_recovery.cpp tests/navigation_restore.cpp tests/private_order.cpp
+        tests/gateway_state_recovery.cpp tests/navigation_restore.cpp tests/channel_memory.cpp tests/private_order.cpp
         tests/private_rail_pins.cpp
         tests/private_conversation.cpp tests/private_channel_actions.cpp tests/media_fixture.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_webauthn maicord_account_paths
@@ -535,7 +535,7 @@ maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_en
 add_executable(MaiCordAccountPumpTests tests/application_account_pump.cpp
     src/app/application_thread_header_activation.cpp
     tests/application_account_text_retry_runtime.hpp
-    src/app/application_account_pump.cpp src/app/application_scheduler.cpp
+    src/app/application_account_pump.cpp src/app/application_scheduler.cpp src/app/application_channel_memory.cpp
     src/app/account_host.cpp src/app/application_state.cpp src/core/log.cpp
     src/app/application_message_mutation_notice.cpp
     $<TARGET_OBJECTS:maicord_runtime>)
@@ -1656,6 +1656,7 @@ maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe
     SOURCES config/maicord.manifest tests/integration/message_link_ui_probe.cpp
         src/app/application_content_input.cpp src/app/application_search_navigation.cpp
         src/app/application_message_mutation_notice.cpp src/app/application_thread_actions.cpp src/core/log.cpp
+        src/app/application_channel_memory.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
     TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_UI_MESSAGE_LINK_PROBE=1 MAICORD_GPU_METRICS=1

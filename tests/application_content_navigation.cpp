@@ -271,6 +271,9 @@ bool application_guild_menu_toggle(bool) noexcept {
 bool application_friends_show() noexcept {
     return false;
 }
+ChannelMemoryEntry application_channel_memory_recall(u64) noexcept {
+    return {};
+}
 bool application_private_channel_row_close(u64, float, float) noexcept {
     return false;
 }

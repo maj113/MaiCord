@@ -204,6 +204,7 @@ maicord_library(maicord_app_core
     src/app/update_prepare.cpp src/app/update_pair_package.cpp src/app/update_generation.cpp
     src/app/update_generation_authentication.cpp src/app/update_handoff.cpp src/app/update_install.cpp
     src/app/update_fetch.cpp src/app/update_https.cpp src/app/update_service.cpp src/app/search_recent.cpp
+    src/app/channel_memory.cpp
     src/app/link_trust.cpp src/app/voice_dave_route.cpp src/app/voice_jitter_buffer.cpp src/app/voice_mixer.cpp
     src/app/voice_playback.cpp src/app/voice_receive.cpp src/app/gateway_stream_session.cpp
     src/app/video_rtp_receive.cpp src/app/voice_video_sink.cpp

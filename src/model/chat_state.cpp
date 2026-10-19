@@ -1361,8 +1361,9 @@ ChatStateSelectionResult chat_state_store_select_home(ChatStateStore* store) noe
     return {ChatStateSelectionError::none, scope_changed || channel_changed || was_restoring};
 }
 
-ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store,
-                                                             u64 guild_id) noexcept {
+ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store, u64 guild_id,
+                                                       u64 remembered_channel_id,
+                                                       u64 remembered_parent_id) noexcept {
     if (!store || guild_id == 0) {
         return ChatStateSelectionResult{ChatStateSelectionError::invalid_input, false};
     }
@@ -1373,7 +1374,17 @@ ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store,
     if (guild->unavailable) {
         return ChatStateSelectionResult{ChatStateSelectionError::unavailable, false};
     }
-    const ChannelRecord* channel = best_channel(*store, guild_id);
+    const ChannelRecord* channel = nullptr;
+    const u64 hints[] = {remembered_channel_id, remembered_parent_id};
+    for (const u64 hint : hints) {
+        const ChannelRecord* remembered = hint ? chat_state_store_find_channel(*store, hint) : nullptr;
+        if (remembered && remembered->guild_id == guild_id && selectable_channel(*store, *remembered)) {
+            channel = remembered;
+            break;
+        }
+    }
+    if (!channel)
+        channel = best_channel(*store, guild_id);
     if (!channel) {
         return ChatStateSelectionResult{ChatStateSelectionError::not_selectable, false};
     }

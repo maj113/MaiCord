@@ -1,4 +1,5 @@
 #include "application_activity.hpp"
+#include "application_channel_memory.hpp"
 #include "application_guild_banner.hpp"
 #include "application_invite_cards.hpp"
 #include "application_message_components.hpp"
@@ -137,6 +138,7 @@ u64 application_next_wake_at_ms() noexcept {
         }
         add(g_app.account_ui->chat_state.restore_deadline_ms);
         add(g_app.account_ui->message_draft_session.persist_at_ms);
+        add(application_channel_memory_next_wake());
         add(message_composer_controller_next_wake_at(g_app.account_ui->message_composer_controller));
         add(typing_store_next_wake_at(g_app.account_ui->typing_store));
     }

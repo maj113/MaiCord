@@ -109,7 +109,8 @@ add_executable(MaiCord WIN32
     # the voice user menu, the call view, stage channels and Go Live.
     src/app/application_soundboard.cpp src/app/application_voice_message.cpp src/app/application_voice.cpp
     src/app/application_voice_settings.cpp src/app/voice_settings_binding.cpp src/app/application_call.cpp
-    src/app/application_stage.cpp src/app/application_message_components.cpp
+    src/app/application_stage.cpp src/app/application_voice_channels.cpp src/app/application_message_components.cpp
+    src/app/application_channel_memory.cpp
     src/app/application_invite_cards.cpp src/app/application_stream.cpp)
 target_link_libraries(MaiCord PRIVATE maicord_compile_contract
     maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences

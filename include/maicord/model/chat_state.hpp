@@ -699,8 +699,12 @@ bool chat_state_store_append_channel_overwrite(ChatStateStore* store, u64 channe
                                                   const PermissionOverwriteInput& input) noexcept;
 void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 guild_id) noexcept;
 bool chat_state_store_select_default(ChatStateStore* store) noexcept;
-ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store,
-                                                             u64 guild_id) noexcept;
+// Lands on remembered_channel_id when it is still a selectable channel of the
+// guild, else on remembered_parent_id (a thread's parent), else on the guild's
+// default channel. Either hint may be 0.
+ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store, u64 guild_id,
+                                                       u64 remembered_channel_id = 0,
+                                                       u64 remembered_parent_id = 0) noexcept;
 ChatStateSelectionResult chat_state_store_select_channel(ChatStateStore* store,
                                                                u64 channel_id) noexcept;
 

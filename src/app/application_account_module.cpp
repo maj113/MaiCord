@@ -5,6 +5,8 @@
 #include "application_message_components.hpp"
 #include "application_private_channel.hpp"
 #include "application_stage.hpp"
+#include "application_channel_memory.hpp"
+#include "application_voice_channels.hpp"
 #include "application_soundboard.hpp"
 #include "application_action_captcha.hpp"
 #include "application_emoji_preferences.hpp"
@@ -706,6 +708,7 @@ void application_prepare_account_stop() noexcept {
     application_message_forward_release();
     application_quick_switcher_release();
     application_channel_overview_release();
+    application_channel_memory_stop();
     if (g_app.account_ui) {
         AccountUiRuntime& ui = *g_app.account_ui;
         message_draft_session_persist(ui.message_draft_session, ui.message_drafts,
@@ -922,6 +925,7 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
                                          started.status.profile_id, clock_monotonic_milliseconds())) {
         log_write(LogLevel::warning, "draft", "persistence_configuration_failed");
     }
+    application_channel_memory_start(started.status.profile_id);
     log_u64(LogLevel::info, "account", "profile_id", started.status.profile_id);
     log_u64(LogLevel::info, "account", "module_runtime_bytes", host.api.runtime_bytes());
     log_u64(LogLevel::info, "account", "ui_runtime_bytes", sizeof(AccountUiRuntime));
