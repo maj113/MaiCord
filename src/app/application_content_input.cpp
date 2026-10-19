@@ -349,6 +349,8 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     application_friends_hide();
     const u64 selected_channel_id = g_app.account_ui->chat_state.selected_channel_id;
     application_read_state_activity();
+    if (guild)
+        application_read_state_log_guild_unread(id);
     if (selected.changed || was_friends || was_browser) {
         if (!synchronize_navigation_view() || !synchronize_selected_channel() ||
             !synchronize_shell_layout()) {

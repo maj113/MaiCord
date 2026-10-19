@@ -15,6 +15,7 @@
 #include "maicord/protocol/message_ack.hpp"
 #include "maicord/ui/quick_switcher_scene.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -1099,6 +1100,53 @@ void application_read_state_echo_admitted(ConstSlice<ApplicationReadEchoProof> p
                                         latest->manual,
                                         1};
     }
+}
+// Logs what lights a guild's unread pill: the counter, a recount, and each
+// unread channel's read-state inputs (ids and flags only).
+void application_read_state_log_guild_unread(u64 guild_id) noexcept {
+    if (!g_app.account_ui)
+        return;
+    const ChatStateStore& s = g_app.account_ui->chat_state;
+    const GuildRecord* guild = chat_state_store_find_guild(s, guild_id);
+    if (!guild || !guild->unread_channels)
+        return;
+    char line[256];
+    u32 n = 0;
+    const auto text = [&](const char* t) noexcept {
+        while (*t && n < sizeof(line) - 24)
+            line[n++] = *t++;
+    };
+    const auto field = [&](const char* name, u64 value) noexcept {
+        text(name);
+        n += decimal_write(line + n, value);
+    };
+    u32 recount = 0;
+    for (u32 order = 0; order < s.channel_count; ++order) {
+        const ChannelRecord& c = s.channels[s.channel_order[order]];
+        if (c.guild_id != guild_id || !chat_state_store_channel_unread(s, c))
+            continue;
+        if (++recount > 16)
+            continue;
+        n = 0;
+        field("guild_unread_channel id=", c.id);
+        field(" type=", c.type);
+        field(" parent=", c.parent_id);
+        field(" last=", c.last_message_id);
+        field(" read=", c.last_read_message_id);
+        field(" known=", c.read_state_known);
+        field(" mentions=", c.mention_count);
+        field(" muted=", c.notification_muted);
+        field(" joined=", c.thread_self_joined_known ? 1u + c.thread_self_joined : 0u);
+        field(" archived=", c.thread_archived_known ? 1u + c.thread_archived : 0u);
+        line[n] = 0;
+        log_write(LogLevel::info, "read_state", line);
+    }
+    n = 0;
+    field("guild_unread guild=", guild_id);
+    field(" counter=", guild->unread_channels);
+    field(" recount=", recount);
+    line[n] = 0;
+    log_write(LogLevel::info, "read_state", line);
 }
 void application_read_state_echo_rejected(u64 request_id) noexcept {
     auto* o = g_app.read_state;

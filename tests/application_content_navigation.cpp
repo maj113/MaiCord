@@ -393,6 +393,7 @@ void application_thread_browser_close() noexcept {
 }
 void application_read_state_activity() noexcept {
 }
+void application_read_state_log_guild_unread(u64) noexcept {}
 bool synchronize_navigation_view() noexcept {
     return true;
 }

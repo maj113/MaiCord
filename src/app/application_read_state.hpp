@@ -51,5 +51,6 @@ struct ApplicationReadEchoProof {
 bool application_read_state_echo_prepare(ConstSlice<ApplicationReadEchoProof>) noexcept;
 void application_read_state_echo_admitted(ConstSlice<ApplicationReadEchoProof>, u64 request_id) noexcept;
 void application_read_state_echo_rejected(u64 request_id) noexcept;
+void application_read_state_log_guild_unread(u64 guild_id) noexcept;
 } // namespace app_detail
 } // namespace maicord
