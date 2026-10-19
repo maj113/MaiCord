@@ -9,16 +9,27 @@ namespace read_wire_probe {
 // needs eight offsets, in addition to the root envelope. Include the rejected
 // 4097-entry case so it reaches the wire capacity guard rather than scan limits.
 constexpr u32 structural_count = 8 * (kGatewayReadStateMaximumEntries + 1) + 8;
+constexpr u32 ring_entries = kGatewayClientDispatchPayloadCapacity / 32;
 u32 structurals[structural_count], object_scratch[2048];
 char storage[128 * 1024];
-u8 source[128 * 1024];
+u8 source[640 * 1024];
+// Stands in for the Gateway worker's large record.
+char large_storage[kGatewayClientGuildRecordCapacity];
+u32 large_acquires, large_bytes;
+bool acquire_large(void*, u32 bytes, Slice<char>* output) noexcept {
+    ++large_acquires; large_bytes = bytes;
+    if (bytes > sizeof(large_storage)) return false;
+    *output = {large_storage, bytes};
+    return true;
+}
 SpscMailbox<GatewayClientEvent, 4, 128 * 1024> mailbox{};
 u8 popped_bytes[128 * 1024];
 
 GatewayClientDispatchRouteResult snapshot(Utf8View text, GatewayClientEvent* event,
-    ConstSlice<u8>* payload, u32 capacity = sizeof(storage)) noexcept {
+    ConstSlice<u8>* payload, u32 capacity = sizeof(storage), bool large = false) noexcept {
     return gateway_client_route_read_state_snapshot({text, 0, JsonValueKind::object},
-        {structurals, structural_count}, 64, {storage, capacity}, event, payload);
+        {structurals, structural_count}, 64, {storage, capacity}, event, payload,
+        large ? GatewayClientLargeRecord{acquire_large, nullptr} : GatewayClientLargeRecord{});
 }
 GatewayClientDispatchRouteResult ack(Utf8View text, GatewayClientEvent* event,
     ConstSlice<u8>* payload) noexcept {
@@ -175,14 +186,32 @@ void test_read_state_wire(void (*check)(bool, const char*) noexcept) noexcept {
     };
     for (const auto text : malformed)
         check(publication(text, sizeof(storage), false), "malformed read snapshot has no publication");
-    check(publication(many(kGatewayReadStateMaximumEntries), sizeof(storage), true),
-        "maximum read snapshot fits existing 128KiB mailbox payload");
+    check(publication(many(ring_entries), sizeof(storage), true),
+        "read snapshot filling the 128KiB mailbox payload publishes in the ring");
     check(gateway_client_read_state_record({popped_bytes, sizeof(popped_bytes)}, 0, &first) &&
-        gateway_client_read_state_record({popped_bytes, sizeof(popped_bytes)}, kGatewayReadStateMaximumEntries - 1, &second) &&
-        first.channel_id == 1 && second.channel_id == kGatewayReadStateMaximumEntries,
-        "maximum reverse ordered snapshot is completely sorted before publication");
-    check(publication(many(kGatewayReadStateMaximumEntries + 1), sizeof(storage), false),
-        "oversized read snapshot never publishes partial authority");
+        gateway_client_read_state_record({popped_bytes, sizeof(popped_bytes)}, ring_entries - 1, &second) &&
+        first.channel_id == 1 && second.channel_id == ring_entries,
+        "full-ring reverse ordered snapshot is completely sorted before publication");
+    check(publication(many(ring_entries + 1), sizeof(storage), false),
+        "snapshot past the ring without large storage never publishes partial authority");
+    large_acquires = 0;
+    check(snapshot(many(ring_entries + 1), &event, &payload, sizeof(storage), true).ok() &&
+        large_acquires == 1 && large_bytes == (ring_entries + 1) * 32 &&
+        payload.data == reinterpret_cast<const u8*>(large_storage) && payload.count == large_bytes &&
+        event.read_state.record_count == ring_entries + 1 &&
+        gateway_client_read_state_record(payload, ring_entries, &second) &&
+        second.channel_id == ring_entries + 1,
+        "snapshot past the ring routes once into exactly sized large storage");
+    large_acquires = 0;
+    check(snapshot(many(kGatewayReadStateMaximumEntries), &event, &payload, sizeof(storage), true).ok() &&
+        large_acquires == 1 && event.read_state.record_count == kGatewayReadStateMaximumEntries &&
+        gateway_client_read_state_record(payload, kGatewayReadStateMaximumEntries - 1, &second) &&
+        second.channel_id == kGatewayReadStateMaximumEntries,
+        "maximum read snapshot fills the large record");
+    large_acquires = 0; payload = {};
+    check(!snapshot(many(kGatewayReadStateMaximumEntries + 1), &event, &payload, sizeof(storage), true).ok() &&
+        large_acquires == 0 && !payload.count,
+        "read snapshot past the maximum never publishes partial authority");
 
     event = {}; event.sequence = 11; event.has_sequence = true;
     check(ack(utf8_literal("{\"channel_id\":\"999999\",\"message_id\":\"88\",\"manual\":true,\"mention_count\":3,\"version\":0}"),

@@ -2,7 +2,8 @@
 #include "maicord/protocol/gateway_payload.hpp"
 
 namespace maicord {
-inline constexpr u32 kGatewayReadStateMaximumEntries = 4096;
+// Snapshots past the 128 KiB mailbox payload use the 1 MiB large record.
+inline constexpr u32 kGatewayReadStateMaximumEntries = 32768;
 enum GatewayClientReadStateField : u8 {
     gateway_read_state_cursor = 1u << 0,
     gateway_read_state_mentions = 1u << 1,
@@ -32,15 +33,18 @@ struct GatewayClientReadStateEvent {
 static_assert(sizeof(GatewayClientReadStateEvent) <= 128);
 struct GatewayClientEvent;
 struct GatewayClientDispatchRouteResult;
+struct GatewayClientLargeRecord;
 // Metadata validates the complete root envelope, including duplicate/type
 // guards, without decoding entries. Used before READY removes old channels.
 GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue data,
     Slice<u32> scratch, u32 maximum_depth, GatewayClientReadStateEvent* output) noexcept;
 // No descriptor/payload is published on error. Caller-owned storage is staging
 // scratch and may be touched; one complete validated snapshot is the output.
+// A snapshot larger than `storage` is routed again into `large` (if given),
+// and the payload then points there.
 GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonValue data,
     Slice<u32> scratch, u32 maximum_depth, Slice<char> storage,
-    GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept;
+    GatewayClientEvent* event, ConstSlice<u8>* payload, GatewayClientLargeRecord large) noexcept;
 GatewayClientDispatchRouteResult gateway_client_route_message_ack(JsonValue data,
     Slice<u32> scratch, u32 maximum_depth, GatewayClientEvent* event,
     ConstSlice<u8>* payload) noexcept;

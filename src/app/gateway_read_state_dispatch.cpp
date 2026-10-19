@@ -5,6 +5,7 @@
 #include "maicord/protocol/json_ids.hpp"
 
 namespace maicord {
+static_assert(kGatewayReadStateMaximumEntries * sizeof(GatewayClientReadStateMutation) == kGatewayClientGuildRecordCapacity);
 namespace {
 GatewayClientDispatchRouteResult failure(GatewayEventDecodeError error,
     u32 offset = 0, JsonScanError scan = JsonScanError::none,
@@ -139,6 +140,9 @@ struct Entries {
     const JsonIndexedDocument* document;
     Slice<char> output;
     u32 depth, count;
+    // Entries past `output` are still validated and counted, so one larger
+    // route can follow.
+    bool overflow;
     GatewayClientDispatchRouteResult result;
 };
 bool visit_array(void* opaque, u32, JsonValue value) noexcept {
@@ -156,11 +160,11 @@ bool visit_array(void* opaque, u32, JsonValue value) noexcept {
     context.result = normalize(entry, &record, &ignored);
     if (!context.result.ok()) { context.result.error_offset = value.source_offset; return false; }
     if (ignored) return true;
-    if (context.count == kGatewayReadStateMaximumEntries ||
-        (context.count + 1) * sizeof(record) > context.output.count) {
+    if (context.count == kGatewayReadStateMaximumEntries) {
         context.result.error = GatewayClientDispatchRouteError::payload_capacity; return false;
     }
-    copy_bytes(context.output.data + context.count * sizeof(record), &record, sizeof(record));
+    if ((context.count + 1) * sizeof(record) > context.output.count) context.overflow = true;
+    else copy_bytes(context.output.data + context.count * sizeof(record), &record, sizeof(record));
     ++context.count; return true;
 }
 u64 channel_at(Slice<char> output, u32 index) noexcept {
@@ -322,7 +326,7 @@ GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue da
 }
 GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonValue data,
     Slice<u32> scratch, u32 depth, Slice<char> storage,
-    GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
+    GatewayClientEvent* event, ConstSlice<u8>* payload, GatewayClientLargeRecord large) noexcept {
     if (payload) *payload = {};
     if (!event || !payload || (!storage.data && storage.count) || scratch.count > 0x3fffffffu ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(data.source.data), data.source.bytes},
@@ -333,11 +337,30 @@ GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonVa
     Root root{}; JsonIndexedDocument document{};
     auto result = decode_root(data, scratch, depth, &root, &document);
     if (!result.ok()) return result;
-    Entries entries{&document, storage, depth, 0, {}};
-    const auto read = json_visit_indexed_array(document, root.entries, depth, visit_array, &entries);
+    Entries entries{&document, storage, depth, 0, false, {}};
+    auto read = json_visit_indexed_array(document, root.entries, depth, visit_array, &entries);
+    if (entries.result.ok() && read.ok() && entries.overflow) {
+        // Accounts with many channels: the whole validated snapshot goes to the
+        // large record instead of the mailbox ring.
+        const u32 bytes = entries.count * 32u;
+        Slice<char> grown{};
+        if (!large.acquire || !large.acquire(large.context, bytes, &grown) || !grown.data || grown.count < bytes) {
+            GatewayClientDispatchRouteResult capacity{};
+            capacity.error = GatewayClientDispatchRouteError::payload_capacity;
+            return capacity;
+        }
+        storage = grown;
+        entries = {&document, storage, depth, 0, false, {}};
+        read = json_visit_indexed_array(document, root.entries, depth, visit_array, &entries);
+    }
     if (!entries.result.ok()) return entries.result;
     if (!read.ok()) return failure(GatewayEventDecodeError::invalid_json, read.error_offset,
         JsonScanError::none, read.error);
+    if (entries.overflow) {
+        GatewayClientDispatchRouteResult capacity{};
+        capacity.error = GatewayClientDispatchRouteError::payload_capacity;
+        return capacity;
+    }
     sort_records(storage, entries.count);
     for (u32 index = 1; index < entries.count; ++index)
         if (channel_at(storage, index - 1) == channel_at(storage, index))

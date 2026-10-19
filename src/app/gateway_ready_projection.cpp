@@ -331,7 +331,7 @@ bool run(Pass& pass) noexcept {
     if (ready.read_state.source.data) {
         if (!allowed(pass)) return false;
         pass.result.route = gateway_client_route_read_state_snapshot(ready.read_state, pass.scratch.arrays,
-            64, pass.scratch.payload, &event, &payload);
+            64, pass.scratch.payload, &event, &payload, pass.scratch.large);
         if (!pass.result.route.ok()) return false;
         event.sequence = pass.sequence; event.has_sequence = true; event.timestamp_ms = pass.now_ms;
         if (!emit(pass, event, payload)) return false;
