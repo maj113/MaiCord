@@ -1872,3 +1872,10 @@ maicord_test(MaiCordVoiceMessageTests ENTRY maicord_voice_message_tests_entry
     INCLUDES tests
     TIMEOUT 10
     TEST maicord_voice_message)
+# Discord-sized store limits: member role overflow, member roles in messages
+# and owned voice-state storage.
+maicord_test(MaiCordStoreLimitsTests ENTRY maicord_store_limits_entry
+    SOURCES tests/store_limits.cpp
+    LIBS maicord_core maicord_protocol maicord_model kernel32
+    TIMEOUT 10
+    TEST maicord_store_limits)

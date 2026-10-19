@@ -631,16 +631,15 @@ MessageEventPumpConsumeResult consume_voice_states(MessageEventPump* pump, const
         reject(pump, &result, MessageEventPumpRejectReason::voice_states);
         return result;
     }
+    // Gateway rows share VoiceState's field order.
+    static_assert(sizeof(GatewayClientVoiceStateRecord) == sizeof(VoiceState));
     const u32 revision = pump->voice_states->revision;
     if (snapshot.replace)
         voice_state_store_clear_guild(pump->voice_states, snapshot.guild_id);
-    for (u32 i = 0; i < snapshot.record_count; ++i) {
-        GatewayClientVoiceStateRecord record;
-        copy_bytes(&record, payload.data + i * sizeof(record), sizeof(record));
-        // Capacity overflow drops the row; the store counts it.
-        voice_state_store_apply(pump->voice_states, record.guild_id, record.channel_id,
-                                        record.user_id, record.flags, record.request_to_speak_s);
-    }
+    if (pump->state)
+        pump->voice_states->retained_guild = pump->state->selected_guild_id;
+    // Overflow at the bound drops rows or evicts other guilds; the store counts them.
+    voice_state_store_apply_batch(pump->voice_states, payload);
     ++pump->applied;
     result.kind = MessageEventPumpConsumeKind::state_applied;
     result.repaint = revision != pump->voice_states->revision;

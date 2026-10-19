@@ -2055,7 +2055,6 @@ const FieldSpan kAccountUiFields[] = {
     {"user_record_storage", offsetof(app_detail::AccountUiRuntime, user_record_storage), sizeof(app_detail::AccountUiRuntime::user_record_storage)},
     {"guild_member_record_storage", offsetof(app_detail::AccountUiRuntime, guild_member_record_storage), sizeof(app_detail::AccountUiRuntime::guild_member_record_storage)},
     {"typing_record_storage", offsetof(app_detail::AccountUiRuntime, typing_record_storage), sizeof(app_detail::AccountUiRuntime::typing_record_storage)},
-    {"voice_state_records", offsetof(app_detail::AccountUiRuntime, voice_state_records), sizeof(app_detail::AccountUiRuntime::voice_state_records)},
     {"guild_order_storage", offsetof(app_detail::AccountUiRuntime, guild_order_storage), sizeof(app_detail::AccountUiRuntime::guild_order_storage)},
     {"channel_order_storage", offsetof(app_detail::AccountUiRuntime, channel_order_storage), sizeof(app_detail::AccountUiRuntime::channel_order_storage)},
     {"user_order_storage", offsetof(app_detail::AccountUiRuntime, user_order_storage), sizeof(app_detail::AccountUiRuntime::user_order_storage)},

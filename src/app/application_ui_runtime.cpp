@@ -355,6 +355,8 @@ void application_release_account_ui(Application& application) noexcept {
     private_channel_store_release(&application.account_ui->private_channel_store);
     user_appearance_release(&application.account_ui->user_store.appearance);
     user_activity_release(&application.account_ui->user_store.activities);
+    guild_member_store_release(&application.account_ui->guild_member_store);
+    voice_state_store_release(&application.account_ui->voice_states);
     stable_storage_release(&application.account_ui->thread_member_banks[0]);
     stable_storage_release(&application.account_ui->thread_member_banks[1]);
     stable_storage_release(&application.account_ui->read_state_bank);
@@ -422,6 +424,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
             &runtime->guild_member_store,
             Slice<GuildMemberRecord>{runtime->guild_member_record_storage, kGuildMemberCapacity},
             Slice<u32>{runtime->guild_member_order_storage, kGuildMemberCapacity}) ||
+        !guild_member_store_enable_role_overflow(&runtime->guild_member_store, kGuildMemberCapacity) ||
         !stable_storage_initialize(&runtime->thread_member_banks[0], kThreadMemberMaximumIds, 0,
                                    sizeof(u64), alignof(u64)) ||
         !stable_storage_initialize(&runtime->thread_member_banks[1], kThreadMemberMaximumIds, 0,
@@ -441,9 +444,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
         !typing_store_initialize(
             &runtime->typing_store,
             Slice<TypingRecord>{runtime->typing_record_storage, kTypingRecordCapacity}) ||
-        !voice_state_store_initialize_sparse(
-            &runtime->voice_states,
-            Slice<VoiceState>{runtime->voice_state_records, kVoiceStateCapacity}) ||
+        !voice_state_store_initialize_owned(&runtime->voice_states, kVoiceStateCapacity) ||
         !member_list_view_initialize(
             &runtime->member_list,
             Slice<MemberListRow>{runtime->member_list_rows, kMemberListViewCapacity},
@@ -523,6 +524,8 @@ bool application_initialize_account_ui(Application& application) noexcept {
         message_rich_store_release(&runtime->message_rich_store);
         message_poll_store_release(&runtime->message_poll_store);
         private_channel_store_release(&runtime->private_channel_store);
+        guild_member_store_release(&runtime->guild_member_store);
+        voice_state_store_release(&runtime->voice_states);
         stable_storage_release(&runtime->thread_member_banks[0]);
         stable_storage_release(&runtime->thread_member_banks[1]);
         stable_storage_release(&runtime->read_state_bank);

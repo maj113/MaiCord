@@ -304,7 +304,6 @@ struct Stores {
     u32 member_order[kMemberCapacity];
     u64 thread_a[kThreadMemberMaximumIds], thread_b[kThreadMemberMaximumIds];
     TypingRecord typing[kTypingRecordCapacity];
-    VoiceState voice[kVoiceStateCapacity];
     MessageRecord messages[8];
     u32 message_order[8];
     u8 message_text[1024];
@@ -346,7 +345,7 @@ bool initialize(Stores& s) noexcept {
            thread_member_store_initialize(&s.thread_members, {s.thread_a, kThreadMemberMaximumIds},
                                           {s.thread_b, kThreadMemberMaximumIds}) &&
            typing_store_initialize(&s.typing_store, {s.typing, kTypingRecordCapacity}) &&
-           voice_state_store_initialize_sparse(&s.voice_states, {s.voice, kVoiceStateCapacity}) &&
+           voice_state_store_initialize_owned(&s.voice_states, kVoiceStateCapacity) &&
            message_store_initialize(&s.message_store, {s.messages, 8}, {s.message_order, 8},
                                     {s.message_text, sizeof(s.message_text)}) &&
            ui_variable_list_initialize(&s.list, {s.heights, 8}, {s.fenwick, 8}, 0, 100) &&
@@ -593,6 +592,7 @@ void release() noexcept {
     private_channel_store_release(&stores.private_channels);
     user_appearance_release(&stores.user_store.appearance);
     user_activity_release(&stores.user_store.activities);
+    voice_state_store_release(&stores.voice_states);
 }
 } // namespace maicord::ready_scale_pump_test
 

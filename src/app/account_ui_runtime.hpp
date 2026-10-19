@@ -48,8 +48,8 @@ inline constexpr u32 kMemberListViewCapacity = kGuildMemberCapacity + 256;
 inline constexpr u32 kMessageHistoryRequestLimit = 25;
 inline constexpr u32 kMessageHistoryNamedUserCapacity =
     kMessageHistoryRequestLimit * kGatewayMessageMentionUserMaximum;
-inline constexpr u32 kMessageHistoryMemberRoleCapacity =
-    kMessageHistoryRequestLimit * kGatewayMessageMemberRoleMaximumIds;
+// Shared by a page; an author whose roles no longer fit is left unknown.
+inline constexpr u32 kMessageHistoryMemberRoleCapacity = kMessageHistoryRequestLimit * 100;
 inline constexpr u32 kMessageRichTextCapacity = 256 * 1024;
 inline constexpr u32 kMediaAtlasEntryCapacity = 4'096;
 inline constexpr u32 kMediaAtlasRowCapacity = 64;
@@ -217,7 +217,6 @@ struct AccountUiRuntime {
     UserRecord user_record_storage[kUserCapacity];
     GuildMemberRecord guild_member_record_storage[kGuildMemberCapacity];
     TypingRecord typing_record_storage[kTypingRecordCapacity];
-    VoiceState voice_state_records[kVoiceStateCapacity];
     u16 guild_order_storage[kChatStateGuildCapacity];
     u32 user_order_storage[kUserCapacity];
     u32 guild_member_order_storage[kGuildMemberCapacity];
@@ -340,7 +339,8 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // The literal base predates these members: a text measurement of 808 bytes, a guild record of 120,
 // appearance and activity stores of two StableStorage + 16 each, a 288-byte chat state store, and
 // the channel, name, emoji and emoji-role storage that has since moved to the demand tail, and
-// the navigation view's voice extras binding (16 bytes).
+// the navigation view's voice extras binding (16 bytes), the member role
+// overflow, and the 2,048 voice states that moved to their own owned storage.
 static_assert(kAccountUiFixedBytes ==
               4'261'168 + 16 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
@@ -351,7 +351,8 @@ static_assert(kAccountUiFixedBytes ==
                   sizeof(MemberListPositionTable) + sizeof(GuildDetailStore) +
                   kChatStateGuildCapacity * sizeof(GuildDetailRecord) + kGuildDetailTextBytes -
                   4'096 * (sizeof(ChannelRecord) + sizeof(u16) + sizeof(CustomEmojiRecord)) - 256 * 1024 -
-                  16'384 * sizeof(u64) + sizeof(AccountDemandCommit) + (sizeof(ChatStateStore) - 288));
+                  16'384 * sizeof(u64) + sizeof(AccountDemandCommit) + (sizeof(ChatStateStore) - 288) +
+                  sizeof(GuildMemberRoleOverflow) + (sizeof(VoiceStateStore) - 32) - 2'048 * sizeof(VoiceState));
 
 inline bool application_history_decode_storage_initialize(AccountUiRuntime& ui) noexcept {
     return stable_storage_initialize(&ui.history_decode_storage,
