@@ -12,8 +12,8 @@ namespace maicord {
 // - every texture reference returned by the frame source is released in the
 //   same pump, presented or not.
 inline constexpr u32 kCallVideoStreams = 16;
-// Longest presented side; 4K pictures are reduced on the GPU.
-inline constexpr u32 kCallVideoMaximumExtent = 1920;
+// Longest presented side: 1440p streams stay native, 4K is reduced on the GPU.
+inline constexpr u32 kCallVideoMaximumExtent = 2560;
 
 struct CallVideoHost {
     void* context;

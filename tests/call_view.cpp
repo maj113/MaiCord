@@ -381,6 +381,12 @@ void presenter_cases(Check check) noexcept {
               call_video_reduction_extent(3840, 2160, 4000) == 1920 && call_video_reduction_extent(1280, 720, 0) == 0 &&
               call_video_reduction_extent(0, 0, 100) == 0,
           "call video: reduction extents cover the tile and cap 4K");
+    // A 1440p stream in a large tile is never halved below the tile and
+    // upscaled again; in a tile at most half its width it still is.
+    check(call_video_reduction_extent(2560, 1440, 2400) == 0 && call_video_reduction_extent(2560, 1440, 1600) == 0 &&
+              call_video_reduction_extent(2560, 1440, 1280) == 1280 &&
+              call_video_reduction_extent(3440, 1440, 3000) == 1720,
+          "call video: 1440p streams present natively in tiles wider than half the picture");
 }
 } // namespace
 
