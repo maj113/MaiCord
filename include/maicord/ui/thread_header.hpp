@@ -66,6 +66,8 @@ struct UiThreadMenuActions {
 
 float ui_thread_header_height(const UiThreadHeaderView&, const UiThreadHeaderStyle&) noexcept;
 UiThreadAction ui_thread_header_primary_action(const UiThreadHeaderView&) noexcept;
+// The single status line beside the actions, e.g. "Joined · Active thread".
+Utf8View ui_thread_header_status(const UiThreadHeaderView&) noexcept;
 Utf8View ui_thread_action_label(UiThreadAction) noexcept;
 bool ui_thread_header_project(const UiThreadHeaderView&, const UiThreadHeaderStyle&, UiRect rectangle,
     UiRect clip, UiThreadHeaderGeometry*) noexcept;

@@ -133,6 +133,21 @@ float ui_thread_header_height(const UiThreadHeaderView& view, const UiThreadHead
     return view.visible && view.thread_id && style_valid(style)
         ? style.height + (view.status.bytes ? style.feedback_height : 0) : 0;
 }
+Utf8View ui_thread_header_status(const UiThreadHeaderView& v) noexcept {
+    // One line; archive state leads so a narrow header never ellipsizes it away.
+    static constexpr Utf8View lines[4][3]{
+        {{}, utf8_literal("Joined"), utf8_literal("Not joined")},
+        {utf8_literal("Active thread"), utf8_literal("Joined · Active thread"),
+         utf8_literal("Not joined · Active thread")},
+        {utf8_literal("Archived"), utf8_literal("Archived · Joined"), utf8_literal("Archived · Not joined")},
+        {utf8_literal("Archived · Locked"), utf8_literal("Archived · Locked · Joined"),
+         utf8_literal("Archived · Locked · Not joined")}};
+    const u32 archive = !v.archive_known ? 0 : !v.archived ? 1 : v.locked_known && v.locked ? 3 : 2;
+    const u32 membership = v.membership == UiThreadMembership::joined       ? 1
+                           : v.membership == UiThreadMembership::not_joined ? 2
+                                                                            : 0;
+    return lines[archive][membership];
+}
 UiThreadAction ui_thread_header_primary_action(const UiThreadHeaderView& v) noexcept {
     if (!v.visible) return UiThreadAction::none;
     if (v.busy) return v.operation;
@@ -292,15 +307,13 @@ bool ui_thread_header_paint(const UiThreadHeader& h, const Theme& theme, PaintSt
     bool ok = ui_background_paint_canvas(out, g.rectangle, theme, theme.base_lower, UiBackgroundTier::lower);
     const auto primary = ui_thread_header_primary_action(h.view);
     ok = ok && paint_button(h, h.widgets.primary, g.primary, theme, out, accent_action(primary)) &&
-        paint_button(h, h.widgets.overflow, g.overflow, theme, out, false) &&
         paint_button(h, h.widgets.cancel, g.cancel, theme, out, false);
-    if (ui_rect_has_area(g.overflow)) {
-        const float x = (g.overflow.left + g.overflow.right) * .5f;
-        const float y = (g.overflow.top + g.overflow.bottom) * .5f;
-        for (i32 i = -1; ok && i <= 1; ++i) ok = paint_stream_push_rounded(out,
-            x - 1.5f, y + static_cast<float>(i) * 6.f - 1.5f,
-            x + 1.5f, y + static_cast<float>(i) * 6.f + 1.5f, theme.text_primary, 1.5f);
-    }
+    // The overflow menu is an icon button like the channel header's toggles.
+    if (ui_rect_has_area(g.overflow))
+        ok = ok && ui_button_icon_paint(out, *h.manager, h.widgets.overflow, UiIcon::ellipsis_vertical, theme,
+            false, true, UiButtonSurface::palette) &&
+            paint_stream_record_content(out, {h.manager, h.widgets.overflow}, g.overflow,
+                UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
     if (h.view.status.bytes) ok = ok && paint_stream_push(out, g.rectangle.left,
         g.rectangle.top + h.style.height, g.rectangle.right,
         g.rectangle.top + h.style.height + 1.f, theme.surface_high);
@@ -316,21 +329,7 @@ bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOu
     const auto color = ui_surface_foreground(theme, button_fill(h, h.widgets.primary, theme, accent_action(primary)));
     UiRect primary_rect = h.geometry.primary;
     if (ui_rect_has_area(primary_rect)) { primary_rect.left += 6.f; primary_rect.right -= 6.f; }
-    // Separate lines keep both authoritative facts visible at minimum width:
-    // a long Unknown membership label must never ellipsize away Archived.
-    UiRect membership_rect = h.geometry.status, archive_rect = h.geometry.status;
-    const float middle = (membership_rect.top + membership_rect.bottom) * .5f;
-    membership_rect.bottom = middle;
-    archive_rect.top = middle;
-    const auto membership = h.view.membership == UiThreadMembership::joined ? utf8_literal("Joined")
-        : h.view.membership == UiThreadMembership::not_joined ? utf8_literal("Not joined")
-        : Utf8View{};
-    const auto archive = !h.view.archive_known ? Utf8View{}
-        : !h.view.archived ? utf8_literal("Active thread")
-        : h.view.locked_known && h.view.locked ? utf8_literal("Archived · Locked") : utf8_literal("Archived");
-    return text(h, h.widgets.status, membership, membership_rect,
-               ui_foreground_color(theme, theme.text_primary), out, false, text_style_subtext) &&
-        text(h, h.widgets.status, archive, archive_rect,
+    return text(h, h.widgets.status, ui_thread_header_status(h.view), h.geometry.status,
                ui_foreground_color(theme, theme.text_secondary), out, false, text_style_subtext) &&
         text(h, h.widgets.primary, primary_text, primary_rect, color, out, true, text_style_subtext) &&
         text(h, h.widgets.feedback, h.view.status, h.geometry.feedback,

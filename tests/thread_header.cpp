@@ -70,6 +70,22 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_rect_has_area(header.geometry.primary) &&
         ui_thread_header_widget_target(header, header.widgets.overflow).action == UiThreadAction::menu,
         "thread header: Joined preserves readable status and keeps Leave in deliberate overflow");
+    check(utf8_equal(ui_thread_header_status(view), utf8_literal("Joined · Active thread")),
+        "thread header: membership and activity share one status line");
+    PaintStream paint{};
+    bool icon_button = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 632, 480) &&
+        ui_thread_header_paint(header, kDefaultTheme, &paint);
+    u32 overflow_quads = 0;
+    for (u32 i = 0; icon_button && i < paint.count; ++i) {
+        const auto& q = paint.quads[i];
+        const bool inside = q.left >= header.geometry.overflow.left && q.right <= header.geometry.overflow.right &&
+            q.top >= header.geometry.overflow.top && q.bottom <= header.geometry.overflow.bottom;
+        overflow_quads += inside;
+        icon_button = icon_button && !(inside && q.fill.alpha > 0 && color_same(q.fill, kDefaultTheme.surface));
+    }
+    paint_stream_release(&paint);
+    check(icon_button && overflow_quads > 0,
+        "thread header: the overflow menu paints as an unfilled icon button like the channel header toggles");
     const UiThreadMenuActions actions{701, 702, 703, 704, 705, 706};
     PopupItem items[6]{};
     u32 count = ui_thread_menu_build(view, actions, {items, 6});
@@ -104,14 +120,13 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     bool readable = true;
     for (const auto& theme : themes) {
         ui_text_command_stream_reset(&stream);
-        readable = readable && ui_thread_header_text(header, theme, &output) && stream.count == 5 &&
-            color_same(commands[0].color, ui_foreground_color(theme, theme.text_primary)) &&
-            color_same(commands[1].color, ui_foreground_color(theme, theme.text_secondary)) &&
-            color_same(commands[3].color, ui_foreground_color(theme, theme.notification)) &&
-            utf8_equal(commands[2].text, utf8_literal("Retry")) && commands[3].owner.manager == &shell.widgets &&
-            ui_rect_equal(commands[3].clip, header.geometry.feedback) &&
-            utf8_equal(commands[1].text, utf8_literal("Archived · Locked")) &&
-            commands[0].rectangle.bottom <= commands[1].rectangle.top;
+        readable = readable && ui_thread_header_text(header, theme, &output) && stream.count == 4 &&
+            color_same(commands[0].color, ui_foreground_color(theme, theme.text_secondary)) &&
+            color_same(commands[2].color, ui_foreground_color(theme, theme.notification)) &&
+            utf8_equal(commands[1].text, utf8_literal("Retry")) && commands[2].owner.manager == &shell.widgets &&
+            ui_rect_equal(commands[2].clip, header.geometry.feedback) &&
+            utf8_equal(commands[0].text, utf8_literal("Archived · Locked · Joined")) &&
+            ui_rect_equal(commands[0].rectangle, header.geometry.status);
     }
     check(readable, "thread header: Dark Light AMOLED use readable semantic status/error text with exact native feedback clipping");
     items[0].action = 999;
