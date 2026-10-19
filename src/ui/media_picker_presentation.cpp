@@ -94,7 +94,7 @@ bool paint_band(PaintStream* paint, UiRect band, UiRect panel, const Theme& them
         plate.top -= radius;
     return paint_stream_push_clip(paint, band.left, band.top, band.right, band.bottom) &&
            ui_background_paint_surface(paint, plate, theme, theme.base_lower, theme.base_lower, radius, 0, .9f,
-                                       UiBackgroundSurfaceMode::tinted, UiBackgroundTier::lower) &&
+                                       UiBackgroundSurfaceMode::gradient, UiBackgroundTier::lower) &&
            paint_stream_pop_clip(paint);
 }
 } // namespace

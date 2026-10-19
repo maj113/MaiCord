@@ -709,16 +709,29 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     bool themed_panel = paint_stream_reset(&paint, 1000, 800) &&
                         ui_media_picker_scene_paint(scene, gradient, &paint, nullptr, 120);
     bool panel_material = false;
+    u32 band_materials = 0, opaque_bands = 0;
+    const float band_share = (1 - ui_background_tier_opacity(gradient, UiBackgroundTier::lower)) * .9f;
+    const auto covers = [](const PaintQuad& q, UiRect band) noexcept {
+        return ui_rect_has_area(band) && q.left <= band.left && q.top <= band.top && q.right >= band.right &&
+               q.bottom >= band.bottom;
+    };
     for (u32 i = 0; themed_panel && i < paint.count; ++i) {
         const auto& q = paint.quads[i];
         if (ui_rect_equal({q.left, q.top, q.right, q.bottom}, scene.panel))
             panel_material =
                 q.border_width == -7 && q.reserved_x < 0 && q.fill.alpha == 1 &&
                 q.reserved_y == ui_elevation_gradient_share(gradient, UiElevation::popover);
+        else if (covers(q, scene.rail) || covers(q, scene.footer)) {
+            band_materials += q.border_width == -7 && q.reserved_y == band_share;
+            opaque_bands += bytes_equal(&q.fill, &gradient.base_lower, sizeof(Color)) && q.border_width != -7;
+        }
     }
     check(themed_panel && panel_material && paint.clip_depth == 1,
           "media picker style: window inherits opaque global gradient with palette border alongside search "
           "field");
+    check(themed_panel && band_materials == 1u + ui_rect_has_area(scene.footer) && !opaque_bands,
+          "media picker style: the category rail and preview bar take the gradient on the lower tier instead "
+          "of a flat plate");
     paint_stream_release(&paint);
     const u32 before_scroll = fixture.calls;
     check(ui_media_picker_scene_scroll(&scene, scene.cell_pitch * 3 + 17) &&
