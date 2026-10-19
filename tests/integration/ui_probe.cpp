@@ -9929,6 +9929,107 @@ bool probe_long_embed_text() noexcept {
     return true;
 }
 
+// A title-link embed whose description is a ```ansi block, at 96, 144 and 192
+// DPI: the accent is the card's leading border, coloured inside both rounded
+// left corners and absent outside them, and the code block draws its framed
+// box. A code block adds no draw call to an embed.
+bool probe_embed_code_block() noexcept {
+    constexpr u64 id = 1'270'000'000'000'000'100ull;
+    if (!message_timeline_reset(&g_probe.message_view.timeline) || !add_message(id, utf8_literal("x")) ||
+        !message_view_runtime_reindex(&g_probe.message_view, ui_extent_units(57), 1, false).ok())
+        return false;
+    const auto found = message_store_find(g_probe.message_view.store, id);
+    const auto* record = found.ok() ? message_store_resolve(g_probe.message_view.store, found.handle) : nullptr;
+    GatewayMessageEmbed embed{};
+    embed.type = GatewayMessageEmbedType::rich;
+    embed.title = utf8_literal("Example Colored Text Tool");
+    embed.url = utf8_literal("https://colors.example.com/");
+    embed.description =
+        utf8_literal("```ansi\nSimple app to make \x1b[1;31mcolored\x1b[0m \x1b[45;37mtext\x1b[0m \x1b[4;34mlike this\x1b[0m!\n```");
+    embed.has_color = true;
+    embed.color = 0xFF0000;
+    GatewayMessageEvent event{};
+    event.id = id;
+    event.fields = gateway_message_field_embeds;
+    event.embeds = {&embed, 1};
+    const auto apply = [&]() noexcept {
+        return record && message_rich_store_apply(&g_probe.rich_store, id, record->revision, event).ok() &&
+               synchronize_probe_shell_layout() && rebuild_probe_content_text() && probe_prepare_capture();
+    };
+    const auto draws = [&](u32* calls) noexcept {
+        u8 pixel[1][4]{};
+        const UiPoint origin{1, 1};
+        *calls = 0;
+        if (!probe_read_pixels(kDefaultTheme, {&origin, 1}, pixel))
+            return false;
+        *calls = g_probe.renderer.draw_calls_last_frame;
+        return true;
+    };
+    const auto accent = [](const u8* p) noexcept { return p[2] > 200 && p[1] < 80 && p[0] < 80; };
+    const auto reddish = [](const u8* p) noexcept { return p[2] > 120 && p[1] < 110 && p[0] < 110; };
+    const u32 original_dpi = g_probe.renderer.dpi;
+    constexpr u32 dpis[]{96, 144, 192};
+    bool valid = apply();
+    for (u32 dpi : dpis) {
+        renderer_set_dpi(&g_probe.renderer, dpi);
+        valid = valid && synchronize_probe_shell_layout() && rebuild_probe_content_text() && probe_prepare_capture();
+        const MessageSceneRowWidget* row = nullptr;
+        for (u32 i = 0; valid && i < g_probe.message_scene.count; ++i)
+            if (g_probe.message_scene.rows[i].message_id == id)
+                row = &g_probe.message_scene.rows[i];
+        const UiLayoutNode* item =
+            row ? message_scene_rich_item_layout_node(g_probe.message_scene, *row, MessageSceneRichItemKind::embed, 0)
+                : nullptr;
+        UiRect box{};
+        for (u32 i = 0; i < g_probe.message_text.command_count; ++i)
+            if (g_probe.message_text.commands[i].message_id == id &&
+                message_text_command_code_block(g_probe.message_text.commands[i]))
+                box = message_text_code_block_box(g_probe.message_text.commands[i]);
+        if (!item || !ui_rect_has_area(box)) {
+            valid = false;
+            break;
+        }
+        const float measured = row->rich_item_layout.embed_widths[0];
+        const float l = item->rectangle.left, t = item->rectangle.top;
+        const float r = minimum(item->rectangle.right, l + (measured > 0 ? measured : kMessageEmbedMaximumWidth));
+        const float b = item->rectangle.bottom - kMessageEmbedItemGap, middle = (t + b) * .5f;
+        // Pixel centres stay within half a DIP of these points at every scale.
+        const UiPoint points[]{{l + 2, middle},       {l + 2.2f, t + 2},    {l + 2.2f, b - 2},
+                               {l + .3f, t + .3f},    {l + .3f, b - .3f},   {l + 6, middle},
+                               {box.left + 3, box.top + 3}, {box.left + 3, box.top - 3}};
+        u8 pixels[8][4]{};
+        const bool read = probe_read_pixels(kDefaultTheme, {points, 8}, pixels);
+        const bool corners = read && accent(pixels[0]) && accent(pixels[1]) && accent(pixels[2]) &&
+                             !reddish(pixels[3]) && !reddish(pixels[4]) && !reddish(pixels[5]);
+        // The box spans the card's text column and differs from the card's fill.
+        const bool boxed = read && box.right > r - kMessageEmbedEndInset - .5f &&
+                           box.right < r - kMessageEmbedEndInset + .5f &&
+                           (pixels[6][0] != pixels[7][0] || pixels[6][1] != pixels[7][1] ||
+                            pixels[6][2] != pixels[7][2]);
+        log_u64(corners ? LogLevel::info : LogLevel::error, "probe", "embed_accent_corners_dpi", dpi);
+        log_u64(boxed ? LogLevel::info : LogLevel::error, "probe", "embed_code_box_dpi", dpi);
+        wchar_t capture[] = L"embed-code-block-000.bmp";
+        capture[17] = static_cast<wchar_t>(L'0' + dpi / 100);
+        capture[18] = static_cast<wchar_t>(L'0' + dpi / 10 % 10);
+        capture[19] = static_cast<wchar_t>(L'0' + dpi % 10);
+        valid = valid && corners && boxed && probe_capture_frame(capture);
+    }
+    renderer_set_dpi(&g_probe.renderer, original_dpi);
+    u32 with_code = 0, with_text = 0, without = 0;
+    valid = valid && apply() && draws(&with_code);
+    embed.description = utf8_literal("Simple app to make colored text like this!");
+    valid = valid && apply() && draws(&with_text);
+    event.embeds = {};
+    valid = valid && apply() && draws(&without);
+    log_u64(LogLevel::info, "probe", "embed_code_block_draw_calls", with_code);
+    log_u64(LogLevel::info, "probe", "embed_text_draw_calls", with_text);
+    log_u64(LogLevel::info, "probe", "no_embed_draw_calls", without);
+    valid = valid && with_code == with_text && synchronize_probe_shell_layout() && rebuild_probe_content_text();
+    log_write(valid ? LogLevel::info : LogLevel::error, "probe",
+              valid ? "embed_code_block_accent_and_box_passed" : "embed_code_block_accent_and_box_failed");
+    return valid;
+}
+
 int run_probe() noexcept {
     SceneMemoryMeasurement memory_measurement;
     scene_memory = &memory_measurement;
@@ -10315,7 +10416,7 @@ int run_probe() noexcept {
     wchar_t long_embed_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_LONG_EMBED_UI_PROBE", long_embed_only, 2) == 1 &&
         long_embed_only[0] == L'1') {
-        const bool valid = initialize_fixture(true) && probe_long_embed_text();
+        const bool valid = initialize_fixture(true) && probe_long_embed_text() && probe_embed_code_block();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "long_embed_native_ui_passed" : "long_embed_native_ui_failed");
         renderer_shutdown(&g_probe.renderer);

@@ -9,6 +9,7 @@
 namespace maicord {
 struct UiShellHeaderGeometry;
 struct UiSearchRichProjection;
+struct MessageTextPresentation;
 inline constexpr u32 kUiSearchVisibleRows = 24;
 inline constexpr u32 kUiSearchWidgetCapacity =
     48 + 2 * kUiSearchVisibleRows * kGatewayMessageAttachmentMaximum;
@@ -232,8 +233,10 @@ bool ui_search_scene_visible_tile(const UiSearchScene&, u32 slot, UiSearchTarget
 constexpr float ui_search_body_text_width(const UiSearchScene& scene) noexcept {
     return maximum(1.f, ui_rect_width(scene.body) - 92.f);
 }
+// `rich_text` (the results' text presentation, optional) frames their code blocks.
 bool ui_search_scene_paint(const UiSearchScene&, const Theme&, PaintStream*, const UiEditGeometry*, u32 dpi,
-                           MessageMediaCommandStream* rich_media = nullptr) noexcept;
+                           MessageMediaCommandStream* rich_media = nullptr,
+                           const MessageTextPresentation* rich_text = nullptr) noexcept;
 bool ui_search_scene_text_output(const UiSearchScene&, const Theme&, UiTextOutput*,
                                  const UiEditGeometry*) noexcept;
 } // namespace maicord

@@ -129,7 +129,8 @@ inline constexpr float kMessageReplyIconGap = 4.0f;
 
 // Embed card: 4-DIP accent border, 12-DIP start and 16-DIP end padding, 2-DIP
 // top padding plus an 8-DIP margin above every block, 16 DIPs above large media
-// and 16 DIPs below the last block. The corner thumbnail (at most 80x80) sits
+// and 16 DIPs below the last block; a components embed (a container) pads 16
+// DIPs above and below its content. The corner thumbnail (at most 80x80) sits
 // 16 DIPs right of the text column; author icons are 24 DIPs and footer icons
 // 20 DIPs, 8 DIPs before their text, both round.
 inline constexpr float kMessageEmbedMaximumWidth = 520.0f;
@@ -140,6 +141,7 @@ inline constexpr float kMessageEmbedTopInset = 2.0f;
 inline constexpr float kMessageEmbedBlockGap = 8.0f;
 inline constexpr float kMessageEmbedMediaGap = 16.0f;
 inline constexpr float kMessageEmbedBottomInset = 16.0f;
+inline constexpr float kMessageEmbedContainerInset = 16.0f;
 inline constexpr float kMessageEmbedThumbnailExtent = 80.0f;
 inline constexpr float kMessageEmbedThumbnailGap = 16.0f;
 inline constexpr float kMessageEmbedAuthorIcon = 24.0f;
@@ -147,6 +149,10 @@ inline constexpr float kMessageEmbedFooterIcon = 20.0f;
 inline constexpr float kMessageEmbedIconGap = 8.0f;
 // The item rectangle includes this gap below the card.
 inline constexpr float kMessageEmbedItemGap = 6.0f;
+// Space above the first block's 8-DIP margin.
+constexpr float message_rich_embed_top_inset(bool components) noexcept {
+    return components ? kMessageEmbedContainerInset - kMessageEmbedBlockGap : kMessageEmbedTopInset;
+}
 constexpr float message_rich_embed_media_left(bool media_only) noexcept {
     return media_only ? 0.0f : kMessageEmbedContentInset;
 }
@@ -286,7 +292,7 @@ bool message_rich_embed_footer_icon_rect(const MessageRichStore& store, const Me
 // still serve PNG); part of the icon's URL-keyed media identity.
 MediaAttachmentFormat message_rich_embed_icon_format(Utf8View url) noexcept;
 // Corner thumbnail rectangle inside a card of the given bounds.
-UiRect message_rich_embed_thumbnail_rect(UiRect card, float width, float height) noexcept;
+UiRect message_rich_embed_thumbnail_rect(UiRect card, float width, float height, bool components) noexcept;
 bool message_rich_embed_suppresses_content(const MessageRichStore& store, const MessageRichRecord& rich,
                                            Utf8View content) noexcept;
 bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selection, float available_width,

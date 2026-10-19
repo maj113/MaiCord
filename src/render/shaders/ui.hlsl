@@ -138,6 +138,16 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
         const float coverage = saturate(0.5f - distance / max(fwidth(distance), 0.0001f));
         return float4(input.fill.rgb * input.fill.a, input.fill.a) * coverage;
     }
+    if (input.parameters.y == -10.0f) {
+        // The leading strip of a rounded rectangle parameters.z wide (an
+        // accent border): the shape extends past the quad's right edge.
+        const float2 shape_half = float2(input.parameters.z * 0.5f, half_size.y);
+        const float distance =
+            rounded_distance(float2(local.x + half_size.x - shape_half.x, local.y), shape_half,
+                             min(input.parameters.x, min(shape_half.x, shape_half.y)));
+        const float coverage = saturate(0.5f - distance / max(fwidth(distance), 0.0001f));
+        return float4(input.fill.rgb * input.fill.a, input.fill.a) * coverage;
+    }
     const float radius = min(input.parameters.x, min(half_size.x, half_size.y));
     const float border_width = min(input.parameters.y == -7.0f   ? abs(input.parameters.z)
                                    : input.parameters.y == -8.0f ? 0.0f

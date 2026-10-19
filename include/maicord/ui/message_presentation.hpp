@@ -4,6 +4,7 @@
 #include "maicord/ui/paint.hpp"
 
 namespace maicord {
+struct MessageTextPresentation;
 
 enum class MessageMediaCommandKind : u8 {
     attachment,
@@ -55,9 +56,11 @@ struct MessagePresentationResult {
 bool message_media_command_stream_initialize(
     MessageMediaCommandStream* stream,
     Slice<MessageMediaCommand> storage) noexcept;
+// `text` (the scene's text presentation, optional) adds the boxes of framed
+// code blocks.
 bool message_presentation_build(
     const MessageScene& scene, const Theme& theme, PaintStream* paint,
     MessageMediaCommandStream* media,
-    MessagePresentationResult* result) noexcept;
+    MessagePresentationResult* result, const MessageTextPresentation* text = nullptr) noexcept;
 
 } // namespace maicord

@@ -121,6 +121,12 @@ bool paint_stream_push_palette_gradient(PaintStream*, UiRect, const BackgroundTh
                                         float radius = 0) noexcept;
 bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float width,
                             const Color& color) noexcept;
+// The leading `width` DIPs of the rounded rectangle `shape` (an accent border
+// that follows its corners): one instance over the strip, whose shader mode
+// clips it to the shape's outline (reserved_x carries the shape's width).
+inline constexpr float kPaintEdgeStripMode = -10;
+bool paint_stream_push_edge_strip(PaintStream* stream, UiRect shape, float width, const Color& color,
+                                  float radius) noexcept;
 // A single clipped, transparent focus outline. No geometry for ineligible focus.
 bool paint_stream_push_focus(PaintStream* stream, const UiWidgetManager& owner,
                              const Color& color) noexcept;

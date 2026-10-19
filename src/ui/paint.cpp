@@ -211,6 +211,27 @@ bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float wid
     return true;
 }
 
+bool paint_stream_push_edge_strip(PaintStream* stream, UiRect shape, float width, const Color& color,
+                                  float radius) noexcept {
+    if (!stream || !paint_coordinate_valid(width) || !paint_coordinate_valid(radius) || !(width > 0) ||
+        radius < 0) {
+        if (stream)
+            ++stream->rejected;
+        return false;
+    }
+    const u32 before = stream->count;
+    if (!paint_stream_push(stream, shape.left, shape.top, minimum(shape.left + width, shape.right), shape.bottom,
+                           color))
+        return false;
+    if (stream->count != before) {
+        auto& quad = stream->quads[before];
+        quad.radius = minimum(radius, minimum(shape.right - shape.left, shape.bottom - shape.top) * .5f);
+        quad.border_width = kPaintEdgeStripMode;
+        quad.reserved_x = shape.right - shape.left;
+    }
+    return true;
+}
+
 bool paint_stream_push_sv_square(PaintStream* stream, UiRect rectangle, Color hue, float radius) noexcept {
     const u32 before = stream ? stream->count : 0;
     if (!paint_stream_push_rounded(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom,

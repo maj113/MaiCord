@@ -1505,7 +1505,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
              &message_media_stream,
              Slice<MessageMediaCommand>{message_media_commands, kRendererMessageMediaCommandCapacity}) ||
          !message_presentation_build(*renderer->message_scene, theme, &renderer->paint_stream,
-                                     &message_media_stream, &message_presentation))) {
+                                     &message_media_stream, &message_presentation,
+                                     renderer->message_text && renderer->message_text->active ? renderer->message_text
+                                                                                              : nullptr))) {
         return layout_step_failed(__LINE__);
     }
     if (messages_visible && renderer->user_store && renderer->media_atlas &&
@@ -1932,7 +1934,10 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_search_visible(*renderer) &&
         !ui_search_scene_paint(*renderer->search_scene, theme, &renderer->paint_stream,
-                               &renderer->search_edit_geometry, renderer->dpi, &search_media_stream))
+                               &renderer->search_edit_geometry, renderer->dpi, &search_media_stream,
+                               renderer->search_message_text && renderer->search_message_text->active
+                                   ? renderer->search_message_text
+                                   : nullptr))
         return layout_step_failed(__LINE__);
     renderer->friends_requests_media_first_batch = renderer->media_batch_count;
     if (!queue_message_media(search_media_stream, true))

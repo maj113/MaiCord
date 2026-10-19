@@ -64,6 +64,26 @@ struct MessageTextCommand {
     u16 source_id;
 };
 
+// A fenced code block is its own command, framed by a box drawn in the paint
+// pass: kMessageCodeBlockInset (1-DIP border plus padding) outside the text on
+// every side, kMessageCodeBlockMargin below preceding text. Its spans carry
+// kTextSpanFramedBlock, so the text layer draws no code background of its own.
+inline constexpr float kMessageCodeBlockInset = 8.0f;
+inline constexpr float kMessageCodeBlockBorder = 1.0f;
+inline constexpr float kMessageCodeBlockMargin = 6.0f;
+constexpr bool message_text_command_code_block(const MessageTextCommand& command) noexcept {
+    return command.styles.count != 0 && text_span_framed_block(command.styles[0]);
+}
+// The framed box of a measured code-block command; empty otherwise.
+constexpr UiRect message_text_code_block_box(const MessageTextCommand& command) noexcept {
+    const float height = command.measured_height > command.minimum_height ? command.measured_height
+                                                                          : command.minimum_height;
+    if (!message_text_command_code_block(command) || !(command.measured_height > 0))
+        return {};
+    return {command.rectangle.left - kMessageCodeBlockInset, command.rectangle.top - kMessageCodeBlockInset,
+            command.rectangle.right + kMessageCodeBlockInset, command.rectangle.top + height + kMessageCodeBlockInset};
+}
+
 struct MessageTextMeasurement {
     u64 message_id;
     u32 message_revision;

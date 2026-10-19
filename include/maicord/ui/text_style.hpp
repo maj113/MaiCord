@@ -132,6 +132,14 @@ struct TextStyleSpan {
     u8 reserved[3];
 };
 
+// reserved[2] bit 2: the code block is framed by its owner (a block box drawn
+// around the command), so the text layer draws no code-block background.
+// Bits 0/1 belong to the ```ansi colours (ansi_text.hpp).
+inline constexpr u8 kTextSpanFramedBlock = 1u << 2;
+constexpr bool text_span_framed_block(const TextStyleSpan& span) noexcept {
+    return (span.reserved[2] & kTextSpanFramedBlock) != 0;
+}
+
 enum class TextDecorationKind : u8 {
     background,
     underline,

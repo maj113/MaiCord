@@ -510,8 +510,8 @@ MediaAttachmentFormat message_rich_embed_icon_format(Utf8View url) noexcept {
                : MediaAttachmentFormat::png;
 }
 
-UiRect message_rich_embed_thumbnail_rect(UiRect card, float width, float height) noexcept {
-    const float top = card.top + kMessageEmbedTopInset + kMessageEmbedBlockGap;
+UiRect message_rich_embed_thumbnail_rect(UiRect card, float width, float height, bool components) noexcept {
+    const float top = card.top + message_rich_embed_top_inset(components) + kMessageEmbedBlockGap;
     return {card.right - kMessageEmbedEndInset - width, top, card.right - kMessageEmbedEndInset, top + height};
 }
 
@@ -714,7 +714,8 @@ float message_rich_embed_visual_height(const MessageRichStore& store, const Mess
     // Text blocks only (the media block is added by the caller); the text
     // pass replaces this estimate with measured lines.
     const MessageRichEmbedPlan plan = message_rich_embed_plan(store, embed);
-    float height = kMessageEmbedTopInset + kMessageEmbedBottomInset;
+    const float top = message_rich_embed_top_inset(plan.components);
+    float height = top + kMessageEmbedBottomInset;
     const auto block = [&](float extent) noexcept { height += kMessageEmbedBlockGap + extent; };
     if (embed.provider_name.bytes)
         block(18.0f);
@@ -726,14 +727,15 @@ float message_rich_embed_visual_height(const MessageRichStore& store, const Mess
         block(message_rich_store_string(store, embed.description).bytes > 40 ? 44.0f : 22.0f);
     if (plan.fields && embed.field_count)
         height += static_cast<float>(embed_field_row_count(rich, embed)) * (kMessageEmbedBlockGap + 40.0f);
+    if (embed.type == GatewayMessageEmbedType::poll_result)
+        block(36.0f);
     if (embed.footer_text.bytes || embed.timestamp_ms)
         block(kMessageEmbedFooterIcon);
     float thumbnail_width = 0.0f, thumbnail_height = 0.0f;
     if (message_rich_embed_thumbnail_extent(store, embed, kMessageEmbedThumbnailExtent, &thumbnail_width,
                                             &thumbnail_height))
-        height = maximum(height, kMessageEmbedTopInset + kMessageEmbedBlockGap + thumbnail_height +
-                                     kMessageEmbedBottomInset);
-    return maximum(height, 52.0f);
+        height = maximum(height, top + kMessageEmbedBlockGap + thumbnail_height + kMessageEmbedBottomInset);
+    return height;
 }
 
 float message_rich_component_visual_height(const MessageRichComponent& component) noexcept {

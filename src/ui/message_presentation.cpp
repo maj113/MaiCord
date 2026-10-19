@@ -10,6 +10,7 @@
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/message_component_media.hpp"
 #include "maicord/ui/message_system_text.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/model/scheduled_event_store.hpp"
@@ -71,11 +72,14 @@ bool push_owned(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, 
                                             rectangle.bottom, fill, border, radius, border_width) &&
            paint_stream_record_content(stream, owner, rectangle, kind, flags);
 }
-// A card's accent stripe: a pill along its left edge that starts below the
-// top corner and ends above the bottom one, so it never crosses the curve.
-UiRect accent_stripe(UiRect card, float width, float card_radius) noexcept {
-    const float inset = minimum(card_radius, ui_rect_height(card) * .5f);
-    return {card.left, card.top + inset, minimum(card.left + width, card.right), card.bottom - inset};
+// A card's accent: its leading border, following the card's rounded corners.
+bool push_accent(PaintStream* stream, UiWidgetReference owner, UiRect card, const Color& color,
+                 float card_radius) noexcept {
+    return paint_stream_push_edge_strip(stream, card, kMessageEmbedAccentWidth, color, card_radius) &&
+           paint_stream_record_content(stream, owner,
+                                       {card.left, card.top, minimum(card.left + kMessageEmbedAccentWidth, card.right),
+                                        card.bottom},
+                                       UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap);
 }
 bool push_material(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, const Theme& theme,
                    Color fill, Color border, float radius, float border_width, UiLayoutContentKind kind,
@@ -478,7 +482,6 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                   left + (measured_width > 0 ? measured_width : kMessageEmbedMaximumWidth)),
                           bottom};
         const float card_radius = theme.scale.radius_sm;
-        const UiRect accent = accent_stripe(card, kMessageEmbedAccentWidth, card_radius);
         const MessageRichEmbed& embed = rich->embeds[index];
         constexpr float rgb_scale = 1.0f / 255.0f;
         // Embed colors are RGB payload data, not a request for the theme accent.
@@ -492,8 +495,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         if (!media_only &&
             (!push_material(paint, owner, card, theme, theme.surface, theme.interactive, card_radius, 1.0f,
                             UiLayoutContentKind::decoration, UiBackgroundTier::low) ||
-             !push_owned(paint, owner, accent, accent_color, accent_color, ui_rect_width(accent) * .5f, 0.0f,
-                         UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))) {
+             !push_accent(paint, owner, card, accent_color, card_radius))) {
             return false;
         }
         MessageRichEmbedMediaSelection selected{};
@@ -505,7 +507,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 &thumb_width, &thumb_height) &&
             message_rich_embed_resource_select(*rich_store, embed, MediaEmbedResource::thumbnail,
                                                &selected)) {
-            const UiRect thumb = message_rich_embed_thumbnail_rect(card, thumb_width, thumb_height);
+            const UiRect thumb = message_rich_embed_thumbnail_rect(card, thumb_width, thumb_height,
+                                                                   message_rich_embed_plan(*rich_store, embed).components);
             if (!append_media(media, record->id, MessageMediaCommandKind::embed,
                               static_cast<u8>(selected.format), selected.animated, thumb, row_clip, owner,
                               record->revision, static_cast<u8>(index), static_cast<u8>(selected.resource),
@@ -653,9 +656,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 const Color color{static_cast<float>((rgb >> 16) & 255) * scale,
                                   static_cast<float>((rgb >> 8) & 255) * scale,
                                   static_cast<float>(rgb & 255) * scale, 1};
-                const UiRect accent = accent_stripe(control, kMessageEmbedAccentWidth, container_radius);
-                if (!push_owned(paint, owner, accent, color, color, ui_rect_width(accent) * .5f, 0,
-                                UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
+                if (!push_accent(paint, owner, control, color, container_radius))
                     return false;
             }
             break;
@@ -850,9 +851,26 @@ bool message_media_command_stream_initialize(MessageMediaCommandStream* stream,
     return true;
 }
 
+// The box of every visible framed code block (its text draws in the text pass).
+bool append_code_blocks(const MessageScene& scene, const MessageTextPresentation& text, const Theme& theme,
+                        PaintStream* paint) noexcept {
+    for (u32 i = 0; i < text.command_count; ++i) {
+        const MessageTextCommand& command = text.commands[i];
+        const UiRect box = message_text_code_block_box(command);
+        if (command.owner.manager != &scene.widgets || !ui_rect_has_area(box) ||
+            !ui_rect_has_area(ui_rect_intersection(box, ui_rect_intersection(command.clip, scene.viewport))))
+            continue;
+        if (!push_owned(paint, command.owner, box, theme.tokens.background.secondary, theme.tokens.border.strong,
+                        theme.scale.radius_sm, kMessageCodeBlockBorder, UiLayoutContentKind::decoration,
+                        ui_layout_content_bounds_allow_overlap))
+            return false;
+    }
+    return true;
+}
+
 bool message_presentation_build(const MessageScene& scene, const Theme& theme, PaintStream* paint,
-                                MessageMediaCommandStream* media,
-                                MessagePresentationResult* result) noexcept {
+                                MessageMediaCommandStream* media, MessagePresentationResult* result,
+                                const MessageTextPresentation* text) noexcept {
     if (result) {
         *result = MessagePresentationResult{};
     }
@@ -911,6 +929,10 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
             if (i >= child_media_begin)
                 media->storage[i].snapshot = true;
         }
+    }
+    if (text && !append_code_blocks(scene, *text, theme, paint)) {
+        rollback();
+        return false;
     }
     const UiScrollbarGeometry scrollbar =
         ui_scrollbar_geometry(scene.viewport, ui_extent_dips(scene.timeline->scroll_units),

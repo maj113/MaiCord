@@ -213,6 +213,8 @@ bool native_styled_decorations(const NativeTextContext& owner,const NativeParagr
     }
     for(u32 span=0;span<owner.styled_spans.count;){const auto& s=owner.styled_spans[span];if(!(s.flags&text_style_code_block)){++span;continue;}
         u32 next=span+1;while(next<owner.styled_spans.count&&(owner.styled_spans[next].flags&text_style_code_block))++next;
+        // A framed block's box is drawn by its owner.
+        if(const u32 paint=decoration_paint(owner,span);paint&&text_span_framed_block(owner.last_styles[paint-1])){span=next;continue;}
         bool bounded=false,multiline=false;float left=0,top=0,right=0,bottom=0;
         if(!decoration_range(owner,layout,tab_stop,s.first_unit,owner.styled_spans[next-1].end_unit,[&](const NativeParagraphLine& l,float x,float width) noexcept {
             if(!(l.height>0))return true;

@@ -44,11 +44,12 @@ inline void layout_consistency_add(LayoutConsistencyReport* report, const Layout
         ++report->dropped;
 }
 
-// Plain rounded rectangles, gradients, surface materials and canvases carry a
-// corner radius; lines, icons and picker fields do not.
+// Plain rounded rectangles, gradients, surface materials, canvases and edge
+// strips (their shape's corner radius) carry a corner radius; lines, icons and
+// picker fields do not.
 inline bool layout_consistency_shape(const PaintQuad& quad) noexcept {
     const float mode = quad.border_width;
-    const bool shape = mode >= 0 || mode == -2 || mode == -6 || mode == -7 || mode == -8;
+    const bool shape = mode >= 0 || mode == -2 || mode == -6 || mode == -7 || mode == -8 || mode == kPaintEdgeStripMode;
     if (!shape || ui_icon_quad(quad) || !(quad.right > quad.left) || !(quad.bottom > quad.top))
         return false;
     const bool border = mode > 0 && quad.border.alpha > 0;

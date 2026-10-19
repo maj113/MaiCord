@@ -1321,9 +1321,11 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
 }
 
 // A quote renders as a block: a 4-DIP spine, 12/8-DIP inline padding, at most
-// 90% of the markup width and 4-DIP block margins. Runs of quoted and plain
-// lines become separate commands, so wrapped quote lines keep the indent; the
-// newline between two runs belongs to neither.
+// 90% of the markup width and 4-DIP block margins. A fenced code block is a
+// framed block (kMessageCodeBlockInset on every side, full markup width in
+// embeds and 90% in messages, kMessageCodeBlockMargin above). Runs of quoted,
+// code and plain text become separate commands, so wrapped lines keep their
+// indent; the newlines between two runs belong to neither.
 constexpr float kQuoteSpine = 4.0f;
 constexpr float kQuoteStartPadding = 12.0f;
 constexpr float kQuoteEndPadding = 8.0f;
@@ -1335,6 +1337,7 @@ struct QuoteSegment {
     ConstSlice<TextStyleSpan> styles;
     ConstSlice<MessageMarkdownSemantic> semantics;
     bool quote;
+    bool code;
 };
 
 // Text width of a quote inside a markup box `width` wide; the text starts
@@ -1347,43 +1350,69 @@ constexpr float quote_text_inset() noexcept {
     return kQuoteSpine + kQuoteStartPadding;
 }
 
-// Splits presentation-owned parsed text at quote boundaries, rebasing its
-// spans and semantics in place. Returns 0 (nothing changed) when the text has
-// no quote, too many runs, or a span/semantic that crosses a boundary.
+// Splits presentation-owned parsed text into quote, code-block and plain runs,
+// rebasing its spans and semantics in place; code runs drop their trailing
+// newlines and their spans are marked framed. Returns 0 (nothing changed) when
+// the text has no quote or code block, too many runs, or a span/semantic that
+// crosses a boundary.
 u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
                          ConstSlice<MessageMarkdownSemantic> semantics, QuoteSegment* output) noexcept {
     struct Range {
         u32 begin, end;
-        bool quote;
+        bool quote, code;
     } ranges[kQuoteSegmentMaximum];
     u32 count = 0;
-    bool quoted = false;
+    bool blocks = false;
     u32 style = 0;
-    for (u32 line = 0; line < text.bytes;) {
-        u32 end = line;
-        while (end < text.bytes && text.data[end] != '\n')
-            ++end;
-        while (style < styles.count && styles[style].byte_offset + styles[style].byte_count <= line)
+    const auto flags_at = [&](u32 at) noexcept {
+        while (style < styles.count && styles[style].byte_offset + styles[style].byte_count <= at)
             ++style;
-        const bool quote = style < styles.count && styles[style].byte_offset <= line &&
-                           (styles[style].flags & text_style_quote) != 0;
-        quoted = quoted || quote;
-        if (count && ranges[count - 1].quote == quote) {
+        return style < styles.count && styles[style].byte_offset <= at ? styles[style].flags : 0u;
+    };
+    const auto add = [&](u32 begin, u32 end, bool quote, bool code) noexcept {
+        // Consecutive plain or quoted lines (one newline apart) stay one run.
+        if (count && !code && !ranges[count - 1].code && ranges[count - 1].quote == quote &&
+            ranges[count - 1].end + 1 == begin) {
             ranges[count - 1].end = end;
-        } else {
-            if (count == kQuoteSegmentMaximum)
-                return 0;
-            ranges[count++] = {line, end, quote};
+            return true;
         }
-        line = end + 1;
+        if (count == kQuoteSegmentMaximum)
+            return false;
+        ranges[count++] = {begin, end, quote, code};
+        return true;
+    };
+    for (u32 at = 0; at < text.bytes;) {
+        const u32 flags = flags_at(at);
+        const bool quote = (flags & text_style_quote) != 0;
+        if (flags & text_style_code_block) {
+            u32 end = at;
+            while (end < text.bytes && (flags_at(end) & text_style_code_block))
+                ++end;
+            u32 last = end;
+            while (last > at && text.data[last - 1] == '\n')
+                --last;
+            if (last > at && !add(at, last, quote, true))
+                return 0;
+            blocks = true;
+            at = end < text.bytes && text.data[end] == '\n' ? end + 1 : end;
+            continue;
+        }
+        u32 end = at;
+        while (end < text.bytes && text.data[end] != '\n' && !(flags_at(end) & text_style_code_block))
+            ++end;
+        blocks = blocks || quote;
+        if (!add(at, end, quote, false))
+            return 0;
+        at = end < text.bytes && text.data[end] == '\n' ? end + 1 : end;
     }
-    if (!quoted)
+    if (!blocks || count == 0)
         return 0;
-    // A span or semantic may reach at most the newline after its run.
+    // A span or semantic may reach into the newlines after its run, no further.
+    const auto next_begin = [&](u32 k) noexcept { return k + 1 < count ? ranges[k + 1].begin : text.bytes; };
     const auto segment_of = [&](u32 offset, u32 bytes, u32 from) noexcept {
-        while (from < count && offset > ranges[from].end)
+        while (from < count && offset >= next_begin(from))
             ++from;
-        return from < count && offset + bytes <= ranges[from].end + 1 ? from : count;
+        return from < count && offset + bytes <= next_begin(from) ? from : count;
     };
     for (u32 i = 0, k = 0; i < styles.count; ++i)
         if ((k = segment_of(styles[i].byte_offset, styles[i].byte_count, k)) == count)
@@ -1396,8 +1425,9 @@ u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
     u32 read_style = 0, write_style = 0, read_mark = 0, write_mark = 0;
     for (u32 k = 0; k < count; ++k) {
         const Range range = ranges[k];
+        const u32 limit = next_begin(k);
         const u32 first_style = write_style, first_mark = write_mark;
-        for (; read_style < styles.count && spans[read_style].byte_offset <= range.end; ++read_style) {
+        for (; read_style < styles.count && spans[read_style].byte_offset < limit; ++read_style) {
             TextStyleSpan span = spans[read_style];
             const u32 begin = maximum(span.byte_offset, range.begin);
             const u32 end = minimum(span.byte_offset + span.byte_count, range.end);
@@ -1405,9 +1435,11 @@ u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
                 continue;
             span.byte_offset = begin - range.begin;
             span.byte_count = end - begin;
+            if (range.code)
+                span.reserved[2] |= kTextSpanFramedBlock;
             spans[write_style++] = span;
         }
-        for (; read_mark < semantics.count && marks[read_mark].byte_offset <= range.end; ++read_mark) {
+        for (; read_mark < semantics.count && marks[read_mark].byte_offset < limit; ++read_mark) {
             MessageMarkdownSemantic mark = marks[read_mark];
             const u32 begin = maximum(mark.byte_offset, range.begin);
             const u32 end = minimum(mark.byte_offset + mark.byte_count, range.end);
@@ -1420,18 +1452,26 @@ u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
         output[k] = QuoteSegment{{text.data + range.begin, range.end - range.begin},
                                  {spans + first_style, write_style - first_style},
                                  {marks + first_mark, write_mark - first_mark},
-                                 range.quote};
+                                 range.quote,
+                                 range.code};
     }
     return count;
 }
 
-// The margin after non-empty segment `index`: the 4-DIP quote margin
-// when it or the next non-empty segment is a quote; `last` for the final one.
+// The space between non-empty segment `index` and the next one's text: the
+// code box insets on either side, plus the code margin before a code block or
+// the quote margin next to a quote; `last` (after the box) for the final one.
 float quote_gap_after(const QuoteSegment* segments, u32 count, u32 index, float last) noexcept {
-    for (u32 next = index + 1; next < count; ++next)
-        if (segments[next].text.bytes)
-            return segments[index].quote || segments[next].quote ? kQuoteMargin : 0.0f;
-    return last;
+    const float after = segments[index].code ? kMessageCodeBlockInset : 0.0f;
+    for (u32 next = index + 1; next < count; ++next) {
+        if (!segments[next].text.bytes)
+            continue;
+        const float margin = segments[next].code                             ? kMessageCodeBlockMargin
+                             : segments[index].quote || segments[next].quote ? kQuoteMargin
+                                                                             : 0.0f;
+        return after + margin + (segments[next].code ? kMessageCodeBlockInset : 0.0f);
+    }
+    return after + last;
 }
 
 bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildContext* context,
@@ -1456,19 +1496,32 @@ bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildConte
     QuoteSegment segments[kQuoteSegmentMaximum];
     u32 segment_count = split_quote_segments(display, styles, semantics, segments);
     if (segment_count == 0) {
-        segments[0] = QuoteSegment{display, styles, semantics, false};
+        segments[0] = QuoteSegment{display, styles, semantics, false, false};
         segment_count = 1;
     }
+    bool first = true;
     for (u32 index = 0; index < segment_count; ++index) {
         const QuoteSegment& segment = segments[index];
         if (segment.text.bytes == 0)
             continue;
         float left = left_inset, right = right_inset;
+        const float width = maximum(1.0f, ui_rect_width(flow->content_rectangle) - left_inset - right_inset);
         if (segment.quote) {
-            const float width = maximum(1.0f, ui_rect_width(flow->content_rectangle) - left_inset - right_inset);
             left += quote_text_inset();
             right += maximum(0.0f, width - quote_text_inset() - quote_text_width(width));
         }
+        if (segment.code) {
+            // Embeds give a code block the full width, message markup 90%.
+            const float markup = segment.quote ? quote_text_width(width) : width;
+            left += kMessageCodeBlockInset;
+            right += kMessageCodeBlockInset +
+                     (measurement_kind == MessageTextMeasurementKind::embed ? 0.0f : markup * 0.1f);
+            if (first && !ui_text_flow_advance(flow, kMessageCodeBlockInset)) {
+                presentation->failure_flow_error = flow->last_error;
+                return fail(presentation, MessageTextPresentationError::layout);
+            }
+        }
+        first = false;
         UiRect rectangle{};
         if (!begin_item(presentation, flow, left, right, &rectangle)) {
             return false;
@@ -1485,6 +1538,11 @@ bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildConte
         }
     }
     return true;
+}
+
+// A command's measured width, plus the box of a framed code block.
+float framed_width(const MessageTextCommand& command) noexcept {
+    return command.measured_width + (message_text_command_code_block(command) ? 2.0f * kMessageCodeBlockInset : 0.0f);
 }
 
 // One embed text block that is not markdown (author, footer, provider, and
@@ -1527,6 +1585,10 @@ bool append_embed_plain_line(MessageTextPresentation* presentation, BuildContext
                         minimum_height, 0.0f, styles.count != 0, UiTextAlignment::start, UiTextAlignment::start,
                         UiTextWrapping::wrap, 0, UiTextOverflow::clip, Color{}, source_id))
         return false;
+    // A line shorter than its row (the author or footer icon) is centred on it.
+    MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
+    if (command.measured_height > 0 && command.measured_height < minimum_height)
+        command.rectangle.top += (minimum_height - command.measured_height) * 0.5f;
     return commit_last_command(presentation, flow);
 }
 
@@ -1649,7 +1711,7 @@ bool append_embed_fields(MessageTextPresentation* presentation, BuildContext* co
             row_height = maximum(row_height, ui_text_flow_required_height(column_flow));
             float measured_width = 0;
             for (u32 c = first_command; c < presentation->command_count; ++c)
-                measured_width = maximum(measured_width, presentation->commands[c].measured_width);
+                measured_width = maximum(measured_width, framed_width(presentation->commands[c]));
             row_width += columns > 1 ? maximum(minimum_column_width, measured_width) : measured_width;
         }
         *natural_width = maximum(*natural_width, row_width);
@@ -2629,17 +2691,26 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                             ? split_quote_segments(display_content, styles, semantics, segments)
                             : 0u;
     if (segment_count == 0) {
-        segments[0] = QuoteSegment{display_content, styles, semantics, false};
+        segments[0] = QuoteSegment{display_content, styles, semantics, false, false};
         segment_count = 1;
     }
     float content_top = content_layout->content_rectangle.top;
+    bool first_segment = true;
     for (u32 index = 0; index < segment_count; ++index) {
         const QuoteSegment& segment = segments[index];
         if (segment.text.bytes == 0)
             continue;
-        const float inset = segment.quote ? quote_text_inset() : 0.0f;
-        const UiRect content_rectangle = line_rectangle(
-            text_left + inset, content_top, segment.quote ? quote_text_width(text_width) : text_width);
+        float left = text_left + (segment.quote ? quote_text_inset() : 0.0f);
+        float width = segment.quote ? quote_text_width(text_width) : text_width;
+        if (segment.code) {
+            // A message code block is at most 90% of the markup width.
+            if (first_segment)
+                content_top += kMessageCodeBlockInset;
+            left += kMessageCodeBlockInset;
+            width = maximum(1.0f, width * 0.9f - 2.0f * kMessageCodeBlockInset);
+        }
+        first_segment = false;
+        const UiRect content_rectangle = line_rectangle(left, content_top, width);
         if (!append_command(presentation, segment.text, segment.styles, segment.semantics,
                             UiWidgetReference{&scene.widgets, row.content}, content_rectangle, row_clip,
                             content_color, record->id, record->revision, measurement_index,
@@ -2887,7 +2958,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             measured_items.embed_footer_tops[index] = 0.0f;
             const auto measure_from = [&](u32 first_command, float inset) noexcept {
                 for (u32 c = first_command; c < presentation->command_count; ++c)
-                    natural_width = maximum(natural_width, presentation->commands[c].measured_width + inset);
+                    natural_width = maximum(natural_width, framed_width(presentation->commands[c]) + inset);
             };
             const auto block_gap = [&]() noexcept { return ui_text_flow_advance(&flow, kMessageEmbedBlockGap); };
             const auto source = [&](u32 slot) noexcept {
@@ -2897,7 +2968,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             const Color muted = ui_background_muted_text_color(theme);
             constexpr float text_insets = kMessageEmbedContentInset + kMessageEmbedEndInset;
             if (!media_only) {
-                if (!ui_text_flow_advance(&flow, kMessageEmbedTopInset))
+                if (!ui_text_flow_advance(&flow, message_rich_embed_top_inset(plan.components)))
                     return fail(presentation, MessageTextPresentationError::layout);
                 // Provider: small subtext (12 DIP).
                 const Utf8View provider = message_rich_store_string(*rich_store, embed.provider_name);
@@ -2972,7 +3043,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 }
                 natural_width += thumbnail_inset;
                 if (thumbnail &&
-                    !ui_text_flow_ensure_extent(&flow, kMessageEmbedTopInset + kMessageEmbedBlockGap + thumb_height))
+                    !ui_text_flow_ensure_extent(
+                        &flow, message_rich_embed_top_inset(plan.components) + kMessageEmbedBlockGap + thumb_height))
                     return false;
             }
             flow.content_rectangle.right = embed_left + embed_width;
@@ -3070,8 +3142,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                         return false;
                     measure_from(first, inset + kMessageEmbedEndInset);
                 }
-                if (!ui_text_flow_advance(&flow, kMessageEmbedBottomInset + kMessageEmbedItemGap) ||
-                    !ui_text_flow_ensure_extent(&flow, 52.0f + kMessageEmbedItemGap)) {
+                if (!ui_text_flow_advance(&flow, kMessageEmbedBottomInset + kMessageEmbedItemGap)) {
                     return fail(presentation, MessageTextPresentationError::layout);
                 }
             }
@@ -3723,8 +3794,11 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
             measurement.reply_height +=
                 maximum(measured_height.value, command.minimum_height) + command.gap_after;
         } else if (command.measurement_kind == MessageTextMeasurementKind::content) {
-            // Quote runs split the body into stacked commands.
-            measurement.content_height += measured_height.value + command.gap_after;
+            // Quote and code runs split the body into stacked commands; a
+            // leading code block's box starts its inset above the text.
+            const bool leading_box = measurement.content_height == 0.0f && message_text_command_code_block(command);
+            measurement.content_height +=
+                measured_height.value + command.gap_after + (leading_box ? kMessageCodeBlockInset : 0.0f);
         } else if (command.measurement_kind == MessageTextMeasurementKind::reaction &&
                    command.measurement_slot < kGatewayMessageReactionMaximum) {
             measurement.reaction_widths[command.measurement_slot] = measured_width.value;

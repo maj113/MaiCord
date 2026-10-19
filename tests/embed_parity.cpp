@@ -1704,6 +1704,151 @@ void test_component_embed(Check check) noexcept {
         message_scene_release(&f.scene);
 }
 
+// Fenced code blocks are framed blocks in embeds and message bodies: each is
+// its own command inside the box insets, without its trailing newline, and
+// paint draws the box from that command, so the measured card and the drawing
+// agree. The text layer keeps the ANSI colours but no code background of its own.
+struct CodeBlockCase {
+    const MessageSceneRowWidget* row;
+    const MessageTextCommand *title, *code;
+    UiRect card, box;
+};
+CodeBlockCase code_block_case(Utf8View payload, Utf8View title) noexcept {
+    auto& f = fixture;
+    CodeBlockCase c{converge_message(payload), nullptr, nullptr, {}, {}};
+    if (!c.row)
+        return c;
+    c.title = title.bytes ? command_containing(f.presentation, title) : nullptr;
+    c.code = command_containing(f.presentation, utf8_literal("Simple app"));
+    c.box = c.code ? message_text_code_block_box(*c.code) : UiRect{};
+    if (const UiLayoutNode* item =
+            message_scene_rich_item_layout_node(f.scene, *c.row, MessageSceneRichItemKind::embed, 0)) {
+        const float width = c.row->rich_item_layout.embed_widths[0];
+        c.card = {item->rectangle.left, item->rectangle.top,
+                  minimum(item->rectangle.right, item->rectangle.left + (width > 0 ? width : kMessageEmbedMaximumWidth)),
+                  item->rectangle.top + c.row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] -
+                      kMessageEmbedItemGap};
+    }
+    return c;
+}
+bool framed_throughout(const MessageTextCommand* c) noexcept {
+    bool framed = c && c->styles.count && message_text_command_code_block(*c) && c->text.bytes &&
+                  c->text.data[c->text.bytes - 1] != '\n';
+    for (u32 i = 0; framed && i < c->styles.count; ++i)
+        framed = text_span_framed_block(c->styles[i]) && (c->styles[i].flags & text_style_code_block);
+    return framed;
+}
+
+void test_code_block_embeds(Check check) noexcept {
+    auto& f = fixture;
+    // The colored-text tool's components embed: a heading link, then a
+    // ```ansi block with bold, a background and an underline.
+    const auto components = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"https://colors.example.com/","timestamp":"2026-09-05T10:00:00Z","embeds":[{"type":"components","url":"https://colors.example.com/","components":[{"type":17,"accent_color":5793266,"components":[{"type":10,"content":"### [Example Colored Text Tool](https://colors.example.com/)\n```ansi\nSimple app to make \u001b[1;31mcolored\u001b[0m \u001b[45;37mtext\u001b[0m \u001b[4;34mlike this\u001b[0m!\n```"}]}]}]}})");
+    CodeBlockCase c = code_block_case(components, utf8_literal("Example Colored Text Tool"));
+    check(c.title && c.code && framed_throughout(c.code) && ui_rect_has_area(c.card) &&
+              has_style(c.code, utf8_literal("colored"), text_style_bold | text_style_monospace) &&
+              close_to(c.title->rectangle.top - c.card.top, kMessageEmbedContainerInset) &&
+              close_to(c.box.top, c.title->rectangle.top + c.title->measured_height + kMessageCodeBlockMargin) &&
+              close_to(c.box.left, c.card.left + kMessageEmbedContentInset) &&
+              close_to(c.box.right, c.card.right - kMessageEmbedEndInset) &&
+              close_to(c.box.bottom - c.box.top, c.code->measured_height + 2 * kMessageCodeBlockInset) &&
+              close_to(c.card.bottom - c.box.bottom, kMessageEmbedContainerInset),
+          "code block embed: the measured card is the heading, the full-width code box and equal 16-DIP padding "
+          "above and below");
+    ShapedText out{};
+    u32 block_backgrounds = 0, ansi_backgrounds = 0, underlines = 0, lines = 0;
+    if (c.code && shaped_text_initialize(&out, {glyphs, 1024}, {runs, 256}, {clusters, 1024}) &&
+        shaped_text_bind_decorations(&out, {decorations, 64}) &&
+        text_shape_utf8_styled(&text_system, c.code->text, c.code->styles, ui_rect_width(c.code->rectangle), 4096,
+                               {utf16, 1024}, &out)
+            .ok()) {
+        lines = out.line_count;
+        for (u32 i = 0; i < out.decoration_count; ++i) {
+            const TextDecoration& d = out.decorations[i];
+            if (d.kind == TextDecorationKind::background)
+                ++(ansi_decoration_background(d) ? ansi_backgrounds : block_backgrounds);
+            underlines += d.kind == TextDecorationKind::underline;
+        }
+    }
+    shaped_text_reset(&out);
+    check(lines == 1 && block_backgrounds == 0 && ansi_backgrounds == 1 && underlines == 1,
+          "code block embed: one line (no trailing empty line); the text layer draws the ANSI background and "
+          "underline but no code background under the framed box");
+    // Per embed: the card, its accent and the code box, in the row's one batch
+    // (the box replaces the text layer's code background instance).
+    paint_stream_reset(&f.paint, 900, 1000);
+    MessageMediaCommandStream media{};
+    MessagePresentationResult painted{};
+    bool paint_ok = c.row && message_media_command_stream_initialize(&media, {f.media, 32}) &&
+                    message_presentation_build(f.scene, kDefaultTheme, &f.paint, &media, &painted, &f.presentation);
+    u32 cards = 0, accents = 0, boxes = 0;
+    const Color code_fill = kDefaultTheme.tokens.background.secondary;
+    for (u32 i = 0; paint_ok && i < f.paint.count; ++i) {
+        const PaintQuad& q = f.paint.quads[i];
+        const bool card = close_to(q.left, c.card.left) && close_to(q.top, c.card.top) &&
+                          close_to(q.bottom, c.card.bottom);
+        cards += card && close_to(q.right, c.card.right) && q.border_width >= 0;
+        accents += card && q.border_width == kPaintEdgeStripMode && q.right - q.left == kMessageEmbedAccentWidth &&
+                   q.radius == kDefaultTheme.scale.radius_sm && q.reserved_x == c.card.right - c.card.left;
+        boxes += close_to(q.left, c.box.left) && close_to(q.top, c.box.top) && close_to(q.right, c.box.right) &&
+                 close_to(q.bottom, c.box.bottom) && q.radius == kDefaultTheme.scale.radius_sm &&
+                 q.border_width == kMessageCodeBlockBorder && q.fill.red == code_fill.red &&
+                 q.fill.alpha == code_fill.alpha;
+    }
+    check(paint_ok && cards == 1 && accents == 1 && boxes == 1 && f.paint.batch_count == 1,
+          "code block embed: paint draws the card, its corner-following accent and the code box in one batch");
+    paint_stream_release(&f.paint);
+    if (c.row)
+        message_scene_release(&f.scene);
+
+    // A rich embed: the title links to embed.url in bold at 16 DIPs; the
+    // grid pads 2 DIPs plus the block's 8-DIP margin above and 16 below.
+    const auto rich = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"x","timestamp":"2026-09-05T10:00:00Z","embeds":[{"type":"rich","title":"Example Colored Text Tool","url":"https://colors.example.com/","color":5793266,"description":"```ansi\nSimple app to make \u001b[1;31mcolored\u001b[0m text!\n```"}]}})");
+    c = code_block_case(rich, utf8_literal("Example Colored Text Tool"));
+    check(c.title && has_style(c.title, utf8_literal("Example"), text_style_bold | text_style_link) &&
+              size_at(c.title, utf8_literal("Example")) == text_size_md && shaped_em(c.title) == 16.0f &&
+              utf8_equal(link_target(f, c.title), utf8_literal("https://colors.example.com/")),
+          "title link embed: the title is a bold 16-DIP link to embed.url");
+    check(c.code && framed_throughout(c.code) &&
+              close_to(c.title->rectangle.top - c.card.top, kMessageEmbedTopInset + kMessageEmbedBlockGap) &&
+              close_to(c.box.top, c.title->rectangle.top + c.title->measured_height + kMessageEmbedBlockGap) &&
+              close_to(c.box.right, c.card.right - kMessageEmbedEndInset) &&
+              close_to(c.card.bottom - c.box.bottom, kMessageEmbedBottomInset),
+          "code block embed: a rich embed's description block is framed full-width, 8 DIPs below the title, "
+          "and the card ends 16 DIPs below the box");
+    if (c.row)
+        message_scene_release(&f.scene);
+
+    // Message bodies share the blocks: at most 90% of the markup, the text
+    // after a block starts at its box, and a leading block's box counts.
+    const auto body = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"before\n```ansi\nSimple app to make \u001b[31mcolored\u001b[0m\n```\nafter","timestamp":"2026-09-05T10:00:00Z"}})");
+    c = code_block_case(body, {});
+    const MessageTextCommand* before = command_containing(f.presentation, utf8_literal("before"));
+    const MessageTextCommand* after = command_containing(f.presentation, utf8_literal("after"));
+    const float markup = before ? ui_rect_width(before->rectangle) : 0.0f;
+    check(c.row && before && after && framed_throughout(c.code) &&
+              close_to(c.box.left, before->rectangle.left) && close_to(c.box.right - c.box.left, markup * .9f) &&
+              close_to(c.box.top, before->rectangle.top + before->measured_height + kMessageCodeBlockMargin) &&
+              close_to(after->rectangle.top, c.box.bottom) &&
+              close_to(f.presentation.measurements[0].content_height,
+                       after->rectangle.top + after->measured_height - before->rectangle.top),
+          "message code block: framed at 90% width between the lines around it, inside the measured body");
+    if (c.row)
+        message_scene_release(&f.scene);
+    const auto leading = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"```\nSimple app\nsecond line\n```","timestamp":"2026-09-05T10:00:00Z"}})");
+    c = code_block_case(leading, {});
+    const UiLayoutNode* content = c.row ? message_scene_layout_node(f.scene, c.row->content) : nullptr;
+    check(content && framed_throughout(c.code) && close_to(c.box.top, content->content_rectangle.top) &&
+              close_to(f.presentation.measurements[0].content_height, c.box.bottom - c.box.top),
+          "message code block: a leading block's box starts the body and its height is the body's");
+    if (c.row)
+        message_scene_release(&f.scene);
+}
+
 // Only a row's author widget carries the author header. Poll labels and card
 // text are unmeasured styled runs too; while a popup hides the selected poll
 // scene they paint from the message pass and must keep their own style.
@@ -1764,6 +1909,7 @@ void test_embed_parity(Check check) noexcept {
     test_vxtwitter_embeds(check);
     test_reply_previews(check);
     test_component_embed(check);
+    test_code_block_embeds(check);
     test_author_header_isolation(check);
     text_set_browser_invisibles(previous);
     text_system_release(&text_system);

@@ -1626,7 +1626,8 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, UiSearchTarge
                     &width, &height))
                 return false;
             *rectangle = message_rich_embed_thumbnail_rect(
-                {node->rectangle.left, node->rectangle.top, right, node->rectangle.bottom}, width, height);
+                {node->rectangle.left, node->rectangle.top, right, node->rectangle.bottom}, width, height,
+                message_rich_embed_plan(store, rich->embeds[i]).components);
             *clip = rich_item_clip(s, *rectangle, node->clip_rectangle);
             return ui_rect_has_area(*clip);
         }
@@ -2044,7 +2045,7 @@ bool ui_search_scene_avatar(const UiSearchScene& s, u32 slot, UiRect* rectangle,
 }
 bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStream* out,
                            const UiEditGeometry* geometry, u32 dpi,
-                           MessageMediaCommandStream* rich_media) noexcept {
+                           MessageMediaCommandStream* rich_media, const MessageTextPresentation* rich_text) noexcept {
     if (!current(s))
         return true;
     if (!ui_edit_field_paint(out, s.field, s.text, s.content->edit, geometry, theme.base_lowest, theme, dpi,
@@ -2099,7 +2100,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
             const auto* scene = ui_search_scene_message_scene(s);
             MessagePresentationResult result{};
             rows_ok =
-                scene && rich_media && message_presentation_build(*scene, theme, out, rich_media, &result);
+                scene && rich_media && message_presentation_build(*scene, theme, out, rich_media, &result, rich_text);
             if (rows_ok)
                 for (u32 i = 0; i < rich_media->count; ++i) {
                     auto& command = rich_media->storage[i];
