@@ -2126,10 +2126,10 @@ void report_account_ui_fields() noexcept {
         return;
     const u64 base = reinterpret_cast<u64>(g_app.account_ui);
     const u64 total = sizeof(app_detail::AccountUiRuntime);
-    const u32 pages = static_cast<u32>((total + 4095) / 4096 + 1);
-    static PSAPI_WORKING_SET_EX_INFORMATION info[1100];
-    if (pages > 1100)
-        return;
+    // Covers the demand tail too (tens of MiB reserved); pages past the table read as absent.
+    constexpr u32 kPageCapacity = 16'384;
+    static PSAPI_WORKING_SET_EX_INFORMATION info[kPageCapacity];
+    const u32 pages = minimum<u32>(kPageCapacity, static_cast<u32>((total + 4095) / 4096 + 1));
     const u64 first = base & ~4095ull;
     for (u32 i = 0; i < pages; ++i)
         info[i].VirtualAddress = reinterpret_cast<void*>(first + u64{i} * 4096);
