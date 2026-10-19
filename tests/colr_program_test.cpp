@@ -321,6 +321,25 @@ bool colr_program_tests() noexcept {
     vector_ok=vector_ok && compile(scope,0) && vector_program.mask_count==1;
     constexpr auto cycle=utf8_literal(R"({"w":320,"h":320,"layers":[{"ind":1,"parent":1,"ty":4,"shapes":[]}]})");
     vector_ok=vector_ok && !compile(cycle,0);
+    // Track mattes: the white td source only clips the layer bound below it.
+    // Drawing it (the old behaviour) painted a white bar over the sticker.
+    // Exactly one painted mask spanning rows [low, high) of the 128 px raster.
+    const auto half=[&](i32 low,i32 high) noexcept {
+        if(vector_program.mask_count!=1)return false;
+        const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
+        const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
+        const i32 bottom=mask->top+static_cast<i32>(mask->height);
+        return mask->top>=low-2 && mask->top<=low+2 && bottom>=high-2 && bottom<=high+2;
+    };
+    constexpr auto matte=utf8_literal(R"({"w":320,"h":320,"layers":[{"ind":1,"ty":4,"td":1,"shapes":[{"ty":"rc","p":{"k":[160,80]},"s":{"k":[320,160]}},{"ty":"fl","c":{"k":[1,1,1,1]},"o":{"k":100}}]},{"ind":2,"ty":4,"tt":1,"shapes":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[320,320]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
+    const bool matte_ok=compile(matte,0) && half(0,64);
+    constexpr auto inverted=utf8_literal(R"({"w":320,"h":320,"layers":[{"ind":1,"ty":1,"td":1,"sw":320,"sh":160,"sc":"#ffffff"},{"ind":2,"ty":4,"tt":2,"tp":1,"shapes":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[320,320]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
+    const bool inverted_ok=compile(inverted,0) && half(64,128);
+    constexpr auto masked=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"hasMask":true,"masksProperties":[{"mode":"s","inv":false,"pt":{"k":{"c":true,"v":[[0,160],[320,160],[320,320],[0,320]],"i":[[0,0],[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0],[0,0]]}}}],"shapes":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[320,320]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
+    const bool mask_ok=compile(masked,0) && half(0,64);
+    constexpr auto solid=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":1,"sw":320,"sh":160,"sc":"#00ff00"}]})");
+    const bool solid_ok=compile(solid,0) && half(0,64);
+    vector_ok=vector_ok && matte_ok && inverted_ok && mask_ok && solid_ok;
     arena_release(&vector_program.storage);
     Source source{};ColrPaintSource callbacks{&source,first,next,parent,stops,outline};ColrPaintProgram program{};
     ColrPaintElement root{};root.kind=ColrPaintKind::layers;root.paint.layers.childCount=2;

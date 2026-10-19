@@ -78,7 +78,7 @@ struct Context {
     MediaCatalogDecodeResult result;
     MediaCatalogItemKind kind;
     u32 depth, limit, first, selected, used;
-    u64 pack_id;
+    u64 pack_id, cover_id;
     JsonString pack_name;
     Utf8View pack_label;
     bool pack_name_copied;
@@ -245,6 +245,7 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
     output.height = w.height;
     output.sticker_format = static_cast<u8>(w.format);
     output.available = w.available;
+    output.cover = c.cover_id && w.sticker_id == c.cover_id;
     // All records, including valid records beyond this local page, receive
     // schema validation. Publication remains a prefix of the requested range.
     const auto strings = [&](bool copying) noexcept {
@@ -319,15 +320,16 @@ struct Pack {
     Context* context;
     JsonValue stickers;
     JsonString name;
-    u64 id;
+    u64 id, cover;
     u32 seen;
 };
 bool pack_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<Pack*>(opaque);
-    const u32 bit = json_string_equals_ascii(name, utf8_literal("id"))         ? 1
-                    : json_string_equals_ascii(name, utf8_literal("stickers")) ? 2
-                    : json_string_equals_ascii(name, utf8_literal("name"))     ? 4
-                                                                               : 0;
+    const u32 bit = json_string_equals_ascii(name, utf8_literal("id"))                 ? 1
+                    : json_string_equals_ascii(name, utf8_literal("stickers"))         ? 2
+                    : json_string_equals_ascii(name, utf8_literal("name"))             ? 4
+                    : json_string_equals_ascii(name, utf8_literal("cover_sticker_id")) ? 8
+                                                                                       : 0;
     if (!bit)
         return true;
     if (p.seen & bit)
@@ -337,6 +339,9 @@ bool pack_member(void* opaque, JsonString name, JsonValue value) noexcept {
         return json_value_to_snowflake(value, &p.id) || fail(*p.context, E::schema, value.source_offset);
     if (bit == 4)
         return json_value_as_string(value, &p.name) || fail(*p.context, E::schema, value.source_offset);
+    if (bit == 8)
+        return value.kind == JsonValueKind::null_value || json_value_to_snowflake(value, &p.cover) ||
+               fail(*p.context, E::schema, value.source_offset);
     p.stickers = value;
     return true;
 }
@@ -348,14 +353,15 @@ bool pack(void* opaque, u32, JsonValue value) noexcept {
     const auto read = json_visit_indexed_object(c.document, value, c.depth, pack_member, &p);
     if (!read_failed(c, read, value.source_offset))
         return false;
-    if (p.seen != 7 || !p.id)
+    if ((p.seen & 7) != 7 || !p.id)
         return fail(c, E::schema, value.source_offset);
     c.pack_id = p.id;
+    c.cover_id = p.cover;
     c.pack_name = p.name;
     c.pack_label = {};
     c.pack_name_copied = false;
     const bool okay = array(c, p.stickers, MediaCatalogItemKind::sticker);
-    c.pack_id = 0;
+    c.pack_id = c.cover_id = 0;
     c.pack_name = {};
     c.pack_label = {};
     c.pack_name_copied = false;
@@ -418,6 +424,21 @@ bool visit(Context& c, MediaCatalogOperation operation) noexcept {
     return read_failed(c, read, read.error_offset);
 }
 } // namespace
+
+StickerSendability guild_sticker_sendability(u64 sticker_guild_id, u64 channel_guild_id, bool available,
+                                             bool external_permission, u8 premium_type) noexcept {
+    if (!sticker_guild_id)
+        return StickerSendability::hidden;
+    // Another server's stickers stay out of a channel without Use External Stickers.
+    if (sticker_guild_id != channel_guild_id && channel_guild_id && !external_permission)
+        return StickerSendability::hidden;
+    if (!available)
+        return StickerSendability::unavailable;
+    if (sticker_guild_id == channel_guild_id)
+        return StickerSendability::sendable;
+    // Nitro (2) and Nitro Basic (3) carry stickers everywhere; Classic (1) does not.
+    return premium_type == 2 || premium_type == 3 ? StickerSendability::sendable : StickerSendability::premium;
+}
 
 MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& query,
                                                    Slice<u8> output) noexcept {

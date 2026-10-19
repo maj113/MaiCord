@@ -143,11 +143,13 @@ bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent&
     u32 first = 0;
     for (u32 i = 0; i < source->sections.count; ++i) {
         const auto& section = source->sections[i];
+        const bool guild = section.visual == UiMediaPickerSectionVisual::guild;
+        const bool media = section.visual == UiMediaPickerSectionVisual::media;
         if (!section.id || section.first != first || section.count > source->count - first ||
-            !label_valid(section.label) || section.visual > UiMediaPickerSectionVisual::guild ||
-            (section.visual != UiMediaPickerSectionVisual::guild &&
-             (section.guild_id || section.icon_variant || section.icon_animated)) ||
-            (section.visual == UiMediaPickerSectionVisual::guild && !section.guild_id))
+            !label_valid(section.label) || section.visual > UiMediaPickerSectionVisual::media ||
+            (!guild && (section.guild_id || section.icon_animated)) || (guild && !section.guild_id) ||
+            (!guild && !media && section.icon_variant) || (!media && (section.asset_id || section.asset_flags)) ||
+            (media && section.asset_id && !section.icon_variant))
             return false;
         first += section.count;
         for (u32 j = 0; j < i; ++j)
@@ -896,19 +898,23 @@ bool ui_media_picker_scene_rail_media(const UiMediaPickerScene& scene, u32 index
         return false;
     const auto& slot = scene.projection->rail[index];
     const auto& section = scene.source->sections[slot.section_index];
-    if (section.visual != UiMediaPickerSectionVisual::guild || !section.guild_id || !section.icon_variant)
+    const bool guild = section.visual == UiMediaPickerSectionVisual::guild && section.guild_id;
+    const bool media = section.visual == UiMediaPickerSectionVisual::media && section.asset_id;
+    if ((!guild && !media) || !section.icon_variant)
         return false;
     const float inset = scene.style.metrics.padding * .5f;
     const UiRect rectangle{slot.rectangle.left + inset, slot.rectangle.top + inset,
                            slot.rectangle.right - inset, slot.rectangle.bottom - inset};
     *output = {target(scene, slot.widget),
                {&scene.widgets, slot.widget},
-               section.guild_id,
+               guild ? section.guild_id : 0,
                section.icon_variant,
-               section.icon_animated,
+               guild && section.icon_animated,
                rectangle,
                ui_rect_intersection(rectangle, scene.rail),
-               scene.style.control_radius};
+               scene.style.control_radius,
+               media ? section.asset_id : 0,
+               media ? section.asset_flags : static_cast<u16>(0)};
     return ui_rect_has_area(output->clip);
 }
 bool ui_media_picker_scene_media(const UiMediaPickerScene& scene, u32 index,

@@ -73,16 +73,52 @@ void test_membership() noexcept {
     forged.member_list.record_count = 2;
     check(!gateway_client_event_guild_membership(forged, payload, &guild, &user, nullptr),
           "gateway admin: the record accessor refuses inconsistent counts");
+    constexpr auto list = utf8_literal(R"([{"id":"9","name":"wave","tags":"wave","format_type":1}])");
     check(route(utf8_literal("GUILD_STICKERS_UPDATE"),
                 utf8_literal(R"({"stickers":[{"id":"9","name":"wave","tags":"wave","format_type":1}],"guild_id":"100"})"))
                   .ok() &&
               event.dispatch_kind == GatewayClientDispatchKind::guild_stickers_update &&
-              event.member_list.guild_id == 100 && !event.dispatch_payload_bytes && !payload.count &&
+              event.member_list.guild_id == 100 && event.dispatch_payload_bytes == list.bytes &&
+              payload.count == list.bytes && bytes_equal(payload.data, list.data, list.bytes) &&
+              route(utf8_literal("GUILD_STICKERS_UPDATE"), utf8_literal(R"({"guild_id":"100"})")).ok() &&
+              !event.dispatch_payload_bytes &&
               route(utf8_literal("GUILD_STICKERS_UPDATE"), utf8_literal(R"({"stickers":[]})")).event_error ==
                   GatewayEventDecodeError::missing_required_field &&
               route(utf8_literal("GUILD_STICKERS_UPDATE"), utf8_literal(R"({"guild_id":"x","stickers":[]})")).event_error ==
                   GatewayEventDecodeError::invalid_data,
-          "gateway admin: GUILD_STICKERS_UPDATE carries only its guild so Server Settings refetch the list");
+          "gateway admin: GUILD_STICKERS_UPDATE carries its guild and the verbatim sticker list");
+    // READY guilds and GUILD_CREATE: the array, or a client-state {"items"} set.
+    struct Published {
+        GatewayClientEvent event;
+        char json[256];
+        u32 bytes, count;
+    } published{};
+    const auto publish = +[](void* context, const GatewayClientEvent& value, ConstSlice<u8> body) noexcept {
+        auto& out = *static_cast<Published*>(context);
+        out.event = value;
+        out.bytes = minimum<u32>(static_cast<u32>(body.count), sizeof(out.json));
+        copy_bytes(out.json, body.data, out.bytes);
+        ++out.count;
+        return true;
+    };
+    static char payload_scratch[kGatewayClientDispatchPayloadCapacity];
+    const auto publish_guild = [&](Utf8View json) noexcept {
+        published = {};
+        return gateway_client_publish_guild_stickers({json, 0, JsonValueKind::object}, 100, {scratch, 8192},
+                                                     {payload_scratch, sizeof(payload_scratch)}, 5, 1, publish,
+                                                     &published);
+    };
+    const bool plain = publish_guild(utf8_literal(R"({"id":"100","stickers":[{"id":"9","name":"wave","tags":"wave","format_type":1}]})")) &&
+                       published.count == 1 && published.bytes == list.bytes &&
+                       bytes_equal(published.json, list.data, list.bytes) &&
+                       published.event.dispatch_kind == GatewayClientDispatchKind::guild_stickers_update &&
+                       published.event.member_list.guild_id == 100;
+    const bool items = publish_guild(utf8_literal(R"({"id":"100","stickers":{"op":0,"items":[{"id":"9","name":"wave","tags":"wave","format_type":1}]}})")) &&
+                       published.count == 1 && published.bytes == list.bytes;
+    const bool absent = publish_guild(utf8_literal(R"({"id":"100","emojis":[]})")) && !published.count &&
+                        publish_guild(utf8_literal(R"({"id":"100","stickers":{"op":1}})")) && !published.count;
+    check(plain && items && absent,
+          "gateway admin: guild objects publish their sticker list; an absent or out-of-band list publishes nothing");
 }
 
 bool member_record(GatewayClientMemberListMutation* mutation) noexcept {

@@ -83,7 +83,9 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     static ChannelRecord channels[1]{};
     static u16 channel_order[1]{};
     static u8 names[8192]{};
-    static CustomEmojiRecord emojis[kReactionPickerCustomEmojiCapacity]{};
+    // 16 per server across all 256 servers; the overflow case reuses it.
+    constexpr u32 kFixtureEmoji = kReactionPickerGuildCapacity * 16;
+    static CustomEmojiRecord emojis[kReactionPickerCustomEmojiCapacity + 129]{};
     u64 roles[1]{};
     ChatStateStore state{};
     valid = chat_state_store_initialize(&state, {guilds, kReactionPickerGuildCapacity},
@@ -94,7 +96,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
         valid = chat_state_store_upsert_guild(
                     &state, {1000 + i, utf8_literal("Guild"), GuildMutationKind::create, 0})
                     .ok();
-    for (u32 i = 0; i < kReactionPickerCustomEmojiCapacity; ++i) {
+    for (u32 i = 0; i < kFixtureEmoji; ++i) {
         emojis[i] = {};
         emojis[i].id = 10000 + i;
         emojis[i].guild_id = 1000 + i / 16;
@@ -103,7 +105,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
         copy_bytes(emojis[i].name, "blob", 4);
     }
     state.emojis = emojis;
-    state.emoji_count = kReactionPickerCustomEmojiCapacity;
+    state.emoji_count = kFixtureEmoji;
     state.emoji_roles = roles;
     for (u32 i = 0; valid && i < kReactionPreferenceFavoriteCapacity; ++i)
         valid = reaction_preferences_toggle_favorite_emoji(&preferences, reaction_emoji_unicode(static_cast<u16>(i))).ok();
@@ -117,7 +119,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     measurement("MEASURE reaction_maximum_source_capacity=", picker.result_capacity);
     check(valid && picker.guild_count == 256 && picker.custom_emoji_count == 4096 &&
               picker.section_count == 266 && picker.result_count == 3780 + 4096 + 250 + 42 &&
-              picker.result_capacity == kReactionPickerResultCapacity,
+              picker.result_capacity == 3780 + 4096 + 250 + 42,
           "reaction sections: full 256 guilds, 4096 custom, Unicode, favorites and frequent admitted "
           "without capacity reduction");
     const u32 guild_section = find_section(picker, kReactionPickerSectionGuild, 1007);
@@ -139,7 +141,7 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     ReactionPickerSelection logical{};
     Utf8View logical_label{};
     check(borrowed_ready && picker.search == &borrowed && picker.search_borrowed &&
-              picker.result_count == kReactionPickerCustomEmojiCapacity &&
+              picker.result_count == kFixtureEmoji &&
               reaction_picker_result_at(picker, picker.result_count - 1, &logical, &logical_label) &&
               logical.custom && logical.emoji_id && utf8_equal(logical_label, utf8_literal("blob")) &&
               !reaction_picker_result_at(picker, picker.result_count, &logical),
@@ -157,6 +159,27 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
               bytes_equal(message_composer_text(borrowed).data, long_query, 60),
           "reaction adapter: model retirement never frees or resets externally owned edit document");
     message_composer_release(&borrowed);
+    // More usable server emoji than the picker holds (a large server list):
+    // the picker still opens, keeps the selected server first and truncates
+    // the last servers instead of failing (the Emoji tab used to close).
+    const u32 overflow = kReactionPickerCustomEmojiCapacity + 129;
+    for (u32 i = 0; i < overflow; ++i) {
+        emojis[i] = {};
+        emojis[i].id = 100000 + i;
+        emojis[i].guild_id = 1000 + i / 129;
+        emojis[i].flags = custom_emoji_available;
+        emojis[i].name_bytes = 4;
+        copy_bytes(emojis[i].name, "wave", 4);
+    }
+    state.emoji_count = overflow;
+    valid = reaction_picker_open(&picker, 89, &preferences, 1000, &state, 1200).ok();
+    const u32 selected = find_section(picker, kReactionPickerSectionGuild, 1200);
+    check(valid && picker.custom_emoji_count == kReactionPickerCustomEmojiCapacity &&
+              picker.guild_count == kReactionPickerCustomEmojiCapacity / 129 + 1 && selected == 2 &&
+              picker.sections[selected].count == 129 &&
+              find_section(picker, kReactionPickerSectionGuild, 1000 + overflow / 129) == ~0u,
+          "reaction sections: more server emoji than capacity truncate the last servers, never fail open");
+    reaction_picker_release(&picker);
     reaction_preferences_release(&preferences);
 }
 } // namespace maicord

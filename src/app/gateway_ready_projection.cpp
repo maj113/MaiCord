@@ -259,7 +259,9 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
            gateway_client_publish_stage_instances(value, event.state.id, pass.scratch.records, pass.scratch.payload,
                pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.stage_instances : nullptr) &&
            gateway_client_publish_scheduled_events(value, event.state.id, pass.scratch.records, pass.scratch.payload,
-               pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.scheduled_events : nullptr);
+               pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.scheduled_events : nullptr) &&
+           gateway_client_publish_guild_stickers(value, event.state.id, pass.scratch.records, pass.scratch.payload,
+               pass.sequence, pass.now_ms, relay, &pass);
 }
 bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureStage stage) noexcept {
     pass.kind = kind; pass.result.failure_stage = stage;

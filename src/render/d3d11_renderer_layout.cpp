@@ -2176,16 +2176,30 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
         for (u32 i = 0; i < gallery.rail_count; ++i) {
             UiMediaPickerRailMediaSlot slot{};
-            if (!ui_media_picker_scene_rail_media(gallery, i, &slot) || !renderer->media_atlas ||
-                !renderer->media_gpu.texture_view)
+            if (!ui_media_picker_scene_rail_media(gallery, i, &slot))
+                continue;
+            // Sticker pack covers are catalog previews; server icons live in the main atlas.
+            const bool preview = slot.asset_id != 0;
+            auto* atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
+            if (!atlas ||
+                !(preview ? renderer->media_gpu.preview_texture_view : renderer->media_gpu.texture_view))
                 continue;
             const auto allocation = media_atlas_peek(
-                renderer->media_atlas, media_asset_guild_icon(slot.guild_id, slot.variant, slot.animated));
-            if (!allocation.ok())
+                atlas, preview ? MediaAssetKey{slot.asset_id, slot.variant, MediaAssetKind::catalog_preview,
+                                               slot.asset_flags}
+                               : media_asset_guild_icon(slot.guild_id, slot.variant, slot.animated));
+            if (!allocation.ok() || !allocation.width || !allocation.height)
                 continue;
-            const auto r = slot.rectangle;
+            auto r = slot.rectangle;
+            if (preview) {
+                const float scale =
+                    minimum(ui_rect_width(r) / allocation.width, ui_rect_height(r) / allocation.height);
+                const float width = allocation.width * scale, height = allocation.height * scale;
+                r = {(r.left + r.right - width) * .5f, (r.top + r.bottom - height) * .5f,
+                     (r.left + r.right + width) * .5f, (r.top + r.bottom + height) * .5f};
+            }
             if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, slot.clip, false,
-                                  first_media, 0, 1.f, slot.radius))
+                                  first_media, preview ? 1 : 0, 1.f, preview ? 0.f : slot.radius))
                 return layout_step_failed(__LINE__);
             first_media = false;
         }

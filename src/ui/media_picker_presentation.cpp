@@ -291,12 +291,13 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
         if (ui_media_picker_scene_rail_media(scene, i, &media))
             continue;
         char storage[16];
-        const auto value = section.visual == UiMediaPickerSectionVisual::guild
-                               ? rail_acronym(section.label, {storage, sizeof(storage)})
-                               : ui_media_picker_section_glyph(section.visual);
+        const bool initials = section.visual == UiMediaPickerSectionVisual::guild ||
+                              section.visual == UiMediaPickerSectionVisual::media;
+        const auto value = initials ? rail_acronym(section.label, {storage, sizeof(storage)})
+                                    : ui_media_picker_section_glyph(section.visual);
         if (!text(output, scene, slot.widget, value, slot.rectangle, scene.rail, theme.text_primary,
-                  section.visual == UiMediaPickerSectionVisual::guild ? text_style_bold : text_style_heading_2,
-                  UiTextAlignment::center, UiTextOverflow::clip))
+                  initials ? text_style_bold : text_style_heading_2, UiTextAlignment::center,
+                  UiTextOverflow::clip))
             return false;
     }
     for (u32 i = 0; i < scene.cell_count; ++i) {

@@ -281,5 +281,27 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
                                   {}, {});
     check(result.ok() && !result.item_count && !result.source_count && !result.truncated,
           "media catalog: authoritative empty result requires no output allocation");
+    constexpr auto covered = utf8_literal(
+        R"({"sticker_packs":[{"id":"42","name":"Pack","cover_sticker_id":"8","stickers":[)"
+        R"({"id":"7","name":"First","format_type":1},{"id":"8","name":"Cover","format_type":3}]},)"
+        R"({"id":"43","name":"Plain","cover_sticker_id":null,"stickers":[{"id":"9","name":"Only","format_type":2}]}]})");
+    result = decode(MediaCatalogOperation::sticker_packs, covered, 128);
+    check(result.ok() && result.item_count == 3 && !items[0].cover && items[1].cover && !items[2].cover,
+          "media catalog: a pack's cover_sticker_id marks its rail icon sticker");
+    using S = StickerSendability;
+    const bool own = guild_sticker_sendability(5, 5, true, false, 0) == S::sendable;
+    const bool dm = guild_sticker_sendability(5, 0, true, false, 0) == S::premium &&
+                    guild_sticker_sendability(5, 0, true, false, 2) == S::sendable &&
+                    guild_sticker_sendability(5, 0, true, false, 3) == S::sendable &&
+                    guild_sticker_sendability(5, 0, true, false, 1) == S::premium;
+    const bool external = guild_sticker_sendability(5, 6, true, false, 2) == S::hidden &&
+                          guild_sticker_sendability(5, 6, true, true, 2) == S::sendable &&
+                          guild_sticker_sendability(5, 6, true, true, 0) == S::premium;
+    const bool lost = guild_sticker_sendability(5, 5, false, true, 2) == S::unavailable &&
+                      guild_sticker_sendability(5, 6, false, false, 2) == S::hidden &&
+                      guild_sticker_sendability(0, 5, true, true, 2) == S::hidden;
+    check(own && dm && external && lost,
+          "media catalog: server stickers send in their server; elsewhere they need Use External Stickers and "
+          "Nitro or Nitro Basic, else show locked; lost boosts show unavailable");
 }
 } // namespace maicord

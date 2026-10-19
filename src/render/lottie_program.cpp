@@ -85,6 +85,11 @@ struct Document {
     // The low bits count prior gradient records. The high bit marks a gradient.
     u16 leaf_records[maximum_leaves];
     alignas(Leaf) u8 leaf_pool[leaf_pool_bytes];
+    // Active matte/mask region in world space (everything outside it when
+    // clip_outside), and the combine tolerance there.
+    ID2D1Geometry* clip = nullptr;
+    float tolerance = .1f;
+    bool clip_outside = false;
     u32 leaf_offset(u32 index) const noexcept {
         return static_cast<u32>(index * sizeof(Leaf) +
                                 (leaf_records[index] & gradient_prefix_mask) * sizeof(Gradient));
@@ -306,6 +311,22 @@ struct Document {
             geometry->Release();
             return true;
         }
+        if (clip) {
+            // Mattes and masks clip in world space; the leaf keeps world coordinates.
+            ID2D1TransformedGeometry* placed = nullptr;
+            ID2D1Geometry* clipped = nullptr;
+            const bool okay = SUCCEEDED(factory->CreateTransformedGeometry(geometry, &m, &placed)) &&
+                              combine(placed, clip,
+                                      clip_outside ? D2D1_COMBINE_MODE_EXCLUDE : D2D1_COMBINE_MODE_INTERSECT,
+                                      &clipped, tolerance);
+            if (placed)
+                placed->Release();
+            geometry->Release();
+            if (!okay)
+                return false;
+            geometry = clipped;
+            m = identity;
+        }
         float area = 0;
         if (FAILED(geometry->ComputeArea(&m, .0001f, &area))) {
             geometry->Release();
@@ -391,9 +412,9 @@ struct Document {
         }
         return true;
     }
-    bool path(JsonValue shape, ID2D1Geometry** output) noexcept {
+    bool path(JsonValue shape, ID2D1Geometry** output, const char* key = "ks") noexcept {
         *output = nullptr;
-        const auto animated=sampled(get(shape,"ks"));
+        const auto animated=sampled(get(shape,key));
         auto value=animated.start,end=animated.end;
         if(value.kind==JsonValueKind::array){JsonValue a[2]{};u32 n=0;
             if(!array(value,{a,2},&n)||!n)return false;value=a[0];}
@@ -574,8 +595,8 @@ struct Document {
         }
         return true;
     }
-    bool combine(ID2D1Geometry* a, ID2D1Geometry* b, D2D1_COMBINE_MODE mode,
-                 ID2D1Geometry** output) noexcept {
+    bool combine(ID2D1Geometry* a, ID2D1Geometry* b, D2D1_COMBINE_MODE mode, ID2D1Geometry** output,
+                 float flattening = .1f) noexcept {
         ID2D1PathGeometry* merged = nullptr;
         ID2D1GeometrySink* sink = nullptr;
         if (FAILED(factory->CreatePathGeometry(&merged)) || FAILED(merged->Open(&sink))) {
@@ -583,7 +604,7 @@ struct Document {
                 merged->Release();
             return false;
         }
-        const HRESULT hr = a->CombineWithGeometry(b, mode, nullptr, .1f, sink), end = sink->Close();
+        const HRESULT hr = a->CombineWithGeometry(b, mode, nullptr, flattening, sink), end = sink->Close();
         sink->Release();
         if (FAILED(hr) || FAILED(end)) {
             merged->Release();
@@ -713,6 +734,249 @@ struct Document {
         invalid_parent = true;
         return own;
     }
+    // One layer's leaves. A matte source draws even when hidden.
+    bool layer(JsonValue value, ConstSlice<JsonValue> siblings, Matrix world, float opacity, u32 depth,
+               bool matte = false) noexcept {
+        if ((!matte && hidden(value)) || frame < number(get(value, "ip"), -100000) ||
+            frame >= number(get(value, "op"), 100000))
+            return true;
+        const float ty = number(get(value, "ty"), -1);
+        if (ty == 3)
+            return true;
+        const Matrix local = compose(parent_transform(value, siblings, 0), world);
+        const float alpha = opacity * scalar(get(get(value, "ks"), "o"), 100) * .01f;
+        if (alpha <= 0)
+            return true;
+        ID2D1Geometry* masked = nullptr;
+        bool masked_outside = false;
+        ID2D1Geometry* outer = clip;
+        const bool outer_outside = clip_outside;
+        if (!mask(value, local, &masked, &masked_outside) ||
+            (masked && !push_clip(masked, masked_outside)))
+            return false;
+        bool okay = true;
+        if (ty == 4) {
+            okay = groups(get(value, "shapes"), local, alpha, 0);
+        } else if (ty == 1) {
+            // Solid layer: a filled sw x sh rectangle in layer space.
+            const D2D1_RECT_F bounds{0, 0, number(get(value, "sw")), number(get(value, "sh"))};
+            ID2D1RectangleGeometry* rectangle = nullptr;
+            ColrColor c{0, 0, 0, alpha};
+            okay = solid_color(get(value, "sc"), &c) &&
+                   SUCCEEDED(factory->CreateRectangleGeometry(&bounds, &rectangle)) && append(rectangle, local, c);
+        } else if (ty == 0) {
+            JsonString reference{};
+            JsonValue a[256]{};
+            u32 n = 0;
+            okay = json_value_as_string(get(value, "refId"), &reference) && array(assets, {a, 256}, &n);
+            bool found = false;
+            for (u32 j = 0; okay && j < n; ++j) {
+                JsonString name{};
+                if (json_value_as_string(get(a[j], "id"), &name) && name.encoded.bytes == reference.encoded.bytes &&
+                    bytes_equal(name.encoded.data, reference.encoded.data, name.encoded.bytes)) {
+                    found = true;
+                    const float previous = frame;
+                    frame = (frame - number(get(value, "st"))) / maximum(.0001f, number(get(value, "sr"), 1));
+                    okay = layers(get(a[j], "layers"), local, alpha, depth + 1);
+                    frame = previous;
+                    break;
+                }
+            }
+            okay = okay && found;
+        } else
+            okay = false;
+        if (clip != outer) {
+            clip->Release();
+            clip = outer;
+            clip_outside = outer_outside;
+        }
+        return okay;
+    }
+    bool empty_geometry(ID2D1Geometry** output) noexcept {
+        ID2D1PathGeometry* empty = nullptr;
+        ID2D1GeometrySink* sink = nullptr;
+        if (FAILED(factory->CreatePathGeometry(&empty)) || FAILED(empty->Open(&sink))) {
+            if (empty)
+                empty->Release();
+            return false;
+        }
+        const HRESULT hr = sink->Close();
+        sink->Release();
+        if (FAILED(hr)) {
+            empty->Release();
+            return false;
+        }
+        *output = empty;
+        return true;
+    }
+    // The world-space union of a matte source's painted geometry.
+    bool matte_region(JsonValue source, ConstSlice<JsonValue> siblings, Matrix world, float opacity, u32 depth,
+                      ID2D1Geometry** output) noexcept {
+        *output = nullptr;
+        const u32 mark = leaf_count;
+        const u16 gradients = gradient_count;
+        ID2D1Geometry* const outer = clip;
+        const bool outer_outside = clip_outside;
+        clip = nullptr;
+        bool okay = layer(source, siblings, world, opacity, depth, true);
+        clip = outer;
+        clip_outside = outer_outside;
+        ID2D1Geometry* region = nullptr;
+        okay = okay && empty_geometry(&region);
+        for (u32 i = mark; i < leaf_count; ++i) {
+            auto& leaf = get_leaf(i);
+            ID2D1TransformedGeometry* placed = nullptr;
+            ID2D1Geometry* joined = nullptr;
+            if (okay && SUCCEEDED(factory->CreateTransformedGeometry(leaf.geometry, &leaf.transform, &placed)) &&
+                combine(region, placed, D2D1_COMBINE_MODE_UNION, &joined, tolerance)) {
+                region->Release();
+                region = joined;
+            } else
+                okay = false;
+            if (placed)
+                placed->Release();
+            leaf.geometry->Release();
+        }
+        leaf_count = mark;
+        gradient_count = gradients;
+        if (!okay) {
+            if (region)
+                region->Release();
+            return false;
+        }
+        *output = region;
+        return true;
+    }
+    // Region algebra over (region, outside) pairs, where outside means
+    // everything except the region; no unbounded geometry is ever built.
+    // `operand` is consumed; the result replaces *region.
+    bool region_combine(ID2D1Geometry** region, bool* outside, ID2D1Geometry* operand, bool operand_outside,
+                        char op) noexcept {
+        // op: 'a' union, 's' subtract, 'i' intersect.
+        D2D1_COMBINE_MODE mode = D2D1_COMBINE_MODE_UNION;
+        bool swap = false, result_outside = false;
+        if (!*outside && !operand_outside) {
+            mode = op == 'a' ? D2D1_COMBINE_MODE_UNION
+                   : op == 's' ? D2D1_COMBINE_MODE_EXCLUDE
+                               : D2D1_COMBINE_MODE_INTERSECT;
+        } else if (!*outside) {
+            // R op (all - M)
+            mode = op == 'a' ? D2D1_COMBINE_MODE_EXCLUDE : op == 's' ? D2D1_COMBINE_MODE_INTERSECT
+                                                                     : D2D1_COMBINE_MODE_EXCLUDE;
+            swap = op == 'a';
+            result_outside = op == 'a';
+        } else if (!operand_outside) {
+            // (all - R) op M
+            mode = op == 'a' ? D2D1_COMBINE_MODE_EXCLUDE : op == 's' ? D2D1_COMBINE_MODE_UNION
+                                                                     : D2D1_COMBINE_MODE_EXCLUDE;
+            swap = op == 'i';
+            result_outside = op != 'i';
+        } else {
+            // (all - R) op (all - M)
+            mode = op == 'a' ? D2D1_COMBINE_MODE_INTERSECT : op == 's' ? D2D1_COMBINE_MODE_EXCLUDE
+                                                                       : D2D1_COMBINE_MODE_UNION;
+            swap = op == 's';
+            result_outside = op != 's';
+        }
+        ID2D1Geometry* next = nullptr;
+        const bool okay = swap ? combine(operand, *region, mode, &next, tolerance)
+                               : combine(*region, operand, mode, &next, tolerance);
+        operand->Release();
+        if (!okay)
+            return false;
+        (*region)->Release();
+        *region = next;
+        *outside = result_outside;
+        return true;
+    }
+    // Installs the active clip intersected with (region, outside); region is
+    // consumed. The caller restores the previous clip.
+    bool push_clip(ID2D1Geometry* region, bool outside) noexcept {
+        if (!clip) {
+            clip = region;
+            clip_outside = outside;
+            return true;
+        }
+        clip->AddRef();
+        ID2D1Geometry* combined = clip;
+        bool combined_outside = clip_outside;
+        if (!region_combine(&combined, &combined_outside, region, outside, 'i')) {
+            combined->Release();
+            return false;
+        }
+        clip = combined;
+        clip_outside = combined_outside;
+        return true;
+    }
+    // Layer masks (masksProperties) as one world-space region; null when none apply.
+    bool mask(JsonValue owner, Matrix local, ID2D1Geometry** output, bool* outside) noexcept {
+        *output = nullptr;
+        *outside = false;
+        const auto property = get(owner, "masksProperties");
+        if (!property.source.bytes)
+            return true;
+        JsonValue masks[64]{};
+        u32 count = 0;
+        if (!array(property, {masks, 64}, &count))
+            return false;
+        ID2D1Geometry* region = nullptr;
+        bool region_outside = false, okay = true;
+        for (u32 i = 0; okay && i < count; ++i) {
+            JsonString mode{};
+            const char op = json_value_as_string(get(masks[i], "mode"), &mode) && mode.encoded.bytes == 1
+                                ? mode.encoded.data[0]
+                                : 'a';
+            if (op != 'a' && op != 's' && op != 'i')
+                continue;
+            ID2D1Geometry* shape = nullptr;
+            ID2D1TransformedGeometry* placed = nullptr;
+            okay = path(masks[i], &shape, "pt") && SUCCEEDED(factory->CreateTransformedGeometry(shape, &local, &placed));
+            if (shape)
+                shape->Release();
+            if (!okay)
+                break;
+            bool inverted = false;
+            json_value_to_bool(get(masks[i], "inv"), &inverted);
+            // Adding starts from nothing; subtracting or intersecting from everything.
+            if (!region) {
+                okay = empty_geometry(&region);
+                region_outside = op != 'a';
+                if (!okay) {
+                    placed->Release();
+                    break;
+                }
+            }
+            okay = region_combine(&region, &region_outside, placed, inverted, op);
+        }
+        if (!okay) {
+            if (region)
+                region->Release();
+            return false;
+        }
+        *output = region;
+        *outside = region_outside;
+        return true;
+    }
+    static bool hex_digit(char c, u32* value) noexcept {
+        *value = c >= '0' && c <= '9'   ? static_cast<u32>(c - '0')
+                 : c >= 'a' && c <= 'f' ? static_cast<u32>(c - 'a' + 10)
+                 : c >= 'A' && c <= 'F' ? static_cast<u32>(c - 'A' + 10)
+                                        : 16u;
+        return *value < 16;
+    }
+    bool solid_color(JsonValue value, ColrColor* c) noexcept {
+        JsonString text{};
+        if (!json_value_as_string(value, &text) || text.encoded.bytes != 7 || text.encoded.data[0] != '#')
+            return false;
+        float* channels[]{&c->r, &c->g, &c->b};
+        for (u32 i = 0; i < 3; ++i) {
+            u32 high = 0, low = 0;
+            if (!hex_digit(text.encoded.data[1 + i * 2], &high) || !hex_digit(text.encoded.data[2 + i * 2], &low))
+                return false;
+            *channels[i] = static_cast<float>(high * 16 + low) / 255.f;
+        }
+        return true;
+    }
     bool layers(JsonValue array_value, Matrix world, float opacity, u32 depth) noexcept {
         if (depth > 16)
             return false;
@@ -720,49 +984,41 @@ struct Document {
         u32 count = 0;
         if (!array(array_value, {values, 512}, &count))
             return false;
+        const ConstSlice<JsonValue> siblings{values, count};
         for (u32 i = count; i--;) {
-            const auto layer = values[i];
-            if (hidden(layer) || frame < number(get(layer, "ip"), -100000) ||
-                frame >= number(get(layer, "op"), 100000))
+            const auto current = values[i];
+            // A track matte source only shapes the layer bound to it.
+            if (number(get(current, "td")) != 0)
                 continue;
-            const float ty = number(get(layer, "ty"), -1);
-            if (ty == 3)
+            const u32 matte_type = static_cast<u32>(number(get(current, "tt")));
+            if (matte_type < 1 || matte_type > 4) {
+                if (!layer(current, siblings, world, opacity, depth))
+                    return false;
                 continue;
-            const Matrix local = compose(parent_transform(layer, {values, count}, 0), world);
-            const float alpha = opacity * scalar(get(get(layer, "ks"), "o"), 100) * .01f;
-            if (alpha <= 0)
-                continue;
-            if (ty == 4) {
-                if (!groups(get(layer, "shapes"), local, alpha, 0))
-                    return false;
-            } else if (ty == 0) {
-                JsonString reference{};
-                if (!json_value_as_string(get(layer, "refId"), &reference))
-                    return false;
-                JsonValue a[256]{};
-                u32 n = 0;
-                if (!array(assets, {a, 256}, &n))
-                    return false;
-                bool found = false;
-                for (u32 j = 0; j < n; ++j) {
-                    JsonString name{};
-                    if (json_value_as_string(get(a[j], "id"), &name) &&
-                        name.encoded.bytes == reference.encoded.bytes &&
-                        bytes_equal(name.encoded.data, reference.encoded.data, name.encoded.bytes)) {
-                        found = true;
-                        const float previous = frame;
-                        frame = (frame - number(get(layer, "st"))) /
-                                maximum(.0001f, number(get(layer, "sr"), 1));
-                        const bool okay = layers(get(a[j], "layers"), local, alpha, depth + 1);
-                        frame = previous;
-                        if (!okay)
-                            return false;
-                        break;
-                    }
-                }
-                if (!found)
-                    return false;
-            } else
+            }
+            // tp names the source by index; older files bind the layer above.
+            const auto bound = get(current, "tp");
+            JsonValue source{};
+            if (bound.source.bytes) {
+                const float index = number(bound, -1);
+                for (u32 j = 0; j < count; ++j)
+                    if (number(get(values[j], "ind"), -2) == index)
+                        source = values[j];
+            } else if (i)
+                source = values[i - 1];
+            ID2D1Geometry* region = nullptr;
+            if (!source.source.bytes || !matte_region(source, siblings, world, opacity, depth, &region))
+                return false;
+            // Luma mattes use coverage like alpha mattes; inverted kinds keep the outside.
+            ID2D1Geometry* const previous = clip;
+            const bool previous_outside = clip_outside;
+            if (!push_clip(region, matte_type == 2 || matte_type == 4))
+                return false;
+            const bool okay = layer(current, siblings, world, opacity, depth);
+            clip->Release();
+            clip = previous;
+            clip_outside = previous_outside;
+            if (!okay)
                 return false;
         }
         return true;
@@ -770,7 +1026,7 @@ struct Document {
 };
 static_assert(offsetof(Document, leaf_records) == 96);
 static_assert(offsetof(Document, leaf_pool) == 2144);
-static_assert(sizeof(Document) == 747616);
+static_assert(sizeof(Document) == 747632);
 class OutlineSink final : public ID2D1SimplifiedGeometrySink {
     GlyphOutline* out;
     void push(GlyphPathCommand command) noexcept {
@@ -957,6 +1213,7 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
         return false;
     const float extent = maximum(w, h);
     const Matrix normalized{1.f / extent, 0, 0, 1.f / extent, 0, 0};
+    doc->tolerance = .1f / extent;
     if (!doc->layers(doc->get(root, "layers"), normalized, 1, 0) || doc->invalid_parent) {
         return false;
     }

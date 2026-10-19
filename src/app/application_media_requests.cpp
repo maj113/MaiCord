@@ -143,9 +143,11 @@ bool ApplicationMediaPump::request_picker_emoji(u64 now_ms, u64 now_seconds, u64
     if (!catalog_media_visible())
         return true;
     const auto& picker = *application.renderer.media_picker_scene;
-    if (picker.kind != UiMediaPickerKind::emoji)
+    if (picker.kind == UiMediaPickerKind::gif)
         return true;
-    const u32 count = minimum(picker.cell_count, kUiMediaPickerVisibleCells);
+    // Sticker cells are catalog previews; only the server icons of their rail load here.
+    const u32 count =
+        picker.kind == UiMediaPickerKind::emoji ? minimum(picker.cell_count, kUiMediaPickerVisibleCells) : 0;
     for (u32 i = 0; i < count; ++i) {
         UiMediaPickerMediaSlot slot{};
         if (!ui_media_picker_scene_media(picker, i, &slot) || slot.kind != UiMediaPickerItemKind::emoji ||
@@ -226,7 +228,9 @@ bool ApplicationMediaPump::request_catalog_previews(u64 now_ms, u64 now_seconds,
     if (!catalog_media_visible() || !application.account.api.catalog_preview_request)
         return true;
     const auto& scene = *application.renderer.media_picker_scene;
-    const u32 count = minimum<u32>(scene.cell_count, kUiMediaPickerVisibleCells);
+    // Cells, then rail entries (sticker pack covers).
+    const u32 count = minimum<u32>(scene.cell_count, kUiMediaPickerVisibleCells) +
+                      minimum<u32>(scene.rail_count, kUiMediaPickerVisibleSections);
     for (u32 index = 0; index < count; ++index) {
         AccountMediaCatalogPreviewRequest request{};
         if (!application_media_picker_preview_request(index, &request) ||

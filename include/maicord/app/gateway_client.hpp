@@ -195,7 +195,9 @@ enum class GatewayClientDispatchKind : u8 {
     call_update,
     // CALL_DELETE: state.id is the channel whose call ended.
     call_delete,
-    // GUILD_STICKERS_UPDATE: member_list.guild_id only; the sticker list is refetched.
+    // GUILD_STICKERS_UPDATE, and each READY guild or GUILD_CREATE with stickers:
+    // member_list.guild_id and the verbatim sticker array JSON (empty when it
+    // did not fit; the list is then refetched).
     guild_stickers_update,
     // Stage instances: voice_states header (guild_id, record_count, replace)
     // and GatewayClientStageInstanceRecord[record_count]. A record with a zero
@@ -1063,6 +1065,11 @@ bool gateway_client_publish_stage_instances(JsonValue guild, u64 guild_id, Slice
 bool gateway_client_publish_scheduled_events(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
                                              u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
                                              void* context, const JsonValue* located = nullptr) noexcept;
+// READY guilds and GUILD_CREATE carry stickers[]: one verbatim
+// guild_stickers_update when the list is present and fits.
+bool gateway_client_publish_guild_stickers(JsonValue guild, u64 guild_id, Slice<u32> scratch, Slice<char> payload,
+                                           u64 sequence, u64 now_ms, GatewayRelationshipPublish publish,
+                                           void* context) noexcept;
 // The three ancillary arrays of a READY guild or GUILD_CREATE object, found in
 // one scan and visit (the last duplicate key wins, as in each publisher).
 struct GatewayGuildArrays {

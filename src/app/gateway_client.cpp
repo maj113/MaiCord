@@ -2281,7 +2281,11 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     !gateway_client_publish_voice_states(
                         event.envelope.data, GatewayVoiceStateSource::guild, dispatch.state.id,
                         main_index_view(runtime), dispatch_scratch(runtime), event.envelope.sequence,
-                        now_ms, publish_relationship_stream, &guild_voice))
+                        now_ms, publish_relationship_stream, &guild_voice) ||
+                    !gateway_client_publish_guild_stickers(
+                        event.envelope.data, dispatch.state.id, main_index_view(runtime),
+                        dispatch_scratch(runtime), event.envelope.sequence, now_ms,
+                        publish_relationship_stream, &guild_voice))
                     return resume_reconnect(client, runtime, now_ms);
             }
             checkpoint_resume_sequence(runtime);

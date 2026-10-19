@@ -472,6 +472,8 @@ bool application_guild_settings_response(const RestClientResponse&, Utf8View) no
 }
 void application_guild_settings_gateway(const GatewayClientEvent&, Utf8View) noexcept {
 }
+void application_media_picker_gateway(const GatewayClientEvent&, Utf8View) noexcept {
+}
 u64 application_guild_settings_next_wake() noexcept {
     return 0;
 }

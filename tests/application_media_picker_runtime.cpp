@@ -382,6 +382,97 @@ void release() noexcept {
     if (keyboard_saved)
         SetKeyboardState(saved_keyboard);
 }
+GatewayClientEvent sticker_update(u64 guild_id, Utf8View body) noexcept {
+    GatewayClientEvent event{};
+    event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_kind = GatewayClientDispatchKind::guild_stickers_update;
+    event.member_list.guild_id = guild_id;
+    event.dispatch_payload_bytes = body.bytes;
+    return event;
+}
+bool sticker_view(ApplicationMediaPicker& p) noexcept {
+    application_media_picker_close();
+    return application_media_picker_open(UiMediaPickerKind::sticker) && application_media_picker_synchronize() &&
+           p.active && p.kind == UiMediaPickerKind::sticker && p.scene.active;
+}
+// Server stickers arrive from the Gateway for every server, are grouped per
+// server with its icon (this server first) and follow Discord's usability.
+void test_server_stickers(ApplicationMediaPicker& p) noexcept {
+    auto& ui = *g_app.account_ui;
+    constexpr auto other_body = utf8_literal(
+        R"([{"id":"81","guild_id":"8","name":"Other wave","format_type":1,"tags":"wave","available":true},)"
+        R"({"id":"82","guild_id":"8","name":"Lost boost","format_type":1,"tags":"wave","available":false}])");
+    application_media_picker_gateway(sticker_update(8, other_body), other_body);
+    const bool setup =
+        chat_state_store_upsert_guild(&ui.chat_state, {8, utf8_literal("Other guild"), GuildMutationKind::create, 6})
+            .ok();
+    auto* channel = const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, 70));
+    const u64 granted = channel ? channel->effective_permissions : 0;
+    const bool resolved = channel && channel->permissions_resolved;
+    if (channel) {
+        channel->permissions_resolved = true;
+        channel->effective_permissions = granted & ~kPermissionUseExternalStickers;
+    }
+    check(setup && query({}) && sticker_view(p) && p.guild && p.guild->count == 1 && p.section_count == 2 &&
+              p.sections[0].visual == UiMediaPickerSectionVisual::guild && p.sections[0].guild_id == 7 &&
+              same(p.sections[0].label, utf8_literal("Fixture guild")) && item_at(p, 0)->sticker_id == 71 &&
+              item_at(p, 0)->available,
+          "picker stickers: this server's stickers lead under its name; other servers' stay hidden without "
+          "Use External Stickers");
+    ui.chat_state.self_premium_type = 3;
+    if (channel)
+        channel->effective_permissions |= kPermissionUseExternalStickers;
+    UiMediaPickerItem external{};
+    check(sticker_view(p) && p.guild && p.guild->count == 3 && p.section_count == 3 &&
+              resolve(&p, 1, &external) && external.enabled,
+          "picker stickers: Nitro Basic with Use External Stickers lists and sends other servers' stickers");
+    if (channel) {
+        channel->effective_permissions = granted;
+        channel->permissions_resolved = resolved;
+    }
+    // A DM: other servers' stickers need Nitro or Nitro Basic, else they show locked.
+    ui.active_channel_id = 80;
+    g_app.message_composer.channel_id = 80;
+    ui.chat_state.self_premium_type = 0;
+    UiMediaPickerItem locked{};
+    check(sticker_view(p) && p.guild && p.guild->count == 3 && p.section_count == 3 &&
+              p.sections[1].guild_id == 8 && same(p.sections[1].label, utf8_literal("Other guild")) &&
+              resolve(&p, 0, &locked) && !locked.enabled,
+          "picker stickers: without Nitro other servers' stickers are listed per server but locked");
+    ui.chat_state.self_premium_type = 2;
+    const auto& controller = ui.message_composer_controller;
+    const auto requests = controller.request_count;
+    UiMediaPickerItem usable{}, unavailable{};
+    check(sticker_view(p) && resolve(&p, 1, &usable) && usable.enabled && resolve(&p, 2, &unavailable) &&
+              !unavailable.enabled && activate(p, target(1)) && controller.request_count == requests + 1,
+          "picker stickers: Nitro sends another server's sticker; one its server lost stays unavailable");
+    // The pack rail shows the pack's cover sticker (else its first).
+    check(sticker_view(p) && p.sections[2].visual == UiMediaPickerSectionVisual::media &&
+              p.sections[2].asset_id && p.scene.rail_count == 3,
+          "picker stickers: a pack section carries its cover sticker artwork");
+    AccountMediaCatalogPreviewRequest cover{};
+    UiMediaPickerRailMediaSlot rail{};
+    check(ui_media_picker_scene_rail_media(p.scene, 2, &rail) && rail.asset_id == p.sections[2].asset_id &&
+              application_media_picker_preview_request(p.scene.cell_count + 2, &cover) &&
+              same(cover.url, utf8_literal("https://cdn.discordapp.com/stickers/72.png")) &&
+              cover.key.id == rail.asset_id && application_media_picker_preview_visible(cover.key),
+          "picker stickers: the rail requests and resolves the pack cover's preview");
+    GatewayClientEvent left{};
+    left.kind = GatewayClientEventKind::dispatch;
+    left.dispatch_kind = GatewayClientDispatchKind::guild_delete;
+    left.state.id = 8;
+    application_media_picker_gateway(left, {});
+    check(application_media_picker_synchronize() && p.guild && p.guild->count == 1 && p.section_count == 2,
+          "picker stickers: leaving a server drops its stickers from an open picker");
+    GatewayClientEvent ready{};
+    ready.kind = GatewayClientEventKind::ready;
+    application_media_picker_gateway(ready, {});
+    check(!g_sticker_store.count, "picker stickers: a new session starts without server sticker lists");
+    application_media_picker_close();
+    ui.chat_state.self_premium_type = 0;
+    ui.active_channel_id = 70;
+    g_app.message_composer.channel_id = 70;
+}
 void run() noexcept {
     if (!initialize()) {
         check(false, "picker runtime: hidden host, native scene and durable queue initialize");
@@ -638,6 +729,7 @@ void run() noexcept {
           "picker runtime: Lottie uses typed JSON artwork and queues its actual sticker ID");
     check(!item_at(p, p.source.count) && !resolve(&p, p.source.count, &unsupported),
           "picker runtime: filtered projection refuses indices outside authoritative source range");
+    test_server_stickers(p);
     check(
         application_media_picker_open(UiMediaPickerKind::gif) && query({}) && send_pending(111) &&
             response(

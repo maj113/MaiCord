@@ -1465,6 +1465,7 @@ bool application_channel_overview_response(const RestClientResponse& response, U
 }
 void application_channel_overview_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
     application_guild_settings_gateway(event, body);
+    application_media_picker_gateway(event, body);
     if (!owner || !owner->controller.active)
         return;
     if (event.kind == GatewayClientEventKind::ready) {

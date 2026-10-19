@@ -12,7 +12,8 @@ struct MessageComposer;
 inline constexpr u32 kReactionPickerMaximumQueryBytes = 48;
 inline constexpr u32 kReactionPickerBorrowedQueryMaximumBytes = 256;
 inline constexpr u32 kReactionPickerCatalogCapacity = 3'780;
-inline constexpr u32 kReactionPickerCustomEmojiCapacity = 4096;
+// Custom results are 15-bit indices (kReactionPickerCustomResult).
+inline constexpr u32 kReactionPickerCustomEmojiCapacity = 32'768;
 inline constexpr u32 kReactionPickerGuildCapacity = 256;
 inline constexpr u32 kReactionPickerResultCapacity =
     kReactionPickerCatalogCapacity + kReactionPickerCustomEmojiCapacity +

@@ -135,10 +135,14 @@ enum class UiMediaPickerSectionVisual : u8 {
     objects,
     symbols,
     flags,
-    guild
+    guild,
+    // A sticker pack: its cover sticker's catalog preview (asset_id,
+    // icon_variant as its generation, asset_flags).
+    media
 };
 // Category rail and section artwork are emoji glyphs, never icons. Guild
-// sections show their server icon instead.
+// sections show their server icon and sticker packs their cover sticker;
+// either falls back to the name's initials.
 Utf8View ui_media_picker_section_glyph(UiMediaPickerSectionVisual) noexcept;
 // expression: the GIF/Sticker/Emoji picker above the composer.
 // reaction: the same emoji picker without the tab selector, beside the anchor
@@ -156,6 +160,8 @@ struct UiMediaPickerSection {
     u64 guild_id{};
     u32 icon_variant{};
     bool icon_animated{};
+    u64 asset_id{};
+    u16 asset_flags{};
 };
 struct UiMediaPickerSource {
     void* context;
@@ -210,6 +216,7 @@ struct UiMediaPickerMediaSlot {
     UiMediaPickerItemKind kind;
     u32 regional_flag;
 };
+// A server icon (guild_id) or a catalog preview (asset_id, variant, asset_flags).
 struct UiMediaPickerRailMediaSlot {
     UiMediaPickerTarget target;
     UiWidgetReference owner;
@@ -218,6 +225,8 @@ struct UiMediaPickerRailMediaSlot {
     bool animated;
     UiRect rectangle, clip;
     float radius;
+    u64 asset_id;
+    u16 asset_flags;
 };
 struct UiMediaPickerProjection {
     UiMediaPickerCell cells[kUiMediaPickerVisibleCells];

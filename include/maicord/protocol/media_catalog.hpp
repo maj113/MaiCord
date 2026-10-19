@@ -70,6 +70,8 @@ struct MediaCatalogItem {
     MediaCatalogItemKind kind;
     u8 sticker_format;
     bool available;
+    // The pack's cover_sticker_id (its icon in the picker rail).
+    bool cover;
 };
 
 enum class MediaCatalogError : u8 {
@@ -103,6 +105,19 @@ struct MediaCatalogDecodeResult {
         return error == MediaCatalogError::none;
     }
 };
+
+// Whether a server sticker can be sent in a channel, as in the official
+// picker: its own server always; elsewhere (a DM, or a channel granting Use
+// External Stickers) only with Nitro or Nitro Basic, else it shows locked.
+// A sticker its server can no longer use (lost boosts) shows unavailable.
+enum class StickerSendability : u8 {
+    sendable,
+    premium,
+    unavailable,
+    hidden,
+};
+StickerSendability guild_sticker_sendability(u64 sticker_guild_id, u64 channel_guild_id, bool available,
+                                             bool external_permission, u8 premium_type) noexcept;
 
 MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& query,
                                                    Slice<u8> output) noexcept;

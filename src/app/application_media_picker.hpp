@@ -7,6 +7,10 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
 
+namespace maicord {
+struct GatewayClientEvent;
+}
+
 namespace maicord::app_detail {
 
 struct ApplicationMediaPicker;
@@ -19,7 +23,11 @@ bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexc
 // Reaction admission/status changed; refreshes an open reaction popout.
 void application_media_picker_reaction_changed() noexcept;
 void application_media_picker_close() noexcept;
+// Also drops the session's server sticker lists.
 void application_media_picker_release() noexcept;
+// Keeps each server's sticker list (READY guilds, GUILD_CREATE,
+// GUILD_STICKERS_UPDATE) for the Stickers tab; READY starts over.
+void application_media_picker_gateway(const GatewayClientEvent&, Utf8View body) noexcept;
 bool application_media_picker_active() noexcept;
 bool application_media_picker_synchronize() noexcept;
 void application_media_picker_favorites_changed() noexcept;

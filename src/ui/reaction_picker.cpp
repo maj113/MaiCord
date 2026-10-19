@@ -200,9 +200,11 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
             const auto& source = state->emojis[index];
             if (source.guild_id != guild->id || !chat_state_store_emoji_usable(*state, source))
                 continue;
+            // Beyond the bound the snapshot keeps the earlier servers (the
+            // selected one first) instead of failing the whole picker.
             if (picker->custom_emoji_count == kReactionPickerCustomEmojiCapacity ||
                 picker->guild_count == kReactionPickerGuildCapacity)
-                return false;
+                break;
             const auto name = chat_state_store_emoji_name(source);
             if (!name.bytes || name.bytes > kCustomEmojiNameMaximumBytes)
                 return false;
@@ -214,8 +216,11 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
             target.name_bytes = static_cast<u8>(name.bytes);
             copy_bytes(target.name, name.data, name.bytes);
         }
-        if (first == picker->custom_emoji_count)
+        if (first == picker->custom_emoji_count) {
+            if (picker->custom_emoji_count == kReactionPickerCustomEmojiCapacity)
+                break;
             continue;
+        }
         auto& target = picker->guilds[picker->guild_count++];
         target = {};
         target.id = guild->id;

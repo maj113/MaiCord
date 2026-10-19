@@ -29,6 +29,11 @@
 #include "maicord/ui/reaction_picker.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/splitter.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/model/asset_hash.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -73,6 +78,60 @@ bool favorite_contains(Utf8View text, Utf8View query) noexcept {
         }
     }
     return false;
+}
+// Server sticker lists from READY, GUILD_CREATE and GUILD_STICKERS_UPDATE (or
+// the current server's REST list), verbatim JSON per server for the session.
+constexpr u32 kStickerServerCapacity = 256;
+constexpr u32 kStickerStoreMaximumBytes = 8 * 1024 * 1024;
+struct StickerServerList {
+    u64 guild_id;
+    char* json;
+    u32 bytes;
+};
+struct StickerStore {
+    StickerServerList lists[kStickerServerCapacity];
+    u32 count, bytes;
+    u64 revision;
+} g_sticker_store;
+const StickerServerList* sticker_list(u64 guild_id) noexcept {
+    for (u32 i = 0; guild_id && i < g_sticker_store.count; ++i)
+        if (g_sticker_store.lists[i].guild_id == guild_id)
+            return &g_sticker_store.lists[i];
+    return nullptr;
+}
+void sticker_list_remove(u64 guild_id) noexcept {
+    auto& store = g_sticker_store;
+    for (u32 i = 0; i < store.count; ++i)
+        if (store.lists[i].guild_id == guild_id) {
+            store.bytes -= store.lists[i].bytes;
+            HeapFree(GetProcessHeap(), 0, store.lists[i].json);
+            store.lists[i] = store.lists[--store.count];
+            ++store.revision;
+            return;
+        }
+}
+bool sticker_list_put(u64 guild_id, Utf8View json) noexcept {
+    auto& store = g_sticker_store;
+    if (!guild_id || !json.bytes || json.bytes > kMediaCatalogMaximumStickerResponseBytes)
+        return false;
+    sticker_list_remove(guild_id);
+    if (store.count == kStickerServerCapacity || json.bytes > kStickerStoreMaximumBytes - store.bytes)
+        return false;
+    auto* copy = static_cast<char*>(HeapAlloc(GetProcessHeap(), 0, json.bytes));
+    if (!copy)
+        return false;
+    CopyMemory(copy, json.data, json.bytes);
+    store.lists[store.count++] = {guild_id, copy, json.bytes};
+    store.bytes += json.bytes;
+    ++store.revision;
+    return true;
+}
+void sticker_store_clear() noexcept {
+    auto& store = g_sticker_store;
+    for (u32 i = 0; i < store.count; ++i)
+        HeapFree(GetProcessHeap(), 0, store.lists[i].json);
+    store.count = store.bytes = 0;
+    ++store.revision;
 }
 MediaAttachmentFormat format(const MediaCatalogItem& item) noexcept {
     // A synced Klipy favourite stores the official picker's gif_src (.gif); a
@@ -125,6 +184,17 @@ struct ApplicationMediaPicker {
     ApplicationMessageMutationScope reaction_scope;
     UiMediaPickerKind composer_kind;
     bool reaction_error;
+    // Server sticker sections of the guild bank; labels live in its text.
+    struct StickerServer {
+        u64 id;
+        Utf8View label;
+        u32 icon_variant;
+        bool animated;
+    } sticker_servers[kStickerServerCapacity];
+    u32 sticker_server_count;
+    u64 sticker_store_revision;
+    // Packs-bank index of each section's cover sticker; ~0 when none.
+    u32 section_cover[kUiMediaPickerMaximumSections];
 };
 namespace {
 constexpr auto kReactionHint = utf8_literal("Shift-click to add more reactions");
@@ -167,6 +237,20 @@ bool emoji_projection(ApplicationMediaPicker& p) noexcept {
     p.reaction_error = false;
     ++p.source.revision;
     return true;
+}
+// The Emoji tab stays open (and the tabs usable) when its model cannot open.
+void emoji_unavailable(ApplicationMediaPicker& p) noexcept {
+    revoke_capture(p);
+    ui_media_picker_scene_close(&p.scene);
+    reaction_picker_release(&p.emoji);
+    const auto& state = g_app.account_ui->chat_state;
+    p.emoji_state_revision = (static_cast<u64>(state.emoji_mutations) << 32) | state.permission_mutations;
+    p.emoji_guild_revision = state.guild_mutations;
+    p.source.count = p.section_count = 0;
+    p.phase = UiMediaPickerPhase::failed;
+    p.status = utf8_literal("Couldn't load emoji.");
+    ++p.source.revision;
+    log_write(LogLevel::warning, "ui", "emoji_picker_open_failed");
 }
 bool open_emoji_model(ApplicationMediaPicker& p) noexcept {
     const bool reaction = p.reaction_message_id != 0;
@@ -429,6 +513,138 @@ const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
         *local = at;
     return &owner->items[at];
 }
+// Writes each sticker's CDN preview URL into `urls` and admits it.
+bool sticker_previews(CatalogBank* bank, char* urls, u32 capacity) noexcept {
+    ProtocolWriter writer{{reinterpret_cast<u8*>(urls), capacity}, 0};
+    u8 target[kCdnMaximumTargetBytes]{};
+    for (u32 i = 0; i < bank->count; ++i) {
+        auto& item = bank->items[i];
+        const u32 first = writer.used;
+        if (!(item.sticker_format == 4
+                  ? protocol_writer_append_literal(&writer, "https://media.discordapp.net/stickers/")
+                  : protocol_writer_append_literal(&writer, "https://cdn.discordapp.com/stickers/")) ||
+            !protocol_writer_append_u64(&writer, item.sticker_id) ||
+            !(item.sticker_format == 4   ? protocol_writer_append_literal(&writer, ".gif")
+              : item.sticker_format == 3 ? protocol_writer_append_literal(&writer, ".json")
+                                         : protocol_writer_append_literal(&writer, ".png")))
+            return false;
+        item.preview_url = {urls + first, writer.used - first};
+        if (item.available &&
+            parse_catalog_preview_url(item.preview_url, {target, sizeof(target)}, format(item)).ok())
+            bank->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
+    }
+    return true;
+}
+// One bank of every server's stickers usable here: this server first, then
+// the server list order. Locked (Nitro) and unavailable ones stay visible
+// but disabled; stickers this channel cannot use at all are left out.
+bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
+    const auto& state = g_app.account_ui->chat_state;
+    const auto* channel = chat_state_store_find_channel(state, p.channel_id);
+    const u64 channel_guild = channel ? channel->guild_id : 0;
+    const bool external = channel && channel->permissions_resolved &&
+                          permission_has(channel->effective_permissions, kPermissionUseExternalStickers);
+    u64 order[kStickerServerCapacity];
+    u32 servers = 0;
+    if (sticker_list(p.guild_id))
+        order[servers++] = p.guild_id;
+    for (u32 i = 0; i < state.guild_count && servers < kStickerServerCapacity; ++i) {
+        const auto& guild = state.guilds[state.guild_order[i]];
+        if (!guild.unavailable && guild.id != p.guild_id && sticker_list(guild.id))
+            order[servers++] = guild.id;
+    }
+    p.sticker_store_revision = g_sticker_store.revision;
+    auto* scratch = static_cast<u32*>(
+        VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!scratch)
+        return false;
+    constexpr u32 kNameBytes = 128;
+    u32 items = 0, text = 0;
+    for (u32 i = 0; i < servers; ++i) {
+        const auto* list = sticker_list(order[i]);
+        const auto measured = media_catalog_measure(MediaCatalogOperation::guild_stickers, {list->json, list->bytes},
+                                                    {scratch, kMediaCatalogStructuralCapacity}, 32);
+        if (!measured.ok() || measured.truncated || measured.item_count > kUiMediaPickerMaximumItems - items) {
+            order[i] = 0;
+            continue;
+        }
+        items += measured.item_count;
+        text += measured.text_bytes;
+    }
+    const u32 bytes = sizeof(CatalogBank) + items * sizeof(MediaCatalogItem) + text + items * 64 +
+                      servers * kNameBytes + (items + 7) / 8;
+    auto* bank = items && g_app.media_picker_item_serial <= ~u64{0} - items
+                     ? static_cast<CatalogBank*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                     : nullptr;
+    p.sticker_server_count = 0;
+    if (bank) {
+        bank->items = reinterpret_cast<MediaCatalogItem*>(bank + 1);
+        bank->text = reinterpret_cast<char*>(bank->items + items);
+        char* const names = bank->text + text + items * 64;
+        bank->preview_mask = reinterpret_cast<u8*>(names + servers * kNameBytes);
+        u32 used = 0, text_used = 0;
+        const u8 premium = state.self_premium_type;
+        for (u32 i = 0; i < servers; ++i) {
+            const auto* list = order[i] ? sticker_list(order[i]) : nullptr;
+            if (!list)
+                continue;
+            const auto decoded = media_catalog_decode(
+                MediaCatalogOperation::guild_stickers, {list->json, list->bytes},
+                {scratch, kMediaCatalogStructuralCapacity}, 32, {bank->items + used, items - used},
+                {bank->text + text_used, text - text_used});
+            if (!decoded.ok() || decoded.truncated)
+                continue;
+            text_used += decoded.text_bytes;
+            const u32 first = used;
+            for (u32 k = 0; k < decoded.item_count; ++k) {
+                auto item = bank->items[first + k];
+                const auto sendable =
+                    guild_sticker_sendability(order[i], channel_guild, item.available, external, premium);
+                if (sendable == StickerSendability::hidden)
+                    continue;
+                item.guild_id = order[i];
+                item.available = sendable == StickerSendability::sendable;
+                bank->items[used++] = item;
+            }
+            if (used == first)
+                continue;
+            const auto* guild = chat_state_store_find_guild(state, order[i]);
+            auto& server = p.sticker_servers[p.sticker_server_count];
+            server = {order[i], utf8_literal("Server stickers"), 0, false};
+            if (guild) {
+                char* const label = names + p.sticker_server_count * kNameBytes;
+                const u32 label_bytes =
+                    utf8_copy_truncated(label, kNameBytes, chat_state_store_guild_name(state, *guild));
+                if (label_bytes)
+                    server.label = {label, label_bytes};
+                server.icon_variant = guild->icon_variant;
+                server.animated = asset_hash_animated(chat_state_store_guild_icon_hash(*guild));
+            }
+            ++p.sticker_server_count;
+        }
+        bank->count = used;
+        if (!sticker_previews(bank, bank->text + text, items * 64)) {
+            VirtualFree(bank, 0, MEM_RELEASE);
+            bank = nullptr;
+            p.sticker_server_count = 0;
+        } else {
+            bank->text_bytes = text + items * 64 + servers * kNameBytes;
+            bank->allocation_bytes = bytes;
+            bank->generation = p.generation;
+            bank->operation = MediaCatalogOperation::guild_stickers;
+            bank->first_id = g_app.media_picker_item_serial + 1;
+            g_app.media_picker_item_serial += used;
+        }
+    }
+    VirtualFree(scratch, 0, MEM_RELEASE);
+    revoke_capture(p);
+    ui_media_picker_scene_close(&p.scene);
+    if (p.guild)
+        VirtualFree(p.guild, 0, MEM_RELEASE);
+    p.guild = bank;
+    ++p.source.revision;
+    return true;
+}
 bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     const auto& p = *static_cast<ApplicationMediaPicker*>(context);
     if (!out || index >= p.source.count)
@@ -530,11 +746,41 @@ bool projection(ApplicationMediaPicker& p) noexcept {
             continue;
         const u64 section = item.guild_id ? item.guild_id : item.pack_id;
         if (section != previous && p.section_count < kUiMediaPickerMaximumSections) {
-            p.sections[p.section_count++] = {section, p.filtered_count, 0,
-                                             item.guild_id          ? utf8_literal("This server")
-                                             : item.pack_name.bytes ? item.pack_name
-                                                                    : utf8_literal("Sticker pack"),
-                                             true};
+            auto& next = p.sections[p.section_count];
+            next = {section, p.filtered_count, 0,
+                    item.pack_name.bytes ? item.pack_name : utf8_literal("Sticker pack"), true};
+            p.section_cover[p.section_count] = ~u32{0};
+            if (item.guild_id) {
+                next.visual = UiMediaPickerSectionVisual::guild;
+                next.guild_id = item.guild_id;
+                next.label = utf8_literal("Server stickers");
+                for (u32 s = 0; s < p.sticker_server_count; ++s)
+                    if (p.sticker_servers[s].id == item.guild_id) {
+                        next.label = p.sticker_servers[s].label;
+                        next.icon_variant = p.sticker_servers[s].icon_variant;
+                        next.icon_animated = p.sticker_servers[s].animated;
+                    }
+            } else {
+                // The pack's cover sticker, else its first, as in the official picker.
+                next.visual = UiMediaPickerSectionVisual::media;
+                u32 cover = ~u32{0};
+                for (u32 k = 0; k < bank->count; ++k)
+                    if (bank->items[k].pack_id == item.pack_id && (cover == ~u32{0} || bank->items[k].cover)) {
+                        cover = k;
+                        if (bank->items[k].cover)
+                            break;
+                    }
+                if (cover != ~u32{0} && preview_admitted(*bank, cover)) {
+                    const auto& art = bank->items[cover];
+                    const auto key = media_asset_catalog_preview(bank->first_id + cover, bank->generation, format(art),
+                                                                 art.sticker_format == 2 || art.sticker_format == 3);
+                    p.section_cover[p.section_count] = cover;
+                    next.asset_id = key.id;
+                    next.icon_variant = key.variant;
+                    next.asset_flags = key.flags;
+                }
+            }
+            ++p.section_count;
             previous = section;
         }
         if (p.section_count)
@@ -598,7 +844,7 @@ bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
         ++p.generation;
         application_emoji_preferences_open();
         if (!open_emoji_model(p))
-            return false;
+            emoji_unavailable(p);
     } else if (kind == UiMediaPickerKind::gif && p.gif_favorites_view) {
         if (p.generation == ~u32{0})
             return false;
@@ -619,9 +865,11 @@ bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
         if (p.generation == ~u32{0})
             return false;
         ++p.generation;
-        p.wanted = !p.packs || (p.guild_id && !p.sticker_guild_done);
-        p.operation = p.guild_id && !p.sticker_guild_done ? MediaCatalogOperation::guild_stickers
-                                                          : MediaCatalogOperation::sticker_packs;
+        const bool server_unknown = p.guild_id && !sticker_list(p.guild_id) && !p.sticker_guild_done;
+        if (!build_server_stickers(p))
+            return false;
+        p.wanted = !p.packs || server_unknown;
+        p.operation = server_unknown ? MediaCatalogOperation::guild_stickers : MediaCatalogOperation::sticker_packs;
         p.due_at = 1;
         p.phase = p.wanted ? UiMediaPickerPhase::loading : UiMediaPickerPhase::ready;
         p.status = p.wanted ? utf8_literal("Loading stickers…") : utf8_literal("Choose a sticker");
@@ -995,6 +1243,27 @@ void application_media_picker_release() noexcept {
     if (p->saved_preview_mask)
         VirtualFree(p->saved_preview_mask, 0, MEM_RELEASE);
     VirtualFree(p, 0, MEM_RELEASE);
+    sticker_store_clear();
+}
+void application_media_picker_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
+    if (event.kind == GatewayClientEventKind::ready) {
+        sticker_store_clear();
+        return;
+    }
+    if (event.kind != GatewayClientEventKind::dispatch)
+        return;
+    if (event.dispatch_kind == GatewayClientDispatchKind::guild_delete)
+        sticker_list_remove(event.state.id);
+    else if (event.dispatch_kind == GatewayClientDispatchKind::guild_stickers_update) {
+        // An update without its list (too large) leaves the server to REST.
+        if (!body.bytes || body.bytes != event.dispatch_payload_bytes ||
+            !sticker_list_put(event.member_list.guild_id, body))
+            sticker_list_remove(event.member_list.guild_id);
+    } else
+        return;
+    const auto* p = g_app.media_picker;
+    if (p && p->active && p->kind == UiMediaPickerKind::sticker)
+        application_request_frame();
 }
 bool application_media_picker_active() noexcept {
     return g_app.media_picker && g_app.media_picker->active && owns_current(*g_app.media_picker) &&
@@ -1038,7 +1307,13 @@ bool application_media_picker_synchronize() noexcept {
         revoke_capture(*p);
         ui_media_picker_scene_close(&p->scene);
         if (!open_emoji_model(*p))
+            emoji_unavailable(*p);
+    }
+    if (p->kind == UiMediaPickerKind::sticker && p->sticker_store_revision != g_sticker_store.revision) {
+        if (!build_server_stickers(*p) || !projection(*p))
             return false;
+        if (p->phase != UiMediaPickerPhase::loading && p->phase != UiMediaPickerPhase::failed)
+            p->phase = p->source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
     }
     p->source.sections = {p->sections, p->kind != UiMediaPickerKind::gif ? p->section_count : 0};
     if (p->kind == UiMediaPickerKind::gif && !favorites_refresh(*p))
@@ -1176,6 +1451,22 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         p->status = utf8_literal("Too many requests. Retrying…");
         return repaint();
     }
+    if (operation == MediaCatalogOperation::guild_stickers) {
+        // The current server's list joins the session store like a Gateway list.
+        p->sticker_guild_done = response.transport_ok() && response.status_code == 200 &&
+                                sticker_list_put(p->guild_id, body);
+        if (!build_server_stickers(*p))
+            return false;
+        if (!p->packs) {
+            request(*p, MediaCatalogOperation::sticker_packs);
+            return repaint();
+        }
+        if (!projection(*p))
+            return false;
+        p->phase = p->source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
+        p->status = p->source.count ? utf8_literal("Choose a sticker") : utf8_literal("No matches");
+        return repaint();
+    }
     CatalogBank* candidate = nullptr;
     if (response.transport_ok() && response.status_code == 200) {
         auto* scratch =
@@ -1206,45 +1497,22 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                         VirtualFree(candidate, 0, MEM_RELEASE);
                         candidate = nullptr;
                     } else {
-                        ProtocolWriter urls{
-                            {reinterpret_cast<u8*>(candidate->text + measured.text_bytes), preview_bytes},
-                            0};
-                        bool valid = true;
-                        for (u32 i = 0; stickers && valid && i < decoded.item_count; ++i) {
-                            auto& item = candidate->items[i];
-                            const u32 first = urls.used;
-                            valid =
-                                (item.sticker_format == 4
-                                     ? protocol_writer_append_literal(
-                                           &urls, "https://media.discordapp.net/stickers/")
-                                     : protocol_writer_append_literal(
-                                           &urls, "https://cdn.discordapp.com/stickers/")) &&
-                                protocol_writer_append_u64(&urls, item.sticker_id) &&
-                                (item.sticker_format == 4 ? protocol_writer_append_literal(&urls, ".gif")
-                                 : item.sticker_format == 3 ? protocol_writer_append_literal(&urls, ".json")
-                                                          : protocol_writer_append_literal(&urls, ".png"));
-                            if (valid)
-                                item.preview_url = {candidate->text + measured.text_bytes + first,
-                                                    urls.used - first};
-                        }
-                        if (!valid) {
+                        candidate->count = decoded.item_count;
+                        // URL policy is checked once per accepted bank. Visibility and
+                        // animation paths use one bit; the account worker revalidates.
+                        u8 target[kCdnMaximumTargetBytes]{};
+                        for (u32 i = 0; !stickers && i < decoded.item_count; ++i)
+                            if (candidate->items[i].available &&
+                                parse_catalog_preview_url(candidate->items[i].preview_url, {target, sizeof(target)},
+                                                          format(candidate->items[i]))
+                                    .ok())
+                                candidate->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
+                        if (stickers &&
+                            !sticker_previews(candidate, candidate->text + measured.text_bytes, preview_bytes)) {
                             VirtualFree(candidate, 0, MEM_RELEASE);
                             candidate = nullptr;
                         } else {
-                            candidate->count = decoded.item_count;
-                            // URL policy is checked once per accepted
-                            // bank. Visibility and animation paths use one bit,
-                            // while the account worker revalidates when it accepts the request.
-                            u8 target[kCdnMaximumTargetBytes]{};
-                            for (u32 i = 0; i < decoded.item_count; ++i) {
-                                const auto& item = candidate->items[i];
-                                if (item.available &&
-                                    parse_catalog_preview_url(
-                                        item.preview_url, {target, sizeof(target)}, format(item))
-                                        .ok())
-                                    candidate->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
-                            }
-                            candidate->text_bytes = decoded.text_bytes + urls.used;
+                            candidate->text_bytes = decoded.text_bytes + preview_bytes;
                             candidate->allocation_bytes = bytes;
                             candidate->generation = p->generation;
                             candidate->operation = operation;
@@ -1258,9 +1526,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         }
     }
     if (candidate) {
-        auto** slot = operation == MediaCatalogOperation::guild_stickers  ? &p->guild
-                      : operation == MediaCatalogOperation::sticker_packs ? &p->packs
-                                                                          : &p->gif;
+        auto** slot = operation == MediaCatalogOperation::sticker_packs ? &p->packs : &p->gif;
         auto* old = *slot;
         revoke_capture(*p);
         ui_media_picker_scene_close(&p->scene);
@@ -1275,10 +1541,6 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
     } else {
         p->phase = UiMediaPickerPhase::failed;
         p->status = utf8_literal("Couldn't load. Press Enter to retry.");
-    }
-    if (operation == MediaCatalogOperation::guild_stickers) {
-        p->sticker_guild_done = candidate != nullptr;
-        request(*p, MediaCatalogOperation::sticker_packs);
     }
     return repaint();
 }
@@ -1311,8 +1573,8 @@ bool application_media_picker_edit_changed(bool content) noexcept {
                                   : MediaCatalogOperation::gif_categories,
                     true);
         else if (p->kind == UiMediaPickerKind::emoji) {
-            if (!emoji_projection(*p))
-                return false;
+            if (!p->emoji.storage.base || !emoji_projection(*p))
+                emoji_unavailable(*p);
             p->scene.scroll_dips = 0;
         } else {
             if (!projection(*p))
@@ -1351,13 +1613,28 @@ bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPrevi
     const auto* p = g_app.media_picker;
     if (!out || !p || !application_media_picker_active() || p->kind == UiMediaPickerKind::emoji)
         return false;
-    UiMediaPickerMediaSlot slot{};
-    if (!ui_media_picker_scene_media(p->scene, cell, &slot) || slot.target.source_index >= p->source.count)
-        return false;
     const CatalogBank* bank = nullptr;
     u32 local = 0;
     MediaCatalogItem temporary{};
-    const auto* item = item_at(*p, slot.target.source_index, &bank, &local, &temporary);
+    const MediaCatalogItem* item = nullptr;
+    if (cell >= p->scene.cell_count) {
+        // A sticker pack's rail icon: its cover sticker's preview.
+        UiMediaPickerRailMediaSlot rail{};
+        if (p->kind != UiMediaPickerKind::sticker || !p->packs ||
+            !ui_media_picker_scene_rail_media(p->scene, cell - p->scene.cell_count, &rail) || !rail.asset_id)
+            return false;
+        for (u32 i = 0; !item && i < p->section_count; ++i)
+            if (p->sections[i].asset_id == rail.asset_id && p->section_cover[i] < p->packs->count) {
+                bank = p->packs;
+                local = p->section_cover[i];
+                item = &bank->items[local];
+            }
+    } else {
+        UiMediaPickerMediaSlot slot{};
+        if (!ui_media_picker_scene_media(p->scene, cell, &slot) || slot.target.source_index >= p->source.count)
+            return false;
+        item = item_at(*p, slot.target.source_index, &bank, &local, &temporary);
+    }
     if (!item || !preview_admitted(*bank, local))
         return false;
     *out = {};
@@ -1388,7 +1665,7 @@ bool application_media_picker_preview_visible(MediaAssetKey key) noexcept {
     const auto* p = g_app.media_picker;
     if (!p || !application_media_picker_active())
         return false;
-    for (u32 i = 0; i < p->scene.cell_count; ++i) {
+    for (u32 i = 0; i < p->scene.cell_count + p->scene.rail_count; ++i) {
         AccountMediaCatalogPreviewRequest request{};
         if (application_media_picker_preview_request(i, &request) &&
             media_asset_key_equal(request.key, key))
