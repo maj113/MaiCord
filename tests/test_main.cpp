@@ -14009,6 +14009,31 @@ void test_account_media_mixed_animated_webp() noexcept {
            "account_media_mixed_animated_webp_stop");
 }
 
+// Unsized profile JPEGs: only i.scdn.co takes the album-art parser; CDN
+// splashes and banners keep the ordinary CDN parser.
+void test_account_media_profile_jpeg_hosts() noexcept {
+    AccountMedia media{};
+    if (!account_media_initialize(&media).ok()) {
+        expect(false, "account_media_profile_jpeg_hosts_initialize");
+        return;
+    }
+    const auto request = [&](u64 id, Utf8View url) noexcept {
+        MediaAssetKey key = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::jpeg, false,
+                                              MediaResolutionTier::px512);
+        key.kind = MediaAssetKind::profile_image;
+        const AccountMediaAttachmentRequest r{url, key, 0, 0, 0, 0, CdnImageType::jpeg, {0, 0, 0}, nullptr};
+        return account_media_request_attachment(&media, r, 1'000, 1'100);
+    };
+    const auto splash = request(9'101, utf8_literal("https://cdn.discordapp.com/discovery-splashes/10/"
+                                                    "0123456789abcdef0123456789abcdef.jpg?size=480"));
+    const auto art = request(9'102, utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567"));
+    const auto other = request(9'103, utf8_literal("https://example.com/image.jpg"));
+    expect(splash.error != AccountMediaError::target && art.error != AccountMediaError::target &&
+               other.error == AccountMediaError::target && other.media_url_error == MediaUrlError::invalid_host,
+           "account_media_profile_jpeg_cdn_banner_not_routed_to_album_art_parser");
+    (void)account_media_stop(&media, 5'000);
+}
+
 void test_account_media_long_animated_webp() noexcept {
     auto* encoded = static_cast<u8*>(VirtualAlloc(nullptr, kAnimatedWebpEncodedMaximumBytes,
         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -26434,6 +26459,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_account_media_worker_shared_parallel_lanes();
     maicord::test_account_media_worker_animation_priority_reserve();
     maicord::test_account_media_mixed_animated_webp();
+    maicord::test_account_media_profile_jpeg_hosts();
     maicord::test_account_media_long_animated_webp();
     maicord::test_media_parity(maicord::expect);
     maicord::run_catalog_media_tests(maicord::expect);

@@ -1562,10 +1562,14 @@ static AccountMediaRequestResult request_progressive(AccountMedia* media, const 
 }
 
 // Spotify album art for activity cards: exactly https://i.scdn.co/image/<id>.
+constexpr char kActivityArtOrigin[] = "https://i.scdn.co/";
+static bool activity_art_url(Utf8View url) noexcept {
+    constexpr u32 bytes = sizeof(kActivityArtOrigin) - 1;
+    return url.data && url.bytes > bytes && bytes_equal(url.data, kActivityArtOrigin, bytes);
+}
 static MediaUrlResult parse_activity_art_url(Utf8View url, Slice<u8> target_output) noexcept {
-    constexpr char origin[] = "https://i.scdn.co";
-    constexpr u32 origin_bytes = sizeof(origin) - 1;
-    if (!url.data || url.bytes <= origin_bytes || !bytes_equal(url.data, origin, origin_bytes))
+    constexpr u32 origin_bytes = sizeof(kActivityArtOrigin) - 2;
+    if (!activity_art_url(url))
         return {0, CdnHost::none, MediaUrlError::invalid_host};
     const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + origin_bytes), url.bytes - origin_bytes};
     if (!activity_art_target_valid(target))
@@ -1652,7 +1656,7 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
             catalog_key ? parse_catalog_preview_url(request.url, Slice<u8>{target, sizeof(target)},
                                                     key_format, request.proxy_width, request.proxy_height)
             : request.key.kind == MediaAssetKind::profile_image &&
-                    request.image_type == CdnImageType::jpeg && !request.proxy_width
+                    request.image_type == CdnImageType::jpeg && !request.proxy_width && activity_art_url(request.url)
                 ? parse_activity_art_url(request.url, Slice<u8>{target, sizeof(target)})
                 : parse_media_url(request.url, Slice<u8>{target, sizeof(target)});
         if (!parsed.ok()) {
