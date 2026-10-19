@@ -10,6 +10,7 @@
 #include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"
+#include "maicord/ui/icon.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -646,6 +647,69 @@ void test_wire() noexcept {
     check(!user_activities_read({wire, written}, 42, &restored), "wire: unknown detail bits are rejected");
 }
 
+// Real-shaped presences (synthetic values): Spotify's 40-character album art
+// key, a media proxy key near the 320-byte budget and an application asset
+// survive the mailbox and the shared store byte for byte, URLs included.
+void test_art_store() noexcept {
+    char json[2048];
+    u32 used = 0;
+    const auto put = [&](Utf8View v) noexcept {
+        copy_bytes(json + used, v.data, v.bytes);
+        used += v.bytes;
+    };
+    put(utf8_literal(R"({"activities":[{"type":2,"name":"Spotify","flags":48,"id":"spotify:1",)"
+                     R"("details":"Synthetic Song - Sped Up Version","state":"First Artist; Second Artist",)"
+                     R"("session_id":"0123456789abcdef0123456789abcdef","sync_id":"0123456789abcdefghijkl",)"
+                     R"("party":{"id":"spotify:4343"},"created_at":1700000000300,)"
+                     R"("timestamps":{"start":1700000000000,"end":1700000200000},)"
+                     R"("assets":{"large_image":"spotify:ab67616d0000b2730123456789abcdef01234567",)"
+                     R"j("large_text":"Synthetic Album (Sped Up Version)"}},)j"
+                     R"({"type":3,"name":"Cinema","assets":{"large_image":"mp:external/)"));
+    for (u32 i = 0; i < 27; ++i)
+        put(utf8_literal("abcdefghij"));
+    put(utf8_literal(R"(/https/example.invalid/poster.png","large_text":"Season 1"}},)"
+                     R"({"type":0,"name":"Mossrun","application_id":"500000000000000001",)"
+                     R"("assets":{"large_image":"500000000000000002","small_image":"500000000000000003"}}]})"));
+    UserActivitySet set{}, mailbox{}, stored{};
+    u8 wire[kUserActivityRecordMaximumBytes];
+    const bool decoded = decode({json, used}, &set, 4343) && set.count == 3;
+    const u32 written = decoded ? user_activities_write(set, {wire, sizeof(wire)}) : 0;
+    UserStore users{};
+    const bool kept = written && user_activities_read({wire, written}, 4343, &mailbox) &&
+                      user_activity_upsert(&users.activities, mailbox) &&
+                      user_activity_find(users.activities, 4343, &stored) && stored.count == 3;
+    bool same_urls = kept;
+    for (u32 i = 0; same_urls && i < 3; ++i)
+        for (u32 large = 0; large < 2; ++large) {
+            char a[512], b[512];
+            MediaAttachmentFormat fa{}, fb{};
+            const u32 na = user_activity_image_url(set.items[i], large, {a, sizeof(a)}, &fa);
+            const u32 nb = user_activity_image_url(stored.items[i], large, {b, sizeof(b)}, &fb);
+            same_urls = na == nb && fa == fb && bytes_equal(a, b, na) &&
+                        same(text(set.items[i], UserActivityField::large_image),
+                             text(stored.items[i], UserActivityField::large_image));
+        }
+    char url[512];
+    MediaAttachmentFormat format{};
+    const u32 art = kept ? user_activity_image_url(stored.items[0], true, {url, sizeof(url)}, &format) : 0;
+    check(kept && same_urls && text(stored.items[1], UserActivityField::large_image).bytes == 3 + 9 + 270 + 33 &&
+              same({url, art}, utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567")) &&
+              format == MediaAttachmentFormat::jpeg,
+          "store: long art keys round-trip the mailbox and the store with identical URLs");
+    user_activity_release(&users.activities);
+}
+
+// The artwork placeholder names the activity: a note for music, the
+// controller only for games.
+void test_placeholders() noexcept {
+    using T = UserActivityType;
+    const auto icon = [](T type) noexcept { return profile_activity_glyph_icon(profile_activity_placeholder(type)); };
+    check(icon(T::listening) == UiIcon::music && icon(T::playing) == UiIcon::controller &&
+              icon(T::watching) == UiIcon::monitor && icon(T::streaming) == UiIcon::video &&
+              icon(T::competing) == UiIcon::crown,
+          "placeholder: one glyph per activity type");
+}
+
 void run() noexcept {
     test_order();
     test_times();
@@ -656,6 +720,8 @@ void run() noexcept {
     test_status_line();
     test_requests();
     test_wire();
+    test_art_store();
+    test_placeholders();
 }
 } // namespace maicord::profile_activity_test
 

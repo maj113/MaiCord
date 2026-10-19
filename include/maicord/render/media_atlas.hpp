@@ -87,6 +87,11 @@ MediaAtlasResult media_atlas_find(MediaAtlas* atlas,
 // Cache admission is not visibility; speculative lookups must not pin shelves.
 MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, MediaAssetKey key) noexcept;
 bool media_atlas_unpin(MediaAtlas* atlas, MediaAssetKey key) noexcept;
+// Visible decorative media (member nameplates and avatar decorations) gives
+// way to a foreground image that found no room: their pins for this
+// visibility epoch drop, so allocation may evict shelves holding nothing else
+// visible. Returns how many resident keys were unpinned.
+u32 media_atlas_yield(MediaAtlas* atlas, ConstSlice<MediaAssetKey> decorative) noexcept;
 // Drops a resident identity so the key can be allocated at another size (a
 // video whose reduced picture changed extent). Its physical rows become stale
 // and are reclaimed by normal LRU eviction. False when the key was not resident.

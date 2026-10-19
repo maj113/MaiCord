@@ -13,6 +13,8 @@
 #include "../src/app/application_search.hpp"
 #include "../src/app/application_image_viewer.hpp"
 #include "../src/app/application_profile_editor.hpp"
+#include "../src/app/application_profile.hpp"
+#include "maicord/core/json_scan.hpp"
 #include "maicord/app/local_draft_preview.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/profile_scene.hpp"
@@ -174,6 +176,11 @@ MediaAssetKey last_identity_key{};
 u64 last_attachment_message;
 u32 last_attachment_revision;
 MediaAssetKey last_attachment_key{};
+MediaAssetKey watched_profile_key{}, last_profile_key{};
+char last_profile_url[512];
+u32 last_profile_url_bytes;
+CdnImageType last_profile_type{};
+u16 last_profile_proxy_width;
 bool observe_picker_requests;
 bool picker_busy_flag_first;
 u32 picker_emoji_requests;
@@ -238,6 +245,15 @@ AccountMediaRequestResult WINAPI request_attachment(void*, const AccountMediaAtt
     last_attachment_message = request->source_message_id;
     last_attachment_revision = request->source_message_revision;
     last_attachment_key = request->key;
+    // Profile images by URL: the watched key's latest request.
+    if (media_asset_key_equal(request->key, watched_profile_key) &&
+        request->signed_url.bytes <= sizeof(last_profile_url)) {
+        last_profile_key = request->key;
+        last_profile_type = request->image_type;
+        last_profile_proxy_width = request->proxy_width;
+        last_profile_url_bytes = static_cast<u32>(request->signed_url.bytes);
+        copy_bytes(last_profile_url, request->signed_url.data, last_profile_url_bytes);
+    }
     return busy_result();
 }
 
@@ -1109,6 +1125,66 @@ void run_profile_editor_preview_test(ApplicationMediaPump& pump) noexcept {
     ui_settings_scene_release(&scene);
 }
 
+// The profile popout's Spotify card asks for its album art (a synthetic 640 px
+// key) as JPEG from i.scdn.co; only the open card's images may claim
+// decorative atlas space.
+void run_profile_activity_art_test(ApplicationMediaPump& pump) noexcept {
+    static u32 scratch[2048];
+    static UserStore users{};
+    auto* profile = static_cast<ApplicationProfile*>(
+        VirtualAlloc(nullptr, sizeof(ApplicationProfile), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!profile) {
+        check(false, "profile activity art: profile allocation");
+        return;
+    }
+    const auto presence = utf8_literal(R"({"activities":[{"type":2,"name":"Spotify","details":"Synthetic Song",)"
+                                       R"("state":"Synthetic Artist","party":{"id":"spotify:4343"},)"
+                                       R"("assets":{"large_image":"spotify:ab67616d0000b2730123456789abcdef01234567",)"
+                                       R"("large_text":"Synthetic Album"}}]})");
+    UserActivitySet set{};
+    bool has = false;
+    const auto scan = json_scan_structurals_avx1(presence, {scratch, 2048});
+    bool valid = scan.ok() &&
+                 user_activities_decode({presence, {scratch, scan.count}}, {presence, 0, JsonValueKind::object}, 4343,
+                                        &set, &has) &&
+                 has && user_activity_upsert(&users.activities, set);
+    profile->data.user_id = 4343;
+    profile->data.username.bytes = 4;
+    copy_bytes(profile->data.username.data, "art4", 4);
+    valid = valid && profile_scene_open(&profile->scene, &profile->data, nullptr, &users, 1, {900, 100, 940, 140},
+                                        {0, 0, 1280, 800});
+    MediaAssetKey art{};
+    for (u32 i = 0; valid && i < profile->scene.part_count; ++i) {
+        ProfileMedia media{};
+        if (profile->scene.parts[i].media == ProfileMediaKind::activity_large &&
+            profile_media_resolve(profile->scene, i, &media))
+            art = media.key;
+    }
+    check(valid && media_asset_key_valid(art), "profile activity art: the popout card resolves its album art");
+    auto* const previous = g_app.profile;
+    g_app.profile = profile;
+    u32 uploads = 0;
+    bool repaint = false;
+    last_profile_key = {};
+    watched_profile_key = art;
+    valid = valid && pump.scan_visible_media(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0,
+                                             uploads, &repaint);
+    check(valid && media_asset_key_equal(last_profile_key, art) &&
+              utf8_equal({last_profile_url, last_profile_url_bytes},
+                         utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567")) &&
+              last_profile_type == CdnImageType::jpeg && last_profile_proxy_width == 0,
+          "profile activity art: the visible card requests its album art as JPEG from i.scdn.co");
+    const auto unrelated = media_asset_custom_emoji(77, false);
+    check(pump.media_key_is_current(art) && pump.yield_decorative_media(art) == 0 &&
+              pump.yield_decorative_media(unrelated) == 0,
+          "profile activity art: without member rows nothing yields, and other media never claims ornaments");
+    watched_profile_key = {};
+    g_app.profile = previous;
+    profile_scene_release(&profile->scene);
+    user_activity_release(&users.activities);
+    VirtualFree(profile, 0, MEM_RELEASE);
+}
+
 // The quick switcher and people (DM) picker show user avatars over their glyphs;
 // a group's custom icon hash is not a user avatar and stays a glyph.
 void run_quick_switcher_avatar_test(ApplicationMediaPump& pump) noexcept {
@@ -1960,6 +2036,7 @@ void run_visibility_test() noexcept {
         run_search_avatar_test(pump);
         run_settings_avatar_test(pump);
         run_profile_editor_preview_test(pump);
+        run_profile_activity_art_test(pump);
         run_quick_switcher_avatar_test(pump);
         run_forward_identity_test(*ui, pump);
         run_search_media_test(fixture, *ui, pump);

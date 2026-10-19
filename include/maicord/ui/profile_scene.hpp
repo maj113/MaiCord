@@ -298,6 +298,10 @@ UiScrollBinding profile_scene_scroll_binding(ProfileScene*, bool secondary = fal
 bool profile_scene_scroll(ProfileScene* scene, float delta, bool secondary = false) noexcept;
 void profile_scene_release(ProfileScene* scene) noexcept;
 bool profile_scene_paint(const ProfileScene& scene, const Theme& theme, PaintStream* paint) noexcept;
+// Activity card glyphs: timer chips and the artwork placeholder.
+enum class ProfileActivityGlyph : u8;
+enum class UiIcon : u8;
+UiIcon profile_activity_glyph_icon(ProfileActivityGlyph) noexcept;
 // The rounded region the card's media (banner, profile effect) must stay
 // inside, in the radius the card itself is painted with: the popout (inside a
 // Nitro theme's 2 DIP border) or the modal's profile card, whose top corners

@@ -47,8 +47,12 @@ enum class ProfileActivityGlyph : u8 {
     screen,
     timer,
     party,
-    episode
+    episode,
+    stream,
+    competition
 };
+// The artwork slot's glyph while (or when) no image shows.
+ProfileActivityGlyph profile_activity_placeholder(UserActivityType) noexcept;
 enum class ProfileActivityAction : u8 {
     none,
     // The activity's own button labels; their URLs come from its metadata.

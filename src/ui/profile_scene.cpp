@@ -411,22 +411,6 @@ float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     }
     return height;
 }
-UiIcon chip_icon(ProfileActivityGlyph glyph) noexcept {
-    switch (glyph) {
-    case ProfileActivityGlyph::music:
-        return UiIcon::music;
-    case ProfileActivityGlyph::screen:
-        return UiIcon::monitor;
-    case ProfileActivityGlyph::timer:
-        return UiIcon::timer;
-    case ProfileActivityGlyph::party:
-        return UiIcon::members;
-    case ProfileActivityGlyph::episode:
-        return UiIcon::video;
-    default:
-        return UiIcon::controller;
-    }
-}
 // The width a changing time string needs at its length (digits as 8s).
 float clock_width(ProfileScene* s, Utf8View text, u32 flags) noexcept {
     char widest[16];
@@ -570,8 +554,9 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
             }
             const float cx = text_left + x;
             const auto tone = timed ? ProfileTone::positive : ProfileTone::normal;
-            auto* glyph_part = icon(s, owner, {cx, line_top + 2, cx + 12, line_top + 14}, chip_icon(glyph),
-                                    ProfileAction::none, timed ? ProfileTone::positive : ProfileTone::subtle);
+            auto* glyph_part = icon(s, owner, {cx, line_top + 2, cx + 12, line_top + 14},
+                                    profile_activity_glyph_icon(glyph), ProfileAction::none,
+                                    timed ? ProfileTone::positive : ProfileTone::subtle);
             auto* label_part = glyph_part ? add(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text,
                                                 ProfileAction::none, kXs, ProfileLook::plain, tone)
                                           : nullptr;
@@ -1975,9 +1960,9 @@ bool profile_scene_tick(ProfileScene* s, u64 now) noexcept {
                 relayout = true;
                 break;
             }
-            const auto glyph = chip_icon(clock.timer == ProfileActivityTimer::countdown
-                                             ? ProfileActivityGlyph::timer
-                                             : l.activity_content[t.card].clock_glyph);
+            const auto glyph = profile_activity_glyph_icon(clock.timer == ProfileActivityTimer::countdown
+                                                               ? ProfileActivityGlyph::timer
+                                                               : l.activity_content[t.card].clock_glyph);
             if (s->parts[t.glyph].icon != static_cast<u16>(glyph)) {
                 s->parts[t.glyph].icon = static_cast<u16>(glyph);
                 changed = true;
@@ -2217,11 +2202,32 @@ bool modal_background(const ProfileScene& s, const Theme& theme, const Palette& 
     return paint_stream_pop_clip(paint) && ok;
 }
 } // namespace
+UiIcon profile_activity_glyph_icon(ProfileActivityGlyph glyph) noexcept {
+    switch (glyph) {
+    case ProfileActivityGlyph::music:
+        return UiIcon::music;
+    case ProfileActivityGlyph::screen:
+        return UiIcon::monitor;
+    case ProfileActivityGlyph::timer:
+        return UiIcon::timer;
+    case ProfileActivityGlyph::party:
+        return UiIcon::members;
+    case ProfileActivityGlyph::episode:
+    case ProfileActivityGlyph::stream:
+        return UiIcon::video;
+    case ProfileActivityGlyph::competition:
+        return UiIcon::crown;
+    default:
+        return UiIcon::controller;
+    }
+}
 ProfileCardMask profile_scene_card_mask(const ProfileScene& s, const Theme& theme) noexcept {
     if (modal(s)) {
         const float radius = theme.scale.radius_xl;
         return {{s.card.left, s.card.top, s.card.right, s.card.bottom + radius}, radius};
     }
+    if (panel(s))
+        return {s.rectangle, 0};
     if (!s.themed)
         return {s.rectangle, theme.scale.radius_md};
     return {ui_rect_inset(s.rectangle, {2, 2, 2, 2}), maximum(0.f, theme.scale.radius_md - 2)};
@@ -2351,7 +2357,11 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         if (ok && p.media == ProfileMediaKind::activity_large)
             // Artwork placeholder; the image draws over it once decoded.
             ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.card, inner_radius) &&
-                 ui_icon_paint(paint, UiIcon::controller,
+                 ui_icon_paint(paint,
+                               profile_activity_glyph_icon(
+                                   s.activity_set && p.source < s.activity_set->count
+                                       ? profile_activity_placeholder(s.activity_set->items[p.source].type)
+                                       : ProfileActivityGlyph::game),
                                ui_rect_inset(r, {ui_rect_width(r) * .3f, ui_rect_height(r) * .3f,
                                                  ui_rect_width(r) * .3f, ui_rect_height(r) * .3f}),
                                c.muted);

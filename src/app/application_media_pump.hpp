@@ -45,6 +45,10 @@ struct ApplicationMediaPump {
     bool request_catalog_previews(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
                                   bool* repaint) noexcept;
     bool media_key_is_current(MediaAssetKey key) noexcept;
+    // An image of the open profile card that found the atlas full unpins the
+    // visible member rows' nameplates and avatar decorations; returns how many
+    // (zero for any other key). The caller retries its upload when nonzero.
+    u32 yield_decorative_media(MediaAssetKey key) noexcept;
     // True when an animated key is resident and its timeline is observed (play) or merely present (held
     // frame). Otherwise force_request says whether the request must bypass its residency check.
     bool animation_resident(MediaAssetKey key, u64 now_us, bool* force_request, bool play = true) noexcept;

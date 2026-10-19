@@ -144,73 +144,84 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
         return reject_source();
     }
     MediaAtlasGpuResult uploaded{};
-    if (frame.kind == AccountMediaFrameKind::regional_flag_paint &&
-        frame.key.kind == MediaAssetKind::regional_flag && frame.bytes.count == sizeof(ColrPaintProgram)) {
-        uploaded = renderer_upload_regional_flag(
-            &application.renderer, frame.key, *reinterpret_cast<const ColrPaintProgram*>(frame.bytes.data));
-    } else if (frame.kind == AccountMediaFrameKind::lottie_paint &&
-               frame.bytes.count == sizeof(ColrPaintProgram)) {
-        uploaded = renderer_upload_lottie_program(
-            &application.renderer, frame.key, *reinterpret_cast<const ColrPaintProgram*>(frame.bytes.data));
-    } else if (frame.kind == AccountMediaFrameKind::png_scanlines && frame.image) {
-        uploaded =
-            renderer_upload_png_scanlines(&application.renderer, frame.key, *frame.image, frame.bytes);
-    } else if (jpeg && frame.jpeg_image && frame.jpeg_coefficients &&
-               frame.width == jpeg_display_width(*frame.jpeg_image) &&
-               frame.height == jpeg_display_height(*frame.jpeg_image)) {
-        uploaded = renderer_upload_jpeg(&application.renderer, frame.key, *frame.jpeg_image,
-                                        *frame.jpeg_coefficients);
-    } else if (frame.kind == AccountMediaFrameKind::straight_rgba8 && frame.width <= 0xFFFFu &&
-               frame.height <= 0xFFFFu) {
-        uploaded = renderer_upload_media_straight_rgba8(
-            &application.renderer, frame.key, static_cast<u16>(frame.width), static_cast<u16>(frame.height),
-            frame.row_pitch, frame.bytes);
-    } else if (video_frame_kind(frame.kind) && frame.width <= 0xFFFFu && frame.height <= 0xFFFFu &&
-               frame.duration_us != 0 && frame.frame_count != 0 && frame.cache_generation != 0) {
-        uploaded = gpu_video
-                       ? renderer_present_video_frame(&application.renderer, frame.key, *frame.gpu_video)
-                       : renderer_upload_media_straight_rgba8(
-                             &application.renderer, frame.key, static_cast<u16>(frame.width),
-                             static_cast<u16>(frame.height), frame.row_pitch, frame.bytes);
-    } else if (frame.kind == AccountMediaFrameKind::vp8_keyframe && frame.vp8_frame && frame.vp8_header &&
-               frame.vp8_modes && frame.vp8_coefficients && frame.vp8_frame->width == frame.width &&
-               frame.vp8_frame->height == frame.height) {
-        uploaded = renderer_upload_vp8_keyframe(&application.renderer, frame.key, *frame.vp8_frame,
-                                                *frame.vp8_header, *frame.vp8_modes,
-                                                *frame.vp8_coefficients, frame.bytes);
-    } else if (frame.kind == AccountMediaFrameKind::apng_scanlines && frame.image &&
-               frame.frame_index == 0 && frame.frame_count != 0 &&
-               frame.frame_count <= kApngFrameCapacity && frame.duration_us != 0 &&
-               frame.canvas_width != 0 && frame.canvas_height != 0) {
-        uploaded = renderer_begin_apng(&application.renderer, frame.key, frame.canvas_width,
-                                       frame.canvas_height, frame.apng_frame, *frame.image, frame.bytes);
-    } else if (frame.kind == AccountMediaFrameKind::gif_indices && frame.gif_palette &&
-               frame.frame_index == 0 && frame.frame_count != 0 && frame.frame_count <= kGifFrameCapacity &&
-               frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0) {
-        uploaded =
-            renderer_begin_gif(&application.renderer, frame.key, frame.canvas_width, frame.canvas_height,
-                               frame.gif_frame, *frame.gif_palette, frame.bytes);
-    } else if (frame.kind == AccountMediaFrameKind::animated_webp_rgba8 && frame.frame_index == 0 &&
-               frame.frame_count != 0 && frame.frame_count <= kAnimatedWebpFrameCapacity &&
-               frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0) {
-        uploaded = renderer_begin_animated_webp(&application.renderer, frame.key, frame.canvas_width,
-                                                frame.canvas_height, frame.background_rgba,
-                                                frame.animated_webp_frame, frame.bytes);
-    } else if (frame.kind == AccountMediaFrameKind::animated_webp_vp8 && frame.vp8_frame &&
-               frame.vp8_header && frame.vp8_modes && frame.vp8_coefficients && frame.frame_index == 0 &&
-               frame.frame_count != 0 && frame.frame_count <= kAnimatedWebpFrameCapacity &&
-               frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0 &&
-               frame.vp8_frame->width == frame.width && frame.vp8_frame->height == frame.height) {
-        uploaded = renderer_begin_animated_webp_vp8(
-            &application.renderer, frame.key, frame.canvas_width, frame.canvas_height,
-            frame.background_rgba, frame.animated_webp_frame, *frame.vp8_frame, *frame.vp8_header,
-            *frame.vp8_modes, *frame.vp8_coefficients, frame.bytes);
-    } else {
+    const auto upload = [&]() noexcept {
+        if (frame.kind == AccountMediaFrameKind::regional_flag_paint &&
+            frame.key.kind == MediaAssetKind::regional_flag && frame.bytes.count == sizeof(ColrPaintProgram)) {
+            uploaded = renderer_upload_regional_flag(
+                &application.renderer, frame.key, *reinterpret_cast<const ColrPaintProgram*>(frame.bytes.data));
+        } else if (frame.kind == AccountMediaFrameKind::lottie_paint &&
+                   frame.bytes.count == sizeof(ColrPaintProgram)) {
+            uploaded = renderer_upload_lottie_program(
+                &application.renderer, frame.key, *reinterpret_cast<const ColrPaintProgram*>(frame.bytes.data));
+        } else if (frame.kind == AccountMediaFrameKind::png_scanlines && frame.image) {
+            uploaded =
+                renderer_upload_png_scanlines(&application.renderer, frame.key, *frame.image, frame.bytes);
+        } else if (jpeg && frame.jpeg_image && frame.jpeg_coefficients &&
+                   frame.width == jpeg_display_width(*frame.jpeg_image) &&
+                   frame.height == jpeg_display_height(*frame.jpeg_image)) {
+            uploaded = renderer_upload_jpeg(&application.renderer, frame.key, *frame.jpeg_image,
+                                            *frame.jpeg_coefficients);
+        } else if (frame.kind == AccountMediaFrameKind::straight_rgba8 && frame.width <= 0xFFFFu &&
+                   frame.height <= 0xFFFFu) {
+            uploaded = renderer_upload_media_straight_rgba8(
+                &application.renderer, frame.key, static_cast<u16>(frame.width), static_cast<u16>(frame.height),
+                frame.row_pitch, frame.bytes);
+        } else if (video_frame_kind(frame.kind) && frame.width <= 0xFFFFu && frame.height <= 0xFFFFu &&
+                   frame.duration_us != 0 && frame.frame_count != 0 && frame.cache_generation != 0) {
+            uploaded = gpu_video
+                           ? renderer_present_video_frame(&application.renderer, frame.key, *frame.gpu_video)
+                           : renderer_upload_media_straight_rgba8(
+                                 &application.renderer, frame.key, static_cast<u16>(frame.width),
+                                 static_cast<u16>(frame.height), frame.row_pitch, frame.bytes);
+        } else if (frame.kind == AccountMediaFrameKind::vp8_keyframe && frame.vp8_frame && frame.vp8_header &&
+                   frame.vp8_modes && frame.vp8_coefficients && frame.vp8_frame->width == frame.width &&
+                   frame.vp8_frame->height == frame.height) {
+            uploaded = renderer_upload_vp8_keyframe(&application.renderer, frame.key, *frame.vp8_frame,
+                                                    *frame.vp8_header, *frame.vp8_modes,
+                                                    *frame.vp8_coefficients, frame.bytes);
+        } else if (frame.kind == AccountMediaFrameKind::apng_scanlines && frame.image &&
+                   frame.frame_index == 0 && frame.frame_count != 0 &&
+                   frame.frame_count <= kApngFrameCapacity && frame.duration_us != 0 &&
+                   frame.canvas_width != 0 && frame.canvas_height != 0) {
+            uploaded = renderer_begin_apng(&application.renderer, frame.key, frame.canvas_width,
+                                           frame.canvas_height, frame.apng_frame, *frame.image, frame.bytes);
+        } else if (frame.kind == AccountMediaFrameKind::gif_indices && frame.gif_palette &&
+                   frame.frame_index == 0 && frame.frame_count != 0 && frame.frame_count <= kGifFrameCapacity &&
+                   frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0) {
+            uploaded =
+                renderer_begin_gif(&application.renderer, frame.key, frame.canvas_width, frame.canvas_height,
+                                   frame.gif_frame, *frame.gif_palette, frame.bytes);
+        } else if (frame.kind == AccountMediaFrameKind::animated_webp_rgba8 && frame.frame_index == 0 &&
+                   frame.frame_count != 0 && frame.frame_count <= kAnimatedWebpFrameCapacity &&
+                   frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0) {
+            uploaded = renderer_begin_animated_webp(&application.renderer, frame.key, frame.canvas_width,
+                                                    frame.canvas_height, frame.background_rgba,
+                                                    frame.animated_webp_frame, frame.bytes);
+        } else if (frame.kind == AccountMediaFrameKind::animated_webp_vp8 && frame.vp8_frame &&
+                   frame.vp8_header && frame.vp8_modes && frame.vp8_coefficients && frame.frame_index == 0 &&
+                   frame.frame_count != 0 && frame.frame_count <= kAnimatedWebpFrameCapacity &&
+                   frame.duration_us != 0 && frame.canvas_width != 0 && frame.canvas_height != 0 &&
+                   frame.vp8_frame->width == frame.width && frame.vp8_frame->height == frame.height) {
+            uploaded = renderer_begin_animated_webp_vp8(
+                &application.renderer, frame.key, frame.canvas_width, frame.canvas_height,
+                frame.background_rgba, frame.animated_webp_frame, *frame.vp8_frame, *frame.vp8_header,
+                *frame.vp8_modes, *frame.vp8_coefficients, frame.bytes);
+        } else {
+            return false;
+        }
+        return true;
+    };
+    const auto capacity_miss = [&]() noexcept {
+        return uploaded.error == MediaAtlasGpuError::atlas_failure &&
+               uploaded.allocation.error == MediaAtlasError::no_capacity;
+    };
+    if (!upload())
         return reject_source();
-    }
+    // The open profile's images take shelves from visible member-list ornaments.
+    if (capacity_miss() && yield_decorative_media(frame.key) && !upload())
+        return reject_source();
     if (!uploaded.ok()) {
-        if (uploaded.error == MediaAtlasGpuError::atlas_failure &&
-            uploaded.allocation.error == MediaAtlasError::no_capacity) {
+        if (capacity_miss()) {
             const u64 now_ms = clock_monotonic_milliseconds();
             const u64 retry_at_ms = now_ms + 1'000u;
             message_media_controller_observe_retry(&application.message_media, retry_at_ms);

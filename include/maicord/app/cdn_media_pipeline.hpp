@@ -53,11 +53,19 @@ enum class CdnStaticJpegState : u8 {
     jpeg_workspace_required,
 };
 
+// Profile images wider or taller than kJpegDimensionMaximum (Spotify's 640 px
+// album art) decode on the CPU at the coarsest DCT scale that still reaches
+// this extent, the activity card's 160 px request size.
+inline constexpr u32 kReducedJpegExtent = 160;
+
 struct CdnStaticJpegResult {
     JpegImage image;
     JpegDecodeResult decode;
     EncodedMediaCacheStoreResult store;
+    // Null for a reduced image, which is oriented straight RGBA8 in rgba8.
     const JpegCoefficientWorkspace* coefficients;
+    ConstSlice<u8> rgba8;
+    u16 rgba_width, rgba_height;
     ConstSlice<u8> etag;
     CdnStaticJpegState state;
 

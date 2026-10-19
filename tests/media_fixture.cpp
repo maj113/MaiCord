@@ -1293,6 +1293,69 @@ bool build_grayscale_jpeg_fixture(Slice<u8> encoded, JpegFixtureResult* result) 
     return true;
 }
 
+bool build_marked_jpeg_fixture(Slice<u8> encoded, u16 width, u16 height, JpegFixtureResult* result) noexcept {
+    if (!encoded.data || !result || !width || !height || (width | height) % 8u) {
+        return false;
+    }
+    constexpr u8 soi[] = {0xFF, 0xD8};
+    u8 quantization[65]{};
+    for (u32 index = 1; index < sizeof(quantization); ++index) {
+        quantization[index] = 1;
+    }
+    const u8 frame[] = {8, static_cast<u8>(height >> 8), static_cast<u8>(height), static_cast<u8>(width >> 8),
+                        static_cast<u8>(width), 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0};
+    // DC: '0' no change, '10' a nine-bit difference; AC: '0' end of block.
+    u8 huffman[37]{};
+    huffman[0] = 0x00;
+    huffman[1] = 1;
+    huffman[2] = 1;
+    huffman[18] = 9;
+    huffman[19] = 0x10;
+    huffman[20] = 1;
+    constexpr u8 scan[] = {3, 1, 0, 2, 0, 3, 0, 0, 63, 0};
+    constexpr u8 eoi[] = {0xFF, 0xD9};
+    u32 cursor = 0;
+    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
+        !append_jpeg_segment(encoded, &cursor, 0xDB, ConstSlice<u8>{quantization, sizeof(quantization)}) ||
+        !append_jpeg_segment(encoded, &cursor, 0xC0, ConstSlice<u8>{frame, sizeof(frame)}) ||
+        !append_jpeg_segment(encoded, &cursor, 0xC4, ConstSlice<u8>{huffman, sizeof(huffman)}) ||
+        !append_jpeg_segment(encoded, &cursor, 0xDA, ConstSlice<u8>{scan, sizeof(scan)})) {
+        return false;
+    }
+    // The first MCU's luma DC rises by 256 (+32 levels) and the second's falls
+    // back: one bright 8x8 block at the top-left of a mid-gray image.
+    u32 bits = 0, pending = 0;
+    bool fits = true;
+    const auto put = [&](u32 value, u32 count) noexcept {
+        for (u32 bit = count; bit-- > 0;) {
+            pending = (pending << 1) | ((value >> bit) & 1u);
+            if (++bits == 8) {
+                fits = fits && cursor < encoded.count;
+                if (fits)
+                    encoded[cursor++] = static_cast<u8>(pending);
+                bits = pending = 0;
+            }
+        }
+    };
+    const u32 mcus = (width / 8u) * (height / 8u);
+    for (u32 mcu = 0; mcu < mcus; ++mcu) {
+        if (mcu == 0)
+            put(0b10'100000000, 11);
+        else if (mcu == 1)
+            put(0b10'011111111, 11);
+        else
+            put(0, 1);
+        put(0, 5); // Luma EOB, then chroma DC unchanged and EOB twice.
+    }
+    if (bits)
+        put(0xFF, 8 - bits);
+    if (!fits || !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
+        return false;
+    }
+    *result = JpegFixtureResult{cursor, width, height, 0};
+    return true;
+}
+
 bool build_jpeg_exif_orientation_fixture(ConstSlice<u8> source, Slice<u8> encoded, u8 orientation,
                                          bool big_endian, u32* encoded_bytes) noexcept {
     if (!source.data || source.count < 2 || !encoded.data || encoded.data == source.data ||

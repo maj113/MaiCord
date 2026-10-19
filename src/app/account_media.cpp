@@ -283,14 +283,21 @@ void publish_webp_frame(AccountMedia* media, MediaAssetKey key, const CdnStaticW
 
 void publish_jpeg_frame(AccountMedia* media, MediaAssetKey key, const CdnStaticJpegResult& decoded,
                         u64 request_id, u64 source_message_id, u32 source_message_revision) noexcept {
+    const bool reduced = decoded.rgba8.count != 0;
     media->frame_jpeg_image = decoded.image;
+    if (reduced) {
+        media->frame_webp_image = WebpImage{};
+        media->frame_webp_image.width = decoded.rgba_width;
+        media->frame_webp_image.height = decoded.rgba_height;
+    }
     media->frame_key = key;
-    media->frame_bytes = 0;
+    media->frame_bytes = reduced ? decoded.rgba8.count : 0;
     media->frame_request_id = request_id;
     media->frame_source_message_id = source_message_id;
     media->frame_source_message_revision = source_message_revision;
     capture_catalog_source(media, key);
-    media->frame_kind = AccountMediaFrameKind::jpeg_coefficients;
+    media->frame_kind =
+        reduced ? AccountMediaFrameKind::straight_rgba8 : AccountMediaFrameKind::jpeg_coefficients;
     mark_frame_ready(media, key, request_id);
 }
 

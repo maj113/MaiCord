@@ -12051,6 +12051,65 @@ void test_encoded_media_cache_dense_index() noexcept {
            "encoded_media_cache_full_dense_index_hash_and_lease");
 }
 
+// Profile artwork past the GPU decoder's 512 px (Spotify's 640 px album art)
+// decodes once, reduced to the card's 160 px, from a response and from cache.
+void test_cdn_reduced_jpeg_pipeline() noexcept {
+    static u8 encoded[8'192], oriented[8'192], scanlines[96 * 1024];
+    static u8 storage[8 * kEncodedMediaCachePageBytes];
+    EncodedMediaCacheEntry entries[4]{};
+    u16 owners[8]{};
+    EncodedMediaCache cache{};
+    CdnMediaPipeline pipeline{};
+    JpegFixtureResult fixture{};
+    u32 oriented_bytes = 0;
+    const bool ready =
+        build_marked_jpeg_fixture({encoded, sizeof(encoded)}, 640, 480, &fixture) &&
+        build_jpeg_exif_orientation_fixture({encoded, fixture.encoded_bytes}, {oriented, sizeof(oriented)}, 6,
+                                            false, &oriented_bytes) &&
+        encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}) &&
+        cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)});
+    pipeline.jpeg_workspace = &g_jpeg_workspace;
+    const auto policy = [](u32 bytes) noexcept {
+        return CdnResponseResult{byte_literal("\"art-1\""), {}, 2'100, 0, bytes, 200,
+                                 CdnResponseDisposition::accept_body, CdnHttpError::none, true, false};
+    };
+    const auto key = [](u64 id) noexcept {
+        auto value = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::jpeg, false,
+                                       MediaResolutionTier::px512);
+        value.kind = MediaAssetKind::profile_image;
+        return value;
+    };
+    const auto pixel = [&](const CdnStaticJpegResult& r, u32 x, u32 y) noexcept {
+        return r.rgba8.data[(y * r.rgba_width + x) * 4u];
+    };
+    const auto admitted = cdn_media_pipeline_admit_static_jpeg(&pipeline, key(7001), policy(fixture.encoded_bytes),
+                                                              {encoded, fixture.encoded_bytes});
+    const bool admitted_ok = admitted.state == CdnStaticJpegState::decoded_response && admitted.store.stored() &&
+                             !admitted.coefficients && admitted.rgba_width == 160 && admitted.rgba_height == 120 &&
+                             admitted.rgba8.count == 160u * 120u * 4u && pixel(admitted, 0, 0) >= 156 &&
+                             pixel(admitted, 2, 0) <= 132 && pixel(admitted, 159, 119) <= 132 &&
+                             admitted.rgba8.data[3] == 255;
+    const auto hit = cdn_media_pipeline_lookup_static_jpeg(&pipeline, key(7001), 2'010);
+    expect(ready && admitted_ok && hit.state == CdnStaticJpegState::decoded_cache_hit && hit.rgba_width == 160 &&
+               hit.rgba_height == 120 && pixel(hit, 1, 1) >= 156 && bytes_equal(hit.etag, byte_literal("\"art-1\"")),
+           "cdn_pipeline_large_profile_jpeg_reduces_to_card_size_and_caches");
+    // EXIF orientation 6 turns the image a quarter clockwise: the marked
+    // top-left block lands top-right.
+    const auto turned = cdn_media_pipeline_admit_static_jpeg(&pipeline, key(7002), policy(oriented_bytes),
+                                                            {oriented, oriented_bytes});
+    expect(turned.decoded() && turned.rgba_width == 120 && turned.rgba_height == 160 &&
+               pixel(turned, 119, 0) >= 156 && pixel(turned, 0, 0) <= 132,
+           "cdn_pipeline_large_profile_jpeg_applies_exif_orientation");
+    // Other media keeps the exact GPU path and its extent limit.
+    const auto attachment = cdn_media_pipeline_admit_static_jpeg(
+        &pipeline, media_asset_attachment(7003), policy(fixture.encoded_bytes), {encoded, fixture.encoded_bytes});
+    expect(attachment.state == CdnStaticJpegState::decode_rejected &&
+               attachment.decode.error == JpegError::dimensions &&
+               encoded_media_cache_find(&cache, media_asset_attachment(7003), 2'010).state ==
+                   EncodedMediaCacheLookupState::miss,
+           "cdn_pipeline_large_attachment_jpeg_still_rejected");
+}
+
 void test_cdn_static_png_pipeline() noexcept {
     PngFixtureResult fixture{};
     expect(build_rgba8_png_fixture(64, 64, Slice<u8>{g_png_encoded, sizeof(g_png_encoded)},
@@ -26066,6 +26125,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_encoded_media_cache();
     maicord::test_encoded_media_cache_dense_index();
     maicord::test_cdn_static_png_pipeline();
+    maicord::test_cdn_reduced_jpeg_pipeline();
     maicord::test_cdn_gif_metadata_reuse();
     maicord::test_account_media_cached_frame();
     maicord::test_account_media_worker_decode_boundary();

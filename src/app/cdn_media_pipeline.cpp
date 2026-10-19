@@ -239,7 +239,100 @@ CdnStaticWebpResult decode_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8>
     return result;
 }
 
-CdnStaticJpegResult decode_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+struct ReducedJpegRows {
+    u8* output;
+    u32 width, height; // As stored, before orientation.
+    JpegOrientation orientation;
+};
+
+bool reduced_jpeg_row(void* context, u32 y, const u8* rgba) noexcept {
+    const auto& r = *static_cast<const ReducedJpegRows*>(context);
+    const u32 w = r.width, h = r.height;
+    const u32 pitch = jpeg_orientation_swaps_dimensions(r.orientation) ? h : w;
+    for (u32 x = 0; x < w; ++x) {
+        u32 dx = x, dy = y;
+        switch (r.orientation) {
+        case JpegOrientation::top_right: dx = w - 1 - x; break;
+        case JpegOrientation::bottom_right: dx = w - 1 - x; dy = h - 1 - y; break;
+        case JpegOrientation::bottom_left: dy = h - 1 - y; break;
+        case JpegOrientation::left_top: dx = y; dy = x; break;
+        case JpegOrientation::right_top: dx = h - 1 - y; dy = x; break;
+        case JpegOrientation::right_bottom: dx = h - 1 - y; dy = w - 1 - x; break;
+        case JpegOrientation::left_bottom: dx = y; dy = w - 1 - x; break;
+        default: break;
+        }
+        copy_bytes(r.output + (static_cast<usize>(dy) * pitch + dx) * 4u, rgba + static_cast<usize>(x) * 4u,
+                   4);
+    }
+    return true;
+}
+
+// Decodes a JPEG past the GPU coefficient path's extent into oriented
+// straight RGBA8 at the coarsest DCT scale reaching kReducedJpegExtent.
+CdnStaticJpegResult reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
+                                      CdnStaticJpegState success_state) noexcept {
+    CdnStaticJpegResult result{};
+    result.state = CdnStaticJpegState::decode_rejected;
+    pipeline->jpeg_workspace = ::new (pipeline->jpeg_workspace) JpegWorkspace;
+    JpegThumbnailLayout layout{};
+    result.decode.parse =
+        jpeg_thumbnail_parse(encoded, kReducedJpegExtent, &result.image, pipeline->jpeg_workspace, &layout);
+    result.decode.error = result.decode.parse.error;
+    if (!result.decode.ok())
+        return result;
+    // Bounds the output to what the coefficient path accepts (sources to 4096 px).
+    if (layout.width > kJpegDimensionMaximum || layout.height > kJpegDimensionMaximum) {
+        result.decode.error = JpegError::dimensions;
+        return result;
+    }
+    const u32 rgba_bytes = static_cast<u32>(layout.rgba_bytes);
+    if (pipeline->grow_scanlines && rgba_bytes > pipeline->scanline_capacity) {
+        const auto grown = pipeline->grow_scanlines(pipeline->scanline_owner, rgba_bytes);
+        if (grown.data && grown.count >= rgba_bytes) {
+            pipeline->scanline_storage = grown.data;
+            pipeline->scanline_capacity = grown.count;
+        }
+    }
+    if (rgba_bytes > pipeline->scanline_capacity) {
+        result.decode.error = JpegError::sink;
+        return result;
+    }
+    // Scratch (16-byte aligned) and one row: the idle coefficient workspace,
+    // else a temporary allocation for large progressive files.
+    const u64 needed = layout.coefficient_bytes + layout.plane_bytes + u64{layout.width} * 4u + 15u;
+    constexpr u64 kTemporaryScratchMaximum = 16ull * 1024u * 1024u;
+    u8* workspace = reinterpret_cast<u8*>(&pipeline->jpeg_workspace->coefficients);
+    void* temporary = nullptr;
+    if (needed > sizeof(JpegCoefficientWorkspace)) {
+        if (needed <= kTemporaryScratchMaximum)
+            temporary =
+                VirtualAlloc(nullptr, static_cast<SIZE_T>(needed), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (!temporary) {
+            result.decode.error = JpegError::sink;
+            return result;
+        }
+        workspace = static_cast<u8*>(temporary);
+    }
+    u8* scratch =
+        reinterpret_cast<u8*>((reinterpret_cast<usize>(workspace) + 15u) & ~static_cast<usize>(15u));
+    const u32 scratch_bytes = static_cast<u32>(layout.coefficient_bytes + layout.plane_bytes);
+    ReducedJpegRows rows{pipeline->scanline_storage, layout.width, layout.height, result.image.orientation};
+    result.decode =
+        jpeg_thumbnail_decode_rows(encoded, result.image, layout, {scratch, scratch_bytes},
+                                   {scratch + scratch_bytes, layout.width * 4u}, reduced_jpeg_row, &rows);
+    if (temporary)
+        VirtualFree(temporary, 0, MEM_RELEASE);
+    if (!result.decode.ok())
+        return result;
+    const bool swap = jpeg_orientation_swaps_dimensions(result.image.orientation);
+    result.rgba8 = {pipeline->scanline_storage, rgba_bytes};
+    result.rgba_width = static_cast<u16>(swap ? layout.height : layout.width);
+    result.rgba_height = static_cast<u16>(swap ? layout.width : layout.height);
+    result.state = success_state;
+    return result;
+}
+
+CdnStaticJpegResult decode_jpeg_bytes(CdnMediaPipeline* pipeline, MediaAssetKey key, ConstSlice<u8> encoded,
                                       CdnStaticJpegState success_state) noexcept {
     CdnStaticJpegResult result{};
     if (!pipeline->jpeg_workspace) {
@@ -247,6 +340,8 @@ CdnStaticJpegResult decode_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8>
     }
     pipeline->jpeg_workspace = ::new (pipeline->jpeg_workspace) JpegWorkspace;
     result.decode = jpeg_decode_coefficients(encoded, &result.image, pipeline->jpeg_workspace);
+    if (key.kind == MediaAssetKind::profile_image && result.decode.error == JpegError::dimensions)
+        return reduce_jpeg_bytes(pipeline, encoded, success_state);
     if (!result.decode.ok()) {
         result.state = CdnStaticJpegState::decode_rejected;
         return result;
@@ -819,7 +914,7 @@ CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipe
         return unfresh_lookup<CdnStaticJpegResult>(pipeline, cached);
     }
     CdnStaticJpegResult result =
-        decode_jpeg_bytes(pipeline, cached.bytes, CdnStaticJpegState::decoded_cache_hit);
+        decode_jpeg_bytes(pipeline, key, cached.bytes, CdnStaticJpegState::decoded_cache_hit);
     if (!result.decoded() && result.state != CdnStaticJpegState::jpeg_workspace_required) {
         cache_lease.release();
         encoded_media_cache_erase(pipeline->cache, key);
@@ -842,7 +937,7 @@ CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipel
             return {.state = CdnStaticJpegState::invalid};
         }
         CdnStaticJpegResult result =
-            decode_jpeg_bytes(pipeline, decoded_body,
+            decode_jpeg_bytes(pipeline, key, decoded_body,
                               response.store_allowed ? CdnStaticJpegState::decoded_response
                                                      : CdnStaticJpegState::decoded_transient);
         if (!result.decoded()) {
@@ -864,7 +959,7 @@ CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipel
             return {.state = CdnStaticJpegState::uncorrelated_not_modified};
         }
         CdnStaticJpegResult result =
-            decode_jpeg_bytes(pipeline, cached.bytes,
+            decode_jpeg_bytes(pipeline, key, cached.bytes,
                               response.store_allowed ? CdnStaticJpegState::decoded_cache_hit
                                                      : CdnStaticJpegState::decoded_transient);
         if (!result.decoded()) {

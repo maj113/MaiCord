@@ -312,6 +312,22 @@ bool profile_editor_key_current(MediaAssetKey key) noexcept {
     return false;
 }
 } // namespace
+u32 ApplicationMediaPump::yield_decorative_media(MediaAssetKey key) noexcept {
+    if (!application.profile || !application.profile->scene.active ||
+        !profile_scene_shows(application.profile->scene, key))
+        return 0;
+    constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::decoration};
+    MediaAssetKey decorative[128];
+    u32 count = 0;
+    const auto& members = application.member_list_scene;
+    for (u32 i = 0; members.active && i < members.count && count + 2 <= 128; ++i)
+        for (const MemberMedia layer : layers) {
+            MemberMediaPlacement placed{};
+            if (member_media_place(members, i, layer, &placed))
+                decorative[count++] = placed.key;
+        }
+    return media_atlas_yield(application.renderer.media_atlas, {decorative, count});
+}
 bool ApplicationMediaPump::media_key_is_current(MediaAssetKey key) noexcept {
     if (application.login.visible)
         return false;

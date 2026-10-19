@@ -140,6 +140,60 @@ void test_atlas_growth(void (*check)(bool, const char*) noexcept) noexcept {
 
 } // namespace
 
+// A production-sized identity atlas held full by visible media: member rows'
+// 288 px avatar decorations and nameplates over a row of avatars. The open
+// profile card's 160 px album art is refused until the ornaments yield; then
+// exactly one decoration shelf goes and every avatar stays.
+void test_decorative_yield(void (*check)(bool, const char*) noexcept) noexcept {
+    static MediaAtlasEntry entries[96];
+    static u32 buckets[192];
+    static GlyphAtlasEntry allocations[96];
+    static GlyphAtlasRow rows[16];
+    MediaAtlas atlas{};
+    const auto profile = [](u64 id) noexcept {
+        auto key = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::png, false,
+                                     MediaResolutionTier::px512);
+        key.kind = MediaAssetKind::profile_image;
+        return key;
+    };
+    MediaAssetKey decorative[48]{};
+    MediaAtlasHandle avatars[30]{};
+    bool ready = media_atlas_initialize(&atlas, 2048, 2048, 1, {entries, 96}, {buckets, 192}, {allocations, 96},
+                                        {rows, 16});
+    for (u32 i = 0; ready && i < 48; ++i) {
+        decorative[i] = profile(100 + i);
+        ready = media_atlas_allocate(&atlas, decorative[i], i < 42 ? 288 : 672, i < 42 ? 288 : 126).ok();
+    }
+    for (u32 i = 0; ready && i < 30; ++i) {
+        const auto placed = media_atlas_allocate(&atlas, media_asset_user_avatar(200 + i, 1, false), 48, 48);
+        avatars[i] = placed.handle;
+        ready = placed.ok();
+    }
+    // The next frame draws all of it again.
+    media_atlas_begin_visibility(&atlas);
+    MediaAtlasResult visible{};
+    for (u32 i = 0; ready && i < 48; ++i)
+        ready = media_atlas_find(&atlas, decorative[i]).ok();
+    for (u32 i = 0; ready && i < 30; ++i)
+        ready = media_atlas_resolve_visible(&atlas, avatars[i], &visible);
+    const auto art = profile(7);
+    const auto refused = media_atlas_allocate(&atlas, art, 160, 160);
+    const u32 evicted_before = atlas.allocations.evicted_entries;
+    const u32 yielded = media_atlas_yield(&atlas, {decorative, 48});
+    const auto placed = media_atlas_allocate(&atlas, art, 160, 160);
+    bool avatars_kept = true;
+    for (u32 i = 0; i < 30; ++i)
+        avatars_kept = avatars_kept && media_atlas_validate(atlas, avatars[i]);
+    u32 nameplates_kept = 0;
+    for (u32 i = 42; i < 48; ++i)
+        nameplates_kept += media_atlas_peek(&atlas, decorative[i]).ok();
+    check(ready && atlas.allocations.row_count == 9 && refused.error == MediaAtlasError::no_capacity &&
+              evicted_before == 0 && yielded == 48 && placed.ok() && !placed.atlas_reset &&
+              atlas.allocations.evicted_entries == 7 && avatars_kept && nameplates_kept == 6 &&
+              media_atlas_yield(&atlas, {decorative, 48}) == 0,
+          "atlas_pressure_profile_art_takes_one_decoration_shelf_from_a_full_visible_set");
+}
+
 void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     MediaAtlas atlas{};
     MediaAtlasEntry entries[16]{};
@@ -249,5 +303,6 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     check(controller_ready && suppressed && expired && message_media_controller_preview_ready(&controller, 2001),
           "atlas_pressure_upload_retry_survives_pump_wakes_and_resets_on_view_change");
     test_atlas_growth(check);
+    test_decorative_yield(check);
 }
 }

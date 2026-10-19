@@ -269,6 +269,19 @@ bool media_atlas_unpin(MediaAtlas* atlas, MediaAssetKey key) noexcept {
     return result.ok() && glyph_atlas_unpin(&atlas->allocations, atlas->entries[result.handle.slot].allocation);
 }
 
+u32 media_atlas_yield(MediaAtlas* atlas, ConstSlice<MediaAssetKey> decorative) noexcept {
+    u32 unpinned = 0;
+    for (u32 i = 0; atlas && i < decorative.count; ++i) {
+        const auto found = media_atlas_peek(atlas, decorative[i]);
+        if (!found.ok())
+            continue;
+        const auto allocation = atlas->entries[found.handle.slot].allocation;
+        if (glyph_atlas_is_pinned(atlas->allocations, allocation))
+            unpinned += glyph_atlas_unpin(&atlas->allocations, allocation);
+    }
+    return unpinned;
+}
+
 bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept {
     if (!atlas || !atlas->entries || !atlas->buckets || !media_asset_key_valid(key))
         return false;

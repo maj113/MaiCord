@@ -76,6 +76,8 @@ bool build_opaque_lossy_animated_webp_fixture(Slice<u8> encoded,
 bool build_baseline_jpeg_fixture(Slice<u8> encoded, bool restart_markers,
                                  JpegFixtureResult* result) noexcept;
 bool build_grayscale_jpeg_fixture(Slice<u8> encoded, JpegFixtureResult* result) noexcept;
+// Baseline 4:4:4 mid-gray of any 8-multiple size with a brighter top-left 8x8 block.
+bool build_marked_jpeg_fixture(Slice<u8> encoded, u16 width, u16 height, JpegFixtureResult* result) noexcept;
 bool build_jpeg_exif_orientation_fixture(ConstSlice<u8> source, Slice<u8> encoded, u8 orientation,
                                          bool big_endian, u32* encoded_bytes) noexcept;
 bool build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded, JpegIccFixtureCurve curve,

@@ -136,6 +136,20 @@ u32 profile_activity_track_text(u64 seconds, Slice<char> output) noexcept {
     w.number(seconds % 60, 2);
     return w.finish();
 }
+ProfileActivityGlyph profile_activity_placeholder(UserActivityType type) noexcept {
+    switch (type) {
+    case UserActivityType::listening:
+        return ProfileActivityGlyph::music;
+    case UserActivityType::watching:
+        return ProfileActivityGlyph::screen;
+    case UserActivityType::streaming:
+        return ProfileActivityGlyph::stream;
+    case UserActivityType::competing:
+        return ProfileActivityGlyph::competition;
+    default:
+        return ProfileActivityGlyph::game;
+    }
+}
 ProfileActivityClock profile_activity_clock(const UserActivity& a, u64 now) noexcept {
     // The chip ticks on whole seconds.
     now -= now % 1000;
