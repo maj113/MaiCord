@@ -1032,6 +1032,10 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler,
             if ((bucket->fields & rate_limit_field_limit) != 0) {
                 bucket->remaining = bucket->limit;
                 bucket->fields |= rate_limit_field_remaining;
+            } else {
+                // A 429 without X-RateLimit-Limit exhausted an unknown window;
+                // once its deadline passes the next response teaches the limit.
+                bucket->fields &= ~rate_limit_field_remaining;
             }
         }
         if ((bucket->fields & rate_limit_field_remaining) != 0 && bucket->remaining == 0) {

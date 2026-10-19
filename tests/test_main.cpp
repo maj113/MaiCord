@@ -23936,6 +23936,26 @@ void test_rest() noexcept {
                                  1'007'001)
                        .error == RestRateError::incomplete_bucket_deadline,
            "rest_rate_rejects_exhaustion_without_deadline");
+    {
+        // A route-scoped 429 carrying only Retry-After (no limit headers) must
+        // block until its deadline, then admit the next request.
+        RestRateBucket limit_buckets[1]{};
+        RestRateBinding limit_bindings[1]{};
+        RestRateScheduler limit_scheduler{};
+        rest_rate_scheduler_initialize(&limit_scheduler, {limit_buckets, 1}, {limit_bindings, 1});
+        auto first = rest_rate_acquire(&limit_scheduler, route_a, 100);
+        const RestHeadResult limited_head = parse_rest_response_head(
+            byte_literal("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nRetry-After: 1\r\n\r\n"));
+        const auto observed = rest_rate_observe(&limit_scheduler, &first.lease, limited_head, nullptr, 100,
+                                                1'000'100);
+        const auto early = rest_rate_acquire(&limit_scheduler, route_a, 600);
+        auto after = rest_rate_acquire(&limit_scheduler, route_a, 1'100);
+        expect(first.acquired_request() && observed.ok() && observed.rate_limited &&
+                   observed.retry_at_ms == 1'100 && early.kind == RestRateAcquireKind::waiting &&
+                   early.wait_until_ms == 1'100 && after.acquired_request() &&
+                   rest_rate_cancel(&limit_scheduler, &after.lease),
+               "rest_rate_limitless_429_expires_at_retry_deadline");
+    }
 
     {
         RestRateBucket retry_buckets[1]{};
