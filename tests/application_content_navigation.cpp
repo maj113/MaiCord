@@ -10,7 +10,8 @@
 
 namespace maicord::content_navigation_test {
 using namespace app_detail;
-u32 failures, history_calls, selections, stops;
+u32 failures, history_calls, selections, stops, friends_shown;
+bool friends_visible;
 bool text_ok = true, history_ok = true, resident_jump;
 bool wrong_active, wrong_selected;
 MessageTextHit native_hit{};
@@ -39,7 +40,9 @@ void check(bool valid, const char* label) noexcept {
 }
 bool reset() noexcept {
     SecureZeroMemory(&g_app, sizeof(g_app));
-    history_calls = selections = stops = 0;
+    history_calls = selections = stops = friends_shown = 0;
+    friends_visible = false;
+    home_shows_friends = true;
     native_hit = {};
     typed_links = captured_sources = 0;
     captured_source = {};
@@ -118,8 +121,28 @@ void cursor_tests() noexcept {
     g_app.window = nullptr;
     save_button = {};
 }
+// Home, opened from the rail with focus on its button, reopens the view it
+// showed when a server was opened from it.
+bool select_home() noexcept {
+    g_app.context_focus = &g_app.shell_scene.widgets;
+    return activate_focused_navigation();
+}
+void home_tests() noexcept {
+    check(reset() && chat_state_store_upsert_channel(&ui->chat_state, {50, 0, 0, utf8_literal("DM"), 0, 0, 3}).ok(),
+          "home navigation: conversation fixture");
+    check(select_home() && friends_shown == 1 && application_friends_active(),
+          "home navigation: Home without an earlier conversation shows Friends");
+    check(chat_state_store_select_channel(&ui->chat_state, 50).ok() && (application_friends_hide(), true) &&
+              select_content_guild(10) && select_home() && friends_shown == 1 && !friends_visible &&
+              ui->chat_state.home_selected && ui->chat_state.selected_channel_id == 50,
+          "home navigation: leaving a conversation for a server returns Home to that conversation");
+    check(application_friends_show() && select_content_guild(10) && !friends_visible && select_home() &&
+              friends_shown == 3 && application_friends_active(),
+          "home navigation: leaving Friends for a server returns Home to Friends");
+}
 void tests() noexcept {
     cursor_tests();
+    home_tests();
     check(reset(), "content navigation: real Core fixture initializes");
     g_app.pending_message_jump_channel_id = 21;
     g_app.pending_message_jump_message_id = 800;
@@ -269,7 +292,10 @@ bool application_guild_menu_toggle(bool) noexcept {
     return false;
 }
 bool application_friends_show() noexcept {
-    return false;
+    using namespace content_navigation_test;
+    ++friends_shown;
+    friends_visible = chat_state_store_select_home(&ui->chat_state).ok();
+    return friends_visible;
 }
 ChannelMemoryEntry application_channel_memory_recall(u64) noexcept {
     return {};
@@ -379,9 +405,10 @@ void application_message_mutation_notice_failed(ApplicationMessageMutationKind, 
                                                 const RestClientResponse&) noexcept {
 }
 bool application_friends_active() noexcept {
-    return false;
+    return content_navigation_test::friends_visible && content_navigation_test::ui->chat_state.home_selected;
 }
 void application_friends_hide() noexcept {
+    content_navigation_test::friends_visible = false;
 }
 bool application_thread_browser_active() noexcept {
     return false;

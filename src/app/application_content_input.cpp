@@ -307,10 +307,14 @@ bool insert_command_mention(const MessageTextHit& hit) noexcept {
     return application_composer_fill_command({source.data + 2, separator - 3});
 }
 
+// Home reopens what it showed when a server was last opened from it: Friends
+// or its last conversation.
+bool home_shows_friends = true;
+
 bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexcept {
     if (!g_app.account_ui)
         return false;
-    if (home)
+    if (home && (home_shows_friends || !g_app.account_ui->chat_state.last_private_channel_id))
         return application_friends_show();
     if (!guild && navigation_events_row(id))
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;
@@ -334,6 +338,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     if (category && (category->type == 15 || category->type == 16))
         return application_thread_browser_open(id);
     ui_scroll_host_cancel(&g_app.scroll_host);
+    const bool leaving_home = guild && state.home_selected;
     const bool was_browser = application_thread_browser_active();
     const ChannelMemoryEntry recalled = guild ? application_channel_memory_recall(id) : ChannelMemoryEntry{};
     const auto selected = home ? chat_state_store_select_home(&g_app.account_ui->chat_state)
@@ -345,6 +350,8 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
         log_u64(LogLevel::warning, "ui", "navigation_selection_error", static_cast<u64>(selected.error));
         return true;
     }
+    if (leaving_home)
+        home_shows_friends = was_friends;
     application_thread_browser_close();
     application_friends_hide();
     const u64 selected_channel_id = g_app.account_ui->chat_state.selected_channel_id;
