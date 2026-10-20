@@ -154,6 +154,7 @@ struct ApplicationNotifications {
     StableStorage guilds, overrides, threads, staging, guild_scopes, channel_scopes;
     DesktopNotifications native;
     NotificationAudio audio;
+    NotificationAudioStatus audio_last_observed;
     NotificationSoundAssetBank sound_assets;
     NotificationSoundThrottle sound_throttle;
     DesktopNotificationActivation pending;
@@ -248,6 +249,42 @@ void audio_observe(ApplicationNotifications& n) noexcept {
 #else
     const auto state=notification_audio_status(&n.audio);
 #endif
+    // Submission only confirms the queue accepted a request. The worker may
+    // later fail resolving PCM, opening WASAPI, starting a stream or rendering.
+    // Report transitions after the worker's coalesced status wake, with no PCM
+    // samples, endpoint identifiers or message contents in the log.
+    const auto& last=n.audio_last_observed;
+    if(state.desired_epoch!=last.desired_epoch || state.observed_epoch!=last.observed_epoch ||
+       state.accepted!=last.accepted || state.completed!=last.completed ||
+       state.canceled!=last.canceled || state.failed!=last.failed ||
+       state.queued!=last.queued || state.outstanding!=last.outstanding ||
+       state.active!=last.active || state.stream_open!=last.stream_open ||
+       state.worker_started!=last.worker_started || state.worker_exited!=last.worker_exited ||
+       state.device_open_attempts!=last.device_open_attempts ||
+       state.stream_open_attempts!=last.stream_open_attempts ||
+       state.error!=last.error || state.native_error!=last.native_error ||
+       state.wake_error!=last.wake_error) {
+        NotificationTrace trace("audio_worker_status");
+        trace.field("desired_epoch",state.desired_epoch);
+        trace.field("observed_epoch",state.observed_epoch);
+        trace.field("accepted",state.accepted);
+        trace.field("completed",state.completed);
+        trace.field("failed",state.failed);
+        trace.field("canceled",state.canceled);
+        trace.field("queued",state.queued);
+        trace.field("outstanding",state.outstanding);
+        trace.field("active",state.active);
+        trace.field("worker_started",state.worker_started);
+        trace.field("stream_open",state.stream_open);
+        trace.field("device_opens",state.device_open_attempts);
+        trace.field("stream_opens",state.stream_open_attempts);
+        trace.field("error",static_cast<u32>(state.error));
+        trace.field("native",state.native_error);
+        trace.field("wake_error",state.wake_error);
+        trace.emit(state.error==NotificationAudioError::none&&state.failed==last.failed?
+            LogLevel::info:LogLevel::warning);
+        n.audio_last_observed=state;
+    }
     if(state.worker_exited || state.stopping) audio_error(n,{NotificationAudioError::stopped,state.native_error});
 }
 void audio_reset(ApplicationNotifications& n,bool enabled) noexcept {
