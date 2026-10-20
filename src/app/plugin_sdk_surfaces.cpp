@@ -7,12 +7,19 @@ namespace maicord {
 namespace {
 using namespace plugin_sdk;
 
-constexpr Utf8View kIconNames[]{
-#define MAICORD_ICON(name, source) utf8_literal(source),
+// Icon source names ("lucide/paperclip"), each NUL-terminated, in UiIcon order.
+constexpr char kIconNames[] =
+#define MAICORD_ICON(name, source) source "\0"
 #include "maicord/ui/icon_ids.inc"
 #undef MAICORD_ICON
-};
-static_assert(sizeof(kIconNames) / sizeof(kIconNames[0]) == static_cast<u32>(UiIcon::count));
+    ;
+consteval u32 icon_name_count() noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i + 1 < sizeof(kIconNames); ++i)
+        count += kIconNames[i] == 0;
+    return count;
+}
+static_assert(icon_name_count() == static_cast<u32>(UiIcon::count));
 
 constexpr u32 kind_bit(u32 kind) noexcept { return 1u << kind; }
 
@@ -538,8 +545,13 @@ void native_plugin_sdk_popover_clear(NativePluginSdkRuntime* runtime) noexcept {
 }
 
 u16 native_plugin_sdk_icon(Utf8View name) noexcept {
-    for (u32 i = 0; i < sizeof(kIconNames) / sizeof(kIconNames[0]); ++i)
-        if (utf8_equal(kIconNames[i], name)) return static_cast<u16>(i);
+    const char* cursor = kIconNames;
+    for (u32 i = 0; i < static_cast<u32>(UiIcon::count); ++i) {
+        u32 bytes = 0;
+        while (cursor[bytes]) ++bytes;
+        if (utf8_equal({cursor, bytes}, name)) return static_cast<u16>(i);
+        cursor += bytes + 1;
+    }
     return kPluginSdkNoIcon;
 }
 
