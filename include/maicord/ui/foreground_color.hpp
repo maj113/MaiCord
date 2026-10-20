@@ -26,7 +26,7 @@ inline bool readable(const Color (&candidates)[Count], double background, Color*
 // accents), each only when it keeps normal-text contrast; otherwise an opaque
 // endpoint. Text wins over backgrounds, so AMOLED's pure black base never
 // labels its blue accent. The bounded sRGB math adds no theme state or CRT.
-inline Color ui_surface_foreground(const Theme& theme, Color fill) noexcept {
+__declspec(noinline) inline Color ui_surface_foreground(const Theme& theme, Color fill) noexcept {
     const double background = background_color_luminance(fill);
     const Color text[]{theme.text_primary, theme.text_secondary};
     const Color accent[]{theme.tokens.emphasis.text};
@@ -41,7 +41,7 @@ inline Color ui_surface_foreground(const Theme& theme, Color fill) noexcept {
 }
 // Preserve semantic hue while keeping authored role colors readable on the
 // admitted gradient canvas. This runs when text is published, not on hover.
-inline Color ui_foreground_color(const Theme& theme, Color color) noexcept {
+__declspec(noinline) inline Color ui_foreground_color(const Theme& theme, Color color) noexcept {
     const bool light = theme.appearance == ThemeAppearance::light;
     if (!light && !ui_background_active(theme))
         return color;

@@ -16,7 +16,7 @@ inline Color background_color_rgb24(u32 rgb) noexcept {
 }
 // Fixed, local arithmetic avoids a CRT math import or lookup-table owner. All
 // callers use the closed unit interval; bisection has a fixed iteration bound.
-inline double background_color_root(double value, u32 degree) noexcept {
+__declspec(noinline) inline double background_color_root(double value, u32 degree) noexcept {
     if (degree < 2 || degree > 12)
         return 0;
     if (value <= 0)
@@ -36,7 +36,7 @@ inline double background_color_root(double value, u32 degree) noexcept {
     }
     return (low + high) * .5;
 }
-inline double background_color_linear(float channel) noexcept {
+__declspec(noinline) inline double background_color_linear(float channel) noexcept {
     const double value = background_color_unit(channel);
     if (value <= .04045)
         return value / 12.92;
@@ -44,7 +44,7 @@ inline double background_color_linear(float channel) noexcept {
     const double squared = scaled * scaled;
     return squared * background_color_root(squared, 5);
 }
-inline float background_color_srgb(double channel) noexcept {
+__declspec(noinline) inline float background_color_srgb(double channel) noexcept {
     if (!(channel > 0))
         return 0;
     if (channel >= 1)
