@@ -496,6 +496,17 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(projected, "background theme: presets project source-tinted opaque surfaces and text while "
                      "preserving semantic accent tokens");
+    preferences.theme = ClientTheme::sunset;
+    const auto tinted = client_theme_projection(preferences);
+    preferences.theme = ClientTheme::dark;
+    const auto flat = client_theme_projection(preferences);
+    const auto tone = [](Color c) noexcept { return .2126f * c.red + .7152f * c.green + .0722f * c.blue; };
+    const Color line = ui_background_line_color(tinted), flat_line = ui_background_line_color(flat);
+    const float tone_shift = tone(line) - tone(tinted.interactive_hover);
+    check(bytes_equal(&flat_line, &flat.interactive_hover, sizeof(Color)) &&
+              !bytes_equal(&line, &tinted.interactive_hover, sizeof(Color)) &&
+              line.alpha == tinted.interactive_hover.alpha && tone_shift < .01f && tone_shift > -.01f,
+          "background theme: connector lines keep their tone in the theme's tint; flat themes keep the colour");
     preferences.theme = ClientTheme::custom_gradient;
     preferences.gradient.strength = 101;
     check(background_theme_equal(client_theme_projection(preferences).background,

@@ -609,7 +609,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                             row.id, row.type);
                         if (!ui_private_avatar_placeholder_paint(stream, shape, icon_rectangle, theme))
                             return false;
-                    } else if (thread ? !paint_thread_spine(stream, spine, theme.interactive_hover)
+                    } else if (thread ? !paint_thread_spine(stream, spine, ui_background_line_color(theme))
                                       : !ui_icon_paint(stream, channel_row_icon(row), icon_rectangle,
                                                        row.stage_live ? ui_icon_role_color(theme, UiIconRole::success)
                                                                       : row_color)) {

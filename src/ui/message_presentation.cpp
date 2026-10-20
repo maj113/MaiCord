@@ -328,13 +328,14 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     const float text_left = body->content_rectangle.left;
     if (row.forwarded_snapshot) {
         const UiWidgetReference owner{&scene.widgets, row.widget};
+        const Color line = ui_background_line_color(theme);
         const UiRect edge{row_layout->rectangle.left, row_layout->rectangle.top,
                           row_layout->rectangle.left + 3, row_layout->rectangle.bottom};
         const UiRect glyph{reply->rectangle.left, reply->rectangle.top + 1, reply->rectangle.left + 18,
                            reply->rectangle.top + 19};
         if (!push_material(paint, owner, row_layout->rectangle, theme, theme.surface, theme.interactive, 8,
                            1, UiLayoutContentKind::decoration, UiBackgroundTier::low) ||
-            !push_owned(paint, owner, edge, theme.interactive_hover, theme.interactive_hover, 1, 0,
+            !push_owned(paint, owner, edge, line, line, 1, 0,
                         UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
             !ui_icon_paint(paint, UiIcon::forwarded, glyph, theme.text_secondary))
             return false;
@@ -351,12 +352,11 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         const UiRect connector_horizontal{connector_x, connector_y - 1.0f, reference_avatar.left - 3.0f,
                                           connector_y + 1.0f};
         const UiWidgetReference reply_owner{&scene.widgets, row.reply};
-        if (!push_owned(paint, reply_owner, connector_vertical, theme.interactive_hover,
-                        theme.interactive_hover, 1.0f, 0.0f, UiLayoutContentKind::decoration,
-                        ui_layout_content_bounds_allow_overflow) ||
-            !push_owned(paint, reply_owner, connector_horizontal, theme.interactive_hover,
-                        theme.interactive_hover, 1.0f, 0.0f, UiLayoutContentKind::decoration,
-                        ui_layout_content_bounds_allow_overflow) ||
+        const Color line = ui_background_line_color(theme);
+        if (!push_owned(paint, reply_owner, connector_vertical, line, line, 1.0f, 0.0f,
+                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overflow) ||
+            !push_owned(paint, reply_owner, connector_horizontal, line, line, 1.0f, 0.0f,
+                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overflow) ||
             !push_owned(paint, reply_owner, reference_avatar, theme.avatar_placeholder,
                         theme.avatar_placeholder, reference_extent * 0.5f, 0.0f, UiLayoutContentKind::icon,
                         ui_layout_content_bounds_allow_overlap)) {

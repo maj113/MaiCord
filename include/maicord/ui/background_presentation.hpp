@@ -117,6 +117,11 @@ inline Color ui_background_hover_color(const Theme& theme, Color color, float op
     color.alpha *= opacity >= 0 ? minimum(opacity, 1.f) : 0;
     return color;
 }
+// Thin connector lines (reply arms, thread spines, a forward's edge): their
+// usual tone in the theme's tint. Flat themes keep the colour.
+inline Color ui_background_line_color(const Theme& theme) noexcept {
+    return ui_background_hover_color(theme, theme.interactive_hover, 1);
+}
 inline Color ui_background_muted_text_color(const Theme& theme) noexcept {
     return theme.text_secondary;
 }
