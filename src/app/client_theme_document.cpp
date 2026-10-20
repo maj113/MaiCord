@@ -854,11 +854,11 @@ struct Writer {
             data[used] = c;
         ++used;
     }
-    void text(Utf8View text) noexcept {
+    __declspec(noinline) void text(Utf8View text) noexcept {
         for (u32 i = 0; i < text.bytes; ++i)
             character(text.data[i]);
     }
-    void quoted(Utf8View text) noexcept {
+    __declspec(noinline) void quoted(Utf8View text) noexcept {
         character('"');
         for (u32 i = 0; i < text.bytes; ++i) {
             if (text.data[i] == '"' || text.data[i] == '\\')

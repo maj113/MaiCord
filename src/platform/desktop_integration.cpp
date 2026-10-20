@@ -47,7 +47,7 @@ struct WideBuilder {
     wchar_t* data;
     u32 capacity, count;
     bool ok;
-    WideBuilder& add(const wchar_t* text, u32 units) noexcept {
+    __declspec(noinline) WideBuilder& add(const wchar_t* text, u32 units) noexcept {
         if (!ok || units >= capacity - count) {
             ok = false;
             return *this;

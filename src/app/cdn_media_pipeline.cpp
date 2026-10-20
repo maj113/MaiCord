@@ -17,7 +17,8 @@ struct CacheLeaseScope {
     EncodedMediaCache* cache;
     EncodedMediaCacheLease lease;
 
-    CacheLeaseScope(EncodedMediaCache* source, MediaAssetKey key, u64 now_seconds) noexcept
+    __declspec(noinline) CacheLeaseScope(EncodedMediaCache* source, MediaAssetKey key,
+                                         u64 now_seconds) noexcept
         : cache(source), lease(encoded_media_cache_acquire(source, key, now_seconds)) {
     }
 

@@ -19,7 +19,7 @@ struct TextBank {
         return {data + used - take, take};
     }
     // Decimal digits; the most significant ones that fit when out of room.
-    Utf8View number(u64 value) noexcept {
+    __declspec(noinline) Utf8View number(u64 value) noexcept {
         char digits[20];
         return add({digits, decimal_write(digits, value)});
     }
