@@ -1,4 +1,5 @@
 #include "maicord/text/gpos_execute.hpp"
+#include "gpos_validated.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
@@ -68,8 +69,8 @@ SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntG
         if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;if(lookup.subtables.count && glyph.glyph>=lookup.subtables.data[0].glyph_limit)return SfntStatus::glyph_out_of_range;
         if(!selected && ((bounds&&sfnt_lookup_bounds_exclude(*bounds,glyph.glyph))||sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class))){++at;continue;}
         SfntGposMatch match{};
-        for(u32 i=0;i<lookup.subtables.count;++i){u32 used=0;const u32 budget=work<match_limit?static_cast<u32>(work):match_limit;
-            const auto s=sfnt_gpos_subtable_match_view(lookup.subtables.data[i],gdef,lookup.filter,glyphs,at,end,&match,budget,&used);spend(result,&work,used);if(s!=SfntStatus::ok)return s;if(match.matched)break;}
+        for(u32 i=0;i<lookup.subtables.count;++i){const u32 budget=work<match_limit?static_cast<u32>(work):match_limit;
+            u32 left=budget;const auto s=gpos_subtable_match(lookup.subtables.data[i],gdef,lookup.filter,glyphs,at,end,&match,&left);spend(result,&work,budget-left);if(s!=SfntStatus::ok)return s;if(match.matched)break;}
         if(!match.matched){++at;continue;}
         SfntPositionAdjustment first{},second{};auto s=resolve(match.values[0],instance,&first,result,&work);if(s!=SfntStatus::ok)return s;
         const auto a=adjusted(positions.data[at],first,rtl);SfntPosition b{};const bool pair=match.second_input!=0xffffffffu;

@@ -173,7 +173,7 @@ struct Executor {
                 previous_index=sfnt_coverage_index(coverage,first);previous_coverage=&coverage;coverage_cache.checked[cache_slot]=static_cast<u16>(i+1);
                 if(previous_index==sfnt_not_covered)continue;coverage_cache.words[cache_slot][i/64]|=1ull<<(i%64);}
             const u32 allowance=static_cast<u32>(minimum<u64>(match_work,work));u32 charged=0;
-            if(lookup.type<=4){s=sfnt_gsub_subtable_match_view(sub.basic,program.gdef,lookup.filter,prefix(view,end),at,alternate,scratch.consumed,&m,allowance,&charged,mask);work-=charged;}
+            if(lookup.type<=4){u32 left=allowance;s=gsub_subtable_match(sub.basic,program.gdef,lookup.filter,prefix(view,end),at,alternate,scratch.consumed,&m,&left,mask);work-=allowance-left;}
             else if(lookup.type==8){s=sfnt_gsub_reverse_match_view(sub.reverse,program.gdef,lookup.filter,view,at,&m,allowance,&charged,mask);work-=charged;
                 if(s==SfntStatus::ok && m.matched){if(!scratch.consumed.count)return SfntStatus::output_too_small;scratch.consumed.data[0]=at;}}
             else {

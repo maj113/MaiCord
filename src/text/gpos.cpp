@@ -1,5 +1,6 @@
 #include "maicord/text/gpos.hpp"
 #include "maicord/text/base.hpp"
+#include "gpos_validated.hpp"
 
 namespace maicord {namespace {
 struct WorkReport {u32 initial;const u32& remaining;u32* used;~WorkReport() noexcept {if(used)*used=initial-remaining;}};
@@ -68,7 +69,8 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposSubtable* output
     *output=result;return SfntStatus::ok;
 }
 inline bool glyph_valid(const SfntGsubGlyph& glyph,u32 limit) noexcept {return glyph.glyph<limit && static_cast<u8>(glyph.glyph_class)<=4;}
-SfntStatus match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32* work) noexcept {
+}
+SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32* work) noexcept {
     if(!spend(work))return SfntStatus::resource_limit;const auto& first=sfnt_glyph_at(glyphs,start);if(!glyph_valid(first,sub.glyph_limit))return SfntStatus::invalid_input;
     if(first.glyph>sub.last_covered_glyph)return SfntStatus::ok;
     const u32 cov=sfnt_coverage_index(sub.coverage,first.glyph);if(cov==sfnt_not_covered)return SfntStatus::ok;
@@ -84,7 +86,6 @@ SfntStatus match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLook
     } else {const u16 c1=sfnt_class_value(sub.classes[0],first.glyph),c2=sfnt_class_value(sub.classes[1],glyph);if(c1>=sub.counts[0] || c2>=sub.counts[1])return SfntStatus::ok;
         at=16+static_cast<u32>((static_cast<u64>(c1)*sub.counts[1]+c2)*(sub.value_bytes[0]+sub.value_bytes[1]));}
     result.values[0]=value_view(parent,at,sub.value_formats[0],sub.value_bytes[0]);result.values[1]=value_view(parent,at+sub.value_bytes[0],sub.value_formats[1],sub.value_bytes[1]);result.second_input=second;result.next_input=second+(sub.value_formats[1]?1u:0u);*output=result;return SfntStatus::ok;
-}
 }
 u16 sfnt_position_value_size(u16 format) noexcept {if(format&0xff00)return 0xffff;u16 bytes=0;while(format){format=static_cast<u16>(format&(format-1));bytes+=2;}return bytes;}
 SfntStatus sfnt_value_record_read(const SfntValueRecord& record,SfntPositionValue* output) noexcept {
@@ -115,6 +116,6 @@ SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 limit,SfntG
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(table,type,limit,output,&work);
 }
 SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32 work,u32* used) noexcept {
-    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;return match(sub,gdef,filter,glyphs,start,end,output,&work);
+    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;return gpos_subtable_match(sub,gdef,filter,glyphs,start,end,output,&work);
 }
 }
