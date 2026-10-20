@@ -74,7 +74,7 @@ inline BackgroundHsl background_color_hsl(Color color) noexcept {
         hue += 360;
     return {hue, saturation, lightness};
 }
-inline Color background_color_from_hsl(BackgroundHsl hsl) noexcept {
+__declspec(noinline) inline Color background_color_from_hsl(BackgroundHsl hsl) noexcept {
     const float saturation = background_color_unit(hsl.saturation),
                 lightness = background_color_unit(hsl.lightness);
     if (!saturation)
@@ -113,7 +113,7 @@ inline Color background_color_from_hsl(BackgroundHsl hsl) noexcept {
     result.blue += offset;
     return result;
 }
-inline BackgroundOklab background_color_oklab(Color color) noexcept {
+__declspec(noinline) inline BackgroundOklab background_color_oklab(Color color) noexcept {
     const double red = background_color_linear(color.red), green = background_color_linear(color.green),
                  blue = background_color_linear(color.blue);
     const double l = background_color_root(.4122214708 * red + .5363325363 * green + .0514459929 * blue, 3);
@@ -123,7 +123,8 @@ inline BackgroundOklab background_color_oklab(Color color) noexcept {
             1.9779984951 * l - 2.4285922050 * m + .4505937099 * s,
             .0259040371 * l + .7827717662 * m - .8086757660 * s};
 }
-inline Color background_color_from_oklab(BackgroundOklab lab, float alpha = 1) noexcept {
+__declspec(noinline) inline Color
+background_color_from_oklab(BackgroundOklab lab, float alpha = 1) noexcept {
     const double l = lab.lightness + .3963377774 * lab.a + .2158037573 * lab.b,
                  m = lab.lightness - .1055613458 * lab.a - .0638541728 * lab.b,
                  s = lab.lightness - .0894841775 * lab.a - 1.2914855480 * lab.b;
@@ -183,7 +184,7 @@ inline u32 background_color_pack(Color color) noexcept {
               blue = static_cast<u32>(background_color_unit(color.blue) * 255 + .5f);
     return (red << 16) | (green << 8) | blue;
 }
-inline u32 background_color_rotate_hue(u32 rgb, float degrees) noexcept {
+__declspec(noinline) inline u32 background_color_rotate_hue(u32 rgb, float degrees) noexcept {
     auto hsl = background_color_hsl(background_color_rgb24(rgb));
     if (!(degrees >= -360 && degrees <= 360))
         return rgb & 0xffffff;

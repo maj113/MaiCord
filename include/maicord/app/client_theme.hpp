@@ -5,7 +5,7 @@
 #include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
-inline Theme client_theme_projection(const ClientPreferences& preferences) noexcept {
+__declspec(noinline) inline Theme client_theme_projection(const ClientPreferences& preferences) noexcept {
     Theme theme =
         preferences.theme == ClientTheme::light || preferences.theme == ClientTheme::custom_light_gradient
             ? kLightTheme
