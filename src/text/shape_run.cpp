@@ -129,14 +129,19 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
        static_cast<u64>(count)*(clusters.levels*2+4)>limits.stage_work)return SfntStatus::resource_limit;
     constexpr u32 absent=0xffffffffu;
     if(!defer_output)for(u32 i=0;i<units;++i)s.character_glyphs[i]=absent;
-    SfntGlyphSummary glyph_bounds{},mark_bounds{};u64 metric_slots=0;u32 previous=absent;
+    SfntGlyphSummary glyph_bounds{},mark_bounds{};u64 metric_slots=0;u32 previous=absent,previous_source=absent;
     const bool position_bounds=plan.positioning_roots.count>1;
     const u32 cache_size=plan.cache_advances?(s.targets.count>=64?64u:s.targets.count>=32?32u:0u):0u;
     for(u32 i=0;i<count;++i){auto& record=s.glyphs[i];auto& glyph=record.glyph;
         if(!policy.prepare)glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph,classes);
         else if(s.flags[i]>1)return SfntStatus::invalid_input;
         if(static_cast<u8>(glyph.glyph_class)>4||record.source>=units)return SfntStatus::invalid_input;
-        const u32 cluster=sfnt_cluster_map_start(clusters,record.source);if(cluster==absent)return SfntStatus::invalid_input;
+        // Glyphs usually follow their sources; the next source unit either starts
+        // a cluster or continues the previous one.
+        const u32 source=record.source;
+        const u32 cluster=source==previous_source?previous:source==previous_source+1?(sfnt_cluster_map_starts(clusters,source)?source:previous):
+            sfnt_cluster_map_start(clusters,source);
+        if(cluster==absent)return SfntStatus::invalid_input;previous_source=source;
         if(!defer_output&&s.character_glyphs[cluster]==absent)s.character_glyphs[cluster]=i;
         if(position_bounds){sfnt_glyph_summary_add(glyph_bounds,glyph.glyph);if(glyph.glyph_class==SfntGlyphClass::mark)sfnt_glyph_summary_add(mark_bounds,glyph.glyph);}
         const u32 slot=glyph.glyph&(cache_size?cache_size-1:0);const u64 bit=1ull<<slot;
