@@ -1,15 +1,12 @@
 #include "maicord/text/gpos.hpp"
+#include "layout_read.hpp"
 #include "maicord/text/base.hpp"
 #include "gpos_validated.hpp"
 
 namespace maicord {namespace {
-struct WorkReport {u32 initial;const u32& remaining;u32* used;~WorkReport() noexcept {if(used)*used=initial-remaining;}};
+using layout_read::WorkReport;using layout_read::r16;using layout_read::tail;
 inline bool spend(u32* work,u32 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
-inline u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}
 bool span(ConstSlice<u8> b,u32 at,u64 size) noexcept {return at<=b.count && size<=b.count-at && (!size || b.data);}
-SfntStatus tail(ConstSlice<u8> b,u32 at,u32 minimum,ConstSlice<u8>* output) noexcept {
-    *output={};if(at<minimum)return SfntStatus::malformed;if(!span(b,at,2))return SfntStatus::truncated;*output={b.data+at,b.count-at};return SfntStatus::ok;
-}
 SfntStatus device(ConstSlice<u8> parent,u16 offset,u32 minimum,SfntDevice* output,u32* work) noexcept {
     *output={};if(!offset)return SfntStatus::ok;if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);return s==SfntStatus::ok?sfnt_device_open(bytes,output):s;
 }

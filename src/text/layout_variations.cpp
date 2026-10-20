@@ -1,14 +1,9 @@
 #include "maicord/text/layout_directory.hpp"
+#include "layout_read.hpp"
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}
-u32 r32(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be32(b.data+at);}
-bool span(ConstSlice<u8> b,u32 at,u32 size) noexcept {return b.data && at<=b.count && size<=b.count-at;}
-SfntStatus tail(ConstSlice<u8> b,u32 at,u32 minimum,ConstSlice<u8>* output) noexcept {
-    *output={};if(at<minimum)return SfntStatus::malformed;if(!span(b,at,2))return SfntStatus::truncated;
-    *output={b.data+at,b.count-at};return SfntStatus::ok;
-}
+using layout_read::r16;using layout_read::r32;using layout_read::span;using layout_read::tail;
 SfntStatus matches(ConstSlice<u8> table,ConstSlice<i16> coordinates,bool* match,u32* work) noexcept {
     *match=false;const u16 count=r16(table,0);const u32 end=2+static_cast<u32>(count)*4;
     if(!span(table,0,end))return SfntStatus::truncated;

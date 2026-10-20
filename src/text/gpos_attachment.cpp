@@ -1,10 +1,10 @@
 #include "maicord/text/gpos_attachment.hpp"
+#include "layout_read.hpp"
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-struct WorkReport {u32 initial;const u32& remaining;u32* used;~WorkReport() noexcept {if(used)*used=initial-remaining;}};
+using layout_read::WorkReport;using layout_read::r16;
 inline bool spend(u32* work,u32 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
-inline u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}
 bool span(ConstSlice<u8> b,u32 at,u64 count) noexcept {return at<=b.count && count<=b.count-at && (!count || b.data);}
 ConstSlice<u8> slice(ConstSlice<u8> b,u32 at) noexcept {return {b.data+at,b.count-at};}
 SfntStatus child(ConstSlice<u8> parent,u16 at,u32 minimum,ConstSlice<u8>* out) noexcept {

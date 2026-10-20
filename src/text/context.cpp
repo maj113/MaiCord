@@ -1,16 +1,11 @@
 #include "maicord/text/context.hpp"
+#include "layout_read.hpp"
 #include "context_lookups.hpp"
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-struct WorkReport {u32 initial;const u32& remaining;u32* used;~WorkReport() noexcept {if(used)*used=initial-remaining;}};
-inline u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}
-bool span(ConstSlice<u8> b,u32 at,u32 n) noexcept {return b.data && at<=b.count && n<=b.count-at;}
+using layout_read::WorkReport;using layout_read::r16;using layout_read::span;using layout_read::view;using layout_read::tail;
 inline bool spend(u32* work,u32 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
-inline ConstSlice<u8> view(ConstSlice<u8> b,u32 at,u32 n) noexcept {return {b.data+at,n};}
-SfntStatus tail(ConstSlice<u8> b,u32 at,u32 minimum,ConstSlice<u8>* output) noexcept {
-    *output={};if(at<minimum)return SfntStatus::malformed;if(!span(b,at,2))return SfntStatus::truncated;*output={b.data+at,b.count-at};return SfntStatus::ok;
-}
 struct Header {u32 end,sets_at,back_at,input_at,look_at,actions_at;u16 format,sets,back,input,look,actions,classes;};
 SfntStatus header(ConstSlice<u8> b,SfntContextKind kind,Header* h) noexcept {
     *h={};if(!b.data || static_cast<u8>(kind)>1)return SfntStatus::invalid_input;if(!span(b,0,2))return SfntStatus::truncated;h->format=r16(b,0);const bool chained=kind==SfntContextKind::chained;
