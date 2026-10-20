@@ -433,8 +433,9 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
         return {};
     auto line = label->content_rectangle;
     const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
+    char status_storage[kAppearanceActivityBytes];
     UiActivityStatus status{};
-    if (member_list_row_status(s, index, {}, &status))
+    if (member_list_row_status(s, index, {status_storage, sizeof(status_storage)}, &status))
         line = member_list_row_name_line(line);
     UiBadgeWidget b{};
     b.owner = row.label;

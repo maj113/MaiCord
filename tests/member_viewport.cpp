@@ -484,6 +484,16 @@ u32 test_member_media_cache_scroll() noexcept {
     check(tagged < scene.count && user_activity_upsert(&users.activities, playing));
     frame();
     check(tagged < scene.count && member_list_badge(scene, tagged).rectangle.top < centred.rectangle.top);
+    UserAppearance bot{};
+    bot.user_id = playing.user_id;
+    bot.fields = appearance_bot;
+    bot.bot = true;
+    check(user_appearance_upsert(&users.appearance, bot));
+    frame();
+    const auto bot_badge = member_list_badge(scene, tagged);
+    const auto* bot_label = member_list_scene_layout_node(scene, scene.rows[tagged].label);
+    check(bot_label && bot_badge.rectangle.top < centred.rectangle.top &&
+          bot_badge.rectangle.bottom <= member_list_row_status_line(bot_label->content_rectangle).top);
     user_activity_release(&users.activities);
     user_appearance_release(&users.appearance);
     return failed;
