@@ -265,12 +265,23 @@ struct Decoder {
     }
 };
 
+// Appends commands and, when asked, grows the bounds over every emitted point.
 struct Writer {
     GlyphOutline& out;
+    bool bounds;
+    __forceinline void include(SfntOutlinePoint p) noexcept {
+        if (!out.has_bounds) { out.minimum_x = out.maximum_x = p.x; out.minimum_y = out.maximum_y = p.y; out.has_bounds = true; return; }
+        out.minimum_x = minimum(out.minimum_x, p.x); out.maximum_x = maximum(out.maximum_x, p.x);
+        out.minimum_y = minimum(out.minimum_y, p.y); out.maximum_y = maximum(out.maximum_y, p.y);
+    }
     __forceinline bool append(GlyphPathCommandKind kind, SfntOutlinePoint a = {},
                   SfntOutlinePoint b = {}, SfntOutlinePoint c = {}) noexcept {
         if (out.count == out.capacity) return false;
         out.commands[out.count++] = {a.x, a.y, b.x, b.y, c.x, c.y, kind, {0, 0, 0}};
+        if (bounds && kind != GlyphPathCommandKind::end_closed) {
+            include(a);
+            if (kind == GlyphPathCommandKind::cubic) { include(b); include(c); }
+        }
         return true;
     }
 };
@@ -287,7 +298,7 @@ SfntOutlinePoint normalized(SfntOutlinePoint point, float origin, float scale) n
 }
 
 SfntStatus emit(const SfntOutlineScratch& scratch, GlyphOutline& output, float origin, float scale,bool color,bool bounds) noexcept {
-    Writer writer{output};
+    Writer writer{output,bounds};
     u32 first = 0;
     for (u32 contour = 0; contour < scratch.contour_count; ++contour) {
         const u32 last = scratch.contour_ends.data[contour];
@@ -327,20 +338,6 @@ SfntStatus emit(const SfntOutlineScratch& scratch, GlyphOutline& output, float o
         }
         if (!writer.append(GlyphPathCommandKind::end_closed)) return SfntStatus::output_too_small;
         first = last + 1;
-    }
-    if(bounds&&output.count){
-        output.minimum_x=output.maximum_x=output.commands[0].x1;
-        output.minimum_y=output.maximum_y=output.commands[0].y1;
-        output.has_bounds=true;
-        const auto include=[&](float x,float y) noexcept {
-            output.minimum_x=minimum(output.minimum_x,x);output.maximum_x=maximum(output.maximum_x,x);
-            output.minimum_y=minimum(output.minimum_y,y);output.maximum_y=maximum(output.maximum_y,y);
-        };
-        for(u32 i=0;i<output.count;++i){const auto& c=output.commands[i];
-            if(c.kind==GlyphPathCommandKind::end_closed)continue;
-            include(c.x1,c.y1);
-            if(c.kind==GlyphPathCommandKind::cubic){include(c.x2,c.y2);include(c.x3,c.y3);}
-        }
     }
     return SfntStatus::ok;
 }
