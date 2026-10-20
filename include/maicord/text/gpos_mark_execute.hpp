@@ -2,7 +2,7 @@
 #include "maicord/text/gpos_execute.hpp"
 #include "maicord/text/gpos_attachment.hpp"
 namespace maicord {
-enum class SfntNullAnchorPolicy : u8 {skip,windows_parent_coordinates};
+enum class SfntNullAnchorPolicy : u8 {skip,parent_coordinates};
 struct SfntMarkExecution {u64 operations,matches,search_steps,compatibility_anchors;};
 // Resolved target slots in a caller-supplied target directory. UINT32_MAX means
 // no target. Type 6 compares target identity without resolving physical targets.

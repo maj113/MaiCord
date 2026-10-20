@@ -14,7 +14,7 @@ u32 ligature_fixture(u8* b) noexcept {
 void ligature_input(u32 n) noexcept {
     for(u32 i=0;i<n;++i){ligature_glyphs[i]={static_cast<u16>(i<2?i+1:3),i<2?SfntGlyphClass::base:SfntGlyphClass::mark,0};ligature_nominal[i]=i<2?600:0;ligature_state[i]={ligature_nominal[i],0,0};ligature_associations[i]={i<2?0xffffffffu:i&1,i<2?0:i&1};}
 }
-SfntStatus ligature_run(const SfntGposAttachmentLookup& lookup,u32 n,u32 start,bool rtl,Slice<double> prefix,SfntLigatureExecution* result,u64 budget=1000000,SfntComponentAnchorPolicy component=SfntComponentAnchorPolicy::skip_missing,SfntNullAnchorPolicy nulls=SfntNullAnchorPolicy::windows_parent_coordinates) noexcept {
+SfntStatus ligature_run(const SfntGposAttachmentLookup& lookup,u32 n,u32 start,bool rtl,Slice<double> prefix,SfntLigatureExecution* result,u64 budget=1000000,SfntComponentAnchorPolicy component=SfntComponentAnchorPolicy::skip_missing,SfntNullAnchorPolicy nulls=SfntNullAnchorPolicy::parent_coordinates) noexcept {
     const u32 targets[]{0,1};return sfnt_position_execute_ligature_lookup(lookup,{},sfnt_glyph_view({ligature_glyphs,n}),{ligature_nominal,n},{ligature_associations,n},{targets,2},{ligature_state,n},start,n,rtl,{},nulls,component,prefix,result,budget);
 }
 bool ligature_units() noexcept {

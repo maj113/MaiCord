@@ -283,7 +283,7 @@ bool lookup_bound_guards() noexcept {
     SfntGsubGlyph glyph{0,SfntGlyphClass::unassigned,0};const double nominal=1;const u8 flag=sfnt_position_cluster_start;SfntPosition position{1,0,0};
     SfntGposExecutableLookup lookup{};lookup.type=1;lookup.bounds.ready=1;
     SfntGposProgram program{{&lookup,1},{},1};SfntGposExecutionResult result{};
-    auto execute=[&](u64 work) noexcept {return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view(ConstSlice<SfntGsubGlyph>{&glyph,1}),{&nominal,1},{&flag,1},{},{},{&position,1},0,1,false,{},SfntNullAnchorPolicy::windows_parent_coordinates,SfntComponentAnchorPolicy::skip_missing,{},{work,100},&result);};
+    auto execute=[&](u64 work) noexcept {return sfnt_gpos_execute_program_lookup(program,0,sfnt_glyph_view(ConstSlice<SfntGsubGlyph>{&glyph,1}),{&nominal,1},{&flag,1},{},{},{&position,1},0,1,false,{},SfntNullAnchorPolicy::parent_coordinates,SfntComponentAnchorPolicy::skip_missing,{},{work,100},&result);};
     CHECK(execute(1)==SfntStatus::ok&&result.operations==1&&!result.matches&&position.advance==1);
     CHECK(execute(0)==SfntStatus::resource_limit&&result.operations==0);
     lookup.bounds.ready=0;CHECK(execute(1)==SfntStatus::resource_limit);CHECK(execute(100)==SfntStatus::ok&&!result.matches&&position.advance==1);

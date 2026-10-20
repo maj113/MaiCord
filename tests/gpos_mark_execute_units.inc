@@ -83,9 +83,9 @@ bool mark_units() noexcept {
     // Null policy has observable behavior; strict mode leaves the mark untouched.
     put(raw,38,0);if(sfnt_gpos_attachment_open({raw,46},4,3,&sub)!=SfntStatus::ok || sfnt_position_initialize({nominal,2},{flags,2},false,{p,2})!=SfntStatus::ok)return false;copy_bytes(initial,p,sizeof(p));
     if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::skip,&result)!=SfntStatus::ok || result.matches || !bytes_equal(p,initial,sizeof(p)))return false;
-    if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::windows_parent_coordinates,&result)!=SfntStatus::ok || result.compatibility_anchors!=1 || p[1].advance_offset!=-620 || p[1].ascender_offset!=-29)return false;
+    if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::parent_coordinates,&result)!=SfntStatus::ok || result.compatibility_anchors!=1 || p[1].advance_offset!=-620 || p[1].ascender_offset!=-29)return false;
     if(sfnt_gpos_attachment_open({raw,40},4,3,&sub)!=SfntStatus::ok || sfnt_position_initialize({nominal,2},{flags,2},false,{p,2})!=SfntStatus::ok)return false;copy_bytes(initial,p,sizeof(p));
-    if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::windows_parent_coordinates,&result)!=SfntStatus::truncated || result.matches || !bytes_equal(p,initial,sizeof(p)))return false;
+    if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::parent_coordinates,&result)!=SfntStatus::truncated || result.matches || !bytes_equal(p,initial,sizeof(p)))return false;
     put(raw,38,4);put(raw,40,2);put(raw,46,9);if(sfnt_gpos_attachment_open({raw,48},4,3,&sub)!=SfntStatus::ok)return false;
     if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::skip,&result)!=SfntStatus::unsupported || !bytes_equal(p,initial,sizeof(p)))return false;
     PointProbe probe{0,0,0,true};
@@ -101,5 +101,5 @@ bool mark_units() noexcept {
     const SfntPositionInstance varied{&instance,0,0,true,VariationArithmetic::wide};
     if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,varied,SfntNullAnchorPolicy::skip,&result)!=SfntStatus::ok || p[1].advance_offset!=-299.5 || p[1].ascender_offset!=670)return false;
     put(raw,38,0);if(sfnt_gpos_attachment_open({raw,56},4,3,&sub)!=SfntStatus::ok)return false;copy_bytes(initial,p,sizeof(p));
-    return sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,varied,SfntNullAnchorPolicy::windows_parent_coordinates,&result)==SfntStatus::unsupported && !result.matches && bytes_equal(p,initial,sizeof(p));
+    return sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,varied,SfntNullAnchorPolicy::parent_coordinates,&result)==SfntStatus::unsupported && !result.matches && bytes_equal(p,initial,sizeof(p));
 }
