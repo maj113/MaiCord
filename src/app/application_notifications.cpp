@@ -14,6 +14,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/desktop_notification_queue.hpp"
@@ -46,6 +47,57 @@ struct Display {
     char bytes[kDesktopNotificationQueueBytes], scratch[kDesktopNotificationQueueItemBytes];
 };
 constexpr u32 projected_maximum_bytes=256+1024;
+// One bounded, content-free record per notification candidate or delivery
+// operation. Keep the message, author name and toast body out of diagnostics.
+struct NotificationTrace {
+    char bytes[512]{};
+    u32 used{};
+    explicit NotificationTrace(const char* name) noexcept { append(name); }
+    void append(const char* text) noexcept {
+        if(!text) return;
+        while(*text && used+1<sizeof(bytes)) bytes[used++]=*text++;
+        bytes[used]=0;
+    }
+    void field(const char* name,const char* value) noexcept {
+        append(" "); append(name); append("="); append(value);
+    }
+    void field(const char* name,u64 value) noexcept {
+        append(" "); append(name); append("=");
+        char digits[20]; const u32 count=decimal_write(digits,value);
+        for(u32 i=0;i<count && used+1<sizeof(bytes);++i) bytes[used++]=digits[i];
+        bytes[used]=0;
+    }
+    void emit(LogLevel level=LogLevel::info) const noexcept {
+        log_write(level,"notifications",bytes);
+    }
+};
+const char* notification_reason_name(MessageNotificationReason reason) noexcept {
+    switch(reason) {
+    case MessageNotificationReason::eligible: return "eligible";
+    case MessageNotificationReason::unknown: return "unknown";
+    case MessageNotificationReason::not_live: return "not_live";
+    case MessageNotificationReason::duplicate: return "duplicate";
+    case MessageNotificationReason::silent: return "silent";
+    case MessageNotificationReason::self: return "self";
+    case MessageNotificationReason::special: return "special";
+    case MessageNotificationReason::dnd: return "dnd";
+    case MessageNotificationReason::quiet: return "quiet";
+    case MessageNotificationReason::muted: return "muted";
+    case MessageNotificationReason::nothing: return "nothing";
+    case MessageNotificationReason::not_opted_in: return "not_opted_in";
+    case MessageNotificationReason::selected: return "selected";
+    case MessageNotificationReason::not_mentioned: return "not_mentioned";
+    case MessageNotificationReason::not_joined: return "not_joined";
+    }
+    return "invalid";
+}
+void trace_message_drop(const GatewayClientEvent& event,const char* reason) noexcept {
+    NotificationTrace trace("message_drop");
+    trace.field("message",event.message.id);
+    trace.field("channel",event.message.channel_id);
+    trace.field("reason",reason);
+    trace.emit(LogLevel::warning);
+}
 bool identity_paths(Identity& i) noexcept {
     const u32 n = application_desktop_registration_executable(i.executable,1024).count;
     if(!n) return false;
@@ -218,23 +270,42 @@ void audio_preferences(Application& a,ApplicationNotifications& n) noexcept {
     }
 }
 void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
-    if(!id || epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) return;
-    if(id!=1 && id!=2) return;
-    const u32 clip=notification_soundpack_clip(n.current_pack,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1);
-    if(!clip) return;
+    if(!id) return;
+    const char* skip=epoch!=n.audio_epoch?"stale_epoch":
+        !n.audio_preference?"preference_disabled":!audio_sink(n)?"backend_unavailable":
+        (id!=1 && id!=2)?"unknown_sound":nullptr;
+    const u32 clip=skip?0:notification_soundpack_clip(n.current_pack,
+        id==2?NotificationSoundKind::message3:NotificationSoundKind::message1);
+    if(!skip && !clip) skip="clip_unmapped";
+    if(skip) {
+        NotificationTrace trace("sound_skip");
+        trace.field("kind",id); trace.field("epoch",epoch);
+        trace.field("reason",skip); trace.emit();
+        return;
+    }
     const NotificationAudioRequest request{epoch,clip,.4f,{}};
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     const auto result=n.fixture_audio_sink(n.fixture_audio_context,request);
 #else
     const auto result=notification_audio_submit(&n.audio,request);
 #endif
+    NotificationTrace trace("sound_submit");
+    trace.field("kind",id); trace.field("clip",clip); trace.field("epoch",epoch);
+    trace.field("error",static_cast<u32>(result.error)); trace.field("native",result.native_error);
+    trace.emit(result.ok()?LogLevel::info:LogLevel::warning);
     if(result.ok()) ++n.audio_submitted; else audio_error(n,result);
 }
 void sound_throttled(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
-    if(!id || epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) return;
+    if(!id) return;
+    if(epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) {
+        sound_submit(n,id,epoch); return;
+    }
     const auto invocation=notification_sound_throttle_request(&n.sound_throttle,sound_clock(n),
         {epoch,0,.4f,id==2?NotificationSoundKind::message3:NotificationSoundKind::message1});
-    if(invocation.invoke) sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
+    if(!invocation.invoke) {
+        NotificationTrace trace("sound_deferred"); trace.field("kind",id);
+        trace.field("epoch",epoch); trace.field("reason","throttle"); trace.emit();
+    } else sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
 }
 Display* ensure_display(ApplicationNotifications& n) noexcept {
     if(n.display) return n.display;
@@ -341,7 +412,11 @@ ApplicationNotifications* ensure(Application* a) noexcept {
     notification_sound_assets_volume(&n->sound_assets,a->preferences.output_volume);
     const NotificationAudioConfig audio_config{notification_sound_asset_resolve,&n->sound_assets,
         a->window,a->window?kApplicationNotificationMessage:0,1,n->audio_preference,notification_sound_asset_gain};
-    if(!notification_audio_initialize(&n->audio,audio_config).ok()) {
+    const auto audio_started=notification_audio_initialize(&n->audio,audio_config);
+    if(!audio_started.ok()) {
+        NotificationTrace trace("audio_initialize_failed");
+        trace.field("error",static_cast<u32>(audio_started.error));
+        trace.field("native",audio_started.native_error); trace.emit(LogLevel::warning);
         release_storage(*n); VirtualFree(n,0,MEM_RELEASE); return nullptr;
     }
     notification_sound_throttle_generation(&n->sound_throttle,n->audio_epoch);
@@ -388,9 +463,12 @@ void scope_admission_failed(ApplicationNotifications& n,u64 guild) noexcept {
     message_notifications_mark_incomplete(&n.settings,guild);
     if(auto* scope=find_scope(n.guild_scopes,n.guild_scope_count,guild)) forget_age_gate(*scope);
 }
-void transport_error(ApplicationNotifications& n,DesktopNotificationResult result) noexcept {
+void transport_error(ApplicationNotifications& n,DesktopNotificationResult result,const char* operation) noexcept {
     if(result.ok()) return;
     n.status=utf8_literal("Windows could not deliver desktop notifications. Check notification settings.");
+    NotificationTrace trace("native_failure");
+    trace.field("operation",operation); trace.field("error",static_cast<u32>(result.error));
+    trace.field("hresult",result.native_error); trace.emit(LogLevel::warning);
     log_u64(LogLevel::warning,"notifications","native_error",result.native_error);
 }
 void retention_close(ApplicationNotifications& n,DesktopNotificationActivation target) noexcept {
@@ -398,10 +476,10 @@ void retention_close(ApplicationNotifications& n,DesktopNotificationActivation t
     // opaque request IDs; its private IPC does not prove a unique close nonce.
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     if(n.fixture_retention_remove) {
-        transport_error(n,n.fixture_retention_remove(n.fixture_retention_context,target)); return;
+        transport_error(n,n.fixture_retention_remove(n.fixture_retention_context,target),"retention_remove_fixture"); return;
     }
 #endif
-    if(n.enrolled) transport_error(n,desktop_notifications_remove_message(&n.native,target));
+    if(n.enrolled) transport_error(n,desktop_notifications_remove_message(&n.native,target),"retention_remove_message");
 }
 Utf8View entity(void* context,MessageMarkdownEntityKind kind,u64 id) noexcept {
     auto& a=*static_cast<Application*>(context);
@@ -463,10 +541,15 @@ bool application_notifications_initialize(Application* a) noexcept {
         if(!checked.ok()) log_u64(LogLevel::warning,"notifications","identity_repair_error",checked.native_error);
     }
     VirtualFree(identity,0,MEM_RELEASE);
-    if(!checked.ok()) return true;
+    if(!checked.ok()) {
+        NotificationTrace trace("identity_not_ready");
+        trace.field("error",static_cast<u32>(checked.error));
+        trace.field("native",checked.native_error); trace.emit();
+        return true;
+    }
     auto* n=ensure(a); if(!n) return false;
     const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,a->window,kApplicationNotificationMessage,true});
-    n->enrolled=result.ok(); transport_error(*n,result);
+    n->enrolled=result.ok(); transport_error(*n,result,"initialize");
     return result.ok();
 }
 void application_notifications_attach_window(Application* a) noexcept {
@@ -484,8 +567,9 @@ void application_notifications_settings_refresh(Application* a) noexcept {
     audio_preferences(*a,*n); audio_observe(*n);
     if(!n->enrolled) return;
     const auto result=desktop_notifications_setting(&n->native,&n->os_setting);
-    transport_error(*n,result);
+    transport_error(*n,result,"read_windows_setting");
     if(!result.ok()) return;
+    NotificationTrace trace("windows_setting"); trace.field("value",n->os_setting); trace.emit();
     // Windows.UI.Notifications.NotificationSetting.
     switch(n->os_setting) {
     case 0: n->status=utf8_literal("Notifications are on."); break;
@@ -526,7 +610,7 @@ bool application_notifications_setup(Application* a) noexcept {
     }
     log_u64(LogLevel::info,"notifications","identity_ready",checked.registry_created);
     const auto result=desktop_notifications_initialize(&n->native,{{app_id,sizeof(app_id)/sizeof(wchar_t)-1},activator_id,a->window,kApplicationNotificationMessage,true});
-    n->enrolled=result.ok(); transport_error(*n,result);
+    n->enrolled=result.ok(); transport_error(*n,result,"setup");
     if(result.ok()) application_notifications_settings_refresh(a);
     return result.ok();
 }
@@ -575,7 +659,7 @@ void acknowledge(Application* a,u64 channel,bool defer_removal) noexcept {
         post_continuation(*a,n);
         return;
     }
-    transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,channel));
+    transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,channel),"ack_channel");
 }
 }
 void application_notifications_ack(Application* a,u64 channel) noexcept {
@@ -590,7 +674,12 @@ bool application_notifications_can_pop(Application* a) noexcept {
     }
     // Reserve the worst case selected message3 plus ordinary message1 BEFORE
     // consuming Gateway input. Worker completion posts a wake; never poll-full.
+    const bool was_audio_backpressured=n.audio_backpressured;
     n.audio_backpressured=n.audio_preference && audio_sink(n) && !audio_capacity(n,2);
+    if(n.audio_backpressured!=was_audio_backpressured) {
+        NotificationTrace trace("audio_backpressure");
+        trace.field("active",n.audio_backpressured); trace.emit();
+    }
     if(!popup_sink(*a,n)) {
         purge_display(n); n.backpressured=false; return !n.audio_backpressured;
     }
@@ -655,7 +744,7 @@ void application_notifications_drain(Application* a) noexcept {
     if(!n.work_pending && !n.pending.message_id && !display_pending && !desktop_notifications_history_pending(&n.native)) return;
     n.work_pending=false;
     for(u32 i=0;i<n.deferred_removal_count;++i)
-        if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,n.deferred_removals[i]));
+        if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_channel(&n.native,n.profile,n.deferred_removals[i]),"deferred_ack_channel");
     n.deferred_removal_count=0;
     DesktopNotificationActivation request{};
     u32 activations=0;
@@ -692,6 +781,24 @@ void application_notifications_drain(Application* a) noexcept {
                 (policy_channel->actions&channel_action_view) && !(window_focused && selected);
             // Failure to reserve metadata cancels this queued intent and
             // follows the normal failed-Show sound fallback, before any Show.
+            if(!valid) {
+                const char* reason=id.profile_id!=n.profile || id.profile_id!=a->account.status.profile_id ||
+                    id.generation!=n.generation?"stale_profile":
+                    !popup_sink(*a,n)?"desktop_unavailable":
+                    !n.ready || !n.live || n.snapshot || n.snapshot_failed?"not_live":
+                    a->login.visible?"login_visible":
+                    a->account.status.required_action!=AccountRequirement::none?"required_action":
+                    !channel?"channel_missing":
+                    !chat_state_store_channel_visible(a->account_ui->chat_state,*channel) ||
+                        !(channel->actions&channel_action_view)?"channel_inaccessible":
+                    !policy_channel?"policy_channel_missing":
+                    !chat_state_store_channel_visible(a->account_ui->chat_state,*policy_channel) ||
+                        !(policy_channel->actions&channel_action_view)?"policy_channel_inaccessible":
+                    window_focused && selected?"focused_selected":"unknown";
+                NotificationTrace trace("popup_skip");
+                trace.field("message",id.message_id); trace.field("channel",id.channel_id);
+                trace.field("reason",reason); trace.emit();
+            }
             if(valid && retention_room(n,id.channel_id)) {
                 // The official client flashes as it shows the popup; focus stops it.
                 if(a->preferences.taskbar_flash) application_taskbar_attention_notify();
@@ -708,10 +815,20 @@ void application_notifications_drain(Application* a) noexcept {
 #endif
                 {
                     const auto shown=desktop_notifications_show_once(&n.native,projected);
+                    NotificationTrace trace("toast_show");
+                    trace.field("message",id.message_id); trace.field("channel",id.channel_id);
+                    trace.field("attempt",dispatch.attempt);
+                    trace.field("state",static_cast<u32>(shown.state));
+                    trace.field("attempted",shown.attempted);
+                    trace.field("error",static_cast<u32>(shown.result.error));
+                    trace.field("hresult",shown.result.native_error);
+                    trace.field("silent",projected.silent);
+                    trace.field("suppress_popup",projected.suppress_popup);
+                    trace.emit(shown.result.ok()?LogLevel::info:LogLevel::warning);
                     if(shown.state==DesktopNotificationShowState::submitted) outcome=DesktopNotificationQueueOutcome::submitted;
                     else if(shown.state==DesktopNotificationShowState::retry_required && dispatch.attempt<2)
                         outcome=DesktopNotificationQueueOutcome::retry;
-                    else transport_error(n,shown.result);
+                    else transport_error(n,shown.result,"show_toast");
                 }
             }
             const auto completed=desktop_notification_queue_complete(&n.display->queue,id.token,dispatch.attempt,outcome);
@@ -741,13 +858,13 @@ void application_notifications_drain(Application* a) noexcept {
                 // channel, including earlier retained successes. Cancel its
                 // metadata too, but never erase a new profile's channel.
                 if(id.profile_id==n.profile) notification_retention_discard_channel(&n.retention,id.channel_id);
-                if(n.enrolled) transport_error(n,desktop_notifications_remove_channel(&n.native,id.profile_id,id.channel_id));
+                if(n.enrolled) transport_error(n,desktop_notifications_remove_channel(&n.native,id.profile_id,id.channel_id),"cancel_show_channel");
             }
         }
         n.history_turn=true;
     } else if(history_pending && n.enrolled) {
         bool pending_history=false;
-        transport_error(n,desktop_notifications_history_step(&n.native,&pending_history));
+        transport_error(n,desktop_notifications_history_step(&n.native,&pending_history),"history_step");
         n.history_turn=false;
     }
     DesktopNotificationQueueRow next{};
@@ -775,7 +892,7 @@ void application_notifications_account_stop(Application* a) noexcept {
     if(!a || !a->notifications) return;
     auto& n=*a->notifications;
     audio_reset(n,false);
-    if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_profile(&n.native,n.profile));
+    if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_profile(&n.native,n.profile),"account_stop");
     n.ready=n.live=false; n.snapshot=false; n.profile=0; n.pending={}; n.global={}; n.mention_on_all=false;
     release_retention(n);
     if(n.display) desktop_notification_queue_reset(&n.display->queue,0,0);
@@ -1153,29 +1270,43 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     auto* a=static_cast<Application*>(context);
     if(!a || !a->notifications || !a->account_ui || event.dispatch_kind!=GatewayClientDispatchKind::message_create) return;
     auto& n=*a->notifications; auto& ui=*a->account_ui; const auto& state=ui.chat_state;
-    if(n.profile!=a->account.status.profile_id || !event.has_sequence) return;
-    if(n.has_create_sequence && event.sequence<=n.create_sequence) return;
+    if(n.profile!=a->account.status.profile_id || !event.has_sequence) {
+        trace_message_drop(event,"stale_profile_or_missing_sequence"); return;
+    }
+    if(n.has_create_sequence && event.sequence<=n.create_sequence) {
+        trace_message_drop(event,"old_sequence"); return;
+    }
     for(const auto& seen:n.seen)
-        if(seen.channel==event.message.channel_id && seen.message==event.message.id) return;
+        if(seen.channel==event.message.channel_id && seen.message==event.message.id) {
+            trace_message_drop(event,"duplicate_message"); return;
+        }
     n.seen[n.seen_next++%256]={event.message.channel_id,event.message.id};
     n.create_sequence=maximum(n.create_sequence,event.sequence); n.has_create_sequence=true;
     audio_preferences(*a,n); audio_observe(n);
     const bool has_popup_sink=popup_sink(*a,n);
     const auto* channel=chat_state_store_find_channel(state,event.message.channel_id);
-    if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) return;
+    if(!channel || !chat_state_store_channel_visible(state,*channel) || !(channel->actions&channel_action_view)) {
+        trace_message_drop(event,"channel_inaccessible"); return;
+    }
     const auto* guild=channel->guild_id?chat_state_store_find_guild(state,channel->guild_id):nullptr;
     const auto* parent=channel->parent_id?chat_state_store_find_channel(state,channel->parent_id):nullptr;
     const auto* policy_channel=event.message.type==21?parent:channel;
     if(!policy_channel || !chat_state_store_channel_visible(state,*policy_channel) ||
-        !(policy_channel->actions&channel_action_view)) return;
+        !(policy_channel->actions&channel_action_view)) {
+        trace_message_drop(event,"policy_channel_inaccessible"); return;
+    }
     const auto* policy_parent=policy_channel->parent_id?chat_state_store_find_channel(state,policy_channel->parent_id):nullptr;
     const auto* gs=find_scope(n.guild_scopes,n.guild_scope_count,channel->guild_id);
     const auto* cs=find_scope(n.channel_scopes,n.channel_scope_count,policy_channel->id);
     GatewayMessageEvent message{};
-    if(!gateway_client_event_as_message(event,payload,&message)) return;
+    if(!gateway_client_event_as_message(event,payload,&message)) {
+        trace_message_drop(event,"message_decode_failed"); return;
+    }
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds], self_roles[kGatewayMessageMentionRoleMaximumIds];
     for(u32 i=0;i<event.message.mention_role_count;++i)
-        if(!gateway_client_event_message_mention_role_at(event,payload,i,mention_roles+i)) return;
+        if(!gateway_client_event_message_mention_role_at(event,payload,i,mention_roles+i)) {
+            trace_message_drop(event,"mention_role_decode_failed"); return;
+        }
     u32 roles{};
     for(u32 i=0;i<event.message.mention_role_count;++i)
         if(chat_state_store_self_has_role(state,channel->guild_id,mention_roles[i])) self_roles[roles++]=mention_roles[i];
@@ -1255,13 +1386,41 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.required_gates=(1u<<16)-1;
     const MessageNotificationDevice device{a->preferences.desktop_enabled,a->preferences.message_sounds_enabled,
         a->preferences.selected_message_sounds_enabled,a->preferences.taskbar_flash,n.mention_on_all};
-    const auto outputs=message_notification_outputs({&input,true,channel->id==state.selected_channel_id,true,
-        a->preferences.selected_message_sounds_enabled},device);
+    const NotificationSoundAdmissionInput admission{&input,true,channel->id==state.selected_channel_id,true,
+        a->preferences.selected_message_sounds_enabled};
+    const auto outputs=message_notification_outputs(admission,device);
+    // Log potential user-visible events and all eligible messages, not every
+    // background guild message. The badge path is independent of sound/popup.
+    if(!channel->guild_id || input.direct_mention || input.everyone_mention ||
+       event.message.mention_role_count || outputs.ordinary || outputs.selected_sound) {
+        const auto reasons=notification_sound_admissions(admission);
+        NotificationTrace trace("message_decision");
+        trace.field("message",message.id); trace.field("channel",channel->id);
+        trace.field("guild",channel->guild_id);
+        trace.field("ordinary",notification_reason_name(reasons.ordinary_reason));
+        trace.field("selected_reason",notification_reason_name(reasons.selected_reason));
+        trace.field("badge",static_cast<u32>(outputs.badge));
+        trace.field("ordinary_allowed",outputs.ordinary);
+        trace.field("popup",outputs.popup); trace.field("sound_route",static_cast<u32>(outputs.sound));
+        trace.field("selected_sound",outputs.selected_sound);
+        trace.field("desktop_pref",device.desktop_enabled);
+        trace.field("desktop_ready",has_popup_sink);
+        trace.field("sound_pref",device.message_sounds);
+        trace.field("audio_ready",audio_sink(n));
+        trace.field("focused",input.focused); trace.field("selected",input.selected);
+        trace.field("global_fields",input.global.fields);
+        trace.field("presence",static_cast<u32>(input.global.status));
+        trace.field("quiet",input.global.quiet);
+        trace.field("gates",input.gates); trace.field("known_gates",input.known_gates);
+        trace.emit();
+    }
     // Selected message3 is direct and precedes preview/ordinary transport. It
     // shares MESSAGE1's sound enablement, but never shares fallback H throttle.
     if(outputs.selected_sound) sound_submit(n,2,n.audio_epoch);
     if(!outputs.ordinary) return;
-    Utf8View author{}; if(!gateway_client_event_message_author_name(event,payload,&author)) return;
+    Utf8View author{}; if(!gateway_client_event_message_author_name(event,payload,&author)) {
+        trace_message_drop(event,"author_decode_failed"); return;
+    }
     if(!author.bytes) author=entity(a,MessageMarkdownEntityKind::user,message.author_id);
     if(contains_nul(author)) author={};
     if(author.bytes>256) author=utf8_literal("New message");
