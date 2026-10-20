@@ -21,9 +21,9 @@ inline bool ui_background_canvas_quad(const PaintQuad& quad) noexcept {
 // from the flat fill or global gradient/tier; the renderer's effect pass then
 // draws the selected effect over it, before the widgets that follow. Static
 // widgets and modal surfaces use the surface material below.
-__declspec(noinline) inline bool ui_background_paint_canvas(PaintStream* stream, UiRect rectangle, const Theme& theme,
-                                       Color fill,
-                                       UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {
+__declspec(noinline) inline bool ui_background_paint_canvas(
+    PaintStream* stream, UiRect rectangle, const Theme& theme, Color fill,
+    UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {
     if (!stream || static_cast<u8>(tier) > static_cast<u8>(UiBackgroundTier::highest))
         return false;
     const u32 first = stream->count;

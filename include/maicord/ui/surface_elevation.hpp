@@ -97,9 +97,10 @@ inline UiSurfaceStyle ui_surface_style(const Theme& theme, UiElevation elevation
 
 // Paint any plate with an elevation's material: gradient themes sample the
 // global gradient at the elevation's share; flat themes paint fill/border.
-__declspec(noinline) inline bool ui_surface_paint_material(PaintStream* stream, UiRect rectangle, const Theme& theme,
-                                      UiElevation elevation, float radius, Color fill, Color border,
-                                      float border_width) noexcept {
+__declspec(noinline) inline bool ui_surface_paint_material(PaintStream* stream, UiRect rectangle,
+                                                           const Theme& theme, UiElevation elevation,
+                                                           float radius, Color fill, Color border,
+                                                           float border_width) noexcept {
     if (!stream || elevation >= UiElevation::count)
         return false;
     const auto style = ui_surface_style(theme, elevation);
@@ -133,8 +134,9 @@ inline Color ui_surface_shadow_color(const Theme& theme, UiElevation elevation, 
     const float share = alpha * (elevation == UiElevation::dialog ? .24f : .17f);
     return ui_theme_color_alpha(light ? theme.tokens.overlay.shadow_soft : theme.tokens.overlay.shadow, share);
 }
-__declspec(noinline) inline bool ui_surface_shadow_paint(PaintStream* stream, UiRect rectangle, const Theme& theme, UiElevation elevation,
-                                    float radius, float alpha = 1) noexcept {
+__declspec(noinline) inline bool ui_surface_shadow_paint(PaintStream* stream, UiRect rectangle,
+                                                         const Theme& theme, UiElevation elevation,
+                                                         float radius, float alpha = 1) noexcept {
     if (!ui_surface_casts_shadow(elevation) || !(alpha > 0))
         return true;
     const Color shadow = ui_surface_shadow_color(theme, elevation, alpha);
