@@ -485,13 +485,23 @@ void shell() noexcept {
     finish("shell overlays");
     // A background theme paints the add-server tile with the rail's surface
     // material, like the Home button, rather than a flat grey quad.
+    // The fixture's rail stores only its rows; this one has room for the button.
+    static GuildRailScene add_rail{};
+    static GuildRailRowWidget add_rows[5]{};
+    static UiWidget add_widgets[8]{};
+    static UiLayoutNode add_nodes[8]{};
     Theme background = kDefaultTheme;
     background.background = background_theme_defaults();
-    const UiRect add_tile = guild_rail_icon_rectangle(guild_rail_scene_add_rectangle(f.rail));
+    ok = ok &&
+         guild_rail_scene_initialize(&add_rail, {add_rows, 5}, {add_widgets, 8}, {add_nodes, 8}) &&
+         guild_rail_scene_update(&add_rail, &f.view, rail->rectangle, 0).ok();
+    const UiRect add_tile =
+        ok ? guild_rail_icon_rectangle(guild_rail_scene_add_rectangle(add_rail)) : UiRect{};
     bool add_material = false;
     ok = ok && ui_rect_has_area(add_tile) && begin(1280, 800) &&
-         shell_presentation_build_chrome(f.scene, &f.view, &f.rail, &f.navigation, nullptr, &f.member_scene,
-                                         background, 1280, 800, &g.paint, &regions, nullptr);
+         shell_presentation_build_chrome(f.scene, &f.view, &add_rail, &f.navigation, nullptr,
+                                         &f.member_scene, background, 1280, 800, &g.paint, &regions,
+                                         nullptr);
     for (u32 i = 0; ok && i < g.paint.count; ++i) {
         const auto& quad = g.paint.quads[i];
         add_material |= quad.border_width == -7 && quad.left == add_tile.left && quad.top == add_tile.top &&
