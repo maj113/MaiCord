@@ -137,11 +137,11 @@ struct Executor {
         // Resume after the entire consumed span, retaining skipped survivors.
         return sfnt_glyph_edit_boundary(edit,match.last_input+1,true,resume);
     }
-    SfntStatus attempt(const SfntGsubExecutableLookup& lookup,u32 at,u32 end,bool* matched,u32* resume) noexcept {
+    // view is the current buffer; it is unchanged until a matching edit
+    // returns, so it serves all rejected subtables of this lookup.
+    SfntStatus attempt(const SfntGsubExecutableLookup& lookup,const SfntGlyphView& view,u32 at,u32 end,bool* matched,u32* resume) noexcept {
         *matched=false;*resume=at+1;if(!spend(&work))return SfntStatus::resource_limit;
-        // The buffer is unchanged until a matching edit returns, so one view
-        // serves all rejected subtables of the current lookup.
-        const auto view=sfnt_glyph_buffer_view(buffer);const u16 first=sfnt_glyph_at(view,at).glyph;
+        const u16 first=sfnt_glyph_at(view,at).glyph;
         if(sfnt_lookup_bounds_exclude(lookup.bounds,first))return SfntStatus::ok;
         // Preparation sets this certificate only on contextual lookups.
         const bool shared=(lookup.bounds.ready&2)!=0;
@@ -209,7 +209,7 @@ struct Executor {
             const auto& glyph=sfnt_glyph_at(view,current);
             if(sfnt_lookup_bounds_exclude(root.bounds,glyph.glyph)||(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,glyph.glyph,glyph.glyph_class))){
                 if(!spend(&work))return SfntStatus::resource_limit;if(!reverse)at=resume;continue;}
-            auto s=attempt(root,current,result.input_end,&matched,&resume);if(s!=SfntStatus::ok)return s;
+            auto s=attempt(root,view,current,result.input_end,&matched,&resume);if(s!=SfntStatus::ok)return s;
             while(depth){auto& frame=scratch.frames.data[depth-1];
                 if(frame.next_action==frame.actions.count/4){resume=frame.input_end;used=frame.positions;--depth;continue;}
                 if(!spend(&work))return SfntStatus::resource_limit;SfntSequenceAction action{};s=sfnt_context_action({frame.actions,0,0,true},frame.next_action++,&action);if(s!=SfntStatus::ok)return s;
@@ -218,7 +218,7 @@ struct Executor {
                 // newly emitted glyphs. Do not refilter it by destination class.
                 if(position>=frame.input_end)continue;
                 const SfntGsubExecutableLookup* child=nullptr;s=sfnt_gsub_lookup_prepare(program,action.lookup_index,&child);if(s!=SfntStatus::ok)return s;
-                u32 ignored=0;bool nested=false;s=attempt(*child,position,frame.input_end,&nested,&ignored);if(s!=SfntStatus::ok)return s;
+                u32 ignored=0;bool nested=false;s=attempt(*child,sfnt_glyph_buffer_view(buffer),position,frame.input_end,&nested,&ignored);if(s!=SfntStatus::ok)return s;
             }
             if(matched)view=sfnt_glyph_buffer_view(buffer);
             if(!reverse)at=resume;
