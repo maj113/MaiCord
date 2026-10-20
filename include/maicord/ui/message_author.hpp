@@ -35,11 +35,12 @@ struct MessageProfileHit {
 };
 
 // One header geometry for text, badge paint and its server icon.
-inline bool message_author_layout(const MessageScene& scene, const MessageTextCommand& command,
-                                  const ChatStateStore& state, const UserStore& users,
-                                  UiTextMeasureCache* cache, const Theme& theme,
-                                  MessageAuthorLayout* out,
-                                  const GuildMemberStore* members = nullptr) noexcept {
+__declspec(noinline) inline bool message_author_layout(const MessageScene& scene,
+                                                       const MessageTextCommand& command,
+                                                       const ChatStateStore& state, const UserStore& users,
+                                                       UiTextMeasureCache* cache, const Theme& theme,
+                                                       MessageAuthorLayout* out,
+                                                       const GuildMemberStore* members = nullptr) noexcept {
     if (!out || command.measurement_kind != MessageTextMeasurementKind::none || !command.styles.count ||
         command.measurement_slot != 0 || !scene.timeline || !scene.timeline->store ||
         command.owner.manager != &scene.widgets)

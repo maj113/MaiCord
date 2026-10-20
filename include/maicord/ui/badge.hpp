@@ -9,9 +9,10 @@ struct UiBadgeLayout {
     UiRect outer, text, icon, remove;
     bool clipped;
 };
-inline UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, Utf8View label, UiRect line, bool icon,
-                                     u32 flags = text_style_subtext | text_style_bold,
-                                     bool removable = false) noexcept {
+__declspec(noinline) inline UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, Utf8View label,
+                                                          UiRect line, bool icon,
+                                                          u32 flags = text_style_subtext | text_style_bold,
+                                                          bool removable = false) noexcept {
     UiTextMeasureValue value{};
     const TextStyleSpan span{0, label.bytes, flags};
     float width = label.bytes * 7.f;

@@ -40,8 +40,9 @@ inline UiMobilePresenceGeometry ui_presence_mobile_geometry(UiRect dot, float ri
     return g;
 }
 
-inline bool ui_presence_paint(PaintStream* paint, UiRect r, UiPresence status, Color background,
-                              const Theme& theme, bool mobile = false) noexcept {
+__declspec(noinline) inline bool ui_presence_paint(PaintStream* paint, UiRect r, UiPresence status,
+                                                   Color background, const Theme& theme,
+                                                   bool mobile = false) noexcept {
     const float extent = minimum(ui_rect_width(r), ui_rect_height(r)), radius = extent * .5f;
     const auto& tokens = theme.tokens.status;
     if (mobile && status == UiPresence::online) {

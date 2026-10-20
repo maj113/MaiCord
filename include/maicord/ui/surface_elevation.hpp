@@ -69,7 +69,8 @@ inline float ui_elevation_gradient_share(const Theme& theme, UiElevation elevati
                                         minimum(.8f, canvas + kUiElevationLift[static_cast<u32>(elevation)]));
 }
 
-inline UiSurfaceStyle ui_surface_style(const Theme& theme, UiElevation elevation) noexcept {
+__declspec(noinline) inline UiSurfaceStyle ui_surface_style(const Theme& theme,
+                                                            UiElevation elevation) noexcept {
     const bool gradient = ui_background_active(theme);
     UiSurfaceStyle style{theme.base_lower,
                          theme.interactive,
