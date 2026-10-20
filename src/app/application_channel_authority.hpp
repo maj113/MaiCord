@@ -5,7 +5,8 @@
 namespace maicord::app_detail {
 // The containing message owns access, including forwarded snapshots. A CDN
 // origin channel is a URL identity, never a second content permission scope.
-inline bool application_channel_readable(const Application& application, u64 channel_id) noexcept {
+__declspec(noinline) inline bool
+application_channel_readable(const Application& application, u64 channel_id) noexcept {
     if (!application.account_ui || !channel_id) return false;
     const auto& state = application.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, channel_id);
