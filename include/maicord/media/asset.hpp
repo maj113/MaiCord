@@ -133,7 +133,7 @@ constexpr u64 media_asset_hash(MediaAssetKey key) noexcept {
     return media_asset_hash_mix(key.id ^ media_asset_hash_mix(tail));
 }
 
-constexpr bool media_asset_key_valid(MediaAssetKey key) noexcept {
+__declspec(noinline) constexpr bool media_asset_key_valid(MediaAssetKey key) noexcept {
     if (key.id == 0) {
         return false;
     }
