@@ -134,7 +134,8 @@ inline u64 encoded_audio_duration_us(const EncodedAudioMetadata& source) noexcep
 }
 // Rebind only to a same-size immutable copy of this validated source. WAV data
 // remains the exact subrange. Any malformed range leaves all metadata unchanged.
-inline bool encoded_audio_rebind(EncodedAudioMetadata* source, ConstSlice<u8> bytes) noexcept {
+__declspec(noinline) inline bool encoded_audio_rebind(EncodedAudioMetadata* source,
+                                                      ConstSlice<u8> bytes) noexcept {
     if (!source || !encoded_audio_ready(*source))
         return false;
     const auto encoded = encoded_audio_bytes(*source);

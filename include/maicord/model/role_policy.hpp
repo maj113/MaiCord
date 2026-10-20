@@ -103,8 +103,8 @@ struct RoleEditPolicy {
     bool hierarchy_known;
 };
 
-inline RoleEditPolicy role_edit_policy(const ChatStateStore& state,
-                                                      u64 guild_id) noexcept {
+__declspec(noinline) inline RoleEditPolicy role_edit_policy(const ChatStateStore& state,
+                                                            u64 guild_id) noexcept {
     RoleEditPolicy policy{};
     policy.guild_id = guild_id;
     const auto* guild = chat_state_store_find_guild(state, guild_id);
