@@ -23,17 +23,16 @@ struct Tree {
         if(!save(i))return false;auto& n=get(i);n.left=left;n.right=right;n.count=count(left)+1+count(right);n.height=static_cast<u8>(1+maximum(height(left),height(right)));
         return set_parent(left,i) && set_parent(right,i);
     }
+    static u32 child(const SfntComponentNode& n,bool right) noexcept {return right?n.right:n.left;}
+    // Sets i's children, naming the right child first when side is set.
+    bool attach(u32 i,bool side,u32 a,u32 b) noexcept {return side?set(i,b,a):set(i,a,b);}
     u32 balance(u32 i) noexcept {
         if(status!=SfntStatus::ok)return nil;const auto n=get(i);
-        if(height(n.left)>height(n.right)+1){u32 l=n.left;
-            if(height(get(l).right)>height(get(l).left)){const u32 middle=get(l).right;const auto m=get(middle);
-                if(!set(l,get(l).left,m.left) || !set(i,m.right,n.right) || !set(middle,l,i))return nil;return middle;}
-            const u32 middle=get(l).right;if(!set(i,middle,n.right) || !set(l,get(l).left,i))return nil;return l;
-        }
-        if(height(n.right)>height(n.left)+1){u32 r=n.right;
-            if(height(get(r).left)>height(get(r).right)){const u32 middle=get(r).left;const auto m=get(middle);
-                if(!set(i,n.left,m.left) || !set(r,m.right,get(r).right) || !set(middle,i,r))return nil;return middle;}
-            const u32 middle=get(r).left;if(!set(i,n.left,middle) || !set(r,i,get(r).right))return nil;return r;
+        for(u32 side=0;side<2;++side){const u32 heavy=child(n,side),light=child(n,!side);if(height(heavy)<=height(light)+1)continue;
+            const u32 inner=child(get(heavy),!side),outer=child(get(heavy),side);
+            if(height(inner)>height(outer)){const auto m=get(inner);
+                if(!attach(heavy,side,outer,child(m,side)) || !attach(i,side,child(m,!side),light) || !attach(inner,side,heavy,i))return nil;return inner;}
+            if(!attach(i,side,inner,light) || !attach(heavy,side,outer,i))return nil;return heavy;
         }return i;
     }
     u32 join3(u32 left,u32 middle,u32 right) noexcept {
@@ -42,30 +41,23 @@ struct Tree {
         if(height(right)>height(left)+1){const u32 branch=join3(left,middle,get(right).left);if(status!=SfntStatus::ok || !set(right,branch,get(right).right))return nil;return balance(right);}
         return set(middle,left,right)?middle:nil;
     }
-    u32 extract_last(u32 root,u32* last) noexcept {
-        if(!charge())return nil;const auto n=get(root);if(n.right==nil){*last=root;return n.left;}
-        const u32 right=extract_last(n.right,last);if(status!=SfntStatus::ok || !set(root,n.left,right))return nil;return balance(root);
+    // Removes the first or last node, returning the rest; the removed node
+    // keeps its stale outer link until the caller reattaches it.
+    u32 extract(u32 root,bool last,u32* node) noexcept {
+        if(!charge())return nil;const auto n=get(root);const u32 inner=child(n,last);if(inner==nil){*node=root;return child(n,!last);}
+        const u32 rest=extract(inner,last,node);if(status!=SfntStatus::ok || !attach(root,last,rest,child(n,!last)))return nil;return balance(root);
     }
     u32 join(u32 left,u32 right) noexcept {
-        if(left==nil)return right;if(right==nil)return left;u32 middle=nil;left=extract_last(left,&middle);if(status!=SfntStatus::ok)return nil;return join3(left,middle,right);
-    }
-    void split(u32 root,u32 k,u32* left,u32* right) noexcept {
-        *left=*right=nil;if(!charge() || root==nil)return;
-        if(!k){*right=root;return;}if(k>=count(root)){*left=root;return;}
-        const auto n=get(root);const u32 before=count(n.left);
-        if(k<=before){u32 remainder=nil;split(n.left,k,left,&remainder);if(status!=SfntStatus::ok)return;*right=join3(remainder,root,n.right);}
-        else {u32 remainder=nil;split(n.right,k-before-1,&remainder,right);if(status!=SfntStatus::ok)return;*left=join3(n.left,root,remainder);}
+        if(left==nil)return right;if(right==nil)return left;u32 middle=nil;left=extract(left,true,&middle);if(status!=SfntStatus::ok)return nil;return join3(left,middle,right);
     }
     bool activate(u32 root) noexcept {
         if(root==nil || !(get(root).flags&alias))return status==SfntStatus::ok;
         if(!save(root))return false;auto& n=get(root);n.left=n.right=nil;n.flags=journaled;return true;
     }
     bool root_flags(u32 root,bool history) noexcept {if(root==nil)return status==SfntStatus::ok;if(!set_parent(root,nil) || !save(root))return false;auto& n=get(root);n.flags=static_cast<u8>((n.flags&~known)|(history?known:0));return true;}
-    u32 first_source(u32 root) noexcept {
-        while(root!=nil){if(!charge())return 0;const auto& n=get(root);if((n.flags&alias) || n.left==nil)return n.source;root=n.left;}return 0;
-    }
-    u8 last_form(u32 root) noexcept {
-        while(root!=nil){if(!charge())return 0;const auto& n=get(root);if((n.flags&alias) || n.right==nil)return static_cast<u8>(n.reserved);root=n.right;}return 0;
+    // First or last component of a sequence; a dormant alias is its own component.
+    const SfntComponentNode* edge(u32 root,bool last) noexcept {
+        while(root!=nil){if(!charge())return nullptr;const auto& n=get(root);if((n.flags&alias) || child(n,last)==nil)return &n;root=child(n,last);}return nullptr;
     }
 };
 }
@@ -116,12 +108,14 @@ SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs
         if(current==nil)continue;if(current==root){t.status=SfntStatus::invalid_input;break;}
         if(!t.activate(current))break;root=t.join(root,current);if(t.status!=SfntStatus::ok)break;if(!t.set_parent(root,nil))break;
     }
-    if(ligature && t.status==SfntStatus::ok){t.root_flags(root,true);if(t.status==SfntStatus::ok){copy_bytes(outputs.data+8,&root,4);if(forest->preserve_forms && root!=nil)outputs.data[3]=t.last_form(root);}}
+    if(ligature && t.status==SfntStatus::ok){t.root_flags(root,true);if(t.status==SfntStatus::ok){copy_bytes(outputs.data+8,&root,4);if(forest->preserve_forms && root!=nil){const auto* last=t.edge(root,true);if(last)outputs.data[3]=static_cast<u8>(last->reserved);}}}
     if(!ligature && t.status==SfntStatus::ok){u32 source=record(glyphs,consumed.data[0]).source;u8 form=record(glyphs,consumed.data[0]).glyph.reserved;
-        for(u32 i=0;i<output_count && t.status==SfntStatus::ok;++i){u32 part=root;if(i+1<output_count){t.split(root,1,&part,&root);if(t.status!=SfntStatus::ok)break;}
+        // Each output but the last takes the first remaining component.
+        for(u32 i=0;i<output_count && t.status==SfntStatus::ok;++i){u32 part=root;
+            if(i+1<output_count){if(t.count(root)>1){root=t.extract(root,false,&part);if(t.status!=SfntStatus::ok || (t.get(part).right!=nil && !t.set(part,nil,nil)))break;}else root=nil;}
             if(!t.root_flags(part,history) || !t.root_flags(i+1<output_count?root:nil,history))break;
-            if(part!=nil)source=t.first_source(part);if(t.status!=SfntStatus::ok)break;
-            if(forest->preserve_forms){if(part!=nil)form=t.last_form(part);if(t.status!=SfntStatus::ok)break;outputs.data[i*sizeof(SfntComponentGlyph)+3]=form;}
+            if(part!=nil){const auto* first=t.edge(part,false);if(!first)break;source=first->source;}
+            if(forest->preserve_forms){if(part!=nil){const auto* last=t.edge(part,true);if(!last)break;form=static_cast<u8>(last->reserved);}outputs.data[i*sizeof(SfntComponentGlyph)+3]=form;}
             copy_bytes(outputs.data+i*sizeof(SfntComponentGlyph)+4,&source,4);copy_bytes(outputs.data+i*sizeof(SfntComponentGlyph)+8,&part,4);
         }}
     out->operations=work-t.work;
