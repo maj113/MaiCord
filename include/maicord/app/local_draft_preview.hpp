@@ -67,7 +67,8 @@ constexpr u64 local_draft_preview_thumbnail_limit(MediaAttachmentFormat format) 
            : format == MediaAttachmentFormat::mp4  ? kMediaMaximumProgressiveVideoBytes
                                                    : local_draft_preview_encoded_limit(format);
 }
-inline bool local_draft_preview_request_valid(const AccountMediaLocalPreviewRequest& r) noexcept {
+__declspec(noinline) inline bool local_draft_preview_request_valid(
+    const AccountMediaLocalPreviewRequest& r) noexcept {
     if (r.reserved || r.lease_serial || !r.owner_scope || !r.owner_generation ||
         r.key.kind != MediaAssetKind::local_draft_preview || !media_asset_key_valid(r.key) ||
         r.snapshot.identity.reserved || !r.snapshot.bytes ||

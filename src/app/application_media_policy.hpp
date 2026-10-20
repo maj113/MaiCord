@@ -8,9 +8,11 @@
 namespace maicord::app_detail {
 // True consumes this activation before an original, viewer or player can open.
 // Revealing and opening are separate gestures, including keyboard activation.
-inline bool application_media_activation_consumed(MessageScene& scene, const MessageMediaOwner& owner,
-                                                  u64 plugin_message_id, u64 key, bool spoiler,
-                                                  bool explicit_media) noexcept {
+__declspec(noinline) inline bool application_media_activation_consumed(MessageScene& scene,
+                                                                       const MessageMediaOwner& owner,
+                                                                       u64 plugin_message_id, u64 key,
+                                                                       bool spoiler,
+                                                                       bool explicit_media) noexcept {
     const auto policy = message_scene_media_policy(scene, owner);
     const auto obscure =
         message_scene_media_obscure(scene, policy, plugin_message_id, key, spoiler, explicit_media);
