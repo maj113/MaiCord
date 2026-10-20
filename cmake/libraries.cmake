@@ -250,11 +250,10 @@ maicord_library(maicord_font
     src/text/myanmar_shape_cluster.cpp src/text/myanmar_input.cpp src/text/khmer_shape_cluster.cpp
     src/text/khmer_run.cpp src/text/sinhala_shape_cluster.cpp src/text/devanagari_forms.cpp
     src/text/devanagari_clusters.cpp src/text/indic_input.cpp src/text/tamil_shape_run.cpp
-    src/text/tamil_run.cpp src/text/myanmar_run.cpp src/text/sinhala_run.cpp src/text/tamil_paragraph.cpp
-    src/text/sinhala_paragraph.cpp src/text/khmer_paragraph.cpp src/text/myanmar_paragraph.cpp
-    src/text/tibetan_paragraph.cpp src/text/indic_run_plan.cpp src/text/devanagari_order.cpp
+    src/text/tamil_run.cpp src/text/myanmar_run.cpp src/text/sinhala_run.cpp src/text/script_paragraphs.cpp
+    src/text/indic_run_plan.cpp src/text/devanagari_order.cpp
     src/text/devanagari_shape_cluster.cpp src/text/indic_run.cpp src/text/compact_run.cpp src/text/devanagari_run.cpp
-    src/text/devanagari_run_plan.cpp src/text/devanagari_paragraph.cpp src/text/tt_orientation.cpp
+    src/text/devanagari_run_plan.cpp src/text/tt_orientation.cpp
     src/text/tt_bold_points.cpp src/text/font_session.cpp src/text/font_prepare.cpp
     src/text/gpos_cursive_execute.cpp src/text/position_anchor.cpp src/text/gpos_mark_execute.cpp
     src/text/gpos_ligature_execute.cpp src/text/gpos_execute.cpp src/text/gpos_program.cpp
