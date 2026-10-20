@@ -27,6 +27,7 @@
 #include "maicord/ui/timestamp_format.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord::app_detail {
 

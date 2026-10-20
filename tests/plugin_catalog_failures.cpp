@@ -1,6 +1,7 @@
 #include "maicord/app/plugin_module_loader.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 // QA-only imported-call wrappers around the exact production implementations.
 // No shipping callback seam, private algorithm or fault flag is introduced.

@@ -13,7 +13,10 @@ maicord_library(maicord_core
 # links it.
 set(maicord_sys_headers
     include/maicord/core/win32_types.hpp include/maicord/core/win32_error.hpp
-    include/maicord/core/win32_kernel.hpp include/maicord/core/win32_user.hpp
+    include/maicord/core/win32_kernel.hpp include/maicord/core/win32_exception.hpp
+    include/maicord/core/win32_image.hpp include/maicord/core/win32_process_launch.hpp
+    include/maicord/core/win32_threadpool.hpp include/maicord/core/win32_system_time.hpp
+    include/maicord/core/win32_file_info.hpp include/maicord/core/win32_user.hpp
     include/maicord/sys/crt.hpp include/maicord/sys/intrin.hpp include/maicord/sys/simd.hpp
     include/maicord/sys/com.hpp include/maicord/sys/ole.hpp include/maicord/sys/registry.hpp
     include/maicord/sys/gdi.hpp include/maicord/sys/winsock.hpp include/maicord/sys/crypto.hpp

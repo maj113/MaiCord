@@ -1,6 +1,7 @@
 #include "maicord/text/font_catalog.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include <stddef.h>
+#include "maicord/core/win32_file_info.hpp"
 namespace maicord {
 static_assert(sizeof(Win32FileTime)==sizeof(FILETIME)&&alignof(Win32FileTime)==alignof(FILETIME)&&
               offsetof(Win32FileTime,dwHighDateTime)==offsetof(FILETIME,dwHighDateTime));

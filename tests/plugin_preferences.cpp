@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 // Test-only imported Win32 wrappers exercise the production source, with no
 // shipping fault seam. No DLL is created or loaded by these fixtures.

@@ -5,6 +5,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/gdi.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 namespace maicord {
 struct FamilyOrder {FamilyOrder* next;const NativeFontCatalog* catalog;u32 scope,base;NativeFontProperties properties;ConstSlice<u16> name;ConstSlice<u32> order;mutable const FamilyOrder** companions;};

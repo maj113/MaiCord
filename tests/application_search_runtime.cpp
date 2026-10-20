@@ -10,6 +10,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord::search_runtime_test {
 using namespace app_detail;

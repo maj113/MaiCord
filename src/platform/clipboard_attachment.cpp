@@ -3,6 +3,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/core/win32_threadpool.hpp"
 namespace maicord {
 #if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
 IDataObject* clipboard_attachment_ui_fixture_provider() noexcept;

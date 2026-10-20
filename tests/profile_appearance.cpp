@@ -13,6 +13,7 @@
 #include "maicord/model/user_store.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_system_time.hpp"
 namespace maicord {
 namespace {
 bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {

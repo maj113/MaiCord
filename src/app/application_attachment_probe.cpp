@@ -6,6 +6,7 @@
 #include "maicord/ui/composer_attachment_strip.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/com.hpp"
+#include "maicord/core/win32_threadpool.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -2,6 +2,7 @@
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process_launch.hpp"
 
 namespace maicord {
 namespace {

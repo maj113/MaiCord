@@ -4,6 +4,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/intrin.hpp"
 #include "maicord/sys/process_info.hpp"
+#include "maicord/core/win32_image.hpp"
 
 namespace maicord::perf {
 namespace {

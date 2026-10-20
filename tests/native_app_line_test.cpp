@@ -45,6 +45,7 @@
 #include "maicord/sys/dwrite.hpp"
 #include "maicord/sys/simd.hpp"
 #include "maicord/sys/process_info.hpp"
+#include "maicord/core/win32_exception.hpp"
 namespace maicord {namespace {
 u32 checks=0,cases=0,native_cases=0,simulated_cases=0;bool print_ok=true;
 u64 matrix_seen=0;

@@ -2,6 +2,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/sys/crypto.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 namespace maicord {
 static_assert(kNativePluginFileRead == GENERIC_READ && kNativePluginFileShareRead == FILE_SHARE_READ &&

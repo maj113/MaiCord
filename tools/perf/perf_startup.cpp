@@ -18,6 +18,7 @@
 #include "maicord/sys/process_info.hpp"
 #include "maicord/sys/registry.hpp"
 #include "maicord/sys/winrt.hpp"
+#include "maicord/core/win32_image.hpp"
 
 namespace maicord::perf {
 namespace {

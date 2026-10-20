@@ -9,6 +9,7 @@
 #include "test_output.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 namespace maicord::plugin_sdk_tests {
 u32 failures;

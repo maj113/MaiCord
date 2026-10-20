@@ -6,6 +6,7 @@
 #include "test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_image.hpp"
 
 namespace maicord::client_startup_imports_test {
 namespace {

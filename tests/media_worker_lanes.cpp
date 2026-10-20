@@ -12,6 +12,7 @@
 #include "test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_exception.hpp"
 
 namespace maicord {
 namespace {

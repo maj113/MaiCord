@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 namespace maicord {
 namespace {

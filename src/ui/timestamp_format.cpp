@@ -3,6 +3,7 @@
 #include "maicord/core/decimal.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord {
 namespace {

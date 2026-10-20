@@ -1,4 +1,5 @@
 #include "test_output.hpp"
+#include "maicord/core/win32_process_launch.hpp"
 // Actual shipping primitive compiled again with test-only renamed exports.
 // The fixture launcher is internal in this TU; production has no path override.
 #define update_handoff_launch fixture_handoff_launch

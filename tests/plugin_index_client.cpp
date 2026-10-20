@@ -6,6 +6,7 @@
 #include "plugin_fake_transport.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_file_info.hpp"
 
 #include "plugin_index_fixture.hpp"
 

@@ -46,6 +46,7 @@
 
 #include <limits.h>
 #include "maicord/app/account_message_search.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord::app_detail {
 namespace {

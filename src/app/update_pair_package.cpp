@@ -1,6 +1,7 @@
 #include "maicord/app/update_pair_package.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/crypto.hpp"
+#include "maicord/core/win32_image.hpp"
 
 extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
     unsigned long initial, const void* bytes, unsigned long count);

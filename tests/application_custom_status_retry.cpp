@@ -1,5 +1,6 @@
 #include "../src/app/application_custom_status.cpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord::app_detail {
 // The response fixture has no selected account view to repaint.

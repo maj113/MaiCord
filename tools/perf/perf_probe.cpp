@@ -74,6 +74,8 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/process_info.hpp"
+#include "maicord/core/win32_exception.hpp"
+#include "maicord/core/win32_image.hpp"
 
 namespace maicord::perf {
 namespace {

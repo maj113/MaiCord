@@ -1,6 +1,7 @@
 #include "maicord/text/font_catalog_coverage.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_file_info.hpp"
 namespace maicord {namespace {
 #include "generated/font_family_fixture.inc"
 u32 checks=0;bool cleanup_ok=true;

@@ -1,3 +1,4 @@
+#include "maicord/core/win32_exception.hpp"
 // Shipping coordinator and TU-local login owner with a synchronous fake REST
 // boundary; the real loopback bridge carries the solution. No browser, no
 // service request and no profile file is involved.
