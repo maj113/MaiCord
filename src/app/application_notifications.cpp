@@ -819,7 +819,7 @@ void application_notifications_drain(Application* a) noexcept {
                     trace.field("message",id.message_id); trace.field("channel",id.channel_id);
                     trace.field("attempt",dispatch.attempt);
                     trace.field("state",static_cast<u32>(shown.state));
-                    trace.field("attempted",shown.attempted);
+                    trace.field("attempted",shown.native_show_attempted);
                     trace.field("error",static_cast<u32>(shown.result.error));
                     trace.field("hresult",shown.result.native_error);
                     trace.field("silent",projected.silent);
