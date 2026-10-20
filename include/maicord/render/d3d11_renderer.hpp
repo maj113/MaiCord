@@ -915,11 +915,11 @@ void renderer_bind_friends_scene(D3D11Renderer* renderer, const UiFriendsScene* 
 void renderer_bind_friends_requests_scene(D3D11Renderer* renderer, const UiFriendsScene* scene) noexcept;
 
 // Rendering visibility only: Settings authority/read barriers remain active.
-inline bool renderer_theme_editor_visible(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool renderer_theme_editor_visible(const D3D11Renderer& renderer) noexcept {
     return !renderer.login_visible && renderer.theme_editor_scene &&
            ui_theme_editor_current(*renderer.theme_editor_scene);
 }
-inline bool renderer_settings_page_visible(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool renderer_settings_page_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.settings_scene && renderer.settings_scene->active &&
            !renderer_theme_editor_visible(renderer);
 }

@@ -21,7 +21,7 @@ template <class Scene> inline bool d3d11_renderer_active(const Scene* scene) noe
 }
 
 // Login, the settings pages and the theme editor replace the shell.
-inline bool d3d11_renderer_page_open(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool d3d11_renderer_page_open(const D3D11Renderer& renderer) noexcept {
     return renderer.login_visible || renderer_settings_page_visible(renderer) ||
            renderer_theme_editor_visible(renderer);
 }
@@ -58,13 +58,14 @@ inline bool d3d11_renderer_modal_uncovered(const D3D11Renderer& renderer) noexce
            !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer);
 }
 
-inline bool d3d11_renderer_quick_switcher_visible(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool
+d3d11_renderer_quick_switcher_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.quick_switcher_scene &&
            ui_quick_switcher_scene_current(*renderer.quick_switcher_scene) &&
            d3d11_renderer_modal_uncovered(renderer);
 }
 
-inline bool d3d11_renderer_inbox_visible(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool d3d11_renderer_inbox_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.inbox_scene && ui_inbox_scene_current(*renderer.inbox_scene) &&
            !d3d11_renderer_page_open(renderer) && !d3d11_renderer_active(renderer.profile_scene) &&
            !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
@@ -100,7 +101,8 @@ inline bool d3d11_renderer_stream_card_visible(const D3D11Renderer& renderer) no
            !d3d11_renderer_form_active(renderer);
 }
 
-inline bool d3d11_renderer_message_forward_visible(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool
+d3d11_renderer_message_forward_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.message_forward_scene &&
            ui_message_forward_scene_current(*renderer.message_forward_scene) &&
            d3d11_renderer_modal_uncovered(renderer);
