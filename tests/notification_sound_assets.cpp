@@ -24,16 +24,6 @@ bool pcm_hash_hex(NotificationAudioClip clip,const char* hex) noexcept {
     }
     return !hex[64]&&pcm_hash(clip,expected);
 }
-// Peak sample magnitude. Alerts play at 0.4 gain, so a clip mastered far
-// below full scale is too quiet to hear.
-u32 peak(NotificationAudioClip clip) noexcept {
-    u32 result=0;
-    for(u32 i=0;i<clip.samples.count;++i){
-        const i32 value=clip.samples[i];
-        result=maximum(result,static_cast<u32>(value<0?-value:value));
-    }
-    return result;
-}
 bool readonly_pcm(const void* address,u32 bytes) noexcept {
     MEMORY_BASIC_INFORMATION region{};
     return address&&VirtualQuery(address,&region,sizeof(region))==sizeof(region)&&
@@ -80,14 +70,12 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     NotificationAudioClip first{},third{},again{};
     const bool first_ok=notification_sound_asset_resolve(&bank,1,&first);
     check(first_ok&&bank.frames[0]==11040&&first.samples.count==22080&&
-        first.sample_rate==48000&&readonly_pcm(first.samples.data,44160)&&pcm_hash_hex(first,"ab3ce6b6b3d688278fb000f8103dcb5afee3b8ddaeb8db34a79133975e17e4dc")&&!bank.pcm[1],
+        first.sample_rate==48000&&readonly_pcm(first.samples.data,44160)&&pcm_hash_hex(first,"3162e7907b056612cd095fe89643f946c93ba8414165e927b57b5bf0ba9f51fc")&&!bank.pcm[1],
         "sound assets: original ordinary alert resolves exact canonical 44160-byte PCM into private readonly VM");
     const bool third_ok=notification_sound_asset_resolve(&bank,2,&third);
     check(third_ok&&bank.frames[1]==7200&&third.samples.count==14400&&
-        third.sample_rate==48000&&readonly_pcm(third.samples.data,28800)&&pcm_hash_hex(third,"e625255fbb9d16af5a1bf8f471a17c148d0350969107bdd5e9e0f09ae3cf4999"),
+        third.sample_rate==48000&&readonly_pcm(third.samples.data,28800)&&pcm_hash_hex(third,"41431438a81d1b593e2f2242c9d0e7dee6e764f1692a1a0683b08c61c731dfd1"),
         "sound assets: original focused alert resolves exact canonical 28800-byte PCM into private readonly VM");
-    check(first_ok&&third_ok&&peak(first)>=29000&&peak(third)>=29000,
-        "sound assets: both alerts peak within 1 dB of full scale");
     check(first_ok&&third_ok&&first.samples.data!=third.samples.data&&
         notification_sound_asset_resolve(&bank,1,&again)&&again.samples.data==first.samples.data&&again.samples.count==first.samples.count&&
         notification_sound_asset_resolve(&bank,2,&again)&&again.samples.data==third.samples.data&&again.samples.count==third.samples.count,

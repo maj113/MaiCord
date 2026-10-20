@@ -9,9 +9,9 @@
       "rate": 48000,
       "channels": 2,
       "pcm_bytes": 44160,
-      "pcm_sha256": "ab3ce6b6b3d688278fb000f8103dcb5afee3b8ddaeb8db34a79133975e17e4dc",
-      "resource_bytes": 8812,
-      "resource_sha256": "4702c831b13919faa21a10f24e963ebf1c5f4aa9cbe51e217a594bbb1f0d6c36",
+      "pcm_sha256": "3162e7907b056612cd095fe89643f946c93ba8414165e927b57b5bf0ba9f51fc",
+      "resource_bytes": 6690,
+      "resource_sha256": "30601d2c6121a50b019a0fdb917000c0d00b91ca834c811105e203ac9b9504ef",
       "predictor_orders": [
         2,
         0
@@ -25,9 +25,9 @@
       "rate": 48000,
       "channels": 2,
       "pcm_bytes": 28800,
-      "pcm_sha256": "e625255fbb9d16af5a1bf8f471a17c148d0350969107bdd5e9e0f09ae3cf4999",
-      "resource_bytes": 5412,
-      "resource_sha256": "e2b7c012f745558b79f06ea7e01d973a254667929c491a428aa6d2ec8e036eac",
+      "pcm_sha256": "41431438a81d1b593e2f2242c9d0e7dee6e764f1692a1a0683b08c61c731dfd1",
+      "resource_bytes": 3756,
+      "resource_sha256": "d8eb34a15658994f7b3ac21ed38c7064ede4d534903538f9cfdc8659085790de",
       "predictor_orders": [
         2,
         0

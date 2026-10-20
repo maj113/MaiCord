@@ -10,26 +10,20 @@ import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RATE = 48000
-# Peak level of each tone: -1 dBFS. Notifications play at 0.4 gain, so a peak
-# well below full scale makes them too quiet to notice.
-PEAK = round(32767 * 10 ** (-1 / 20))
 
 
 def tone(frames, start_hz, end_hz):
+    samples = array.array("h")
     duration = frames / RATE
-    shape = []
     for i in range(frames):
         t = i / RATE
         attack = min(1.0, t / 0.012)
         release = min(1.0, (duration - t) / 0.075)
         envelope = attack * release * math.exp(-6.0 * t / duration)
         phase = 2 * math.pi * (start_hz * t + (end_hz - start_hz) * t * t / (2 * duration))
-        shape.append(envelope * (math.sin(phase) + 0.18 * math.sin(2.013 * phase)) / 1.18)
-    scale = PEAK / max(abs(value) for value in shape)
-    samples = array.array("h")
-    for value in shape:
-        sample = round(scale * value)
-        samples.extend((sample, sample))
+        signal = (math.sin(phase) + 0.18 * math.sin(2.013 * phase)) / 1.18
+        value = round(11000 * envelope * signal)
+        samples.extend((value, value))
     if sys.byteorder != "little":
         samples.byteswap()
     return samples.tobytes()
