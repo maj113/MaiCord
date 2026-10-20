@@ -16,8 +16,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if((text.bytes&&!text.data)||forms.count!=128||!forms.data||(steps.count&&!steps.data)||!plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
-    u32 spacing_bits=0;copy_bytes(&spacing_bits,&trailing_spacing,4);
-    if((spacing_bits&0x7fffffffu)>=0x7f800000u||((spacing_bits&0x80000000u)&&(spacing_bits&0x7fffffffu)))return SfntStatus::invalid_input;
+    if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     const u32 source_size=text.bytes;
     if(source_size>limits.stage_work||plan.positioning_roots.count>limits.stage_work)return SfntStatus::resource_limit;
     if((plan.positioning_roots.count&&!plan.positioning_roots.data)||(plan.positioning_roots.count&&!plan.positioning))return SfntStatus::invalid_input;

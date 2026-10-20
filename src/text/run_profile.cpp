@@ -3,6 +3,29 @@
 #include "maicord/text/lookup_plan.hpp"
 #include "lookup_plan_finish.hpp"
 namespace maicord {
+SfntStatus native_plan_source(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,const Arena* state,
+    const Arena* scratch,NativePlanSource& output) noexcept {
+    output={};output.parent=native_run_plan_get(store,run,independent);
+    if(!output.parent||!state||!scratch||!state->base||!scratch->base||state==scratch||state->base==scratch->base||
+       !store.instances||!store.instances->fonts)return SfntStatus::invalid_input;
+    output.instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);
+    output.font=output.instance?native_font_get(*store.instances->fonts,output.instance->face):nullptr;
+    return output.font?SfntStatus::ok:SfntStatus::invalid_input;
+}
+SfntStatus native_layout_open(const NativeFontFace& font,u32 kind,SfntLayout& layout) noexcept {
+    layout={};ConstSlice<u8> bytes{};
+    const auto status=sfnt_table(font.geometry.face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
+    return status!=SfntStatus::ok?status:sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);
+}
+SfntStatus native_layout_variations(const NativeFontInstance& instance,const SfntLayout& layout,Arena& scratch,
+    SfntFeatureSubstitutions& output,u32 work) noexcept {
+    output={};if(!layout.variations)return SfntStatus::ok;
+    const auto coordinates=instance.geometry.variation?instance.geometry.variation->coordinates:ConstSlice<double>{};
+    if(coordinates.count>work)return SfntStatus::resource_limit;
+    auto fixed=take<i16>(scratch,coordinates.count);if(!filled(fixed))return SfntStatus::output_too_small;
+    for(u32 i=0;i<coordinates.count;++i){const double value=coordinates[i]*16384;fixed[i]=static_cast<i16>(value+(value<0?-.5:.5));}
+    u32 record=0;return sfnt_layout_variation_select(layout,{fixed.data,fixed.count},&output,&record,work);
+}
 SfntStatus native_positioning_prepare(const NativeFontFace& font,const SfntShapePlan& parent,ConstSlice<u16> roots,
     Arena& state,Arena& scratch,const SfntGposProgram** output,u32 work) noexcept {
     const auto* existing=parent.positioning;*output=nullptr;if(roots.count>work)return SfntStatus::resource_limit;
@@ -41,31 +64,25 @@ SfntStatus native_lookup_roots_prepare(const SfntLayout& layout,const SfntFeatur
 SfntStatus native_profile_roots_prepare(const NativeFontInstance& instance,const NativeFontFace& font,u32 script,bool independent,
     Arena& state,Arena& scratch,ConstSlice<u16>& substitution,ConstSlice<u16>& positioning,u32 work,bool alphabetic_gate) noexcept {
     ArenaScope saved_state{&state,arena_mark(&state)},saved_scratch{&scratch,arena_mark(&scratch)};
-    ConstSlice<u16> selected[2]{};const auto coordinates=instance.geometry.variation?instance.geometry.variation->coordinates:ConstSlice<double>{};
-    if(coordinates.count>work)return SfntStatus::resource_limit;auto* fixed=coordinates.count?arena_allocate<i16>(&scratch,coordinates.count):nullptr;
-    if(coordinates.count&&!fixed)return SfntStatus::output_too_small;
-    for(u32 i=0;i<coordinates.count;++i){const double value=coordinates[i]*16384;fixed[i]=static_cast<i16>(value+(value<0?-.5:.5));}
-    for(u32 kind=0;kind<2;++kind){ConstSlice<u8> bytes{};auto status=sfnt_table(font.geometry.face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
-        if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;SfntLayout layout{};
-        status=sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);if(status!=SfntStatus::ok)return status;
+    ConstSlice<u16> selected[2]{};
+    for(u32 kind=0;kind<2;++kind){SfntLayout layout{};auto status=native_layout_open(font,kind,layout);
+        if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
         ArenaScope temporary{&scratch,arena_mark(&scratch)};u32 remaining=work;
         if(alphabetic_gate){const u32 candidates[]{sfnt_tag('l','a','t','n'),sfnt_tag('D','F','L','T')};SfntLanguageSelection selection{};u64 used=0;
             status=sfnt_layout_select_language(layout,{candidates,2},sfnt_tag('E','N','G',' '),&selection,remaining,&used);if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
             remaining-=static_cast<u32>(used);}
-        SfntFeatureSubstitutions variations{};
-        if(layout.variations){u32 record=0;status=sfnt_layout_variation_select(layout,{fixed,coordinates.count},&variations,&record,remaining);if(status!=SfntStatus::ok)return status;}
+        SfntFeatureSubstitutions variations{};status=native_layout_variations(instance,layout,scratch,variations,remaining);if(status!=SfntStatus::ok)return status;
         status=native_lookup_roots_prepare(layout,variations,script,independent,state,scratch,selected[kind],remaining);if(status!=SfntStatus::ok)return status;
     }
     saved_state.keep=true;substitution=selected[0];positioning=selected[1];return SfntStatus::ok;
 }
 SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,u32 script,bool independent,Arena* state,Arena* scratch,NativeAlphabeticPlan* out,u32 work) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};const auto* parent=native_run_plan_get(store,run,independent);
-    if(!parent||!state||!scratch||!state->base||!scratch->base||state==scratch||state->base==scratch->base||!store.instances->fonts||
-        (script&&script!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(script)))return SfntStatus::invalid_input;
+    if(!out)return SfntStatus::invalid_input;*out={};
+    if(script&&script!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(script))return SfntStatus::invalid_input;
+    NativePlanSource source{};const auto found=native_plan_source(store,run,independent,state,scratch,source);if(found!=SfntStatus::ok)return found;
+    const auto* parent=source.parent;const auto* instance=source.instance;const auto* font=source.font;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};
     NativeAlphabeticPlan plan{run,parent->substitution_roots,parent->positioning_roots,script,independent};
-    const auto* instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
-    const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
     if(script!=sfnt_tag('l','a','t','n')){
         if(script==sfnt_tag('h','e','b','r')){u16 alef=0;const auto status=sfnt_cmap_glyph(font->cmap,0x5d0,0,&alef);if(status!=SfntStatus::ok)return status;plan.hebrew_preparation=alef!=0;}
         const auto status=native_profile_roots_prepare(*instance,*font,script,independent,*state,*scratch,plan.substitution_roots,plan.positioning_roots,work,script==sfnt_tag('h','e','b','r')&&!plan.hebrew_preparation);if(status!=SfntStatus::ok)return status;}

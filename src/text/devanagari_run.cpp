@@ -15,8 +15,7 @@ SfntStatus native_devanagari_run(const SfntShapePlan& plan,const SfntCmap& cmap,
     ConstSlice<SfntLookupStep> steps,Utf8View text,float em,NativeDevanagariRunStorage storage,
     NativeAsciiResult* result,SfntShapeLimits limits,float trailing_spacing,bool reuse_clusters,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
-    u32 spacing_bits=0;copy_bytes(&spacing_bits,&trailing_spacing,4);
-    if((spacing_bits&0x7fffffffu)>=0x7f800000u||((spacing_bits&0x80000000u)&&(spacing_bits&0x7fffffffu)))return SfntStatus::invalid_input;
+    if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if((text.bytes&&!text.data)||font_forms.count!=128||!font_forms.data||(steps.count&&!steps.data)||
        (storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
        (storage.character_glyphs.count&&!storage.character_glyphs.data)||!plan.advance||!plan.units_per_em||

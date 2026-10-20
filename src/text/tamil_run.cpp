@@ -8,12 +8,8 @@ SfntStatus native_tamil_run(const SfntShapePlan& plan,const SfntCmap& cmap,Const
     if(!result)return SfntStatus::invalid_input;*result={};
     if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
-    auto* scalars=reinterpret_cast<u32*>(storage.components.data);
-    const u64 capacity=static_cast<u64>(storage.components.count)*sizeof(SfntComponentNode)/sizeof(u32);u32 count=0;
-    for(u32 byte=0;byte<text.bytes;){const auto decoded=utf8_decode_one(text.data+byte,text.bytes-byte);
-        if(!decoded.valid)return SfntStatus::invalid_input;if(count>=capacity)return SfntStatus::output_too_small;
-        scalars[count++]=decoded.codepoint;byte+=decoded.width;}
-    return sfnt_tamil_shape_run(plan,cmap,{scalars,count},em,storage,result,steps,limits,trailing_spacing,rtl);
+    ConstSlice<u32> scalars{};const auto decoded=decode_run_scalars(text,storage,scalars);if(decoded!=SfntStatus::ok)return decoded;
+    return sfnt_tamil_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,trailing_spacing,rtl);
 }
 SfntStatus native_tamil_run(const NativeRunPlanStore& store,const NativeIndicPlan& prepared,Utf8View text,float em,
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {

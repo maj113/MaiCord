@@ -6,8 +6,7 @@
 #include "maicord/text/grapheme.hpp"
 #include "compact_run.hpp"
 #include "use_shape_internal.hpp"
-namespace maicord {namespace {
-}
+namespace maicord {
 // Non-admitted fonts keep nominal mapping, without USE expansion or circles.
 // Tibetan overrides only its mark, selector and control-source rules.
 SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,float em,
@@ -65,51 +64,30 @@ SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap
 SfntStatus native_sinhala_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,
     Arena* state,Arena* scratch,NativeSinhalaPlan* output,u32 work) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};
-    const auto* parent=native_run_plan_get(store,run,independent);
-    if(!parent||!state||!scratch||!state->base||!scratch->base||state==scratch||state->base==scratch->base||!store.instances->fonts)
-        return SfntStatus::invalid_input;
-    const auto* instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
-    const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
+    NativePlanSource source{};auto status=native_plan_source(store,run,independent,state,scratch,source);if(status!=SfntStatus::ok)return status;
+    const auto& font=*source.font;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};
-    NativeSinhalaPlan plan{};plan.run=run;plan.cmap=&font->cmap;plan.independent_letters=independent;
-    const auto coordinates=instance->geometry.variation?instance->geometry.variation->coordinates:ConstSlice<double>{};
-    if(coordinates.count>work)return SfntStatus::resource_limit;
-    auto fixed=take<i16>(scratch,coordinates.count);if(!filled(fixed))return SfntStatus::output_too_small;
-    for(u32 i=0;i<coordinates.count;++i){const double value=coordinates[i]*16384;fixed[i]=static_cast<i16>(value+(value<0?-.5:.5));}
-    for(u32 kind=0;kind<2;++kind){ArenaScope temporary{scratch,arena_mark(scratch)};ConstSlice<u8> bytes{};
-        auto status=sfnt_table(font->geometry.face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
-        if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
-        if(!kind&&!parent->substitutions)return SfntStatus::invalid_input;
-        SfntLayout layout{};status=sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);if(status!=SfntStatus::ok)return status;
-        SfntFeatureSubstitutions variations{};
-        if(layout.variations){u32 record=0;status=sfnt_layout_variation_select(layout,{fixed.data,fixed.count},&variations,&record,work);if(status!=SfntStatus::ok)return status;}
-        auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
-        SfntLookupPlanResult result{};status=sfnt_sinhala_lookup_plan(layout,variations,independent,mask,{},&result,work);
-        if(status!=SfntStatus::ok&&status!=SfntStatus::output_too_small)return status;
-        plan.language_found=plan.language_found||result.language_found;
-        auto steps=take<SfntLookupStep>(kind?scratch:state,result.lookup_count);if(!filled(steps))return kind?SfntStatus::output_too_small:SfntStatus::resource_limit;
-        status=sfnt_sinhala_lookup_plan(layout,variations,independent,mask,steps,&result,work);if(status!=SfntStatus::ok)return status;
-        if(!kind){plan.substitution_steps=steps.data;plan.substitution_count=steps.count;}
-        else{auto roots=take<u16>(state,steps.count);if(!filled(roots))return SfntStatus::resource_limit;
-            for(u32 i=0;i<steps.count;++i)roots[i]=steps[i].lookup;plan.positioning_roots=roots.data;plan.positioning_count=roots.count;}
-    }
-    const auto position_status=native_positioning_prepare(*font,*parent,plan.positioning(),*state,*scratch,&plan.positioning_program,work);if(position_status!=SfntStatus::ok)return position_status;
+    NativeSinhalaPlan plan{};plan.run=run;plan.cmap=&font.cmap;plan.independent_letters=independent;
+    SfntLayout layouts[2]{};
+    for(u32 kind=0;kind<2;++kind){status=native_layout_open(font,kind,layouts[kind]);
+        if(status!=SfntStatus::ok&&status!=SfntStatus::missing_table)return status;}
+    status=native_plan_tables(source,layouts,*state,*scratch,plan,[&](const SfntLayout& layout,const SfntFeatureSubstitutions& variations,
+        Slice<u8> mask,Slice<SfntLookupStep> steps,SfntLookupPlanResult* result) noexcept {
+        const auto planned=sfnt_sinhala_lookup_plan(layout,variations,independent,mask,steps,result,work);
+        plan.language_found=plan.language_found||result->language_found;return planned;},work);
+    if(status!=SfntStatus::ok)return status;
+    status=native_positioning_prepare(font,*source.parent,plan.positioning(),*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }
 SfntStatus native_sinhala_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntLookupStep> steps,
     Utf8View text,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing,bool use_shaping) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
-    u32 spacing_bits=0;copy_bytes(&spacing_bits,&spacing,4);
-    if((spacing_bits&0x7fffffffu)>=0x7f800000u||((spacing_bits&0x80000000u)&&(spacing_bits&0x7fffffffu)))return SfntStatus::invalid_input;
+    if(!sfnt_trailing_spacing_valid(spacing))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
-    auto* scalars=reinterpret_cast<u32*>(storage.components.data);
-    const u64 capacity=static_cast<u64>(storage.components.count)*sizeof(SfntComponentNode)/sizeof(u32);u32 count=0;
-    for(u32 byte=0;byte<text.bytes;){const auto decoded=utf8_decode_one(text.data+byte,text.bytes-byte);
-        if(!decoded.valid)return SfntStatus::invalid_input;if(count>=capacity)return SfntStatus::output_too_small;
-        scalars[count++]=decoded.codepoint;byte+=decoded.width;}
-    auto status=use_shaping?sfnt_sinhala_shape_run(plan,cmap,{scalars,count},em,storage,result,steps,limits,rtl):
-        use_shape::nominal_run(plan,cmap,{scalars,count},em,storage,result,limits,rtl);
+    ConstSlice<u32> scalars{};const auto decoded=decode_run_scalars(text,storage,scalars);if(decoded!=SfntStatus::ok)return decoded;
+    auto status=use_shaping?sfnt_sinhala_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,rtl):
+        use_shape::nominal_run(plan,cmap,scalars,em,storage,result,limits,rtl);
     if(status!=SfntStatus::ok||!spacing)return status;
     status=sfnt_trailing_spacing({storage.placements.data,result->glyph_count},
         {storage.flags.data,result->glyph_count},spacing,limits.stage_work,rtl);

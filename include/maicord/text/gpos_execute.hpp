@@ -39,6 +39,8 @@ SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntG
                                          u64 work_limit=1000000,u32 match_limit=1000000,
                                          SfntPositionApplication application=SfntPositionApplication::scan,
                                          const SfntLookupBounds* bounds=nullptr) noexcept;
+// Whether trailing spacing is finite and not negative (-0 is accepted).
+bool sfnt_trailing_spacing_valid(float spacing) noexcept;
 // Nonnegative trailing spacing in reading order, with zero leading/minimum
 // spacing. RTL adjusts the first eligible glyph/offset; LTR adjusts the last.
 // Placements and flags are validated shaping output; empty flags mean one

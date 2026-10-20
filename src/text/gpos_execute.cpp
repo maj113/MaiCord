@@ -26,10 +26,12 @@ float scaled(double value,__m128 scale) noexcept {
     return _mm_cvtss_f32(_mm_andnot_ps(_mm_cmpeq_ss(v,_mm_setzero_ps()),v));
 }
 }
+bool sfnt_trailing_spacing_valid(float spacing) noexcept {
+    u32 bits=0;copy_bytes(&bits,&spacing,4);return (bits&0x7fffffffu)<0x7f800000u&&(!(bits&0x80000000u)||!(bits&0x7fffffffu));
+}
 SfntStatus sfnt_trailing_spacing(Slice<SfntPlacement> placements,
     ConstSlice<u8> flags,float trailing,u64 work,bool rtl) noexcept {
-    u32 bits=0;copy_bytes(&bits,&trailing,4);
-    if((bits&0x7fffffffu)>=0x7f800000u||((bits&0x80000000u)&&(bits&0x7fffffffu))||(placements.count&&!placements.data)||
+    if(!sfnt_trailing_spacing_valid(trailing)||(placements.count&&!placements.data)||
        (flags.count&&(flags.count!=placements.count||!flags.data)))return SfntStatus::invalid_input;
     if(placements.count>work)return SfntStatus::resource_limit;
     if(!trailing)return SfntStatus::ok;

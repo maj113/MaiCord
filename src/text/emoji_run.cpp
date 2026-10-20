@@ -48,12 +48,11 @@ SfntStatus finish_controls(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u
 }
 }
 SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,Arena* state,Arena* scratch,NativeEmojiPlan* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};const auto* parent=native_run_plan_get(store,run);
-    if(!parent||!state||!scratch||!state->base||!scratch->base||state==scratch||state->base==scratch->base||!store.instances->fonts)return SfntStatus::invalid_input;
-    const auto* instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
-    const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;*output={};
+    NativePlanSource source{};auto status=native_plan_source(store,run,false,state,scratch,source);if(status!=SfntStatus::ok)return status;
+    const auto* parent=source.parent;const auto* instance=source.instance;const auto* font=source.font;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};NativeEmojiPlan plan{};plan.run=run;plan.cmap=&font->cmap;
-    auto status=sfnt_cmap_glyph(font->cmap,32,0,&plan.space_glyph);if(status!=SfntStatus::ok)return status;
+    status=sfnt_cmap_glyph(font->cmap,32,0,&plan.space_glyph);if(status!=SfntStatus::ok)return status;
     status=native_profile_roots_prepare(*instance,*font,0,false,*state,*scratch,plan.substitution_roots,plan.positioning_roots,work);if(status!=SfntStatus::ok)return status;
     status=native_positioning_prepare(*font,*parent,plan.positioning_roots,*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*output=plan;return SfntStatus::ok;

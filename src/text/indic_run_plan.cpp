@@ -34,42 +34,35 @@ SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
     if(!output)return SfntStatus::invalid_input;*output={};
     const auto* info=sfnt_indic_script(profile);
     if(!info||(form_output.count&&(form_output.count!=128||!form_output.data)))return SfntStatus::invalid_input;
-    const auto* parent=native_run_plan_get(store,run);
-    if(!parent||!state||!scratch||!state->base||!scratch->base||state==scratch||state->base==scratch->base||!store.instances->fonts)
-        return SfntStatus::invalid_input;
-    const auto* instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
-    const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
+    NativePlanSource source{};auto status=native_plan_source(store,run,false,state,scratch,source);if(status!=SfntStatus::ok)return status;
+    const auto& parent=*source.parent;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};
-    NativeIndicPlan plan{};plan.run=run;plan.cmap=&font->cmap;plan.profile=profile;u8 form_bits[128]{};
-    const auto coordinates=instance->geometry.variation?instance->geometry.variation->coordinates:ConstSlice<double>{};
-    if(coordinates.count>limits.stage_work)return SfntStatus::resource_limit;
-    auto fixed=take<i16>(scratch,coordinates.count);if(!filled(fixed))return SfntStatus::output_too_small;
-    for(u32 i=0;i<coordinates.count;++i){const double value=coordinates[i]*16384;fixed[i]=static_cast<i16>(value+(value<0?-.5:.5));}
-    for(u32 kind=0;kind<2;++kind){ArenaScope temporary{scratch,arena_mark(scratch)};ConstSlice<u8> bytes{};
-        auto status=sfnt_table(font->geometry.face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
+    NativeIndicPlan plan{};plan.run=run;plan.cmap=&source.font->cmap;plan.profile=profile;u8 form_bits[128]{};
+    for(u32 kind=0;kind<2;++kind){ArenaScope temporary{scratch,arena_mark(scratch)};SfntLayout layout{};
+        status=native_layout_open(*source.font,kind,layout);
         if(status==SfntStatus::missing_table){if(!kind)return SfntStatus::unsupported_sequence;continue;}if(status!=SfntStatus::ok)return status;
-        if(!kind&&!parent->substitutions)return SfntStatus::invalid_input;
-        SfntLayout layout{};status=sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);if(status!=SfntStatus::ok)return status;
-        SfntFeatureSubstitutions variations{};
-        if(layout.variations){u32 record=0;status=sfnt_layout_variation_select(layout,{fixed.data,fixed.count},&variations,&record,limits.stage_work);if(status!=SfntStatus::ok)return status;}
+        if(!kind&&!parent.substitutions)return SfntStatus::invalid_input;
+        SfntFeatureSubstitutions variations{};status=native_layout_variations(*source.instance,layout,*scratch,variations,limits.stage_work);if(status!=SfntStatus::ok)return status;
         auto mask=take<u16>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
         const bool malayalam_forms=!kind&&form_output.count&&profile==SfntIndicProfile::malayalam;
-        if(malayalam_forms){status=forms(layout,variations,*parent->substitutions,plan,{form_bits,128},scratch,mask,probe,limits);if(status!=SfntStatus::ok)return status;indic_form_defaults(profile,form_bits);}
+        const auto prepare_forms=[&]() noexcept {
+            const auto formed=forms(layout,variations,*parent.substitutions,plan,{form_bits,128},scratch,mask,probe,limits);
+            if(formed==SfntStatus::ok)indic_form_defaults(profile,form_bits);return formed;};
+        if(malayalam_forms&&(status=prepare_forms())!=SfntStatus::ok)return status;
         const bool ordered_presentation=malayalam_forms&&(form_bits[0x2f]&indic_default_position);
-        SfntLookupPlanResult result{};status=sfnt_indic_lookup_plan(layout,variations,profile,false,mask,{},&result,limits.stage_work,ordered_presentation);
-        if(status!=SfntStatus::ok&&status!=SfntStatus::output_too_small)return status;
-        if(!kind&&!result.language_found)return SfntStatus::unsupported_sequence;
-        auto steps=take<SfntLookupStep>(kind?scratch:state,result.lookup_count);if(!filled(steps))return kind?SfntStatus::output_too_small:SfntStatus::resource_limit;
-        status=sfnt_indic_lookup_plan(layout,variations,profile,false,mask,steps,&result,limits.stage_work,ordered_presentation);if(status!=SfntStatus::ok)return status;
-        if(!kind){plan.substitution_steps=steps.data;plan.substitution_count=steps.count;
-            if(form_output.count){if(!malayalam_forms){status=forms(layout,variations,*parent->substitutions,plan,{form_bits,128},scratch,mask,probe,limits);if(status!=SfntStatus::ok)return status;indic_form_defaults(profile,form_bits);}}
-            else{for(u32 i=0;i<steps.count;++i)if(steps[i].feature_mask)return SfntStatus::unsupported_sequence;
-                u16 halant=0;status=sfnt_cmap_glyph(*plan.cmap,info->block_first+0x4d,0,&halant);
-                if(status!=SfntStatus::ok)return status;if(!halant)return SfntStatus::unsupported_sequence;}}
-        else{auto roots=take<u16>(state,steps.count);if(!filled(roots))return SfntStatus::resource_limit;
-            for(u32 i=0;i<steps.count;++i)roots[i]=steps[i].lookup;plan.positioning_roots=roots.data;plan.positioning_count=roots.count;}
+        ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
+        status=native_plan_steps(kind,*state,*scratch,[&](Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
+            return sfnt_indic_lookup_plan(layout,variations,profile,false,mask,out,result,limits.stage_work,ordered_presentation);},
+            steps,roots,nullptr,!kind);
+        if(status!=SfntStatus::ok)return status;
+        if(kind){plan.positioning_roots=roots.data;plan.positioning_count=roots.count;continue;}
+        plan.substitution_steps=steps.data;plan.substitution_count=steps.count;
+        if(form_output.count){if(!malayalam_forms&&(status=prepare_forms())!=SfntStatus::ok)return status;continue;}
+        for(u32 i=0;i<steps.count;++i)if(steps[i].feature_mask)return SfntStatus::unsupported_sequence;
+        u16 halant=0;status=sfnt_cmap_glyph(*plan.cmap,info->block_first+0x4d,0,&halant);
+        if(status!=SfntStatus::ok)return status;if(!halant)return SfntStatus::unsupported_sequence;
     }
-    const auto position_status=native_positioning_prepare(*font,*parent,plan.positioning(),*state,*scratch,&plan.positioning_program,limits.stage_work);if(position_status!=SfntStatus::ok)return position_status;
+    status=native_positioning_prepare(*source.font,parent,plan.positioning(),*state,*scratch,&plan.positioning_program,limits.stage_work);if(status!=SfntStatus::ok)return status;
     if(form_output.count)copy_bytes(form_output.data,form_bits,128);
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }

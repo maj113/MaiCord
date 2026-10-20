@@ -14,21 +14,14 @@ NativeArabicPlanSlot* slot(const NativeArabicPlanStore& store,NativeArabicPlanHa
     auto& value=store.slots[h.slot-1];return value.references && value.generation==h.generation?&value:nullptr;
 }
 SfntStatus prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,PlanData& data,Arena& state,Arena& scratch,u32 work) noexcept {
-    const auto* base=native_run_plan_get(store,run);if(!base || !store.instances || !store.instances->fonts)return SfntStatus::invalid_input;
-    const auto* instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);if(!instance)return SfntStatus::invalid_input;
-    const auto* font=native_font_get(*store.instances->fonts,instance->face);if(!font)return SfntStatus::invalid_input;
-    data.cmap=&font->cmap;
-    const auto coordinates=instance->geometry.variation?instance->geometry.variation->coordinates:ConstSlice<double>{};
-    if(coordinates.count>work)return SfntStatus::resource_limit;
-    auto fixed=take<i16>(scratch,coordinates.count);if(!filled(fixed))return SfntStatus::output_too_small;
-    for(u32 i=0;i<coordinates.count;++i){const double value=coordinates[i]*16384;fixed[i]=static_cast<i16>(value+(value<0?-.5:.5));}
-    data.shape=*base;data.shape.substitution_roots={};data.shape.positioning_roots={};
-    for(u32 kind=0;kind<2;++kind){ConstSlice<u8> bytes{};auto status=sfnt_table(font->geometry.face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
+    NativePlanSource source{};auto status=native_plan_source(store,run,false,&state,&scratch,source);if(status!=SfntStatus::ok)return status;
+    const auto* base=source.parent;const auto* font=source.font;
+    data.cmap=&font->cmap;data.shape=*base;data.shape.substitution_roots={};data.shape.positioning_roots={};
+    for(u32 kind=0;kind<2;++kind){SfntLayout layout{};status=native_layout_open(*font,kind,layout);
         if(status==SfntStatus::missing_table){if(!kind)return SfntStatus::unsupported_sequence;continue;}if(status!=SfntStatus::ok)return status;
-        SfntLayout layout{};status=sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);if(status!=SfntStatus::ok)return status;
-        SfntFeatureSubstitutions variations{};
-        if(layout.variations){u32 record=0;status=sfnt_layout_variation_select(layout,{fixed.data,fixed.count},&variations,&record,work);if(status!=SfntStatus::ok)return status;}
-        const auto mark=arena_mark(&scratch);auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
+        const auto mark=arena_mark(&scratch);SfntFeatureSubstitutions variations{};
+        status=native_layout_variations(*source.instance,layout,scratch,variations,work);if(status!=SfntStatus::ok)return status;
+        auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
         const u32 modes=kind?1u:2u; // Arabic positioning is identical in both modes.
         for(u32 mode=0;mode<modes;++mode){SfntLookupPlanResult result{};
             status=sfnt_arabic_lookup_plan(layout,variations,mode!=0,mask,{},&result,work);

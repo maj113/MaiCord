@@ -1,5 +1,13 @@
 #include "compact_run.hpp"
 namespace maicord {
+SfntStatus decode_run_scalars(Utf8View text,const SfntShapeStorage& storage,ConstSlice<u32>& scalars) noexcept {
+    auto* output=reinterpret_cast<u32*>(storage.components.data);u32 count=0;scalars={};
+    const u64 capacity=static_cast<u64>(storage.components.count)*sizeof(SfntComponentNode)/sizeof(u32);
+    for(u32 byte=0;byte<text.bytes;){const auto decoded=utf8_decode_one(text.data+byte,text.bytes-byte);
+        if(!decoded.valid)return SfntStatus::invalid_input;if(count>=capacity)return SfntStatus::output_too_small;
+        output[count++]=decoded.codepoint;byte+=decoded.width;}
+    scalars={output,count};return SfntStatus::ok;
+}
 SfntStatus compact_shape_result(const NativeAsciiStorage& storage,const SfntShapeRunResult& shaped,NativeAsciiResult* result) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||

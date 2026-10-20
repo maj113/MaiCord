@@ -212,8 +212,7 @@ SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& pla
     ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,SfntShapeStorage storage,SfntShapeRunResult* result,
     ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool followed_by_text,float trailing_spacing,bool rtl,bool word_initial,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};u32 n=input.count;
-    u32 spacing_bits=0;copy_bytes(&spacing_bits,&trailing_spacing,4);
-    if((spacing_bits&0x7fffffffu)>=0x7f800000u||((spacing_bits&0x80000000u)&&(spacing_bits&0x7fffffffu)))return SfntStatus::invalid_input;
+    if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if(n!=scalars.count||(n&&!input.data)||(!n!=!units))return SfntStatus::invalid_input;
     // Bengali split pieces can outnumber original UTF-16 units. Target scratch
     // is idle until metrics/export, after the stage policy consumes this order.
@@ -243,7 +242,7 @@ SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& pla
     const SfntShapeGlyphPolicy glyph_policy{&policy,finish,restore_cluster};
     status=sfnt_shape_run(plan,{mapped,n},units,{&boundary,1},rtl,em,storage,result,limits,steps,policy.order,glyph_policy,nullptr,&stages,defer_output);
     if(defer_output)return status;
-    if(status!=SfntStatus::ok||!(spacing_bits&0x7fffffffu))return status;
+    if(status!=SfntStatus::ok||trailing_spacing==0)return status;
     // Indic tracking can advance a final matra/mark. Only surviving controls
     // suppress the trailing slot; glyph width or GDEF mark class cannot tell
     // those cases apart. Component roles remain live until cluster return.
