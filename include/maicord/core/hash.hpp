@@ -11,7 +11,7 @@ __forceinline constexpr u64 hash64_mix(u64 hash, u64 value) noexcept {
     return (hash ^ value) * kHash64Prime;
 }
 
-__forceinline u64 hash64_bytes(u64 hash, const void* source, u32 bytes) noexcept {
+__declspec(noinline) inline u64 hash64_bytes(u64 hash, const void* source, u32 bytes) noexcept {
     if (!source && bytes != 0) {
         return 0;
     }

@@ -25,7 +25,7 @@ inline bool copy_bytes(void* destination, u32 capacity, const void* source, u32 
     return true;
 }
 
-inline bool bytes_equal(const void* left, const void* right, u32 bytes) noexcept {
+__declspec(noinline) inline bool bytes_equal(const void* left, const void* right, u32 bytes) noexcept {
     if ((!left || !right) && bytes != 0) {
         return false;
     }
