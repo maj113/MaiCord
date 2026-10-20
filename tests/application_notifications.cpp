@@ -307,6 +307,29 @@ bool safe_text() noexcept {
 }
 bool settings(Utf8View json) noexcept { return dispatch(utf8_literal("USER_GUILD_SETTINGS_UPDATE"), json); }
 bool global(Utf8View json) noexcept { return dispatch(utf8_literal("USER_SETTINGS_PROTO_UPDATE"), json); }
+// Parity with the archived Discord MESSAGE_CREATE handler and the device
+// setting notifyMessagesInSelectedChannel (default false). Being selected does
+// not block the ordinary popup when the window is unfocused.
+void selected_channel_js_regressions(void(*check)(bool,const char*) noexcept) noexcept {
+    auto& f=fixture;
+    check(initialize() && enable_sound() && hydrate(),
+        "selected-channel parity: complete READY and fake popup/audio sinks");
+    f.auto_drain=false;
+    check(!g_app.preferences.selected_message_sounds_enabled,
+        "selected-channel parity: special message3 setting defaults off as in Discord JS");
+    check(message(5001,11,20) &&
+        application_notifications_fixture_metrics(&g_app).display_outstanding==1 &&
+        f.sound_count==1 && f.sounds[0].clip_id==1,
+        "selected-channel parity: unfocused selected channel gets ordinary message1 and a popup by default");
+    application_notifications_drain(&g_app);
+    check(f.delivered==1 && f.last.target.message_id==5001,
+        "selected-channel parity: default selected-channel popup reaches fake desktop adapter");
+    g_app.preferences.selected_message_sounds_enabled=true;
+    check(message(5002,12,20) && f.sound_count==2 && f.sounds[1].clip_id==2 &&
+        !application_notifications_fixture_metrics(&g_app).display_outstanding && f.delivered==1,
+        "selected-channel parity: enabled message3 returns before ordinary blurred popup");
+    application_notifications_release(&g_app);
+}
 void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto& f=fixture;
     check(initialize() && enable_sound() && hydrate(),"notification audio: explicit fake sink and production READY initialize without endpoint output");
@@ -1160,6 +1183,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     application_notifications_release(&g_app);
     check(!g_app.notifications, "notification application: release clears nonemitting owner");
     dm_regressions(check);
+    selected_channel_js_regressions(check);
     sound_regressions(check);
     controls_regressions(check);
     pack_regressions(check);
