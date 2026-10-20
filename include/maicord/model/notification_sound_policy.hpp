@@ -32,9 +32,9 @@ struct NotificationMessageSoundInput {
 struct NotificationMessageSoundDecision {
     bool selected_direct; // unthrottled message3, using MESSAGE1's disable setting
     NotificationMessageSoundRoute ordinary;
-    // Store text/RPC/popup/direct branch continues even when message1 sound is
-    // disabled. An unfocused selected path returns before that branch regardless
-    // of message1_enabled.
+    // Store text/RPC/popup continuation is independent of message1 sound.
+    // An unfocused selected message still projects a desktop popup, but skips
+    // the ordinary sound route to avoid doubling its message3 sound.
     bool ordinary_notification{};
 };
 NotificationMessageSoundDecision notification_message_sound_decide(const NotificationMessageSoundInput&) noexcept;
