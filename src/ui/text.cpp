@@ -37,20 +37,14 @@ TextShapeResult validate_text_input(Utf8View input, Slice<wchar_t> output) noexc
     if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
     }
-    u32 required = 0;
-    u32 offset = 0;
-    while (offset < input.bytes) {
-        const Utf8DecodeResult decoded = utf8_decode_one(input.data + offset, input.bytes - offset);
-        if (!decoded.valid || decoded.width == 0) {
-            return shape_result(TextShapeError::invalid_utf8, E_INVALIDARG);
-        }
-        const u32 scalar_units = decoded.codepoint <= 0xFFFF ? 1u : 2u;
-        if (required > ~0u - scalar_units) {
-            return shape_result(TextShapeError::output_too_small,
-                                HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));
-        }
-        required += scalar_units;
-        offset += decoded.width;
+    const Utf8Validation validation = utf8_validate(input);
+    if (!validation.valid) {
+        return shape_result(TextShapeError::invalid_utf8, E_INVALIDARG);
+    }
+    // In valid UTF-8 only four-byte sequences need a second UTF-16 unit.
+    u32 required = validation.codepoints;
+    for (u32 offset = 0; offset < input.bytes; ++offset) {
+        required += static_cast<u8>(input.data[offset]) >= 0xF0u;
     }
     if (required > output.count) {
         return shape_result(TextShapeError::output_too_small, HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER),
