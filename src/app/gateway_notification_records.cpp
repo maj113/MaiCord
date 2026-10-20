@@ -15,7 +15,7 @@ bool gateway_client_notification_entry(const GatewayClientEvent& e, ConstSlice<u
         return false;
     MessageNotificationGuildSetting row{};
     copy_bytes(&row, p.data, sizeof(row));
-    if (row.guild_id != e.notification.guild_id || row.setting.fields & ~127u ||
+    if (row.guild_id != e.notification.guild_id || row.setting.fields & ~(127u | notification_hide_muted) ||
         static_cast<u8>(row.setting.level) > 3 || row.incomplete)
         return false;
     *out = row;
