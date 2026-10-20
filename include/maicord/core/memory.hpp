@@ -12,10 +12,9 @@ extern "C" void __stosb(unsigned char* destination, unsigned char value, unsigne
 
 namespace maicord {
 
+// The runtime's memmove and memset accept a zero count with any pointers.
 inline void copy_bytes(void* destination, const void* source, u32 bytes) noexcept {
-    if (bytes != 0) {
-        memmove(destination, source, bytes);
-    }
+    memmove(destination, source, bytes);
 }
 
 inline bool copy_bytes(void* destination, u32 capacity, const void* source, u32 bytes) noexcept {
@@ -49,9 +48,7 @@ inline bool bytes_zero(const void* data, usize bytes) noexcept {
 }
 
 inline void clear_bytes(void* destination, u32 bytes) noexcept {
-    if (bytes != 0) {
-        memset(destination, 0, bytes);
-    }
+    memset(destination, 0, bytes);
 }
 
 // SecureZeroMemory without <Windows.h>: on x64 the SDK's RtlSecureZeroMemory
