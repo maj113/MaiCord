@@ -3,6 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/sys/dxgi.hpp"
 #include "maicord/sys/process_info.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 // Ordinary QA snapshots add no GPU wait, draw, capture texture or timestamp

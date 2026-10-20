@@ -5,7 +5,6 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "maicord/core/win32_error.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 extern "C" __declspec(dllimport) long __stdcall DwmFlush();
 

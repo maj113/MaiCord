@@ -36,7 +36,6 @@ struct ApplicationUpdatesView {
     char own_commit[kApplicationUpdatesCommitChars], offer_commit[kApplicationUpdatesCommitChars];
 };
 // "0.3.4-dev.16+581fd44" for the view's own build or its offer.
-u32 application_updates_own_label(const ApplicationUpdatesView&, Slice<char> output) noexcept;
 u32 application_updates_offer_label(const ApplicationUpdatesView&, Slice<char> output) noexcept;
 
 // Settings rows for one view. Text lives in the caller's scratch until the
