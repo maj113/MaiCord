@@ -70,11 +70,11 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     NotificationAudioClip first{},third{},again{};
     const bool first_ok=notification_sound_asset_resolve(&bank,1,&first);
     check(first_ok&&bank.frames[0]==11040&&first.samples.count==22080&&
-        first.sample_rate==48000&&readonly_pcm(first.samples.data,44160)&&pcm_hash_hex(first,"3162e7907b056612cd095fe89643f946c93ba8414165e927b57b5bf0ba9f51fc")&&!bank.pcm[1],
+        first.sample_rate==48000&&first.silence_frames==4800&&readonly_pcm(first.samples.data,44160)&&pcm_hash_hex(first,"3162e7907b056612cd095fe89643f946c93ba8414165e927b57b5bf0ba9f51fc")&&!bank.pcm[1],
         "sound assets: original ordinary alert resolves exact canonical 44160-byte PCM into private readonly VM");
     const bool third_ok=notification_sound_asset_resolve(&bank,2,&third);
     check(third_ok&&bank.frames[1]==7200&&third.samples.count==14400&&
-        third.sample_rate==48000&&readonly_pcm(third.samples.data,28800)&&pcm_hash_hex(third,"41431438a81d1b593e2f2242c9d0e7dee6e764f1692a1a0683b08c61c731dfd1"),
+        third.sample_rate==48000&&third.silence_frames==4800&&readonly_pcm(third.samples.data,28800)&&pcm_hash_hex(third,"41431438a81d1b593e2f2242c9d0e7dee6e764f1692a1a0683b08c61c731dfd1"),
         "sound assets: original focused alert resolves exact canonical 28800-byte PCM into private readonly VM");
     check(first_ok&&third_ok&&first.samples.data!=third.samples.data&&
         notification_sound_asset_resolve(&bank,1,&again)&&again.samples.data==first.samples.data&&again.samples.count==first.samples.count&&

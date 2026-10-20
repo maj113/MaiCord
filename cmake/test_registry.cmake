@@ -190,6 +190,11 @@ maicord_test(MaiCordAccountVideoSessionProbe ENTRY maicord_account_video_session
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
     DEFINES MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1)
 if(MAICORD_TEST_AUDIO_PLAYBACK)
+    maicord_test(MaiCordNotificationAudioPlayback ENTRY maicord_notification_audio_playback_entry
+        SOURCES tests/notification_audio_playback.cpp ${MAICORD_NOTIFICATION_SOUND_RESOURCE}
+        LIBS maicord_notification_audio maicord_notification_sound_assets kernel32 ole32 user32
+        TIMEOUT 5 RESOURCE_LOCK native_audio
+        TEST maicord_notification_audio_playback)
     maicord_add_tests(MaiCordAccountVideoSessionProbe TIMEOUT 5 COST 51 RESOURCE_LOCK native_audio
         TEST maicord_account_audio_playback --audio)
 endif()

@@ -62,6 +62,32 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
         !notification_audio_gain_valid(-0.1f)&&!notification_audio_gain_valid(1.1f)&&!notification_audio_gain_valid(nan),
         "notification gain rejects NaN, negative and out-of-range values before scheduling");
     NotificationAudioMixer mixer{};notification_audio_mixer_reset(&mixer,1);
+    constexpr u32 padded_rates[]{kNotificationAudioRate,kNotificationAudioAlternateRate};
+    for(const u32 rate:padded_rates) {
+        const NotificationAudioClip padded{{stereo,8},rate,2};
+        i16 padded_output[16]{};
+        constexpr i16 expected[]{0,0,0,0,10000,-10000,20000,-20000,30000,-30000,1000,-1000,0,0,0,0};
+        notification_audio_mixer_reset(&mixer,1);
+        check(notification_audio_mixer_add(&mixer,1,padded,1).ok()&&
+            notification_audio_mixer_needed_rate(mixer,rate)==8&&
+            notification_audio_mixer_render_rate(&mixer,{padded_output,16},rate).frames==8&&
+            same_samples(padded_output,expected,16),
+            "notification virtual padding preserves exact PCM between silent lead-in and tail at both rates");
+        check(!notification_audio_mixer_played_rate(&mixer,2,rate)&&mixer.count==1,
+            "notification voice stays alive while its silent tail is queued at the endpoint");
+        notification_audio_mixer_rewind_rate(&mixer,rate);
+        const auto tail=notification_audio_mixer_render_rate(&mixer,{padded_output,4},rate);
+        check(tail.frames==2&&!tail.nonzero&&notification_audio_mixer_played_rate(&mixer,0,rate)==1,
+            "notification rewind replays the remaining silent tail before retiring the voice");
+        notification_audio_mixer_reset(&mixer,1);
+        if(rate==kNotificationAudioRate)mixer.submitted=~u64{0}-7;
+        else mixer.submitted_48000=~u64{0}-7;
+        check(notification_audio_mixer_add(&mixer,1,padded,1).error==Error::timeline_exhausted,
+            "notification overflow checks include both virtual padding spans");
+        check(!notification_audio_clip_valid({{stereo,8},rate,rate+1}),
+            "notification virtual padding has a bounded duration");
+    }
+    notification_audio_mixer_reset(&mixer,1);
     check(notification_audio_mixer_add(&mixer,2,clip,0.5f).error==Error::stale_epoch&&!mixer.count&&
         notification_audio_mixer_add(&mixer,1,clip,0.5f).ok(),
         "notification mixer rejects stale owner epoch without modifying active voices");

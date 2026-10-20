@@ -36,7 +36,9 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
         if(!VirtualProtect(pcm,bytes,PAGE_READONLY,&old)) {VirtualFree(pcm,0,MEM_RELEASE);return false;}
         bank->pcm[index]=pcm;bank->frames[index]=frames;bank->rates[index]=rate;
     }
-    *clip={{static_cast<const i16*>(bank->pcm[index]),bank->frames[index]*2},bank->rates[index]};
+    // Give Bluetooth endpoints 100 ms to start and drain short alerts.
+    // The mixer generates these zeros; the asset and decoded bank stay compact.
+    *clip={{static_cast<const i16*>(bank->pcm[index]),bank->frames[index]*2},bank->rates[index],bank->rates[index]/10};
     return true;
 }
 bool notification_sound_asset_gain(void* context,float nominal,float* gain) noexcept {

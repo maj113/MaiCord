@@ -11,11 +11,13 @@ inline constexpr u32 kNotificationAudioAlternateRate=48000;
 inline constexpr u32 kNotificationAudioQueueCapacity=32;
 inline constexpr u32 kNotificationAudioVoiceCapacity=64;
 // Storage maximum covers the higher native rate; clip validation still limits
-// each descriptor to ten seconds at its own supported source rate.
+// each descriptor's PCM to ten seconds at its own supported source rate.
 inline constexpr u32 kNotificationAudioMixChunkFrames=512;
 // Borrowed, read-only signed 16-bit interleaved stereo at 44100 or 48000 Hz. count is the
 // sample count, twice the frame count. The bank/context must outlive a successful worker release.
-struct NotificationAudioClip {ConstSlice<i16> samples{};u32 sample_rate{kNotificationAudioRate};};
+// silence_frames adds virtual silence at each end without storing extra PCM;
+// it must not exceed sample_rate (one second per end).
+struct NotificationAudioClip {ConstSlice<i16> samples{};u32 sample_rate{kNotificationAudioRate};u32 silence_frames{};};
 using NotificationAudioResolve=bool(*)(void*,u32 clip_id,NotificationAudioClip*) noexcept;
 using NotificationAudioGain=bool(*)(void*,float nominal_gain,float* effective_gain) noexcept;
 struct NotificationAudioRequest {

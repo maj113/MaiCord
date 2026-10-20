@@ -21,7 +21,8 @@ u64 submitted(const NotificationAudioMixer& m,u32 rate) noexcept {return rate==k
 }
 bool notification_audio_clip_valid(NotificationAudioClip clip) noexcept {
     const auto s=clip.samples;
-    return rate_valid(clip.sample_rate) && s.data && s.count && !(s.count&1u) && s.count<=20*clip.sample_rate &&
+    return rate_valid(clip.sample_rate) && clip.silence_frames<=clip.sample_rate &&
+        s.data && s.count && !(s.count&1u) && s.count<=20*clip.sample_rate &&
         !(reinterpret_cast<usize>(s.data)&1u) && reinterpret_cast<usize>(s.data)<=~usize{0}-usize(s.count)*sizeof(i16);
 }
 bool notification_audio_gain_valid(float gain) noexcept {return gain>=0.0f&&gain<=1.0f;}
@@ -53,15 +54,15 @@ NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer* m,u
     if(epoch!=m->epoch)return fail(NotificationAudioError::stale_epoch);
     if(m->count==kNotificationAudioVoiceCapacity)return fail(NotificationAudioError::full_voices);
     const u64 position=submitted(*m,clip.sample_rate);
-    if(position>~u64{0}-clip.samples.count/2)return fail(NotificationAudioError::timeline_exhausted);
-    m->voices[m->count++]={clip,position,gain};return {};
+    if(position>~u64{0}-clip.samples.count/2-2*clip.silence_frames)return fail(NotificationAudioError::timeline_exhausted);
+    m->voices[m->count++]={clip,position+clip.silence_frames,gain};return {};
 }
 u32 notification_audio_mixer_voices_rate(const NotificationAudioMixer& m,u32 rate) noexcept {
     if(!rate_valid(rate))return 0;u32 count{};for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)++count;return count;
 }
 u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer& m,u32 rate) noexcept {
     if(!rate_valid(rate))return 0;const u64 position=submitted(m,rate);u64 end=position;
-    for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)end=maximum(end,m.voices[i].start+m.voices[i].clip.samples.count/2);
+    for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)end=maximum(end,m.voices[i].start+m.voices[i].clip.samples.count/2+m.voices[i].clip.silence_frames);
     return static_cast<u32>(minimum<u64>(end-position,10*rate));
 }
 NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer* m,Slice<i16> output,u32 rate) noexcept {
@@ -85,7 +86,7 @@ NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudi
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer* m,u32 padding,u32 rate) noexcept {
     if(!m||!rate_valid(rate)||padding>submitted(*m,rate)-consumed(*m,rate))return 0;
     consumed(*m,rate)=submitted(*m,rate)-padding;u32 kept=0;
-    for(u32 i=0;i<m->count;++i)if(m->voices[i].clip.sample_rate!=rate||m->voices[i].start+m->voices[i].clip.samples.count/2>consumed(*m,rate))m->voices[kept++]=m->voices[i];
+    for(u32 i=0;i<m->count;++i)if(m->voices[i].clip.sample_rate!=rate||m->voices[i].start+m->voices[i].clip.samples.count/2+m->voices[i].clip.silence_frames>consumed(*m,rate))m->voices[kept++]=m->voices[i];
     const u32 retired=m->count-kept;for(u32 i=kept;i<m->count;++i)m->voices[i]={};m->count=kept;return retired;
 }
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer* m,u32 rate) noexcept {if(m&&rate_valid(rate))submitted(*m,rate)=consumed(*m,rate);}
