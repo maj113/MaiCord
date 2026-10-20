@@ -29,7 +29,7 @@ struct MlsReader {
         }
         return true;
     }
-    ConstSlice<u8> take(u32 count) noexcept {
+    __declspec(noinline) ConstSlice<u8> take(u32 count) noexcept {
         if (!need(count))
             return {};
         // Do not perform arithmetic on a null pointer for a valid empty input.
@@ -37,14 +37,14 @@ struct MlsReader {
         used += count;
         return result;
     }
-    u64 integer(u32 count) noexcept {
+    __declspec(noinline) u64 integer(u32 count) noexcept {
         const auto span = take(count);
         u64 value = 0;
         for (u32 i = 0; i != span.count; ++i)
             value = (value << 8) | span.data[i];
         return value;
     }
-    u32 length() noexcept {
+    __declspec(noinline) u32 length() noexcept {
         if (!need(1))
             return 0;
         const u32 start = used, prefix = input.data[used] >> 6;
@@ -65,7 +65,7 @@ struct MlsReader {
         used += count;
         return value;
     }
-    ConstSlice<u8> vector() noexcept {
+    __declspec(noinline) ConstSlice<u8> vector() noexcept {
         const u32 count = length();
         return take(count);
     }

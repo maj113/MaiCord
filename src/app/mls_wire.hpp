@@ -68,7 +68,7 @@ struct MlsWriter {
     bool ok() const noexcept {
         return status == MlsStatus::ok;
     }
-    void bytes(const void* value, u32 count) noexcept {
+    __declspec(noinline) void bytes(const void* value, u32 count) noexcept {
         if (status != MlsStatus::ok)
             return;
         if (count > capacity - used) {
@@ -84,13 +84,13 @@ struct MlsWriter {
         else if (status == MlsStatus::ok)
             used += count;
     }
-    void integer(u64 value, u32 count) noexcept {
+    __declspec(noinline) void integer(u64 value, u32 count) noexcept {
         u8 encoded[8];
         for (u32 i = 0; i != count; ++i)
             encoded[count - 1 - i] = static_cast<u8>(value >> (8 * i));
         bytes(encoded, count);
     }
-    void varint(u32 value) noexcept {
+    __declspec(noinline) void varint(u32 value) noexcept {
         u8 encoded[4];
         const u32 count = mls_vector_length(value, encoded);
         if (!count && status == MlsStatus::ok)

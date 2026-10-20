@@ -12,7 +12,7 @@ struct H264Bits {
     u8 byte{}, remaining{}, zeroes{};
     H264Error error{};
 
-    u32 read(u32 count) noexcept {
+    __declspec(noinline) u32 read(u32 count) noexcept {
         if (count > 32) { error = H264Error::invalid_input; return 0; }
         u32 value = 0;
         while (count && error == H264Error::none) {
@@ -39,7 +39,7 @@ struct H264Bits {
         return value;
     }
     bool bit() noexcept { return read(1) != 0; }
-    u64 code() noexcept {
+    __declspec(noinline) u64 code() noexcept {
         u32 zero_count = 0;
         while (!bit() && error == H264Error::none) {
             if (++zero_count > 32) { error = H264Error::malformed; return 0; }
