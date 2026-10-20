@@ -10,6 +10,8 @@ enum MessageNotificationField : u16 {
     // Guild rows only: "Hide muted channels" (hide_muted_channels).
     notification_hide_muted = 128,
 };
+inline constexpr u16 kMessageNotificationChannelFields = 127;
+inline constexpr u16 kMessageNotificationGuildFields = kMessageNotificationChannelFields | notification_hide_muted;
 // end_ms == 0 means indefinite/reset when the end field is present. Missing
 // end field preserves the old value; missing mute_config is not null.
 struct MessageNotificationSetting {

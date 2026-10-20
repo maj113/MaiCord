@@ -1046,13 +1046,15 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         "duplicate notification READY authority is typed incomplete without terminating otherwise valid Gateway");
     GatewayEnvelope envelope{};envelope.opcode=0;envelope.has_event_name=true;
     envelope.event_name={utf8_literal("USER_GUILD_SETTINGS_UPDATE"),0,false};
-    const auto entry_text=utf8_literal(R"({"guild_id":"8","version":5,"channel_overrides":[{"channel_id":"20","message_notifications":1}]})");
+    const auto entry_text=utf8_literal(R"({"guild_id":"8","version":5,"hide_muted_channels":true,"channel_overrides":[{"channel_id":"20","message_notifications":1}]})");
     envelope.data={entry_text,0,JsonValueKind::object};GatewayClientEvent setting{};ConstSlice<u8>setting_payload{};
     check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&setting,&setting_payload).ok()&&
         setting.dispatch_kind==GatewayClientDispatchKind::notification_settings_entry&&setting.notification.version==5,"live full notification entry projection");
     MessageNotificationGuildSetting guild_setting{};MessageNotificationOverride channel_setting{};
     check(gateway_client_notification_entry(setting,setting_payload,&guild_setting)&&gateway_client_notification_override_at(setting,setting_payload,0,&channel_setting)&&
-        guild_setting.guild_id==8&&channel_setting.channel_id==20&&channel_setting.setting.level==MessageNotificationLevel::mentions,"copied settings record accessors");
+        guild_setting.guild_id==8&&guild_setting.setting.hide_muted_channels&&(guild_setting.setting.fields&notification_hide_muted)&&
+        channel_setting.channel_id==20&&channel_setting.setting.level==MessageNotificationLevel::mentions,
+        "copied settings record accessors keep the guild's hide_muted_channels");
     const auto message_text=utf8_literal(R"({"id":"99","channel_id":"20","type":19,"author":{"id":"2","username":"peer","public_flags":1048576,"bot":true},"content":"hi","timestamp":"2026-10-02T00:00:00Z","activity_instance":{},"application_id":"7"})");
     envelope.event_name={utf8_literal("MESSAGE_CREATE"),0,false};envelope.data={message_text,0,JsonValueKind::object};
     GatewayClientEvent message{};ConstSlice<u8>message_payload{};
