@@ -28,7 +28,7 @@ def main():
         cpu=winreg.QueryValueEx(key,'ProcessorNameString')[0].strip()
     power=subprocess.run(['powercfg','/getactivescheme'],capture_output=True,text=True,timeout=2,creationflags=subprocess.CREATE_NO_WINDOW)
     power.check_returncode();exe=args.exe.resolve();binary=identity(exe);rows=[];executions=[]
-    for script in ('odia','telugu','kannada'):
+    for script in ('odia','telugu','kannada','arabic'):
         execution=run_check(script+'-warm',[str(exe),'--'+script+'-bench'],root,out,5,threading.Event());executions.append(execution)
         raw=Path(execution['log']).read_text(encoding='utf-8')
         batches=[json.loads(line) for line in raw.splitlines() if line.startswith('{') and 'paragraph_benchmark' in line]

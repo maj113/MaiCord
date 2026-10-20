@@ -1425,6 +1425,8 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-telugu-
     TEST maicord_native_telugu_cpu --smoke --telugu-bench)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-kannada-cpu
     TEST maicord_native_kannada_cpu --smoke --kannada-bench)
+maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-arabic-cpu
+    TEST maicord_native_arabic_cpu --smoke --arabic-bench)
 maicord_native_profile_tests(5 telugu-app "Nirmala UI")
 maicord_native_profile_tests(5 kannada-app "Nirmala UI")
 maicord_native_profile_tests(5 sinhala-app "Nirmala UI")
