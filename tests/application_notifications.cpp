@@ -345,19 +345,13 @@ void sound_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     application_notifications_drain(&g_app);
     check(f.sound_count==2 && f.delivered==4,"notification audio: message1 disabled does not disable new ordinary popups");
     g_app.preferences.selected_message_sounds_enabled=true;
-    check(message(1004,6,20) && application_notifications_fixture_metrics(&g_app).display_outstanding==1 && f.sound_count==2,
-        "notification audio: blurred selected T still queues a popup when message1 and message3 are muted");
-    application_notifications_drain(&g_app);
-    check(f.delivered==5 && !application_notifications_fixture_metrics(&g_app).display_outstanding,
-        "notification audio: muted selected-channel popup delivers independently of audio");
+    check(message(1004,6,20) && !application_notifications_fixture_metrics(&g_app).display_outstanding && f.sound_count==2,
+        "notification audio: selected-channel special branch suppresses ordinary popup while blurred");
     g_app.preferences.message_sounds_enabled=true;
     application_notifications_settings_refresh(&g_app);
     check(message(1005,7,20) && f.sound_count==3 && f.sounds[2].clip_id==2 &&
-        application_notifications_fixture_metrics(&g_app).display_outstanding==1,
-        "notification audio: blurred main selection emits message3 and queues an ordinary popup without message1");
-    application_notifications_drain(&g_app);
-    check(f.delivered==6 && !application_notifications_fixture_metrics(&g_app).display_outstanding,
-        "notification audio: selected sound and popup deliver on independent paths");
+        !application_notifications_fixture_metrics(&g_app).display_outstanding,
+        "notification audio: blurred selected channel emits message3 and no popup under archived JS rules");
     application_notifications_fixture_focus(&g_app,true);
     check(message(1006,8,20) && f.sound_count==4 && f.sounds[3].clip_id==2,
         "notification audio: focused selected sound is direct despite ordinary selected-channel suppression");
