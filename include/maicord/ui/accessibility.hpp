@@ -457,7 +457,7 @@ struct UiAccessNameBuilder {
         bytes = 0;
         return *this;
     }
-    UiAccessNameBuilder& add(Utf8View text) noexcept {
+    __declspec(noinline) UiAccessNameBuilder& add(Utf8View text) noexcept {
         const u32 room = static_cast<u32>(sizeof(data)) - bytes;
         u32 length = text.bytes < room ? text.bytes : room;
         while (length && length < text.bytes && (static_cast<u8>(text.data[length]) & 0xC0u) == 0x80u)
@@ -468,14 +468,14 @@ struct UiAccessNameBuilder {
         return *this;
     }
     // Adds separator before text when both the name so far and text are non-empty.
-    UiAccessNameBuilder& part(Utf8View text, Utf8View separator = {", ", 2}) noexcept {
+    __declspec(noinline) UiAccessNameBuilder& part(Utf8View text, Utf8View separator = {", ", 2}) noexcept {
         if (!text.bytes)
             return *this;
         if (bytes)
             add(separator);
         return add(text);
     }
-    UiAccessNameBuilder& number(u64 value) noexcept {
+    __declspec(noinline) UiAccessNameBuilder& number(u64 value) noexcept {
         char digits[20];
         u32 count = 0;
         do {
