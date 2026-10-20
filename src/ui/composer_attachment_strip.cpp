@@ -10,19 +10,17 @@
 namespace maicord {
 namespace {
 
-bool extension_in(Utf8View extension, const char* const* list, u32 count) noexcept {
-    for (u32 i = 0; i < count; ++i) {
-        u32 bytes = 0;
-        while (list[i][bytes])
-            ++bytes;
-        if (utf8_equal(extension, Utf8View{list[i], bytes}))
+// One of the '|'-separated extensions in set.
+bool extension_in(Utf8View extension, const char* set) noexcept {
+    for (u32 start = 0, i = 0;; ++i) {
+        if (set[i] != '|' && set[i])
+            continue;
+        if (utf8_equal(extension, Utf8View{set + start, i - start}))
             return true;
+        if (!set[i])
+            return false;
+        start = i + 1;
     }
-    return false;
-}
-
-template<u32 N> bool extension_in(Utf8View extension, const char* const (&list)[N]) noexcept {
-    return extension_in(extension, list, N);
 }
 
 u32 append(Slice<char> output, u32 used, const char* text) noexcept {
@@ -138,41 +136,26 @@ UiAttachmentFileKind ui_attachment_file_kind(Utf8View filename) noexcept {
     if (!extension.bytes)
         return UiAttachmentFileKind::unknown;
     // svg counts as web code, so web code is tested before the image family.
-    static constexpr const char* webcode[]{"html", "xhtml", "htm", "xml", "xsd", "css", "styl", "svg"};
-    static constexpr const char* image[]{"png", "jpg", "jpeg", "jfif", "gif", "webp", "avif", "bmp",
-                                         "heic", "heif", "tif", "tiff", "ico", "apng"};
-    static constexpr const char* video[]{"mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv", "ogv", "3gp"};
-    static constexpr const char* acrobat[]{"pdf"};
-    static constexpr const char* archive[]{"rar", "zip", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"};
-    static constexpr const char* code[]{"c",    "cc",   "cpp",  "cxx", "h",    "hh",  "hpp",   "hxx",
-                                        "cs",   "js",   "jsx",  "mjs", "ts",   "tsx", "py",    "json",
-                                        "sh",   "bash", "ps1",  "bat", "cmd",  "yaml", "yml",  "lua",
-                                        "rs",   "go",   "java", "kt",  "rb",   "php", "pl",    "sql",
-                                        "toml", "ini",  "cfg",  "swift", "m",  "mm",  "asm",   "s",
-                                        "zig",  "hs",   "dart", "vue", "glsl", "hlsl", "cmake", "diff",
-                                        "patch"};
-    static constexpr const char* document[]{"txt", "rtf", "doc", "docx", "md", "pages", "ppt", "pptx",
-                                            "pptm", "key", "log", "odt", "odp"};
-    static constexpr const char* spreadsheet[]{"xls", "xlsx", "numbers", "csv", "ods", "tsv"};
-    static constexpr const char* audio[]{"mp3", "ogg", "opus", "wav", "aiff", "aif", "flac", "m4a", "aac", "wma"};
-    if (extension_in(extension, webcode))
-        return UiAttachmentFileKind::webcode;
-    if (extension_in(extension, image))
-        return UiAttachmentFileKind::image;
-    if (extension_in(extension, video))
-        return UiAttachmentFileKind::video;
-    if (extension_in(extension, acrobat))
-        return UiAttachmentFileKind::acrobat;
-    if (extension_in(extension, archive))
-        return UiAttachmentFileKind::archive;
-    if (extension_in(extension, code))
-        return UiAttachmentFileKind::code;
-    if (extension_in(extension, document))
-        return UiAttachmentFileKind::document;
-    if (extension_in(extension, spreadsheet))
-        return UiAttachmentFileKind::spreadsheet;
-    if (extension_in(extension, audio))
-        return UiAttachmentFileKind::audio;
+    struct Family {
+        UiAttachmentFileKind kind;
+        const char* extensions;
+    };
+    static constexpr Family families[]{
+        {UiAttachmentFileKind::webcode, "html|xhtml|htm|xml|xsd|css|styl|svg"},
+        {UiAttachmentFileKind::image, "png|jpg|jpeg|jfif|gif|webp|avif|bmp|heic|heif|tif|tiff|ico|apng"},
+        {UiAttachmentFileKind::video, "mp4|m4v|mov|webm|mkv|avi|wmv|ogv|3gp"},
+        {UiAttachmentFileKind::acrobat, "pdf"},
+        {UiAttachmentFileKind::archive, "rar|zip|7z|tar|gz|tgz|bz2|xz|zst"},
+        {UiAttachmentFileKind::code,
+         "c|cc|cpp|cxx|h|hh|hpp|hxx|cs|js|jsx|mjs|ts|tsx|py|json|sh|bash|ps1|bat|cmd|yaml|yml|lua|rs|go|"
+         "java|kt|rb|php|pl|sql|toml|ini|cfg|swift|m|mm|asm|s|zig|hs|dart|vue|glsl|hlsl|cmake|diff|patch"},
+        {UiAttachmentFileKind::document, "txt|rtf|doc|docx|md|pages|ppt|pptx|pptm|key|log|odt|odp"},
+        {UiAttachmentFileKind::spreadsheet, "xls|xlsx|numbers|csv|ods|tsv"},
+        {UiAttachmentFileKind::audio, "mp3|ogg|opus|wav|aiff|aif|flac|m4a|aac|wma"},
+    };
+    for (const auto& family : families)
+        if (extension_in(extension, family.extensions))
+            return family.kind;
     return UiAttachmentFileKind::unknown;
 }
 
