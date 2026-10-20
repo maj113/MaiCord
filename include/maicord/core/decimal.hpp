@@ -14,7 +14,8 @@ constexpr u32 decimal_digits(u64 value) noexcept {
 }
 
 // Writes the decimal digits of value (no terminator); returns their count.
-template <typename Char> constexpr u32 decimal_write(Char* output, u64 value) noexcept {
+template <typename Char>
+__declspec(noinline) constexpr u32 decimal_write(Char* output, u64 value) noexcept {
     const u32 digits = decimal_digits(value);
     for (u32 index = digits; index != 0; --index) {
         output[index - 1] = static_cast<Char>('0' + value % 10);
@@ -33,7 +34,8 @@ template <typename Char> constexpr u32 decimal_write_signed(Char* output, i64 va
 
 // As decimal_write, with ',' between groups of three digits ("12,345"); at
 // most 26 characters.
-template <typename Char> constexpr u32 decimal_write_grouped(Char* output, u64 value) noexcept {
+template <typename Char>
+__declspec(noinline) constexpr u32 decimal_write_grouped(Char* output, u64 value) noexcept {
     const u32 digits = decimal_digits(value);
     const u32 count = digits + (digits - 1) / 3;
     u32 at = count;
