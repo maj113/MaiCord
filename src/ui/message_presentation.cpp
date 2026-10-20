@@ -666,7 +666,11 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 message_component_button_colors(theme, component.style, component.disabled || pending);
             const Color fill = item_hovered && message_component_interactive(component) && !pending ? colors.hover
                                                                                                : colors.fill;
-            if (!push_owned(paint, owner, control, fill, colors.border, 4.0f, 0.0f, UiLayoutContentKind::control))
+            const bool neutral = component.style != 1 && component.style != 3 && component.style != 4;
+            if (!(neutral ? push_material(paint, owner, control, theme, fill, colors.border, 4.0f, 0.0f,
+                                          UiLayoutContentKind::control, UiBackgroundTier::highest)
+                          : push_owned(paint, owner, control, fill, colors.border, 4.0f, 0.0f,
+                                       UiLayoutContentKind::control)))
                 return false;
             if (component.emoji_id && record) {
                 const float top = control.top + (ui_rect_height(control) - kMessageComponentEmojiExtent) * 0.5f;

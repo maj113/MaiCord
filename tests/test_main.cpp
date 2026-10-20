@@ -2692,7 +2692,8 @@ void test_ui_scene() noexcept {
     GatewayMessageComponent presentation_components[1]{};
     presentation_components[0].label = utf8_literal("Open");
     presentation_components[0].type = 2;
-    presentation_components[0].style = 1;
+    presentation_components[0].style = 5;
+    presentation_components[0].url = utf8_literal("https://example.com");
     presentation_components[0].parent = 0xFFFFu;
     GatewayMessageEvent presentation_rich{};
     presentation_rich.id = retained_message_id;
