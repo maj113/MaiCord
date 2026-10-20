@@ -374,53 +374,47 @@ SfntStatus tamil_run(NativeTextContext& owner,const Binding& binding,Utf8View te
     const auto* profile=indic_profile(owner,binding,SfntIndicProfile::tamil);if(!profile)return SfntStatus::unsupported_sequence;
     return native_tamil_run(owner.store,*profile,text,em,s,out,{},spacing,rtl);
 }
-const NativeSinhalaPlan* sinhala_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    for(auto* p=owner.sinhala_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.independent_letters==independent)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<SinhalaProfile>(&arena);
-    const auto status=p?native_sinhala_plan_prepare(owner.store,selected.plan,independent,&arena,&owner.scratch,&p->plan):SfntStatus::resource_limit;
+// Cluster-shaper plans are cached per font plan generation and letter policy.
+// A face without the script's features is cached as unsupported, so a neutral
+// fallback span returning to it does not prepare it again; capacity and work
+// failures stay retryable.
+template<class Profile,class Prepare> const decltype(Profile::plan)* cluster_profile(NativeTextContext& owner,Profile*& profiles,
+    const Binding& selected,bool independent,Prepare prepare) noexcept {
+    for(auto* p=profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.independent_letters==independent)return p->plan.cmap?&p->plan:nullptr;
+    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<Profile>(&arena);
+    const auto status=p?prepare(&arena,&p->plan):SfntStatus::resource_limit;
     if(status!=SfntStatus::ok){++owner.prepare_failed;
-        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.independent_letters=independent;p->next=owner.sinhala_profiles;owner.sinhala_profiles=p;}
+        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.independent_letters=independent;p->next=profiles;profiles=p;}
         else arena_rewind(&arena,mark);return nullptr;}
-    p->next=owner.sinhala_profiles;owner.sinhala_profiles=p;return &p->plan;
+    p->next=profiles;profiles=p;return &p->plan;
+}
+const NativeSinhalaPlan* sinhala_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
+    return cluster_profile(owner,owner.sinhala_profiles,selected,independent,[&](Arena* arena,NativeSinhalaPlan* plan) noexcept {
+        return native_sinhala_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
 }
 SfntStatus sinhala_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
     const auto* profile=sinhala_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
     return native_sinhala_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
 }
 const NativeMyanmarPlan* myanmar_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    for(auto* p=owner.myanmar_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.independent_letters==independent)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<MyanmarProfile>(&arena);
-    const auto status=p?native_myanmar_plan_prepare(owner.store,selected.plan,independent,&arena,&owner.scratch,&p->plan):SfntStatus::resource_limit;
-    if(status!=SfntStatus::ok){++owner.prepare_failed;
-        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.independent_letters=independent;p->next=owner.myanmar_profiles;owner.myanmar_profiles=p;}
-        else arena_rewind(&arena,mark);return nullptr;}
-    p->next=owner.myanmar_profiles;owner.myanmar_profiles=p;return &p->plan;
+    return cluster_profile(owner,owner.myanmar_profiles,selected,independent,[&](Arena* arena,NativeMyanmarPlan* plan) noexcept {
+        return native_myanmar_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
 }
 SfntStatus myanmar_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
     const auto* profile=myanmar_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
     return native_myanmar_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
 }
 const NativeTibetanPlan* tibetan_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    for(auto* p=owner.tibetan_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.independent_letters==independent)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<TibetanProfile>(&arena);
-    const auto status=p?native_tibetan_plan_prepare(owner.store,selected.plan,independent,&arena,&owner.scratch,&p->plan):SfntStatus::resource_limit;
-    if(status!=SfntStatus::ok){++owner.prepare_failed;
-        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.independent_letters=independent;p->next=owner.tibetan_profiles;owner.tibetan_profiles=p;}
-        else arena_rewind(&arena,mark);return nullptr;}
-    p->next=owner.tibetan_profiles;owner.tibetan_profiles=p;return &p->plan;
+    return cluster_profile(owner,owner.tibetan_profiles,selected,independent,[&](Arena* arena,NativeTibetanPlan* plan) noexcept {
+        return native_tibetan_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
 }
 SfntStatus tibetan_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
     const auto* profile=tibetan_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
     return native_tibetan_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
 }
 const NativeKhmerPlan* khmer_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    for(auto* p=owner.khmer_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.independent_letters==independent)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<KhmerProfile>(&arena);
-    const auto status=p?native_khmer_plan_prepare(owner.store,selected.plan,independent,&arena,&owner.scratch,&p->plan):SfntStatus::resource_limit;
-    if(status!=SfntStatus::ok){++owner.prepare_failed;
-        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.independent_letters=independent;p->next=owner.khmer_profiles;owner.khmer_profiles=p;}
-        else arena_rewind(&arena,mark);return nullptr;}
-    p->next=owner.khmer_profiles;owner.khmer_profiles=p;return &p->plan;
+    return cluster_profile(owner,owner.khmer_profiles,selected,independent,[&](Arena* arena,NativeKhmerPlan* plan) noexcept {
+        return native_khmer_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
 }
 SfntStatus khmer_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
     const auto* profile=khmer_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
