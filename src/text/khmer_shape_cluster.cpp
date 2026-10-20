@@ -7,8 +7,6 @@ namespace maicord {namespace {
 using C=KhmerCategory;
 constexpr u32 nil=0xffffffffu;
 constexpr u8 pre_role=4,ro_first=8,ro_last=16,generated_pre=64;
-struct Policy {const SfntGdef* gdef;u16 space=0,zero[3]{};};
-static_assert(sizeof(Policy)==16);
 SfntStatus reorder(Slice<SfntClusterGlyph> glyphs,u64 available,u64* spent) noexcept {
     u64 used=0;const auto spend=[&](u64 cost) noexcept {if(cost>available-used)return false;used+=cost;return true;};
     struct Report {u64& used;u64* out;~Report() noexcept {*out=used;}} report{used,spent};
@@ -34,19 +32,6 @@ SfntStatus reorder(Slice<SfntClusterGlyph> glyphs,u64 available,u64* spent) noex
         }
     }
     return SfntStatus::ok;
-}
-SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
-    auto& p=*static_cast<Policy*>(context);
-    if(zero.count<glyphs.count)return SfntStatus::output_too_small;
-    if(glyphs.count>work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<glyphs.count;++i){auto& item=glyphs[i];auto& g=item.glyph;
-        // Khmer postprocessing treats the font's three nominal zero-width glyph IDs
-        // as invisible, even when another scalar maps to the same ID; a
-        // substitution to a different ID stays visible.
-        const bool invisible=g.glyph==p.zero[0]||g.glyph==p.zero[1]||g.glyph==p.zero[2];
-        if(invisible)g.glyph=p.space;g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(invisible);
-        zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
-    }return SfntStatus::ok;
 }
 SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     ConstSlice<SfntKhmerInputScalar> expanded,bool rtl,Slice<SfntClusterGlyph> mapped,u32& count,u32 source_base) noexcept {
@@ -75,15 +60,6 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     if(cfar)for(u32 i=0;i<count;++i)mapped[i].glyph.reserved|=sfnt_khmer_cfar_mask;
     return SfntStatus::ok;
 }
-struct RunPolicy {Policy cluster;Slice<u32> groups,boundaries;u32 boundary_count;};
-static_assert(sizeof(RunPolicy)==56);
-SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
-    return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
-}
-SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
-    auto& p=*static_cast<RunPolicy*>(context);
-    return use_shape::restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
-}
 }
 SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {
@@ -110,11 +86,13 @@ SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         if(status!=SfntStatus::ok)return status;u64 cost=0;status=reorder({mapped+count,amount},reorder_work,&cost);reorder_work-=cost;
         if(status!=SfntStatus::ok)return status;count+=amount;first=end;units=end_units;pieces=end_pieces;
     }
-    RunPolicy policy{{&plan.gdef},{storage.character_glyphs.data,units},storage.targets,starts};
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.cluster.space);if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<3;++i){status=sfnt_cmap_glyph(cmap,0x200b+i,0,&policy.cluster.zero[i]);if(status!=SfntStatus::ok)return status;}
+    use_shape::GroupRun policy{&plan.gdef,0,{},{storage.character_glyphs.data,units},storage.targets,starts};
+    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;
+    // Postprocessing treats the font's ZWSP/ZWNJ/ZWJ glyphs as invisible.
+    for(u32 i=0;i<3;++i){status=sfnt_cmap_glyph(cmap,0x200b+i,0,&policy.invisible[i]);if(status!=SfntStatus::ok)return status;}
+    policy.invisible[3]=policy.invisible[0];
     auto resolved=plan;resolved.retain_zero_positioning=false;resolved.compensate_consecutive_zeroes=true;
     return sfnt_shape_run(resolved,{mapped,count},units,{storage.targets.data,starts},rtl,em,storage,result,limits,steps,{},
-        {&policy,run_finish,run_restore});
+        {&policy,use_shape::finish_group_run,use_shape::restore_group_run});
 }
 }

@@ -4,21 +4,6 @@
 #include "selector_slots.hpp"
 #include "use_shape_internal.hpp"
 namespace maicord {namespace {
-struct Policy {const SfntGdef* gdef;u16 space=0,zero[4]{};};
-static_assert(sizeof(Policy)==24);
-SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
-    const auto& p=*static_cast<Policy*>(context);
-    if(zero.count<glyphs.count)return SfntStatus::output_too_small;
-    if(glyphs.count>work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i].glyph;
-        // USE recognizes final nominal ZWNJ/ZWJ/LRM/RLM IDs, including
-        // aliases to .notdef. ZWSP is not in this set for Myanmar.
-        const bool invisible=g.glyph==p.zero[0]||g.glyph==p.zero[1]||g.glyph==p.zero[2]||g.glyph==p.zero[3];
-        if(invisible)g.glyph=p.space;
-        g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(invisible);
-        zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
-    }return SfntStatus::ok;
-}
 // Windows overwrites only the current cluster's selector slots. A generated
 // circle can observe a tail slot from an earlier cluster. Encode all 256
 // selectors plus zero in 32 bytes and one high-bit mask instead of 128 bytes.
@@ -56,10 +41,9 @@ struct Work {
     bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
 };
 struct RunPolicy {
-    Policy cluster;const SfntShapePlan* plan;ConstSlice<SfntLookupStep> early;
-    Slice<u32> groups,boundaries;u64 edits=0;u32 boundary_count=0,match_work=0;
+    use_shape::GroupRun groups;const SfntShapePlan* plan;ConstSlice<SfntLookupStep> early;u64 edits=0;u32 match_work=0;
 };
-static_assert(sizeof(RunPolicy)==96);
+static_assert(sizeof(RunPolicy)==104);
 SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,
     SfntComponentForest* forest,SfntGsubExecutionScratch scratch,u64 available,u64* used) noexcept {
     *used=0;if(stage)return SfntStatus::ok;
@@ -73,9 +57,9 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
     for(u32 first=0;first<sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));){
         const auto view=sfnt_glyph_buffer_view(*buffer);const u32 total=sfnt_glyph_count(view);
         const auto& initial=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,first));
-        const u32 group=run.groups[initial.source];u32 end=first;
+        const u32 group=run.groups.groups[initial.source];u32 end=first;
         while(end<total){const auto& value=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,end));
-            if(!w.spend(1))return SfntStatus::resource_limit;if(run.groups[value.source]!=group)break;++end;}
+            if(!w.spend(1))return SfntStatus::resource_limit;if(run.groups.groups[value.source]!=group)break;++end;}
         auto status=seek(*buffer,end);if(status!=SfntStatus::ok)return status;
         // Expose only this cluster and the existing gap to the shared executor.
         // Both contextual lookahead and lookbehind stay inside the local view.
@@ -87,7 +71,7 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
             const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
             if(run.plan->refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
                 auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
-                for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(*run.cluster.gdef,values[i].glyph.glyph);}
+                for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(*run.groups.gdef,values[i].glyph.glyph);}
             SfntGsubExecutionResult execution{};
             status=sfnt_gsub_execute_lookup(*run.plan->substitutions,run.early[step].lookup,&local,0,count,0,scratch,
                 {w.left,run.match_work},&execution,clusters,forest);
@@ -98,13 +82,6 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
         buffer->gap_begin=first+local.gap_begin;buffer->gap_end=first+local.gap_end;first=buffer->gap_begin;
     }
     return SfntStatus::ok;
-}
-SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
-    return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
-}
-SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
-    auto& p=*static_cast<RunPolicy*>(context);
-    return use_shape::restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
 }
 
 }
@@ -141,13 +118,15 @@ SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
             {mapped+count,sizes.scalar_count-count},amount,modern?&selectors:nullptr);if(status!=SfntStatus::ok)return status;
         count+=amount;first=end;units=end_units;pieces=end_pieces;
     }
-    RunPolicy policy{{&plan.gdef},&plan,{steps.data,early},{storage.character_glyphs.data,units},storage.targets};
-    policy.boundary_count=starts;policy.match_work=limits.match_work;
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.cluster.space);if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,&policy.cluster.zero[i]);if(status!=SfntStatus::ok)return status;}
+    RunPolicy policy{{&plan.gdef,0,{},{storage.character_glyphs.data,units},storage.targets,starts},&plan,{steps.data,early}};
+    policy.match_work=limits.match_work;
+    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.groups.space);if(status!=SfntStatus::ok)return status;
+    // USE recognizes the final nominal ZWNJ/ZWJ/LRM/RLM glyphs, including
+    // aliases to .notdef. ZWSP is not in this set for Myanmar.
+    for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,&policy.groups.invisible[i]);if(status!=SfntStatus::ok)return status;}
     const SfntShapeStagePolicy stages{&policy,run_prepare,7};auto resolved=plan;resolved.retain_zero_positioning=true;
     status=sfnt_shape_run(resolved,{mapped,count},units,{storage.targets.data,starts},rtl,em,storage,result,limits,
-        {steps.data?steps.data+early:nullptr,steps.count-early},{},{&policy,run_finish,run_restore},nullptr,&stages);
+        {steps.data?steps.data+early:nullptr,steps.count-early},{},{&policy,use_shape::finish_group_run,use_shape::restore_group_run},nullptr,&stages);
     result->substitution_edits+=policy.edits;return status;
 }
 }

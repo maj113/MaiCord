@@ -224,6 +224,22 @@ SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
     }
     return use_shape::run(plan,cmap,{mapped,count},units,starts,early,0xdca,em,storage,result,steps,limits,rtl);
 }
+SfntStatus use_shape::finish_group_run(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
+    const auto& p=*static_cast<GroupRun*>(context);
+    if(zero.count<glyphs.count)return SfntStatus::output_too_small;
+    if(glyphs.count>work)return SfntStatus::resource_limit;
+    for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i].glyph;
+        // Only the nominal IDs count, even when another scalar maps to one; a
+        // substitution to a different ID stays visible.
+        const bool invisible=g.glyph==p.invisible[0]||g.glyph==p.invisible[1]||g.glyph==p.invisible[2]||g.glyph==p.invisible[3];
+        if(invisible)g.glyph=p.space;g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(invisible);
+        zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
+    }return SfntStatus::ok;
+}
+SfntStatus use_shape::restore_group_run(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
+    auto& p=*static_cast<GroupRun*>(context);
+    return restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
+}
 SfntStatus use_shape::restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32 boundary_count,SfntClusterMap* clusters,
     const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
     Work w{work};

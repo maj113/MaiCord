@@ -15,4 +15,11 @@ SfntStatus run(const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntClusterGlyph>
 // components and reopens the cluster map on the surviving group boundaries.
 SfntStatus restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32 boundary_count,SfntClusterMap*,
     const SfntComponentForest&,Slice<SfntComponentGlyph>,u64 work) noexcept;
+// Glyph policy of grouped Khmer/Myanmar runs (a script policy may extend it as
+// its first member). The font's nominal glyphs for the script's invisible
+// controls become spaces with zero advance, as do marks; reserved records
+// invisibility. Source groups are restored after late substitution.
+struct GroupRun {const SfntGdef* gdef;u16 space=0,invisible[4]{};Slice<u32> groups,boundaries;u32 boundary_count=0;};
+SfntStatus finish_group_run(void*,Slice<SfntComponentGlyph>,Slice<u8> zero,u64 work) noexcept;
+SfntStatus restore_group_run(void*,SfntClusterMap*,const SfntComponentForest&,Slice<SfntComponentGlyph>,u64 work) noexcept;
 }
