@@ -32,9 +32,11 @@ HRESULT create_hardware_device(ID3D11Device** device, D3D_FEATURE_LEVEL* level,
     };
     // Decoder owners query video capabilities on this device. VIDEO_SUPPORT
     // only adds a WDDM-version requirement; it does not enable video decoding.
+    // Commands run on the calling thread: the driver's submission worker costs
+    // more CPU, context switches and heap than it saves on these small frames.
     return D3D11CreateDevice(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-        D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels,
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_PREVENT_INTERNAL_THREADING_OPTIMIZATIONS, levels,
         static_cast<UINT>(sizeof(levels) / sizeof(levels[0])),
         D3D11_SDK_VERSION, device, level, context);
 }
