@@ -23,11 +23,12 @@ NotificationMessageSoundDecision notification_message_sound_decide(const Notific
     if(!i.ready||!i.live||i.duplicate||i.optimistic||i.restrictions!=A::allowed||!i.focus_known)return d;
     const bool selected=i.selected==A::allowed;
     d.selected_direct=selected&&i.preference_known&&i.message1_enabled;
-    // While unfocused, a selected candidate returns before ordinary notification
-    // processing, even when the message1 preference disables the selected sound.
-    if((!i.focused&&i.selected!=A::denied)||i.ordinary!=A::allowed||i.overlay!=A::allowed||
-        !i.desktop_type_known)return d;
+    // The selected-channel message3 sound takes priority over the ordinary
+    // message1 sound when unfocused, but must NOT suppress the independent
+    // desktop popup. A selected channel is still eligible when blurred.
+    if(i.ordinary!=A::allowed||i.overlay!=A::allowed||!i.desktop_type_known)return d;
     d.ordinary_notification=true;
+    if(!i.focused&&i.selected!=A::denied)return d;
     if(!i.preference_known||!i.message1_enabled)return d;
     d.ordinary=i.desktop_never?NotificationMessageSoundRoute::direct:NotificationMessageSoundRoute::popup;
     return d;
