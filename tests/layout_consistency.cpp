@@ -7,6 +7,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/user_profile.hpp"
+#include "maicord/ui/background_theme.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/page_registry.hpp"
@@ -482,6 +483,21 @@ void shell() noexcept {
          shell_presentation_build_member_status_overlay(&f.member_scene, kDefaultTheme, &g.paint);
     check(ok, "shell overlay fixture");
     finish("shell overlays");
+    // A background theme paints the add-server tile with the rail's surface
+    // material, like the Home button, rather than a flat grey quad.
+    Theme background = kDefaultTheme;
+    background.background = background_theme_defaults();
+    const UiRect add_tile = guild_rail_icon_rectangle(guild_rail_scene_add_rectangle(f.rail));
+    bool add_material = false;
+    ok = ok && ui_rect_has_area(add_tile) && begin(1280, 800) &&
+         shell_presentation_build_chrome(f.scene, &f.view, &f.rail, &f.navigation, nullptr, &f.member_scene,
+                                         background, 1280, 800, &g.paint, &regions, nullptr);
+    for (u32 i = 0; ok && i < g.paint.count; ++i) {
+        const auto& quad = g.paint.quads[i];
+        add_material |= quad.border_width == -7 && quad.left == add_tile.left && quad.top == add_tile.top &&
+                        quad.right == add_tile.right && quad.bottom == add_tile.bottom;
+    }
+    check(ok && add_material, "shell chrome: the add-server tile takes the background theme's surface material");
 }
 
 void server_settings() noexcept {

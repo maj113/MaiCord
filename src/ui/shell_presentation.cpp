@@ -113,7 +113,8 @@ bool paint_drag_visual(PaintStream* stream, const NavigationDragVisual& drag, co
                                             theme.accent, ring_radius + inset, 2.0f);
 }
 
-// "Add a server": a round tile with a green plus that fills green on hover.
+// "Add a server": a round tile with an accent plus that fills with the accent
+// on hover. Its surface follows the theme like the Home button's.
 bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Theme& theme) noexcept {
     const UiRect row = guild_rail_scene_add_rectangle(scene);
     if (!ui_rect_has_area(row))
@@ -121,15 +122,20 @@ bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Th
     const UiRect tile = guild_rail_icon_rectangle(row);
     const bool hovered = scene.add_button.generation && scene.widgets.hovered.slot == scene.add_button.slot &&
                          scene.widgets.hovered.generation == scene.add_button.generation;
-    const Color green = ui_icon_role_color(theme, UiIconRole::success);
-    if (!push_rounded(stream, tile.left, tile.top, tile.right, tile.bottom, hovered ? green : theme.surface_high,
-                      hovered ? 14.0f : ui_rect_width(tile) * 0.5f) ||
+    const bool background = ui_background_active(theme);
+    Color fill = hovered ? theme.tokens.emphasis.fill : theme.surface_high;
+    if (background && !hovered)
+        fill.alpha = 1;
+    if (!ui_background_paint_surface(stream, tile, theme, fill, fill, hovered ? 14.0f : ui_rect_width(tile) * 0.5f,
+                                     background && !hovered ? .75f : 0, hovered ? 1.f : .80f,
+                                     hovered ? UiBackgroundSurfaceMode::tinted : UiBackgroundSurfaceMode::gradient,
+                                     UiBackgroundTier::highest, UiBackgroundBorderTone::palette) ||
         !record_content(stream, scene.widgets, scene.add_button, tile, UiLayoutContentKind::control))
         return false;
     const float cx = (tile.left + tile.right) * .5f, cy = (tile.top + tile.bottom) * .5f;
     const float half = 12.0f;
     return ui_icon_paint(stream, UiIcon::plus, {cx - half, cy - half, cx + half, cy + half},
-                         hovered ? ui_icon_role_color(theme, UiIconRole::on_accent) : green);
+                         ui_icon_role_color(theme, hovered ? UiIconRole::on_accent : UiIconRole::accent));
 }
 
 bool paint_voice_participants(PaintStream* stream, const ShellNavigationScene& scene,

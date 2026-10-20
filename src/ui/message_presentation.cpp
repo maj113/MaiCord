@@ -820,12 +820,15 @@ bool append_intro(const MessageScene& scene, const Theme& theme, PaintStream* pa
     const UiWidgetReference owner{&scene.widgets, scene.root};
     const float extent = ui_rect_width(geometry.icon);
     const MessageSceneIntroKind kind = scene.intro.kind;
-    const Color fill = kind == MessageSceneIntroKind::direct_message ||
-                               kind == MessageSceneIntroKind::group_direct_message
-                           ? theme.avatar_placeholder
-                           : theme.surface_high;
-    if (!push_owned(paint, owner, geometry.icon, fill, fill, extent * 0.5f, 0.0f, UiLayoutContentKind::icon,
-                    ui_layout_content_bounds_allow_overlap))
+    const bool conversation = kind == MessageSceneIntroKind::direct_message ||
+                              kind == MessageSceneIntroKind::group_direct_message;
+    // A channel's circle takes the theme's surface material; a conversation's
+    // is covered by its avatar.
+    if (conversation ? !push_owned(paint, owner, geometry.icon, theme.avatar_placeholder, theme.avatar_placeholder,
+                                   extent * 0.5f, 0.0f, UiLayoutContentKind::icon,
+                                   ui_layout_content_bounds_allow_overlap)
+                     : !push_material(paint, owner, geometry.icon, theme, theme.surface_high, theme.surface_high,
+                                      extent * 0.5f, 0.0f, UiLayoutContentKind::icon, UiBackgroundTier::highest))
         return false;
     // 42 px channel glyph in the strong icon colour; 32 px thread glyph in the subtle one.
     const bool thread = kind == MessageSceneIntroKind::thread;
