@@ -25,7 +25,7 @@ struct ProtoSource {
                : c == '/'             ? 63
                                       : 0;
     }
-    u8 at(u32 p) const noexcept {
+    __declspec(noinline) u8 at(u32 p) const noexcept {
         if (raw.data)
             return raw[p];
         const u32 quartet = p / 3;
@@ -46,7 +46,7 @@ inline ProtoSource proto_source(ConstSlice<u8> bytes) noexcept {
 }
 
 // A base-128 varint of at most ten bytes in [p, end).
-inline bool proto_varint(const ProtoSource& w, u32& p, u32 end, u64& n) noexcept {
+__declspec(noinline) inline bool proto_varint(const ProtoSource& w, u32& p, u32 end, u64& n) noexcept {
     n = 0;
     for (u32 i = 0; i < 10; ++i) {
         if (p >= end)
@@ -63,7 +63,8 @@ inline bool proto_varint(const ProtoSource& w, u32& p, u32 end, u64& n) noexcept
 
 // A field tag with a nonzero 32-bit field number. End-group tags (type 4) are
 // accepted so proto_skip can close groups; every caller rejects them otherwise.
-inline bool proto_tag(const ProtoSource& w, u32& p, u32 end, u32& field, u32& type) noexcept {
+__declspec(noinline) inline bool
+proto_tag(const ProtoSource& w, u32& p, u32 end, u32& field, u32& type) noexcept {
     u64 n = 0;
     if (!proto_varint(w, p, end, n) || n > ~u32{0} || !(n >> 3))
         return false;
@@ -73,7 +74,7 @@ inline bool proto_tag(const ProtoSource& w, u32& p, u32 end, u32& field, u32& ty
 }
 
 // A length prefix whose payload [p, stop) fits before end.
-inline bool proto_length(const ProtoSource& w, u32& p, u32 end, u32& stop) noexcept {
+__declspec(noinline) inline bool proto_length(const ProtoSource& w, u32& p, u32 end, u32& stop) noexcept {
     u64 n = 0;
     if (!proto_varint(w, p, end, n) || n > end - p)
         return false;
