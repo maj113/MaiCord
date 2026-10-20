@@ -72,6 +72,26 @@ def mirror_arrays(mirrors, brackets):
     return cpp_array('u16', 'unicode_mirror_points', points) + cpp_array('u16', 'unicode_mirror_values', values)
 
 
+def fold_planes(top, top_shift):
+    """Drop the top-index blocks of planes that repeat the plane before them.
+    Returns the shortened index and (first, end, source) block numbers: a block
+    in [first, end) reads the identical plane at source, later blocks shift
+    down by end - first."""
+    plane = 1 << (16 - top_shift)
+    planes = [tuple(top[at:at + plane]) for at in range(0, len(top), plane)]
+    best = (0, 0)
+    for start in range(len(planes)):
+        end = start + 1
+        while end < len(planes) and planes[end] == planes[start]:
+            end += 1
+        if end - start - 1 > best[1] - best[0]:
+            best = (start + 1, end)
+    first, end = best[0] * plane, best[1] * plane
+    if first == end:
+        raise ValueError('No repeated plane to fold')
+    return top[:first] + top[end:], (first, end, first - plane)
+
+
 def tier(values, shift, uniform):
     size = 1 << shift
     pages, ids, flat = {}, [], []
@@ -227,12 +247,17 @@ def main():
         # Exhaustively prove the chosen layout reconstructs the uncompressed IDs.
         a, b = layout['leaf_shift'], layout['middle_shift']
         top, middle, leaves = compact_index(top, middle, leaves, a, b)
+        top, (fold_first, fold_end, fold_source) = fold_planes(top, a + b)
         layout = dict(layout, uncompacted_index_bytes=layout['index_bytes'],
                       index_bytes=2*(len(top)+len(middle)+len(leaves)),
                       top_entries=len(top), middle_entries=len(middle), leaf_entries=len(leaves),
                       addressing='overlapped-element-offsets')
+        plane_mask = (1 << (16 - a - b)) - 1
         for cp, expected in enumerate(ids):
-            value = top[cp >> (a + b)]
+            block = cp >> (a + b)
+            if block >= fold_first:
+                block = fold_source + (block & plane_mask) if block < fold_end else block - (fold_end - fold_first)
+            value = top[block]
             if not value & 0x8000:
                 value = middle[value + ((cp >> a) & ((1 << b) - 1))]
                 if not value & 0x8000:
@@ -282,6 +307,7 @@ def main():
     header += '    constexpr bool has(UnicodeFlag flag) const noexcept {return (flags()&static_cast<u32>(flag))!=0;}\n};\n'
     header += f'static_assert(sizeof(UnicodeProperties)=={words*4});\n}} // namespace maicord\n'
     data = notice + f'static constexpr u32 unicode_leaf_shift={a},unicode_middle_shift={b};\n'
+    data += f'static constexpr u32 unicode_fold_first={fold_first},unicode_fold_end={fold_end},unicode_fold_source={fold_source};\n'
     data += cpp_array('u16', 'unicode_ascii', ids[:128])
     data += cpp_array('u16', 'unicode_top', top) + cpp_array('u16', 'unicode_middle', middle) + cpp_array('u16', 'unicode_leaves', leaves)
     data += 'static constexpr UnicodeProperties unicode_records[] = {\n'

@@ -16,7 +16,13 @@ u32 mirror_paired(u32 code_point,u32 slot) noexcept {return code_point+static_ca
 const UnicodeProperties* unicode_properties(u32 code_point) noexcept {
     if(code_point>0x10ffff)return nullptr;
     if(code_point<128)return &unicode_records[unicode_ascii[code_point]];
-    u32 value=unicode_top[code_point>>(unicode_leaf_shift+unicode_middle_shift)];
+    u32 block=code_point>>(unicode_leaf_shift+unicode_middle_shift);
+    // Identical unassigned planes share one plane's index blocks.
+    if(block>=unicode_fold_first) {
+        constexpr u32 plane_mask=(0x10000u>>(unicode_leaf_shift+unicode_middle_shift))-1;
+        block=block<unicode_fold_end?unicode_fold_source+(block&plane_mask):block-(unicode_fold_end-unicode_fold_first);
+    }
+    u32 value=unicode_top[block];
     if(!(value&0x8000)) {
         value=unicode_middle[value+((code_point>>unicode_leaf_shift)&((1u<<unicode_middle_shift)-1))];
         if(!(value&0x8000))value=unicode_leaves[value+(code_point&((1u<<unicode_leaf_shift)-1))];

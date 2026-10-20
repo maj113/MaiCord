@@ -40,8 +40,9 @@ positions, layout candidates, generated-file hashes and counts.
 The stored properties are `FIELDS` and `FLAGS` in the script; Script_Extensions
 contributes only Arabic membership and East_Asian_Width only F/W/H membership.
 Records sit behind a three-level page index (shared pages, direct IDs for uniform
-spans, a 128-entry ASCII index); `compact_pages.py` overlaps pages, and
-reconstruction is verified at every code point. Tables are static and allocate
+spans, a 128-entry ASCII index); `compact_pages.py` overlaps pages, identical
+unassigned planes share one plane's top-index blocks, and reconstruction is
+verified at every code point. Tables are static and allocate
 nothing. Enum values and layout are tied to the pinned data version.
 
 `python -I tools/unicode/tibetan_categories.py --ucd <UCD.zip>` derives the

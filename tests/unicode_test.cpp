@@ -27,6 +27,10 @@ bool cases() noexcept {
     if(unicode_properties(0xd800)->general_category()!=UnicodeGeneralCategory::cs || unicode_is_scalar(0xd800) || unicode_is_scalar(0xdfff) ||
        !unicode_is_scalar(0x10ffff) || unicode_properties(0x10ffff)->general_category()!=UnicodeGeneralCategory::cn ||
        unicode_properties(0x110000) || unicode_properties(~0u) || unicode_is_scalar(~0u))return false;
+    // Planes 4-13 share one plane's index blocks; check both sides of the fold.
+    if(unicode_properties(0x3134a)->script()!=UnicodeScript::hani || unicode_properties(0x5fffe)->bidi_class()!=UnicodeBidiClass::bn ||
+       unicode_properties(0xd1234)->bidi_class()!=UnicodeBidiClass::l || unicode_properties(0xdffff)->bidi_class()!=UnicodeBidiClass::bn ||
+       !unicode_properties(0xe0001)->has(UnicodeFlag::default_ignorable_code_point) || unicode_properties(0xf0000)->general_category()!=UnicodeGeneralCategory::co)return false;
     // Unicode 17 has 428 mirror pairs and 64 paired-bracket pairs, all in the
     // BMP; each pairing is an involution and only mirrored scalars pair.
     u32 mirrored=0,opening=0,closing=0;
@@ -39,7 +43,7 @@ bool cases() noexcept {
     if(mirrored!=428||opening!=64||closing!=64)return false;
     const auto bracket=unicode_bidi_bracket('(');
     return unicode_bidi_mirror('(')==')' && unicode_bidi_mirror(0x2208)==0x220b && bracket.paired==')' && bracket.type==UnicodeBracketType::open &&
-           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==47974;
+           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==45670;
 }
 u8 output_buffer[16384];u32 output_used=0;
 bool flush(HANDLE file) noexcept {
