@@ -60,7 +60,7 @@ SfntStatus sfnt_position_initialize(ConstSlice<double> advances,ConstSlice<u8> f
     if(advances.count!=flags.count || (advances.count && (!advances.data || !flags.data)))return SfntStatus::invalid_input;if(output.count<advances.count)return SfntStatus::output_too_small;
     if(advances.count && !output.data)return SfntStatus::invalid_input;if(advances.count>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<advances.count;++i)if(!is_finite(advances.data[i]) || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)))return SfntStatus::invalid_input;
-    for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]={zero?0:advances.data[i],zero&&rtl&&advances.data[i]!=0?-advances.data[i]:0,0};}return SfntStatus::ok;
+    for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]=sfnt_position_nominal(advances.data[i],zero,rtl);}return SfntStatus::ok;
 }
 SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application,const SfntLookupBounds* bounds) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;

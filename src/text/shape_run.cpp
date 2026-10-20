@@ -146,7 +146,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         const double advance=s.advances[i];if(!is_finite(advance))return SfntStatus::invalid_input;
         const bool zero=policy.prepare?s.flags[i]!=0:glyph.glyph_class==SfntGlyphClass::mark;
         s.flags[i]=static_cast<u8>((cluster!=previous?sfnt_position_cluster_start:0)|(zero?sfnt_position_zero_advance:0));previous=cluster;
-        s.positions[i]={zero?0:advance,zero&&rtl&&advance!=0?-advance:0,0};
+        s.positions[i]=sfnt_position_nominal(advance,zero,rtl);
     }
     if(!defer_output)for(u32 i=0,glyph=absent;i<units;++i){
         if(sfnt_cluster_map_starts(clusters,i))glyph=s.character_glyphs[i];

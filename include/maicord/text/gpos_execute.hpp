@@ -24,6 +24,11 @@ static_assert(sizeof(SfntPosition)==24 && sizeof(SfntPlacement)==12 && sizeof(Sf
 // invalid. Outputs are valid only on success.
 SfntStatus sfnt_position_flags_from_clusters(const SfntClusterMap& clusters,SfntGlyphView glyphs,Slice<u8> output,
                                              ConstSlice<u8> zero_advance={},u64 work_limit=1000000) noexcept;
+// Nominal position: a zero-advance glyph keeps no advance and, in RTL, is
+// offset back over its nominal width.
+inline SfntPosition sfnt_position_nominal(double advance,bool zero,bool rtl) noexcept {
+    return {zero?0:advance,zero&&rtl&&advance!=0?-advance:0,0};
+}
 // Flags are supplied by the shaping layer, not inferred from Unicode or GDEF.
 // The first glyph must begin a cluster. Storage must not overlap other inputs.
 SfntStatus sfnt_position_initialize(ConstSlice<double> nominal_advances,ConstSlice<u8> flags,bool rtl,
