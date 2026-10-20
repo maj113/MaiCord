@@ -202,9 +202,11 @@ struct Executor {
     }
     SfntStatus run(const SfntGsubExecutableLookup& root,u32 start) noexcept {
         const bool reverse=root.type==8;u32 at=reverse?result.input_end:start;
+        // Only a match (with its nested actions) can edit the buffer.
+        auto view=sfnt_glyph_buffer_view(buffer);
         while(reverse?at>start:at<result.input_end){const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;
             // An excluded or ignored glyph costs the same single unit as a rejected attempt.
-            const auto& glyph=sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),current);
+            const auto& glyph=sfnt_glyph_at(view,current);
             if(sfnt_lookup_bounds_exclude(root.bounds,glyph.glyph)||(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,glyph.glyph,glyph.glyph_class))){
                 if(!spend(&work))return SfntStatus::resource_limit;if(!reverse)at=resume;continue;}
             auto s=attempt(root,current,result.input_end,&matched,&resume);if(s!=SfntStatus::ok)return s;
@@ -218,6 +220,7 @@ struct Executor {
                 const SfntGsubExecutableLookup* child=nullptr;s=sfnt_gsub_lookup_prepare(program,action.lookup_index,&child);if(s!=SfntStatus::ok)return s;
                 u32 ignored=0;bool nested=false;s=attempt(*child,position,frame.input_end,&nested,&ignored);if(s!=SfntStatus::ok)return s;
             }
+            if(matched)view=sfnt_glyph_buffer_view(buffer);
             if(!reverse)at=resume;
         }return SfntStatus::ok;
     }
