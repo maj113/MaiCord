@@ -5,6 +5,8 @@
 // allocation calls, private working set and committed memory by owner on standard
 // output. tools/perf/run_perf.ps1 aggregates several runs.
 #include "perf_probe.hpp"
+#include "perf_owners.hpp"
+#include "perf_startup.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/app/application_account_presentation.hpp"
 #include "../../src/app/application_channel_session.hpp"
@@ -209,9 +211,19 @@ HRESULT STDMETHODCALLTYPE hook_map(ID3D11DeviceContext* c, ID3D11Resource* r, UI
         InterlockedIncrement64(&g_gpu_api.map_discards);
     else if (type == D3D11_MAP_WRITE_NO_OVERWRITE)
         InterlockedIncrement64(&g_gpu_api.map_no_overwrites);
-    return context_original<HRESULT(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, UINT, D3D11_MAP,
-                                                        UINT, D3D11_MAPPED_SUBRESOURCE*)>(14)(c, r, s, type, flags,
-                                                                                              mapped);
+    owners_set_tag(kStartupTagMap);
+    const HRESULT result =
+        context_original<HRESULT(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, UINT, D3D11_MAP, UINT,
+                                                     D3D11_MAPPED_SUBRESOURCE*)>(14)(c, r, s, type, flags, mapped);
+    owners_set_tag(0);
+    return result;
+}
+void STDMETHODCALLTYPE hook_update(ID3D11DeviceContext* c, ID3D11Resource* r, UINT s, const D3D11_BOX* box,
+                                   const void* data, UINT row, UINT depth) noexcept {
+    owners_set_tag(kStartupTagUpdate);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, UINT, const D3D11_BOX*,
+                                              const void*, UINT, UINT)>(48)(c, r, s, box, data, row, depth);
+    owners_set_tag(0);
 }
 void STDMETHODCALLTYPE hook_input_layout(ID3D11DeviceContext* c, ID3D11InputLayout* layout) noexcept {
     InterlockedIncrement64(&g_gpu_api.input_binds);
@@ -287,7 +299,9 @@ void STDMETHODCALLTYPE hook_uavs(ID3D11DeviceContext* c, UINT a, UINT n, ID3D11U
 }
 void STDMETHODCALLTYPE hook_flush(ID3D11DeviceContext* c) noexcept {
     InterlockedIncrement64(&g_gpu_api.flushes);
+    owners_set_tag(kStartupTagFlush);
     context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*)>(111)(c);
+    owners_set_tag(0);
 }
 void STDMETHODCALLTYPE hook_clear_view(ID3D11DeviceContext* c, ID3D11View* v, const FLOAT f[4], const D3D11_RECT* r,
                                        UINT n) noexcept {
@@ -323,6 +337,7 @@ u32 install_context_hooks(void* context, bool context1) noexcept {
         {45, reinterpret_cast<void*>(hook_scissors)},
         {46, reinterpret_cast<void*>(hook_copy_region)},
         {47, reinterpret_cast<void*>(hook_copy_resource)},
+        {48, reinterpret_cast<void*>(hook_update)},
         {50, reinterpret_cast<void*>(hook_clear_target)},
         {67, reinterpret_cast<void*>(hook_slot_67)},
         {68, reinterpret_cast<void*>(hook_uavs)},
@@ -427,7 +442,10 @@ bool gpu_replay_target(D3D11Renderer& renderer) noexcept {
     description.Usage = D3D11_USAGE_DEFAULT;
     description.BindFlags = D3D11_BIND_RENDER_TARGET;
     description.CPUAccessFlags = description.MiscFlags = 0;
-    if (FAILED(renderer.graphics.device->CreateTexture2D(&description, nullptr, &g_replay.texture)) ||
+    startup_gpu_ignore(true);
+    const HRESULT created = renderer.graphics.device->CreateTexture2D(&description, nullptr, &g_replay.texture);
+    startup_gpu_ignore(false);
+    if (FAILED(created) ||
         FAILED(renderer.graphics.device->CreateRenderTargetView(g_replay.texture, nullptr, &g_replay.target)))
         return false;
     g_replay.width = renderer.width;
@@ -1194,8 +1212,34 @@ struct SiteTotals {
     u64 committed, resident, regions;
 };
 constexpr u32 kSiteCapacity = 2048;
+// Per heap (GetProcessHeaps order) and per owning module (perf_owners.hpp).
+constexpr u32 kHeapDetailCapacity = 32;
+constexpr u32 kProcessHeapCreator = kOwnerNone - 1;
+struct HeapTotals {
+    u64 handle, committed, resident, busy, blocks, large;
+    u32 creator;
+};
+struct OwnerTotals {
+    u64 heap_live, heap_blocks;
+    u64 committed[2], resident[2]; // other_private, write_combined regions it reserved
+};
+// The largest driver-side private regions (other_private, write_combined).
+constexpr u32 kRegionDetailCapacity = 16;
+struct RegionDetail {
+    u64 base, size, resident;
+    u32 protect, category, owner;
+};
 struct MemorySnapshot {
     CategoryTotals categories[cat_count];
+    HeapTotals heaps[kHeapDetailCapacity];
+    u32 heap_detail_count;
+    OwnerTotals owners[kOwnerModuleCapacity];
+    RegionDetail regions[kRegionDetailCapacity];
+    u32 region_count;
+    GpuResourceTotals gpu;
+    GpuResourceInfo gpu_largest[20];
+    u32 gpu_largest_count;
+    u64 owner_entries, owner_dropped, owner_slots;
     ModuleTotals modules[kModuleCapacity];
     u32 module_count;
     SiteTotals sites[kSiteCapacity];
@@ -1215,16 +1259,20 @@ struct Range {
 constexpr u32 kRangeCapacity = 4096;
 Range* g_heap_ranges = nullptr;
 u32 g_heap_range_count = 0;
+u8* g_heap_range_heap = nullptr; // HeapTotals index of each heap range
 Range* g_stack_ranges = nullptr;
 u32 g_stack_range_count = 0;
-Range g_probe_ranges[8];
+Range g_probe_ranges[12];
 u32 g_probe_range_count = 0;
 
-bool in_ranges(const Range* ranges, u32 count, u64 address) noexcept {
+u32 range_index(const Range* ranges, u32 count, u64 address) noexcept {
     for (u32 i = 0; i < count; ++i)
         if (address >= ranges[i].begin && address < ranges[i].end)
-            return true;
-    return false;
+            return i;
+    return ~0u;
+}
+bool in_ranges(const Range* ranges, u32 count, u64 address) noexcept {
+    return range_index(ranges, count, address) != ~0u;
 }
 
 void collect_heaps(MemorySnapshot& snapshot) noexcept {
@@ -1235,18 +1283,41 @@ void collect_heaps(MemorySnapshot& snapshot) noexcept {
     for (DWORD h = 0; h < count && h < 128; ++h) {
         if (!HeapLock(heaps[h]))
             continue;
+        const u32 detail = h < kHeapDetailCapacity ? h : kHeapDetailCapacity - 1;
+        HeapTotals& totals = snapshot.heaps[detail];
+        if (h < kHeapDetailCapacity) {
+            totals.handle = reinterpret_cast<u64>(heaps[h]);
+            totals.creator = heaps[h] == GetProcessHeap() ? kProcessHeapCreator : owners_heap_creator(heaps[h]);
+            snapshot.heap_detail_count = h + 1;
+        }
+        const u32 first_range = g_heap_range_count;
         PROCESS_HEAP_ENTRY entry{};
         while (HeapWalk(heaps[h], &entry)) {
             if (entry.wFlags & PROCESS_HEAP_REGION) {
                 if (g_heap_range_count < kRangeCapacity) {
                     const u64 begin = reinterpret_cast<u64>(entry.Region.lpFirstBlock);
+                    g_heap_range_heap[g_heap_range_count] = static_cast<u8>(detail);
                     g_heap_ranges[g_heap_range_count++] = {begin & ~0xFFFFull,
                                                            reinterpret_cast<u64>(entry.Region.lpLastBlock)};
                 }
                 snapshot.heap_committed += entry.Region.dwCommittedSize;
+                totals.committed += entry.Region.dwCommittedSize;
             } else if (entry.wFlags & PROCESS_HEAP_ENTRY_BUSY) {
                 snapshot.heap_busy += entry.cbData;
                 ++snapshot.heap_blocks;
+                totals.busy += entry.cbData;
+                ++totals.blocks;
+                // Blocks above the heap's virtual-memory threshold get their own
+                // allocation outside every region; count them as heap memory too.
+                const u64 begin = reinterpret_cast<u64>(entry.lpData);
+                if (entry.cbData >= 64 * 1024 &&
+                    range_index(g_heap_ranges + first_range, g_heap_range_count - first_range, begin) == ~0u) {
+                    totals.large += entry.cbData;
+                    if (g_heap_range_count < kRangeCapacity) {
+                        g_heap_range_heap[g_heap_range_count] = static_cast<u8>(detail);
+                        g_heap_ranges[g_heap_range_count++] = {begin & ~0xFFFFull, begin + entry.cbData};
+                    }
+                }
             }
         }
         HeapUnlock(heaps[h]);
@@ -1345,6 +1416,15 @@ bool take_snapshot(u32 index) noexcept {
     if (!snapshot)
         return false;
     *snapshot = {};
+    owners_scan();
+    startup_gpu_totals(&snapshot->gpu);
+    snapshot->gpu_largest_count = startup_gpu_largest(snapshot->gpu_largest, 20);
+    owners_counters(&snapshot->owner_entries, &snapshot->owner_dropped, &snapshot->owner_slots);
+    for (u32 m = 0; m < owners_module_count() && m < kOwnerModuleCapacity; ++m) {
+        const OwnerModule* owner = owners_module(m);
+        snapshot->owners[m].heap_live = static_cast<u64>(owner->heap_live_bytes);
+        snapshot->owners[m].heap_blocks = static_cast<u64>(owner->heap_live_blocks);
+    }
     collect_heaps(*snapshot);
     collect_stacks(*snapshot);
     // GPU memory as DXGI accounts it for this process.
@@ -1393,6 +1473,7 @@ bool take_snapshot(u32 index) noexcept {
         if (region.State != MEM_COMMIT)
             continue;
         MemoryCategory category = cat_other_private;
+        u32 heap_range = ~0u;
         u32 module_slot = ~0u;
         i32 site = -1;
         if (region.Type == MEM_IMAGE) {
@@ -1427,7 +1508,7 @@ bool take_snapshot(u32 index) noexcept {
                     }
                     if (site >= 0 && begin == allocation)
                         ++snapshot->sites[site].regions;
-                } else if (in_ranges(g_heap_ranges, g_heap_range_count, begin))
+                } else if ((heap_range = range_index(g_heap_ranges, g_heap_range_count, begin)) != ~0u)
                     category = cat_heap;
                 else if (region.Protect & PAGE_WRITECOMBINE)
                     category = cat_write_combined;
@@ -1464,6 +1545,28 @@ bool take_snapshot(u32 index) noexcept {
         if (site >= 0) {
             snapshot->sites[site].committed += region.RegionSize;
             snapshot->sites[site].resident += private_resident;
+        }
+        if (heap_range != ~0u)
+            snapshot->heaps[g_heap_range_heap[heap_range]].resident += private_resident;
+        if (category == cat_other_private || category == cat_write_combined) {
+            const u32 kind = category == cat_write_combined ? 1 : 0;
+            const u32 owner = owners_region_owner(reinterpret_cast<u64>(region.AllocationBase));
+            if (owner < kOwnerModuleCapacity) {
+                snapshot->owners[owner].committed[kind] += region.RegionSize;
+                snapshot->owners[owner].resident[kind] += private_resident;
+            }
+            // Keep the largest resident regions (insertion into a short list).
+            u32 slot = snapshot->region_count;
+            while (slot > 0 && snapshot->regions[slot - 1].resident < private_resident)
+                --slot;
+            if (slot < kRegionDetailCapacity) {
+                const u32 last = minimum<u32>(snapshot->region_count, kRegionDetailCapacity - 1);
+                for (u32 k = last; k > slot; --k)
+                    snapshot->regions[k] = snapshot->regions[k - 1];
+                snapshot->regions[slot] = {begin, region.RegionSize, private_resident, region.Protect, kind, owner};
+                if (snapshot->region_count < kRegionDetailCapacity)
+                    ++snapshot->region_count;
+            }
         }
     }
     ReleaseSRWLockShared(&g_tracked_lock);
@@ -1668,6 +1771,120 @@ void report_snapshot(u32 index) noexcept {
     o.kv("gpu_local_kb", snapshot->gpu_local / 1024);
     o.kv("gpu_nonlocal_kb", snapshot->gpu_nonlocal / 1024);
     o.s("\n");
+    for (u32 c = 0; c < gpu_class_count; ++c) {
+        if (!snapshot->gpu.created_count[c])
+            continue;
+        o.s("gpu snapshot=");
+        o.s(kSnapshotNames[index]);
+        o.s(" class=");
+        o.s(kGpuResourceClassNames[c]);
+        o.kv("live_kb", snapshot->gpu.live_bytes[c] / 1024);
+        o.kv("live", snapshot->gpu.live_count[c]);
+        o.kv("created_kb", snapshot->gpu.created_bytes[c] / 1024);
+        o.kv("created", snapshot->gpu.created_count[c]);
+        o.s("\n");
+    }
+    const auto owner_name = [&](u32 owner) noexcept {
+        const OwnerModule* module = owner < kOwnerModuleCapacity ? owners_module(owner) : nullptr;
+        if (owner == kProcessHeapCreator)
+            o.s("process_heap");
+        else if (module)
+            o.wide(module->name);
+        else
+            o.s("unknown");
+    };
+    for (u32 h = 0; h < snapshot->heap_detail_count; ++h) {
+        const HeapTotals& heap = snapshot->heaps[h];
+        o.s("heap snapshot=");
+        o.s(kSnapshotNames[index]);
+        o.kv("index", h);
+        o.s(" creator=");
+        owner_name(heap.creator);
+        o.kv("commit_kb", heap.committed / 1024);
+        o.kv("pws_kb", heap.resident / 1024);
+        o.kv("busy_kb", heap.busy / 1024);
+        o.kv("large_kb", heap.large / 1024);
+        o.kv("blocks", heap.blocks);
+        o.s("\n");
+    }
+    for (u32 m = 0; m < owners_module_count() && m < kOwnerModuleCapacity; ++m) {
+        const OwnerTotals& owner = snapshot->owners[m];
+        if (!owner.heap_live && !owner.committed[0] && !owner.committed[1])
+            continue;
+        o.s("owner snapshot=");
+        o.s(kSnapshotNames[index]);
+        o.s(" module=");
+        owner_name(m);
+        o.kv("heap_live_kb", owner.heap_live / 1024);
+        o.kv("heap_blocks", owner.heap_blocks);
+        o.kv("private_commit_kb", owner.committed[0] / 1024);
+        o.kv("private_pws_kb", owner.resident[0] / 1024);
+        o.kv("wc_commit_kb", owner.committed[1] / 1024);
+        o.kv("wc_pws_kb", owner.resident[1] / 1024);
+        o.s("\n");
+    }
+    for (u32 m = 0; m < owners_module_count() && m < kOwnerModuleCapacity; ++m) {
+        if (snapshot->owners[m].heap_live < 256 * 1024 || index != 2)
+            continue;
+        u64 tags[kOwnerTagCount]{}, sizes[kOwnerSizeBuckets]{};
+        owners_block_totals(m, tags, sizes);
+        for (u32 t = 0; t < kOwnerTagCount; ++t) {
+            if (tags[t] < 16 * 1024)
+                continue;
+            o.s("owner_tag snapshot=");
+            o.s(kSnapshotNames[index]);
+            o.s(" module=");
+            owner_name(m);
+            o.s(" tag=");
+            o.s(startup_tag_name(t));
+            o.kv("kb", tags[t] / 1024);
+            o.s("\n");
+        }
+        o.s("owner_sizes snapshot=");
+        o.s(kSnapshotNames[index]);
+        o.s(" module=");
+        owner_name(m);
+        for (u32 b = 0; b < kOwnerSizeBuckets; ++b) {
+            static const char* const kBuckets[] = {"lt1k", "lt4k", "lt16k", "lt64k", "lt256k", "lt1m", "ge1m"};
+            o.kv(kBuckets[b], sizes[b] / 1024);
+        }
+        o.s("\n");
+    }
+    o.s("owner_table snapshot=");
+    o.s(kSnapshotNames[index]);
+    o.kv("live_blocks", snapshot->owner_entries);
+    o.kv("dropped", snapshot->owner_dropped);
+    o.kv("patched_slots", snapshot->owner_slots);
+    o.s("\n");
+    for (u32 g = 0; g < snapshot->gpu_largest_count; ++g) {
+        const GpuResourceInfo& resource = snapshot->gpu_largest[g];
+        o.s("gpu_resource snapshot=");
+        o.s(kSnapshotNames[index]);
+        o.s(" class=");
+        o.s(kGpuResourceClassNames[resource.klass]);
+        o.kv("kb", resource.bytes / 1024);
+        o.kv("width", resource.width);
+        o.kv("height", resource.height);
+        o.kv("format", resource.format);
+        o.s(" bind=");
+        o.hex(resource.bind);
+        o.s(" caller=");
+        o.hex(resource.caller_rva);
+        o.s("\n");
+    }
+    for (u32 r = 0; r < snapshot->region_count; ++r) {
+        const RegionDetail& region = snapshot->regions[r];
+        o.s("region snapshot=");
+        o.s(kSnapshotNames[index]);
+        o.s(region.category ? " kind=write_combined" : " kind=other_private");
+        o.s(" owner=");
+        owner_name(region.owner);
+        o.kv("size_kb", region.size / 1024);
+        o.kv("pws_kb", region.resident / 1024);
+        o.s(" protect=");
+        o.hex(region.protect);
+        o.s("\n");
+    }
 }
 
 void report_modules(const MemorySnapshot& snapshot) noexcept {
@@ -2221,6 +2438,7 @@ bool probe_initialize() noexcept {
         {reinterpret_cast<void**>(&g_frame_cycles), sizeof(u64) * u64{kFrameSampleCapacity}},
         {reinterpret_cast<void**>(&g_heap_ranges), sizeof(Range) * u64{kRangeCapacity} * 2},
         {reinterpret_cast<void**>(&g_snapshots[0]), sizeof(MemorySnapshot) * 3},
+        {reinterpret_cast<void**>(&g_heap_range_heap), u64{kRangeCapacity}},
     };
     for (Buffer& buffer : buffers) {
         *buffer.target = probe_alloc(buffer.bytes);
@@ -2232,6 +2450,18 @@ bool probe_initialize() noexcept {
     g_stack_ranges = g_heap_ranges + kRangeCapacity;
     g_snapshots[1] = g_snapshots[0] + 1;
     g_snapshots[2] = g_snapshots[0] + 2;
+    {
+        u64 begin = 0, end = 0;
+        startup_probe_range(&begin, &end);
+        if (end)
+            g_probe_ranges[g_probe_range_count++] = {begin, end};
+        wchar_t owners_flag[2]{};
+        if (GetEnvironmentVariableW(L"MAICORD_PERF_OWNERS", owners_flag, 2) == 1 && owners_flag[0] == L'1') {
+            if (!owners_initialize(probe_alloc, &begin, &end))
+                return false;
+            g_probe_ranges[g_probe_range_count++] = {begin, end};
+        }
+    }
     trace("buffers");
     g_probe.hooks = install_import_hooks();
     trace("hooks");

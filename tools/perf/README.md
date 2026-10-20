@@ -18,6 +18,7 @@ network.
 | `-WarmOnly` | Skip the cold launches; all runs reuse one profile. |
 | `-Raw` | Also print each probe's raw report. |
 | `-Sampling` | 1 kHz in-process sampling of the main thread (see below). |
+| `-Owners` | Attribute other modules' heap blocks and private regions (see below). Slows startup. |
 | `-Debugger` | Run each launch under `cdb` and print the faulting stack. Diagnosis only. |
 
 - **MaiCordPerfProbe** is the shipping client source set built with
@@ -40,7 +41,7 @@ It builds the client through `tools\build.ps1 -StartupProbe`.
 It builds the actual `MaiCord.exe` with `MAICORD_STARTUP_PROBE` and the real account backend.
 The build script refuses to overwrite a client that runs from the Release directory.
 The default is three fresh/warm pairs. `-Runs 5` requests five pairs, or ten launches.
-`-ProductionStartup` does not accept `-WarmOnly`, `-Sampling` or `-Debugger`.
+`-ProductionStartup` does not accept `-WarmOnly`, `-Sampling`, `-Owners` or `-Debugger`.
 
 Each pair starts with a fresh temporary profile in the single Release directory.
 The warm launch reuses that profile. A cold launch means a fresh application profile, not empty Windows filesystem caches.
@@ -121,7 +122,14 @@ focused window (it pauses media animations only after a real deactivation).
   private-resident bytes attributed to client `VirtualAlloc` regions (by allocation
   call stack, resolved through `MaiCordPerfProbe.map`), heaps, stacks,
   write-combined and other private memory (driver), images by module, and mapped
-  files. Synthetic module and probe memory are reported separately.
+  files. Heap blocks above the heap's virtual-memory threshold count as heap memory.
+  Synthetic module and probe memory are reported separately. Each heap and the
+  largest write-combined and other private regions are listed.
+- **GPU resources:** live and created bytes of the buffers, 2D textures and swap chain
+  buffers the client created, by usage (sizes from the descriptions; driver padding and
+  internal allocations excluded), at the first present, the shell and the end, and the
+  largest live resources with their creating call. The probe's own replay target is
+  excluded.
 - **Startup:** the client's `load_trace` stages (ms since `application_run`) per
   cold/warm run, then a timeline from `perf_startup.cpp`: named main-thread points
   (`MAICORD_PERF_MARK`, compiled only into the probe), time to the entry point,
@@ -134,6 +142,14 @@ focused window (it pauses media animations only after a real deactivation).
 - **Always printed:** a per-member residency audit of `AccountUiRuntime` and a
   thread table (owner module, CPU, context switches, idle context switches, stack
   reservation and committed stack).
+
+`-Owners` (`perf_owners.cpp`) patches the import tables of every other loaded module
+(the GPU driver, system DLLs, the synthetic account) for the heap, `LocalAlloc`,
+msvcrt/ucrtbase allocators, `HeapCreate` and `VirtualAlloc`. The end snapshot then
+names each heap's creator and lists live heap bytes per allocating module, and for modules above 256 KiB those bytes by the client graphics call in
+progress when they were allocated (device creation, shader creation, `Map`, `Present`,
+other) and by block size. Allocations from ntdll itself, from before a module's imports
+were bound, or through `GetProcAddress` stay unattributed.
 
 `-Sampling` unwinds through `.pdata` (no symbols needed) and reports CPU-weighted
 hot functions per phase: self, inclusive, and time in system DLLs charged to the

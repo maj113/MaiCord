@@ -19,13 +19,16 @@ param(
     [switch]$Debugger,
     # 1 kHz in-process sampling of the main thread; prints hot functions per
     # phase. It perturbs the timing columns, so profile runs are separate.
-    [switch]$Sampling
+    [switch]$Sampling,
+    # Attribute heap blocks and private regions of other modules (GPU driver,
+    # system DLLs) through their import tables. Slows startup; separate runs.
+    [switch]$Owners
 )
 
 $ErrorActionPreference = 'Stop'
 if ($ProductionStartup) {
-    if ($WarmOnly -or $Debugger -or $Sampling) {
-        throw '-ProductionStartup does not support -WarmOnly, -Debugger or -Sampling.'
+    if ($WarmOnly -or $Debugger -or $Sampling -or $Owners) {
+        throw '-ProductionStartup does not support -WarmOnly, -Debugger, -Sampling or -Owners.'
     }
     if (!$PSBoundParameters.ContainsKey('Runs')) { $Runs = 3 }
 }
@@ -68,6 +71,7 @@ function Invoke-Probe([string]$RunProfile) {
     $start.EnvironmentVariables['TEMP'] = $temp
     $start.EnvironmentVariables['TMP'] = $temp
     if ($Sampling) { $start.EnvironmentVariables['MAICORD_PERF_PROFILE'] = '1' }
+    if ($Owners) { $start.EnvironmentVariables['MAICORD_PERF_OWNERS'] = '1' }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
     $probeStarted = $false
@@ -145,7 +149,7 @@ function Invoke-Probe([string]$RunProfile) {
 }
 
 function ConvertFrom-Report([string]$Text) {
-    $report = @{ phases = @{}; memory = @{}; detail = @{}; modules = @(); sites = @(); hot = @(); threads = @(); fields = @(); stages = @(); marks = @(); lines = @{}; st = @{} }
+    $report = @{ phases = @{}; memory = @{}; detail = @{}; owners = @{}; modules = @(); sites = @(); hot = @(); threads = @(); fields = @(); stages = @(); marks = @(); lines = @{}; st = @{} }
     foreach ($line in $Text -split "`r?`n") {
         if (!$line) { continue }
         $parts = $line -split ' '
@@ -165,8 +169,14 @@ function ConvertFrom-Report([string]$Text) {
             'stage' { $report.stages += , $values }
             'MAICORD_STARTUP_MARK' { $report.marks += , $values }
             'thread' { $report.threads += , $values }
+            # Memory owners and GPU resources (repeated per snapshot).
+            { $_ -in @('gpu', 'heap', 'owner', 'region', 'gpu_resource', 'owner_table', 'owner_tag', 'owner_sizes') } {
+                $key = "$($values.snapshot)/$($parts[0])"
+                if (!$report.owners.ContainsKey($key)) { $report.owners[$key] = @() }
+                $report.owners[$key] += , $values
+            }
             # Startup attribution (tools/perf/perf_startup.cpp): repeated line kinds.
-            { $_ -in @('st_mark', 'st_module', 'st_dll', 'st_api', 'st_d3d', 'st_present_call', 'st_call', 'st_event') } {
+            { $_ -in @('st_mark', 'st_module', 'st_dll', 'st_api', 'st_d3d', 'st_present_call', 'st_call', 'st_event', 'st_gpu') } {
                 if (!$report.st.ContainsKey($parts[0])) { $report.st[$parts[0]] = @() }
                 $report.st[$parts[0]] += , $values
             }
@@ -487,6 +497,52 @@ if ($synthetic) {
         $synthetic.media_frames, $synthetic.member_syncs, $synthetic.stub_calls)
 }
 
+# Owners of the memory outside client VirtualAlloc regions (first warm run, end snapshot).
+$ownerLines = $warm[0].owners
+if ($ownerLines['end/owner_table']) {
+    $table = $ownerLines['end/owner_table'][0]
+    Write-Host ''
+    Write-Host ("heaps (end; creator from HeapCreate hooks; large = blocks outside heap segments):")
+    foreach ($heap in @($ownerLines['end/heap'])) {
+        Write-Host ('  {0,2} {1,-26}{2,8} commit{3,8} PWS{4,8} busy{5,8} large{6,7} blocks' -f $heap.index, $heap.creator,
+            $heap.commit_kb, $heap.pws_kb, $heap.busy_kb, $heap.large_kb, $heap.blocks)
+    }
+    if ([double]$table.patched_slots -gt 0) {
+        Write-Host ("allocation owners (end; heap = live blocks allocated through hooked imports, {0} tracked, {1} dropped, {2} import slots; private/wc = PWS of VirtualAlloc regions they reserved):" -f
+            $table.live_blocks, $table.dropped, $table.patched_slots)
+        foreach ($owner in @($ownerLines['end/owner'] | Sort-Object { -([double]$_.heap_live_kb + [double]$_.private_pws_kb + [double]$_.wc_pws_kb) } | Select-Object -First 16)) {
+            Write-Host ('  {0,-30}{1,8} KiB heap ({2,6} blocks){3,8} KiB private{4,8} KiB wc' -f $owner.module, $owner.heap_live_kb,
+                $owner.heap_blocks, $owner.private_pws_kb, $owner.wc_pws_kb)
+        }
+        foreach ($sizes in @($ownerLines['end/owner_sizes'] | Where-Object { $_ })) {
+            $tags = @($ownerLines['end/owner_tag'] | Where-Object { $_.module -eq $sizes.module } | Sort-Object { -[double]$_.kb } |
+                ForEach-Object { '{0} {1}' -f $_.tag, $_.kb })
+            Write-Host ('  {0}: live KiB by client call in progress: {1}' -f $sizes.module, ($tags -join ', '))
+            Write-Host ('  {0}: live KiB by block size: <1K {1}, <4K {2}, <16K {3}, <64K {4}, <256K {5}, <1M {6}, >=1M {7}' -f $sizes.module,
+                $sizes.lt1k, $sizes.lt4k, $sizes.lt16k, $sizes.lt64k, $sizes.lt256k, $sizes.lt1m, $sizes.ge1m)
+        }
+    }
+    Write-Host 'largest other_private / write_combined regions (end, by PWS):'
+    foreach ($region in @($ownerLines['end/region'])) {
+        Write-Host ('  {0,-15}{1,-26}{2,8} KiB{3,8} KiB PWS  protect {4}' -f $region.kind, $region.owner, $region.size_kb, $region.pws_kb, $region.protect)
+    }
+}
+if ($ownerLines['end/gpu']) {
+    Write-Host ''
+    Write-Host 'GPU resources the client created (sizes from descriptions; live KiB/count at first present, shell, end; created over the run):'
+    $first = @{}
+    foreach ($row in @($warm[0].st['st_gpu'])) { if ($row) { $first[$row.class] = $row } }
+    $shellGpu = @{}
+    foreach ($row in @($ownerLines['shell/gpu'])) { $shellGpu[$row.class] = $row }
+    foreach ($row in @($ownerLines['end/gpu'])) {
+        $f = $first[$row.class]; $sh = $shellGpu[$row.class]
+        Write-Host ('  {0,-18}{1,9} /{2,4}{3,9} /{4,4}{5,9} /{6,4}{7,10} KiB /{8,5} created' -f $row.class,
+            $(if ($f) { $f.live_kb } else { 0 }), $(if ($f) { $f.live } else { 0 }),
+            $(if ($sh) { $sh.live_kb } else { 0 }), $(if ($sh) { $sh.live } else { 0 }),
+            $row.live_kb, $row.live, $row.created_kb, $row.created)
+    }
+}
+
 # Top modules and allocation sites (first warm run), sites resolved through the link map.
 Write-Host ''
 Write-Host 'modules (end, by resident KiB):'
@@ -524,6 +580,15 @@ Write-Host 'client VirtualAlloc sites (end, by committed KiB):'
 foreach ($site in $warm[0].sites | Select-Object -First 25) {
     $frames = @($site.frames -split '/' | ForEach-Object { Resolve-Rva ([Convert]::ToUInt64($_.Substring(2), 16)) })
     Write-Host ('  {0,8} commit{1,8} PWS{2,5}x  {3}' -f $site.commit_kb, $site.pws_kb, $site.regions, ($frames -join ' < '))
+}
+if ($ownerLines['end/gpu_resource']) {
+    Write-Host ''
+    Write-Host 'largest live GPU resources (end; KiB, size, DXGI format, bind flags, creating call):'
+    foreach ($resource in @($ownerLines['end/gpu_resource'])) {
+        $caller = if ($resource.caller -and $resource.caller -ne '0x0') { Resolve-Rva ([Convert]::ToUInt64($resource.caller.Substring(2), 16)) } else { '' }
+        Write-Host ('  {0,-18}{1,8} KiB {2,5}x{3,-5} fmt {4,-4} bind {5,-6} {6}' -f $resource.class, $resource.kb, $resource.width,
+            $resource.height, $resource.format, $resource.bind, $caller)
+    }
 }
 
 if ($warm[0].st['st_mark']) {

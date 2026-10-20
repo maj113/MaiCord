@@ -5,6 +5,7 @@
 // and the D3D11 device, DXGI factory, swap chain and DirectComposition methods
 // reached through their vtables. Nothing here ships.
 #include "perf_startup.hpp"
+#include "perf_owners.hpp"
 
 #include "maicord/core/base.hpp"
 
@@ -124,11 +125,15 @@ using LdrRegister = LONG(NTAPI*)(ULONG, LdrNotification, void*, void**);
 // Runs under the loader lock: no allocation, no loads.
 void CALLBACK dll_notification(ULONG reason, const LdrLoaded* data, void*) noexcept {
     if (reason == 2) {
+        if (data)
+            owners_module_unloaded(data->base);
         InterlockedIncrement(&g_dll_unloads);
         return;
     }
     if (reason != 1 || !data)
         return;
+    if (data->base_name && data->base_name->buffer)
+        owners_module_loaded(data->base, data->size, data->base_name->buffer, data->base_name->length / 2);
     const LONG slot = InterlockedIncrement(&g_dll_count) - 1;
     if (slot >= static_cast<LONG>(kDllCapacity))
         return;
@@ -304,6 +309,9 @@ const char* const kVtNames[] = {"CreateBuffer", "CreateTexture1D", "CreateTextur
     "CreateSwapChainForComposition", "Present", "Present1", "DCompCommit", "DCompCreateTargetForHwnd",
     "DCompCreateVisual"};
 static_assert(sizeof(kVtNames) / sizeof(kVtNames[0]) == static_cast<u32>(Vt::count));
+// Allocation tags (perf_owners.hpp): vtable slot + 1, then these.
+constexpr u32 kTagCreateDevice = 40;
+constexpr u32 kTagCreateComposition = 41;
 ApiStat g_vt[static_cast<u32>(Vt::count)];
 void* g_vt_original[static_cast<u32>(Vt::count)]{};
 
@@ -355,14 +363,151 @@ void record_vt(Vt slot, u64 start) noexcept {
     }
 }
 
+// Live GPU resources: buffers and 2D textures created through the device, and
+// the swap chain's buffers. A private-data interface attached to each resource
+// is released with it, which retires the record (a hand-built vtable keeps the
+// tables free of dynamic initializers).
+struct GpuRecord {
+    u64 bytes;
+    u64 caller_rva;
+    u32 klass, width, height, format, bind;
+    volatile LONG live;
+};
+struct GpuTracker {
+    const void* const* vtable;
+    u32 index;
+    volatile LONG references;
+};
+constexpr u32 kGpuCapacity = 16'384;
+struct GpuTables {
+    GpuRecord records[kGpuCapacity];
+    GpuTracker trackers[kGpuCapacity];
+};
+GpuTables* g_gpu = nullptr;
+volatile LONG g_gpu_count = 0;
+volatile LONG64 g_gpu_live_bytes[gpu_class_count];
+volatile LONG64 g_gpu_live_count[gpu_class_count];
+volatile LONG64 g_gpu_created_bytes[gpu_class_count];
+volatile LONG64 g_gpu_created_count[gpu_class_count];
+GpuResourceTotals g_gpu_first_present{};
+volatile LONG g_gpu_ignored = 0; // the probe's own resources
+// {6d2a0f3c-51b4-4a8e-9a7e-0c4f2b8d1e55}
+constexpr GUID kGpuTrackerGuid = {0x6d2a0f3c, 0x51b4, 0x4a8e, {0x9a, 0x7e, 0x0c, 0x4f, 0x2b, 0x8d, 0x1e, 0x55}};
+
+HRESULT STDMETHODCALLTYPE tracker_query(GpuTracker* self, const IID& iid, void** out) noexcept {
+    if (!out)
+        return E_POINTER;
+    if (iid == __uuidof(IUnknown)) {
+        InterlockedIncrement(&self->references);
+        *out = self;
+        return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+}
+ULONG STDMETHODCALLTYPE tracker_add_ref(GpuTracker* self) noexcept {
+    return static_cast<ULONG>(InterlockedIncrement(&self->references));
+}
+ULONG STDMETHODCALLTYPE tracker_release(GpuTracker* self) noexcept {
+    const LONG left = InterlockedDecrement(&self->references);
+    if (left == 0) {
+        GpuRecord& record = g_gpu->records[self->index];
+        if (InterlockedExchange(&record.live, 0)) {
+            InterlockedAdd64(&g_gpu_live_bytes[record.klass], -static_cast<LONG64>(record.bytes));
+            InterlockedAdd64(&g_gpu_live_count[record.klass], -1);
+        }
+    }
+    return static_cast<ULONG>(left);
+}
+const void* const kTrackerVtable[] = {reinterpret_cast<const void*>(&tracker_query),
+                                      reinterpret_cast<const void*>(&tracker_add_ref),
+                                      reinterpret_cast<const void*>(&tracker_release)};
+
+u32 format_bits(u32 format) noexcept {
+    switch (format) {
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        return 64;
+    case DXGI_FORMAT_R8G8_UNORM:
+        return 16;
+    case DXGI_FORMAT_R8_UNORM:
+        return 8;
+    case DXGI_FORMAT_NV12:
+        return 12;
+    case DXGI_FORMAT_P010:
+        return 24;
+    default:
+        return 32;
+    }
+}
+
+// Records a resource; returns its tracker (one reference, which the caller
+// hands to the resource's private data and then drops) or null.
+IUnknown* track_gpu(u32 klass, u64 bytes, u32 width, u32 height, u32 format, u32 bind, void* caller) noexcept {
+    InterlockedAdd64(&g_gpu_created_bytes[klass], static_cast<LONG64>(bytes));
+    InterlockedAdd64(&g_gpu_created_count[klass], 1);
+    if (!g_gpu)
+        return nullptr;
+    const LONG index = InterlockedIncrement(&g_gpu_count) - 1;
+    if (index >= static_cast<LONG>(kGpuCapacity))
+        return nullptr;
+    GpuRecord& record = g_gpu->records[index];
+    record = {bytes, caller_rva(caller), klass, width, height, format, bind, 1};
+    InterlockedAdd64(&g_gpu_live_bytes[klass], static_cast<LONG64>(bytes));
+    InterlockedAdd64(&g_gpu_live_count[klass], 1);
+    GpuTracker& tracker = g_gpu->trackers[index];
+    tracker = {kTrackerVtable, static_cast<u32>(index), 1};
+    return reinterpret_cast<IUnknown*>(&tracker);
+}
+
+template <typename Object>
+void attach_tracker(Object* object, IUnknown* tracker) noexcept {
+    if (!tracker)
+        return;
+    // Without the attachment the record never retires; it then stays live.
+    if (SUCCEEDED(object->SetPrivateDataInterface(kGpuTrackerGuid, tracker)))
+        tracker->Release();
+}
+
+template <Vt Slot>
+void track_created(void* description, void* out, void* caller) noexcept {
+    if (!description || !out || !*static_cast<void**>(out) || g_gpu_ignored)
+        return;
+    auto* resource = static_cast<ID3D11DeviceChild*>(*static_cast<void**>(out));
+    if constexpr (Slot == Vt::create_buffer) {
+        const auto* desc = static_cast<const D3D11_BUFFER_DESC*>(description);
+        const u32 klass = desc->Usage == D3D11_USAGE_DYNAMIC     ? gpu_buffer_dynamic
+                          : desc->Usage == D3D11_USAGE_STAGING   ? gpu_buffer_staging
+                          : desc->Usage == D3D11_USAGE_IMMUTABLE ? gpu_buffer_immutable
+                                                                 : gpu_buffer_default;
+        attach_tracker(resource, track_gpu(klass, desc->ByteWidth, desc->ByteWidth, 1, 0, desc->BindFlags, caller));
+    } else {
+        const auto* desc = static_cast<const D3D11_TEXTURE2D_DESC*>(description);
+        const u32 klass = desc->Usage == D3D11_USAGE_DYNAMIC     ? gpu_texture_dynamic
+                          : desc->Usage == D3D11_USAGE_STAGING   ? gpu_texture_staging
+                          : desc->Usage == D3D11_USAGE_IMMUTABLE ? gpu_texture_immutable
+                                                                 : gpu_texture_default;
+        u64 bytes = static_cast<u64>(desc->Width) * desc->Height * format_bits(desc->Format) / 8 *
+                    maximum<u32>(1, desc->ArraySize) * maximum<u32>(1, desc->SampleDesc.Count);
+        if (desc->MipLevels != 1)
+            bytes = bytes * 4 / 3;
+        attach_tracker(resource, track_gpu(klass, bytes, desc->Width, desc->Height, static_cast<u32>(desc->Format),
+                                           desc->BindFlags, caller));
+    }
+}
+
 using Forward = HRESULT(STDMETHODCALLTYPE*)(void*, void*, void*, void*, void*, void*, void*, void*, void*, void*);
 template <Vt Slot>
 HRESULT STDMETHODCALLTYPE vt_stub(void* self, void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h,
                                   void* i) noexcept {
     const u64 start = qpc();
+    owners_set_tag(static_cast<u32>(Slot) + 1);
     const HRESULT result =
         reinterpret_cast<Forward>(g_vt_original[static_cast<u32>(Slot)])(self, a, b, c, d, e, f, g, h, i);
+    owners_set_tag(0);
     record_vt(Slot, start);
+    if constexpr (Slot == Vt::create_buffer || Slot == Vt::create_texture2d)
+        if (SUCCEEDED(result))
+            track_created<Slot>(a, c, _ReturnAddress());
     return result;
 }
 
@@ -390,7 +535,9 @@ void patch_range(void* object) noexcept {
 HRESULT STDMETHODCALLTYPE hook_present(IDXGISwapChain* self, UINT interval, UINT flags) noexcept {
     const u64 start = qpc();
     using Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+    owners_set_tag(static_cast<u32>(Vt::present) + 1);
     const HRESULT result = reinterpret_cast<Fn>(g_vt_original[static_cast<u32>(Vt::present)])(self, interval, flags);
+    owners_set_tag(0);
     record_vt(Vt::present, start);
     return result;
 }
@@ -398,8 +545,10 @@ HRESULT STDMETHODCALLTYPE hook_present1(IDXGISwapChain1* self, UINT interval, UI
                                         const DXGI_PRESENT_PARAMETERS* parameters) noexcept {
     const u64 start = qpc();
     using Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
+    owners_set_tag(static_cast<u32>(Vt::present1) + 1);
     const HRESULT result =
         reinterpret_cast<Fn>(g_vt_original[static_cast<u32>(Vt::present1)])(self, interval, flags, parameters);
+    owners_set_tag(0);
     record_vt(Vt::present1, start);
     return result;
 }
@@ -409,9 +558,19 @@ HRESULT STDMETHODCALLTYPE hook_swap_chain_for_composition(IDXGIFactory2* self, I
     const u64 start = qpc();
     using Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGIFactory2*, IUnknown*, const DXGI_SWAP_CHAIN_DESC1*, IDXGIOutput*,
                                            IDXGISwapChain1**);
+    owners_set_tag(static_cast<u32>(Vt::swap_chain_for_composition) + 1);
     const HRESULT result = reinterpret_cast<Fn>(g_vt_original[static_cast<u32>(Vt::swap_chain_for_composition)])(
         self, device, description, output, swap_chain);
+    owners_set_tag(0);
     record_vt(Vt::swap_chain_for_composition, start);
+    if (SUCCEEDED(result) && swap_chain && *swap_chain && description) {
+        // Swap chain buffers; resizes are not followed.
+        const u64 bytes = static_cast<u64>(description->Width) * description->Height *
+                          format_bits(static_cast<u32>(description->Format)) / 8 * description->BufferCount;
+        attach_tracker(*swap_chain, track_gpu(gpu_swap_chain, bytes, description->Width, description->Height,
+                                              static_cast<u32>(description->Format), description->BufferCount,
+                                              _ReturnAddress()));
+    }
     if (SUCCEEDED(result) && swap_chain && *swap_chain) {
         patch_slot(*swap_chain, 8, Vt::present, reinterpret_cast<void*>(&hook_present));
         patch_slot(*swap_chain, 22, Vt::present1, reinterpret_cast<void*>(&hook_present1));
@@ -524,8 +683,10 @@ HRESULT WINAPI hook_D3D11CreateDevice(IDXGIAdapter* adapter, D3D_DRIVER_TYPE typ
                                       ID3D11Device** device, D3D_FEATURE_LEVEL* level,
                                       ID3D11DeviceContext** context) noexcept {
     const u64 start = qpc();
+    owners_set_tag(kTagCreateDevice);
     const HRESULT result =
         g_D3D11CreateDevice(adapter, type, software, flags, levels, level_count, sdk, device, level, context);
+    owners_set_tag(0);
     record(Api::d3d11_create_device, start, _ReturnAddress());
     if (SUCCEEDED(result) && device && *device) {
         if (!g_first_device)
@@ -538,7 +699,9 @@ using DCompositionCreateDeviceType = HRESULT(WINAPI*)(IDXGIDevice*, REFIID, void
 DCompositionCreateDeviceType g_DCompositionCreateDevice = nullptr;
 HRESULT WINAPI hook_DCompositionCreateDevice(IDXGIDevice* device, REFIID iid, void** out) noexcept {
     const u64 start = qpc();
+    owners_set_tag(kTagCreateComposition);
     const HRESULT result = g_DCompositionCreateDevice(device, iid, out);
+    owners_set_tag(0);
     record(Api::dcomp_create_device, start, _ReturnAddress());
     if (SUCCEEDED(result) && out && *out) {
         patch_slot(*out, 3, Vt::dcomp_commit, reinterpret_cast<void*>(&vt_stub<Vt::dcomp_commit>));
@@ -693,6 +856,8 @@ void startup_trace_initialize() noexcept {
     g_clock.main_thread = GetCurrentThreadId();
     g_clock.image_base = reinterpret_cast<u64>(GetModuleHandleW(nullptr));
     g_entry_cycles = thread_cycles();
+    // Before the probe hooks this image's allocator imports.
+    g_gpu = static_cast<GpuTables*>(VirtualAlloc(nullptr, sizeof(GpuTables), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     // Static imports are mapped by now.
     HMODULE modules[kEntryModuleCapacity]{};
     DWORD needed = 0;
@@ -736,6 +901,7 @@ void startup_first_present() noexcept {
     QueryProcessCycleTime(GetCurrentProcess(), &process);
     g_present_process_cycles = process;
     startup_mark("first_present");
+    startup_gpu_totals(&g_gpu_first_present);
     PROCESS_MEMORY_COUNTERS_EX2 memory{};
     memory.cb = sizeof(memory);
     if (K32GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
@@ -805,6 +971,17 @@ void startup_trace_report() noexcept {
     line.kv("handles", g_first_frame_memory.handles);
     line.kv("modules", g_first_frame_memory.modules);
     emit(line);
+    for (u32 c = 0; c < gpu_class_count; ++c) {
+        if (!g_gpu_first_present.created_count[c])
+            continue;
+        line.s("st_gpu class=");
+        line.s(kGpuResourceClassNames[c]);
+        line.kv("live_kb", g_gpu_first_present.live_bytes[c] / 1024);
+        line.kv("live", g_gpu_first_present.live_count[c]);
+        line.kv("created_kb", g_gpu_first_present.created_bytes[c] / 1024);
+        line.kv("created", g_gpu_first_present.created_count[c]);
+        emit(line);
+    }
     for (u32 i = 0; i < g_mark_count; ++i) {
         line.s("st_mark name=");
         line.s(g_marks[i].name);
@@ -902,6 +1079,68 @@ void startup_trace_report() noexcept {
     }
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), g_report, g_report_used, &written, nullptr);
+}
+
+void startup_gpu_totals(GpuResourceTotals* totals) noexcept {
+    for (u32 c = 0; c < gpu_class_count; ++c) {
+        totals->live_bytes[c] = static_cast<u64>(g_gpu_live_bytes[c]);
+        totals->live_count[c] = static_cast<u64>(g_gpu_live_count[c]);
+        totals->created_bytes[c] = static_cast<u64>(g_gpu_created_bytes[c]);
+        totals->created_count[c] = static_cast<u64>(g_gpu_created_count[c]);
+    }
+}
+
+u32 startup_gpu_largest(GpuResourceInfo* resources, u32 capacity) noexcept {
+    if (!g_gpu)
+        return 0;
+    const u32 count = minimum<u32>(static_cast<u32>(g_gpu_count), kGpuCapacity);
+    u32 written = 0;
+    for (u32 i = 0; i < count; ++i) {
+        const GpuRecord& record = g_gpu->records[i];
+        if (!record.live)
+            continue;
+        // Insertion into the descending list.
+        u32 at = written < capacity ? written : capacity;
+        while (at > 0 && resources[at - 1].bytes < record.bytes)
+            --at;
+        if (at >= capacity)
+            continue;
+        const u32 last = written < capacity ? written : capacity - 1;
+        for (u32 k = last; k > at; --k)
+            resources[k] = resources[k - 1];
+        resources[at] = {record.bytes, record.caller_rva, record.klass, record.width, record.height, record.format,
+                         record.bind};
+        if (written < capacity)
+            ++written;
+    }
+    return written;
+}
+
+const char* startup_tag_name(u32 tag) noexcept {
+    if (tag == 0)
+        return "other";
+    if (tag <= static_cast<u32>(Vt::count))
+        return kVtNames[tag - 1];
+    if (tag == kTagCreateDevice)
+        return "D3D11CreateDevice";
+    if (tag == kTagCreateComposition)
+        return "DCompositionCreateDevice";
+    if (tag == kStartupTagMap)
+        return "Map";
+    if (tag == kStartupTagUpdate)
+        return "UpdateSubresource";
+    if (tag == kStartupTagFlush)
+        return "Flush";
+    return "context";
+}
+
+void startup_gpu_ignore(bool ignore) noexcept {
+    InterlockedExchange(&g_gpu_ignored, ignore ? 1 : 0);
+}
+
+void startup_probe_range(u64* begin, u64* end) noexcept {
+    *begin = reinterpret_cast<u64>(g_gpu);
+    *end = g_gpu ? *begin + ((sizeof(GpuTables) + 65535) & ~65535ull) : 0;
 }
 
 } // namespace maicord::perf
