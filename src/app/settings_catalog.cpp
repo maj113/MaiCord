@@ -27,7 +27,6 @@ NumberLabels<361, 6> degree_labels;
 NumberLabels<201, 5> percent_labels;
 NumberLabels<101, 10> decibel_labels;
 NumberLabels<201, 8> millisecond_labels;
-bool number_labels_ready;
 
 template <u32 Count, u32 Width>
 void append_suffix(NumberLabels<Count, Width>& labels, u32 value, u32 at, const char* suffix,
@@ -37,8 +36,6 @@ void append_suffix(NumberLabels<Count, Width>& labels, u32 value, u32 at, const 
     labels.values[value] = {labels.text[value], at};
 }
 void number_labels_initialize() noexcept {
-    if (number_labels_ready)
-        return;
     for (u32 value = 0; value <= 360; ++value)
         append_suffix(degree_labels, value, decimal_write(degree_labels.text[value], value), "°", 2);
     for (u32 value = 0; value <= 200; ++value)
@@ -57,7 +54,6 @@ void number_labels_initialize() noexcept {
     for (u32 value = 0; value <= 200; ++value)
         append_suffix(millisecond_labels, value, decimal_write(millisecond_labels.text[value], value * 10),
                       " ms", 3);
-    number_labels_ready = true;
 }
 
 using K = UiSettingsControlKind;
@@ -66,462 +62,655 @@ constexpr u16 dynamic = ui_settings_schema_dynamic, hidden = ui_settings_schema_
 constexpr u32 bind(SettingBinding binding) noexcept {
     return static_cast<u32>(binding);
 }
-constexpr UiSettingsSchemaNode node(Utf8View key, K kind, Utf8View label, Utf8View description, Utf8View keywords,
-                                    SettingBinding binding = SettingBinding::none, ConstSlice<Utf8View> choices = {},
-                                    u32 default_choice = none, Utf8View action = {}, u16 flags = 0,
-                                    u8 variant = 0) noexcept {
-    return {key, label, description, keywords, kind, variant, flags, choices, default_choice, bind(binding), action};
-}
-
 constexpr Utf8View message_displays[]{utf8_literal("Default"), utf8_literal("Compact")};
 constexpr Utf8View group_spacings[]{utf8_literal("0px"), utf8_literal("4px"), utf8_literal("8px"),
                                     utf8_literal("16px"), utf8_literal("24px")};
-
-constexpr UiSettingsSchemaNode notifications[]{
-    node(utf8_literal("notifications.overview"), K::category, utf8_literal("Overview"), {}, {}),
-    node(utf8_literal("notifications.desktop"), K::toggle, utf8_literal("Enable Desktop Notifications"),
-         utf8_literal("If you're looking for per-channel or per-server notifications, right-click the desired server "
-                      "icon and select Notification Settings."),
-         utf8_literal("alerts toast popup banner"), SettingBinding::desktop_notifications),
-    node(utf8_literal("notifications.setup"), K::action, utf8_literal("Set up desktop notifications"), {},
-         utf8_literal("permission enable windows"), SettingBinding::notification_setup, {}, none,
-         utf8_literal("Set up")),
-    node(utf8_literal("notifications.windows"), K::action, utf8_literal("Windows notification settings"),
-         utf8_literal("Manage notification permissions in Windows."), utf8_literal("system permission focus"),
-         SettingBinding::windows_notification_settings, {}, none, utf8_literal("Open settings")),
-    node(utf8_literal("notifications.taskbar_flash"), K::toggle, utf8_literal("Enable Taskbar Flashing"),
-         utf8_literal("Flashes the app in your taskbar when you have new notifications."),
-         utf8_literal("taskbar flash attention blink"), SettingBinding::taskbar_flash),
-    node(utf8_literal("notifications.sounds"), K::category, utf8_literal("Sounds"), {}, {}),
-    node(utf8_literal("notifications.message_sounds"), K::toggle, utf8_literal("New Message"),
-         utf8_literal("Play a sound for new messages."), utf8_literal("audio ding chime"),
-         SettingBinding::message_sounds),
-    node(utf8_literal("notifications.selected_channel_sounds"), K::toggle,
-         utf8_literal("New Message in the channel I\xE2\x80\x99m currently reading"), {},
-         utf8_literal("audio focused current channel"), SettingBinding::selected_channel_sounds),
-    node(utf8_literal("notifications.volume"), K::slider, utf8_literal("Sound volume"),
-         utf8_literal("Volume of notification sounds."), utf8_literal("loudness audio output"),
-         SettingBinding::output_volume, {percent_labels.values, 201}, 100),
-    node(utf8_literal("notifications.badges"), K::category, utf8_literal("Badges"), {}, {}),
-    node(utf8_literal("notifications.unread_badge"), K::toggle, utf8_literal("Enable Unread Message Badge"),
-         utf8_literal("Shows a red badge on the app icon when you have unread messages."),
-         utf8_literal("taskbar overlay count dot"), SettingBinding::unread_badge),
-};
-
 constexpr Utf8View spoiler_choices[]{utf8_literal("On click"), utf8_literal("Always"),
                                      utf8_literal("On servers I moderate")};
-constexpr UiSettingsSchemaNode appearance[]{
-    node(utf8_literal("appearance.theme"), K::palette, utf8_literal("Theme"),
-         utf8_literal("Choose a light or dark look for MaiCord."), utf8_literal("dark mode light mode amoled black"),
-         SettingBinding::theme_base, {base_themes, 3}),
-    node(utf8_literal("appearance.color_theme"), K::palette, utf8_literal("Color themes"),
-         utf8_literal("Gradient themes tint the background behind every surface."),
-         utf8_literal("gradient colour color aurora sunset ocean"), SettingBinding::theme_color, {color_themes, 5}),
-    node(utf8_literal("appearance.customize"), K::action, utf8_literal("Customize theme"),
-         utf8_literal("Edit colors, the gradient and background effects."), utf8_literal("editor colors accent"),
-         SettingBinding::customize_theme, {}, none, utf8_literal("Customize")),
-    node(utf8_literal("appearance.background"), K::category, utf8_literal("Background"), {}, {}),
-    node(utf8_literal("appearance.background_effect"), K::choice, utf8_literal("Background effect"),
-         utf8_literal("Animated effect drawn behind gradient themes."),
-         utf8_literal("stars comets animation"), SettingBinding::background_effect,
-         {background_effects, kBackgroundEffectCount}),
-    node(utf8_literal("appearance.gradient_direction"), K::slider, utf8_literal("Gradient direction"),
-         utf8_literal("Angle of the background gradient."), utf8_literal("angle rotation degrees"),
-         SettingBinding::gradient_direction, {degree_labels.values, 361}),
-    node(utf8_literal("appearance.gradient_intensity"), K::slider, utf8_literal("Gradient intensity"),
-         utf8_literal("How strongly the gradient shows behind content."), utf8_literal("strength opacity"),
-         SettingBinding::gradient_intensity, {percent_labels.values, 101}),
-    node(utf8_literal("appearance.imported"), K::category, utf8_literal("Imported theme"), {},
-         utf8_literal("custom theme file import"), SettingBinding::none, {}, none, {}, dynamic),
-    node(utf8_literal("appearance.imported.import"), K::action, utf8_literal("Current theme"), {},
-         utf8_literal("custom theme file import"), SettingBinding::custom_import, {}, none,
-         utf8_literal("Import theme…"), dynamic),
-    node(utf8_literal("appearance.imported.installed"), K::choice, utf8_literal("Installed themes"),
-         utf8_literal("Theme files in the MaiCord themes folder. Choose one to preview it."),
-         utf8_literal("custom theme catalog installed folder json"), SettingBinding::custom_installed, {}, none, {},
-         dynamic),
-    node(utf8_literal("appearance.imported.preview"), K::action, utf8_literal("Imported theme"), {}, {},
-         SettingBinding::custom_preview, {}, none, utf8_literal("Preview theme"), dynamic | hidden),
-    node(utf8_literal("appearance.imported.apply"), K::action, utf8_literal("Imported theme"), {}, {},
-         SettingBinding::custom_apply, {}, none, utf8_literal("Apply theme"), dynamic | hidden, 1),
-    node(utf8_literal("appearance.imported.cancel"), K::action, utf8_literal("Discard preview"), {}, {},
-         SettingBinding::custom_cancel, {}, none, utf8_literal("Cancel"), dynamic | hidden),
-    node(utf8_literal("appearance.imported.builtin"), K::action, utf8_literal("Built-in appearance"),
-         utf8_literal("Keep the imported theme available for later."), {}, SettingBinding::custom_builtin, {}, none,
-         utf8_literal("Use built-in"), dynamic | hidden),
-    node(utf8_literal("appearance.imported.restore"), K::action, utf8_literal("Saved imported theme"), {}, {},
-         SettingBinding::custom_restore, {}, none, utf8_literal("Restore imported"), dynamic | hidden),
-    node(utf8_literal("appearance.imported.retry_read"), K::action, utf8_literal("Couldn't read theme file"), {}, {},
-         SettingBinding::custom_retry_read, {}, none, utf8_literal("Try again"), dynamic | hidden),
-    node(utf8_literal("appearance.imported.retry_save"), K::action, utf8_literal("Couldn't save theme"), {}, {},
-         SettingBinding::custom_retry_save, {}, none, utf8_literal("Try again"), dynamic | hidden),
-    // Messages and Chat Box read text_and_images (settings-proto/1).
-    node(utf8_literal("appearance.messages"), K::category, utf8_literal("Messages"),
-         utf8_literal("Show images, videos, and lolcats..."), {}),
-    node(utf8_literal("appearance.synced_notice"), K::notice, utf8_literal("Synced settings"), {}, {},
-         SettingBinding::chat_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("appearance.inline_embed_media"), K::toggle, utf8_literal("When posted as links to chat"), {},
-         utf8_literal("images videos gifs links preview inline media"), SettingBinding::inline_embed_media, {}, none,
-         {}, dynamic),
-    node(utf8_literal("appearance.inline_attachment_media"), K::toggle,
-         utf8_literal("When uploaded directly to Discord"), {},
-         utf8_literal("images videos gifs attachments uploads inline"), SettingBinding::inline_attachment_media, {},
-         none, {}, dynamic),
-    node(utf8_literal("appearance.render_embeds"), K::toggle, utf8_literal("Show embeds and link previews"), {},
-         utf8_literal("embeds link previews websites cards"), SettingBinding::render_embeds, {}, none, {},
-         dynamic),
-    node(utf8_literal("appearance.render_reactions"), K::toggle, utf8_literal("Show emoji reactions"), {},
-         utf8_literal("reactions emoji"), SettingBinding::render_reactions, {}, none, {}, dynamic),
-    node(utf8_literal("appearance.render_spoilers"), K::choice, utf8_literal("Show spoiler content"), {},
-         utf8_literal("spoilers hidden reveal"), SettingBinding::render_spoilers, {spoiler_choices, 3}, none, {},
-         dynamic),
-    node(utf8_literal("appearance.chat_box"), K::category, utf8_literal("Chat Box"), {}, {}),
-    node(utf8_literal("appearance.convert_emoticons"), K::toggle,
-         utf8_literal("Automatically convert emoticons in your messages to emoji"),
-         utf8_literal("For example, when you type :) MaiCord will convert it to 🙂"),
-         utf8_literal("emoticons smiley emoji convert"), SettingBinding::convert_emoticons, {}, none, {}, dynamic),
-    node(utf8_literal("appearance.spellcheck"), K::toggle, utf8_literal("Spellcheck"),
-         utf8_literal("Underline misspelled words as you type."), utf8_literal("spelling dictionary typo"),
-         SettingBinding::spellcheck),
-    node(utf8_literal("appearance.layout"), K::category, utf8_literal("Layout"), {}, {}),
-    node(utf8_literal("appearance.member_list"), K::toggle, utf8_literal("Show member list"),
-         utf8_literal("Show the member list beside server channels."), utf8_literal("members users sidebar"),
-         SettingBinding::member_list),
-};
-
-constexpr Utf8View sticker_animations[]{utf8_literal("Always animate"), utf8_literal("Animate on interaction"),
-                                        utf8_literal("Never animate")};
-constexpr UiSettingsSchemaNode accessibility[]{
-    node(utf8_literal("accessibility.synced_notice"), K::notice, utf8_literal("Synced settings"), {}, {},
-         SettingBinding::accessibility_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("accessibility.density"), K::category, utf8_literal("Visual Density"), {}, {}),
-    node(utf8_literal("accessibility.message_display"), K::radio, utf8_literal("Chat Message Display"),
-         utf8_literal("Change the appearance of chat messages."), utf8_literal("compact cozy density chat"),
-         SettingBinding::message_display, {message_displays, 2}, 0, {}, dynamic),
-    node(utf8_literal("accessibility.group_spacing"), K::slider, utf8_literal("Space Between Message Groups"),
-         utf8_literal("Adjust the spacing between message groups."), utf8_literal("spacing gap padding density"),
-         SettingBinding::group_spacing, {group_spacings, 5}, none, {}, ui_settings_schema_marks),
-    node(utf8_literal("accessibility.motion"), K::category, utf8_literal("Reduced Motion"), {}, {}),
-    node(utf8_literal("accessibility.reduced_motion"), K::toggle, utf8_literal("Enable Reduced Motion"),
-         utf8_literal("Reduce the amount and intensity of animations, hover effects, and other moving effects."),
-         utf8_literal("animation reduce motion gif"), SettingBinding::reduced_motion),
-    node(utf8_literal("accessibility.smooth_scroll"), K::toggle, utf8_literal("Smooth scrolling"),
-         utf8_literal("Animate mouse-wheel scrolling."), utf8_literal("scroll wheel"), SettingBinding::smooth_scroll),
-    node(utf8_literal("accessibility.gif_autoplay"), K::toggle, utf8_literal("Play GIFs when MaiCord is focused"), {},
-         utf8_literal("gif autoplay animation video"), SettingBinding::gif_autoplay, {}, none, {}, dynamic),
-    node(utf8_literal("accessibility.animate_emoji"), K::toggle, utf8_literal("Play animated emoji"), {},
-         utf8_literal("emoji animation animated"), SettingBinding::animate_emoji, {}, none, {}, dynamic),
-    node(utf8_literal("accessibility.animate_stickers"), K::radio, utf8_literal("Play sticker animations"), {},
-         utf8_literal("stickers animation"), SettingBinding::animate_stickers, {sticker_animations, 3}, none, {},
-         dynamic),
-};
-
-constexpr UiSettingsSchemaNode advanced[]{
-    node(utf8_literal("advanced.developer_mode"), K::toggle, utf8_literal("Developer Mode"),
-         utf8_literal("Developer Mode exposes context menu items helpful for people writing apps using the Discord "
-                      "API, such as Copy ID."),
-         utf8_literal("copy id snowflake debug bot"), SettingBinding::developer_mode),
-    node(utf8_literal("advanced.preferences_retry"), K::notice, utf8_literal("Couldn't save settings"),
-         utf8_literal("Your latest changes are applied but not saved yet."), {}, SettingBinding::preferences_retry,
-         {}, none, utf8_literal("Try again"), dynamic | hidden, 2),
-};
-
+constexpr Utf8View sticker_animations[]{
+    utf8_literal("Always animate"), utf8_literal("Animate on interaction"), utf8_literal("Never animate")};
 constexpr Utf8View update_channels[]{utf8_literal("Stable"), utf8_literal("Preview")};
 constexpr Utf8View update_intervals[]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"),
                                       utf8_literal("Every 12 hours"), utf8_literal("Once a day")};
-constexpr UiSettingsSchemaNode updates[]{
-    node(utf8_literal("updates.status"), K::action, utf8_literal("Check for updates"), {},
-         utf8_literal("update upgrade version new release download restart"), SettingBinding::update_status, {}, none,
-         utf8_literal("Check now"), dynamic),
-    node(utf8_literal("updates.problem"), K::notice, utf8_literal("Update problem"), {}, {},
-         SettingBinding::update_problem, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("updates.available"), K::action, utf8_literal("Available update"), {},
-         utf8_literal("download size release date verified signature"), SettingBinding::update_available, {}, none, {},
-         dynamic),
-    node(utf8_literal("updates.channel"), K::radio, utf8_literal("Update channel"),
-         utf8_literal("Preview builds get new features first and may be less stable."),
-         utf8_literal("beta preview stable release channel master nightly"), SettingBinding::update_channel,
-         {update_channels, 2}, none, {}, dynamic),
-    node(utf8_literal("updates.interval"), K::radio, utf8_literal("Check for updates every"),
-         utf8_literal("MaiCord also checks shortly after it starts."),
-         utf8_literal("frequency interval schedule automatic background hourly daily hour day often how often"),
-         SettingBinding::update_interval, {update_intervals, 4}, none, {}, dynamic),
-    node(utf8_literal("updates.rollback"), K::action, utf8_literal("Roll back to previous version"), {},
-         utf8_literal("downgrade revert undo previous version"), SettingBinding::update_rollback, {}, none,
-         utf8_literal("Roll back"), dynamic),
-    node(utf8_literal("updates.assets"), K::notice, utf8_literal("What updates include"),
-         utf8_literal("Updates replace the app and its account module. Download a fresh copy to get new fonts and licenses."),
-         {}, SettingBinding::update_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("updates.changelog"), K::category, utf8_literal("What's new"), {},
-         utf8_literal("changelog release notes changes commits what's new"), SettingBinding::update_changelog, {}, none,
-         {}, dynamic),
-};
-
-constexpr UiSettingsSchemaNode voice_nodes[]{
-    node(utf8_literal("voice.devices"), K::category, utf8_literal("Voice"), {}, {}),
-    node(utf8_literal("voice.input_device"), K::choice, utf8_literal("Microphone"),
-         utf8_literal("The microphone used in voice channels."), utf8_literal("microphone mic input headset"),
-         SettingBinding::voice_input_device, {}, none, {}, dynamic),
-    node(utf8_literal("voice.output_device"), K::choice, utf8_literal("Speaker"),
-         utf8_literal("Speakers or headphones for voice channels."), utf8_literal("speakers headphones output audio"),
-         SettingBinding::voice_output_device, {}, none, {}, dynamic),
-    node(utf8_literal("voice.input_volume"), K::slider, utf8_literal("Microphone Volume"), {},
-         utf8_literal("microphone gain loudness input"), SettingBinding::voice_input_volume,
-         {percent_labels.values, 201}, 100),
-    node(utf8_literal("voice.output_volume"), K::slider, utf8_literal("Speaker Volume"),
-         utf8_literal("Volume of everyone you hear in voice channels."), utf8_literal("speakers loudness output"),
-         SettingBinding::voice_output_volume, {percent_labels.values, 201}, 100),
-    node(utf8_literal("voice.input"), K::category, utf8_literal("Input"), {}, {}),
-    node(utf8_literal("voice.input_mode"), K::toggle, utf8_literal("Push to Talk"),
-         utf8_literal("Activates your mic only when you hold down a designated key."),
-         utf8_literal("push to talk ptt voice activity vad input mode"), SettingBinding::voice_input_mode),
-    node(utf8_literal("voice.auto_sensitivity"), K::toggle, utf8_literal("Automatically Adjust Input Sensitivity"),
-         utf8_literal("Follow your background noise to tell when you're speaking."),
-         utf8_literal("vad threshold automatic"), SettingBinding::voice_auto_sensitivity, {}, none, {}, dynamic),
-    node(utf8_literal("voice.sensitivity"), K::slider, utf8_literal("Input Sensitivity"),
-         utf8_literal("Sound above the marker is sent. The bar shows your microphone level."),
-         utf8_literal("vad threshold level meter mic test"), SettingBinding::voice_sensitivity,
-         {decibel_labels.values, 101}, none, {}, dynamic),
-    node(utf8_literal("voice.push_to_talk_key"), K::action, utf8_literal("Push to Talk Keybind"),
-         utf8_literal("Hold this key to talk, even while MaiCord is in the background."),
-         utf8_literal("ptt keybind hotkey key shortcut"), SettingBinding::voice_push_to_talk_key, {}, none,
-         utf8_literal("Record keybind"), dynamic),
-    node(utf8_literal("voice.push_to_talk_release"), K::slider, utf8_literal("Push to Talk Release Delay"),
-         utf8_literal("Keep sending briefly after you let go."), utf8_literal("ptt delay"),
-         SettingBinding::voice_push_to_talk_release, {millisecond_labels.values, 201}, 2, {}, dynamic),
-    node(utf8_literal("voice.processing_category"), K::category, utf8_literal("Voice processing"), {}, {}),
-    node(utf8_literal("voice.processing"), K::toggle, utf8_literal("Echo and noise reduction"),
-         utf8_literal("Let Windows cancel echo, suppress background noise and even out your volume."),
-         utf8_literal("echo cancellation noise suppression automatic gain control agc"),
-         SettingBinding::voice_processing),
-    node(utf8_literal("voice.soundboard_category"), K::category, utf8_literal("Soundboard"), {}, {}),
-    node(utf8_literal("voice.soundboard_volume"), K::slider, utf8_literal("Soundboard Volume"),
-         utf8_literal("Control how loud sounds are for you personally."),
-         utf8_literal("soundboard sounds effects loudness"), SettingBinding::voice_soundboard_volume,
-         {percent_labels.values, 101}, 100),
-    node(utf8_literal("voice.soundboard_muted"), K::toggle, utf8_literal("Mute soundboard"),
-         utf8_literal("Don't play sounds other people send. You can still use the soundboard."),
-         utf8_literal("soundboard sounds silence mute"), SettingBinding::voice_soundboard_muted),
-};
-
-constexpr UiSettingsSchemaNode account_nodes[]{
-    node(utf8_literal("account.card"), K::action, utf8_literal("Account"), {}, utf8_literal("avatar profile"),
-         SettingBinding::account_card, {}, none, utf8_literal("Edit profile"), dynamic | hidden),
-    node(utf8_literal("account.notice"), K::notice, utf8_literal("Account details"), {}, {},
-         SettingBinding::account_notice, {}, none, utf8_literal("Try again"), dynamic | hidden),
-    node(utf8_literal("account.details"), K::category, utf8_literal("Account Info"), {}, {}),
-    node(utf8_literal("account.username"), K::action, utf8_literal("Username"), {}, utf8_literal("handle name"),
-         SettingBinding::account_username, {}, none, utf8_literal("Edit"), dynamic),
-    node(utf8_literal("account.email"), K::action, utf8_literal("Email"), {}, utf8_literal("mail address"),
-         SettingBinding::account_email, {}, none, utf8_literal("Reveal"), dynamic),
-    node(utf8_literal("account.phone"), K::action, utf8_literal("Phone Number"), {}, utf8_literal("sms mobile"),
-         SettingBinding::account_phone, {}, none, utf8_literal("Reveal"), dynamic),
-    node(utf8_literal("account.security"), K::category, utf8_literal("Password & Security"), {}, {}),
-    node(utf8_literal("account.password"), K::action, utf8_literal("Password"),
-         utf8_literal("Changes open Discord in your browser."), utf8_literal("change password security"),
-         SettingBinding::account_password, {}, none, utf8_literal("Change"), dynamic),
-    node(utf8_literal("account.mfa"), K::notice, utf8_literal("Multi-Factor Authentication"), {},
-         utf8_literal("2fa mfa authenticator security two-factor"), SettingBinding::account_mfa, {}, none, {}, dynamic),
-};
-constexpr UiSettingsSchemaNode profile_nodes[]{
-    node(utf8_literal("profiles.notice"), K::notice, utf8_literal("Profile"), {}, {}, SettingBinding::profile_notice,
-         {}, none, utf8_literal("Try again"), dynamic | hidden),
-    node(utf8_literal("profiles.display_name"), K::action, utf8_literal("Display Name"), {},
-         utf8_literal("global name nickname"), SettingBinding::profile_display_name, {}, none, utf8_literal("Edit"),
-         dynamic),
-    node(utf8_literal("profiles.pronouns"), K::action, utf8_literal("Pronouns"), {}, {},
-         SettingBinding::profile_pronouns, {}, none, utf8_literal("Edit"), dynamic),
-    node(utf8_literal("profiles.bio"), K::action, utf8_literal("Bio"), {}, utf8_literal("about me description"),
-         SettingBinding::profile_bio, {}, none, utf8_literal("Edit"), dynamic),
-};
-constexpr UiSettingsSchemaNode device_nodes[]{
-    node(utf8_literal("devices.notice"), K::notice, utf8_literal("Devices"), {}, {}, SettingBinding::devices_notice,
-         {}, none, utf8_literal("Try again"), dynamic | hidden),
-    node(utf8_literal("devices.list"), K::category, utf8_literal("Logged-in Devices"),
-         utf8_literal("These are all the devices that are currently logged-in with your Discord account. Log out of "
-                      "devices that you don't recognize."),
-         utf8_literal("sessions logged in log out"), SettingBinding::devices_list),
-};
 constexpr Utf8View explicit_choices[]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
 constexpr Utf8View spam_choices[]{utf8_literal("Filter all spam"),
                                   utf8_literal("Filter messages from non-friends (Recommended)"),
                                   utf8_literal("Don't filter spam")};
-constexpr UiSettingsSchemaNode content_nodes[]{
-    node(utf8_literal("content.notice"), K::notice, utf8_literal("Synced settings"), {}, {},
-         SettingBinding::user_settings_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("content.media"), K::category, utf8_literal("Content Filters"),
-         utf8_literal("Show, blur or block media that may be sexually explicit."), {}),
-    node(utf8_literal("content.explicit_friends"), K::choice, utf8_literal("Direct messages from friends"), {},
-         utf8_literal("explicit nsfw blur filter sensitive media"), SettingBinding::explicit_friends,
-         {explicit_choices, 3}, none, {}, dynamic),
-    node(utf8_literal("content.explicit_others"), K::choice, utf8_literal("Direct messages from others"), {},
-         utf8_literal("explicit nsfw blur filter sensitive media"), SettingBinding::explicit_others,
-         {explicit_choices, 3}, none, {}, dynamic),
-    node(utf8_literal("content.explicit_guilds"), K::choice, utf8_literal("Messages in server channels"), {},
-         utf8_literal("explicit nsfw blur filter sensitive media"), SettingBinding::explicit_guilds,
-         {explicit_choices, 2}, none, {}, dynamic),
-    node(utf8_literal("content.nsfw_commands"), K::toggle,
-         utf8_literal("Allow access to age-restricted commands from apps in DMs"),
-         utf8_literal("Allows people 18+ to access commands marked as age-restricted in DMs. Applies to all apps."),
-         utf8_literal("nsfw apps commands"), SettingBinding::nsfw_commands, {}, none, {}, dynamic),
-    node(utf8_literal("content.nsfw_guilds"), K::toggle, utf8_literal("Allow access to age-restricted servers on iOS"),
-         utf8_literal("Access age-restricted servers (18+) on iOS devices, after joining them on desktop."),
-         utf8_literal("nsfw servers ios"), SettingBinding::nsfw_guilds, {}, none, {}, dynamic),
-    node(utf8_literal("content.spam_filters"), K::category, utf8_literal("Spam Filters"), {}, {}),
-    node(utf8_literal("content.spam"), K::radio, utf8_literal("Automatically filter suspected spam messages"),
-         utf8_literal("Discord can filter out some messages that contain spam. These messages go to your Spam inbox."),
-         utf8_literal("junk filter dm spam"), SettingBinding::dm_spam_filter, {spam_choices, 3}, none, {}, dynamic),
-    node(utf8_literal("content.dms"), K::category, utf8_literal("Direct Message (DM) Permissions"), {}, {}),
-    node(utf8_literal("content.dm_from_members"), K::toggle, utf8_literal("Direct Messages"),
-         utf8_literal("Allow DMs from other server members. Applies to servers you join from now on."),
-         utf8_literal("direct messages privacy dms"), SettingBinding::dm_from_members, {}, none, {}, dynamic),
-    node(utf8_literal("content.message_requests"), K::toggle, utf8_literal("Message requests"),
-         utf8_literal("Filter messages from server members you may not know. Applies to servers you join from now "
-                      "on."),
-         utf8_literal("dm requests"), SettingBinding::message_requests, {}, none, {}, dynamic),
-    node(utf8_literal("content.friend_requests"), K::category, utf8_literal("Friend Request Permissions"),
-         utf8_literal("Allow Friend Requests from..."), {}),
-    node(utf8_literal("content.friend_everyone"), K::toggle, utf8_literal("Everyone"), {},
-         utf8_literal("friend requests anyone"), SettingBinding::friend_everyone, {}, none, {}, dynamic),
-    node(utf8_literal("content.friend_mutual_friends"), K::toggle, utf8_literal("Friend of friends"), {},
-         utf8_literal("friend requests mutual"), SettingBinding::friend_mutual_friends, {}, none, {}, dynamic),
-    node(utf8_literal("content.friend_mutual_guilds"), K::toggle, utf8_literal("Server members"),
-         utf8_literal("Server members can only send you friend requests from servers where you also allow Direct "
-                      "Messages."),
-         utf8_literal("friend requests mutual servers"), SettingBinding::friend_mutual_guilds, {}, none, {}, dynamic),
-    node(utf8_literal("content.friend_request_notes"), K::toggle, utf8_literal("Show personalized messages"),
-         utf8_literal("Show personalized messages on incoming friend requests. If you accept, the message will still "
-                      "appear in your DMs."),
-         utf8_literal("friend request notes message"), SettingBinding::friend_request_notes, {}, none, {}, dynamic),
-};
 constexpr Utf8View visibility_choices[]{utf8_literal("Friends & All Servers"),
-                                        utf8_literal("Friends & Small Servers Only"), utf8_literal("Friends Only")};
-constexpr UiSettingsSchemaNode privacy_nodes[]{
-    node(utf8_literal("privacy.notice"), K::notice, utf8_literal("Synced settings"), {}, {},
-         SettingBinding::privacy_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("privacy.data"), K::category, utf8_literal("How Discord Uses My Data"), {}, {}),
-    node(utf8_literal("privacy.sponsored_activity"), K::toggle,
-         utf8_literal("Use my Discord activity to personalize Sponsored Content"),
-         utf8_literal("Allows Discord to personalize Sponsored Content, like Quests, using your Discord activity, such "
-                      "as the games you play. If you opt out you may still see Quests, but they won\xE2\x80\x99t be "
-                      "personalized."),
-         utf8_literal("quests sponsored personalize data"), SettingBinding::sponsored_activity, {}, none, {}, dynamic),
-    node(utf8_literal("privacy.sponsored_third_party"), K::toggle,
-         utf8_literal("Use third-party data to personalize Sponsored Content"),
-         utf8_literal("Allows Discord to personalize Sponsored Content, like Quests, using data Discord receives from "
-                      "advertisers and third-party data providers. If you opt out, you may still see Quests, but they "
-                      "won\xE2\x80\x99t be personalized."),
-         utf8_literal("quests sponsored advertisers third party data"), SettingBinding::sponsored_third_party, {},
-         none, {}, dynamic),
-    node(utf8_literal("privacy.profile"), K::category, utf8_literal("Profile Privacy"),
-         utf8_literal("Control who can see your profile info \xE2\x80\x94 like your bio and connected accounts."), {}),
-    node(utf8_literal("privacy.profile_visibility"), K::radio, utf8_literal("Share my full profile with"),
-         utf8_literal("Small servers have 200 or fewer members. Everyone else sees a limited version."),
-         utf8_literal("privacy profile visibility"), SettingBinding::profile_visibility, {visibility_choices, 3}, none,
-         {}, dynamic),
-    node(utf8_literal("privacy.profile_updates"), K::toggle, utf8_literal("Share when I update my profile"),
-         utf8_literal("Allow friends to receive a push notification when you update your profile."),
-         utf8_literal("notify friends profile updates"), SettingBinding::profile_updates, {}, none, {}, dynamic),
-};
-constexpr UiSettingsSchemaNode app_nodes[]{
-    node(utf8_literal("apps.notice"), K::notice, utf8_literal("Authorized Apps"), {}, {}, SettingBinding::apps_notice,
-         {}, none, utf8_literal("Try again"), dynamic | hidden),
-    node(utf8_literal("apps.list"), K::category, utf8_literal("Authorized Apps"),
-         utf8_literal("These include third-party services you've given permission to access your Discord account. You "
-                      "can review what each app can do and revoke access anytime."),
-         utf8_literal("oauth applications tokens connected"), SettingBinding::apps_list),
-};
+                                        utf8_literal("Friends & Small Servers Only"),
+                                        utf8_literal("Friends Only")};
 constexpr Utf8View time_formats[]{utf8_literal("Auto"), utf8_literal("12-hour"), utf8_literal("24-hour")};
-constexpr UiSettingsSchemaNode language_nodes[]{
-    node(utf8_literal("language.notice"), K::notice, utf8_literal("Synced settings"), {}, {},
-         SettingBinding::language_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("language.time"), K::category, utf8_literal("Time"), {}, {}),
-    node(utf8_literal("language.time_format"), K::radio, utf8_literal("Time format"),
-         utf8_literal("Auto follows your Windows region settings."), utf8_literal("clock 12 24 hour am pm"),
-         SettingBinding::time_format, {time_formats, 3}, 0, {}, dynamic),
-};
-
-constexpr UiSettingsSchemaNode registered_game_nodes[]{
-    node(utf8_literal("games.detection"), K::toggle, utf8_literal("Detect games"),
-         utf8_literal("Check running programs every 20 seconds. Program names stay on this device; only the "
-                      "game you're playing is shared."),
-         utf8_literal("game detection running programs processes registered games"), SettingBinding::game_detection),
-    node(utf8_literal("games.added"), K::category, utf8_literal("Added Games"),
-         utf8_literal("Games MaiCord recognizes while they run."), utf8_literal("registered games added detected"),
-         SettingBinding::registered_games),
-    node(utf8_literal("games.add"), K::choice, utf8_literal("Add a game"),
-         utf8_literal("Pick a running program to show as the game you're playing."),
-         utf8_literal("add game not detected program"), SettingBinding::add_game, {}, none, {}, dynamic),
-};
-
-constexpr UiSettingsSchemaNode keybind_nodes[]{
-    node(utf8_literal("keybinds.custom"), K::category, utf8_literal("Custom Keybinds"),
-         utf8_literal("Keybinds are custom keyboard shortcuts that let you perform specific actions in MaiCord "
-                      "without needing to click through menus. Voice keybinds also work in the background during a "
-                      "call."),
-         utf8_literal("hotkeys global keyboard"), SettingBinding::keybinds_custom),
-    node(utf8_literal("keybinds.add"), K::action, utf8_literal("Add a keybind"),
-         utf8_literal("Choose a voice action, then press the keys to use."),
-         utf8_literal("new hotkey shortcut push to talk ptt mute deafen"), SettingBinding::keybinds_add, {}, none,
-         utf8_literal("Add keybind"), dynamic, static_cast<u8>(UiSettingsVariant::primary)),
-    node(utf8_literal("keybinds.defaults"), K::notice, utf8_literal("Default Keybinds"),
-         utf8_literal("Built-in shortcuts can't be changed. Press Ctrl+/ anywhere to see them."),
-         utf8_literal("keyboard shortcuts hotkeys combos"), SettingBinding::keybinds_defaults, {}, none, {}, dynamic),
-};
-
-constexpr UiSettingsSchemaNode system_nodes[]{
-    node(utf8_literal("system.startup"), K::category, utf8_literal("General"), {}, {}),
-    node(utf8_literal("system.open_on_startup"), K::toggle,
-         utf8_literal("Automatically open MaiCord when your computer starts up"), {},
-         utf8_literal("boot login autostart run startup"), SettingBinding::open_on_startup, {}, none, {}, dynamic),
-    node(utf8_literal("system.start_minimized"), K::toggle, utf8_literal("Start MaiCord minimized"),
-         utf8_literal("Start MaiCord in the background, out of your way."),
-         utf8_literal("boot background hidden tray"), SettingBinding::start_minimized, {}, none, {}, dynamic),
-    node(utf8_literal("system.minimize_to_tray"), K::toggle, utf8_literal("Minimize MaiCord to System Tray"),
-         utf8_literal("Clicking X minimizes MaiCord instead of closing it completely."),
-         utf8_literal("system tray notification area close exit background"), SettingBinding::minimize_to_tray),
-    node(utf8_literal("system.links"), K::category, utf8_literal("Links"), {}, {}),
-    node(utf8_literal("system.protocol_handler"), K::toggle, utf8_literal("Open discord:// links in MaiCord"),
-         utf8_literal("Invite and message links from your browser and other apps open here."),
-         utf8_literal("protocol url handler invite browser default"), SettingBinding::protocol_handler, {}, none, {},
-         dynamic),
-};
-
 constexpr Utf8View activity_server_choices[]{utf8_literal("Share in all servers"),
                                              utf8_literal("Share in servers with 200 or fewer members"),
                                              utf8_literal("Do not share in any servers")};
-constexpr UiSettingsSchemaNode activity_nodes[]{
-    node(utf8_literal("activity.notice"), K::notice, utf8_literal("Synced settings"), {}, {},
-         SettingBinding::activity_notice, {}, none, {}, dynamic | hidden),
-    node(utf8_literal("activity.status"), K::category, utf8_literal("What Activity I Share"), {}, {}),
-    node(utf8_literal("activity.share"), K::toggle, utf8_literal("Share my activity"),
-         utf8_literal("Share activity information from games and connected apps I use, including when and how I "
-                      "engage."),
-         utf8_literal("activity status playing game rich presence privacy"), SettingBinding::share_activity, {}, none,
-         {}, dynamic),
-    node(utf8_literal("activity.share_online"), K::toggle, utf8_literal("Share when I come online"),
-         utf8_literal("Allow friends to receive a push notification when you come online."),
-         utf8_literal("online notify friends"), SettingBinding::share_online, {}, none, {}, dynamic),
-    node(utf8_literal("activity.share_streaming"), K::toggle, utf8_literal("Share when I start streaming"),
-         utf8_literal("Allow members that you interact with the most to get a notification when you start streaming "
-                      "in small servers."),
-         utf8_literal("go live stream notify"), SettingBinding::share_streaming, {}, none, {}, dynamic),
-    node(utf8_literal("activity.servers_category"), K::category, utf8_literal("Where I Share Activity"), {}, {}),
-    node(utf8_literal("activity.servers"), K::radio, utf8_literal("Automatically share my activity when joining a server"),
-         utf8_literal("Your activity is always shared with your friends."),
-         utf8_literal("activity servers status privacy"), SettingBinding::activity_servers,
-         {activity_server_choices, 3}, none, {}, dynamic),
-    node(utf8_literal("activity.joining"), K::category, utf8_literal("Who Can Join My Games"),
-         utf8_literal("Some games allow users to join the game you're playing when viewing your activity."), {}),
-    node(utf8_literal("activity.join_friends"), K::toggle, utf8_literal("Allow friends to join my game"),
-         utf8_literal("Allow friends to join my game without sending a request."),
-         utf8_literal("join game party invite friends"), SettingBinding::join_friends, {}, none, {}, dynamic),
-    node(utf8_literal("activity.join_voice"), K::toggle,
-         utf8_literal("Allow voice channel participants to join my game"),
-         utf8_literal("Allow anyone in a shared voice channel to join my game without sending a request. This feature "
-                      "only works in non-Community enabled servers."),
-         utf8_literal("join game party voice channel"), SettingBinding::join_voice, {}, none, {}, dynamic),
+
+enum class C : u8 {
+    none,
+    base_themes,
+    color_themes,
+    background_effects,
+    degrees,
+    percent_100,
+    percent_200,
+    spoilers,
+    message_displays,
+    group_spacings,
+    sticker_animations,
+    update_channels,
+    update_intervals,
+    decibels,
+    milliseconds,
+    explicit_content,
+    explicit_guilds,
+    spam,
+    visibility,
+    time_formats,
+    activity_servers,
+    count
 };
+constexpr ConstSlice<Utf8View> choice_sets[]{
+    {},
+    {base_themes, 3},
+    {color_themes, 5},
+    {background_effects, kBackgroundEffectCount},
+    {degree_labels.values, 361},
+    {percent_labels.values, 101},
+    {percent_labels.values, 201},
+    {spoiler_choices, 3},
+    {message_displays, 2},
+    {group_spacings, 5},
+    {sticker_animations, 3},
+    {update_channels, 2},
+    {update_intervals, 4},
+    {decibel_labels.values, 101},
+    {millisecond_labels.values, 201},
+    {explicit_choices, 3},
+    {explicit_choices, 2},
+    {spam_choices, 3},
+    {visibility_choices, 3},
+    {time_formats, 3},
+    {activity_server_choices, 3},
+};
+static_assert(sizeof(choice_sets) / sizeof(choice_sets[0]) == static_cast<u32>(C::count));
+
+// A node's key, label, description, keywords and action label, NUL-separated
+// in one literal: one pointer per node instead of five views, expanded into
+// UiSettingsSchemaNode storage on first use.
+#define SETTING_TEXT(key, label, description, keywords, action)                                            \
+    key "\0" label "\0" description "\0" keywords "\0" action
+struct PackedNode {
+    const char* text;
+    K kind;
+    C choices;
+    u8 variant;
+    u16 flags;
+    u16 default_choice;
+    u16 binding;
+};
+constexpr u16 kPackedNoChoice = 0xffff;
+constexpr PackedNode node(const char* text, K kind, SettingBinding binding = SettingBinding::none,
+                          C choices = C::none, u32 default_choice = none, u16 flags = 0,
+                          u8 variant = 0) noexcept {
+    return {text,
+            kind,
+            choices,
+            variant,
+            flags,
+            static_cast<u16>(default_choice == none ? kPackedNoChoice : default_choice),
+            static_cast<u16>(binding)};
+}
+
+constexpr PackedNode notifications[]{
+    node(SETTING_TEXT("notifications.overview", "Overview", "", "", ""), K::category),
+    node(
+        SETTING_TEXT(
+            "notifications.desktop", "Enable Desktop Notifications",
+            "If you're looking for per-channel or per-server notifications, right-click the desired server "
+            "icon and select Notification Settings.",
+            "alerts toast popup banner", ""),
+        K::toggle, SettingBinding::desktop_notifications),
+    node(SETTING_TEXT("notifications.setup", "Set up desktop notifications", "",
+                      "permission enable windows", "Set up"),
+         K::action, SettingBinding::notification_setup),
+    node(SETTING_TEXT("notifications.windows", "Windows notification settings",
+                      "Manage notification permissions in Windows.", "system permission focus",
+                      "Open settings"),
+         K::action, SettingBinding::windows_notification_settings),
+    node(SETTING_TEXT("notifications.taskbar_flash", "Enable Taskbar Flashing",
+                      "Flashes the app in your taskbar when you have new notifications.",
+                      "taskbar flash attention blink", ""),
+         K::toggle, SettingBinding::taskbar_flash),
+    node(SETTING_TEXT("notifications.sounds", "Sounds", "", "", ""), K::category),
+    node(SETTING_TEXT("notifications.message_sounds", "New Message", "Play a sound for new messages.",
+                      "audio ding chime", ""),
+         K::toggle, SettingBinding::message_sounds),
+    node(SETTING_TEXT("notifications.selected_channel_sounds",
+                      "New Message in the channel I\xE2\x80\x99m currently reading", "",
+                      "audio focused current channel", ""),
+         K::toggle, SettingBinding::selected_channel_sounds),
+    node(SETTING_TEXT("notifications.volume", "Sound volume", "Volume of notification sounds.",
+                      "loudness audio output", ""),
+         K::slider, SettingBinding::output_volume, C::percent_200, 100),
+    node(SETTING_TEXT("notifications.badges", "Badges", "", "", ""), K::category),
+    node(SETTING_TEXT("notifications.unread_badge", "Enable Unread Message Badge",
+                      "Shows a red badge on the app icon when you have unread messages.",
+                      "taskbar overlay count dot", ""),
+         K::toggle, SettingBinding::unread_badge),
+};
+
+constexpr PackedNode appearance[]{
+    node(SETTING_TEXT("appearance.theme", "Theme", "Choose a light or dark look for MaiCord.",
+                      "dark mode light mode amoled black", ""),
+         K::palette, SettingBinding::theme_base, C::base_themes),
+    node(SETTING_TEXT("appearance.color_theme", "Color themes",
+                      "Gradient themes tint the background behind every surface.",
+                      "gradient colour color aurora sunset ocean", ""),
+         K::palette, SettingBinding::theme_color, C::color_themes),
+    node(SETTING_TEXT("appearance.customize", "Customize theme",
+                      "Edit colors, the gradient and background effects.", "editor colors accent",
+                      "Customize"),
+         K::action, SettingBinding::customize_theme),
+    node(SETTING_TEXT("appearance.background", "Background", "", "", ""), K::category),
+    node(SETTING_TEXT("appearance.background_effect", "Background effect",
+                      "Animated effect drawn behind gradient themes.", "stars comets animation", ""),
+         K::choice, SettingBinding::background_effect, C::background_effects),
+    node(SETTING_TEXT("appearance.gradient_direction", "Gradient direction",
+                      "Angle of the background gradient.", "angle rotation degrees", ""),
+         K::slider, SettingBinding::gradient_direction, C::degrees),
+    node(SETTING_TEXT("appearance.gradient_intensity", "Gradient intensity",
+                      "How strongly the gradient shows behind content.", "strength opacity", ""),
+         K::slider, SettingBinding::gradient_intensity, C::percent_100),
+    node(SETTING_TEXT("appearance.imported", "Imported theme", "", "custom theme file import", ""),
+         K::category, SettingBinding::none, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.imported.import", "Current theme", "", "custom theme file import",
+                      "Import theme…"),
+         K::action, SettingBinding::custom_import, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.imported.installed", "Installed themes",
+                      "Theme files in the MaiCord themes folder. Choose one to preview it.",
+                      "custom theme catalog installed folder json", ""),
+         K::choice, SettingBinding::custom_installed, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.imported.preview", "Imported theme", "", "", "Preview theme"), K::action,
+         SettingBinding::custom_preview, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("appearance.imported.apply", "Imported theme", "", "", "Apply theme"), K::action,
+         SettingBinding::custom_apply, C::none, none, dynamic | hidden, 1),
+    node(SETTING_TEXT("appearance.imported.cancel", "Discard preview", "", "", "Cancel"), K::action,
+         SettingBinding::custom_cancel, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("appearance.imported.builtin", "Built-in appearance",
+                      "Keep the imported theme available for later.", "", "Use built-in"),
+         K::action, SettingBinding::custom_builtin, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("appearance.imported.restore", "Saved imported theme", "", "", "Restore imported"),
+         K::action, SettingBinding::custom_restore, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("appearance.imported.retry_read", "Couldn't read theme file", "", "", "Try again"),
+         K::action, SettingBinding::custom_retry_read, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("appearance.imported.retry_save", "Couldn't save theme", "", "", "Try again"),
+         K::action, SettingBinding::custom_retry_save, C::none, none, dynamic | hidden),
+    // Messages and Chat Box read text_and_images (settings-proto/1).
+    node(SETTING_TEXT("appearance.messages", "Messages", "Show images, videos, and lolcats...", "", ""),
+         K::category),
+    node(SETTING_TEXT("appearance.synced_notice", "Synced settings", "", "", ""), K::notice,
+         SettingBinding::chat_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("appearance.inline_embed_media", "When posted as links to chat", "",
+                      "images videos gifs links preview inline media", ""),
+         K::toggle, SettingBinding::inline_embed_media, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.inline_attachment_media", "When uploaded directly to Discord", "",
+                      "images videos gifs attachments uploads inline", ""),
+         K::toggle, SettingBinding::inline_attachment_media, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.render_embeds", "Show embeds and link previews", "",
+                      "embeds link previews websites cards", ""),
+         K::toggle, SettingBinding::render_embeds, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.render_reactions", "Show emoji reactions", "", "reactions emoji", ""),
+         K::toggle, SettingBinding::render_reactions, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.render_spoilers", "Show spoiler content", "", "spoilers hidden reveal",
+                      ""),
+         K::choice, SettingBinding::render_spoilers, C::spoilers, none, dynamic),
+    node(SETTING_TEXT("appearance.chat_box", "Chat Box", "", "", ""), K::category),
+    node(SETTING_TEXT("appearance.convert_emoticons",
+                      "Automatically convert emoticons in your messages to emoji",
+                      "For example, when you type :) MaiCord will convert it to 🙂",
+                      "emoticons smiley emoji convert", ""),
+         K::toggle, SettingBinding::convert_emoticons, C::none, none, dynamic),
+    node(SETTING_TEXT("appearance.spellcheck", "Spellcheck", "Underline misspelled words as you type.",
+                      "spelling dictionary typo", ""),
+         K::toggle, SettingBinding::spellcheck),
+    node(SETTING_TEXT("appearance.layout", "Layout", "", "", ""), K::category),
+    node(SETTING_TEXT("appearance.member_list", "Show member list",
+                      "Show the member list beside server channels.", "members users sidebar", ""),
+         K::toggle, SettingBinding::member_list),
+};
+
+constexpr PackedNode accessibility[]{
+    node(SETTING_TEXT("accessibility.synced_notice", "Synced settings", "", "", ""), K::notice,
+         SettingBinding::accessibility_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("accessibility.density", "Visual Density", "", "", ""), K::category),
+    node(SETTING_TEXT("accessibility.message_display", "Chat Message Display",
+                      "Change the appearance of chat messages.", "compact cozy density chat", ""),
+         K::radio, SettingBinding::message_display, C::message_displays, 0, dynamic),
+    node(SETTING_TEXT("accessibility.group_spacing", "Space Between Message Groups",
+                      "Adjust the spacing between message groups.", "spacing gap padding density", ""),
+         K::slider, SettingBinding::group_spacing, C::group_spacings, none, ui_settings_schema_marks),
+    node(SETTING_TEXT("accessibility.motion", "Reduced Motion", "", "", ""), K::category),
+    node(SETTING_TEXT(
+             "accessibility.reduced_motion", "Enable Reduced Motion",
+             "Reduce the amount and intensity of animations, hover effects, and other moving effects.",
+             "animation reduce motion gif", ""),
+         K::toggle, SettingBinding::reduced_motion),
+    node(SETTING_TEXT("accessibility.smooth_scroll", "Smooth scrolling", "Animate mouse-wheel scrolling.",
+                      "scroll wheel", ""),
+         K::toggle, SettingBinding::smooth_scroll),
+    node(SETTING_TEXT("accessibility.gif_autoplay", "Play GIFs when MaiCord is focused", "",
+                      "gif autoplay animation video", ""),
+         K::toggle, SettingBinding::gif_autoplay, C::none, none, dynamic),
+    node(SETTING_TEXT("accessibility.animate_emoji", "Play animated emoji", "", "emoji animation animated",
+                      ""),
+         K::toggle, SettingBinding::animate_emoji, C::none, none, dynamic),
+    node(SETTING_TEXT("accessibility.animate_stickers", "Play sticker animations", "", "stickers animation",
+                      ""),
+         K::radio, SettingBinding::animate_stickers, C::sticker_animations, none, dynamic),
+};
+
+constexpr PackedNode advanced[]{
+    node(SETTING_TEXT(
+             "advanced.developer_mode", "Developer Mode",
+             "Developer Mode exposes context menu items helpful for people writing apps using the Discord "
+             "API, such as Copy ID.",
+             "copy id snowflake debug bot", ""),
+         K::toggle, SettingBinding::developer_mode),
+    node(SETTING_TEXT("advanced.preferences_retry", "Couldn't save settings",
+                      "Your latest changes are applied but not saved yet.", "", "Try again"),
+         K::notice, SettingBinding::preferences_retry, C::none, none, dynamic | hidden, 2),
+};
+
+constexpr PackedNode updates[]{
+    node(SETTING_TEXT("updates.status", "Check for updates", "",
+                      "update upgrade version new release download restart", "Check now"),
+         K::action, SettingBinding::update_status, C::none, none, dynamic),
+    node(SETTING_TEXT("updates.problem", "Update problem", "", "", ""), K::notice,
+         SettingBinding::update_problem, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("updates.available", "Available update", "",
+                      "download size release date verified signature", ""),
+         K::action, SettingBinding::update_available, C::none, none, dynamic),
+    node(SETTING_TEXT("updates.channel", "Update channel",
+                      "Preview builds get new features first and may be less stable.",
+                      "beta preview stable release channel master nightly", ""),
+         K::radio, SettingBinding::update_channel, C::update_channels, none, dynamic),
+    node(SETTING_TEXT(
+             "updates.interval", "Check for updates every", "MaiCord also checks shortly after it starts.",
+             "frequency interval schedule automatic background hourly daily hour day often how often", ""),
+         K::radio, SettingBinding::update_interval, C::update_intervals, none, dynamic),
+    node(SETTING_TEXT("updates.rollback", "Roll back to previous version", "",
+                      "downgrade revert undo previous version", "Roll back"),
+         K::action, SettingBinding::update_rollback, C::none, none, dynamic),
+    node(SETTING_TEXT("updates.assets", "What updates include",
+                      "Updates replace the app and its account module. Download a fresh copy to get new "
+                      "fonts and licenses.",
+                      "", ""),
+         K::notice, SettingBinding::update_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("updates.changelog", "What's new", "",
+                      "changelog release notes changes commits what's new", ""),
+         K::category, SettingBinding::update_changelog, C::none, none, dynamic),
+};
+
+constexpr PackedNode voice_nodes[]{
+    node(SETTING_TEXT("voice.devices", "Voice", "", "", ""), K::category),
+    node(SETTING_TEXT("voice.input_device", "Microphone", "The microphone used in voice channels.",
+                      "microphone mic input headset", ""),
+         K::choice, SettingBinding::voice_input_device, C::none, none, dynamic),
+    node(SETTING_TEXT("voice.output_device", "Speaker", "Speakers or headphones for voice channels.",
+                      "speakers headphones output audio", ""),
+         K::choice, SettingBinding::voice_output_device, C::none, none, dynamic),
+    node(SETTING_TEXT("voice.input_volume", "Microphone Volume", "", "microphone gain loudness input", ""),
+         K::slider, SettingBinding::voice_input_volume, C::percent_200, 100),
+    node(SETTING_TEXT("voice.output_volume", "Speaker Volume",
+                      "Volume of everyone you hear in voice channels.", "speakers loudness output", ""),
+         K::slider, SettingBinding::voice_output_volume, C::percent_200, 100),
+    node(SETTING_TEXT("voice.input", "Input", "", "", ""), K::category),
+    node(SETTING_TEXT("voice.input_mode", "Push to Talk",
+                      "Activates your mic only when you hold down a designated key.",
+                      "push to talk ptt voice activity vad input mode", ""),
+         K::toggle, SettingBinding::voice_input_mode),
+    node(SETTING_TEXT("voice.auto_sensitivity", "Automatically Adjust Input Sensitivity",
+                      "Follow your background noise to tell when you're speaking.",
+                      "vad threshold automatic", ""),
+         K::toggle, SettingBinding::voice_auto_sensitivity, C::none, none, dynamic),
+    node(SETTING_TEXT("voice.sensitivity", "Input Sensitivity",
+                      "Sound above the marker is sent. The bar shows your microphone level.",
+                      "vad threshold level meter mic test", ""),
+         K::slider, SettingBinding::voice_sensitivity, C::decibels, none, dynamic),
+    node(SETTING_TEXT("voice.push_to_talk_key", "Push to Talk Keybind",
+                      "Hold this key to talk, even while MaiCord is in the background.",
+                      "ptt keybind hotkey key shortcut", "Record keybind"),
+         K::action, SettingBinding::voice_push_to_talk_key, C::none, none, dynamic),
+    node(SETTING_TEXT("voice.push_to_talk_release", "Push to Talk Release Delay",
+                      "Keep sending briefly after you let go.", "ptt delay", ""),
+         K::slider, SettingBinding::voice_push_to_talk_release, C::milliseconds, 2, dynamic),
+    node(SETTING_TEXT("voice.processing_category", "Voice processing", "", "", ""), K::category),
+    node(SETTING_TEXT("voice.processing", "Echo and noise reduction",
+                      "Let Windows cancel echo, suppress background noise and even out your volume.",
+                      "echo cancellation noise suppression automatic gain control agc", ""),
+         K::toggle, SettingBinding::voice_processing),
+    node(SETTING_TEXT("voice.soundboard_category", "Soundboard", "", "", ""), K::category),
+    node(SETTING_TEXT("voice.soundboard_volume", "Soundboard Volume",
+                      "Control how loud sounds are for you personally.",
+                      "soundboard sounds effects loudness", ""),
+         K::slider, SettingBinding::voice_soundboard_volume, C::percent_100, 100),
+    node(SETTING_TEXT("voice.soundboard_muted", "Mute soundboard",
+                      "Don't play sounds other people send. You can still use the soundboard.",
+                      "soundboard sounds silence mute", ""),
+         K::toggle, SettingBinding::voice_soundboard_muted),
+};
+
+constexpr PackedNode account_nodes[]{
+    node(SETTING_TEXT("account.card", "Account", "", "avatar profile", "Edit profile"), K::action,
+         SettingBinding::account_card, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("account.notice", "Account details", "", "", "Try again"), K::notice,
+         SettingBinding::account_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("account.details", "Account Info", "", "", ""), K::category),
+    node(SETTING_TEXT("account.username", "Username", "", "handle name", "Edit"), K::action,
+         SettingBinding::account_username, C::none, none, dynamic),
+    node(SETTING_TEXT("account.email", "Email", "", "mail address", "Reveal"), K::action,
+         SettingBinding::account_email, C::none, none, dynamic),
+    node(SETTING_TEXT("account.phone", "Phone Number", "", "sms mobile", "Reveal"), K::action,
+         SettingBinding::account_phone, C::none, none, dynamic),
+    node(SETTING_TEXT("account.security", "Password & Security", "", "", ""), K::category),
+    node(SETTING_TEXT("account.password", "Password", "Changes open Discord in your browser.",
+                      "change password security", "Change"),
+         K::action, SettingBinding::account_password, C::none, none, dynamic),
+    node(SETTING_TEXT("account.mfa", "Multi-Factor Authentication", "",
+                      "2fa mfa authenticator security two-factor", ""),
+         K::notice, SettingBinding::account_mfa, C::none, none, dynamic),
+};
+constexpr PackedNode profile_nodes[]{
+    node(SETTING_TEXT("profiles.notice", "Profile", "", "", "Try again"), K::notice,
+         SettingBinding::profile_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("profiles.display_name", "Display Name", "", "global name nickname", "Edit"),
+         K::action, SettingBinding::profile_display_name, C::none, none, dynamic),
+    node(SETTING_TEXT("profiles.pronouns", "Pronouns", "", "", "Edit"), K::action,
+         SettingBinding::profile_pronouns, C::none, none, dynamic),
+    node(SETTING_TEXT("profiles.bio", "Bio", "", "about me description", "Edit"), K::action,
+         SettingBinding::profile_bio, C::none, none, dynamic),
+};
+constexpr PackedNode device_nodes[]{
+    node(SETTING_TEXT("devices.notice", "Devices", "", "", "Try again"), K::notice,
+         SettingBinding::devices_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT(
+             "devices.list", "Logged-in Devices",
+             "These are all the devices that are currently logged-in with your Discord account. Log out of "
+             "devices that you don't recognize.",
+             "sessions logged in log out", ""),
+         K::category, SettingBinding::devices_list),
+};
+constexpr PackedNode content_nodes[]{
+    node(SETTING_TEXT("content.notice", "Synced settings", "", "", ""), K::notice,
+         SettingBinding::user_settings_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("content.media", "Content Filters",
+                      "Show, blur or block media that may be sexually explicit.", "", ""),
+         K::category),
+    node(SETTING_TEXT("content.explicit_friends", "Direct messages from friends", "",
+                      "explicit nsfw blur filter sensitive media", ""),
+         K::choice, SettingBinding::explicit_friends, C::explicit_content, none, dynamic),
+    node(SETTING_TEXT("content.explicit_others", "Direct messages from others", "",
+                      "explicit nsfw blur filter sensitive media", ""),
+         K::choice, SettingBinding::explicit_others, C::explicit_content, none, dynamic),
+    node(SETTING_TEXT("content.explicit_guilds", "Messages in server channels", "",
+                      "explicit nsfw blur filter sensitive media", ""),
+         K::choice, SettingBinding::explicit_guilds, C::explicit_guilds, none, dynamic),
+    node(SETTING_TEXT(
+             "content.nsfw_commands", "Allow access to age-restricted commands from apps in DMs",
+             "Allows people 18+ to access commands marked as age-restricted in DMs. Applies to all apps.",
+             "nsfw apps commands", ""),
+         K::toggle, SettingBinding::nsfw_commands, C::none, none, dynamic),
+    node(SETTING_TEXT("content.nsfw_guilds", "Allow access to age-restricted servers on iOS",
+                      "Access age-restricted servers (18+) on iOS devices, after joining them on desktop.",
+                      "nsfw servers ios", ""),
+         K::toggle, SettingBinding::nsfw_guilds, C::none, none, dynamic),
+    node(SETTING_TEXT("content.spam_filters", "Spam Filters", "", "", ""), K::category),
+    node(
+        SETTING_TEXT(
+            "content.spam", "Automatically filter suspected spam messages",
+            "Discord can filter out some messages that contain spam. These messages go to your Spam inbox.",
+            "junk filter dm spam", ""),
+        K::radio, SettingBinding::dm_spam_filter, C::spam, none, dynamic),
+    node(SETTING_TEXT("content.dms", "Direct Message (DM) Permissions", "", "", ""), K::category),
+    node(SETTING_TEXT("content.dm_from_members", "Direct Messages",
+                      "Allow DMs from other server members. Applies to servers you join from now on.",
+                      "direct messages privacy dms", ""),
+         K::toggle, SettingBinding::dm_from_members, C::none, none, dynamic),
+    node(SETTING_TEXT(
+             "content.message_requests", "Message requests",
+             "Filter messages from server members you may not know. Applies to servers you join from now "
+             "on.",
+             "dm requests", ""),
+         K::toggle, SettingBinding::message_requests, C::none, none, dynamic),
+    node(SETTING_TEXT("content.friend_requests", "Friend Request Permissions",
+                      "Allow Friend Requests from...", "", ""),
+         K::category),
+    node(SETTING_TEXT("content.friend_everyone", "Everyone", "", "friend requests anyone", ""), K::toggle,
+         SettingBinding::friend_everyone, C::none, none, dynamic),
+    node(SETTING_TEXT("content.friend_mutual_friends", "Friend of friends", "", "friend requests mutual",
+                      ""),
+         K::toggle, SettingBinding::friend_mutual_friends, C::none, none, dynamic),
+    node(SETTING_TEXT(
+             "content.friend_mutual_guilds", "Server members",
+             "Server members can only send you friend requests from servers where you also allow Direct "
+             "Messages.",
+             "friend requests mutual servers", ""),
+         K::toggle, SettingBinding::friend_mutual_guilds, C::none, none, dynamic),
+    node(
+        SETTING_TEXT(
+            "content.friend_request_notes", "Show personalized messages",
+            "Show personalized messages on incoming friend requests. If you accept, the message will still "
+            "appear in your DMs.",
+            "friend request notes message", ""),
+        K::toggle, SettingBinding::friend_request_notes, C::none, none, dynamic),
+};
+constexpr PackedNode privacy_nodes[]{
+    node(SETTING_TEXT("privacy.notice", "Synced settings", "", "", ""), K::notice,
+         SettingBinding::privacy_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("privacy.data", "How Discord Uses My Data", "", "", ""), K::category),
+    node(SETTING_TEXT(
+             "privacy.sponsored_activity", "Use my Discord activity to personalize Sponsored Content",
+             "Allows Discord to personalize Sponsored Content, like Quests, using your Discord activity, "
+             "such "
+             "as the games you play. If you opt out you may still see Quests, but they won\xE2\x80\x99t be "
+             "personalized.",
+             "quests sponsored personalize data", ""),
+         K::toggle, SettingBinding::sponsored_activity, C::none, none, dynamic),
+    node(SETTING_TEXT("privacy.sponsored_third_party",
+                      "Use third-party data to personalize Sponsored Content",
+                      "Allows Discord to personalize Sponsored Content, like Quests, using data Discord "
+                      "receives from "
+                      "advertisers and third-party data providers. If you opt out, you may still see "
+                      "Quests, but they "
+                      "won\xE2\x80\x99t be personalized.",
+                      "quests sponsored advertisers third party data", ""),
+         K::toggle, SettingBinding::sponsored_third_party, C::none, none, dynamic),
+    node(SETTING_TEXT(
+             "privacy.profile", "Profile Privacy",
+             "Control who can see your profile info \xE2\x80\x94 like your bio and connected accounts.", "",
+             ""),
+         K::category),
+    node(SETTING_TEXT("privacy.profile_visibility", "Share my full profile with",
+                      "Small servers have 200 or fewer members. Everyone else sees a limited version.",
+                      "privacy profile visibility", ""),
+         K::radio, SettingBinding::profile_visibility, C::visibility, none, dynamic),
+    node(SETTING_TEXT("privacy.profile_updates", "Share when I update my profile",
+                      "Allow friends to receive a push notification when you update your profile.",
+                      "notify friends profile updates", ""),
+         K::toggle, SettingBinding::profile_updates, C::none, none, dynamic),
+};
+constexpr PackedNode app_nodes[]{
+    node(SETTING_TEXT("apps.notice", "Authorized Apps", "", "", "Try again"), K::notice,
+         SettingBinding::apps_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("apps.list", "Authorized Apps",
+                      "These include third-party services you've given permission to access your Discord "
+                      "account. You "
+                      "can review what each app can do and revoke access anytime.",
+                      "oauth applications tokens connected", ""),
+         K::category, SettingBinding::apps_list),
+};
+constexpr PackedNode language_nodes[]{
+    node(SETTING_TEXT("language.notice", "Synced settings", "", "", ""), K::notice,
+         SettingBinding::language_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("language.time", "Time", "", "", ""), K::category),
+    node(SETTING_TEXT("language.time_format", "Time format", "Auto follows your Windows region settings.",
+                      "clock 12 24 hour am pm", ""),
+         K::radio, SettingBinding::time_format, C::time_formats, 0, dynamic),
+};
+
+constexpr PackedNode registered_game_nodes[]{
+    node(
+        SETTING_TEXT("games.detection", "Detect games",
+                     "Check running programs every 20 seconds. Program names stay on this device; only the "
+                     "game you're playing is shared.",
+                     "game detection running programs processes registered games", ""),
+        K::toggle, SettingBinding::game_detection),
+    node(SETTING_TEXT("games.added", "Added Games", "Games MaiCord recognizes while they run.",
+                      "registered games added detected", ""),
+         K::category, SettingBinding::registered_games),
+    node(SETTING_TEXT("games.add", "Add a game",
+                      "Pick a running program to show as the game you're playing.",
+                      "add game not detected program", ""),
+         K::choice, SettingBinding::add_game, C::none, none, dynamic),
+};
+
+constexpr PackedNode keybind_nodes[]{
+    node(SETTING_TEXT(
+             "keybinds.custom", "Custom Keybinds",
+             "Keybinds are custom keyboard shortcuts that let you perform specific actions in MaiCord "
+             "without needing to click through menus. Voice keybinds also work in the background during a "
+             "call.",
+             "hotkeys global keyboard", ""),
+         K::category, SettingBinding::keybinds_custom),
+    node(SETTING_TEXT("keybinds.add", "Add a keybind", "Choose a voice action, then press the keys to use.",
+                      "new hotkey shortcut push to talk ptt mute deafen", "Add keybind"),
+         K::action, SettingBinding::keybinds_add, C::none, none, dynamic,
+         static_cast<u8>(UiSettingsVariant::primary)),
+    node(SETTING_TEXT("keybinds.defaults", "Default Keybinds",
+                      "Built-in shortcuts can't be changed. Press Ctrl+/ anywhere to see them.",
+                      "keyboard shortcuts hotkeys combos", ""),
+         K::notice, SettingBinding::keybinds_defaults, C::none, none, dynamic),
+};
+
+constexpr PackedNode system_nodes[]{
+    node(SETTING_TEXT("system.startup", "General", "", "", ""), K::category),
+    node(SETTING_TEXT("system.open_on_startup", "Automatically open MaiCord when your computer starts up",
+                      "", "boot login autostart run startup", ""),
+         K::toggle, SettingBinding::open_on_startup, C::none, none, dynamic),
+    node(SETTING_TEXT("system.start_minimized", "Start MaiCord minimized",
+                      "Start MaiCord in the background, out of your way.", "boot background hidden tray",
+                      ""),
+         K::toggle, SettingBinding::start_minimized, C::none, none, dynamic),
+    node(SETTING_TEXT("system.minimize_to_tray", "Minimize MaiCord to System Tray",
+                      "Clicking X minimizes MaiCord instead of closing it completely.",
+                      "system tray notification area close exit background", ""),
+         K::toggle, SettingBinding::minimize_to_tray),
+    node(SETTING_TEXT("system.links", "Links", "", "", ""), K::category),
+    node(SETTING_TEXT("system.protocol_handler", "Open discord:// links in MaiCord",
+                      "Invite and message links from your browser and other apps open here.",
+                      "protocol url handler invite browser default", ""),
+         K::toggle, SettingBinding::protocol_handler, C::none, none, dynamic),
+};
+
+constexpr PackedNode activity_nodes[]{
+    node(SETTING_TEXT("activity.notice", "Synced settings", "", "", ""), K::notice,
+         SettingBinding::activity_notice, C::none, none, dynamic | hidden),
+    node(SETTING_TEXT("activity.status", "What Activity I Share", "", "", ""), K::category),
+    node(SETTING_TEXT(
+             "activity.share", "Share my activity",
+             "Share activity information from games and connected apps I use, including when and how I "
+             "engage.",
+             "activity status playing game rich presence privacy", ""),
+         K::toggle, SettingBinding::share_activity, C::none, none, dynamic),
+    node(SETTING_TEXT("activity.share_online", "Share when I come online",
+                      "Allow friends to receive a push notification when you come online.",
+                      "online notify friends", ""),
+         K::toggle, SettingBinding::share_online, C::none, none, dynamic),
+    node(SETTING_TEXT(
+             "activity.share_streaming", "Share when I start streaming",
+             "Allow members that you interact with the most to get a notification when you start streaming "
+             "in small servers.",
+             "go live stream notify", ""),
+         K::toggle, SettingBinding::share_streaming, C::none, none, dynamic),
+    node(SETTING_TEXT("activity.servers_category", "Where I Share Activity", "", "", ""), K::category),
+    node(SETTING_TEXT("activity.servers", "Automatically share my activity when joining a server",
+                      "Your activity is always shared with your friends.",
+                      "activity servers status privacy", ""),
+         K::radio, SettingBinding::activity_servers, C::activity_servers, none, dynamic),
+    node(SETTING_TEXT("activity.joining", "Who Can Join My Games",
+                      "Some games allow users to join the game you're playing when viewing your activity.",
+                      "", ""),
+         K::category),
+    node(SETTING_TEXT("activity.join_friends", "Allow friends to join my game",
+                      "Allow friends to join my game without sending a request.",
+                      "join game party invite friends", ""),
+         K::toggle, SettingBinding::join_friends, C::none, none, dynamic),
+    node(SETTING_TEXT("activity.join_voice", "Allow voice channel participants to join my game",
+                      "Allow anyone in a shared voice channel to join my game without sending a request. "
+                      "This feature "
+                      "only works in non-Community enabled servers.",
+                      "join game party voice channel", ""),
+         K::toggle, SettingBinding::join_voice, C::none, none, dynamic),
+};
+
+#undef SETTING_TEXT
+
+// Packed nodes per panel, in SettingsPanel order, and their expanded storage.
+template <u32 Count> constexpr ConstSlice<PackedNode> packed(const PackedNode (&nodes)[Count]) noexcept {
+    return {nodes, Count};
+}
+constexpr ConstSlice<PackedNode> packed_panels[]{
+    packed(notifications), packed(appearance),     packed(accessibility),         {},
+    packed(advanced),      packed(updates),        packed(voice_nodes),           packed(account_nodes),
+    packed(profile_nodes), packed(device_nodes),   packed(content_nodes),         packed(privacy_nodes),
+    packed(app_nodes),     packed(language_nodes), packed(registered_game_nodes), packed(keybind_nodes),
+    packed(system_nodes),  packed(activity_nodes),
+};
+static_assert(sizeof(packed_panels) / sizeof(packed_panels[0]) == kSettingsPanelCount);
+constexpr u32 node_offset(u32 panel) noexcept {
+    u32 offset = 0;
+    for (u32 i = 0; i < panel; ++i)
+        offset += packed_panels[i].count;
+    return offset;
+}
+UiSettingsSchemaNode expanded_nodes[node_offset(kSettingsPanelCount)];
+bool expanded_ready;
+constexpr ConstSlice<UiSettingsSchemaNode> expanded(SettingsPanel panel) noexcept {
+    const u32 index = static_cast<u32>(panel);
+    return {expanded_nodes + node_offset(index), packed_panels[index].count};
+}
+void expand_node(const PackedNode& source, UiSettingsSchemaNode* output) noexcept {
+    Utf8View text[5];
+    const char* cursor = source.text;
+    for (auto& field : text) {
+        u32 bytes = 0;
+        while (cursor[bytes])
+            ++bytes;
+        field = bytes ? Utf8View{cursor, bytes} : Utf8View{};
+        cursor += bytes + 1;
+    }
+    *output = {text[0],
+               text[1],
+               text[2],
+               text[3],
+               source.kind,
+               source.variant,
+               source.flags,
+               choice_sets[static_cast<u32>(source.choices)],
+               source.default_choice == kPackedNoChoice ? none : source.default_choice,
+               source.binding,
+               text[4]};
+}
+// Slider labels and expanded nodes are built on first use of the catalog.
+void catalog_initialize() noexcept {
+    if (expanded_ready)
+        return;
+    number_labels_initialize();
+    UiSettingsSchemaNode* output = expanded_nodes;
+    for (const auto& panel : packed_panels)
+        for (u32 i = 0; i < panel.count; ++i)
+            expand_node(panel[i], output++);
+    expanded_ready = true;
+}
 
 constexpr UiSettingsSchemaSection sections[]{{utf8_literal("GENERAL")},
                                              {utf8_literal("EXPERIENCE")},
@@ -529,47 +718,51 @@ constexpr UiSettingsSchemaSection sections[]{{utf8_literal("GENERAL")},
                                              {utf8_literal("MAICORD")},
                                              {{}}};
 constexpr UiSettingsSchemaPanel panels[]{
-    {utf8_literal("notifications"), utf8_literal("Notifications"), utf8_literal("alerts sounds"), UiIcon::bell, 0,
-     {notifications, sizeof(notifications) / sizeof(notifications[0])}},
+    {utf8_literal("notifications"), utf8_literal("Notifications"), utf8_literal("alerts sounds"),
+     UiIcon::bell, 0, expanded(SettingsPanel::notifications)},
     {utf8_literal("appearance"), utf8_literal("Appearance"),
-     utf8_literal("theme colors look messages chat images embeds reactions spoilers emoji"), UiIcon::palette, 1,
-     {appearance, sizeof(appearance) / sizeof(appearance[0])}},
-    {utf8_literal("accessibility"), utf8_literal("Accessibility"), utf8_literal("motion a11y density animation"),
-     UiIcon::accessibility, 1, {accessibility, sizeof(accessibility) / sizeof(accessibility[0])}},
+     utf8_literal("theme colors look messages chat images embeds reactions spoilers emoji"),
+     UiIcon::palette, 1, expanded(SettingsPanel::appearance)},
+    {utf8_literal("accessibility"), utf8_literal("Accessibility"),
+     utf8_literal("motion a11y density animation"), UiIcon::accessibility, 1,
+     expanded(SettingsPanel::accessibility)},
     {utf8_literal("plugins"), utf8_literal("Plugins"), utf8_literal("extensions add-ons modules install"),
      UiIcon::puzzle, 3, {}},
-    {utf8_literal("advanced"), utf8_literal("Developer"), utf8_literal("developer advanced"), UiIcon::code, 4,
-     {advanced, sizeof(advanced) / sizeof(advanced[0])}},
-    {utf8_literal("updates"), utf8_literal("Updates"), utf8_literal("update version upgrade release"), UiIcon::download, 3,
-     {updates, sizeof(updates) / sizeof(updates[0])}},
-    {utf8_literal("voice"), utf8_literal("Voice & Video"), utf8_literal("microphone speakers headphones audio calls video"),
-     UiIcon::headphones, 1, {voice_nodes, sizeof(voice_nodes) / sizeof(voice_nodes[0])}},
-    {utf8_literal("account"), utf8_literal("Account"), utf8_literal("email phone username password my account"),
-     UiIcon::user_circle, 0, {account_nodes, sizeof(account_nodes) / sizeof(account_nodes[0])}},
+    {utf8_literal("advanced"), utf8_literal("Developer"), utf8_literal("developer advanced"), UiIcon::code,
+     4, expanded(SettingsPanel::advanced)},
+    {utf8_literal("updates"), utf8_literal("Updates"), utf8_literal("update version upgrade release"),
+     UiIcon::download, 3, expanded(SettingsPanel::updates)},
+    {utf8_literal("voice"), utf8_literal("Voice & Video"),
+     utf8_literal("microphone speakers headphones audio calls video"), UiIcon::headphones, 1,
+     expanded(SettingsPanel::voice)},
+    {utf8_literal("account"), utf8_literal("Account"),
+     utf8_literal("email phone username password my account"), UiIcon::user_circle, 0,
+     expanded(SettingsPanel::account)},
     {utf8_literal("profiles"), utf8_literal("Profiles"), utf8_literal("profile pronouns about me bio"),
-     UiIcon::user_edit, 0, {profile_nodes, sizeof(profile_nodes) / sizeof(profile_nodes[0])}},
-    {utf8_literal("devices"), utf8_literal("Logged-in Devices"), utf8_literal("sessions logged in log out devices"),
-     UiIcon::smartphone, 0, {device_nodes, sizeof(device_nodes) / sizeof(device_nodes[0])}},
+     UiIcon::user_edit, 0, expanded(SettingsPanel::profiles)},
+    {utf8_literal("devices"), utf8_literal("Logged-in Devices"),
+     utf8_literal("sessions logged in log out devices"), UiIcon::smartphone, 0,
+     expanded(SettingsPanel::devices)},
     {utf8_literal("content_social"), utf8_literal("Messaging Permissions"),
-     utf8_literal("privacy safety content social direct messages friend requests spam"), UiIcon::message_text, 0,
-     {content_nodes, sizeof(content_nodes) / sizeof(content_nodes[0])}},
+     utf8_literal("privacy safety content social direct messages friend requests spam"),
+     UiIcon::message_text, 0, expanded(SettingsPanel::content_social)},
     {utf8_literal("data_privacy"), utf8_literal("Data & Privacy"), utf8_literal("privacy profile data"),
-     UiIcon::shield_check, 0, {privacy_nodes, sizeof(privacy_nodes) / sizeof(privacy_nodes[0])}},
+     UiIcon::shield_check, 0, expanded(SettingsPanel::data_privacy)},
     {utf8_literal("authorized_apps"), utf8_literal("Connected Apps"),
      utf8_literal("authorized apps connections oauth"), UiIcon::key, 2,
-     {app_nodes, sizeof(app_nodes) / sizeof(app_nodes[0])}},
+     expanded(SettingsPanel::authorized_apps)},
     {utf8_literal("language_time"), utf8_literal("Language & Time"), utf8_literal("time format clock"),
-     UiIcon::languages, 1, {language_nodes, sizeof(language_nodes) / sizeof(language_nodes[0])}},
+     UiIcon::languages, 1, expanded(SettingsPanel::language_time)},
     {utf8_literal("registered_games"), utf8_literal("Registered Games"),
      utf8_literal("games detection playing added"), UiIcon::play, 2,
-     {registered_game_nodes, sizeof(registered_game_nodes) / sizeof(registered_game_nodes[0])}},
+     expanded(SettingsPanel::registered_games)},
     {utf8_literal("keybinds"), utf8_literal("Keybinds"), utf8_literal("keyboard shortcuts hotkeys keys"),
-     UiIcon::keyboard, 1, {keybind_nodes, sizeof(keybind_nodes) / sizeof(keybind_nodes[0])}},
+     UiIcon::keyboard, 1, expanded(SettingsPanel::keybinds)},
     {utf8_literal("system"), utf8_literal("System"), utf8_literal("windows startup tray links protocol"),
-     UiIcon::monitor, 1, {system_nodes, sizeof(system_nodes) / sizeof(system_nodes[0])}},
+     UiIcon::monitor, 1, expanded(SettingsPanel::system)},
     {utf8_literal("activity_privacy"), utf8_literal("Activity Privacy"),
      utf8_literal("activity status games playing sharing joining"), UiIcon::activity, 2,
-     {activity_nodes, sizeof(activity_nodes) / sizeof(activity_nodes[0])}},
+     expanded(SettingsPanel::activity_privacy)},
 };
 static_assert(sizeof(panels) / sizeof(panels[0]) == kSettingsPanelCount);
 constexpr UiSettingsSchema catalog{{sections, 5}, {panels, kSettingsPanelCount}};
@@ -755,11 +948,11 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
 }
 
 const UiSettingsSchema& settings_catalog() noexcept {
-    number_labels_initialize();
+    catalog_initialize();
     return catalog;
 }
 const UiSettingsSchemaPanel& settings_catalog_panel(SettingsPanel panel) noexcept {
-    number_labels_initialize();
+    catalog_initialize();
     return panels[static_cast<u32>(panel) < kSettingsPanelCount ? static_cast<u32>(panel) : 0];
 }
 
@@ -794,14 +987,14 @@ bool settings_control_location(u64 id, UiSettingsSchemaLocation* location) noexc
     return true;
 }
 const UiSettingsSchemaNode* settings_catalog_node(UiSettingsSchemaLocation location) noexcept {
-    number_labels_initialize();
+    catalog_initialize();
     return location.panel < kSettingsPanelCount && location.node < panels[location.panel].nodes.count
                ? &panels[location.panel].nodes[location.node]
                : nullptr;
 }
 const UiSettingsSchemaNode* settings_catalog_binding(SettingBinding binding,
                                                      UiSettingsSchemaLocation* location) noexcept {
-    number_labels_initialize();
+    catalog_initialize();
     for (u32 p = 0; p < kSettingsPanelCount; ++p)
         for (u32 n = 0; n < panels[p].nodes.count; ++n)
             if (panels[p].nodes[n].binding == bind(binding)) {
