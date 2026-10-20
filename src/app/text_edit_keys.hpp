@@ -5,8 +5,9 @@
 namespace maicord::app_detail {
 // Select all, undo/redo, deletion and caret movement keys of a text field.
 // False, with *result untouched, for any other key; clipboard keys stay with the caller.
-inline bool message_composer_edit_key(MessageComposer* model, u32 key, bool control, bool shift,
-                                      MessageComposerResult* result) noexcept {
+__declspec(noinline) inline bool message_composer_edit_key(MessageComposer* model, u32 key, bool control,
+                                                           bool shift,
+                                                           MessageComposerResult* result) noexcept {
     if (control && key == 'A')
         *result = message_composer_select_all(model);
     else if (control && key == 'Z')
