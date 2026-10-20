@@ -10,7 +10,7 @@ bool ltr_elision_cases() noexcept {
             if(unicode_bidi_classify({scalars,length},{cells,length})!=UnicodeBidiStatus::ok)return false;
             for(u32 first=0;first<length;){u32 end=0,visible=0;UnicodeBidiParagraph paragraph{};
                 if(unicode_bidi_paragraph_end({cells,length},first,&end)!=UnicodeBidiStatus::ok||end<=first)return false;
-                const auto status=profile?bidi_windows_resolve_candidate({cells+first,end-first},UnicodeParagraphDirection::ltr,{scratch,end-first},&paragraph):
+                const auto status=profile?bidi_resolve_tailored({cells+first,end-first},UnicodeParagraphDirection::ltr,{scratch,end-first},&paragraph):
                     unicode_bidi_resolve({cells+first,end-first},UnicodeParagraphDirection::ltr,{scratch,end-first},&paragraph);
                 if(status!=UnicodeBidiStatus::ok||paragraph.level||unicode_bidi_line({cells+first,end-first},0,0,end-first,{levels,end-first},{visual,end-first},&visible)!=UnicodeBidiStatus::ok||visible!=end-first)return false;
                 for(u32 i=0;i<visible;++i){if(levels[i]||visual[i]!=i)return false;++checks;}first=end;

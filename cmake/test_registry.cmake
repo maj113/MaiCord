@@ -1212,8 +1212,8 @@ maicord_test(MaiCordLineBreakTests ENTRY maicord_line_break_tests_entry
     SOURCES tests/line_break_test.cpp
     LIBS maicord_core maicord_unicode kernel32
     TEST maicord_native_line_breaks)
-maicord_test(MaiCordLineWindowsTests ENTRY maicord_line_windows_entry
-    SOURCES tests/line_windows_test.cpp
+maicord_test(MaiCordLineTailoredTests ENTRY maicord_line_tailored_entry
+    SOURCES tests/line_tailored_test.cpp
     LIBS maicord_core maicord_unicode kernel32
     TEST maicord_native_line_compat)
 maicord_font_test(MaiCordLayoutTableTests maicord_layout_tables_entry layout_tables_test

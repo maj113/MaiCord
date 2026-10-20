@@ -10,7 +10,7 @@ inline constexpr u8 unicode_line_prohibited=0,unicode_line_allowed=1,unicode_lin
 // (the rest is untouched), disjoint from the input. Invalid scalars, null input
 // or insufficient output fail before any write. The output temporarily stores
 // property tags; O(n) work, no other storage. SA uses the default LB1 mapping;
-// dictionary segmentation and Windows tailorings are not applied. The result is
+// dictionary segmentation and the layout tailoring are not applied. The result is
 // not a set of shaping-safe breaks or caret positions.
 bool unicode_line_breaks(ConstSlice<u32> scalars,Slice<u8> boundaries) noexcept;
 }

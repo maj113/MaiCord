@@ -238,9 +238,9 @@ maicord_library(maicord_account_media
     DEPENDS maicord_regional_flag_data)
 
 maicord_library(maicord_unicode
-    src/text/arabic_joining.cpp src/text/line_break.cpp src/text/line_break_windows.cpp
+    src/text/arabic_joining.cpp src/text/line_break.cpp src/text/line_break_tailored.cpp
     src/text/thai_word_break.cpp src/text/thai_lexical.cpp src/text/thai_syllable.cpp
-    src/text/bidi_windows_brackets.cpp src/text/unicode.cpp src/text/grapheme.cpp src/text/bidi.cpp
+    src/text/bidi_tailored.cpp src/text/unicode.cpp src/text/grapheme.cpp src/text/bidi.cpp
     LIBS maicord_core)
 
 maicord_library(maicord_font

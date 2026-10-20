@@ -55,24 +55,24 @@ bool candidate_cases() noexcept {
     UnicodeBidiParagraph paragraph{};u32 count=0;
     for(const auto& test:cases) {
         if(unicode_bidi_classify({test.text,test.count},{cells,test.count})!=UnicodeBidiStatus::ok ||
-           bidi_resolve_with_brackets({cells,test.count},static_cast<UnicodeParagraphDirection>(test.base),{scratch,test.count},&paragraph,bidi_windows_brackets_candidate)!=UnicodeBidiStatus::ok ||
+           bidi_resolve_with_brackets({cells,test.count},static_cast<UnicodeParagraphDirection>(test.base),{scratch,test.count},&paragraph,bidi_tailored_brackets)!=UnicodeBidiStatus::ok ||
            unicode_bidi_line({cells,test.count},test.base,0,test.count,{levels,test.count},{visual,test.count},&count)!=UnicodeBidiStatus::ok || count!=test.count)return false;
         for(u32 i=0;i<count;++i)if(levels[i]!=test.expected[i])return false;
     }
     return bidi_resolve_with_brackets({},UnicodeParagraphDirection::ltr,{},&paragraph,nullptr)==UnicodeBidiStatus::invalid_input && !paragraph.count;
 }
-bool windows_weak_cases() noexcept {
+bool tailored_cases() noexcept {
     struct Case {u32 count;u32 text[32];u8 windows[32],standard[32];u8 base;};
     const Case cases[]{
-#include "bidi_windows_weak_cases.inc"
-#include "bidi_windows_bracket_cases.inc"
-#include "bidi_windows_control_cases.inc"
+#include "bidi_tailored_weak_cases.inc"
+#include "bidi_tailored_bracket_cases.inc"
+#include "bidi_tailored_control_cases.inc"
     };
     for(const auto& test:cases)for(u32 profile=0;profile<2;++profile) {
         UnicodeBidiParagraph paragraph{};u32 count=0;
         if(unicode_bidi_classify({test.text,test.count},{cells,test.count})!=UnicodeBidiStatus::ok)return false;
         const auto policy=static_cast<UnicodeParagraphDirection>(test.base);
-        const auto status=profile?bidi_windows_resolve_candidate({cells,test.count},policy,{scratch,test.count},&paragraph):
+        const auto status=profile?bidi_resolve_tailored({cells,test.count},policy,{scratch,test.count},&paragraph):
             unicode_bidi_resolve({cells,test.count},policy,{scratch,test.count},&paragraph);
         if(status!=UnicodeBidiStatus::ok || paragraph.level!=test.base ||
            unicode_bidi_line({cells,test.count},paragraph.level,0,test.count,{levels,test.count},{visual,test.count},&count)!=UnicodeBidiStatus::ok)return false;
@@ -90,8 +90,8 @@ bool windows_weak_cases() noexcept {
         }
     }
     UnicodeBidiParagraph paragraph{7,1};
-    if(bidi_windows_resolve_candidate({cells,2},UnicodeParagraphDirection::ltr,{scratch,1},&paragraph)!=UnicodeBidiStatus::output_too_small || paragraph.count)return false;
-    return bidi_windows_resolve_candidate({},UnicodeParagraphDirection::auto_rtl,{},&paragraph)==UnicodeBidiStatus::ok && !paragraph.count && paragraph.level==1;
+    if(bidi_resolve_tailored({cells,2},UnicodeParagraphDirection::ltr,{scratch,1},&paragraph)!=UnicodeBidiStatus::output_too_small || paragraph.count)return false;
+    return bidi_resolve_tailored({},UnicodeParagraphDirection::auto_rtl,{},&paragraph)==UnicodeBidiStatus::ok && !paragraph.count && paragraph.level==1;
 }
 bool random_cases() noexcept {
     u32 random=0xb1d11701;
@@ -133,7 +133,7 @@ bool long_cases() noexcept {
         // Long disjoint empty pairs exercise the candidate's successor map.
         // The final L supplies following context to every pair in one run.
         for(u32 i=0;i<count;++i){items[i].scalar=i+1==count?'a':i&1?')':'(';items[i].original=i+1==count?B::l:B::on;}
-        ok=bidi_resolve_with_brackets({items,count},UnicodeParagraphDirection::ltr,{order,count},&paragraph,bidi_windows_brackets_candidate)==UnicodeBidiStatus::ok;
+        ok=bidi_resolve_with_brackets({items,count},UnicodeParagraphDirection::ltr,{order,count},&paragraph,bidi_tailored_brackets)==UnicodeBidiStatus::ok;
         if(ok)for(u32 i=0;i<count;++i)if(items[i].level!=0){ok=false;break;}
     }
     if(ok) {
@@ -143,7 +143,7 @@ bool long_cases() noexcept {
             const u32 scalar=i==0?0x661:i==1?',':i+1==count?'1':'$';
             items[i].scalar=scalar;items[i].original=unicode_properties(scalar)->bidi_class();
         }
-        ok=bidi_windows_resolve_candidate({items,count},UnicodeParagraphDirection::rtl,{order,count},&paragraph)==UnicodeBidiStatus::ok;
+        ok=bidi_resolve_tailored({items,count},UnicodeParagraphDirection::rtl,{order,count},&paragraph)==UnicodeBidiStatus::ok;
         if(ok)for(u32 i=0;i<count;++i)if(items[i].level!=(i==1 || i==2?1:2)){ok=false;break;}
     }
     if(ok) {
@@ -152,17 +152,17 @@ bool long_cases() noexcept {
             const u32 scalar=i==0?'a':i==1?'(':i==count-5 || i==count-4?'$':i==count-3?'1':i==count-2?0x5d0:i==count-1?')':' ';
             items[i].scalar=scalar;items[i].original=unicode_properties(scalar)->bidi_class();
         }
-        ok=bidi_windows_resolve_candidate({items,count},UnicodeParagraphDirection::rtl,{order,count},&paragraph)==UnicodeBidiStatus::ok;
+        ok=bidi_resolve_tailored({items,count},UnicodeParagraphDirection::rtl,{order,count},&paragraph)==UnicodeBidiStatus::ok;
         if(ok)for(u32 i=0;i<count;++i)if(items[i].level!=(i==0 || i==count-4 || i==count-3?2:1)){ok=false;break;}
     }
     if(ok) {
         // Isolate controls retain source identity but do not create levels or
-        // isolate stacks in the observed Windows compatibility policy.
+        // isolate stacks in the tailored policy.
         for(u32 i=0;i<count;++i) {
             const u32 scalar=i<depth?0x2068:i==depth?0x5d0:0x2069;
             items[i].scalar=scalar;items[i].original=unicode_properties(scalar)->bidi_class();
         }
-        ok=bidi_windows_resolve_candidate({items,count},UnicodeParagraphDirection::ltr,{order,count},&paragraph)==UnicodeBidiStatus::ok && paragraph.count==count;
+        ok=bidi_resolve_tailored({items,count},UnicodeParagraphDirection::ltr,{order,count},&paragraph)==UnicodeBidiStatus::ok && paragraph.count==count;
         if(ok)for(u32 i=0;i<count;++i)if(items[i].level!=(i==depth?1:255) || items[i].scalar!=(i<depth?0x2068u:i==depth?0x5d0u:0x2069u) ||
             items[i].original!=(i<depth?B::fsi:i==depth?B::r:B::pdi)){ok=false;break;}
         if(ok)ok=unicode_bidi_resolve({items,count},UnicodeParagraphDirection::ltr,{order,count},&paragraph)==UnicodeBidiStatus::ok && items[depth].level==125;
@@ -214,8 +214,8 @@ bool corpus(const wchar_t* path) noexcept {
 int run() noexcept {
     if(!ltr_elision_cases()){print(utf8_literal("FAIL LTR elision\n"));return 8;}
     if(!unit_cases()){print(utf8_literal("FAIL bidi unit tests\n"));return 1;}
-    if(!candidate_cases()){print(utf8_literal("FAIL experimental bracket cases\n"));return 6;}
-    if(!windows_weak_cases()){print(utf8_literal("FAIL experimental Windows weak cases\n"));return 7;}
+    if(!candidate_cases()){print(utf8_literal("FAIL tailored bracket cases\n"));return 6;}
+    if(!tailored_cases()){print(utf8_literal("FAIL tailored weak cases\n"));return 7;}
     if(!long_cases()){print(utf8_literal("FAIL bidi long cases\n"));return 2;}
     if(!random_cases()){print(utf8_literal("FAIL bidi invariants\n"));return 5;}
     const wchar_t* command=GetCommandLineW();bool quote=false;

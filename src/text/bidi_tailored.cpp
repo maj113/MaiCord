@@ -49,14 +49,12 @@ void terminator_context(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order) noex
     }
 }
 }
-UnicodeBidiStatus bidi_windows_resolve_candidate(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection direction,
+UnicodeBidiStatus bidi_resolve_tailored(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection direction,
     Slice<u32> scratch,UnicodeBidiParagraph* paragraph) noexcept {
-    return bidi_resolve_with_brackets(cells,direction,scratch,paragraph,bidi_windows_brackets_candidate,true);
+    return bidi_resolve_with_brackets(cells,direction,scratch,paragraph,bidi_tailored_brackets,true);
 }
-void bidi_windows_brackets_candidate(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,
+void bidi_tailored_brackets(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,
                                     B sos,B eos,B embedding_direction) noexcept {
-    // Windows-compatible, not UAX #9 N0: at most 61 tracked openings, matched by
-    // scalar. Not a substitute for the public standards resolver.
     struct Open {u32 paired,position;};Open stack[61];u32 depth=0;
     for(u32 i=0;i<order.count;++i) {
         auto& cell=cells[order[i]];if(cell.resolved!=B::on)continue;

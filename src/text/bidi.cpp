@@ -11,12 +11,12 @@ bool neutral(B type) noexcept {return type==B::b || type==B::s || type==B::ws ||
 B direction(u32 level) noexcept {return level&1?B::r:B::l;}
 B strong(B type) noexcept {return type==B::en || type==B::an?B::r:type;}
 bool space(B type) noexcept {return type==B::ws || isolate(type) || type==B::pdi;}
-B analysis_type(B type,bool windows) noexcept {return windows && (isolate(type) || type==B::pdi)?B::bn:type;}
+B analysis_type(B type,bool tailored) noexcept {return tailored && (isolate(type) || type==B::pdi)?B::bn:type;}
 
-void match_isolates(Slice<UnicodeBidiCell> cells,bool windows) noexcept {
+void match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
     u32 top=none;
     for(u32 i=0;i<cells.count;++i) {
-        auto& cell=cells[i];const B type=analysis_type(cell.original,windows);
+        auto& cell=cells[i];const B type=analysis_type(cell.original,tailored);
         cell.link=none;cell.next=none;cell.resolved=type;cell.explicit_level=0;cell.level=unicode_bidi_removed;
         if(isolate(type)){cell.link=top;top=i;}
         else if(type==B::pdi && top!=none) {
@@ -25,21 +25,21 @@ void match_isolates(Slice<UnicodeBidiCell> cells,bool windows) noexcept {
     }
     while(top!=none){const u32 previous=cells[top].link;cells[top].link=none;top=previous;}
 }
-u8 first_direction(ConstSlice<UnicodeBidiCell> cells,u32 first,u32 end,u8 fallback,bool windows) noexcept {
+u8 first_direction(ConstSlice<UnicodeBidiCell> cells,u32 first,u32 end,u8 fallback,bool tailored) noexcept {
     for(u32 i=first;i<end;++i) {
-        const auto& cell=cells[i];const B type=analysis_type(cell.original,windows);
+        const auto& cell=cells[i];const B type=analysis_type(cell.original,tailored);
         if(type==B::l)return 0;
         if(type==B::r || type==B::al)return 1;
         if(isolate(type)) {if(cell.link==none)return fallback;i=cell.link;}
     }
     return fallback;
 }
-void explicit_levels(Slice<UnicodeBidiCell> cells,u8 base,bool windows) noexcept {
+void explicit_levels(Slice<UnicodeBidiCell> cells,u8 base,bool tailored) noexcept {
     struct Status {u8 level;B override_type;bool isolate;};
     Status stack[126];u32 depth=1,overflow_isolates=0,overflow_embeddings=0,valid_isolates=0;
     stack[0]={base,B::on,false};
     for(u32 i=0;i<cells.count;++i) {
-        auto& cell=cells[i];const B type=analysis_type(cell.original,windows);auto current=stack[depth-1];
+        auto& cell=cells[i];const B type=analysis_type(cell.original,tailored);auto current=stack[depth-1];
         cell.explicit_level=current.level;
         if(embedding(type)) {
             const bool rtl=type==B::rle || type==B::rlo;
@@ -49,7 +49,7 @@ void explicit_levels(Slice<UnicodeBidiCell> cells,u8 base,bool windows) noexcept
             } else if(!overflow_isolates)++overflow_embeddings;
         } else if(isolate(type)) {
             if(current.override_type!=B::on)cell.resolved=current.override_type;
-            const bool rtl=type==B::rli || (type==B::fsi && first_direction({cells.data,cells.count},i+1,cell.link==none?cells.count:cell.link,0,windows));
+            const bool rtl=type==B::rli || (type==B::fsi && first_direction({cells.data,cells.count},i+1,cell.link==none?cells.count:cell.link,0,tailored));
             const u32 next=rtl?((current.level+1u)|1u):((current.level+2u)&~1u);
             if(next<=125 && !overflow_isolates && !overflow_embeddings) {
                 ++valid_isolates;stack[depth++]={static_cast<u8>(next),B::on,true};
@@ -73,8 +73,8 @@ void explicit_levels(Slice<UnicodeBidiCell> cells,u8 base,bool windows) noexcept
         if(!removed(type))cell.level=cell.explicit_level;
     }
 }
-void windows_weak_tail(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos) noexcept {
-    // Windows numeric context survives intervening weak/neutral characters until
+void tailored_weak_tail(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos) noexcept {
+    // Numeric context survives intervening weak/neutral characters until
     // another number or strong character replaces it. ET runs and W7 are resolved
     // together so no extra per-cell flags, buffer or backward repair scan is needed.
     B strong=sos,previous=sos;bool number_an=false,pending_cs=false;
@@ -84,7 +84,7 @@ void windows_weak_tail(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos)
             const bool convert=previous==B::en||(i<order.count&&cells[order[i]].resolved==B::en);
             const B value=convert?(strong==B::l?B::l:B::en):B::on;
             for(u32 j=first;j<i;++j)cells[order[j]].resolved=value;
-            // Windows leaves the first terminator neutral for these numeric
+            // The first terminator stays neutral for these numeric
             // contexts only when the converted run has multiple elements.
             if(convert&&special&&i-first>1)cells[order[first]].resolved=B::on;
             previous=B::et;pending_cs=false;continue;
@@ -96,7 +96,7 @@ void windows_weak_tail(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos)
         previous=type;++i;
     }
 }
-void weak_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,bool windows) noexcept {
+void weak_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,bool tailored) noexcept {
     B previous=sos;
     for(u32 at=0;at<order.count;++at) {
         const u32 index=order[at];
@@ -111,13 +111,13 @@ void weak_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,bool wi
         if(type==B::en && previous==B::al)type=B::an;
         if(type==B::l || type==B::r || type==B::al)previous=type;
     }
-    if(!windows)for(u32 at=0;at<order.count;++at)if(cells[order[at]].resolved==B::al)cells[order[at]].resolved=B::r;
+    if(!tailored)for(u32 at=0;at<order.count;++at)if(cells[order[at]].resolved==B::al)cells[order[at]].resolved=B::r;
     for(u32 i=1;i+1<order.count;++i) {
         auto& type=cells[order[i]].resolved;const B left=cells[order[i-1]].resolved,right=cells[order[i+1]].resolved;
         if(type==B::es && left==B::en && right==B::en)type=B::en;
         else if(type==B::cs && left==right && (left==B::en || left==B::an))type=left;
     }
-    if(windows){windows_weak_tail(cells,order,sos);return;}
+    if(tailored){tailored_weak_tail(cells,order,sos);return;}
     for(u32 i=0;i<order.count;) {
         if(cells[order[i]].resolved!=B::et){++i;continue;}
         const u32 first=i;while(i<order.count && cells[order[i]].resolved==B::et)++i;
@@ -201,7 +201,7 @@ UnicodeBidiStatus unicode_bidi_paragraph_end(ConstSlice<UnicodeBidiCell> cells,u
     for(u32 i=first;i<cells.count;++i)if(cells[i].original==B::b){*end=i+1;return UnicodeBidiStatus::ok;}
     *end=cells.count;return UnicodeBidiStatus::ok;
 }
-UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection policy,Slice<u32> scratch,UnicodeBidiParagraph* paragraph,BidiBracketResolver resolve_brackets,bool windows_profile) noexcept {
+UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection policy,Slice<u32> scratch,UnicodeBidiParagraph* paragraph,BidiBracketResolver resolve_brackets,bool tailored) noexcept {
     if(!paragraph)return UnicodeBidiStatus::invalid_input;*paragraph={};
     if(!resolve_brackets || static_cast<u8>(policy)>3 || (cells.count && !cells.data) || (scratch.count && !scratch.data))return UnicodeBidiStatus::invalid_input;
     if(scratch.count<cells.count)return UnicodeBidiStatus::output_too_small;
@@ -209,10 +209,10 @@ UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,Unicod
         if(!unicode_is_scalar(cells[i].scalar) || static_cast<u8>(cells[i].original)>static_cast<u8>(B::ws))return UnicodeBidiStatus::invalid_input;
         if(cells[i].original==B::b && i+1!=cells.count)return UnicodeBidiStatus::malformed_paragraph;
     }
-    match_isolates(cells,windows_profile);
+    match_isolates(cells,tailored);
     const u8 base=policy==UnicodeParagraphDirection::ltr?0:policy==UnicodeParagraphDirection::rtl?1:
-        first_direction({cells.data,cells.count},0,cells.count,policy==UnicodeParagraphDirection::auto_rtl?1:0,windows_profile);
-    explicit_levels(cells,base,windows_profile);
+        first_direction({cells.data,cells.count},0,cells.count,policy==UnicodeParagraphDirection::auto_rtl?1:0,tailored);
+    explicit_levels(cells,base,tailored);
     u32 previous=none;
     for(u32 i=0;i<cells.count;++i)if(cells[i].level!=unicode_bidi_removed) {
         if(previous!=none)cells[previous].next=cells[previous].explicit_level==cells[i].explicit_level?i:
@@ -230,7 +230,7 @@ UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,Unicod
         if(!isolate(cells[last].original))for(u32 i=last+1;i<cells.count;++i)if(cells[i].level!=unicode_bidi_removed){following=cells[i].explicit_level;break;}
         const B sos=direction(maximum(preceding,cells[first].explicit_level)),eos=direction(maximum(following,cells[last].explicit_level));
         const B embedding_direction=direction(cells[first].explicit_level);const ConstSlice<u32> order{scratch.data,count};
-        weak_types(cells,order,sos,windows_profile);resolve_brackets(cells,order,sos,eos,embedding_direction);neutral_types(cells,order,sos,eos,embedding_direction);
+        weak_types(cells,order,sos,tailored);resolve_brackets(cells,order,sos,eos,embedding_direction);neutral_types(cells,order,sos,eos,embedding_direction);
         for(u32 i=0;i<count;++i) {
             auto& cell=cells[order[i]];u8 level=cell.explicit_level;
             if(level&1){if(cell.resolved==B::l || cell.resolved==B::en || cell.resolved==B::an)++level;}

@@ -1,4 +1,4 @@
-#include "maicord/text/detail/line_break_windows.hpp"
+#include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
@@ -7,7 +7,7 @@ void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTP
 void number(u32 value) noexcept {char s[16];u32 n=0;do{s[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){char t=s[i];s[i]=s[n-i-1];s[n-i-1]=t;}print({s,n});}
 bool compare(ConstSlice<u32> text,ConstSlice<u8> expected) noexcept {
     u8 out[258];if(text.count>256||expected.count!=text.count+1)return false;out[text.count+1]=0x5a;
-    if(!line_windows_candidate(text,{out,text.count+1})||out[text.count+1]!=0x5a)return false;
+    if(!line_breaks_tailored(text,{out,text.count+1})||out[text.count+1]!=0x5a)return false;
     ++cases;for(u32 i=0;i<expected.count;++i){++checks;if(out[i]!=expected[i]){print(utf8_literal("FAIL case="));number(cases);print(utf8_literal(" boundary="));number(i);print(utf8_literal("\n"));return false;}}return true;
 }
 template<usize N,usize M> bool sample(const u32 (&text)[N],const u8 (&expected)[M]) noexcept {return compare({text,static_cast<u32>(N)},{expected,static_cast<u32>(M)});}
@@ -24,10 +24,10 @@ bool units() noexcept {
     if(!sample(space,space_breaks)||!sample(newline,newline_breaks)||!sample(final,final_breaks)||!sample(joiner,joiner_breaks)||
        !sample(regional,regional_breaks)||!sample(modifier,modifier_breaks)||!sample(quotes,quote_breaks)||!sample(cjk,cjk_breaks)||!sample(selectors,selector_breaks))return false;
     u8 out[8];for(auto& b:out)b=0x5a;const u32 bad[]{'a',0xd800},high[]{0x110000};
-    if(line_windows_candidate({bad,2},{out,8})||line_windows_candidate({high,1},{out,8})||line_windows_candidate({nullptr,1},{out,8})||
-       line_windows_candidate({space,6},{nullptr,8})||line_windows_candidate({space,6},{out,6})||line_windows_candidate({space,~0u},{out,~0u}))return false;
+    if(line_breaks_tailored({bad,2},{out,8})||line_breaks_tailored({high,1},{out,8})||line_breaks_tailored({nullptr,1},{out,8})||
+       line_breaks_tailored({space,6},{nullptr,8})||line_breaks_tailored({space,6},{out,6})||line_breaks_tailored({space,~0u},{out,~0u}))return false;
     for(u8 b:out){++checks;if(b!=0x5a)return false;}
-    if(!line_windows_candidate({},{out,8})||out[0])return false;for(u32 i=1;i<8;++i){++checks;if(out[i]!=0x5a)return false;}
+    if(!line_breaks_tailored({},{out,8})||out[0])return false;for(u32 i=1;i<8;++i){++checks;if(out[i]!=0x5a)return false;}
     return true;
 }
 bool corpus(const wchar_t* path) noexcept {
@@ -48,10 +48,10 @@ bool long_contexts() noexcept {
     auto* out=static_cast<u8*>(VirtualAlloc(nullptr,n+1,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
     struct Release {u32* text;u8* out;~Release() noexcept {if(out)VirtualFree(out,0,MEM_RELEASE);if(text)VirtualFree(text,0,MEM_RELEASE);}} release{text,out};
     if(!text||!out)return false;text[0]='a';text[1]=10;for(u32 i=2;i<n-2;++i)text[i]=0xfe0f;text[n-2]=0x301;text[n-1]='b';
-    if(!line_windows_candidate({text,n},{out,n+1}))return false;
+    if(!line_breaks_tailored({text,n},{out,n+1}))return false;
     for(u32 i=0;i<=n;++i){++checks;if(out[i]!=(i==n?1:i==3?2:0))return false;}
     for(u32 i=0;i<n-1;++i)text[i]=i&1?0x301:0x1f1e6;text[n-1]='a';
-    if(!line_windows_candidate({text,n},{out,n+1}))return false;
+    if(!line_breaks_tailored({text,n},{out,n+1}))return false;
     for(u32 i=0;i<=n;++i){++checks;if(out[i]!=(i>=n-1?1:0))return false;}
     return true;
 }
@@ -63,7 +63,7 @@ bool run() noexcept {
     if(quote){if(*c!='"')return false;++c;}while(*c==' '||*c=='\t')++c;return n&&!*c&&corpus(path);
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_line_windows_entry() noexcept {
+extern "C" __declspec(noreturn) void WINAPI maicord_line_tailored_entry() noexcept {
     const bool ok=maicord::run();maicord::print(maicord::utf8_literal("cases="));maicord::number(maicord::cases);maicord::print(maicord::utf8_literal(" checks="));maicord::number(maicord::checks);
     maicord::print(ok?maicord::utf8_literal(" PASS native line compatibility\n"):maicord::utf8_literal(" FAIL native line compatibility\n"));ExitProcess(ok?0:1);
 }

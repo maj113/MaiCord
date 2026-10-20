@@ -33,7 +33,7 @@ bool thai_layout_break_probe(const wchar_t* argument,bool measure=false,bool ana
         for(u32 batch=0;batch<5;++batch){u64 ticks=0;at=12;
             for(u32 i=0;i<total;++i){u32 id=0,count=0;CHECK(read-at>=8);copy_bytes(&id,data+at,4);copy_bytes(&count,data+at+4,4);at+=8;
                 CHECK(id==i+1&&count&&count<=256&&read-at>=count*4);u32 scalars[256]{};copy_bytes(scalars,data+at,count*4);at+=count*4;u8 baseline[257]{},boundaries[257]{};
-                CHECK(line_windows_candidate({scalars,count},{baseline,257}));
+                CHECK(line_breaks_tailored({scalars,count},{baseline,257}));
                 LARGE_INTEGER start{},end{};CHECK(QueryPerformanceCounter(&start));
                 for(u32 iteration=0;iteration<8;++iteration){copy_bytes(boundaries,baseline,count+1);CHECK(native_thai_word_breaks({scalars,count},{boundaries,257}));
                     for(u32 c=0;c<=count;++c)checksum=checksum*33+boundaries[c];}
@@ -56,7 +56,7 @@ bool thai_layout_break_probe(const wchar_t* argument,bool measure=false,bool ana
         struct Release {IDWriteTextLayout* p;~Release() noexcept {com_release(p);}} release{layout};DWRITE_CLUSTER_METRICS metrics[512]{};u32 clusters=0;
         CHECK(SUCCEEDED(layout->GetClusterMetrics(metrics,512,&clusters)));u8 breaks[513]{};u32 source=0;
         for(u32 c=0;c<clusters;++c){source+=metrics[c].length;CHECK(source<=units);breaks[source]=metrics[c].canWrapLineAfter?1u:0u;}
-        CHECK(source==units);u8 native[257]{};CHECK(line_windows_candidate({scalars,count},{native,257})&&native_thai_word_breaks({scalars,count},{native,257}));
+        CHECK(source==units);u8 native[257]{};CHECK(line_breaks_tailored({scalars,count},{native,257})&&native_thai_word_breaks({scalars,count},{native,257}));
         if(shaped&&!thai_project_native_clusters({scalars,count},{native,257})){
             print("unsupported_source=");number(id);print("\n");++unsupported;continue;
         }

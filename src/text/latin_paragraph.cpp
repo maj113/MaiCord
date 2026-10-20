@@ -3,7 +3,7 @@
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/visibility.hpp"
 #include "maicord/text/base.hpp"
-#include "maicord/text/detail/line_break_windows.hpp"
+#include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/text/detail/thai_word_break.hpp"
 #include "script_paragraph.hpp"
 namespace maicord {namespace {
@@ -30,7 +30,7 @@ SfntStatus native_latin_paragraph_boundaries(Utf8View text,Slice<NativeParagraph
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
         if(count==s.scalar_count)return SfntStatus::output_too_small;s.scalar_data[count++]=cp.codepoint;thai|=cp.codepoint-0xe00u<128;bidi_format|=native_text_bidi_format(cp.codepoint);units+=cp.codepoint>65535?2u:1u;at+=cp.width;}
     if(s.breaks.count<=count)return SfntStatus::output_too_small;
-    if(!line_windows_candidate({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
+    if(!line_breaks_tailored({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
     if(thai&&!native_thai_word_breaks({s.scalar_data,count},s.breaks))return SfntStatus::invalid_input;
     if(bidi_format)format_boundaries({s.scalar_data,count},s.breaks);
     u32 scalar=0,source=0,previous=0;

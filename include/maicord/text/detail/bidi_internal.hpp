@@ -8,16 +8,15 @@ namespace maicord {
 using BidiBracketResolver=void (*)(Slice<UnicodeBidiCell>,ConstSlice<u32>,UnicodeBidiClass,
                                  UnicodeBidiClass,UnicodeBidiClass) noexcept;
 UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell>,UnicodeParagraphDirection,
-                                            Slice<u32>,UnicodeBidiParagraph*,BidiBracketResolver,bool windows_profile=false) noexcept;
-// Experimental model of Windows bracket behavior. It does not model Windows'
-// other bidi deviations and is not a production profile.
-void bidi_windows_brackets_candidate(Slice<UnicodeBidiCell>,ConstSlice<u32>,UnicodeBidiClass,
-                                    UnicodeBidiClass,UnicodeBidiClass) noexcept;
-// Experimental combined control/weak/bracket policy. Isolate controls get the
-// BN processing class; scalar/original inputs remain unchanged, and level 255
-// means exclusion from ordering rather than deletion from source. The public
-// Unicode resolver does not select this profile; bracket and directional-control
-// differences remain.
-UnicodeBidiStatus bidi_windows_resolve_candidate(Slice<UnicodeBidiCell>,UnicodeParagraphDirection,
+                                            Slice<u32>,UnicodeBidiParagraph*,BidiBracketResolver,bool tailored=false) noexcept;
+// Bracket pairs matched by scalar (at most 61 open), resolved by the context
+// of the pair's surroundings instead of UAX #9 N0, as the platform text stack
+// lays out message text.
+void bidi_tailored_brackets(Slice<UnicodeBidiCell>,ConstSlice<u32>,UnicodeBidiClass,
+                            UnicodeBidiClass,UnicodeBidiClass) noexcept;
+// The profile message layout uses: tailored brackets, a numeric-context weak
+// pass, and isolate controls processed as BN. scalar/original inputs stay
+// unchanged; level 255 means exclusion from ordering, not deletion.
+UnicodeBidiStatus bidi_resolve_tailored(Slice<UnicodeBidiCell>,UnicodeParagraphDirection,
     Slice<u32>,UnicodeBidiParagraph*) noexcept;
 }

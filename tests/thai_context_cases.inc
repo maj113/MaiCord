@@ -122,7 +122,7 @@ bool native_thai_context_cases() noexcept {
             CHECK(decoded.valid&&decoded.codepoint<0x10000&&count<255);
             scalars[count]=decoded.codepoint;text[count++]=static_cast<wchar_t>(decoded.codepoint);at+=decoded.width;
         }
-        u8 native[257]{};CHECK(line_windows_candidate({scalars,count},{native,257}));
+        u8 native[257]{};CHECK(line_breaks_tailored({scalars,count},{native,257}));
         CHECK(native_thai_word_breaks({scalars,count},{native,257}));
         // Cluster metrics expose opportunities only at shaped-cluster ends.
         // Project through the actual native provider, not a scalar-pair guess.

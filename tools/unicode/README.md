@@ -6,7 +6,7 @@ offline development inputs: normal CMake builds use the checked-in generated
 files and need neither Python nor a network connection.
 
 The native tests (`MaiCordUnicodeTests`, `MaiCordBidiTests`,
-`MaiCordLineBreakTests`, `MaiCordLineWindowsTests`) run through the build script:
+`MaiCordLineBreakTests`, `MaiCordLineTailoredTests`) run through the build script:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_breaks,maicord_native_line_compat
@@ -130,9 +130,9 @@ python tools/unicode/summarize_bidi_reference.py supplementary.csv --character-t
 - The supplementary corpus replaces selected L, R and ON characters with
   supplementary-plane ones and keeps the published expected vectors. It is
   synthetic, not official conformance data.
-- `candidate_levels` and `candidate_diff` record the internal experimental
-  Windows bracket candidate. The public resolver stays Unicode 17, and these
-  columns do not change the strict parity result.
+- `candidate_levels` and `candidate_diff` record the tailored profile
+  (`bidi_resolve_tailored`) that message layout uses. The public resolver stays
+  Unicode 17, and these columns do not change the strict parity result.
 
 Exploratory bracket probes use the `MCBIDIP` format. The CSV marks them
 `has_expected=0` and the official summarizer rejects them: they record Windows
@@ -185,12 +185,13 @@ python tools/unicode/summarize_line_reference.py --ucd <UCD.zip> --csv windows.c
   before summarizing. The summarizer verifies Unicode conformance first, resolves
   adjacent conditions and keeps endpoints apart from interior comparisons.
 
-## Windows line profile
+## Tailored line profile
 
-`line_windows_candidate` (`src/text/line_break_windows.hpp`) is a private
-first-party en-US profile with the input, output and failure contract of
-`unicode_line_breaks`, linear work and constant additional state. It is not a
-dictionary segmenter. The default Unicode API is unchanged.
+`line_breaks_tailored` (`include/maicord/text/detail/line_break_tailored.hpp`)
+is the en-US line-break tailoring message layout uses, matching the platform
+text stack. It has the input, output and failure contract of
+`unicode_line_breaks`, one linear pass and constant additional state. It is not
+a dictionary segmenter. The default Unicode API is unchanged.
 
 `MaiCordLineBreakReference` also records the candidate output and differences.
 With no argument it first checks every official vector (`has_expected=1`); given
@@ -210,7 +211,7 @@ validates the complete UTF-16 capture, adjacent-condition precedence, endpoints,
 native and default counters and surrogate interiors; dictionary differences are
 listed, not hidden.
 
-- `line_windows_data.py` derives `src/text/generated/line_windows_data.inc` from
+- `line_tailoring_data.py` derives `src/text/generated/line_tailoring_data.inc` from
   the pinned Unicode 16 and 17 line-break properties and Unicode 17 age data:
   characters first assigned in 17.0 keep their 16.0 class where it differs under
   this profile. Arguments: `--ucd`, `--previous` (the Unicode 16 property file),
@@ -219,7 +220,7 @@ listed, not hidden.
   Windows boundaries to `<root>/native-corpus.bin` (`MCWINLB1`). Dictionary cases
   are excluded and listed; any other case where candidate and Windows differ is
   rejected.
-- `MaiCordLineWindowsTests` runs unit and stress checks and, given a corpus path,
+- `MaiCordLineTailoredTests` runs unit and stress checks and, given a corpus path,
   replays it. It imports only KERNEL32.dll.
 
 QA caps: 256 scalars per case and 32 MiB per `MCLBPRB1` or `MCWINLB1` file.

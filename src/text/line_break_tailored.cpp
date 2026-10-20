@@ -1,11 +1,9 @@
-#include "maicord/text/detail/line_break_windows.hpp"
-// Windows-compatible en-US line-break policy; the default Unicode implementation
-// is separate.
+#include "maicord/text/detail/line_break_tailored.hpp"
 namespace maicord {namespace {
 using B=UnicodeLineBreak;
 struct LineClassOverride {u32 first;u16 count;B kind;};
 static_assert(sizeof(LineClassOverride)==8);
-#include "generated/line_windows_data.inc"
+#include "generated/line_tailoring_data.inc"
 inline B compatibility_class(u32 cp,B current) noexcept {
     constexpr u32 count=sizeof(line_class_overrides)/sizeof(line_class_overrides[0]);
     if(cp<line_class_overrides[0].first||cp>=line_class_overrides[count-1].first+line_class_overrides[count-1].count)return current;
@@ -20,7 +18,7 @@ inline bool affix(B b) noexcept {return b==B::pr||b==B::po;}
 inline bool hangul(B b) noexcept {return b==B::jl||b==B::jv||b==B::jt||b==B::h2||b==B::h3;}
 inline bool ideograph(B b) noexcept {return b==B::id||b==B::eb||b==B::em;}
 }
-bool line_windows_candidate(ConstSlice<u32> text,Slice<u8> out) noexcept {
+bool line_breaks_tailored(ConstSlice<u32> text,Slice<u8> out) noexcept {
     if((text.count&&!text.data)||!out.data||out.count<=text.count)return false;
     for(u32 i=0;i<text.count;++i)if(!unicode_is_scalar(text[i]))return false;
     // One pass: every rule looks only backward, so each class is resolved and

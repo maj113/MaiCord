@@ -30,7 +30,7 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
     if(tabs)for(u32 i=0;i<count;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::l;
     for(u32 first=0;first<count;){u32 end=0;UnicodeBidiParagraph paragraph{};
         if(unicode_bidi_paragraph_end({cells.data,count},first,&end)!=UnicodeBidiStatus::ok||end<=first)return false;
-        if(bidi_windows_resolve_candidate({cells.data+first,end-first},UnicodeParagraphDirection::ltr,order,&paragraph)!=UnicodeBidiStatus::ok)return false;
+        if(bidi_resolve_tailored({cells.data+first,end-first},UnicodeParagraphDirection::ltr,order,&paragraph)!=UnicodeBidiStatus::ok)return false;
         if(tabs)for(u32 i=first;i<end;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::s;
         // Windows keeps explicit embedding/override source controls in its
         // whitespace-boundary scan, although those controls draw no glyphs.

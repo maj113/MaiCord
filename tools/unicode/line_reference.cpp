@@ -2,7 +2,7 @@
 // official vector. Interior scalar boundaries are compared; raw UTF-16 before/
 // after conditions and endpoints are retained without inventing neutral policy.
 #include "maicord/text/line_break.hpp"
-#include "maicord/text/detail/line_break_windows.hpp"
+#include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <dwrite.h>
 namespace maicord {namespace {
@@ -77,7 +77,7 @@ bool run() noexcept {
         starts[n]=a.length;
         if(!unicode_line_breaks({text,n},{native,n+1}))return false;
         if(!probes.active)for(u32 i=0;i<=n;++i)if((native[i]!=0)!=((i<n?line_vectors[at+i]:tagged)>>31))return false;
-        if(!line_windows_candidate({text,n},{candidate,n+1}))return false;
+        if(!line_breaks_tailored({text,n},{candidate,n+1}))return false;
         for(u32 i=0;i<a.length;++i)a.seen[i]=0;
         if(FAILED(analyzer->AnalyzeLineBreakpoints(&a,0,a.length,&a)))return false;
         for(u32 i=0;i<a.length;++i){if(!a.seen[i])return false;const auto b=a.breaks[i];before[i]=b.breakConditionBefore;after[i]=b.breakConditionAfter;white[i]=b.isWhitespace;hyphen[i]=b.isSoftHyphen;}

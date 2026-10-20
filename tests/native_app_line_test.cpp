@@ -28,7 +28,7 @@
 #include "../src/ui/native_text_span.hpp"
 #include "../src/ui/native_text_script.hpp"
 #include "maicord/text/detail/thai_word_break.hpp"
-#include "maicord/text/detail/line_break_windows.hpp"
+#include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/ui/emoji_presentation.hpp"

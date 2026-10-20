@@ -121,7 +121,7 @@ bool compare(const wchar_t* path) noexcept {
         UnicodeBidiParagraph candidate{};u8 candidate_levels[capacity];u32 candidate_diff=0;
         // Windows exposes forced direction only. Use the same captured base for
         // both sides, including standard-corpus cases with an auto policy.
-        ok=bidi_windows_resolve_candidate({cells,count},static_cast<UnicodeParagraphDirection>(analysis.base),{scratch,count},&candidate)==UnicodeBidiStatus::ok &&
+        ok=bidi_resolve_tailored({cells,count},static_cast<UnicodeParagraphDirection>(analysis.base),{scratch,count},&candidate)==UnicodeBidiStatus::ok &&
            unicode_bidi_line({cells,count},candidate.level,0,count,{candidate_levels,count},{scratch,count},&ordered)==UnicodeBidiStatus::ok;
         if(!ok)break;
         u32 retained=0,candidate_removed=0,isolate_removed=0,retained_diff=0;
