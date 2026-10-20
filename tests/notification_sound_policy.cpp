@@ -39,12 +39,14 @@ void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noex
     check(notification_selected_sound_admission(selected)==A::allowed,"selected source predicate does not inherit unrelated popup gates");
 
     auto i=message_input();auto d=notification_message_sound_decide(i);
-    check(!d.selected_direct&&d.ordinary==R::popup,"desktop ALL routes ordinary sound via popup adapter");
+    check(!d.selected_direct&&d.ordinary==R::popup&&d.ordinary_notification,
+        "archived Discord: blurred selected channel with selected sound disabled still gets ordinary popup and message1");
     i.desktop_never=true;check(notification_message_sound_decide(i).ordinary==R::direct,"desktop NEVER uses direct unthrottled ordinary sound");
     i.selected=A::allowed;i.ordinary=A::denied;
     d=notification_message_sound_decide(i);check(d.selected_direct&&d.ordinary==R::none&&!d.ordinary_notification,"selected-only candidate emits message3 independent of popup admission");
     i.ordinary=A::allowed;d=notification_message_sound_decide(i);
-    check(d.selected_direct&&d.ordinary==R::none&&d.ordinary_notification,"blurred selected candidate keeps the popup but avoids duplicate ordinary sound");
+    check(d.selected_direct&&d.ordinary==R::none&&!d.ordinary_notification,
+        "archived Discord: blurred selected-channel message3 takes early return and suppresses popup");
     i.focused=true;d=notification_message_sound_decide(i);
     check(d.selected_direct&&d.ordinary==R::direct,"focused selected and ordinary candidates may emit both sounds");
     i.overlay=A::denied;d=notification_message_sound_decide(i);
@@ -52,11 +54,11 @@ void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noex
     i.restrictions=A::denied;d=notification_message_sound_decide(i);
     check(!d.selected_direct&&d.ordinary==R::none,"restricted hours required action and changelog gate both paths");
     i=message_input();i.selected=A::unknown;
-    d=notification_message_sound_decide(i);
-    check(d.ordinary==R::none&&d.ordinary_notification,"unknown blurred selected path can still deliver an independently eligible popup without choosing ordinary sound");
+    check(notification_message_sound_decide(i).ordinary==R::none,
+        "unknown blurred selected path cannot choose incorrect ordinary sound");
     i=message_input();i.message1_enabled=false;i.selected=A::allowed;
     d=notification_message_sound_decide(i);check(!d.selected_direct&&d.ordinary==R::none,"message1 disabled preference also suppresses message3");
-    check(d.ordinary_notification,"blurred selected path keeps popup continuation even when its sound is disabled");
+    check(!d.ordinary_notification,"archived Discord: selected branch skips popup when blurred even if sounds disabled");
     i.selected=A::denied;d=notification_message_sound_decide(i);
     check(d.ordinary_notification&&!d.selected_direct&&d.ordinary==R::none,
         "disabled message1 sound preserves ordinary text and popup branch");
