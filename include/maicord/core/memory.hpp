@@ -39,7 +39,7 @@ __declspec(noinline) inline bool bytes_equal(const void* left, const void* right
     return true;
 }
 
-inline bool bytes_zero(const void* data, usize bytes) noexcept {
+__declspec(noinline) inline bool bytes_zero(const void* data, usize bytes) noexcept {
     const auto* p = static_cast<const u8*>(data);
     for (usize i = 0; i < bytes; ++i)
         if (p[i])
