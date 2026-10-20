@@ -7,6 +7,7 @@
 #include "application_update_startup.hpp"
 #include "settings_catalog.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
