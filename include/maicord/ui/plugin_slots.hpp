@@ -126,8 +126,10 @@ inline bool ui_plugin_slot_line_badge(u32 surface, u64 channel_id, u64 message_i
     return false;
 }
 // Paints the badge frame and its leading icon (or a tone marker) in theme colours.
-inline bool ui_plugin_slot_badge_paint(const UiPluginSlotBadge& slot, const UiWidgetManager& widgets,
-                                       const Theme& theme, PaintStream* paint) noexcept {
+__declspec(noinline) inline bool ui_plugin_slot_badge_paint(const UiPluginSlotBadge& slot,
+                                                            const UiWidgetManager& widgets,
+                                                            const Theme& theme,
+                                                            PaintStream* paint) noexcept {
     if (!slot.badge.label.bytes) return true;
     UiBadgeWidget badge = slot.badge;
     const Color role = ui_icon_role_color(theme, ui_plugin_slot_role(slot.tone));

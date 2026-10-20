@@ -103,7 +103,8 @@ inline Color ui_background_surface_color(const Theme& theme, Color color, float 
 // opaque canvas over the color underneath. The glass keeps the tone of the
 // (neutral) color it is given but takes the hue of state.tint, shaded toward
 // black or tinted toward white, so it reads as the theme rather than gray.
-inline Color ui_background_hover_color(const Theme& theme, Color color, float opacity = .20f) noexcept {
+__declspec(noinline) inline Color ui_background_hover_color(const Theme& theme, Color color,
+                                                            float opacity = .20f) noexcept {
     if (!ui_background_active(theme))
         return color;
     const Color hue = theme.tokens.state.tint;

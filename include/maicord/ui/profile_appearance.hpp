@@ -41,8 +41,8 @@ inline UiTextFace profile_name_face(u16 id) noexcept {
         return UiTextFace::normal;
     }
 }
-inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate,
-                                        u64 started_ms = 0) noexcept {
+__declspec(noinline) inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate,
+                                                             u64 started_ms = 0) noexcept {
     UiTextEffect result{};
     result.kind = static_cast<u8>(style.effect_id <= 8 ? style.effect_id : 0);
     result.count = minimum<u8>(style.color_count, 8);
@@ -145,7 +145,8 @@ struct ProfileDisplay {
     u32 color;
     bool themed, has_color, guild_banner, guild_avatar;
 };
-inline ProfileDisplay profile_display(const UserProfile& p, bool preview = false) noexcept {
+__declspec(noinline) inline ProfileDisplay profile_display(const UserProfile& p,
+                                                           bool preview = false) noexcept {
     ProfileDisplay d{};
     d.bio = p.guild_bio.bytes ? p.guild_bio.view() : p.bio.view();
     d.pronouns = p.guild_pronouns.bytes ? p.guild_pronouns.view() : p.pronouns.view();

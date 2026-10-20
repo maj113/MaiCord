@@ -5,8 +5,9 @@
 namespace maicord {
 // Resolves against the current bounded viewport projection only. Account/model
 // identity is checked separately; no selected conversation is required.
-inline bool channel_context_row_current(const NavigationView& view,
-                                        const ShellNavigationScene& scene, u64 id) noexcept {
+__declspec(noinline) inline bool channel_context_row_current(const NavigationView& view,
+                                                             const ShellNavigationScene& scene,
+                                                             u64 id) noexcept {
     if (!id || !scene.active || !scene.rows.data || scene.count > scene.rows.count ||
         scene.source_rows != view.channel_rows || scene.source_count != view.channel_count ||
         scene.source_revision != view.channel_revision || view.channel_count > view.channel_capacity ||
