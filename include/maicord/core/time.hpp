@@ -33,7 +33,7 @@ inline i64 clock_now() noexcept {
     return counter;
 }
 
-inline u64 clock_microseconds(const Clock& clock, i64 begin, i64 end) noexcept {
+__declspec(noinline) inline u64 clock_microseconds(const Clock& clock, i64 begin, i64 end) noexcept {
     if (clock.frequency <= 0 || end <= begin) {
         return 0;
     }
@@ -54,7 +54,7 @@ inline u64 clock_monotonic_milliseconds() noexcept {
     return GetTickCount64();
 }
 
-inline u64 clock_unix_milliseconds() noexcept {
+__declspec(noinline) inline u64 clock_unix_milliseconds() noexcept {
     // FILETIME is the little-endian low/high halves of one 64-bit count.
     u64 ticks = 0;
     GetSystemTimeAsFileTime(reinterpret_cast<_FILETIME*>(&ticks));

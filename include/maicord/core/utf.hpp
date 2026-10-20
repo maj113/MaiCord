@@ -63,7 +63,7 @@ constexpr u32 utf8_truncated_length(Utf8View text, u32 maximum_bytes) noexcept {
 }
 
 // Copies that prefix into destination and returns its length.
-inline u32 utf8_copy_truncated(char* destination, u32 capacity, Utf8View text) noexcept {
+__declspec(noinline) inline u32 utf8_copy_truncated(char* destination, u32 capacity, Utf8View text) noexcept {
     const u32 bytes = utf8_truncated_length(text, capacity);
     copy_bytes(destination, text.data, bytes);
     return bytes;
