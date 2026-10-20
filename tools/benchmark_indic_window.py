@@ -34,8 +34,8 @@ def main():
         else:
             executable=root.parent/'MaiCord-build/Release/MaiCordDevanagariPlanTests.exe'
             font=args.font.resolve()
-            result.update(executable=identity(executable),font=identity(font),fixture=identity(root/'tests/indic_run_bench.inc'),entry=identity(root/'tests/devanagari_plan_test.cpp'),source=identity(root/'src/text/bengali_shape_run.cpp'))
-            if args.side=='baseline':(out/'coordinator-before.cpp').write_bytes((root/'src/text/bengali_shape_run.cpp').read_bytes())
+            result.update(executable=identity(executable),font=identity(font),fixture=identity(root/'tests/indic_run_bench.inc'),entry=identity(root/'tests/devanagari_plan_test.cpp'),source=identity(root/'src/text/indic_run.cpp'))
+            if args.side=='baseline':(out/'coordinator-before.cpp').write_bytes((root/'src/text/indic_run.cpp').read_bytes())
             rows=[];steps=[];stop=threading.Event()
             for script in ('bengali','gujarati'):
                 env={k:v for k,v in os.environ.items() if not k.startswith('MAICORD_')}
