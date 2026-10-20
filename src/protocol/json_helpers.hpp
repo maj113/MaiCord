@@ -73,7 +73,7 @@ struct JsonBody {
     void snowflake(u64 value) noexcept {
         ok = ok && protocol_writer_append_snowflake(&writer, value);
     }
-    void key(const char* name) noexcept {
+    __declspec(noinline) void key(const char* name) noexcept {
         if (!first)
             byte(',');
         first = false;

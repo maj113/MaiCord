@@ -82,7 +82,8 @@ inline bool proto_length(const ProtoSource& w, u32& p, u32 end, u32& stop) noexc
 }
 
 // Skips the value of a field whose tag was just read; groups nest at most 16 deep.
-inline bool proto_skip(const ProtoSource& w, u32& p, u32 end, u32 type, u32 field, u32 depth = 0) noexcept {
+__declspec(noinline) inline bool proto_skip(const ProtoSource& w, u32& p, u32 end, u32 type, u32 field,
+                                            u32 depth = 0) noexcept {
     u64 n = 0;
     if (type == 0)
         return proto_varint(w, p, end, n);

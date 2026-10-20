@@ -346,10 +346,11 @@ RestClientSubmitResult rest_client_submit(RestClient* client,
                                           const RestClientRequest& request) noexcept;
 // The common request shape: default timeout, no identity response, audit
 // reason, extra headers or multipart boundary.
-inline RestClientSubmitResult rest_client_submit(RestClient* client,
-                                                 ConstSlice<u8> target, ConstSlice<u8> body,
-                                                 RestRouteKey route, u64 request_id,
-                                                 bool json_body) noexcept {
+__declspec(noinline) inline RestClientSubmitResult rest_client_submit(RestClient* client,
+                                                                      ConstSlice<u8> target,
+                                                                      ConstSlice<u8> body,
+                                                                      RestRouteKey route, u64 request_id,
+                                                                      bool json_body) noexcept {
     return rest_client_submit(
         client, {target, body, route, request_id, kRestClientDefaultTimeoutMs, json_body, false});
 }

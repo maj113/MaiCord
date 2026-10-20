@@ -24,7 +24,7 @@ struct Writer {
     u32 capacity;
     u32 bytes;
     bool overflow;
-    void raw(const void* source, u32 count) noexcept {
+    __declspec(noinline) void raw(const void* source, u32 count) noexcept {
         if (data && !overflow) {
             if (count <= capacity - bytes) copy_bytes(data + bytes, source, count);
             else overflow = true;

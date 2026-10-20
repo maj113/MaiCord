@@ -15,7 +15,7 @@ struct JsonCommandWriter {
     template <usize N> void literal(const char (&value)[N]) noexcept {
         raw(value, static_cast<u32>(N - 1));
     }
-    void raw(const char* value, u32 bytes) noexcept {
+    __declspec(noinline) void raw(const char* value, u32 bytes) noexcept {
         if (output)
             copy_bytes(output + at, value, bytes);
         at += bytes;
@@ -23,7 +23,7 @@ struct JsonCommandWriter {
     void bytes(ConstSlice<u8> value) noexcept {
         raw(reinterpret_cast<const char*>(value.data), value.count);
     }
-    void number(u64 value) noexcept {
+    __declspec(noinline) void number(u64 value) noexcept {
         if (output)
             at += decimal_write(output + at, value);
         else

@@ -97,7 +97,7 @@ struct Sink {
             ok = false;
         return ok;
     }
-    void bytes(const void* value, u32 count) noexcept {
+    __declspec(noinline) void bytes(const void* value, u32 count) noexcept {
         if (!room(count))
             return;
         if (data && count)
