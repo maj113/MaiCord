@@ -23,7 +23,9 @@ i64 rounded(i32 v,const TtGraphicsState& g) noexcept {
 u32 tt_outline_information(u32 selector) noexcept {return (selector&1?42u:0u)|(selector&8?1024u:0u)|(selector&16?2048u:0u);}
 struct Machine {
     TtInterpreter& s;TtExecution& result;TtPhase phase;u32 work,depth=0;ConstSlice<u8> code;u32 at=0;
-    bool spend(u32 n=1) noexcept {if(n>work)return false;work-=n;result.operations+=n;return true;}
+    // The executing opcode and its offset, published as diagnostics on exit.
+    u32 op_at=0;u8 op_code=0;
+    bool spend(u32 n=1) noexcept {if(n>work)return false;work-=n;return true;}
     bool push(i32 v) noexcept {if(s.stack_count>=s.stack.count)return false;s.stack[s.stack_count++]=v;return true;}
     bool pop(i32* v) noexcept {if(!s.stack_count)return false;*v=s.stack[--s.stack_count];return true;}
     bool two(i32* a,i32* b) noexcept {return pop(b) && pop(a);}
@@ -115,7 +117,7 @@ struct Machine {
     SfntStatus run() noexcept {
         while(true){
             if(at==code.count){if(!depth)return SfntStatus::ok;if(!spend())return SfntStatus::resource_limit;auto& frame=s.frames[depth-1];if(frame.remaining>1){--frame.remaining;at=0;continue;}code=frame.code;at=frame.offset;--depth;continue;}
-            if(at>code.count)return SfntStatus::malformed;result.byte_offset=at;result.opcode=code[at];result.call_depth=depth;
+            if(at>code.count)return SfntStatus::malformed;op_at=at;op_code=code[at];
             if(!spend())return SfntStatus::resource_limit;const u8 op=code[at++];i32 a=0,b=0;auto& g=s.graphics;
             if(op==0x40 || op==0x41 || (op>=0xb0 && op<=0xbf)){
                 u32 n=(op&7u)+1,width=op>=0xb8?2:1;if(op==0x40 || op==0x41){if(at==code.count)return SfntStatus::truncated;n=code[at++];width=op==0x41?2:1;}
@@ -214,6 +216,8 @@ SfntStatus tt_execute(TtInterpreter* state,ConstSlice<u8> program,TtPhase phase,
     if(!result)return SfntStatus::invalid_input;*result={};
     if(!state || !valid(program) || !state->units_per_em || state->stack_count>state->stack.count || (state->stack.count && !state->stack.data) || (state->storage.count && !state->storage.data) || (state->cvt.count && !state->cvt.data) || (state->functions.count && !state->functions.data) || (state->frames.count && !state->frames.data) || (state->glyph.count && !state->glyph.data) || (state->twilight.count && !state->twilight.data) || (state->contour_ends.count && !state->contour_ends.data))return SfntStatus::invalid_input;
     if(phase==TtPhase::glyph && (state->graphics.instruction_control&1))return SfntStatus::ok;
-    Machine machine{*state,*result,phase,work,0,program,0};const auto status=machine.run();result->stack_count=state->stack_count;result->call_depth=machine.depth;return status;
+    Machine machine{*state,*result,phase,work,0,program,0};const auto status=machine.run();
+    result->operations=work-machine.work;result->byte_offset=machine.op_at;result->opcode=machine.op_code;
+    result->stack_count=state->stack_count;result->call_depth=machine.depth;return status;
 }
 } // namespace maicord
