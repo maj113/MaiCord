@@ -35,6 +35,7 @@
 #include "maicord/sys/winsock.hpp"
 
 #include <stddef.h>
+#include "maicord/app/account_profile_edit.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -33,6 +33,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};

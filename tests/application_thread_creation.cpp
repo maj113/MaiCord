@@ -4,6 +4,7 @@
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/permission_bits.hpp"
 namespace maicord::creation_test { u64 now = 1000; }
 namespace maicord { static u64 creation_fixture_now() noexcept { return creation_test::now; } }
 #define clock_monotonic_milliseconds creation_fixture_now

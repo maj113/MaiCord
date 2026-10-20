@@ -25,6 +25,7 @@
 #include "maicord/ui/message_forward_scene.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::app_detail {
 ForumPostScene* fixture_forum_scene;

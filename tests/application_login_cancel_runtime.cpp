@@ -19,6 +19,7 @@
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/user_auth_coordinator.hpp"
 
 // Dedicated native controller harness. UI/module-loading boundaries are fake;
 // application_login_auth, account_host and SecureEdit are production code.

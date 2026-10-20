@@ -4,6 +4,8 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/protocol/message_pins.hpp"
 
 namespace maicord::search_navigation_test {
 using namespace app_detail;

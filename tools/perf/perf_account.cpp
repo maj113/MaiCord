@@ -18,6 +18,9 @@
 #include "../../src/app/gateway_ready_projection.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/account_media.hpp"
+#include "maicord/app/account_module_version.hpp"
+#include "maicord/protocol/message_history.hpp"
 
 namespace maicord::perf {
 namespace {

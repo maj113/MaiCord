@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/self_status_settings.hpp"
 
 namespace maicord {
 namespace notification_settings_account_test {

@@ -45,6 +45,7 @@
 #include "maicord/core/win32_user.hpp"
 
 #include <limits.h>
+#include "maicord/app/account_message_search.hpp"
 
 namespace maicord::app_detail {
 namespace {

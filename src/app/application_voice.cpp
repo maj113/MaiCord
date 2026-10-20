@@ -19,6 +19,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/account_soundboard.hpp"
 
 namespace maicord::app_detail {
 namespace {
