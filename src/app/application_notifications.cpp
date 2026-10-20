@@ -460,6 +460,7 @@ void scope_admission_failed(ApplicationNotifications& n,u64 guild) noexcept {
     // Direct message metadata lives in its channel scope; the user's DM
     // settings stay known.
     if(!guild) return;
+    NotificationTrace trace("scope_incomplete"); trace.field("guild",guild); trace.emit(LogLevel::warning);
     message_notifications_mark_incomplete(&n.settings,guild);
     if(auto* scope=find_scope(n.guild_scopes,n.guild_scope_count,guild)) forget_age_gate(*scope);
 }
@@ -1106,6 +1107,9 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         n->snapshot=true; n->snapshot_partial=(event.notification.flags&gateway_notification_partial)!=0;
         n->snapshot_failed=(event.notification.flags&gateway_notification_incomplete)!=0;
         if(!n->snapshot_partial) message_notifications_clear(&n->settings);
+        NotificationTrace trace("settings_snapshot_begin");
+        trace.field("partial",n->snapshot_partial); trace.field("failed",n->snapshot_failed);
+        trace.field("guild_rows",n->settings.guild_count); trace.emit();
     } else if(kind==GatewayClientDispatchKind::notification_settings_entry) {
         MessageNotificationGuildSetting guild{};
         bool valid=gateway_client_notification_entry(event,payload,&guild) &&
@@ -1124,6 +1128,11 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         if(applied!=MessageNotificationApplyError::none && applied!=MessageNotificationApplyError::stale) {
             message_notifications_mark_incomplete(&n->settings,event.notification.guild_id); n->snapshot_failed|=n->snapshot;
         }
+        NotificationTrace trace("settings_entry");
+        trace.field("guild",event.notification.guild_id);
+        trace.field("parsed",valid); trace.field("apply_error",static_cast<u32>(applied));
+        trace.field("overrides",event.notification.override_count);
+        trace.field("snapshot",n->snapshot); trace.emit(applied==MessageNotificationApplyError::none?LogLevel::info:LogLevel::warning);
     } else if(kind==GatewayClientDispatchKind::notification_snapshot_complete) {
         if(!n->snapshot) return;
         n->snapshot_failed|=(event.notification.flags&gateway_notification_incomplete)!=0;
@@ -1131,6 +1140,10 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         if(!n->snapshot_failed && (event.notification.flags&gateway_notification_version_known))
             n->settings.version=maximum(n->settings.version,event.notification.version);
         n->snapshot=false;
+        NotificationTrace trace("settings_snapshot_complete");
+        trace.field("failed",n->snapshot_failed); trace.field("complete",n->settings.complete);
+        trace.field("guild_rows",n->settings.guild_count);
+        trace.field("overrides",n->settings.override_count); trace.emit(n->snapshot_failed?LogLevel::warning:LogLevel::info);
     } else if(kind==GatewayClientDispatchKind::notification_global) {
         if(event.notification.flags&gateway_notification_account_flags_known)
             n->mention_on_all=(event.notification.account_flags&32u)!=0;
@@ -1164,8 +1177,16 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
     } else if(kind==GatewayClientDispatchKind::notification_incomplete) {
         message_notifications_mark_incomplete(&n->settings,event.notification.guild_id);
         n->snapshot_failed|=n->snapshot;
+        NotificationTrace trace("settings_incomplete");
+        trace.field("guild",event.notification.guild_id); trace.field("snapshot",n->snapshot);
+        trace.emit(LogLevel::warning);
     } else if(kind==GatewayClientDispatchKind::ready_state_complete) {
         n->ready=!n->snapshot && !n->snapshot_failed; application_notifications_wake(a);
+        NotificationTrace trace("notification_ready");
+        trace.field("ready",n->ready); trace.field("live",n->live);
+        trace.field("snapshot_failed",n->snapshot_failed);
+        trace.field("settings_complete",n->settings.complete); trace.field("guild_rows",n->settings.guild_count);
+        trace.emit(n->ready?LogLevel::info:LogLevel::warning);
     } else if(kind==GatewayClientDispatchKind::message_ack) {
         if(!payload.count && event.read_state.entry.channel_id && event.read_state.entry.message_id)
             application_notifications_ack(a,event.read_state.entry.channel_id);
@@ -1413,6 +1434,48 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
         trace.field("quiet",input.global.quiet);
         trace.field("gates",input.gates); trace.field("known_gates",input.known_gates);
         trace.emit();
+        // A single "unknown" outcome can mean missing identity/type facts,
+        // incomplete notification settings or an unresolved scope. Output
+        // those independent facts, rather than assuming unknown means muted.
+        if(reasons.ordinary_reason==MessageNotificationReason::unknown ||
+           reasons.selected_reason==MessageNotificationReason::unknown) {
+            const auto thread_scope=message_notification_scope_resolve(input);
+            const auto generic_scope=message_notification_scope_resolve(input,MessageNotificationScopeMode::generic);
+            const auto* guild_row=message_notifications_guild(n.settings,channel->guild_id);
+            const auto* override_row=message_notifications_override(n.settings,channel->guild_id,policy_channel->id);
+            const auto* parent_row=message_notifications_override(n.settings,channel->guild_id,policy_channel->parent_id);
+            const auto* thread_row=message_notifications_thread(n.settings,policy_channel->id);
+            NotificationTrace context("message_unknown_context");
+            context.field("message",message.id);
+            context.field("ready",input.ready); context.field("live",input.live);
+            context.field("type_known",input.type_known);
+            context.field("identities_known",input.identities_known);
+            context.field("roles_known",input.roles_known);
+            context.field("guild_found",guild!=nullptr);
+            context.field("snapshot",n.snapshot); context.field("snapshot_failed",n.snapshot_failed);
+            context.field("settings_complete",n.settings.complete);
+            context.field("guild_row",guild_row!=nullptr);
+            context.field("guild_row_incomplete",guild_row && guild_row->incomplete);
+            context.field("guild_default_known",input.guild_default_known);
+            context.field("thread_scope",notification_reason_name(thread_scope.reason));
+            context.field("generic_scope",notification_reason_name(generic_scope.reason));
+            context.emit(LogLevel::warning);
+
+            NotificationTrace scope("message_unknown_scope");
+            scope.field("message",message.id); scope.field("channel_type",input.channel_type);
+            scope.field("message_type",input.message_type); scope.field("message_flags",input.message_flags);
+            scope.field("direct_mention",input.direct_mention);
+            scope.field("everyone_mention",input.everyone_mention);
+            scope.field("role_mentions",input.mention_roles.count);
+            scope.field("guild_default",static_cast<u32>(input.guild_default));
+            scope.field("guild_row_level",guild_row?static_cast<u32>(guild_row->setting.level):~u32{0});
+            scope.field("guild_row_fields",guild_row?guild_row->setting.fields:0);
+            scope.field("override_row",override_row!=nullptr);
+            scope.field("override_level",override_row?static_cast<u32>(override_row->setting.level):~u32{0});
+            scope.field("parent_row",parent_row!=nullptr);
+            scope.field("thread_row",thread_row!=nullptr);
+            scope.emit(LogLevel::warning);
+        }
     }
     // Selected message3 is direct and precedes preview/ordinary transport. It
     // shares MESSAGE1's sound enablement, but never shares fallback H throttle.
