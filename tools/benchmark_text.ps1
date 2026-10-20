@@ -19,6 +19,8 @@ $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer
 if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer (vswhere.exe) was not found.' }
 $installation = & $vswhere -latest -prerelease -products * -property installationPath
 if (-not $installation) { throw 'A Visual Studio C++ installation was not found.' }
+# VsDevCmd calls vswhere.exe by name.
+$env:PATH = (Split-Path -Parent $vswhere) + ';' + $env:PATH
 Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
 Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation `
     -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
