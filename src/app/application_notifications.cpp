@@ -110,7 +110,7 @@ struct ApplicationNotifications {
     NotificationRetention retention;
     u64 retention_allocation_failures;
     u64 generation;
-    u64 profile, audio_epoch, audio_submitted, selected, create_sequence;
+    u64 profile, audio_epoch, audio_submitted, audio_failures_logged, selected, create_sequence;
     // Toast withdrawals deferred out of sent window messages (WM_ACTIVATE):
     // COM cannot call out during an input-synchronous call.
     u64 deferred_removals[4];
@@ -196,6 +196,12 @@ void audio_observe(ApplicationNotifications& n) noexcept {
 #else
     const auto state=notification_audio_status(&n.audio);
 #endif
+    // A request can fail on the worker after submit accepted it.
+    if(state.failed>n.audio_failures_logged) {
+        n.audio_failures_logged=state.failed;
+        log_u64(LogLevel::warning,"notifications","audio_worker_error",static_cast<u32>(state.error));
+        log_u64(LogLevel::warning,"notifications","audio_worker_native_error",state.native_error);
+    }
     if(state.worker_exited || state.stopping) audio_error(n,{NotificationAudioError::stopped,state.native_error});
 }
 void audio_reset(ApplicationNotifications& n,bool enabled) noexcept {
