@@ -71,7 +71,8 @@ inline bool d3d11_renderer_inbox_visible(const D3D11Renderer& renderer) noexcept
            !d3d11_renderer_quick_switcher_visible(renderer) && !d3d11_renderer_form_active(renderer);
 }
 
-inline bool d3d11_renderer_thread_browser_visible(const D3D11Renderer& renderer) noexcept {
+__declspec(noinline) inline bool
+d3d11_renderer_thread_browser_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.thread_browser_scene &&
            ui_thread_browser_scene_current(*renderer.thread_browser_scene) &&
            !d3d11_renderer_page_open(renderer) && !d3d11_renderer_active(renderer.friends_scene);

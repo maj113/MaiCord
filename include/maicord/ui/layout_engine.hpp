@@ -222,7 +222,7 @@ constexpr UiLayoutLength ui_layout_fill(float weight = 1.0f) noexcept {
     return UiLayoutLength{UiLayoutLengthMode::fill, weight};
 }
 
-constexpr UiLayoutStyle ui_layout_style() noexcept {
+__declspec(noinline) constexpr UiLayoutStyle ui_layout_style() noexcept {
     return UiLayoutStyle{
         UiLayoutFlow::overlay,
         ui_layout_content(),

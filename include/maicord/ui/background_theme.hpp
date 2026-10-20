@@ -53,7 +53,7 @@ constexpr BackgroundTheme background_theme_defaults() noexcept {
 constexpr BackgroundEffectSettings background_effect_settings(const BackgroundTheme& value) noexcept {
     return {value.speed, value.strength, value.density};
 }
-constexpr bool background_theme_valid(const BackgroundTheme& value) noexcept {
+__declspec(noinline) constexpr bool background_theme_valid(const BackgroundTheme& value) noexcept {
     if (value.color_count < 1 || value.color_count > 5 || value.angle_degrees > 360 ||
         value.intensity > 100 || !background_effect_settings_valid(background_effect_settings(value)) ||
         static_cast<u8>(value.effect) >= kBackgroundEffectCount)

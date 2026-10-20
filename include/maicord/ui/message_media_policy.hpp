@@ -79,8 +79,8 @@ struct MessageMediaReveals {
     u32 revision;
 };
 
-constexpr u64 message_media_reveal_key(u64 message_id, MessageMediaSource source, u32 index,
-                                       bool snapshot = false) noexcept {
+__declspec(noinline) constexpr u64 message_media_reveal_key(u64 message_id, MessageMediaSource source,
+                                                            u32 index, bool snapshot = false) noexcept {
     u64 value = message_id * 0x9E3779B97F4A7C15ull;
     value ^= (static_cast<u64>(source) + 1u) << 56u;
     value ^= static_cast<u64>(index + 1u) * 0xBF58476D1CE4E5B9ull;
