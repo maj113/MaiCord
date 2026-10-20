@@ -30,9 +30,10 @@ enum PermissionScope : u8 {
 
 struct PermissionGridEntry {
     PermissionSet bit;
-    Utf8View label, description;
-    // Channel overrides rename a few guild permissions; empty keeps the label.
-    Utf8View channel_label, channel_description;
+    // Label, description, channel label and channel description, NUL-separated;
+    // read through permission_grid_label/description. Channel overrides rename
+    // a few guild permissions; an empty channel field keeps the guild wording.
+    const char* text;
     PermissionGroup group;
     u8 scopes;
 };

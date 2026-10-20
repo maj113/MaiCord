@@ -170,9 +170,11 @@ void project_permissions(Bank& bank, bool writable) noexcept {
         bool first = true;
         for (u32 i = 0; i < entries.count; ++i) {
             const auto& entry = entries[i];
+            const Utf8View permission_label = permission_grid_label(entry, permission_scope_guild);
+            const Utf8View permission_detail = permission_grid_description(entry, permission_scope_guild);
             if (static_cast<u32>(entry.group) != group || !permission_grid_applies(entry, permission_scope_guild) ||
-                (query.bytes && !guild_settings_text_matches(query, entry.label) &&
-                 !guild_settings_text_matches(query, entry.description)))
+                (query.bytes && !guild_settings_text_matches(query, permission_label) &&
+                 !guild_settings_text_matches(query, permission_detail)))
                 continue;
             if (first) {
                 push(category(control_permission_category + group,
@@ -182,15 +184,15 @@ void project_permissions(Bank& bank, bool writable) noexcept {
             const bool on = (d.permissions & entry.bit) != 0;
             const auto lock = writable ? guild_role_permission_lock(state(), owner->access, d, entry.bit)
                                        : GuildPermissionLock::none;
-            Utf8View description = entry.description;
+            Utf8View description = permission_detail;
             if (lock != GuildPermissionLock::none) {
                 const u32 start = bank.used;
-                bank.add(entry.description);
+                bank.add(permission_detail);
                 bank.add(utf8_literal(" "));
                 bank.add(permission_lock_text(lock));
                 description = bank.since(start);
             }
-            push({control_permission + i, entry.label, description, UiSettingsControlKind::toggle,
+            push({control_permission + i, permission_label, description, UiSettingsControlKind::toggle,
                   writable && lock == GuildPermissionLock::none && (on || (grantable & entry.bit) == entry.bit), on,
                   {}, 0, {}, nullptr});
             ++found;
