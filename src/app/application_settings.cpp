@@ -280,8 +280,8 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     const auto custom = application_custom_theme_view();
     const bool theme_idle = !custom.busy && !custom.previewing;
     const bool idle = !custom.candidate_ready && !custom.previewing && !custom.busy;
-    *control = {settings_control_id(panel, index), node.label, node.description, node.kind, true, false,
-                node.choices, 0, node.action_label, nullptr};
+    *control = {settings_control_id(panel, index), node.label(), node.description(), node.kind, true, false,
+                node.choices, 0, node.action_label(), nullptr};
     *presentation = {static_cast<UiSettingsVariant>(node.variant),
                      static_cast<u8>(node.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
                      node.default_choice < kUiSettingsNoDefault ? static_cast<u16>(node.default_choice)
@@ -376,7 +376,7 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
             control->description = utf8_literal("Windows notification settings couldn't open. Try again.");
         return true;
     case SettingBinding::preferences_retry:
-        control->description = g_app.preferences_save_pending ? utf8_literal("Saving…") : node.description;
+        control->description = g_app.preferences_save_pending ? utf8_literal("Saving…") : node.description();
         control->enabled = !g_app.preferences_save_pending;
         return settings.save_failed;
     case SettingBinding::update_status:

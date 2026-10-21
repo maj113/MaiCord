@@ -7,6 +7,15 @@
 namespace maicord {
 namespace {
 constexpr u32 maximum_leaves = 1024;
+// Array decoding assigns each live entry before use. Byte storage avoids both
+// zero-filling unused entries and JsonValue's default validated-bit writes.
+// JsonValue is an implicit-lifetime aggregate; the byte array provides storage.
+template<u32 Count> struct ValueScratch {
+    alignas(JsonValue) u8 storage[sizeof(JsonValue) * Count];
+    operator JsonValue*() noexcept { return reinterpret_cast<JsonValue*>(storage); }
+};
+static_assert(__is_trivially_copyable(JsonValue));
+
 float clamped(float value, float low, float high) noexcept {
     return minimum(maximum(value, low), high);
 }
@@ -20,7 +29,7 @@ Matrix compose(Matrix a, Matrix b) noexcept {
             a._21 * b._11 + a._22 * b._21,         a._21 * b._12 + a._22 * b._22,
             a._31 * b._11 + a._32 * b._21 + b._31, a._31 * b._12 + a._32 * b._22 + b._32};
 }
-float number(JsonValue v, float fallback = 0) noexcept {
+float number(const JsonValue& v, float fallback = 0) noexcept {
     if (v.kind != JsonValueKind::number || !v.source.data || !v.source.bytes || v.source.bytes > 64)
         return fallback;
     u32 at = 0;
@@ -132,7 +141,7 @@ struct Document {
         }
         return {{json.input.data+begin,at-begin},begin,kind};
     }
-    JsonValue get(JsonValue object,const char* name) noexcept {
+    JsonValue get(const JsonValue& object,const char* name) noexcept {
         if(object.kind!=JsonValueKind::object || !object.source.bytes)return {};
         u32 token=locate(object.source_offset)+1,n=0;while(name[n])++n;
         JsonValue result{};bool found=false;
@@ -158,14 +167,14 @@ struct Document {
         }
         return true;
     }
-    bool type(JsonValue value, const char* name) noexcept {
+    bool type(const JsonValue& value, const char* name) noexcept {
         JsonString text{};
         u32 n = 0;
         while (name[n])
             ++n;
         return json_value_as_string(get(value, "ty"), &text) && json_string_equals_ascii(text, {name, n});
     }
-    bool hidden(JsonValue value) noexcept {
+    bool hidden(const JsonValue& value) noexcept {
         bool hd = false;
         json_value_to_bool(get(value, "hd"), &hd);
         return hd;
@@ -175,7 +184,7 @@ struct Document {
         if(property.kind==JsonValueKind::object){const auto k=get(property,"k");if(k.source.bytes)property=k;}
         Sample result{property,property,{},0};
         if(property.kind!=JsonValueKind::array)return result;
-        JsonValue values[512]{};u32 count=0;
+        ValueScratch<512> values;u32 count=0;
         if(!array(property,{values,512},&count)||!count)return {};
         if(values[0].kind!=JsonValueKind::object || !get(values[0],"t").source.bytes)return result;
         u32 selected=0;
@@ -194,7 +203,7 @@ struct Document {
         return result;
     }
     float component(JsonValue value,u32 index,float fallback=0) noexcept {
-        if(value.kind==JsonValueKind::array){JsonValue a[256]{};u32 n=0;
+        if(value.kind==JsonValueKind::array){ValueScratch<256> a;u32 n=0;
             if(!array(value,{a,256},&n)||!n)return fallback;value=a[minimum(index,n-1)];}
         return number(value,fallback);
     }
@@ -243,7 +252,7 @@ struct Document {
         const float b = number(end, a);
         return a + (b - a) * progress(value, dimension);
     }
-    float scalar(JsonValue property,float fallback=0) noexcept {return interpolated(sampled(property),0,fallback);}
+    float scalar(const JsonValue& property,float fallback=0) noexcept {return interpolated(sampled(property),0,fallback);}
     __declspec(noinline) D2D1_POINT_2F point_array_components(JsonValue value, D2D1_POINT_2F fallback) noexcept {
         JsonValue components[256]; u32 count = 0;
         if (!array(value, {components, 256}, &count) || !count)
@@ -255,7 +264,7 @@ struct Document {
             return {number(value, fallback.x), number(value, fallback.y)};
         return point_array_components(value, fallback);
     }
-    D2D1_POINT_2F point(JsonValue property,D2D1_POINT_2F fallback={}) noexcept {
+    D2D1_POINT_2F point(const JsonValue& property,D2D1_POINT_2F fallback={}) noexcept {
         if(get(property,"x").source.bytes)return {scalar(get(property,"x")),scalar(get(property,"y"))};
         const auto value=sampled(property);
         const auto start = point_components(value.start, fallback);
@@ -267,7 +276,7 @@ struct Document {
         return {start.x + (end.x - start.x) * progress(value, 0),
                 start.y + (end.y - start.y) * progress(value, 1)};
     }
-    Matrix transform(JsonValue value) noexcept {
+    Matrix transform(const JsonValue& value) noexcept {
         const auto p = point(get(value, "p")), anchor = point(get(value, "a")),
                    scale = point(get(value, "s"), {100, 100});
         float angle = scalar(get(value, "r")) * 3.14159265358979323846f / 180;
@@ -294,7 +303,7 @@ struct Document {
         m._32 = p.y - anchor.x * m._12 - anchor.y * m._22;
         return m;
     }
-    ColrColor color(JsonValue style, float opacity) noexcept {
+    ColrColor color(const JsonValue& style, float opacity) noexcept {
         ColrColor c{0,0,0,opacity*scalar(get(style,"o"),100)*.01f};
         const auto value=sampled(get(style,"c"));
         c.r=interpolated(value,0);c.g=interpolated(value,1);c.b=interpolated(value,2);
@@ -416,18 +425,19 @@ struct Document {
         *output = nullptr;
         const auto animated=sampled(get(shape,key));
         auto value=animated.start,end=animated.end;
-        if(value.kind==JsonValueKind::array){JsonValue a[2]{};u32 n=0;
+        if(value.kind==JsonValueKind::array){ValueScratch<2> a;u32 n=0;
             if(!array(value,{a,2},&n)||!n)return false;value=a[0];}
-        if(end.kind==JsonValueKind::array){JsonValue a[2]{};u32 n=0;
+        if(end.kind==JsonValueKind::array){ValueScratch<2> a;u32 n=0;
             if(!array(end,{a,2},&n)||!n)return false;end=a[0];}
-        JsonValue v[512]{},in[512]{},out[512]{},v_end[512]{},in_end[512]{},out_end[512]{};
+        ValueScratch<512> v,in,out,v_end,in_end,out_end;
         u32 nv=0,ni=0,no=0,nve=0,nie=0,noe=0;
         if(!array(get(value,"v"),{v,512},&nv)||!array(get(value,"i"),{in,512},&ni)||
             !array(get(value,"o"),{out,512},&no)||!nv||nv!=ni||nv!=no)return false;
         const float blend=progress(animated);
         if(blend && (!array(get(end,"v"),{v_end,512},&nve)||!array(get(end,"i"),{in_end,512},&nie)||
             !array(get(end,"o"),{out_end,512},&noe)||nve!=nv||nie!=nv||noe!=nv))return false;
-        const auto morph=[this,blend](JsonValue a,JsonValue b) noexcept {const auto p=point(a),q=blend?point(b):p;
+        // Borrow the end entry: it is assigned and read only when blending.
+        const auto morph=[this,blend](const JsonValue& a,const JsonValue& b) noexcept {const auto p=point(a),q=blend?point(b):p;
             return D2D1_POINT_2F{p.x+(q.x-p.x)*blend,p.y+(q.y-p.y)*blend};};
         ID2D1PathGeometry* geometry = nullptr;
         ID2D1GeometrySink* sink = nullptr;
@@ -461,7 +471,7 @@ struct Document {
                 JsonValue inherited_stroke = {}) noexcept {
         if (depth > 24)
             return false;
-        JsonValue shapes[512]{};
+        ValueScratch<512> shapes;
         u32 count = 0;
         if (!array(items, {shapes, 512}, &count))
             return false;
@@ -620,7 +630,7 @@ struct Document {
         if(has_shapes)*has_shapes=false;
         if (depth > 24)
             return false;
-        JsonValue shapes[512]{};
+        ValueScratch<512> shapes;
         u32 n = 0;
         if (!array(items, {shapes, 512}, &n))
             return false;
@@ -766,7 +776,7 @@ struct Document {
                    SUCCEEDED(factory->CreateRectangleGeometry(&bounds, &rectangle)) && append(rectangle, local, c);
         } else if (ty == 0) {
             JsonString reference{};
-            JsonValue a[256]{};
+            ValueScratch<256> a;
             u32 n = 0;
             okay = json_value_as_string(get(value, "refId"), &reference) && array(assets, {a, 256}, &n);
             bool found = false;
@@ -915,7 +925,7 @@ struct Document {
         const auto property = get(owner, "masksProperties");
         if (!property.source.bytes)
             return true;
-        JsonValue masks[64]{};
+        ValueScratch<64> masks;
         u32 count = 0;
         if (!array(property, {masks, 64}, &count))
             return false;
@@ -980,7 +990,7 @@ struct Document {
     bool layers(JsonValue array_value, Matrix world, float opacity, u32 depth) noexcept {
         if (depth > 16)
             return false;
-        JsonValue values[512]{};
+        ValueScratch<512> values;
         u32 count = 0;
         if (!array(array_value, {values, 512}, &count))
             return false;

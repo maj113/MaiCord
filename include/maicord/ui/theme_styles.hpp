@@ -61,10 +61,19 @@ struct UiThemeTokenSource {
     UiThemeTokenSourceKind kind;
 };
 struct UiThemeTokenDescriptor {
+    const UiThemeTokenSource &dark, &light;
+    const char* group_data;
+    const char* name_data;
     UiThemeToken id;
-    Utf8View group, name;
-    UiThemeTokenSource dark, light;
+    u8 group_bytes, name_bytes;
+    constexpr UiThemeTokenDescriptor(UiThemeToken id, Utf8View group, Utf8View name,
+                                    const UiThemeTokenSource& dark, const UiThemeTokenSource& light) noexcept
+        : dark(dark), light(light), group_data(group.data), name_data(name.data), id(id),
+          group_bytes(static_cast<u8>(group.bytes)), name_bytes(static_cast<u8>(name.bytes)) {}
+    constexpr Utf8View group() const noexcept { return {group_data, group_bytes}; }
+    constexpr Utf8View name() const noexcept { return {name_data, name_bytes}; }
 };
+static_assert(sizeof(UiThemeTokenDescriptor) == 40);
 inline constexpr u32 kUiThemeTokenMaximumDepth = 8;
 ConstSlice<UiThemeTokenDescriptor> ui_theme_token_descriptors() noexcept;
 const Color* ui_theme_token_get(const Theme&, UiThemeToken) noexcept;
@@ -229,11 +238,12 @@ enum UiThemeStyleChange : u32 {
     ui_theme_style_paint = 1u << 2,
 };
 struct UiThemeMetricDescriptor {
-    UiThemeMetric id;
     Utf8View name;
     float minimum, maximum;
     u32 changes;
+    UiThemeMetric id;
 };
+static_assert(sizeof(UiThemeMetricDescriptor) == 32);
 // Fixed compile-time vocabulary for the bounded document parser. IDs append
 // only; names are the portable wire keys.
 ConstSlice<UiThemeMetricDescriptor> ui_theme_metric_descriptors() noexcept;

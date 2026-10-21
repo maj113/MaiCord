@@ -22,7 +22,7 @@ struct UiScrollbarGeometry {
 // Reserves a 12-DIP overlay gutter with an 8-DIP rounded thumb. Geometry is
 // independent of presentation and works for both float-DIP and fixed-unit
 // virtual lists.
-UiScrollbarGeometry ui_scrollbar_geometry(UiRect viewport, float scroll_dips,
+UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_dips,
                                           float content_height_dips) noexcept;
 bool ui_scrollbar_track_hit(const UiScrollbarGeometry& geometry, float x, float y) noexcept;
 bool ui_scrollbar_thumb_hit(const UiScrollbarGeometry& geometry, float x, float y) noexcept;

@@ -722,6 +722,8 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     PaintStream paint{};
     MessageMediaCommand commands[32]{};
     MessageMediaCommandStream media{};
+    for (auto& command : commands)
+        command.tile_radius = command.obscure = command.cover = command.gif = 255;
     bool painted = paint_stream_initialize(&paint) &&
                    message_media_command_stream_initialize(&media, {commands, 32}) &&
                    paint_stream_reset(&paint, 1200, 800) &&
@@ -729,6 +731,8 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     bool scoped_outer = false, scoped_child = false;
     bool exact_publication = true;
     for (u32 i = 0; painted && i < media.count; ++i) {
+        exact_publication &= commands[i].tile_radius != 255 && commands[i].obscure != 255 &&
+                             commands[i].cover != 255 && commands[i].gif != 255;
         exact_publication &=
             !media.storage[i].search_result || media.storage[i].message_revision == first->revision;
         scoped_outer |=

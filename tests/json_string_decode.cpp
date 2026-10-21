@@ -9,7 +9,7 @@
 
 namespace maicord {
 namespace json_string_probe {
-__declspec(noinline) bool reference_number(JsonValue value, u64* output) noexcept {
+__declspec(noinline) bool reference_number(const JsonValue& value, u64* output) noexcept {
     if (!output || value.kind != JsonValueKind::number || value.source.bytes == 0) return false;
     u64 result = 0;
     for (u32 offset = 0; offset < value.source.bytes; ++offset) {
@@ -33,7 +33,7 @@ bool compare_number(Utf8View source) noexcept {
     }
     return true;
 }
-__declspec(noinline) bool reference_integer(JsonString value, u64* output) noexcept {
+__declspec(noinline) bool reference_integer(const JsonString& value, u64* output) noexcept {
     if (!output || (!value.encoded.data && value.encoded.bytes != 0)) return false;
     u32 source_offset = 0, digits = 0;
     u64 result = 0;
@@ -282,9 +282,9 @@ extern "C" void maicord_json_integer_entry() noexcept {
         {"unicode", utf8_literal("\\uff11")}, {"empty", {}},
     };
 #if defined(MAICORD_JSON_NUMBER_BENCHMARK)
-    using Convert = bool (*)(JsonValue, u64*) noexcept;
+    using Convert = bool (*)(const JsonValue&, u64*) noexcept;
 #else
-    using Convert = bool (*)(JsonString, u64*) noexcept;
+    using Convert = bool (*)(const JsonString&, u64*) noexcept;
 #endif
     const Clock clock = clock_initialize(); constexpr u32 calls = 1000000;
     for (const auto& fixture : cases) {

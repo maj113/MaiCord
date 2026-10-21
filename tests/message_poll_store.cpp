@@ -23,6 +23,21 @@ struct ReleasePoll {
         message_poll_store_release(&store);
     }
 };
+u64 text_fingerprint(const MessagePollStore& store, const MessagePollRecord& record) noexcept {
+    u64 hash = 14695981039346656037ull;
+    const auto append = [&](MessagePollString value) noexcept {
+        const auto text = message_poll_store_string(store, value);
+        hash = (hash ^ text.bytes) * 1099511628211ull;
+        for (u32 i = 0; i < text.bytes; ++i)
+            hash = (hash ^ static_cast<u8>(text.data[i])) * 1099511628211ull;
+    };
+    append(record.question);
+    for (u32 i = 0; i < record.answer_count; ++i) {
+        append(record.answers[i].text);
+        append(record.answers[i].emoji_name);
+    }
+    return hash;
+}
 bool same_text(Utf8View a, Utf8View b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
@@ -258,6 +273,8 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     const auto* retained_poll = message_poll_store_find(store, 10);
     const u32 retained_content = retained_poll->content_revision,
               retained_results = retained_poll->result_revision;
+    const u64 retained_text = text_fingerprint(store, *retained_poll);
+    const u64 other_text = text_fingerprint(store, *message_poll_store_find(store, 11));
     MessagePollPageInput accepted_page[]{{10, 20, &input, 0, &old_content_ticket},
                                          {12, 20, &metadata, 0, nullptr}};
     const auto accepted_page_result = message_poll_store_apply_page(&store, {accepted_page, 2});
@@ -270,6 +287,11 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               message_poll_store_find(store, 10)->is_finalized,
           "poll model: accepted page skips stale resident ticket, publishes unrelated new poll atomically "
           "and preserves resident versions");
+    const auto* copied_poll = message_poll_store_find(store, 10);
+    const auto* other_poll = message_poll_store_find(store, 11);
+    check(copied_poll && other_poll && text_fingerprint(store, *copied_poll) == retained_text &&
+              text_fingerprint(store, *other_poll) == other_text,
+          "poll model: page clone preserves every retained question, answer and emoji string");
     const auto stable_page = message_poll_store_metrics(store);
     auto* const accepted_owner = store.owned;
     const MessagePollPageInput stale_page[]{accepted_page[0]};

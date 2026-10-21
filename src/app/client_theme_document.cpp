@@ -422,7 +422,7 @@ bool color_value(Parse& parse, JsonValue value, Reference allowed, UiThemeTokenS
     } else if (count == 3 && allowed == Reference::any && utf8_equal(parts[0], utf8_literal("semantic"))) {
         const auto tokens = ui_theme_token_descriptors();
         for (u32 i = 0; i < tokens.count; ++i)
-            if (utf8_equal(tokens[i].group, parts[1]) && utf8_equal(tokens[i].name, parts[2])) {
+            if (utf8_equal(tokens[i].group(), parts[1]) && utf8_equal(tokens[i].name(), parts[2])) {
                 *output = {{}, alpha, static_cast<u8>(tokens[i].id), UiThemeTokenSourceKind::token};
                 return true;
             }
@@ -471,7 +471,7 @@ bool semantic_token_member(void* context, JsonString name, JsonValue value) noex
     auto& parse = *visit.parse;
     const auto tokens = ui_theme_token_descriptors();
     for (u32 i = 0; i < tokens.count; ++i) {
-        if (!utf8_equal(tokens[i].group, visit.group) || !json_string_equals_ascii(name, tokens[i].name))
+        if (!utf8_equal(tokens[i].group(), visit.group) || !json_string_equals_ascii(name, tokens[i].name()))
             continue;
         if (parse.overrides[i].kind != UiThemeTokenSourceKind::inherit)
             return parse.fail(ClientThemeDocumentError::duplicate_field, name.source_offset);
@@ -486,14 +486,14 @@ bool semantic_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *section.parse;
     const auto tokens = ui_theme_token_descriptors();
     for (u32 i = 0, group = 0; i < tokens.count; ++i) {
-        if (i && utf8_equal(tokens[i].group, tokens[i - 1].group))
+        if (i && utf8_equal(tokens[i].group(), tokens[i - 1].group()))
             continue;
-        if (json_string_equals_ascii(name, tokens[i].group)) {
+        if (json_string_equals_ascii(name, tokens[i].group())) {
             if (!duplicate(parse, section.seen, group, name.source_offset))
                 return false;
             if (value.kind != JsonValueKind::object)
                 return parse.fail(ClientThemeDocumentError::type, value.source_offset);
-            GroupVisit visit{&parse, tokens[i].group};
+            GroupVisit visit{&parse, tokens[i].group()};
             return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
                                                         semantic_token_member, &visit));
         }
@@ -975,15 +975,15 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal("},\"semantic\":{"));
     const auto semantic = ui_theme_token_descriptors();
     for (u32 i = 0; i < semantic.count; ++i) {
-        const bool first = !i || !utf8_equal(semantic[i].group, semantic[i - 1].group);
+        const bool first = !i || !utf8_equal(semantic[i].group(), semantic[i - 1].group());
         if (first) {
             if (i)
                 writer.text(utf8_literal("},"));
-            writer.quoted(semantic[i].group);
+            writer.quoted(semantic[i].group());
             writer.text(utf8_literal(":{"));
         } else
             writer.character(',');
-        writer.quoted(semantic[i].name);
+        writer.quoted(semantic[i].name());
         writer.character(':');
         write_color(writer, *ui_theme_token_get(document.theme, semantic[i].id));
     }

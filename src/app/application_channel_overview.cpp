@@ -35,6 +35,7 @@
 
 namespace maicord::app_detail {
 namespace {
+static_assert(__is_trivial(ChannelSettingsDraft));
 // Channel Settings: Overview (text channels through the overview controller,
 // voice/stage/category through a channel PATCH), Permissions (overrides with
 // allow / neutral / deny per permission) and Delete channel.
@@ -864,7 +865,7 @@ void activate_hook(SettingsLayer*, const SettingsLayerActivation& activation) no
             if (channel_overview_controller_reset(&c))
                 import_models();
         } else {
-            p.draft = p.base;
+            copy_bytes(&p.draft, &p.base, sizeof(p.draft));
             p.conflict = false;
             import_models();
         }
@@ -1099,7 +1100,8 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
         message_composer_initialize(&p.models[1], {p.controller.draft.topic, kChannelOverviewTopicBytes});
     } else {
         p.controller = {};
-        p.base = p.draft = {};
+        clear_bytes(&p.base, sizeof(p.base));
+        clear_bytes(&p.draft, sizeof(p.draft));
         p.draft.channel_id = channel_id;
         message_composer_initialize(&p.models[0], {p.draft.name, kGuildAdminNameBytes});
     }
@@ -1413,7 +1415,8 @@ bool application_channel_overview_response(const RestClientResponse& response, U
                 if (p.loaded && !channel_settings_equal(p.base, p.draft) && !channel_settings_equal(fetched, p.base))
                     p.conflict = true;
                 else {
-                    p.base = p.draft = fetched;
+                    copy_bytes(&p.draft, &fetched, sizeof(fetched));
+                    copy_bytes(&p.base, &fetched, sizeof(fetched));
                     p.loaded = true;
                     p.conflict = false;
                     import_models();
@@ -1423,7 +1426,7 @@ bool application_channel_overview_response(const RestClientResponse& response, U
                 p.status = utf8_literal("The channel details couldn't be read.");
             }
         } else if (p.op == Op::update) {
-            p.base = p.draft;
+            copy_bytes(&p.base, &p.draft, sizeof(p.base));
             p.echo = true;
             p.echo_until = deadline_after(now, kEchoMs);
         } else if (p.op == Op::overwrites) {

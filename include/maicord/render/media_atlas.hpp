@@ -83,10 +83,10 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
 void media_atlas_reset(MediaAtlas* atlas) noexcept;
 void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept;
 MediaAtlasResult media_atlas_find(MediaAtlas* atlas,
-                                  MediaAssetKey key) noexcept;
+                                  const MediaAssetKey& key) noexcept;
 // Cache admission is not visibility; speculative lookups must not pin shelves.
-MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, MediaAssetKey key) noexcept;
-bool media_atlas_unpin(MediaAtlas* atlas, MediaAssetKey key) noexcept;
+MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, const MediaAssetKey& key) noexcept;
+bool media_atlas_unpin(MediaAtlas* atlas, const MediaAssetKey& key) noexcept;
 // Visible decorative media (member nameplates and avatar decorations) gives
 // way to a foreground image that found no room: their pins for this
 // visibility epoch drop, so allocation may evict shelves holding nothing else

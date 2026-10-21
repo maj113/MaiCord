@@ -410,7 +410,7 @@ bool skip_value(IndexedReader* reader, u32 depth, JsonValue* output) noexcept {
     return true;
 }
 
-bool decode_string_scalar(JsonString value, u32* offset, u32* codepoint) noexcept {
+bool decode_string_scalar(const JsonString& value, u32* offset, u32* codepoint) noexcept {
     if (*offset >= value.encoded.bytes) {
         return false;
     }
@@ -619,12 +619,12 @@ JsonReadResult json_visit_root_array(Utf8View input, ConstSlice<u32> structurals
     return visit_array_range(input, structurals, maximum_depth, visitor, context, 0, false);
 }
 
-JsonReadResult json_visit_value_object(JsonValue value, ConstSlice<u32> structurals, u32 maximum_depth,
+JsonReadResult json_visit_value_object(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
                                        JsonMemberVisitor visitor, void* context) noexcept {
     return visit_object_range(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
 }
 
-JsonReadResult json_visit_value_array(JsonValue value, ConstSlice<u32> structurals, u32 maximum_depth,
+JsonReadResult json_visit_value_array(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
                                       JsonArrayVisitor visitor, void* context) noexcept {
     return visit_array_range(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
 }
@@ -639,7 +639,7 @@ static u32 structural_lower_bound(ConstSlice<u32> offsets, u32 value) noexcept {
     return first;
 }
 
-static bool indexed_subview(const JsonIndexedDocument& document, JsonValue value,
+static bool indexed_subview(const JsonIndexedDocument& document, const JsonValue& value,
                             Utf8View* prefix, ConstSlice<u32>* offsets, u32* begin) noexcept {
     if (!document.input.data || !document.structurals.data || !value.source.data || !value.source.bytes)
         return false;
@@ -656,7 +656,7 @@ static bool indexed_subview(const JsonIndexedDocument& document, JsonValue value
     return true;
 }
 
-JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, JsonValue value,
+JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
     Utf8View prefix{};
     ConstSlice<u32> offsets{};
@@ -666,7 +666,7 @@ JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, Js
     return visit_object_range(prefix, offsets, maximum_depth, visitor, context, begin, value.validated);
 }
 
-JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, JsonValue value,
+JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
     Utf8View prefix{};
     ConstSlice<u32> offsets{};
@@ -713,7 +713,7 @@ bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, cons
     return source_offset == value.encoded.bytes;
 }
 
-bool json_string_equals_utf8(JsonString value, Utf8View text) noexcept {
+bool json_string_equals_utf8(const JsonString& value, Utf8View text) noexcept {
     if ((!value.encoded.data && value.encoded.bytes) || (!text.data && text.bytes)) return false;
     u32 source = 0, target = 0;
     while (source < value.encoded.bytes && target < text.bytes) {
@@ -726,7 +726,7 @@ bool json_string_equals_utf8(JsonString value, Utf8View text) noexcept {
     return source == value.encoded.bytes && target == text.bytes;
 }
 
-bool json_string_to_u64(JsonString value, u64* output) noexcept {
+bool json_string_to_u64(const JsonString& value, u64* output) noexcept {
     if (!output || !value.encoded.data || value.encoded.bytes == 0) {
         return false;
     }
@@ -750,7 +750,7 @@ bool json_string_to_u64(JsonString value, u64* output) noexcept {
     return true;
 }
 
-JsonStringDecodeResult json_string_decode_utf8(JsonString value, Slice<char> output) noexcept {
+JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, Slice<char> output) noexcept {
     if ((!value.encoded.data && value.encoded.bytes != 0) || (!output.data && output.count != 0)) {
         return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
     }
@@ -794,7 +794,7 @@ JsonStringDecodeResult json_string_decode_utf8(JsonString value, Slice<char> out
     return JsonStringDecodeResult{required, JsonStringDecodeError::none};
 }
 
-bool json_value_as_string(JsonValue value, JsonString* output) noexcept {
+bool json_value_as_string(const JsonValue& value, JsonString* output) noexcept {
     if (!output || value.kind != JsonValueKind::string || value.source.bytes < 2 ||
         value.source.data[0] != '"' || value.source.data[value.source.bytes - 1] != '"') {
         return false;
@@ -805,7 +805,7 @@ bool json_value_as_string(JsonValue value, JsonString* output) noexcept {
     return true;
 }
 
-bool json_value_to_u64(JsonValue value, u64* output) noexcept {
+bool json_value_to_u64(const JsonValue& value, u64* output) noexcept {
     if (!output || value.kind != JsonValueKind::number || value.source.bytes == 0) {
         return false;
     }
@@ -825,7 +825,7 @@ bool json_value_to_u64(JsonValue value, u64* output) noexcept {
     return true;
 }
 
-bool json_value_to_bool(JsonValue value, bool* output) noexcept {
+bool json_value_to_bool(const JsonValue& value, bool* output) noexcept {
     if (!output || value.kind != JsonValueKind::boolean || !value.source.data) {
         return false;
     }

@@ -139,7 +139,7 @@ bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handl
                                   UiRect origin, bool visible, bool enabled,
                                   bool focusable = true) noexcept;
 UiLayoutResult ui_widget_manager_layout(UiWidgetManager* manager, UiSize viewport) noexcept;
-UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, UiRect viewport) noexcept;
+UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept;
 const UiWidget* ui_widget_manager_resolve(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;
 UiWidget* ui_widget_manager_resolve(UiWidgetManager* manager, UiWidgetHandle handle) noexcept;
 UiWidgetHandle ui_widget_manager_find(const UiWidgetManager& manager, u32 id) noexcept;

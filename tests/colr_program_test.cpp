@@ -310,6 +310,18 @@ bool colr_program_tests() noexcept {
         // winding coverage; losing the third made real open-path fills vanish.
         vector_ok=node->kind==8 && mask->segment_count==3;
     }
+    // Morphing paths exercise both the unused end buffers at frame zero and
+    // all six assigned coordinate/tangent prefixes during interpolation.
+    constexpr auto morphing=utf8_literal(R"({"w":320,"h":320,"fr":60,"ip":0,"op":11,"layers":[{"ty":4,"shapes":[{"ty":"sh","ks":{"k":[{"t":0,"s":[{"c":true,"v":[[32,32],[96,32],[96,96]],"i":[[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0]]}],"e":[{"c":true,"v":[[192,32],[256,32],[256,96]],"i":[[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0]]}]},{"t":10,"s":[{"c":true,"v":[[192,32],[256,32],[256,96]],"i":[[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0]]}]}]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
+    for(u32 frame=0;frame<3&&vector_ok;++frame) {
+        vector_ok=compile(morphing,frame*5)&&vector_program.mask_count==1;
+        if(vector_ok) {
+            const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
+            const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
+            const i32 left=12+32*static_cast<i32>(frame);
+            vector_ok=node->kind==8&&mask->segment_count==3&&mask->left>=left-1&&mask->left<=left+1;
+        }
+    }
     constexpr auto empty_merge=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]}},{"ty":"gr","it":[{"ty":"tr","p":{"k":[0,0]}}]},{"ty":"mm","mm":4},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]}]})");
     vector_ok=vector_ok && compile(empty_merge,0) &&
         vector_program.mask_count==1;

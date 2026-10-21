@@ -62,7 +62,7 @@ MediaAtlasResult result_from(const MediaAtlasEntry& entry,
     };
 }
 
-u32 find_bucket(const MediaAtlas* atlas, MediaAssetKey key) noexcept {
+u32 find_bucket(const MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     if (!atlas->entries || !atlas->buckets || atlas->bucket_capacity == 0) {
         return 0xFFFFFFFFu;
     }
@@ -234,7 +234,7 @@ void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept {
     }
 }
 
-MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, MediaAssetKey key) noexcept {
+MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     if (!atlas || !atlas->entries || !atlas->buckets ||
         !atlas->allocations.entries ||
         !media_asset_key_valid(key)) {
@@ -257,14 +257,14 @@ MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, MediaAssetKey key) noexcept
     return result_from(entry, slot, allocation, true);
 }
 
-MediaAtlasResult media_atlas_find(MediaAtlas* atlas, MediaAssetKey key) noexcept {
+MediaAtlasResult media_atlas_find(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     const auto result = media_atlas_peek(atlas, key);
     if (result.ok() && !glyph_atlas_pin(&atlas->allocations, atlas->entries[result.handle.slot].allocation))
         return failure(MediaAtlasError::corrupt_state);
     return result;
 }
 
-bool media_atlas_unpin(MediaAtlas* atlas, MediaAssetKey key) noexcept {
+bool media_atlas_unpin(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     const auto result = media_atlas_peek(atlas, key);
     return result.ok() && glyph_atlas_unpin(&atlas->allocations, atlas->entries[result.handle.slot].allocation);
 }

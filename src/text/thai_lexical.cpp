@@ -7,6 +7,18 @@ namespace maicord {namespace {
 #include "generated/thai_lexical_data.inc"
 
 constexpr u32 no_node=0xffffffffu;
+struct UnaryPatterns { u16 values[128]; };
+static_assert(sizeof(thai_word_special)/sizeof(thai_word_special[0])<=48);
+// Ordinary labels have zero distance; compact headers carry their target
+// distance. Resolve both with one comparison before reading any reference.
+constexpr UnaryPatterns unary_patterns() noexcept {
+    UnaryPatterns result{};
+    for(u32 i=0;i<80;++i)result.values[i]=static_cast<u16>(i);
+    for(u32 i=0;i<sizeof(thai_word_special)/sizeof(thai_word_special[0]);++i)
+        result.values[80+i]=thai_word_special[i];
+    return result;
+}
+constexpr auto unary=unary_patterns();
 u32 graph_rank(u64 value) noexcept {
     value-=(value>>1)&0x5555555555555555ull;
     value=(value&0x3333333333333333ull)+((value>>2)&0x3333333333333333ull);
@@ -23,7 +35,11 @@ u32 graph_reference(u32 node,u32& at) noexcept {
 }
 u32 graph_child(u32 node,u32 label) noexcept {
     const u32 header=thai_word_graph[node];u32 at=node+1;
-    if(header<128)return header==label?graph_reference(node,at):no_node;
+    if(header<128){
+        const u32 pattern=unary.values[header];
+        if((pattern&255)!=label)return no_node;
+        return pattern>>8?node-(pattern>>8):graph_reference(node,at);
+    }
     if(header>=248){
         const u8* mask=thai_word_graph+at;
         const u64 low=graph_u64(mask),high=graph_u64(mask+8),word=label<64?low:high,bit=1ull<<(label&63);
@@ -33,9 +49,11 @@ u32 graph_child(u32 node,u32 label) noexcept {
         return node-(distance[0]|(distance[1]<<8)|(width==3?static_cast<u32>(distance[2])<<16:0u));
     }
     for(u32 edges=(header-128)>>1;edges;--edges){
-        const u32 edge=thai_word_graph[at++];const u32 child=graph_reference(node,at);
-        if(edge==label)return child;
+        const u32 packed=thai_word_graph[at++],edge=packed&127;
+        if(edge==label)return packed&128?0:graph_reference(node,at);
         if(edge>label)break;
+        // Earlier edges only need their encoded length, not a resolved child.
+        if(!(packed&128))while(thai_word_graph[at++]&128){}
     }
     return no_node;
 }

@@ -25,7 +25,7 @@ bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry,
                UiBackgroundTier::highest, UiBackgroundBorderTone::palette);
 }
 
-UiScrollbarGeometry ui_scrollbar_geometry(UiRect viewport, float scroll_dips,
+UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_dips,
                                           float content_height_dips) noexcept {
     UiScrollbarGeometry result{};
     if (!is_finite(viewport.left) || !is_finite(viewport.top) ||

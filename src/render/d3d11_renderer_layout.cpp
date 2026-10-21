@@ -43,7 +43,7 @@
 
 namespace maicord {
 namespace {
-// The build_layout line whose step rejected the last build (0: a return
+// The source line whose layout step rejected the last build (0: a return
 // without a tag), logged with the layout failure.
 u32 g_layout_failed_line = 0;
 bool layout_step_failed(u32 line) noexcept {
@@ -946,6 +946,475 @@ bool shell_segment_replay(D3D11Renderer* renderer, u64 key, float width_dip, flo
     return true;
 }
 
+bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
+                         const MessageMediaCommandStream& stream, bool first) noexcept {
+    for (u32 index = 0; index < stream.count; ++index) {
+        const MessageMediaCommand& command = stream.storage[index];
+        MediaAssetKey key{};
+        const bool large_preview = command.kind == MessageMediaCommandKind::attachment ||
+                                   command.kind == MessageMediaCommandKind::embed;
+        const MediaResolutionTier resolution =
+            large_preview && renderer->preview_media_atlas
+                ? media_resolution_tier_for_display(
+                      command.rectangle.right - command.rectangle.left,
+                      command.rectangle.bottom - command.rectangle.top, renderer->dpi,
+                      media_preview_extent_cap(static_cast<MediaAttachmentFormat>(command.format),
+                                               command.animated))
+                : MediaResolutionTier::original;
+        switch (command.kind) {
+        case MessageMediaCommandKind::attachment:
+            key = command.search_result
+                      ? media_asset_search_attachment(
+                            command.id, static_cast<MediaAttachmentFormat>(command.format), resolution,
+                            command.message_revision, command.snapshot)
+                      : media_asset_attachment(
+                            command.id, static_cast<MediaAttachmentFormat>(command.format), resolution);
+            break;
+        case MessageMediaCommandKind::embed:
+            key = command.search_result
+                      ? media_asset_search_embed(
+                            command.id, command.message_revision, command.embed_index,
+                            static_cast<MediaEmbedResource>(command.embed_resource),
+                            static_cast<MediaAttachmentFormat>(command.format), command.animated,
+                            resolution, command.snapshot)
+                      : media_asset_embed(command.id, command.message_revision, command.embed_index,
+                                          static_cast<MediaEmbedResource>(command.embed_resource),
+                                          static_cast<MediaAttachmentFormat>(command.format),
+                                          command.animated, resolution, command.snapshot);
+            break;
+        case MessageMediaCommandKind::sticker:
+            key = media_asset_sticker(command.id, command.format);
+            break;
+        case MessageMediaCommandKind::custom_emoji:
+            key = media_asset_custom_emoji(command.id, command.animated);
+            break;
+        case MessageMediaCommandKind::regional_flag:
+            key = media_asset_regional_flag(static_cast<u16>(command.id));
+            break;
+        case MessageMediaCommandKind::component:
+            key = message_component_media_key(command.id, static_cast<MediaAttachmentFormat>(command.format));
+            break;
+        }
+        const u8 domain = large_preview && renderer->preview_media_atlas ? 1 : 0;
+        MediaAtlas* atlas = domain == 1 ? renderer->preview_media_atlas : renderer->media_atlas;
+        ID3D11ShaderResourceView* texture_view =
+            domain == 1 ? renderer->media_gpu.preview_texture_view : renderer->media_gpu.texture_view;
+        if (!atlas || !texture_view) {
+            continue;
+        }
+        const MediaAtlasResult allocation = media_atlas_peek(atlas, key);
+        if (!allocation.ok()) {
+            continue;
+        }
+        if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
+            continue;
+        }
+        const u32 media_before = renderer->media_quad_count;
+        // Grid tiles: the cover rectangle's centred square is the tile itself.
+        UiRect tile{};
+        if (command.tile_radius) {
+            const float side = minimum(ui_rect_width(command.rectangle), ui_rect_height(command.rectangle));
+            const float cx = (command.rectangle.left + command.rectangle.right) * .5f,
+                        cy = (command.rectangle.top + command.rectangle.bottom) * .5f;
+            tile = {cx - side * .5f, cy - side * .5f, cx + side * .5f, cy + side * .5f};
+        }
+        // Spoiler and explicit previews blur in the media shader until revealed.
+        const float blur = command.obscure != static_cast<u8>(MessageMediaObscure::none)
+                               ? minimum(kMessageMediaObscureBlur,
+                                         minimum(ui_rect_width(command.rectangle),
+                                                 ui_rect_height(command.rectangle)) * .25f)
+                               : 0.f;
+        // Gallery tiles: the image covers its tile, cropped by the tile clip.
+        const UiRect cover = command.cover ? ui_call_video_fit(command.rectangle, allocation.width,
+                                                               allocation.height, true)
+                                           : UiRect{};
+        const UiRect quad = ui_rect_has_area(cover) ? cover : command.rectangle;
+        const UiRect quad_clip =
+            ui_rect_has_area(cover) ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
+        if (!queue_media_quad(renderer, allocation, quad.left, quad.top, quad.right, quad.bottom, quad_clip,
+                              false, first, domain, 1.f,
+                              command.ordinary_video ? UiVideoSceneStyle{}.preview_radius : 0.f, tile,
+                              static_cast<float>(command.tile_radius), blur) ||
+            !paint_stream_record_content(&renderer->paint_stream, command.owner, command.rectangle,
+                                         UiLayoutContentKind::media,
+                                         ui_layout_content_bounds_allow_overlap)) {
+            return layout_step_failed(__LINE__);
+        }
+        if (large_preview || command.kind == MessageMediaCommandKind::sticker)
+            reveal_media_underlay(*renderer, media_before, command.rectangle, theme.surface_high);
+        if (renderer->media_quad_count != media_before)
+            first = false;
+    }
+    return true;
+}
+
+// Command storage belongs to this surface; producers initialize every consumed record.
+bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const MessageScene* message_scene,
+                          bool messages_visible, bool content_hidden) noexcept {
+    MessageMediaCommand message_media_commands[kRendererMessageMediaCommandCapacity];
+    MessageMediaCommandStream message_media_stream{};
+    MessagePresentationResult message_presentation{};
+    if (messages_visible &&
+        (!message_media_command_stream_initialize(
+             &message_media_stream,
+             Slice<MessageMediaCommand>{message_media_commands, kRendererMessageMediaCommandCapacity}) ||
+         !message_presentation_build(*renderer->message_scene, theme, &renderer->paint_stream,
+                                     &message_media_stream, &message_presentation,
+                                     renderer->message_text && renderer->message_text->active ? renderer->message_text
+                                                                                              : nullptr))) {
+        return layout_step_failed(__LINE__);
+    }
+    if (messages_visible && renderer->user_store && renderer->media_atlas &&
+        renderer->media_gpu.texture_view) {
+        if (renderer->message_text && renderer->chat_state) {
+            for (u32 i = 0; i < renderer->message_text->command_count; ++i) {
+                const auto& command = renderer->message_text->commands[i];
+                MessageAuthorLayout header{};
+                if (!ui_rect_has_area(ui_rect_intersection(command.rectangle, message_scene->viewport)) ||
+                    !message_author_layout(*message_scene, command, *renderer->chat_state,
+                                           *renderer->user_store, renderer->message_measure_cache, theme,
+                                           &header) ||
+                    (!header.badge.label.bytes && !header.plugin.badge.label.bytes && !header.decoration_count))
+                    continue;
+                if (!ui_plugin_slot_badge_paint(header.plugin, message_scene->widgets, theme, &renderer->paint_stream))
+                    return layout_step_failed(__LINE__);
+                for (u32 d = 0; d < header.decoration_count; ++d)
+                    if (!ui_plugin_slot_badge_paint(header.decorations[d], message_scene->widgets, theme,
+                                                    &renderer->paint_stream))
+                        return layout_step_failed(__LINE__);
+                if (!header.badge.label.bytes)
+                    continue;
+                if (!ui_badge_paint(header.badge, message_scene->widgets, theme, &renderer->paint_stream))
+                    return layout_step_failed(__LINE__);
+                ProfileMedia badge_media{};
+                if (header.badge.leading && header.appearance &&
+                    user_guild_badge_media(*header.appearance,
+                                           ui_badge_geometry(header.badge, message_scene->widgets).icon,
+                                           command.clip, &badge_media)) {
+                    const auto allocation = media_atlas_find(renderer->media_atlas, badge_media.key);
+                    const auto r = badge_media.rectangle;
+                    if (allocation.ok() && !queue_media_quad(renderer, allocation, r.left, r.top, r.right,
+                                                             r.bottom, badge_media.clip, false))
+                        return layout_step_failed(__LINE__);
+                }
+            }
+        }
+        for (u32 index = 0; index < message_scene->count; ++index) {
+            const MessageSceneRowWidget& row = message_scene->rows[index];
+            if (!message_scene_avatar_visible(*message_scene, row) ||
+                renderer->media_quad_count >= kRendererMediaQuadCapacity) {
+                continue;
+            }
+            const MessageRecord* message =
+                message_store_resolve(*message_scene->timeline->store, row.message);
+            const UserRecord* user =
+                message ? user_store_find(*renderer->user_store, message->author_id) : nullptr;
+            const UiLayoutNode* avatar = message_scene_layout_node(*message_scene, row.avatar);
+            MediaAtlasResult allocation{};
+            if (!user || !avatar || !find_user_avatar(*renderer, *user, &allocation)) {
+                continue;
+            }
+            if (!queue_avatar(renderer, allocation, avatar->rectangle, message_scene->viewport,
+                              {&message_scene->widgets, row.avatar}, theme.avatar_placeholder))
+                return layout_step_failed(__LINE__);
+        }
+        // A DM's channel-beginning header shows the recipient's avatar.
+        if (MessageSceneIntroGeometry intro{};
+            message_scene->intro.kind == MessageSceneIntroKind::direct_message && message_scene->intro.user_id &&
+            renderer->user_store && renderer->media_quad_count < kRendererMediaQuadCapacity &&
+            message_scene_intro_geometry(*message_scene, &intro) && ui_rect_has_area(intro.icon)) {
+            const UserRecord* user = user_store_find(*renderer->user_store, message_scene->intro.user_id);
+            MediaAtlasResult allocation{};
+            const UiRect clip = ui_rect_intersection(message_scene->viewport, intro.area);
+            if (user && ui_rect_has_area(clip) && find_user_avatar(*renderer, *user, &allocation) &&
+                !queue_avatar(renderer, allocation, intro.icon, clip, {}, theme.avatar_placeholder))
+                return layout_step_failed(__LINE__);
+        }
+        for (u32 index = 0; index < message_scene->count; ++index) {
+            if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
+                break;
+            }
+            const MessageSceneRowWidget& row = message_scene->rows[index];
+            const MessageRecord* message =
+                message_store_resolve(*message_scene->timeline->store, row.message);
+            const MessageRichStore* rich_store = message_scene->timeline->rich_store;
+            const MessageRichRecord* rich =
+                message && rich_store ? message_rich_store_find(*rich_store, message->id) : nullptr;
+            const UserRecord* user =
+                rich && rich->message_revision == message->revision && message_rich_has_header(*rich)
+                    ? user_store_find(*renderer->user_store, message_rich_header_user(*rich))
+                    : nullptr;
+            const UiLayoutNode* body = message_scene_layout_node(*message_scene, row.body);
+            const UiLayoutNode* reply = message_scene_layout_node(*message_scene, row.reply);
+            MediaAtlasResult allocation{};
+            if (!user || !body || !reply || !find_user_avatar(*renderer, *user, &allocation)) {
+                continue;
+            }
+            const UiRect reference_avatar{body->content_rectangle.left, reply->rectangle.top + 1.0f,
+                                          body->content_rectangle.left + 16.0f,
+                                          reply->rectangle.top + 17.0f};
+            if (!queue_avatar(renderer, allocation, reference_avatar, message_scene->viewport, {},
+                              theme.avatar_placeholder))
+                return layout_step_failed(__LINE__);
+        }
+    }
+    if (!content_hidden && renderer->message_composer_scene && renderer->media_atlas &&
+        renderer->media_gpu.texture_view) {
+        const auto& composer = *renderer->message_composer_scene;
+        const auto avatar = message_composer_scene_command_avatar(composer);
+        if (ui_rect_has_area(avatar)) {
+            const auto allocation = media_atlas_peek(renderer->media_atlas,
+                media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
+                                        composer.command.animated));
+            if (allocation.ok() &&
+                !queue_media_quad(renderer, allocation, avatar.left, avatar.top, avatar.right, avatar.bottom,
+                                  composer.viewport, true))
+                return layout_step_failed(__LINE__);
+        }
+        for (u32 i = 0; i < composer.projection_span_count; ++i) {
+            UiRect rectangle{}, clip{};
+            if (!text_composer_emoji_rectangle(renderer->composer_layout, composer, i, &rectangle, &clip))
+                continue;
+            const auto& span = composer.projection_spans[i];
+            const auto allocation = media_atlas_peek(
+                renderer->media_atlas, span.kind == MessageComposerProjectionKind::regional_flag
+                                           ? media_asset_regional_flag(static_cast<u16>(span.target))
+                                           : media_asset_custom_emoji(span.target, span.animated));
+            if (allocation.ok() && !queue_media_quad(renderer, allocation, rectangle.left, rectangle.top,
+                                                     rectangle.right, rectangle.bottom, clip))
+                return layout_step_failed(__LINE__);
+        }
+    }
+    if (!content_hidden && renderer->content_text && renderer->media_atlas &&
+        renderer->media_gpu.texture_view) {
+        const RendererTextStorage& text = *renderer->content_text;
+        for (u32 index = 0; index < text.content_hit_region_count; ++index) {
+            if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
+                break;
+            }
+            const TextHitRegion& region = text.content_hit_regions[index];
+            if (region.semantic_index >= text.content_semantic_count) {
+                continue;
+            }
+            const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
+            const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
+            if ((semantic.kind != MessageMarkdownSemanticKind::custom_emoji && !flag) ||
+                semantic.target == 0 || (semantic.reserved & (2u | kRendererSearchSemanticFlag))) {
+                continue;
+            }
+            const bool animated = (semantic.reserved & 1u) != 0;
+            const MediaAtlasResult allocation = media_atlas_peek(
+                renderer->media_atlas, flag ? media_asset_regional_flag(static_cast<u16>(semantic.target))
+                                            : media_asset_custom_emoji(semantic.target, animated));
+            if (!allocation.ok()) {
+                continue;
+            }
+            const float height = maximum(1.0f, region.bottom - region.top);
+            const float extent =
+                flag ? minimum(48.0f, region.right - region.left) : minimum(48.0f, maximum(16.0f, height));
+            const float center_x = (region.left + region.right) * 0.5f;
+            const float center_y = (region.top + region.bottom) * 0.5f;
+            if (!queue_media_quad(renderer, allocation, center_x - extent * 0.5f, center_y - extent * 0.5f,
+                                  center_x + extent * 0.5f, center_y + extent * 0.5f,
+                                  message_scene->viewport, false)) {
+                return layout_step_failed(__LINE__);
+            }
+        }
+    }
+
+    if (!queue_message_media(renderer, theme, message_media_stream, false))
+        return layout_step_failed(__LINE__);
+    // Composer upload thumbnails join the ordinary preview layer so the strip
+    // overlay (tags, progress and the action bar) paints above them.
+    if (!content_hidden && d3d11_renderer_active(renderer->message_composer_scene) &&
+        renderer->preview_media_atlas && renderer->media_gpu.preview_texture_view) {
+        const auto strip = message_composer_scene_attachment_view(*renderer->message_composer_scene, false);
+        bool first_thumbnail = true;
+        for (u32 i = 0; i < strip.tiles.count; ++i) {
+            UiRect media{}, clip{};
+            if (!ui_composer_attachment_thumbnail_visible(strip, i, &media, &clip) ||
+                renderer->media_quad_count >= kRendererMediaQuadCapacity)
+                continue;
+            const auto allocation = media_atlas_peek(renderer->preview_media_atlas, strip.tiles[i].preview);
+            if (!allocation.ok() || !allocation.width || !allocation.height)
+                continue;
+            const UiRect fitted = ui_composer_attachment_fit(media, allocation.width, allocation.height);
+            // Spoilered uploads keep their thumbnail, blurred in the media shader.
+            const float blur = ui_composer_attachment_thumbnail_blur(strip.tiles[i], fitted);
+            if (!queue_media_quad(renderer, allocation, fitted.left, fitted.top, fitted.right, fitted.bottom, clip,
+                                  false, first_thumbnail, 1, 1.f, 0.f, fitted, theme.scale.radius_sm, blur) ||
+                !paint_stream_record_content(&renderer->paint_stream, strip.owner,
+                                             ui_rect_intersection(fitted, clip), UiLayoutContentKind::media,
+                                             ui_layout_content_bounds_allow_overlap))
+                return layout_step_failed(__LINE__);
+            first_thumbnail = false;
+        }
+    }
+    if (renderer->content_text) {
+        renderer->content_text->message_geometry_quads = message_presentation.geometry_quads;
+    }
+
+    // The DM profile panel: its card, then its media with the shell's; its
+    // foreground follows above that media, its text with the shell's.
+    const ProfileScene* dm_panel =
+        !content_hidden && d3d11_renderer_active(renderer->dm_profile_panel) ? renderer->dm_profile_panel : nullptr;
+    u32 dm_panel_effects = 0;
+    if (dm_panel && (!profile_scene_paint(*dm_panel, theme, &renderer->paint_stream) ||
+                     !queue_profile_media(renderer, *dm_panel, theme, &dm_panel_effects)))
+        return layout_step_failed(__LINE__);
+    // Avatar textures are submitted as media after the base shell geometry.
+    // Start a separate paint layer for badges that must remain above those
+    // textures regardless of media residency.
+    renderer->media_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    if (dm_panel && !profile_scene_foreground(*dm_panel, theme, &renderer->paint_stream, nullptr, renderer->dpi))
+        return layout_step_failed(__LINE__);
+    if (!content_hidden) {
+        const UiVideoPlayAffordanceStyle affordance{};
+        for (u32 i = 0; i < message_media_stream.count; ++i) {
+            const auto& command = message_media_stream.storage[i];
+            if (command.obscure != static_cast<u8>(MessageMediaObscure::none)) {
+                // A centred scrim pill above the blurred preview; the text
+                // pass draws its label. Obscured media offers no save action.
+                const UiRect pill = message_media_obscure_pill(command.rectangle,
+                                                                static_cast<MessageMediaObscure>(command.obscure));
+                if (ui_rect_has_area(pill) &&
+                    (!paint_stream_push_rounded_border(&renderer->paint_stream, pill.left, pill.top, pill.right,
+                                                       pill.bottom, theme.tokens.overlay.scrim_strong,
+                                                       theme.tokens.overlay.scrim_strong,
+                                                       ui_rect_height(pill) * .5f, 0) ||
+                     !paint_stream_record_content(&renderer->paint_stream, command.owner,
+                                                  ui_rect_intersection(pill, command.clip),
+                                                  UiLayoutContentKind::decoration,
+                                                  ui_layout_content_bounds_allow_overlap)))
+                    return layout_step_failed(__LINE__);
+                continue;
+            }
+            if (command.kind == MessageMediaCommandKind::attachment &&
+                !d3d11_renderer_message_modal_active(*renderer) &&
+                !ui_attachment_save_paint(
+                    &renderer->paint_stream, command.owner,
+                    ui_attachment_save_rectangle(command.rectangle, false), command.clip, theme, false,
+                    d3d11_renderer_video_scene_visible(*renderer) &&
+                        ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
+                return layout_step_failed(__LINE__);
+            const auto star_owner = renderer->gif_favorite_owner;
+            if (command.gif && !d3d11_renderer_message_modal_active(*renderer) && star_owner.generation &&
+                command.owner.handle.slot == star_owner.slot &&
+                command.owner.handle.generation == star_owner.generation &&
+                !ui_gif_favorite_paint(
+                    &renderer->paint_stream, command.owner,
+                    ui_gif_favorite_rectangle(command.rectangle,
+                                              command.kind == MessageMediaCommandKind::attachment),
+                    command.clip, theme, renderer->gif_favorite, renderer->gif_favorite_pending))
+                return layout_step_failed(__LINE__);
+            if (!command.ordinary_video ||
+                (d3d11_renderer_video_scene_visible(*renderer) &&
+                 ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
+                continue;
+            if (!ui_video_play_affordance_paint(command.rectangle, command.clip, affordance, theme,
+                                                &renderer->paint_stream))
+                return layout_step_failed(__LINE__);
+        }
+    }
+    if (!content_hidden && d3d11_renderer_active(renderer->message_composer_scene) &&
+        !ui_composer_attachment_strip_paint_overlay(
+            message_composer_scene_attachment_view(*renderer->message_composer_scene, true), theme,
+            &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
+    if (messages_visible && d3d11_renderer_video_scene_visible(*renderer) &&
+        !renderer->video_scene_search_result &&
+        !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
+    return true;
+}
+
+bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    MessageMediaCommand message_media_commands[kRendererMessageMediaCommandCapacity];
+    MessageMediaCommandStream search_media_stream{};
+    if (!message_media_command_stream_initialize(
+            &search_media_stream, {message_media_commands, kRendererMessageMediaCommandCapacity}))
+        return layout_step_failed(__LINE__);
+    if (d3d11_renderer_search_visible(*renderer) &&
+        !ui_search_scene_paint(*renderer->search_scene, theme, &renderer->paint_stream,
+                               &renderer->search_edit_geometry, renderer->dpi, &search_media_stream,
+                               renderer->search_message_text && renderer->search_message_text->active
+                                   ? renderer->search_message_text
+                                   : nullptr))
+        return layout_step_failed(__LINE__);
+    renderer->friends_requests_media_first_batch = renderer->media_batch_count;
+    if (!queue_message_media(renderer, theme, search_media_stream, true))
+        return layout_step_failed(__LINE__);
+    const u32 search_foreground_quad = renderer->paint_stream.count;
+    if (d3d11_renderer_search_visible(*renderer))
+        renderer->friends_requests_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
+    if (d3d11_renderer_search_visible(*renderer)) {
+        const UiVideoPlayAffordanceStyle affordance{};
+        for (u32 i = 0; i < search_media_stream.count; ++i) {
+            const auto& command = search_media_stream.storage[i];
+            const bool covered = d3d11_renderer_video_scene_visible(*renderer) &&
+                                 renderer->video_scene_search_result &&
+                                 ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle);
+            // Media grid tiles are owned by the search scene itself and have no Save action.
+            if (command.kind == MessageMediaCommandKind::attachment &&
+                command.owner.manager != &renderer->search_scene->widgets &&
+                !d3d11_renderer_message_modal_active(*renderer) &&
+                !ui_attachment_save_paint(&renderer->paint_stream, command.owner,
+                                          ui_attachment_save_rectangle(command.rectangle, false),
+                                          command.clip, theme, false, covered))
+                return layout_step_failed(__LINE__);
+            if (command.ordinary_video && !covered &&
+                !ui_video_play_affordance_paint(command.rectangle, command.clip, affordance, theme,
+                                                &renderer->paint_stream))
+                return layout_step_failed(__LINE__);
+        }
+        if (d3d11_renderer_video_scene_visible(*renderer) && renderer->video_scene_search_result &&
+            !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
+            return layout_step_failed(__LINE__);
+        // Rich inline emoji cells belong above Search card geometry.
+        if (renderer->content_text && renderer->media_atlas && renderer->media_gpu.texture_view) {
+            const auto& text = *renderer->content_text;
+            bool first = true;
+            for (u32 i = 0; i < text.content_hit_region_count; ++i) {
+                const auto& region = text.content_hit_regions[i];
+                if (region.semantic_index >= text.content_semantic_count)
+                    continue;
+                const auto& semantic = text.content_semantics[region.semantic_index];
+                const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
+                if (!(semantic.reserved & kRendererSearchSemanticFlag) || (semantic.reserved & 2u) ||
+                    !semantic.target ||
+                    (!flag && semantic.kind != MessageMarkdownSemanticKind::custom_emoji))
+                    continue;
+                const auto clip = ui_search_scene_content_clip(
+                    *renderer->search_scene, {region.left, region.top, region.right, region.bottom});
+                if (!ui_rect_has_area(clip))
+                    continue;
+                const auto allocation = media_atlas_peek(
+                    renderer->media_atlas,
+                    flag ? media_asset_regional_flag(static_cast<u16>(semantic.target))
+                         : media_asset_custom_emoji(semantic.target, (semantic.reserved & 1u) != 0));
+                if (!allocation.ok() || renderer->media_quad_count >= kRendererMediaQuadCapacity)
+                    continue;
+                const float height = maximum(1.f, region.bottom - region.top);
+                const float extent =
+                    flag ? minimum(48.f, region.right - region.left) : minimum(48.f, maximum(16.f, height));
+                const float cx = (region.left + region.right) * .5f,
+                            cy = (region.top + region.bottom) * .5f;
+                const u32 before = renderer->media_quad_count;
+                if (!queue_media_quad(renderer, allocation, cx - extent * .5f, cy - extent * .5f,
+                                      cx + extent * .5f, cy + extent * .5f, clip, false, first))
+                    return layout_step_failed(__LINE__);
+                if (renderer->media_quad_count != before)
+                    first = false;
+            }
+        }
+    }
+    if (d3d11_renderer_search_visible(*renderer) &&
+        !split_paint_quad_boundary(&renderer->paint_stream, search_foreground_quad,
+                                   &renderer->friends_requests_foreground_first_batch))
+        return layout_step_failed(__LINE__);
+    return true;
+}
+
 bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                   const RendererPresentationStamp* stamp = nullptr, bool replay_shell = false) noexcept {
     renderer_record_typing_dots(renderer, {});
@@ -1505,379 +1974,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         shell_segment_capture(renderer, segment_key, chrome_regions);
     } // !segment_replayed
 
-    MessageMediaCommand message_media_commands[kRendererMessageMediaCommandCapacity]{};
-    MessageMediaCommandStream message_media_stream{};
-    MessagePresentationResult message_presentation{};
-    if (messages_visible &&
-        (!message_media_command_stream_initialize(
-             &message_media_stream,
-             Slice<MessageMediaCommand>{message_media_commands, kRendererMessageMediaCommandCapacity}) ||
-         !message_presentation_build(*renderer->message_scene, theme, &renderer->paint_stream,
-                                     &message_media_stream, &message_presentation,
-                                     renderer->message_text && renderer->message_text->active ? renderer->message_text
-                                                                                              : nullptr))) {
-        return layout_step_failed(__LINE__);
-    }
-    if (messages_visible && renderer->user_store && renderer->media_atlas &&
-        renderer->media_gpu.texture_view) {
-        if (renderer->message_text && renderer->chat_state) {
-            for (u32 i = 0; i < renderer->message_text->command_count; ++i) {
-                const auto& command = renderer->message_text->commands[i];
-                MessageAuthorLayout header{};
-                if (!ui_rect_has_area(ui_rect_intersection(command.rectangle, message_scene->viewport)) ||
-                    !message_author_layout(*message_scene, command, *renderer->chat_state,
-                                           *renderer->user_store, renderer->message_measure_cache, theme,
-                                           &header) ||
-                    (!header.badge.label.bytes && !header.plugin.badge.label.bytes && !header.decoration_count))
-                    continue;
-                if (!ui_plugin_slot_badge_paint(header.plugin, message_scene->widgets, theme, &renderer->paint_stream))
-                    return layout_step_failed(__LINE__);
-                for (u32 d = 0; d < header.decoration_count; ++d)
-                    if (!ui_plugin_slot_badge_paint(header.decorations[d], message_scene->widgets, theme,
-                                                    &renderer->paint_stream))
-                        return layout_step_failed(__LINE__);
-                if (!header.badge.label.bytes)
-                    continue;
-                if (!ui_badge_paint(header.badge, message_scene->widgets, theme, &renderer->paint_stream))
-                    return layout_step_failed(__LINE__);
-                ProfileMedia badge_media{};
-                if (header.badge.leading && header.appearance &&
-                    user_guild_badge_media(*header.appearance,
-                                           ui_badge_geometry(header.badge, message_scene->widgets).icon,
-                                           command.clip, &badge_media)) {
-                    const auto allocation = media_atlas_find(renderer->media_atlas, badge_media.key);
-                    const auto r = badge_media.rectangle;
-                    if (allocation.ok() && !queue_media_quad(renderer, allocation, r.left, r.top, r.right,
-                                                             r.bottom, badge_media.clip, false))
-                        return layout_step_failed(__LINE__);
-                }
-            }
-        }
-        for (u32 index = 0; index < message_scene->count; ++index) {
-            const MessageSceneRowWidget& row = message_scene->rows[index];
-            if (!message_scene_avatar_visible(*message_scene, row) ||
-                renderer->media_quad_count >= kRendererMediaQuadCapacity) {
-                continue;
-            }
-            const MessageRecord* message =
-                message_store_resolve(*message_scene->timeline->store, row.message);
-            const UserRecord* user =
-                message ? user_store_find(*renderer->user_store, message->author_id) : nullptr;
-            const UiLayoutNode* avatar = message_scene_layout_node(*message_scene, row.avatar);
-            MediaAtlasResult allocation{};
-            if (!user || !avatar || !find_user_avatar(*renderer, *user, &allocation)) {
-                continue;
-            }
-            if (!queue_avatar(renderer, allocation, avatar->rectangle, message_scene->viewport,
-                              {&message_scene->widgets, row.avatar}, theme.avatar_placeholder))
-                return layout_step_failed(__LINE__);
-        }
-        // A DM's channel-beginning header shows the recipient's avatar.
-        if (MessageSceneIntroGeometry intro{};
-            message_scene->intro.kind == MessageSceneIntroKind::direct_message && message_scene->intro.user_id &&
-            renderer->user_store && renderer->media_quad_count < kRendererMediaQuadCapacity &&
-            message_scene_intro_geometry(*message_scene, &intro) && ui_rect_has_area(intro.icon)) {
-            const UserRecord* user = user_store_find(*renderer->user_store, message_scene->intro.user_id);
-            MediaAtlasResult allocation{};
-            const UiRect clip = ui_rect_intersection(message_scene->viewport, intro.area);
-            if (user && ui_rect_has_area(clip) && find_user_avatar(*renderer, *user, &allocation) &&
-                !queue_avatar(renderer, allocation, intro.icon, clip, {}, theme.avatar_placeholder))
-                return layout_step_failed(__LINE__);
-        }
-        for (u32 index = 0; index < message_scene->count; ++index) {
-            if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
-                break;
-            }
-            const MessageSceneRowWidget& row = message_scene->rows[index];
-            const MessageRecord* message =
-                message_store_resolve(*message_scene->timeline->store, row.message);
-            const MessageRichStore* rich_store = message_scene->timeline->rich_store;
-            const MessageRichRecord* rich =
-                message && rich_store ? message_rich_store_find(*rich_store, message->id) : nullptr;
-            const UserRecord* user =
-                rich && rich->message_revision == message->revision && message_rich_has_header(*rich)
-                    ? user_store_find(*renderer->user_store, message_rich_header_user(*rich))
-                    : nullptr;
-            const UiLayoutNode* body = message_scene_layout_node(*message_scene, row.body);
-            const UiLayoutNode* reply = message_scene_layout_node(*message_scene, row.reply);
-            MediaAtlasResult allocation{};
-            if (!user || !body || !reply || !find_user_avatar(*renderer, *user, &allocation)) {
-                continue;
-            }
-            const UiRect reference_avatar{body->content_rectangle.left, reply->rectangle.top + 1.0f,
-                                          body->content_rectangle.left + 16.0f,
-                                          reply->rectangle.top + 17.0f};
-            if (!queue_avatar(renderer, allocation, reference_avatar, message_scene->viewport, {},
-                              theme.avatar_placeholder))
-                return layout_step_failed(__LINE__);
-        }
-    }
-    if (!content_hidden && renderer->message_composer_scene && renderer->media_atlas &&
-        renderer->media_gpu.texture_view) {
-        const auto& composer = *renderer->message_composer_scene;
-        const auto avatar = message_composer_scene_command_avatar(composer);
-        if (ui_rect_has_area(avatar)) {
-            const auto allocation = media_atlas_peek(renderer->media_atlas,
-                media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
-                                        composer.command.animated));
-            if (allocation.ok() &&
-                !queue_media_quad(renderer, allocation, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                                  composer.viewport, true))
-                return layout_step_failed(__LINE__);
-        }
-        for (u32 i = 0; i < composer.projection_span_count; ++i) {
-            UiRect rectangle{}, clip{};
-            if (!text_composer_emoji_rectangle(renderer->composer_layout, composer, i, &rectangle, &clip))
-                continue;
-            const auto& span = composer.projection_spans[i];
-            const auto allocation = media_atlas_peek(
-                renderer->media_atlas, span.kind == MessageComposerProjectionKind::regional_flag
-                                           ? media_asset_regional_flag(static_cast<u16>(span.target))
-                                           : media_asset_custom_emoji(span.target, span.animated));
-            if (allocation.ok() && !queue_media_quad(renderer, allocation, rectangle.left, rectangle.top,
-                                                     rectangle.right, rectangle.bottom, clip))
-                return layout_step_failed(__LINE__);
-        }
-    }
-    if (!content_hidden && renderer->content_text && renderer->media_atlas &&
-        renderer->media_gpu.texture_view) {
-        const RendererTextStorage& text = *renderer->content_text;
-        for (u32 index = 0; index < text.content_hit_region_count; ++index) {
-            if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
-                break;
-            }
-            const TextHitRegion& region = text.content_hit_regions[index];
-            if (region.semantic_index >= text.content_semantic_count) {
-                continue;
-            }
-            const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
-            const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
-            if ((semantic.kind != MessageMarkdownSemanticKind::custom_emoji && !flag) ||
-                semantic.target == 0 || (semantic.reserved & (2u | kRendererSearchSemanticFlag))) {
-                continue;
-            }
-            const bool animated = (semantic.reserved & 1u) != 0;
-            const MediaAtlasResult allocation = media_atlas_peek(
-                renderer->media_atlas, flag ? media_asset_regional_flag(static_cast<u16>(semantic.target))
-                                            : media_asset_custom_emoji(semantic.target, animated));
-            if (!allocation.ok()) {
-                continue;
-            }
-            const float height = maximum(1.0f, region.bottom - region.top);
-            const float extent =
-                flag ? minimum(48.0f, region.right - region.left) : minimum(48.0f, maximum(16.0f, height));
-            const float center_x = (region.left + region.right) * 0.5f;
-            const float center_y = (region.top + region.bottom) * 0.5f;
-            if (!queue_media_quad(renderer, allocation, center_x - extent * 0.5f, center_y - extent * 0.5f,
-                                  center_x + extent * 0.5f, center_y + extent * 0.5f,
-                                  message_scene->viewport, false)) {
-                return layout_step_failed(__LINE__);
-            }
-        }
-    }
-    const auto queue_message_media = [&](const MessageMediaCommandStream& stream, bool first) noexcept {
-        for (u32 index = 0; index < stream.count; ++index) {
-            const MessageMediaCommand& command = stream.storage[index];
-            MediaAssetKey key{};
-            const bool large_preview = command.kind == MessageMediaCommandKind::attachment ||
-                                       command.kind == MessageMediaCommandKind::embed;
-            const MediaResolutionTier resolution =
-                large_preview && renderer->preview_media_atlas
-                    ? media_resolution_tier_for_display(
-                          command.rectangle.right - command.rectangle.left,
-                          command.rectangle.bottom - command.rectangle.top, renderer->dpi,
-                          media_preview_extent_cap(static_cast<MediaAttachmentFormat>(command.format),
-                                                   command.animated))
-                    : MediaResolutionTier::original;
-            switch (command.kind) {
-            case MessageMediaCommandKind::attachment:
-                key = command.search_result
-                          ? media_asset_search_attachment(
-                                command.id, static_cast<MediaAttachmentFormat>(command.format), resolution,
-                                command.message_revision, command.snapshot)
-                          : media_asset_attachment(
-                                command.id, static_cast<MediaAttachmentFormat>(command.format), resolution);
-                break;
-            case MessageMediaCommandKind::embed:
-                key = command.search_result
-                          ? media_asset_search_embed(
-                                command.id, command.message_revision, command.embed_index,
-                                static_cast<MediaEmbedResource>(command.embed_resource),
-                                static_cast<MediaAttachmentFormat>(command.format), command.animated,
-                                resolution, command.snapshot)
-                          : media_asset_embed(command.id, command.message_revision, command.embed_index,
-                                              static_cast<MediaEmbedResource>(command.embed_resource),
-                                              static_cast<MediaAttachmentFormat>(command.format),
-                                              command.animated, resolution, command.snapshot);
-                break;
-            case MessageMediaCommandKind::sticker:
-                key = media_asset_sticker(command.id, command.format);
-                break;
-            case MessageMediaCommandKind::custom_emoji:
-                key = media_asset_custom_emoji(command.id, command.animated);
-                break;
-            case MessageMediaCommandKind::regional_flag:
-                key = media_asset_regional_flag(static_cast<u16>(command.id));
-                break;
-            case MessageMediaCommandKind::component:
-                key = message_component_media_key(command.id, static_cast<MediaAttachmentFormat>(command.format));
-                break;
-            }
-            const u8 domain = large_preview && renderer->preview_media_atlas ? 1 : 0;
-            MediaAtlas* atlas = domain == 1 ? renderer->preview_media_atlas : renderer->media_atlas;
-            ID3D11ShaderResourceView* texture_view =
-                domain == 1 ? renderer->media_gpu.preview_texture_view : renderer->media_gpu.texture_view;
-            if (!atlas || !texture_view) {
-                continue;
-            }
-            const MediaAtlasResult allocation = media_atlas_peek(atlas, key);
-            if (!allocation.ok()) {
-                continue;
-            }
-            if (renderer->media_quad_count >= kRendererMediaQuadCapacity) {
-                continue;
-            }
-            const u32 media_before = renderer->media_quad_count;
-            // Grid tiles: the cover rectangle's centred square is the tile itself.
-            UiRect tile{};
-            if (command.tile_radius) {
-                const float side = minimum(ui_rect_width(command.rectangle), ui_rect_height(command.rectangle));
-                const float cx = (command.rectangle.left + command.rectangle.right) * .5f,
-                            cy = (command.rectangle.top + command.rectangle.bottom) * .5f;
-                tile = {cx - side * .5f, cy - side * .5f, cx + side * .5f, cy + side * .5f};
-            }
-            // Spoiler and explicit previews blur in the media shader until revealed.
-            const float blur = command.obscure != static_cast<u8>(MessageMediaObscure::none)
-                                   ? minimum(kMessageMediaObscureBlur,
-                                             minimum(ui_rect_width(command.rectangle),
-                                                     ui_rect_height(command.rectangle)) * .25f)
-                                   : 0.f;
-            // Gallery tiles: the image covers its tile, cropped by the tile clip.
-            const UiRect cover = command.cover ? ui_call_video_fit(command.rectangle, allocation.width,
-                                                                   allocation.height, true)
-                                               : UiRect{};
-            const UiRect quad = ui_rect_has_area(cover) ? cover : command.rectangle;
-            const UiRect quad_clip =
-                ui_rect_has_area(cover) ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
-            if (!queue_media_quad(renderer, allocation, quad.left, quad.top, quad.right, quad.bottom, quad_clip,
-                                  false, first, domain, 1.f,
-                                  command.ordinary_video ? UiVideoSceneStyle{}.preview_radius : 0.f, tile,
-                                  static_cast<float>(command.tile_radius), blur) ||
-                !paint_stream_record_content(&renderer->paint_stream, command.owner, command.rectangle,
-                                             UiLayoutContentKind::media,
-                                             ui_layout_content_bounds_allow_overlap)) {
-                return layout_step_failed(__LINE__);
-            }
-            if (large_preview || command.kind == MessageMediaCommandKind::sticker)
-                reveal_media_underlay(*renderer, media_before, command.rectangle, theme.surface_high);
-            if (renderer->media_quad_count != media_before)
-                first = false;
-        }
-        return true;
-    };
-    if (!queue_message_media(message_media_stream, false))
-        return layout_step_failed(__LINE__);
-    // Composer upload thumbnails join the ordinary preview layer so the strip
-    // overlay (tags, progress and the action bar) paints above them.
-    if (!content_hidden && d3d11_renderer_active(renderer->message_composer_scene) &&
-        renderer->preview_media_atlas && renderer->media_gpu.preview_texture_view) {
-        const auto strip = message_composer_scene_attachment_view(*renderer->message_composer_scene, false);
-        bool first_thumbnail = true;
-        for (u32 i = 0; i < strip.tiles.count; ++i) {
-            UiRect media{}, clip{};
-            if (!ui_composer_attachment_thumbnail_visible(strip, i, &media, &clip) ||
-                renderer->media_quad_count >= kRendererMediaQuadCapacity)
-                continue;
-            const auto allocation = media_atlas_peek(renderer->preview_media_atlas, strip.tiles[i].preview);
-            if (!allocation.ok() || !allocation.width || !allocation.height)
-                continue;
-            const UiRect fitted = ui_composer_attachment_fit(media, allocation.width, allocation.height);
-            // Spoilered uploads keep their thumbnail, blurred in the media shader.
-            const float blur = ui_composer_attachment_thumbnail_blur(strip.tiles[i], fitted);
-            if (!queue_media_quad(renderer, allocation, fitted.left, fitted.top, fitted.right, fitted.bottom, clip,
-                                  false, first_thumbnail, 1, 1.f, 0.f, fitted, theme.scale.radius_sm, blur) ||
-                !paint_stream_record_content(&renderer->paint_stream, strip.owner,
-                                             ui_rect_intersection(fitted, clip), UiLayoutContentKind::media,
-                                             ui_layout_content_bounds_allow_overlap))
-                return layout_step_failed(__LINE__);
-            first_thumbnail = false;
-        }
-    }
-    if (renderer->content_text) {
-        renderer->content_text->message_geometry_quads = message_presentation.geometry_quads;
-    }
-
-    // The DM profile panel: its card, then its media with the shell's; its
-    // foreground follows above that media, its text with the shell's.
-    const ProfileScene* dm_panel =
-        !content_hidden && d3d11_renderer_active(renderer->dm_profile_panel) ? renderer->dm_profile_panel : nullptr;
-    u32 dm_panel_effects = 0;
-    if (dm_panel && (!profile_scene_paint(*dm_panel, theme, &renderer->paint_stream) ||
-                     !queue_profile_media(renderer, *dm_panel, theme, &dm_panel_effects)))
-        return layout_step_failed(__LINE__);
-    // Avatar textures are submitted as media after the base shell geometry.
-    // Start a separate paint layer for badges that must remain above those
-    // textures regardless of media residency.
-    renderer->media_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (dm_panel && !profile_scene_foreground(*dm_panel, theme, &renderer->paint_stream, nullptr, renderer->dpi))
-        return layout_step_failed(__LINE__);
-    if (!content_hidden) {
-        const UiVideoPlayAffordanceStyle affordance{};
-        for (u32 i = 0; i < message_media_stream.count; ++i) {
-            const auto& command = message_media_stream.storage[i];
-            if (command.obscure != static_cast<u8>(MessageMediaObscure::none)) {
-                // A centred scrim pill above the blurred preview; the text
-                // pass draws its label. Obscured media offers no save action.
-                const UiRect pill = message_media_obscure_pill(command.rectangle,
-                                                                static_cast<MessageMediaObscure>(command.obscure));
-                if (ui_rect_has_area(pill) &&
-                    (!paint_stream_push_rounded_border(&renderer->paint_stream, pill.left, pill.top, pill.right,
-                                                       pill.bottom, theme.tokens.overlay.scrim_strong,
-                                                       theme.tokens.overlay.scrim_strong,
-                                                       ui_rect_height(pill) * .5f, 0) ||
-                     !paint_stream_record_content(&renderer->paint_stream, command.owner,
-                                                  ui_rect_intersection(pill, command.clip),
-                                                  UiLayoutContentKind::decoration,
-                                                  ui_layout_content_bounds_allow_overlap)))
-                    return layout_step_failed(__LINE__);
-                continue;
-            }
-            if (command.kind == MessageMediaCommandKind::attachment &&
-                !d3d11_renderer_message_modal_active(*renderer) &&
-                !ui_attachment_save_paint(
-                    &renderer->paint_stream, command.owner,
-                    ui_attachment_save_rectangle(command.rectangle, false), command.clip, theme, false,
-                    d3d11_renderer_video_scene_visible(*renderer) &&
-                        ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
-                return layout_step_failed(__LINE__);
-            const auto star_owner = renderer->gif_favorite_owner;
-            if (command.gif && !d3d11_renderer_message_modal_active(*renderer) && star_owner.generation &&
-                command.owner.handle.slot == star_owner.slot &&
-                command.owner.handle.generation == star_owner.generation &&
-                !ui_gif_favorite_paint(
-                    &renderer->paint_stream, command.owner,
-                    ui_gif_favorite_rectangle(command.rectangle,
-                                              command.kind == MessageMediaCommandKind::attachment),
-                    command.clip, theme, renderer->gif_favorite, renderer->gif_favorite_pending))
-                return layout_step_failed(__LINE__);
-            if (!command.ordinary_video ||
-                (d3d11_renderer_video_scene_visible(*renderer) &&
-                 ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
-                continue;
-            if (!ui_video_play_affordance_paint(command.rectangle, command.clip, affordance, theme,
-                                                &renderer->paint_stream))
-                return layout_step_failed(__LINE__);
-        }
-    }
-    if (!content_hidden && d3d11_renderer_active(renderer->message_composer_scene) &&
-        !ui_composer_attachment_strip_paint_overlay(
-            message_composer_scene_attachment_view(*renderer->message_composer_scene, true), theme,
-            &renderer->paint_stream))
-        return layout_step_failed(__LINE__);
-    if (messages_visible && d3d11_renderer_video_scene_visible(*renderer) &&
-        !renderer->video_scene_search_result &&
-        !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
-        return layout_step_failed(__LINE__);
+    if (!build_timeline_media(renderer, theme, message_scene, messages_visible, content_hidden))
+        return false;
     if (friends_active &&
         !ui_friends_scene_presence_paint(*renderer->friends_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
@@ -1948,90 +2046,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     const u32 pins_paint_end = renderer->paint_stream.count;
     const u32 search_paint_first = renderer->paint_stream.count;
-    // Timeline commands have been consumed. Search reuses the same bounded
-    // per-frame storage instead of retaining another command bank.
-    MessageMediaCommandStream search_media_stream{};
-    if (!message_media_command_stream_initialize(
-            &search_media_stream, {message_media_commands, kRendererMessageMediaCommandCapacity}))
-        return layout_step_failed(__LINE__);
-    if (d3d11_renderer_search_visible(*renderer) &&
-        !ui_search_scene_paint(*renderer->search_scene, theme, &renderer->paint_stream,
-                               &renderer->search_edit_geometry, renderer->dpi, &search_media_stream,
-                               renderer->search_message_text && renderer->search_message_text->active
-                                   ? renderer->search_message_text
-                                   : nullptr))
-        return layout_step_failed(__LINE__);
-    renderer->friends_requests_media_first_batch = renderer->media_batch_count;
-    if (!queue_message_media(search_media_stream, true))
-        return layout_step_failed(__LINE__);
-    const u32 search_foreground_quad = renderer->paint_stream.count;
-    if (d3d11_renderer_search_visible(*renderer))
-        renderer->friends_requests_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (d3d11_renderer_search_visible(*renderer)) {
-        const UiVideoPlayAffordanceStyle affordance{};
-        for (u32 i = 0; i < search_media_stream.count; ++i) {
-            const auto& command = search_media_stream.storage[i];
-            const bool covered = d3d11_renderer_video_scene_visible(*renderer) &&
-                                 renderer->video_scene_search_result &&
-                                 ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle);
-            // Media grid tiles are owned by the search scene itself and have no Save action.
-            if (command.kind == MessageMediaCommandKind::attachment &&
-                command.owner.manager != &renderer->search_scene->widgets &&
-                !d3d11_renderer_message_modal_active(*renderer) &&
-                !ui_attachment_save_paint(&renderer->paint_stream, command.owner,
-                                          ui_attachment_save_rectangle(command.rectangle, false),
-                                          command.clip, theme, false, covered))
-                return layout_step_failed(__LINE__);
-            if (command.ordinary_video && !covered &&
-                !ui_video_play_affordance_paint(command.rectangle, command.clip, affordance, theme,
-                                                &renderer->paint_stream))
-                return layout_step_failed(__LINE__);
-        }
-        if (d3d11_renderer_video_scene_visible(*renderer) && renderer->video_scene_search_result &&
-            !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
-            return layout_step_failed(__LINE__);
-        // Rich inline emoji cells belong above Search card geometry.
-        if (renderer->content_text && renderer->media_atlas && renderer->media_gpu.texture_view) {
-            const auto& text = *renderer->content_text;
-            bool first = true;
-            for (u32 i = 0; i < text.content_hit_region_count; ++i) {
-                const auto& region = text.content_hit_regions[i];
-                if (region.semantic_index >= text.content_semantic_count)
-                    continue;
-                const auto& semantic = text.content_semantics[region.semantic_index];
-                const bool flag = semantic.kind == MessageMarkdownSemanticKind::regional_flag;
-                if (!(semantic.reserved & kRendererSearchSemanticFlag) || (semantic.reserved & 2u) ||
-                    !semantic.target ||
-                    (!flag && semantic.kind != MessageMarkdownSemanticKind::custom_emoji))
-                    continue;
-                const auto clip = ui_search_scene_content_clip(
-                    *renderer->search_scene, {region.left, region.top, region.right, region.bottom});
-                if (!ui_rect_has_area(clip))
-                    continue;
-                const auto allocation = media_atlas_peek(
-                    renderer->media_atlas,
-                    flag ? media_asset_regional_flag(static_cast<u16>(semantic.target))
-                         : media_asset_custom_emoji(semantic.target, (semantic.reserved & 1u) != 0));
-                if (!allocation.ok() || renderer->media_quad_count >= kRendererMediaQuadCapacity)
-                    continue;
-                const float height = maximum(1.f, region.bottom - region.top);
-                const float extent =
-                    flag ? minimum(48.f, region.right - region.left) : minimum(48.f, maximum(16.f, height));
-                const float cx = (region.left + region.right) * .5f,
-                            cy = (region.top + region.bottom) * .5f;
-                const u32 before = renderer->media_quad_count;
-                if (!queue_media_quad(renderer, allocation, cx - extent * .5f, cy - extent * .5f,
-                                      cx + extent * .5f, cy + extent * .5f, clip, false, first))
-                    return layout_step_failed(__LINE__);
-                if (renderer->media_quad_count != before)
-                    first = false;
-            }
-        }
-    }
-    if (d3d11_renderer_search_visible(*renderer) &&
-        !split_paint_quad_boundary(&renderer->paint_stream, search_foreground_quad,
-                                   &renderer->friends_requests_foreground_first_batch))
-        return layout_step_failed(__LINE__);
+    if (!build_search_media(renderer, theme))
+        return false;
     if (friends_requests_active) {
         if (!paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
                 return ui_friends_scene_paint(*renderer->friends_requests_scene, theme, &renderer->paint_stream,

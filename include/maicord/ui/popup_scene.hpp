@@ -239,7 +239,7 @@ bool popup_scene_bind_theme_styles(PopupScene*, const UiResolvedThemeStyles*) no
 // stay kUiAutocompleteGap above it, shrinking the list to the available height.
 // The scroll fractions position the command palette's body and category rail.
 PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_id,
-                                  ConstSlice<PopupItem> items, UiRect anchor, UiRect viewport,
+                                  ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                   float preferred_width, bool prefer_above = false,
                                   float grid_scroll_fraction = 0.0f, float category_scroll_fraction = 0.0f,
                                   u32 source_revision = 0,
@@ -248,7 +248,7 @@ PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_i
 // height left below it. A later open with the same anchor (a follow-up menu
 // that replaces the popout) keeps this placement.
 PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 owner_id,
-                                        ConstSlice<PopupItem> items, UiRect anchor, UiRect viewport,
+                                        ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                         float preferred_width) noexcept;
 UiRect popup_feedback_rectangle(const PopupScene&) noexcept;
 bool popup_scene_set_feedback(PopupScene*, Utf8View text, bool error = false) noexcept;

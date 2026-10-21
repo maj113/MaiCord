@@ -371,24 +371,25 @@ UpdateGenerationResult update_generation_acknowledge(const UpdateGenerationState
     ConstSlice<u8> digest, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::pending || !identity(s.transaction, transaction) ||
         !digest.data || digest.count != 32 || !bytes_equal(digest.data, s.active.pair.document_sha256, 32)) return fail(UpdateGenerationError::identity);
-    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::acknowledged; *out = n; return {};
+    *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::acknowledged; return {};
 }
 UpdateGenerationResult update_generation_rollback(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || (s.phase != UpdateGenerationPhase::pending && s.phase != UpdateGenerationPhase::prepared)) return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::rollback;
-    if (s.phase == UpdateGenerationPhase::pending) { n.candidate = s.active; n.active = s.previous; n.previous = {}; }
-    *out = n; return {};
+    const bool pending = s.phase == UpdateGenerationPhase::pending;
+    *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::rollback;
+    if (pending) { n.candidate = n.active; n.active = n.previous; n.previous = {}; }
+    return {};
 }
 UpdateGenerationResult update_generation_finish(const UpdateGenerationState& s, bool disposed, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || (s.phase != UpdateGenerationPhase::acknowledged && s.phase != UpdateGenerationPhase::rollback) ||
         (s.phase == UpdateGenerationPhase::rollback && (!disposed || s.disposal.target != UpdateGenerationDisposalTarget::candidate)))
         return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::stable; n.transaction = {}; n.candidate = {}; n.disposal = {}; *out = n; return {};
+    *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::stable; n.transaction = {}; n.candidate = {}; n.disposal = {}; return {};
 }
 UpdateGenerationResult update_generation_forget_previous(const UpdateGenerationState& s, bool disposed, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || !s.previous.present || !disposed ||
         s.disposal.target != UpdateGenerationDisposalTarget::previous) return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.previous = {}; n.disposal = {}; *out = n; return {};
+    *out = s; auto& n = *out; ++n.sequence; n.previous = {}; n.disposal = {}; return {};
 }
 UpdateGenerationResult update_generation_revert(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || !s.previous.present ||

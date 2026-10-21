@@ -731,7 +731,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
 } // namespace
 
 PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_id,
-                                  ConstSlice<PopupItem> items, UiRect anchor, UiRect viewport,
+                                  ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                   float preferred_width, bool prefer_above, float grid_scroll_fraction,
                                   float category_scroll_fraction, u32 source_revision,
                                   const UiPopupFeedback* feedback) noexcept {
@@ -740,7 +740,7 @@ PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_i
 }
 
 PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 owner_id,
-                                        ConstSlice<PopupItem> items, UiRect anchor, UiRect viewport,
+                                        ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                         float preferred_width) noexcept {
     return open_popup(scene, kind, owner_id, items, anchor, viewport, preferred_width, false, 0.f, 0.f, 0,
                       nullptr, true);

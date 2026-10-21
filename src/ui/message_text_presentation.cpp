@@ -2361,6 +2361,400 @@ bool append_intro(MessageTextPresentation* presentation, const MessageScene& sce
     return true;
 }
 
+bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
+                            const MessageSceneRowWidget& row, const Theme& theme,
+                            const UiRect& row_clip, u16 measurement_index, float text_width,
+                            MessageMediaPolicyResult media_policy) noexcept {
+    auto* presentation = context.presentation;
+    const auto* record = context.message;
+    const auto* rich_store = context.rich_store;
+    const auto* rich = context.rich;
+    if (rich->attachment_count != 0) {
+        for (u32 index = 0; index < rich->attachment_count; ++index) {
+            set_failure_context(presentation, MessageTextPresentationStage::attachment,
+                                MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
+            const UiWidgetHandle item_widget =
+                message_scene_rich_item_widget(row, MessageSceneRichItemKind::attachment, index);
+            const UiLayoutNode* item_layout = message_scene_rich_item_layout_node(
+                scene, row, MessageSceneRichItemKind::attachment, index);
+            if (!item_layout) {
+                return fail(presentation, MessageTextPresentationError::layout);
+            }
+            const UiWidgetReference owner{&scene.widgets, item_widget};
+            const float item_left = item_layout->content_rectangle.left;
+            const auto& attachment = rich->attachments[index];
+            const float audio_height =
+                message_rich_attachment_audio_supported(*rich_store, attachment)
+                    ? ui_audio_card_height(ui_theme_audio_style(scene.theme_styles),
+                                           ui_rect_width(item_layout->content_rectangle),
+                                           message_rich_record_voice(*rich))
+                    : 0;
+            const float item_width =
+                minimum(audio_height > 0 ? ui_theme_audio_style(scene.theme_styles).maximum_width : 420.0f,
+                        ui_rect_width(item_layout->content_rectangle));
+            UiTextFlowLayout flow{};
+            const UiRect attachment_clip = ui_rect_intersection(
+                row_clip, {item_left, row_clip.top, item_left + item_width, row_clip.bottom});
+            if (!initialize_flow(presentation, *item_layout, item_left, item_width, attachment_clip,
+                                 &flow)) {
+                return false;
+            }
+            float preview_width = 0.0f;
+            float preview_height = 0.0f;
+            const bool preview = message_rich_attachment_preview_extent(
+                *rich_store, rich->attachments[index], text_width, &preview_width, &preview_height);
+            float required_extent = 42.0f;
+            if (audio_height > 0) {
+                required_extent = audio_height + 6;
+                UiAudioControlsProjection projection{};
+                const UiRect card{item_left, item_layout->rectangle.top, item_left + item_width,
+                                  item_layout->rectangle.top + audio_height};
+                struct AudioTextContext {
+                    MessageTextPresentation* presentation;
+                    const MessageRecord* record;
+                    u16 measurement;
+                    u8 slot;
+                } audio_context{presentation, record, measurement_index, static_cast<u8>(index)};
+                UiTextEmitter emitter{};
+                const auto append_audio = +[](void* source, const UiTextCommand& command, u32) noexcept {
+                    auto& audio = *static_cast<AudioTextContext*>(source);
+                    auto* p = audio.presentation;
+                    if (command.text.bytes > p->utf8.count - p->utf8_count ||
+                        p->style_count >= p->styles.count)
+                        return fail(p, MessageTextPresentationError::capacity);
+                    const u32 offset = p->utf8_count;
+                    copy_bytes(p->utf8.data + offset, command.text.data, command.text.bytes);
+                    p->utf8_count += command.text.bytes;
+                    auto& span = p->styles[p->style_count++];
+                    span = {0, command.text.bytes, command.style_flags};
+                    return append_command(
+                        p, {p->utf8.data + offset, command.text.bytes}, {&span, 1}, {}, command.owner,
+                        command.rectangle, command.clip, command.color, audio.record->id,
+                        audio.record->revision, audio.measurement, MessageTextMeasurementKind::attachment,
+                        ui_rect_height(command.rectangle), 0, false, command.horizontal_alignment,
+                        command.vertical_alignment, command.wrapping, audio.slot, command.overflow);
+                };
+                UiTextOutput output{nullptr, &emitter};
+                if (!ui_audio_attachment_project(*rich_store, attachment, rich->message_id,
+                                                 rich->message_revision, message_rich_record_voice(*rich),
+                                                 card, theme, {}, &projection) ||
+                    !ui_text_emitter_initialize(&emitter, append_audio, &audio_context,
+                                                kUiAudioControlCount) ||
+                    !ui_audio_controls_text_output(projection, attachment_clip, owner, &output) ||
+                    !ui_text_flow_advance(&flow, required_extent))
+                    return fail(presentation, MessageTextPresentationError::layout);
+            } else if (preview) {
+                required_extent = preview_height + 6.0f;
+                const MessageMediaObscure obscure = message_scene_media_obscure(
+                    scene, media_policy, rich->message_id,
+                    message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
+                                             row.forwarded_snapshot),
+                    message_rich_attachment_spoiler(*rich_store, attachment),
+                    message_rich_attachment_explicit(attachment));
+                const UiRect media{item_left, item_layout->rectangle.top, item_left + preview_width,
+                                   item_layout->rectangle.top + preview_height};
+                if (!append_obscure_label(presentation, obscure, media, owner, attachment_clip, theme, *record,
+                                          measurement_index) ||
+                    !ui_text_flow_advance(&flow, required_extent)) {
+                    return fail(presentation, MessageTextPresentationError::layout);
+                }
+            } else {
+                Utf8View label = message_rich_store_string(*rich_store, rich->attachments[index].filename);
+                if (label.bytes == 0) {
+                    label = utf8_literal("Attachment");
+                }
+                UiRect label_rectangle{};
+                if (!ui_text_flow_advance(&flow, 7.0f) ||
+                    !begin_flow_item_clamped(&flow, 36.0f, 44.0f, &label_rectangle) ||
+                    !append_command(presentation, label, {}, {}, owner, label_rectangle, attachment_clip,
+                                    theme.text_primary, record->id, record->revision, measurement_index,
+                                    MessageTextMeasurementKind::attachment, 20.0f, 0.0f, false,
+                                    UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::no_wrap,
+                                    0, UiTextOverflow::ellipsis) ||
+                    !ui_text_flow_commit_item(&flow, 20.0f, 20.0f, 8.0f)) {
+                    return fail(presentation, MessageTextPresentationError::layout);
+                }
+            }
+            const u32 slot = kMessageSceneAttachmentItemOffset + index;
+            if (!ui_text_flow_ensure_extent(&flow, required_extent) ||
+                !finish_flow(
+                    presentation, flow,
+                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
+                return fail(presentation, MessageTextPresentationError::layout);
+            }
+            saturating_accumulate(presentation->rich.attachments);
+        }
+        presentation->measurements[measurement_index].rich_layout.attachments =
+            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
+                            kMessageSceneAttachmentItemOffset, rich->attachment_count);
+    }
+
+    if (rich->embed_count != 0 && message_rich_display().embeds) {
+        for (u32 index = 0; index < rich->embed_count; ++index) {
+            set_failure_context(presentation, MessageTextPresentationStage::embed,
+                                MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
+            const UiWidgetHandle item_widget =
+                message_scene_rich_item_widget(row, MessageSceneRichItemKind::embed, index);
+            const UiLayoutNode* item_layout =
+                message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::embed, index);
+            if (!item_layout) {
+                return fail(presentation, MessageTextPresentationError::layout);
+            }
+            const UiWidgetReference owner{&scene.widgets, item_widget};
+            MessageRichItemLayout& merged_items = presentation->measurements[measurement_index].rich_item_layout;
+            if (message_rich_embed_merge_host(*rich_store, *rich, index) != index) {
+                // A merged embed's image is drawn in the first embed's gallery.
+                merged_items.heights[kMessageSceneEmbedItemOffset + index] = 0.0f;
+                merged_items.embed_widths[index] = merged_items.embed_media_tops[index] = 0.0f;
+                merged_items.embed_media_widths[index] = merged_items.embed_media_heights[index] = 0.0f;
+                merged_items.embed_author_tops[index] = merged_items.embed_footer_tops[index] = 0.0f;
+                continue;
+            }
+            UiTextFlowLayout flow{};
+            const float embed_left = item_layout->content_rectangle.left;
+            const float maximum_width =
+                minimum(ui_rect_width(item_layout->content_rectangle), kMessageEmbedMaximumWidth);
+            const float retained_width = row.rich_item_layout.embed_widths[index];
+            const float embed_width =
+                minimum(maximum_width, retained_width > 0 ? retained_width : maximum_width);
+            const MessageRichEmbed& embed = rich->embeds[index];
+            const MessageRichEmbedPlan plan = message_rich_embed_plan(*rich_store, embed);
+            const bool media_only = plan.media_only;
+            float thumb_width = 0, thumb_height = 0;
+            const bool thumbnail = message_rich_embed_thumbnail_extent(
+                *rich_store, embed, maximum(1.f, embed_width - kMessageEmbedContentInset - kMessageEmbedEndInset),
+                &thumb_width, &thumb_height);
+            const float thumbnail_inset = thumbnail ? thumb_width + kMessageEmbedThumbnailGap : 0;
+            const float body_width = maximum(1.f, embed_width - thumbnail_inset);
+            const UiRect embed_clip = ui_rect_intersection(
+                row_clip, UiRect{embed_left, row_clip.top, embed_left + embed_width, row_clip.bottom});
+            if (!ui_rect_has_area(embed_clip) ||
+                !initialize_flow(presentation, *item_layout, embed_left, body_width, embed_clip, &flow)) {
+                return false;
+            }
+            const u32 embed_command_begin = presentation->command_count;
+            float natural_width = 0;
+            MessageRichItemLayout& measured_items =
+                presentation->measurements[measurement_index].rich_item_layout;
+            measured_items.embed_author_tops[index] = 0.0f;
+            measured_items.embed_footer_tops[index] = 0.0f;
+            const auto measure_from = [&](u32 first_command, float inset) noexcept {
+                for (u32 c = first_command; c < presentation->command_count; ++c)
+                    natural_width = maximum(natural_width, framed_width(presentation->commands[c]) + inset);
+            };
+            const auto block_gap = [&]() noexcept { return ui_text_flow_advance(&flow, kMessageEmbedBlockGap); };
+            const auto source = [&](u32 slot) noexcept {
+                return static_cast<u16>(kRichTextSource | (context.forwarded ? kForwardedTextSource : 0u) |
+                                        (kRichTextEmbedBegin + index * kRichTextEmbedSlots + slot));
+            };
+            const Color muted = ui_background_muted_text_color(theme);
+            constexpr float text_insets = kMessageEmbedContentInset + kMessageEmbedEndInset;
+            if (!media_only) {
+                if (!ui_text_flow_advance(&flow, message_rich_embed_top_inset(plan.components)))
+                    return fail(presentation, MessageTextPresentationError::layout);
+                // Provider: small subtext (12 DIP).
+                const Utf8View provider = message_rich_store_string(*rich_store, embed.provider_name);
+                const Utf8View provider_url = message_rich_store_string(*rich_store, embed.provider_url);
+                if (provider.bytes) {
+                    const u32 first = presentation->command_count;
+                    if (!block_gap() ||
+                        !append_embed_plain_line(presentation, &context, provider, &flow, kMessageEmbedContentInset,
+                                                 kMessageEmbedEndInset, muted, owner, record->id, record->revision,
+                                                 measurement_index, text_style_subtext, provider_url, source(7),
+                                                 0.0f, source(6), text_size_xs))
+                        return false;
+                    measure_from(first, text_insets);
+                }
+                // Author: optional 24-DIP round icon, semibold name, author.url link.
+                const Utf8View author_name = message_rich_store_string(*rich_store, embed.author_name);
+                if (author_name.bytes) {
+                    if (!block_gap())
+                        return fail(presentation, MessageTextPresentationError::layout);
+                    const bool icon = message_rich_embed_author_icon(*rich_store, embed).bytes != 0;
+                    const float inset =
+                        kMessageEmbedContentInset + (icon ? kMessageEmbedAuthorIcon + kMessageEmbedIconGap : 0.0f);
+                    measured_items.embed_author_tops[index] = ui_text_flow_required_height(flow);
+                    const u32 first = presentation->command_count;
+                    if (!append_embed_plain_line(presentation, &context, author_name, &flow, inset, kMessageEmbedEndInset,
+                                                 theme.text_primary, owner, record->id, record->revision,
+                                                 measurement_index, text_style_bold,
+                                                 message_rich_store_string(*rich_store, embed.author_url),
+                                                 source(5), icon ? kMessageEmbedAuthorIcon : 0.0f, source(0),
+                                                 text_size_sm))
+                        return false;
+                    measure_from(first, inset + kMessageEmbedEndInset);
+                }
+                // Title: semibold, link-coloured when embed.url is set; title rules.
+                const Utf8View title = message_rich_store_string(*rich_store, embed.title);
+                if (title.bytes) {
+                    const Utf8View url = message_rich_store_string(*rich_store, embed.url);
+                    const u32 first = presentation->command_count;
+                    if (!block_gap() ||
+                        !append_embed_block(presentation, &context, title, &flow, kMessageEmbedContentInset,
+                                            kMessageEmbedEndInset, theme.text_primary, owner, record->id,
+                                            record->revision, measurement_index, plan.markdown, 1,
+                                            text_style_bold | (url.bytes ? text_style_link : 0u), text_size_md, url,
+                                            source(4)))
+                        return false;
+                    measure_from(first, text_insets);
+                }
+                const Utf8View description = message_rich_store_string(*rich_store, embed.description);
+                if (description.bytes && plan.description) {
+                    const u32 first = presentation->command_count;
+                    if (!block_gap() ||
+                        !append_embed_block(presentation, &context, description, &flow, kMessageEmbedContentInset,
+                                            kMessageEmbedEndInset, theme.text_primary, owner, record->id,
+                                            record->revision, measurement_index, plan.markdown, 0, 0,
+                                            plan.components ? text_size_inherit : text_size_sm))
+                        return false;
+                    measure_from(first, text_insets);
+                }
+                if (embed.type == GatewayMessageEmbedType::poll_result) {
+                    const u32 first = presentation->command_count;
+                    if (!block_gap() ||
+                        !append_poll_result(presentation, &context, *rich_store, *rich, &flow, theme.text_primary,
+                                            muted, owner, record->id, record->revision, measurement_index))
+                        return false;
+                    measure_from(first, text_insets);
+                }
+                if (plan.fields &&
+                    !append_embed_fields(presentation, &context, *rich_store, *rich, embed, &flow,
+                                         theme.text_primary, theme.text_primary, owner, record->id,
+                                         record->revision, measurement_index, &natural_width, plan.markdown)) {
+                    return false;
+                }
+                natural_width += thumbnail_inset;
+                if (thumbnail &&
+                    !ui_text_flow_ensure_extent(
+                        &flow, message_rich_embed_top_inset(plan.components) + kMessageEmbedBlockGap + thumb_height))
+                    return false;
+            }
+            flow.content_rectangle.right = embed_left + embed_width;
+            measured_items.embed_media_tops[index] = 0.0f;
+            measured_items.embed_media_widths[index] = 0.0f;
+            measured_items.embed_media_heights[index] = 0.0f;
+            MessageRichEmbedMediaSelection media{};
+            MessageRichEmbedGallery gallery{};
+            float media_width = 0.0f;
+            float media_height = 0.0f;
+            // A gallery sits in the text column, beside any corner thumbnail.
+            if (message_rich_embed_gallery(*rich_store, *rich, index, &gallery)) {
+                media_width = message_rich_embed_gallery_width(
+                    *rich_store, embed, maximum(0.0f, body_width - (media_only ? 0.0f : text_insets)));
+                media_height = kMessageEmbedGalleryHeight;
+            }
+            if ((media_width > 0.0f && media_height > 0.0f) ||
+                (!gallery.count && message_rich_embed_media_select(*rich_store, embed, &media) &&
+                 message_rich_embed_media_extent(media, maximum(0.0f, embed_width - (media_only ? 0.0f : text_insets)),
+                                                 &media_width, &media_height))) {
+                if (!media_only && !ui_text_flow_advance(&flow, kMessageEmbedMediaGap))
+                    return fail(presentation, MessageTextPresentationError::layout);
+                measured_items.embed_media_tops[index] = ui_text_flow_required_height(flow);
+                measured_items.embed_media_widths[index] = media_width;
+                measured_items.embed_media_heights[index] = media_height;
+                const float media_left = embed_left + message_rich_embed_media_left(media_only);
+                const UiRect media_box{media_left, flow.cursor_y, media_left + media_width,
+                                       flow.cursor_y + media_height};
+                const u32 labels = gallery.count ? minimum<u32>(gallery.count, kMessageEmbedGalleryDrawn) : 1;
+                for (u32 tile = 0; tile < labels; ++tile) {
+                    const u32 member = gallery.count ? gallery.members[tile] : index;
+                    const auto obscure = message_scene_media_obscure(
+                        scene, media_policy, record->id,
+                        message_media_reveal_key(record->id, MessageMediaSource::embed, member,
+                                                 row.forwarded_snapshot),
+                        false, message_rich_embed_explicit(rich->embeds[member]));
+                    const UiRect cell = gallery.count
+                                            ? message_rich_embed_gallery_tile(media_box, gallery.count, tile)
+                                            : media_box;
+                    if (!append_obscure_label(presentation, obscure, cell, owner, embed_clip, theme, *record,
+                                              measurement_index))
+                        return false;
+                }
+                if (!ui_text_flow_advance(&flow, media_height)) {
+                    return fail(presentation, MessageTextPresentationError::layout);
+                }
+            }
+            if (media_only) {
+                if (!ui_text_flow_ensure_extent(&flow, media_height)) {
+                    return fail(presentation, MessageTextPresentationError::layout);
+                }
+            } else {
+                // Footer: optional 20-DIP round icon, "text \u2022 Yesterday at 10:08 PM".
+                const Utf8View footer = message_rich_store_string(*rich_store, embed.footer_text);
+                char stamp[kMessageMarkdownTimestampMaximumBytes]{};
+                const TimestampFormatResult formatted =
+                    embed.timestamp_ms ? format_timestamp_calendar(embed.timestamp_ms / 1'000u,
+                                                                   context.now_unix_seconds, {stamp, sizeof(stamp)})
+                                       : TimestampFormatResult{};
+                const u32 stamp_bytes = formatted.ok ? formatted.bytes : 0u;
+                if (stamp_bytes && formatted.next_update_unix_seconds &&
+                    (presentation->next_timestamp_update_unix_seconds == 0 ||
+                     formatted.next_update_unix_seconds < presentation->next_timestamp_update_unix_seconds))
+                    presentation->next_timestamp_update_unix_seconds = formatted.next_update_unix_seconds;
+                Utf8View line = footer;
+                if (stamp_bytes) {
+                    const Utf8View separator = utf8_literal(" \xE2\x80\xA2 ");
+                    const u32 bytes = footer.bytes + (footer.bytes ? separator.bytes : 0u) + stamp_bytes;
+                    if (bytes > presentation->utf8.count - presentation->utf8_count)
+                        return fail(presentation, MessageTextPresentationError::capacity);
+                    char* out = presentation->utf8.data + presentation->utf8_count;
+                    u32 at = 0;
+                    copy_bytes(out, footer.data, footer.bytes);
+                    at += footer.bytes;
+                    if (footer.bytes) {
+                        copy_bytes(out + at, separator.data, separator.bytes);
+                        at += separator.bytes;
+                    }
+                    copy_bytes(out + at, stamp, stamp_bytes);
+                    presentation->utf8_count += bytes;
+                    line = Utf8View{out, bytes};
+                }
+                if (line.bytes) {
+                    if (!block_gap())
+                        return fail(presentation, MessageTextPresentationError::layout);
+                    const bool icon = message_rich_embed_footer_icon(*rich_store, embed).bytes != 0;
+                    const float inset =
+                        kMessageEmbedContentInset + (icon ? kMessageEmbedFooterIcon + kMessageEmbedIconGap : 0.0f);
+                    measured_items.embed_footer_tops[index] = ui_text_flow_required_height(flow);
+                    const u32 first = presentation->command_count;
+                    if (!append_embed_plain_line(presentation, &context, line, &flow, inset, kMessageEmbedEndInset,
+                                                 muted, owner, record->id, record->revision, measurement_index,
+                                                 text_style_subtext, {}, 0, icon ? kMessageEmbedFooterIcon : 0.0f,
+                                                 footer.bytes ? source(3) : 0, text_size_xs))
+                        return false;
+                    measure_from(first, inset + kMessageEmbedEndInset);
+                }
+                if (!ui_text_flow_advance(&flow, kMessageEmbedBottomInset + kMessageEmbedItemGap)) {
+                    return fail(presentation, MessageTextPresentationError::layout);
+                }
+            }
+            const u32 slot = kMessageSceneEmbedItemOffset + index;
+            // The content width comes from the initial maximum-width pass.
+            // Measuring again after wrapping at that width feeds the shorter
+            // wrapped lines back and keeps shrinking the card. A new
+            // viewport/content identity resets retained_width.
+            bool measured = true;
+            for (u32 c = embed_command_begin; c < presentation->command_count; ++c)
+                measured = measured && presentation->commands[c].measured_height > 0;
+            natural_width = maximum(natural_width, media_width + (media_only ? 0 : text_insets) +
+                                                       (gallery.count ? thumbnail_inset : 0.0f));
+            if (measured && retained_width <= 0)
+                measured_items.embed_widths[index] = minimum(maximum_width, maximum(64.f, natural_width));
+            if (!finish_flow(
+                    presentation, flow,
+                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
+                return false;
+            }
+            saturating_accumulate(presentation->rich.embeds);
+        }
+        presentation->measurements[measurement_index].rich_layout.embeds =
+            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
+                            kMessageSceneEmbedItemOffset, rich->embed_count);
+    }
+
+    return true;
+}
+
 bool append_row(MessageTextPresentation* presentation, const MessageScene& scene,
                 const MessageSceneRowWidget& row, const ChatStateStore& state,
                 const UserStore* users, const NavigationView& navigation, const Theme& theme,
@@ -2787,388 +3181,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         return append_annotations(presentation, scene, row, *record, theme, row_clip, measurement_index, forwarded,
                                   0.0f, decorated && !collapsed ? &decoration : nullptr);
     }
-    if (rich->attachment_count != 0) {
-        for (u32 index = 0; index < rich->attachment_count; ++index) {
-            set_failure_context(presentation, MessageTextPresentationStage::attachment,
-                                MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
-            const UiWidgetHandle item_widget =
-                message_scene_rich_item_widget(row, MessageSceneRichItemKind::attachment, index);
-            const UiLayoutNode* item_layout = message_scene_rich_item_layout_node(
-                scene, row, MessageSceneRichItemKind::attachment, index);
-            if (!item_layout) {
-                return fail(presentation, MessageTextPresentationError::layout);
-            }
-            const UiWidgetReference owner{&scene.widgets, item_widget};
-            const float item_left = item_layout->content_rectangle.left;
-            const auto& attachment = rich->attachments[index];
-            const float audio_height =
-                message_rich_attachment_audio_supported(*rich_store, attachment)
-                    ? ui_audio_card_height(ui_theme_audio_style(scene.theme_styles),
-                                           ui_rect_width(item_layout->content_rectangle),
-                                           message_rich_record_voice(*rich))
-                    : 0;
-            const float item_width =
-                minimum(audio_height > 0 ? ui_theme_audio_style(scene.theme_styles).maximum_width : 420.0f,
-                        ui_rect_width(item_layout->content_rectangle));
-            UiTextFlowLayout flow{};
-            const UiRect attachment_clip = ui_rect_intersection(
-                row_clip, {item_left, row_clip.top, item_left + item_width, row_clip.bottom});
-            if (!initialize_flow(presentation, *item_layout, item_left, item_width, attachment_clip,
-                                 &flow)) {
-                return false;
-            }
-            float preview_width = 0.0f;
-            float preview_height = 0.0f;
-            const bool preview = message_rich_attachment_preview_extent(
-                *rich_store, rich->attachments[index], text_width, &preview_width, &preview_height);
-            float required_extent = 42.0f;
-            if (audio_height > 0) {
-                required_extent = audio_height + 6;
-                UiAudioControlsProjection projection{};
-                const UiRect card{item_left, item_layout->rectangle.top, item_left + item_width,
-                                  item_layout->rectangle.top + audio_height};
-                struct AudioTextContext {
-                    MessageTextPresentation* presentation;
-                    const MessageRecord* record;
-                    u16 measurement;
-                    u8 slot;
-                } audio_context{presentation, record, measurement_index, static_cast<u8>(index)};
-                UiTextEmitter emitter{};
-                const auto append_audio = +[](void* source, const UiTextCommand& command, u32) noexcept {
-                    auto& audio = *static_cast<AudioTextContext*>(source);
-                    auto* p = audio.presentation;
-                    if (command.text.bytes > p->utf8.count - p->utf8_count ||
-                        p->style_count >= p->styles.count)
-                        return fail(p, MessageTextPresentationError::capacity);
-                    const u32 offset = p->utf8_count;
-                    copy_bytes(p->utf8.data + offset, command.text.data, command.text.bytes);
-                    p->utf8_count += command.text.bytes;
-                    auto& span = p->styles[p->style_count++];
-                    span = {0, command.text.bytes, command.style_flags};
-                    return append_command(
-                        p, {p->utf8.data + offset, command.text.bytes}, {&span, 1}, {}, command.owner,
-                        command.rectangle, command.clip, command.color, audio.record->id,
-                        audio.record->revision, audio.measurement, MessageTextMeasurementKind::attachment,
-                        ui_rect_height(command.rectangle), 0, false, command.horizontal_alignment,
-                        command.vertical_alignment, command.wrapping, audio.slot, command.overflow);
-                };
-                UiTextOutput output{nullptr, &emitter};
-                if (!ui_audio_attachment_project(*rich_store, attachment, rich->message_id,
-                                                 rich->message_revision, message_rich_record_voice(*rich),
-                                                 card, theme, {}, &projection) ||
-                    !ui_text_emitter_initialize(&emitter, append_audio, &audio_context,
-                                                kUiAudioControlCount) ||
-                    !ui_audio_controls_text_output(projection, attachment_clip, owner, &output) ||
-                    !ui_text_flow_advance(&flow, required_extent))
-                    return fail(presentation, MessageTextPresentationError::layout);
-            } else if (preview) {
-                required_extent = preview_height + 6.0f;
-                const MessageMediaObscure obscure = message_scene_media_obscure(
-                    scene, media_policy, rich->message_id,
-                    message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
-                                             row.forwarded_snapshot),
-                    message_rich_attachment_spoiler(*rich_store, attachment),
-                    message_rich_attachment_explicit(attachment));
-                const UiRect media{item_left, item_layout->rectangle.top, item_left + preview_width,
-                                   item_layout->rectangle.top + preview_height};
-                if (!append_obscure_label(presentation, obscure, media, owner, attachment_clip, theme, *record,
-                                          measurement_index) ||
-                    !ui_text_flow_advance(&flow, required_extent)) {
-                    return fail(presentation, MessageTextPresentationError::layout);
-                }
-            } else {
-                Utf8View label = message_rich_store_string(*rich_store, rich->attachments[index].filename);
-                if (label.bytes == 0) {
-                    label = utf8_literal("Attachment");
-                }
-                UiRect label_rectangle{};
-                if (!ui_text_flow_advance(&flow, 7.0f) ||
-                    !begin_flow_item_clamped(&flow, 36.0f, 44.0f, &label_rectangle) ||
-                    !append_command(presentation, label, {}, {}, owner, label_rectangle, attachment_clip,
-                                    theme.text_primary, record->id, record->revision, measurement_index,
-                                    MessageTextMeasurementKind::attachment, 20.0f, 0.0f, false,
-                                    UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::no_wrap,
-                                    0, UiTextOverflow::ellipsis) ||
-                    !ui_text_flow_commit_item(&flow, 20.0f, 20.0f, 8.0f)) {
-                    return fail(presentation, MessageTextPresentationError::layout);
-                }
-            }
-            const u32 slot = kMessageSceneAttachmentItemOffset + index;
-            if (!ui_text_flow_ensure_extent(&flow, required_extent) ||
-                !finish_flow(
-                    presentation, flow,
-                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
-                return fail(presentation, MessageTextPresentationError::layout);
-            }
-            saturating_accumulate(presentation->rich.attachments);
-        }
-        presentation->measurements[measurement_index].rich_layout.attachments =
-            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
-                            kMessageSceneAttachmentItemOffset, rich->attachment_count);
-    }
-
-    if (rich->embed_count != 0 && message_rich_display().embeds) {
-        for (u32 index = 0; index < rich->embed_count; ++index) {
-            set_failure_context(presentation, MessageTextPresentationStage::embed,
-                                MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
-            const UiWidgetHandle item_widget =
-                message_scene_rich_item_widget(row, MessageSceneRichItemKind::embed, index);
-            const UiLayoutNode* item_layout =
-                message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::embed, index);
-            if (!item_layout) {
-                return fail(presentation, MessageTextPresentationError::layout);
-            }
-            const UiWidgetReference owner{&scene.widgets, item_widget};
-            MessageRichItemLayout& merged_items = presentation->measurements[measurement_index].rich_item_layout;
-            if (message_rich_embed_merge_host(*rich_store, *rich, index) != index) {
-                // A merged embed's image is drawn in the first embed's gallery.
-                merged_items.heights[kMessageSceneEmbedItemOffset + index] = 0.0f;
-                merged_items.embed_widths[index] = merged_items.embed_media_tops[index] = 0.0f;
-                merged_items.embed_media_widths[index] = merged_items.embed_media_heights[index] = 0.0f;
-                merged_items.embed_author_tops[index] = merged_items.embed_footer_tops[index] = 0.0f;
-                continue;
-            }
-            UiTextFlowLayout flow{};
-            const float embed_left = item_layout->content_rectangle.left;
-            const float maximum_width =
-                minimum(ui_rect_width(item_layout->content_rectangle), kMessageEmbedMaximumWidth);
-            const float retained_width = row.rich_item_layout.embed_widths[index];
-            const float embed_width =
-                minimum(maximum_width, retained_width > 0 ? retained_width : maximum_width);
-            const MessageRichEmbed& embed = rich->embeds[index];
-            const MessageRichEmbedPlan plan = message_rich_embed_plan(*rich_store, embed);
-            const bool media_only = plan.media_only;
-            float thumb_width = 0, thumb_height = 0;
-            const bool thumbnail = message_rich_embed_thumbnail_extent(
-                *rich_store, embed, maximum(1.f, embed_width - kMessageEmbedContentInset - kMessageEmbedEndInset),
-                &thumb_width, &thumb_height);
-            const float thumbnail_inset = thumbnail ? thumb_width + kMessageEmbedThumbnailGap : 0;
-            const float body_width = maximum(1.f, embed_width - thumbnail_inset);
-            const UiRect embed_clip = ui_rect_intersection(
-                row_clip, UiRect{embed_left, row_clip.top, embed_left + embed_width, row_clip.bottom});
-            if (!ui_rect_has_area(embed_clip) ||
-                !initialize_flow(presentation, *item_layout, embed_left, body_width, embed_clip, &flow)) {
-                return false;
-            }
-            const u32 embed_command_begin = presentation->command_count;
-            float natural_width = 0;
-            MessageRichItemLayout& measured_items =
-                presentation->measurements[measurement_index].rich_item_layout;
-            measured_items.embed_author_tops[index] = 0.0f;
-            measured_items.embed_footer_tops[index] = 0.0f;
-            const auto measure_from = [&](u32 first_command, float inset) noexcept {
-                for (u32 c = first_command; c < presentation->command_count; ++c)
-                    natural_width = maximum(natural_width, framed_width(presentation->commands[c]) + inset);
-            };
-            const auto block_gap = [&]() noexcept { return ui_text_flow_advance(&flow, kMessageEmbedBlockGap); };
-            const auto source = [&](u32 slot) noexcept {
-                return static_cast<u16>(kRichTextSource | (context.forwarded ? kForwardedTextSource : 0u) |
-                                        (kRichTextEmbedBegin + index * kRichTextEmbedSlots + slot));
-            };
-            const Color muted = ui_background_muted_text_color(theme);
-            constexpr float text_insets = kMessageEmbedContentInset + kMessageEmbedEndInset;
-            if (!media_only) {
-                if (!ui_text_flow_advance(&flow, message_rich_embed_top_inset(plan.components)))
-                    return fail(presentation, MessageTextPresentationError::layout);
-                // Provider: small subtext (12 DIP).
-                const Utf8View provider = message_rich_store_string(*rich_store, embed.provider_name);
-                const Utf8View provider_url = message_rich_store_string(*rich_store, embed.provider_url);
-                if (provider.bytes) {
-                    const u32 first = presentation->command_count;
-                    if (!block_gap() ||
-                        !append_embed_plain_line(presentation, &context, provider, &flow, kMessageEmbedContentInset,
-                                                 kMessageEmbedEndInset, muted, owner, record->id, record->revision,
-                                                 measurement_index, text_style_subtext, provider_url, source(7),
-                                                 0.0f, source(6), text_size_xs))
-                        return false;
-                    measure_from(first, text_insets);
-                }
-                // Author: optional 24-DIP round icon, semibold name, author.url link.
-                const Utf8View author_name = message_rich_store_string(*rich_store, embed.author_name);
-                if (author_name.bytes) {
-                    if (!block_gap())
-                        return fail(presentation, MessageTextPresentationError::layout);
-                    const bool icon = message_rich_embed_author_icon(*rich_store, embed).bytes != 0;
-                    const float inset =
-                        kMessageEmbedContentInset + (icon ? kMessageEmbedAuthorIcon + kMessageEmbedIconGap : 0.0f);
-                    measured_items.embed_author_tops[index] = ui_text_flow_required_height(flow);
-                    const u32 first = presentation->command_count;
-                    if (!append_embed_plain_line(presentation, &context, author_name, &flow, inset, kMessageEmbedEndInset,
-                                                 theme.text_primary, owner, record->id, record->revision,
-                                                 measurement_index, text_style_bold,
-                                                 message_rich_store_string(*rich_store, embed.author_url),
-                                                 source(5), icon ? kMessageEmbedAuthorIcon : 0.0f, source(0),
-                                                 text_size_sm))
-                        return false;
-                    measure_from(first, inset + kMessageEmbedEndInset);
-                }
-                // Title: semibold, link-coloured when embed.url is set; title rules.
-                const Utf8View title = message_rich_store_string(*rich_store, embed.title);
-                if (title.bytes) {
-                    const Utf8View url = message_rich_store_string(*rich_store, embed.url);
-                    const u32 first = presentation->command_count;
-                    if (!block_gap() ||
-                        !append_embed_block(presentation, &context, title, &flow, kMessageEmbedContentInset,
-                                            kMessageEmbedEndInset, theme.text_primary, owner, record->id,
-                                            record->revision, measurement_index, plan.markdown, 1,
-                                            text_style_bold | (url.bytes ? text_style_link : 0u), text_size_md, url,
-                                            source(4)))
-                        return false;
-                    measure_from(first, text_insets);
-                }
-                const Utf8View description = message_rich_store_string(*rich_store, embed.description);
-                if (description.bytes && plan.description) {
-                    const u32 first = presentation->command_count;
-                    if (!block_gap() ||
-                        !append_embed_block(presentation, &context, description, &flow, kMessageEmbedContentInset,
-                                            kMessageEmbedEndInset, theme.text_primary, owner, record->id,
-                                            record->revision, measurement_index, plan.markdown, 0, 0,
-                                            plan.components ? text_size_inherit : text_size_sm))
-                        return false;
-                    measure_from(first, text_insets);
-                }
-                if (embed.type == GatewayMessageEmbedType::poll_result) {
-                    const u32 first = presentation->command_count;
-                    if (!block_gap() ||
-                        !append_poll_result(presentation, &context, *rich_store, *rich, &flow, theme.text_primary,
-                                            muted, owner, record->id, record->revision, measurement_index))
-                        return false;
-                    measure_from(first, text_insets);
-                }
-                if (plan.fields &&
-                    !append_embed_fields(presentation, &context, *rich_store, *rich, embed, &flow,
-                                         theme.text_primary, theme.text_primary, owner, record->id,
-                                         record->revision, measurement_index, &natural_width, plan.markdown)) {
-                    return false;
-                }
-                natural_width += thumbnail_inset;
-                if (thumbnail &&
-                    !ui_text_flow_ensure_extent(
-                        &flow, message_rich_embed_top_inset(plan.components) + kMessageEmbedBlockGap + thumb_height))
-                    return false;
-            }
-            flow.content_rectangle.right = embed_left + embed_width;
-            measured_items.embed_media_tops[index] = 0.0f;
-            measured_items.embed_media_widths[index] = 0.0f;
-            measured_items.embed_media_heights[index] = 0.0f;
-            MessageRichEmbedMediaSelection media{};
-            MessageRichEmbedGallery gallery{};
-            float media_width = 0.0f;
-            float media_height = 0.0f;
-            // A gallery sits in the text column, beside any corner thumbnail.
-            if (message_rich_embed_gallery(*rich_store, *rich, index, &gallery)) {
-                media_width = message_rich_embed_gallery_width(
-                    *rich_store, embed, maximum(0.0f, body_width - (media_only ? 0.0f : text_insets)));
-                media_height = kMessageEmbedGalleryHeight;
-            }
-            if ((media_width > 0.0f && media_height > 0.0f) ||
-                (!gallery.count && message_rich_embed_media_select(*rich_store, embed, &media) &&
-                 message_rich_embed_media_extent(media, maximum(0.0f, embed_width - (media_only ? 0.0f : text_insets)),
-                                                 &media_width, &media_height))) {
-                if (!media_only && !ui_text_flow_advance(&flow, kMessageEmbedMediaGap))
-                    return fail(presentation, MessageTextPresentationError::layout);
-                measured_items.embed_media_tops[index] = ui_text_flow_required_height(flow);
-                measured_items.embed_media_widths[index] = media_width;
-                measured_items.embed_media_heights[index] = media_height;
-                const float media_left = embed_left + message_rich_embed_media_left(media_only);
-                const UiRect media_box{media_left, flow.cursor_y, media_left + media_width,
-                                       flow.cursor_y + media_height};
-                const u32 labels = gallery.count ? minimum<u32>(gallery.count, kMessageEmbedGalleryDrawn) : 1;
-                for (u32 tile = 0; tile < labels; ++tile) {
-                    const u32 member = gallery.count ? gallery.members[tile] : index;
-                    const auto obscure = message_scene_media_obscure(
-                        scene, media_policy, record->id,
-                        message_media_reveal_key(record->id, MessageMediaSource::embed, member,
-                                                 row.forwarded_snapshot),
-                        false, message_rich_embed_explicit(rich->embeds[member]));
-                    const UiRect cell = gallery.count
-                                            ? message_rich_embed_gallery_tile(media_box, gallery.count, tile)
-                                            : media_box;
-                    if (!append_obscure_label(presentation, obscure, cell, owner, embed_clip, theme, *record,
-                                              measurement_index))
-                        return false;
-                }
-                if (!ui_text_flow_advance(&flow, media_height)) {
-                    return fail(presentation, MessageTextPresentationError::layout);
-                }
-            }
-            if (media_only) {
-                if (!ui_text_flow_ensure_extent(&flow, media_height)) {
-                    return fail(presentation, MessageTextPresentationError::layout);
-                }
-            } else {
-                // Footer: optional 20-DIP round icon, "text \u2022 Yesterday at 10:08 PM".
-                const Utf8View footer = message_rich_store_string(*rich_store, embed.footer_text);
-                char stamp[kMessageMarkdownTimestampMaximumBytes]{};
-                const TimestampFormatResult formatted =
-                    embed.timestamp_ms ? format_timestamp_calendar(embed.timestamp_ms / 1'000u,
-                                                                   context.now_unix_seconds, {stamp, sizeof(stamp)})
-                                       : TimestampFormatResult{};
-                const u32 stamp_bytes = formatted.ok ? formatted.bytes : 0u;
-                if (stamp_bytes && formatted.next_update_unix_seconds &&
-                    (presentation->next_timestamp_update_unix_seconds == 0 ||
-                     formatted.next_update_unix_seconds < presentation->next_timestamp_update_unix_seconds))
-                    presentation->next_timestamp_update_unix_seconds = formatted.next_update_unix_seconds;
-                Utf8View line = footer;
-                if (stamp_bytes) {
-                    const Utf8View separator = utf8_literal(" \xE2\x80\xA2 ");
-                    const u32 bytes = footer.bytes + (footer.bytes ? separator.bytes : 0u) + stamp_bytes;
-                    if (bytes > presentation->utf8.count - presentation->utf8_count)
-                        return fail(presentation, MessageTextPresentationError::capacity);
-                    char* out = presentation->utf8.data + presentation->utf8_count;
-                    u32 at = 0;
-                    copy_bytes(out, footer.data, footer.bytes);
-                    at += footer.bytes;
-                    if (footer.bytes) {
-                        copy_bytes(out + at, separator.data, separator.bytes);
-                        at += separator.bytes;
-                    }
-                    copy_bytes(out + at, stamp, stamp_bytes);
-                    presentation->utf8_count += bytes;
-                    line = Utf8View{out, bytes};
-                }
-                if (line.bytes) {
-                    if (!block_gap())
-                        return fail(presentation, MessageTextPresentationError::layout);
-                    const bool icon = message_rich_embed_footer_icon(*rich_store, embed).bytes != 0;
-                    const float inset =
-                        kMessageEmbedContentInset + (icon ? kMessageEmbedFooterIcon + kMessageEmbedIconGap : 0.0f);
-                    measured_items.embed_footer_tops[index] = ui_text_flow_required_height(flow);
-                    const u32 first = presentation->command_count;
-                    if (!append_embed_plain_line(presentation, &context, line, &flow, inset, kMessageEmbedEndInset,
-                                                 muted, owner, record->id, record->revision, measurement_index,
-                                                 text_style_subtext, {}, 0, icon ? kMessageEmbedFooterIcon : 0.0f,
-                                                 footer.bytes ? source(3) : 0, text_size_xs))
-                        return false;
-                    measure_from(first, inset + kMessageEmbedEndInset);
-                }
-                if (!ui_text_flow_advance(&flow, kMessageEmbedBottomInset + kMessageEmbedItemGap)) {
-                    return fail(presentation, MessageTextPresentationError::layout);
-                }
-            }
-            const u32 slot = kMessageSceneEmbedItemOffset + index;
-            // The content width comes from the initial maximum-width pass.
-            // Measuring again after wrapping at that width feeds the shorter
-            // wrapped lines back and keeps shrinking the card. A new
-            // viewport/content identity resets retained_width.
-            bool measured = true;
-            for (u32 c = embed_command_begin; c < presentation->command_count; ++c)
-                measured = measured && presentation->commands[c].measured_height > 0;
-            natural_width = maximum(natural_width, media_width + (media_only ? 0 : text_insets) +
-                                                       (gallery.count ? thumbnail_inset : 0.0f));
-            if (measured && retained_width <= 0)
-                measured_items.embed_widths[index] = minimum(maximum_width, maximum(64.f, natural_width));
-            if (!finish_flow(
-                    presentation, flow,
-                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
-                return false;
-            }
-            saturating_accumulate(presentation->rich.embeds);
-        }
-        presentation->measurements[measurement_index].rich_layout.embeds =
-            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
-                            kMessageSceneEmbedItemOffset, rich->embed_count);
-    }
+    if (!append_rich_media_text(context, scene, row, theme, row_clip, measurement_index, text_width,
+                                media_policy))
+        return false;
 
     if (rich->sticker_count != 0) {
         for (u32 index = 0; index < rich->sticker_count; ++index) {

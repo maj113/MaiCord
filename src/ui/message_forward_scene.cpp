@@ -431,11 +431,9 @@ bool ui_message_forward_scene_paint(const UiMessageForwardScene& s, const Theme&
         s.preview.left + 15, s.preview.bottom - 12, accent);
     const auto query_view = presentation_view(s.content->edit, s.content->sending || s.content->committed);
     const auto caption_view = presentation_view(s.content->caption, s.content->sending || s.content->committed);
-    Theme edit_theme = t;
-    edit_theme.accent = accent;
-    ok = ok && ui_edit_field_paint(out, s.field, s.text, query_view, query, t.base_lowest, edit_theme, dpi, 8) &&
+    ok = ok && ui_edit_field_paint(out, s.field, s.text, query_view, query, t.base_lowest, t, dpi, 8) &&
         ui_icon_paint(out, UiIcon::search, {s.field.left + 10, s.field.top + 10, s.field.left + 30, s.field.top + 30}, t.text_secondary) &&
-        ui_edit_field_paint(out, s.caption_field, s.caption_text, caption_view, caption, t.base_lowest, edit_theme, dpi, 8);
+        ui_edit_field_paint(out, s.caption_field, s.caption_text, caption_view, caption, t.base_lowest, t, dpi, 8);
     const auto* close = ui_widget_manager_layout_node(s.widgets, s.close);
     if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
         ok = surface(out, close->rectangle, t, t.surface_high, t.surface_high, 6);

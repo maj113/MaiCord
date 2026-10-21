@@ -28,11 +28,12 @@ enum PermissionScope : u8 {
     permission_scope_channels = permission_scope_text | permission_scope_voice | permission_scope_stage,
 };
 
+struct PermissionGridText { Utf8View label, description; };
 struct PermissionGridEntry {
     PermissionSet bit;
     Utf8View label, description;
     // Channel overrides rename a few guild permissions; empty keeps the label.
-    Utf8View channel_label, channel_description;
+    const PermissionGridText* channel;
     PermissionGroup group;
     u8 scopes;
 };

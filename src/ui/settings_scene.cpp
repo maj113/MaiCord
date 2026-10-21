@@ -1215,8 +1215,8 @@ void synchronize_input(UiSettingsScene& scene) noexcept {
         scene.focus = fallback_focus(scene);
     ui_widget_manager_focus(&scene.widgets, target_handle(scene, scene.focus));
 }
-bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, Utf8View label, UiRect rectangle,
-          Color color, u32 style = text_style_none, UiTextAlignment alignment = UiTextAlignment::start,
+bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, Utf8View label, const UiRect& rectangle,
+          const Color& color, u32 style = text_style_none, UiTextAlignment alignment = UiTextAlignment::start,
           UiTextWrapping wrapping = UiTextWrapping::no_wrap,
           UiTextAlignment vertical = UiTextAlignment::center) noexcept {
     const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);

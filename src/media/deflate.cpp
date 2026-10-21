@@ -750,7 +750,7 @@ bool build_dynamic_tables(InflateState* state) noexcept {
     const u32 literal_count = hlit_bits + 257;
     const u32 distance_count = hdist_bits + 1;
     const u32 code_count = hclen_bits + 4;
-    if (literal_count > 286 || distance_count > 32 || code_count > 19) {
+    if (literal_count > 286) {
         state->error = ZlibInflateError::invalid_block;
         return false;
     }
@@ -785,30 +785,18 @@ bool build_dynamic_tables(InflateState* state) noexcept {
             lengths[cursor++] = static_cast<u8>(symbol);
             continue;
         }
-        u32 extra = 0;
-        u32 repeat = 0;
-        u8 value = 0;
-        if (symbol == 16) {
-            if (cursor == 0 || !read_bits(reader, 2, &extra)) {
-                state->error =
-                    cursor == 0 ? ZlibInflateError::invalid_huffman : ZlibInflateError::truncated;
-                return false;
-            }
-            repeat = extra + 3;
-            value = lengths[cursor - 1];
-        } else if (symbol == 17) {
-            if (!read_bits(reader, 3, &extra)) {
-                state->error = ZlibInflateError::truncated;
-                return false;
-            }
-            repeat = extra + 3;
-        } else {
-            if (!read_bits(reader, 7, &extra)) {
-                state->error = ZlibInflateError::truncated;
-                return false;
-            }
-            repeat = extra + 11;
+        if (symbol == 16 && cursor == 0) {
+            state->error = ZlibInflateError::invalid_huffman;
+            return false;
         }
+        u32 extra = 0;
+        const u32 extra_bits = symbol == 16 ? 2 : symbol == 17 ? 3 : 7;
+        if (!read_bits(reader, extra_bits, &extra)) {
+            state->error = ZlibInflateError::truncated;
+            return false;
+        }
+        const u32 repeat = extra + (symbol == 18 ? 11 : 3);
+        const u8 value = symbol == 16 ? lengths[cursor - 1] : 0;
         if (repeat > total - cursor) {
             state->error = ZlibInflateError::invalid_huffman;
             return false;

@@ -199,7 +199,7 @@ UiLayoutResult ui_widget_manager_layout(UiWidgetManager* manager, UiSize viewpor
     return result;
 }
 
-UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, UiRect viewport) noexcept {
+UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept {
     if (!manager) {
         return UiLayoutResult{UiLayoutError::invalid_argument, 0, 0};
     }

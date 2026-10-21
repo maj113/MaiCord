@@ -1306,9 +1306,16 @@ const MessageSceneRowWidget* converge_native(Utf8View payload, GatewayMessageEve
          message_text_coordinator_converge(request).ok();
     const MessageSceneRowWidget* row = ok ? message_scene_find_row(f.scene, 0) : nullptr;
     paint_stream_reset(&f.paint, 900, 4000);
+    // The renderer's temporary bank need not be zeroed before publication.
+    for (auto& command : f.media)
+        command.tile_radius = command.obscure = command.cover = command.gif = 255;
     if (!row || !message_media_command_stream_initialize(media, {f.media, 32}) ||
         !message_presentation_build(f.scene, kDefaultTheme, &f.paint, media, painted))
         row = nullptr;
+    for (u32 i = 0; row && i < media->count; ++i)
+        if (f.media[i].tile_radius == 255 || f.media[i].obscure == 255 ||
+            f.media[i].cover == 255 || f.media[i].gif == 255)
+            row = nullptr;
     paint_stream_release(&f.paint);
     return row;
 }

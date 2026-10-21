@@ -87,9 +87,9 @@ JsonReadResult json_visit_root_object(Utf8View input, ConstSlice<u32> structural
 JsonReadResult json_visit_root_array(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
                                      JsonArrayVisitor visitor, void* context) noexcept;
 // json_visit_root_* over value.source with an index of exactly that source.
-JsonReadResult json_visit_value_object(JsonValue value, ConstSlice<u32> structurals, u32 maximum_depth,
+JsonReadResult json_visit_value_object(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
                                        JsonMemberVisitor visitor, void* context) noexcept;
-JsonReadResult json_visit_value_array(JsonValue value, ConstSlice<u32> structurals, u32 maximum_depth,
+JsonReadResult json_visit_value_array(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
                                       JsonArrayVisitor visitor, void* context) noexcept;
 
 // Nested visitors borrow the immutable index of the complete document. They do
@@ -98,9 +98,9 @@ struct JsonIndexedDocument {
     Utf8View input;
     ConstSlice<u32> structurals;
 };
-JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, JsonValue value,
+JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;
-JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, JsonValue value,
+JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept;
 
 bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, const char* ascii,
@@ -118,13 +118,13 @@ inline bool json_name_is(JsonString name, Utf8View ascii) noexcept {
         return false;
     return json_string_equals_ascii_bytes(name.encoded.data, name.encoded.bytes, ascii.data, ascii.bytes);
 }
-bool json_string_equals_utf8(JsonString value, Utf8View text) noexcept;
-bool json_string_to_u64(JsonString value, u64* output) noexcept;
+bool json_string_equals_utf8(const JsonString& value, Utf8View text) noexcept;
+bool json_string_to_u64(const JsonString& value, u64* output) noexcept;
 // Reports the complete decoded byte count without touching output on error or
 // insufficient capacity. A null, zero-sized output is a valid size query.
-JsonStringDecodeResult json_string_decode_utf8(JsonString value, Slice<char> output) noexcept;
-bool json_value_as_string(JsonValue value, JsonString* output) noexcept;
-bool json_value_to_u64(JsonValue value, u64* output) noexcept;
-bool json_value_to_bool(JsonValue value, bool* output) noexcept;
+JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, Slice<char> output) noexcept;
+bool json_value_as_string(const JsonValue& value, JsonString* output) noexcept;
+bool json_value_to_u64(const JsonValue& value, u64* output) noexcept;
+bool json_value_to_bool(const JsonValue& value, bool* output) noexcept;
 
 } // namespace maicord

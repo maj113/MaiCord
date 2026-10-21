@@ -133,6 +133,12 @@ set_target_properties(MaiCord PROPERTIES
 target_link_options(MaiCord PRIVATE
     /ENTRY:maicord_entry
     /SUBSYSTEM:WINDOWS,6.02)
+option(MAICORD_SIZE_REPORT "Report shipping linker-map code extents" OFF)
+if(MAICORD_SIZE_REPORT)
+    foreach(image IN ITEMS MaiCord MaiCordAccount)
+        target_link_options(${image} PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/${image}.map")
+    endforeach()
+endif()
 # Startup: DLLs the device prestart does not need map on first use instead of
 # before the entry point, which the prestart waits for. The renderer maps
 # dcomp, shell32, ole32 and advapi32 (which GPU drivers import) on the main

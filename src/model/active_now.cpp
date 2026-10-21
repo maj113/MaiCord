@@ -120,16 +120,21 @@ u32 active_now_project(const ActiveNowInput& input, Slice<ActiveNowCard> output)
             describe(*card, *activity);
         add_member(*card, user, started(activity));
     }
-    // Insertion sort: the working set is small and the order must be stable.
-    for (u32 i = 1; i < count; ++i)
-        for (u32 j = i; j > 0 && before(work[j], work[j - 1]); --j) {
-            ActiveNowCard swap = work[j];
-            work[j] = work[j - 1];
-            work[j - 1] = swap;
+    // Sort indices instead of repeatedly moving each card's text and members.
+    // Strict comparisons retain the original order for equal cards.
+    static_assert(kWorkCards <= 256);
+    u8 order[kWorkCards];
+    for (u32 i = 0; i < count; ++i) {
+        u32 j = i;
+        while (j && before(work[i], work[order[j - 1]])) {
+            order[j] = order[j - 1];
+            --j;
         }
+        order[j] = static_cast<u8>(i);
+    }
     const u32 emitted = minimum(count, minimum<u32>(output.count, kActiveNowMaximumCards));
     for (u32 i = 0; i < emitted; ++i)
-        output[i] = work[i];
+        output[i] = work[order[i]];
     return emitted;
 }
 

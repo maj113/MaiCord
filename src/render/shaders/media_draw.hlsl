@@ -62,13 +62,14 @@ float4 sample_level(uint source,float2 coordinate){
 float4 blurred_sample(uint source,float2 center,float2 dx,float2 dy,float deviation,float4 bounds,float2 pixel){
     const uint taps=64;
     const float rotation=6.2831853f*frac(sin(dot(floor(pixel),float2(12.9898f,78.233f)))*43758.5453f);
-    const float radius=deviation*2.0f,inverse=-0.5f/(deviation*deviation);
+    const float radius=deviation*2.0f;
     float4 sum=0;float weight=0;
     [loop] for(uint i=0;i<taps;++i){
         const float r=radius*sqrt((i+.5f)/taps),angle=i*2.39996323f+rotation;
         const float2 offset=r*float2(cos(angle),sin(angle));
         const float2 coordinate=clamp(center+offset.x*dx+offset.y*dy,bounds.xy,bounds.zw);
-        const float w=exp(r*r*inverse);
+        // Radius squared cancels deviation squared in the Gaussian exponent.
+        const float w=exp(-2.0f*(i+.5f)/taps);
         // Atlas texels are premultiplied, so transparency never darkens the mean.
         sum+=sample_level(source,coordinate)*w;weight+=w;
     }

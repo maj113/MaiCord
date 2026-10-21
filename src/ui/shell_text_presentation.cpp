@@ -30,6 +30,8 @@
 namespace maicord {
 namespace {
 
+constexpr UiTextEffect no_effect{};
+
 bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, Utf8View text,
                     const UiRect& rectangle, const UiRect& clip, const Color& color, UiTextOutput* stream,
                     UiTextAlignment horizontal_alignment = UiTextAlignment::start,
@@ -37,7 +39,7 @@ bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, Utf8Vi
                     UiTextWrapping wrapping = UiTextWrapping::no_wrap,
                     UiTextOverflow overflow = UiTextOverflow::clip, u32 style_flags = text_style_none,
                     bool owned = false, UiTextFace face = UiTextFace::normal,
-                    UiTextEffect effect = {}) noexcept {
+                    const UiTextEffect& effect = no_effect) noexcept {
     if (text.bytes == 0) {
         return true;
     }

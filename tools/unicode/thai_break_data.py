@@ -123,8 +123,12 @@ def build(words):
 
     Node encodings, where a reference below `len(references)` names a shared
     node by absolute offset and any larger value is a backward distance:
-    - 0..127: one edge with this label, then a reference; not a word end.
+    - 0..79: one edge with this label, then a reference; not a word end.
+    - 80..127: one edge described by a shared u16 (label | distance << 8).
+      The reader expands these and ordinary labels into a constexpr 128-entry
+      table, so an absent edge needs only one label comparison.
     - 128 + 2 * edges + end, edges <= 59: (label, reference) pairs by label.
+      A label's high bit names the terminal node at offset zero, with no reference.
     - 248 + 2 * wide + end: a 128-bit label mask, then one backward distance
       of 2 bytes (3 if wide) per set bit.
     """
@@ -132,6 +136,8 @@ def build(words):
     for word in words:
         node = trie
         for c in word:
+            if not 0 <= ord(c) - 0xe00 < 80:
+                raise ValueError('Word label overlaps the compact unary headers')
             node = node.setdefault(ord(c) - 0xe00, {})
         node[-1] = True
     unique, nodes = {}, []
@@ -146,9 +152,13 @@ def build(words):
     root = intern(trie)
     if root != len(nodes) - 1:
         raise ValueError('Expected the root after all child nodes')
+    if nodes[0] != (True, ()):
+        raise ValueError('Expected the terminal node at offset zero')
 
-    def serialize(references, fixed_bitmaps=None):
+    def serialize(references, fixed_bitmaps=None, terminal_edges=False, special=()):
         data, offsets, bitmaps = bytearray(), [], set()
+        patterns = {value: index + 80 for index, value in enumerate(special)}
+        frequencies = Counter()
         for identifier, (end, edges) in enumerate(nodes[:root]):
             start = len(data)
             offsets.append(start)
@@ -159,8 +169,16 @@ def build(words):
 
             if not end and len(edges) == 1:
                 label, child = edges[0]
-                data.append(label)
-                data += reference(child)
+                encoded = reference(child)
+                distance = start - offsets[child]
+                pattern = label | (distance << 8)
+                if distance < 256:
+                    frequencies[pattern] += len(encoded)
+                if pattern in patterns:
+                    data.append(patterns[pattern])
+                else:
+                    data.append(label)
+                    data += encoded
                 continue
             distances = [start - offsets[child] for _, child in edges]
             wide = bool(distances) and max(distances) >= 65536
@@ -183,23 +201,40 @@ def build(words):
                 raise ValueError('List node exceeds 59 edges')
             data.append(128 + len(edges) * 2 + end)
             for label, child in edges:
-                data.append(label)
-                data += reference(child)
-        return data, offsets, bitmaps
+                if terminal_edges and child == 0:
+                    data.append(label | 128)
+                else:
+                    data.append(label)
+                    data += reference(child)
+        return data, offsets, bitmaps, frequencies
 
-    baseline, baseline_offsets, bitmaps = serialize({})
+    # Choose the same rank-lookup nodes and shared references as the untagged
+    # encoding; terminal-edge packing only removes redundant references.
+    baseline, baseline_offsets, bitmaps, _ = serialize({})
     gains = Counter()
     for identifier, (_, edges) in enumerate(nodes[:root]):
         if identifier not in bitmaps:
             for _, child in edges:
                 gains[child] += len(varint(baseline_offsets[identifier] - baseline_offsets[child])) - 1
     shared = sorted((c for c in gains if gains[c] > 4), key=lambda c: (-gains[c], c))[:REFERENCE_SLOTS]
-    data, offsets, bitmaps = serialize({c: i for i, c in enumerate(shared)}, bitmaps)
+    references = {c: i for i, c in enumerate(shared)}
+    data, offsets, _, frequencies = serialize(references, bitmaps, True)
+    special = []
+    best = (len(data) + 256, data, offsets, special)
+    # Shrinking earlier nodes changes backward distances. Evaluate a bounded,
+    # deterministic refinement and keep the smallest complete encoding.
+    for _ in range(8):
+        special = [value for value, _ in frequencies.most_common(48)]
+        candidate, positions, _, frequencies = serialize(references, bitmaps, True, special)
+        size = len(candidate) + 256
+        if size < best[0]:
+            best = (size, candidate, positions, special)
+    _, data, offsets, special = best
     initial = [0xffffffff] * 128
     for label, child in nodes[root][1]:
         initial[label] = offsets[child]
     return dict(data=data, offsets=offsets, nodes=nodes, root=root, initial=initial,
-                references=[offsets[c] for c in shared], bitmaps=len(bitmaps), unshared_bytes=len(baseline))
+                references=[offsets[c] for c in shared], special=special, bitmaps=len(bitmaps), unshared_bytes=len(baseline))
 
 
 def decode(graph, node):
@@ -210,6 +245,9 @@ def decode(graph, node):
         return references[value] if value < len(references) else node - (value - len(references))
 
     header, at = data[node], node + 1
+    if 80 <= header < 128:
+        pattern = graph['special'][header - 80]
+        return False, [(pattern & 255, node - (pattern >> 8))], at
     if header < 128:
         value, at = read_varint(data, at)
         return False, [(header, target(value))], at
@@ -225,8 +263,12 @@ def decode(graph, node):
         return bool(header & 1), edges, at
     for _ in range((header - 128) >> 1):
         label = data[at]
-        value, at = read_varint(data, at + 1)
-        edges.append((label, target(value)))
+        at += 1
+        if label & 128:
+            edges.append((label & 127, 0))
+        else:
+            value, at = read_varint(data, at)
+            edges.append((label, target(value)))
     return bool(header & 1), edges, at
 
 
@@ -275,7 +317,9 @@ def emit(graph, words, inputs):
     references = graph['references']
     text += f'}};\nconstexpr u32 thai_word_reference_count={len(references)};\nconstexpr u32 thai_word_references[]{{\n'
     text += ''.join('    ' + ','.join(f'{v}u' for v in references[i:i + 8]) + ',\n' for i in range(0, len(references), 8))
-    return text + ('' if references else '    0u,\n') + '};\n'  # No zero-length array.
+    text += ('' if references else '    0u,\n') + '};\n'
+    special = ','.join(map(str, graph['special'])) or '0'
+    return text + 'constexpr u16 thai_word_special[]{' + special + '};\n'
 
 
 def main():
@@ -297,7 +341,8 @@ def main():
                   excluded=dict(sorted(excluded.items())), longest=LONGEST,
                   nodes=graph['root'], bitmap_nodes=graph['bitmaps'], graph_bytes=len(graph['data']),
                   unshared_graph_bytes=graph['unshared_bytes'], reference_bytes=len(graph['references']) * 4,
-                  initial_bytes=512, payload_bytes=len(graph['data']) + len(graph['references']) * 4 + 512 + 4,
+                  initial_bytes=512, unary_bytes=256,
+                  payload_bytes=len(graph['data']) + len(graph['references']) * 4 + 512 + 4 + 256,
                   sources={k: dict(url=v['url'], sha256=v['sha256']) for k, v in SOURCES.items()},
                   generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                   output_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest())

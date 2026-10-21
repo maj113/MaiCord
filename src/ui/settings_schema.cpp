@@ -81,9 +81,9 @@ bool ui_settings_schema_valid(const UiSettingsSchema& schema) noexcept {
             return false;
         for (u32 n = 0; n < panel.nodes.count; ++n) {
             const auto& node = panel.nodes[n];
-            if (!node.key.bytes || !valid_text(node.key) || !valid_text(node.label) ||
-                !valid_text(node.description) || !valid_text(node.keywords) || !valid_text(node.action_label) ||
-                (!node.label.bytes && !(node.flags & ui_settings_schema_dynamic)))
+            if (!node.key().bytes || !valid_text(node.key()) || !valid_text(node.label()) ||
+                !valid_text(node.description()) || !valid_text(node.keywords()) || !valid_text(node.action_label()) ||
+                (!node.label().bytes && !(node.flags & ui_settings_schema_dynamic)))
                 return false;
             if (choice_kind(node.kind) && !(node.flags & ui_settings_schema_dynamic) &&
                 (!node.choices.count || !node.choices.data ||
@@ -94,7 +94,7 @@ bool ui_settings_schema_valid(const UiSettingsSchema& schema) noexcept {
     // Keys are unique across panels and nodes so deep links never alias.
     for (u32 p = 0; p < schema.panels.count; ++p)
         for (u32 n = 0; n <= schema.panels[p].nodes.count; ++n) {
-            const Utf8View key = n ? schema.panels[p].nodes[n - 1].key : schema.panels[p].key;
+            const Utf8View key = n ? schema.panels[p].nodes[n - 1].key() : schema.panels[p].key;
             UiSettingsSchemaLocation location{};
             if (!ui_settings_schema_find(schema, key, &location) || location.panel != p ||
                 location.node != (n ? n - 1 : kUiSettingsNoChoice))
@@ -114,7 +114,7 @@ bool ui_settings_schema_find(const UiSettingsSchema& schema, Utf8View key,
             return true;
         }
         for (u32 n = 0; n < panel.nodes.count; ++n)
-            if (utf8_equal(panel.nodes[n].key, key)) {
+            if (utf8_equal(panel.nodes[n].key(), key)) {
                 *location = {p, n};
                 return true;
             }
@@ -146,18 +146,18 @@ u32 ui_settings_schema_search(const UiSettingsSchema& schema, Utf8View query,
         const auto& panel = schema.panels[p];
         for (u32 n = 0; n < panel.nodes.count; ++n) {
             const auto& node = panel.nodes[n];
-            if (!result_kind(node.kind) || (node.flags & ui_settings_schema_search_hidden) || !node.label.bytes)
+            if (!result_kind(node.kind) || (node.flags & ui_settings_schema_search_hidden) || !node.label().bytes)
                 continue;
             const u32 category = ui_settings_schema_category(panel, n);
             // Panel titles and keywords name the panel, not every row in it.
-            const Utf8View context[]{node.label, node.keywords, node.description,
-                                     category == kUiSettingsNoChoice ? Utf8View{} : panel.nodes[category].label};
+            const Utf8View context[]{node.label(), node.keywords(), node.description(),
+                                     category == kUiSettingsNoChoice ? Utf8View{} : panel.nodes[category].label()};
             u32 score = 0;
-            if (all_words(words, count, &node.label, 1))
+            if (all_words(words, count, &context[0], 1))
                 score = 4;
-            else if (all_words(words, count, &node.keywords, 1))
+            else if (all_words(words, count, &context[1], 1))
                 score = 3;
-            else if (all_words(words, count, &node.description, 1))
+            else if (all_words(words, count, &context[2], 1))
                 score = 2;
             else if (all_words(words, count, context, 4))
                 score = 1;

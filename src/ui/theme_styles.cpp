@@ -1,5 +1,7 @@
 #include "maicord/ui/theme_styles.hpp"
 #include "maicord/ui/theme.hpp"
+#include "maicord/core/memory.hpp"
+#include <stddef.h>
 #include "maicord/ui/background_color_math.hpp"
 #include "maicord/ui/background_presentation.hpp"
 
@@ -58,7 +60,7 @@ constexpr u32 paint = ui_theme_style_paint;
 constexpr UiThemeColorDescriptor colors[]{THEME_COLORS(COLOR_DESCRIPTOR)};
 #undef COLOR_DESCRIPTOR
 #define METRIC_DESCRIPTOR(name, low, high, domain)                                                         \
-    {UiThemeMetric::name, utf8_literal(#name), low, high, domain},
+    {utf8_literal(#name), low, high, domain, UiThemeMetric::name},
 constexpr UiThemeMetricDescriptor metrics[]{THEME_METRICS(METRIC_DESCRIPTOR)};
 #undef METRIC_DESCRIPTOR
 static_assert(sizeof(colors) / sizeof(colors[0]) == static_cast<u8>(UiThemeColor::count));
@@ -66,13 +68,20 @@ constexpr Utf8View token_name(Utf8View name) noexcept {
     // C++ keywords carry a trailing underscore in the member name only.
     return name.bytes && name.data[name.bytes - 1] == '_' ? Utf8View{name.data, name.bytes - 1} : name;
 }
+// Equal immutable defaults share one compile-time source object.
+template <UiThemeTokenSource Source>
+inline constexpr UiThemeTokenSource default_source = Source;
 #define P(id) {{}, 1, static_cast<u8>(UiThemeColor::id), UiThemeTokenSourceKind::core}
 #define PA(id, a) {{}, a, static_cast<u8>(UiThemeColor::id), UiThemeTokenSourceKind::core}
 #define T(group, name)                                                                                     \
     {{}, 1, static_cast<u8>(UiThemeToken::group##_##name), UiThemeTokenSourceKind::token}
 #define RGBA(r, g, b, a) {{r, g, b, a}, 1, 0, UiThemeTokenSourceKind::literal}
+#define MAICORD_THEME_TOKEN(group, name, dark, light) static_assert(sizeof(#group) <= 256 && sizeof(#name) <= 256);
+#include "maicord/ui/theme_tokens.inc"
+#undef MAICORD_THEME_TOKEN
 #define MAICORD_THEME_TOKEN(group, name, dark, light)                                                      \
-    {UiThemeToken::group##_##name, utf8_literal(#group), token_name(utf8_literal(#name)), dark, light},
+    {UiThemeToken::group##_##name, utf8_literal(#group), token_name(utf8_literal(#name)), \
+     default_source<UiThemeTokenSource dark>, default_source<UiThemeTokenSource light>},
 constexpr UiThemeTokenDescriptor tokens[]{
 #include "maicord/ui/theme_tokens.inc"
 };
@@ -254,9 +263,12 @@ UiThemeTokenResult ui_theme_tokens_resolve(Theme* theme, const UiThemeTokenSourc
     for (u32 i = 0; i < static_cast<u32>(UiThemeToken::count); ++i)
         if (!resolve_token(r, i))
             return r.result;
-    u32 index{};
-#define MAICORD_THEME_TOKEN(group, name, dark, light) theme->tokens.group.name = r.values[index++];
+    // The schema orders both the resolved array and the typed token fields.
+    static_assert(sizeof(theme->tokens) == sizeof(r.values));
+#define MAICORD_THEME_TOKEN(group, name, dark, light) \
+    static_assert(offsetof(UiThemeTokens, group.name) == static_cast<u32>(UiThemeToken::group##_##name) * sizeof(Color));
 #include "maicord/ui/theme_tokens.inc"
+    copy_bytes(&theme->tokens, r.values, sizeof(r.values));
     return {};
 }
 ConstSlice<UiThemeScaleDescriptor> ui_theme_scale_descriptors() noexcept {

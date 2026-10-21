@@ -3,7 +3,7 @@
 #include "maicord/ui/theme_styles.hpp"
 namespace maicord {
 namespace {
-bool push_icon_quad(PaintStream* paint, UiIcon icon, UiRect box, Color color, bool solid,
+bool push_icon_quad(PaintStream* paint, UiIcon icon, const UiRect& box, const Color& color, bool solid,
                     float weight) noexcept {
     const u32 before = paint->count;
     if (!paint_stream_push(paint, box.left, box.top, box.right, box.bottom, color))
@@ -24,7 +24,7 @@ Color unpack(u32 rgba) noexcept {
 }
 } // namespace
 
-bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, UiRect bounds, const UiIconStyle& style) noexcept {
+bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, const UiRect& bounds, const UiIconStyle& style) noexcept {
     if (!paint || icon >= UiIcon::count || !ui_rect_has_area(bounds) || !(style.weight >= 0 && style.weight <= 4))
         return false;
     const float extent = minimum(ui_rect_width(bounds), ui_rect_height(bounds));
@@ -34,7 +34,7 @@ bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, UiRect bounds, const 
            push_icon_quad(paint, icon, box, style.ink, false, style.weight);
 }
 
-bool ui_icon_paint(PaintStream* paint, UiIcon icon, UiRect bounds, Color color) noexcept {
+bool ui_icon_paint(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color) noexcept {
     return ui_icon_paint_styled(paint, icon, bounds, {color, {}, 0});
 }
 

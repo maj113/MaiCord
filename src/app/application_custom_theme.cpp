@@ -135,7 +135,7 @@ bool save(CustomThemeOwner& o) noexcept {
     o.saving = true;
     o.save_request = o.applied;
     o.save_failed = false;
-    o.status = utf8_literal("Saving theme…");
+    o.status = utf8_literal("Saving themeâ€¦");
     changed(o);
     return true;
 }
@@ -186,9 +186,9 @@ void ready_status(CustomThemeOwner& o, Utf8View prefix) noexcept {
     u32 digits = decimal_write(ratio, tenths / 10);
     ratio[digits++] = '.';
     ratio[digits++] = static_cast<char>('0' + tenths % 10);
-    const Utf8View parts[]{prefix, utf8_literal(" Low contrast: "), foreground.group, utf8_literal("."),
-                           foreground.name, utf8_literal(" on "), background.group, utf8_literal("."),
-                           background.name, utf8_literal(" ("), {ratio, digits}, utf8_literal(":1).")};
+    const Utf8View parts[]{prefix, utf8_literal(" Low contrast: "), foreground.group(), utf8_literal("."),
+                           foreground.name(), utf8_literal(" on "), background.group(), utf8_literal("."),
+                           background.name(), utf8_literal(" ("), {ratio, digits}, utf8_literal(":1).")};
     u32 used{};
     for (const auto part : parts) {
         if (used + part.bytes > sizeof(o.diagnostic)) {
@@ -219,7 +219,7 @@ bool start_import(CustomThemeOwner& o) noexcept {
     }
     o.importing = true;
     o.read_failed = false;
-    o.status = utf8_literal("Loading theme…");
+    o.status = utf8_literal("Loading themeâ€¦");
     changed(o);
     return true;
 }

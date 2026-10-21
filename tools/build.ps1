@@ -32,6 +32,8 @@ param(
     # afterwards); both run run_perf.ps1 -Execute with -PerfArguments.
     [switch]$PerfProbe,
     [switch]$StartupProbe,
+    # Print shipping PE sections and linker-map code extents before cleanup.
+    [switch]$SizeReport,
     [hashtable]$PerfArguments = @{}
 )
 
@@ -118,6 +120,7 @@ try {
     }
     $on = { param($value) if ($value) { 'ON' } else { 'OFF' } }
     Invoke-Configure @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
+        "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)",
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",
         "-DMAICORD_TEST_PREBUILT_CLIENT=$(& $on $SkipClient)", "-DMAICORD_TEST_TIMEOUT_SCALE=$TestTimeoutScale",
         "-DMAICORD_TEST_PROFILE_DIRECTORY=$(if ($Test) { $testProfile })", "-DMAICORD_TEST_PROFILE_NAMES=$($TestNames -join ';')")
@@ -141,6 +144,9 @@ try {
     }
     if ($PerfProbe) { $targets += 'MaiCordPerfProbe' }
     if ($targets) { Invoke-Build $targets }
+    if ($SizeReport -and !$SkipClient) {
+        Invoke-Native python @("$PSScriptRoot\report_binary_size.py", $client, $account)
+    }
 
     if ($StartupProbe) {
         & "$PSScriptRoot\perf\run_perf.ps1" -ProductionStartup -Execute -Probe $client -ProfileRoot $testProfile @PerfArguments

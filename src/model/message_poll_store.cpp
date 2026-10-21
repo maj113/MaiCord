@@ -590,7 +590,8 @@ MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
                 if (!prepare_text(candidate, live_bytes, 0))
                     return {MessagePollStoreError::capacity, 0, result.ignored, false};
                 for (u32 p = 0; p < store->count; ++p) {
-                    auto copy = store->records[p];
+                    auto& copy = candidate.records[p];
+                    copy = store->records[p];
                     copy.question =
                         write_string(candidate, message_poll_store_string(*store, copy.question));
                     for (u32 a = 0; a < copy.answer_count; ++a) {
@@ -599,7 +600,6 @@ MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
                         copy.answers[a].emoji_name = write_string(
                             candidate, message_poll_store_string(*store, copy.answers[a].emoji_name));
                     }
-                    candidate.records[p] = copy;
                 }
                 candidate.count = store->count;
                 copy_bytes(candidate.owned->observations, store->owned->observations,

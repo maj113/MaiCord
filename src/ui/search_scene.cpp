@@ -1284,8 +1284,8 @@ bool rebuild(UiSearchScene& s) noexcept {
     ++s.revision;
     return true;
 }
-bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, UiRect r,
-          Color color, u32 flags = 0, UiTextWrapping wrap = UiTextWrapping::no_wrap,
+bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
+          const Color& color, u32 flags = 0, UiTextWrapping wrap = UiTextWrapping::no_wrap,
           UiTextAlignment alignment = UiTextAlignment::start, bool chooser_text = false) noexcept {
     if (!value.bytes || !ui_rect_has_area(r))
         return true;

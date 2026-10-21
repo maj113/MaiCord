@@ -301,7 +301,7 @@ constexpr u32 case_ignorable_first[]{
     0x1E130,0x1E2AE,0x1E2EC,0x1E4EB,0x1E5EE,0x1E6E3,0x1E6E6,0x1E6EE,
     0x1E6F5,0x1E6FF,0x1E8D0,0x1E944,0x1F3FB,0xE0001,0xE0020,0xE0100,
 };
-constexpr u16 case_ignorable_span[]{
+constexpr u8 case_ignorable_span[]{
     0,0,0,0,0,0,0,0,
     0,1,191,1,0,1,0,6,
     0,0,44,0,1,1,0,0,
@@ -364,7 +364,7 @@ constexpr u16 case_ignorable_span[]{
 // Spans keep the inclusive endpoint without struct alignment padding per entry.
 // Bounds and ordering are validated at compile time; nothing is retained in the
 // binary and there is no startup work.
-template <usize N> constexpr bool valid_property_ranges(const u32 (&starts)[N], const u16 (&spans)[N]) noexcept {
+template <usize N, class Span> constexpr bool valid_property_ranges(const u32 (&starts)[N], const Span (&spans)[N]) noexcept {
     for (usize i = 0; i < N; ++i) {
         if (spans[i] > 339 || starts[i] > 0x10FFFF || spans[i] > 0x10FFFF - starts[i] ||
             (i && starts[i - 1] + spans[i - 1] >= starts[i])) return false;
@@ -381,11 +381,23 @@ constexpr bool valid_lowercase_ranges() noexcept {
     return true;
 }
 static_assert(valid_lowercase_ranges());
+struct LowerTables {
+    u32 first[186];i32 delta[186];u8 span[186],stride[186];
+};
+consteval LowerTables lower_tables() noexcept {
+    LowerTables result{};
+    for(u32 i=0;i<186;++i){const auto range=lowercase_ranges[i];
+        result.first[i]=range.first;result.delta[i]=range.delta;
+        result.span[i]=static_cast<u8>(range.span);result.stride[i]=range.stride;}
+    return result;
+}
+static_assert(sizeof(lowercase_ranges)/sizeof(lowercase_ranges[0])==186);
+constexpr auto lowercase_tables=lower_tables();
 static_assert(valid_property_ranges(cased_first, cased_span));
 static_assert(valid_property_ranges(case_ignorable_first, case_ignorable_span));
-static_assert(sizeof(lowercase_ranges) + sizeof(cased_first) + sizeof(cased_span) +
-    sizeof(case_ignorable_first) + sizeof(case_ignorable_span) == 5964);
-template <usize N> bool contains(const u32 (&starts)[N], const u16 (&spans)[N], u32 value) noexcept {
+static_assert(sizeof(lowercase_tables) + sizeof(cased_first) + sizeof(cased_span) +
+    sizeof(case_ignorable_first) + sizeof(case_ignorable_span) == 5128);
+template <usize N, class Span> bool contains(const u32 (&starts)[N], const Span (&spans)[N], u32 value) noexcept {
     usize first = 0, last = N;
     while (first < last) {
         const usize middle = first + (last - first) / 2;
@@ -401,11 +413,11 @@ u32 lowercase(u32 value) noexcept {
     usize first = 0, last = sizeof(lowercase_ranges) / sizeof(lowercase_ranges[0]);
     while (first < last) {
         const usize middle = first + (last - first) / 2;
-        const auto range = lowercase_ranges[middle];
-        if (value < range.first) last = middle;
-        else if (value > range.first + range.span) first = middle + 1;
-        else return (value - range.first) % range.stride == 0 ?
-            static_cast<u32>(static_cast<i32>(value) + range.delta) : value;
+        const u32 start=lowercase_tables.first[middle];
+        if (value < start) last = middle;
+        else if (value > start + lowercase_tables.span[middle]) first = middle + 1;
+        else return ((value - start) & (lowercase_tables.stride[middle]-1)) == 0 ?
+            static_cast<u32>(static_cast<i32>(value) + lowercase_tables.delta[middle]) : value;
     }
     return value;
 }

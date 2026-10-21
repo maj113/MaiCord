@@ -475,8 +475,9 @@ UiLayoutStyle size(float width, float h) noexcept {
     st.flags |= ui_layout_node_allow_zero_size | ui_layout_node_clip_children;
     return st;
 }
-UiWidgetHandle add(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, UiLayoutStyle st,
-                   UiFriendsTarget target = {}, const UiFriendsRow& row = {}, bool row_label = false,
+constexpr UiFriendsRow empty_row{};
+UiWidgetHandle add(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, const UiLayoutStyle& st,
+                   UiFriendsTarget target = {}, const UiFriendsRow& row = empty_row, bool row_label = false,
                    bool enabled = true) noexcept {
     const auto name = row_label ? (row.display_name.bytes ? row.display_name : row.username)
                       : target.action == UiFriendsAction::select_tab ? tab_label(target.tab)

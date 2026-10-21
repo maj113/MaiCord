@@ -41,8 +41,8 @@ struct UiIconStyle {
     float weight; // Stroke multiplier; zero selects the theme icon weight.
 };
 // Lucide-derived and original icons compiled into the MIPK pack.
-bool ui_icon_paint(PaintStream* paint, UiIcon icon, UiRect bounds, Color color) noexcept;
-bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, UiRect bounds, const UiIconStyle& style) noexcept;
+bool ui_icon_paint(PaintStream* paint, UiIcon icon, const UiRect& bounds, const Color& color) noexcept;
+bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, const UiRect& bounds, const UiIconStyle& style) noexcept;
 Color ui_icon_role_color(const Theme& theme, UiIconRole role) noexcept;
 float ui_icon_theme_weight(const Theme& theme) noexcept;
 // Largest standard extent (16, 20 or 24 DIP) that fits a control slot.

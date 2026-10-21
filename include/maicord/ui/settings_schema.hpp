@@ -16,16 +16,34 @@ enum UiSettingsSchemaFlag : u16 {
     ui_settings_schema_dynamic = 1u << 2,
 };
 
+// Group text pointers and lengths separately to avoid padding in each view.
 struct UiSettingsSchemaNode {
-    Utf8View key, label, description, keywords;
+    const char *key_data, *label_data, *description_data, *keywords_data, *action_data;
+    ConstSlice<Utf8View> choices;
+    u32 key_bytes, label_bytes, description_bytes, keywords_bytes, action_bytes;
+    u32 default_choice;
+    u32 binding;
     UiSettingsControlKind kind;
     u8 variant;
     u16 flags;
-    ConstSlice<Utf8View> choices;
-    u32 default_choice;
-    u32 binding;
-    Utf8View action_label;
+
+    constexpr UiSettingsSchemaNode(Utf8View key, Utf8View label, Utf8View description,
+                                   Utf8View keywords, UiSettingsControlKind control_kind,
+                                   u8 control_variant, u16 control_flags, ConstSlice<Utf8View> options,
+                                   u32 default_option, u32 control_binding, Utf8View action) noexcept
+        : key_data(key.data), label_data(label.data), description_data(description.data),
+          keywords_data(keywords.data), action_data(action.data), choices(options),
+          key_bytes(key.bytes), label_bytes(label.bytes), description_bytes(description.bytes),
+          keywords_bytes(keywords.bytes), action_bytes(action.bytes), default_choice(default_option),
+          binding(control_binding), kind(control_kind), variant(control_variant), flags(control_flags) {}
+
+    constexpr Utf8View key() const noexcept { return {key_data, key_bytes}; }
+    constexpr Utf8View label() const noexcept { return {label_data, label_bytes}; }
+    constexpr Utf8View description() const noexcept { return {description_data, description_bytes}; }
+    constexpr Utf8View keywords() const noexcept { return {keywords_data, keywords_bytes}; }
+    constexpr Utf8View action_label() const noexcept { return {action_data, action_bytes}; }
 };
+static_assert(sizeof(UiSettingsSchemaNode) == 88);
 
 struct UiSettingsSchemaPanel {
     Utf8View key, title, keywords;

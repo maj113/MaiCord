@@ -127,13 +127,13 @@ constexpr u64 media_asset_hash_mix(u64 value) noexcept {
     return value ^ (value >> 31);
 }
 
-constexpr u64 media_asset_hash(MediaAssetKey key) noexcept {
+constexpr u64 media_asset_hash(const MediaAssetKey& key) noexcept {
     const u64 tail = static_cast<u64>(key.variant) | (static_cast<u64>(key.flags) << 32) |
                      (static_cast<u64>(key.kind) << 48);
     return media_asset_hash_mix(key.id ^ media_asset_hash_mix(tail));
 }
 
-constexpr bool media_asset_key_valid(MediaAssetKey key) noexcept {
+constexpr bool media_asset_key_valid(const MediaAssetKey& key) noexcept {
     if (key.id == 0) {
         return false;
     }
@@ -175,22 +175,24 @@ constexpr bool media_asset_key_valid(MediaAssetKey key) noexcept {
         return key.variant >= 1 && key.variant <= 4 &&
                ((key.flags & media_asset_flag_animated) != 0) == animated;
     }
-    case MediaAssetKind::attachment:
+    case MediaAssetKind::attachment: {
+        const auto format = media_asset_attachment_format(key);
+        // One mask admits the format/animation combinations. Audio formats
+        // occupy the contiguous range 7..10 and only admit original resolution.
+        constexpr u32 still_formats = 0x7bfu; // 0..5, 7..10
+        constexpr u32 animated_formats = (1u << 2) | (1u << 4) | (1u << 5);
+        const u32 formats = key.flags & media_asset_flag_animated ? animated_formats : still_formats;
         return ((key.flags & kMediaSearchFlag) ? (key.variant >> kMediaSearchAttachmentRevisionShift) != 0
                                                : (key.variant & ~kMediaAttachmentVariantMask) == 0) &&
-               (media_asset_attachment_format(key) <= MediaAttachmentFormat::gif ||
-                media_attachment_format_audio_supported(media_asset_attachment_format(key))) &&
+               (formats & (1u << static_cast<u32>(format))) != 0 &&
                ((key.variant & kMediaAttachmentResolutionMask) >> kMediaAttachmentResolutionShift) <=
                    static_cast<u32>(MediaResolutionTier::px2048) &&
-               (!media_attachment_format_audio_supported(media_asset_attachment_format(key)) ||
+               (format < MediaAttachmentFormat::ogg_opus ||
                 (key.variant & kMediaAttachmentResolutionMask) == 0) &&
                (key.flags &
                 ~(media_asset_flag_animated | kMediaAttachmentFormatExtensionFlag | kMediaSearchFlag |
-                  ((key.flags & kMediaSearchFlag) ? kMediaEmbedSnapshotFlag : 0u))) == 0 &&
-               ((key.flags & media_asset_flag_animated) == 0 ||
-                media_asset_attachment_format(key) == MediaAttachmentFormat::webp ||
-                media_asset_attachment_format(key) == MediaAttachmentFormat::gif ||
-                media_asset_attachment_format(key) == MediaAttachmentFormat::mp4);
+                  ((key.flags & kMediaSearchFlag) ? kMediaEmbedSnapshotFlag : 0u))) == 0;
+    }
     case MediaAssetKind::profile_image:
     case MediaAssetKind::embed: {
         const u16 index = static_cast<u16>((key.flags & kMediaEmbedIndexMask) >> kMediaEmbedIndexShift);
