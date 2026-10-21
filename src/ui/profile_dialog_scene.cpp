@@ -154,7 +154,7 @@ bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) n
         !add(s, root, viewport, {editor.right - kRotateBox, middle - kRotateBox * .5f, editor.right, middle + kRotateBox * .5f},
              role_rotate, UiProfileDialogAction::rotate))
         return false;
-    const auto t = ui_settings_tokens(kDefaultTheme);
+    const auto t = ui_settings_layout_tokens(kDefaultTheme.styles);
     const float apply_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
                                                    ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
     const float cancel_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
@@ -239,7 +239,7 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
         !add(s, root, viewport, {left, footer_top, right - 200, footer_top + kFooterButton}, role_status,
              UiProfileDialogAction::none, s->content.status, 0, text_style_subtext))
         return false;
-    const auto t = ui_settings_tokens(kDefaultTheme);
+    const auto t = ui_settings_layout_tokens(kDefaultTheme.styles);
     const float apply_w = ui_settings_button_width(
         t, UiSettingsButtonSize::regular, ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
     const float cancel_w = ui_settings_button_width(
@@ -554,7 +554,6 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
 bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    const auto t = ui_settings_tokens(theme);
     bool ok = true;
     if (crop(s) && s.content.image_ready) {
         // The mask: a 5 DIP white border inside the crop shape.
@@ -567,7 +566,7 @@ bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& th
             if (const auto* editor = find(s, role_editor); editor && focused(s, *editor) && s.focus_visible) {
                 const auto r = visible(s, *editor);
                 ok = paint_stream_push_rounded_border(paint, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, {},
-                                                      t.color.focus_ring, theme.scale.radius_sm + 2, 2);
+                                                      ui_settings_focus_color(theme), theme.scale.radius_sm + 2, 2);
             }
         return ok;
     }
@@ -583,8 +582,8 @@ bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& th
             const auto full = n ? n->rectangle : r;
             ok = paint_stream_push_clip(paint, r.left, r.top, r.right, r.bottom) &&
                  paint_stream_push_rounded_border(paint, full.left, full.top, full.right, full.bottom, {},
-                                                  selected ? t.color.brand : t.color.focus_ring, theme.scale.radius_sm,
-                                                  2) &&
+                                                  selected ? theme.tokens.emphasis.fill : ui_settings_focus_color(theme),
+                                                  theme.scale.radius_sm, 2) &&
                  paint_stream_pop_clip(paint);
         }
     }

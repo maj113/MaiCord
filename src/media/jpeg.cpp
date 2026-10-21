@@ -1368,22 +1368,21 @@ inline constexpr u32 kJpegEndOfBlock = 0x8000u;
 struct JpegDecodeTable {
     const JpegHuffmanTable* table;
     u16 lookahead[1u << kJpegLookaheadBits];
+};
+struct JpegAcDecodeTable : JpegDecodeTable {
     // Baseline AC: a codeword and its magnitude bits within the lookahead.
     // value << 16 | run << 5 | total bits; zero when they do not fit.
     // kJpegEndOfBlock marks the end-of-block codeword (total = its length).
     u32 coefficient[1u << kJpegLookaheadBits];
 };
 
-void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode, bool coefficients = false) noexcept {
+void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode,
+                         u32* coefficients = nullptr) noexcept {
     decode->table = &table;
-    for (u16& entry : decode->lookahead) {
-        entry = 0;
-    }
+    memset(decode->lookahead, 0, sizeof(decode->lookahead));
     if (!table.present) {
         if (coefficients) {
-            for (u32& entry : decode->coefficient) {
-                entry = 0;
-            }
+            memset(coefficients, 0, (1u << kJpegLookaheadBits) * sizeof(*coefficients));
         }
         return;
     }
@@ -1413,12 +1412,12 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode, 
         const u32 entry = decode->lookahead[index];
         const u32 length = entry >> 8;
         const u32 size = entry & 0x0Fu;
-        decode->coefficient[index] = 0;
+        coefficients[index] = 0;
         if (entry == 0) {
             continue;
         }
         if ((entry & 0xFFu) == 0) {
-            decode->coefficient[index] = kJpegEndOfBlock | length;
+            coefficients[index] = kJpegEndOfBlock | length;
             continue;
         }
         if (size == 0 || length + size > kJpegLookaheadBits) {
@@ -1427,13 +1426,13 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode, 
         const u32 raw = index >> (kJpegLookaheadBits - length - size) & ((1u << size) - 1u);
         const i32 value = raw < (1u << (size - 1u)) ? static_cast<i32>(raw) - static_cast<i32>((1u << size) - 1u)
                                                     : static_cast<i32>(raw);
-        decode->coefficient[index] =
+        coefficients[index] =
             static_cast<u32>(value) << 16 | (entry >> 4 & 0x0Fu) << 5 | (length + size);
     }
 }
 
 // Lookahead tables for the Huffman tables a baseline scan's components use.
-void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegDecodeTable* ac) noexcept {
+void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcDecodeTable* ac) noexcept {
     u32 built = 0;
     for (u32 index = 0; index < image.component_count && index < kJpegComponentMaximum; ++index) {
         const JpegComponent& component = image.components[index];
@@ -1442,7 +1441,8 @@ void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegDec
             built |= 1u << component.dc_table;
         }
         if (component.ac_table < kJpegTableMaximum && (built & (16u << component.ac_table)) == 0) {
-            build_decode_table(image.tables->ac[component.ac_table], &ac[component.ac_table], true);
+            build_decode_table(image.tables->ac[component.ac_table], &ac[component.ac_table],
+                               ac[component.ac_table].coefficient);
             built |= 16u << component.ac_table;
         }
     }
@@ -1512,7 +1512,7 @@ __forceinline i32 receive_extend(JpegEntropyReader* reader, u32 bits) noexcept {
 }
 
 __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
-                                      const JpegDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
+                                      const JpegAcDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
                                       u32* huffman_symbols) noexcept {
     for (u32 index = 0; index < 64; ++index) {
         block->values[index] = 0;
@@ -1590,7 +1590,7 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
 }
 
 // The reader state lives in a local copy (registers) for the whole block.
-bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegDecodeTable& ac_table,
+bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
                   i32* predictor, JpegCoefficientBlock* block, u32* huffman_symbols) noexcept {
     JpegEntropyReader local = *reader;
     u32 symbols = *huffman_symbols;
@@ -1644,7 +1644,7 @@ __forceinline bool decode_progressive_dc_refinement(JpegEntropyReader* reader, u
     return store_coefficient(reader, value, &block->values[0]);
 }
 
-__forceinline bool decode_progressive_ac_initial(JpegEntropyReader* reader, const JpegDecodeTable& table,
+__forceinline bool decode_progressive_ac_initial(JpegEntropyReader* reader, const JpegAcDecodeTable& table,
                                    u8 spectral_start, u8 spectral_end, u8 approximation_low,
                                    JpegCoefficientBlock* block, u32* eob_run,
                                    u32* huffman_symbols) noexcept {
@@ -1820,7 +1820,8 @@ __forceinline bool decode_progressive_ac_refinement(JpegEntropyReader* reader, c
     return true;
 }
 
-__forceinline bool decode_progressive_block(JpegEntropyReader* reader, const JpegDecodeTable* dc, const JpegDecodeTable* ac,
+__forceinline bool decode_progressive_block(JpegEntropyReader* reader, const JpegDecodeTable* dc,
+                              const JpegAcDecodeTable* ac,
                               const JpegScan& scan, u32 scan_component, i32* predictor, JpegCoefficientBlock* block,
                               u32* eob_run, u32* huffman_symbols) noexcept {
     if (scan.spectral_start == 0) {
@@ -1848,7 +1849,7 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + scan.entropy_offset, scan.entropy_bytes});
     // Lookahead tables for the Huffman tables this scan references only.
     JpegDecodeTable dc[kJpegTableMaximum];
-    JpegDecodeTable ac[kJpegTableMaximum];
+    JpegAcDecodeTable ac[kJpegTableMaximum];
     u8 built = 0;
     for (u32 index = 0; index < scan.component_count; ++index) {
         if (scan.spectral_start == 0 && scan.approximation_high == 0) {
@@ -1861,7 +1862,8 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
             const u8 table = scan.ac_tables[index];
             if (table < kJpegTableMaximum && (built & (16u << table)) == 0) {
                 // First AC scans take codeword and magnitude in one lookup.
-                build_decode_table(tables.ac[table], &ac[table], scan.approximation_high == 0);
+                build_decode_table(tables.ac[table], &ac[table],
+                                   scan.approximation_high == 0 ? ac[table].coefficient : nullptr);
                 built |= static_cast<u8>(16u << table);
             }
         }
@@ -1955,12 +1957,8 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
     u16 restart_interval = 0;
     JpegIccChunk icc_chunks[kJpegIccChunkMaximum];
     u32 icc_chunk_presence[8]{};
-    u8 progression[kJpegComponentMaximum][64]{};
-    for (u32 component = 0; component < kJpegComponentMaximum; ++component) {
-        for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
-            progression[component][coefficient] = 0xFF;
-        }
-    }
+    u8 progression[kJpegComponentMaximum][64];
+    memset(progression, 0xFF, sizeof(progression));
     u32 cursor = 2;
     while (cursor < encoded.count) {
         const bool first_segment = result.segments == 0;
@@ -2173,20 +2171,12 @@ JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImag
         result.error = JpegError::invalid_input;
         return result;
     }
-    for (u32 block = 0; block < image.coefficient_blocks; ++block) {
-        for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
-            blocks[block].values[coefficient] = 0;
-        }
-    }
+    memset(blocks, 0, static_cast<usize>(image.coefficient_blocks) * sizeof(*blocks));
     JpegTables tables{};
     u16 restart_interval = 0;
     u8 quantization_locked = 0;
-    u8 progression[kJpegComponentMaximum][64]{};
-    for (u32 component = 0; component < kJpegComponentMaximum; ++component) {
-        for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
-            progression[component][coefficient] = 0xFF;
-        }
-    }
+    u8 progression[kJpegComponentMaximum][64];
+    memset(progression, 0xFF, sizeof(progression));
     u32 cursor = 2;
     u32 scans = 0;
     while (cursor < encoded.count) {
@@ -2287,7 +2277,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
 
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + image.entropy_offset, image.entropy_bytes});
     JpegDecodeTable dc_decode[kJpegTableMaximum];
-    JpegDecodeTable ac_decode[kJpegTableMaximum];
+    JpegAcDecodeTable ac_decode[kJpegTableMaximum];
     build_component_tables(image, dc_decode, ac_decode);
     i32 predictor[kJpegComponentMaximum]{};
     const u32 total_mcus = static_cast<u32>(image.mcu_columns) * image.mcu_rows;
@@ -2313,7 +2303,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
             }
             const JpegComponent& component = image.components[component_index];
             const JpegDecodeTable& dc = dc_decode[component.dc_table];
-            const JpegDecodeTable& ac = ac_decode[component.ac_table];
+            const JpegAcDecodeTable& ac = ac_decode[component.ac_table];
             for (u32 vertical = 0; vertical < component.vertical_sampling; ++vertical) {
                 for (u32 horizontal = 0; horizontal < component.horizontal_sampling; ++horizontal) {
                     const u32 block_x = mcu_x * component.horizontal_sampling + horizontal;
@@ -2578,7 +2568,7 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
         JpegEntropyReader reader =
             entropy_reader(ConstSlice<u8>{encoded.data + image.entropy_offset, image.entropy_bytes});
         JpegDecodeTable dc_decode[kJpegTableMaximum];
-        JpegDecodeTable ac_decode[kJpegTableMaximum];
+        JpegAcDecodeTable ac_decode[kJpegTableMaximum];
         build_component_tables(image, dc_decode, ac_decode);
         i32 predictor[kJpegComponentMaximum]{};
         const u32 total_mcus = static_cast<u32>(image.mcu_columns) * image.mcu_rows;

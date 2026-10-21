@@ -1905,7 +1905,7 @@ bool application_settings_synchronize() noexcept {
     const u64 now = clock_monotonic_milliseconds();
     bool animating = ui_settings_scene_tick(&settings->scene, now, g_app.preferences.reduced_motion);
     if (settings->scene.flash_control) {
-        const auto tokens = ui_settings_tokens(application_theme());
+        const auto tokens = ui_settings_layout_tokens(application_theme().styles);
         const u64 elapsed = now - settings->flash_started_ms;
         const u64 total = tokens.duration.flash_ms, fade = minimum<u64>(tokens.duration.flash_fade_ms, total);
         float strength = 0;
@@ -1918,7 +1918,7 @@ bool application_settings_synchronize() noexcept {
     }
     {
         // Dialog entrance: a spring from the scrim fade to full scale.
-        const auto tokens = ui_settings_tokens(application_theme());
+        const auto tokens = ui_settings_layout_tokens(application_theme().styles);
         const bool motion = g_app.window && !g_app.preferences.reduced_motion && !g_app.renderer.live_resize &&
                             (!g_app.surface_motion.system_preference_cached || g_app.surface_motion.client_area_animation);
         if (settings->entrance_opens != settings->scene.opens) {

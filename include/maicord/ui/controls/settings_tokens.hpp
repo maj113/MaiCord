@@ -58,12 +58,15 @@ struct UiSettingsTokens {
 };
 
 UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept;
+Color ui_settings_focus_color(const Theme& theme) noexcept;
+// Default-theme geometry and motion only; colors are empty and must not be painted.
+UiSettingsTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept;
 // Entrance progress (0..1) of every modal and dialog elapsed_ms after it
 // opened: a spring (tension 1000, friction 48) over modal_enter_ms, so Settings
 // and each dialog open on one timeline.
 float ui_settings_modal_entrance(const UiSettingsDurations& duration, u64 elapsed_ms) noexcept;
 Color ui_settings_color_unpack(u32 rgba) noexcept;
-Color ui_settings_color_mix(Color a, Color b, float t) noexcept;
-Color ui_settings_color_alpha(Color color, float alpha) noexcept;
+Color ui_settings_color_mix(const Color& a, const Color& b, float t) noexcept;
+Color ui_settings_color_alpha(const Color& color, float alpha) noexcept;
 
 } // namespace maicord

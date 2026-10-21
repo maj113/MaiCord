@@ -466,7 +466,7 @@ bool application_voice_menu_pointer(float x, float y, bool press) noexcept {
         voice.menu_dragging = true;
         SetCapture(g_app.window);
     }
-    const auto g = ui_slider_geometry(ui_settings_tokens(application_theme()), track, kVolumeSteps, 0, false);
+    const auto g = ui_slider_geometry(ui_settings_layout_tokens(application_theme().styles), track, kVolumeSteps, 0, false);
     const u32 gain = ui_slider_index_at(g, kVolumeSteps, x);
     if (popup_scene_set_feedback_slider(&g_app.popup_scene, static_cast<u16>(gain))) {
         const auto audio = voice_preferences_user(voice.preferences, voice.menu_user);

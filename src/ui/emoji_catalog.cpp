@@ -84,11 +84,8 @@ bool pool_ready() noexcept {
     }
 }
 
+// Callers validate both pointers and the complete query range.
 bool range_equal_folded_ascii(Utf8View candidate, u32 first, Utf8View query) noexcept {
-    if (!candidate.data || !query.data || first > candidate.bytes ||
-        query.bytes > candidate.bytes - first) {
-        return false;
-    }
     for (u32 index = 0; index < query.bytes; ++index) {
         const u8 byte = static_cast<u8>(candidate.data[first + index]);
         const u8 difference = byte ^ static_cast<u8>(query.data[index]);
@@ -336,7 +333,8 @@ u32 emoji_shortcode_key(Utf8View glyph, Slice<char> output) noexcept {
 }
 
 bool emoji_catalog_name_starts_with(Utf8View name, Utf8View query) noexcept {
-    return query.bytes == 0 || range_equal_folded_ascii(name, 0, query);
+    return query.bytes == 0 || (name.data && query.data && query.bytes <= name.bytes &&
+                               range_equal_folded_ascii(name, 0, query));
 }
 
 bool emoji_catalog_name_contains(Utf8View name, Utf8View query) noexcept {

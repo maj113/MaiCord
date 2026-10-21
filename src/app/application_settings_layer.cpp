@@ -344,7 +344,7 @@ u64 settings_layer_tick(SettingsLayer* layer, u64 now_ms, bool reduced_motion) n
         wake = wake ? minimum(wake, now_ms + 16) : now_ms + 16;
     }
     if (layer->entrance_started) {
-        const auto durations = ui_settings_tokens(application_theme()).duration;
+        const auto durations = ui_settings_layout_tokens(application_theme().styles).duration;
         const u64 duration = maximum<u64>(1, durations.modal_enter_ms);
         const u64 elapsed = now_ms > layer->entrance_started ? now_ms - layer->entrance_started : 0;
         const bool running = !reduced_motion && elapsed < duration;

@@ -2426,6 +2426,21 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     return true;
 }
 
+void discard_content_text(D3D11Renderer* renderer) noexcept {
+    renderer->content_text->quad_count = 0;
+    renderer->content_text->batch_count = 0;
+    renderer->content_text->content_semantic_count = 0;
+    renderer->content_text->content_hit_region_count = 0;
+    renderer->text_effect_count = 0;
+    renderer->text_effect_animated = false;
+    renderer->content_text_prefix.storage = nullptr;
+    renderer->content_text_prefix.shell.storage = nullptr;
+    renderer->overlay_text_first_batch = 0;
+    renderer->text_stable_quads = 0;
+    reset_motion_text_ranges(renderer, 0);
+    content_text_retention_invalidate(&renderer->content_text_retention);
+}
+
 void discard_retained_overlay_text(D3D11Renderer* renderer) noexcept {
     RendererTextStorage* storage = renderer->content_text;
     if (renderer->overlay_text_first_batch > storage->batch_count) {
@@ -2680,14 +2695,11 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             composer_measured &&
             build_content_text_once(renderer, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
                                     include_messages);
-        if (content_built && composer_measured) {
+        if (content_built) {
             if (storage_modified) {
                 ++renderer->content_text->rebuilds;
             }
             return true;
-        }
-        if (content_built && !composer_measured) {
-            renderer->content_text->last_error = RendererTextBuildError::composer;
         }
         if (atlas_invalidated) {
             d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
@@ -2709,34 +2721,12 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
         // A content rebuild writes retained buffers in place; after a
         // capacity, shape or composer failure the partial command stream is
         // dropped so a retry cannot see stale indices.
-        renderer->content_text->quad_count = 0;
-        renderer->content_text->batch_count = 0;
-        renderer->content_text->content_semantic_count = 0;
-        renderer->content_text->content_hit_region_count = 0;
-        renderer->text_effect_count = 0;
-        renderer->text_effect_animated = false;
-        renderer->content_text_prefix.storage = nullptr;
-        renderer->content_text_prefix.shell.storage = nullptr;
-        renderer->overlay_text_first_batch = 0;
-        renderer->text_stable_quads = 0;
-        reset_motion_text_ranges(renderer, 0);
-        content_text_retention_invalidate(&renderer->content_text_retention);
+        discard_content_text(renderer);
         return false;
     }
     ++renderer->content_text->rejected;
     renderer->content_text->last_error = RendererTextBuildError::atlas;
-    renderer->content_text->quad_count = 0;
-    renderer->content_text->batch_count = 0;
-    renderer->content_text->content_semantic_count = 0;
-    renderer->content_text->content_hit_region_count = 0;
-    renderer->text_effect_count = 0;
-    renderer->text_effect_animated = false;
-    renderer->content_text_prefix.storage = nullptr;
-    renderer->content_text_prefix.shell.storage = nullptr;
-    renderer->overlay_text_first_batch = 0;
-    renderer->text_stable_quads = 0;
-    reset_motion_text_ranges(renderer, 0);
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    discard_content_text(renderer);
     return false;
 }
 

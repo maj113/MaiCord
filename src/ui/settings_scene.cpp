@@ -83,9 +83,7 @@ float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept
     return kSectionGap * 2 + 1;
 }
 UiSettingsTokens layout_tokens(const UiSettingsScene& scene) noexcept {
-    Theme theme = kDefaultTheme;
-    theme.styles = scene.theme_styles;
-    return ui_settings_tokens(theme);
+    return ui_settings_layout_tokens(scene.theme_styles);
 }
 const UiSettingsControlPresentation* presentation(const UiSettingsPageContent& content, u32 index) noexcept {
     return content.presentation && index < content.controls.count ? &content.presentation[index] : nullptr;

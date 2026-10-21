@@ -86,10 +86,13 @@ bool panel(const ProfileScene& s) noexcept {
 }
 // Resolved colours of one card: the profile's own theme colours when it has
 // one, else the application theme.
-struct Palette {
+struct TextPalette {
+    Color text, strong, subtle, muted, border, on_accent;
+};
+struct Palette : TextPalette {
     Color primary, secondary, overlay, surface, banner, modal;
-    Color text, strong, subtle, muted, border, hover, card, card_hover, input, button, button_hover;
-    Color accent, accent_hover, on_accent, bubble, bubble_border, control, control_border, control_icon;
+    Color hover, card, card_hover, input, button, button_hover;
+    Color accent, accent_hover, bubble, bubble_border, control, control_border, control_icon;
 };
 Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     Palette c{};
@@ -146,16 +149,28 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.bubble_border = s.theme_dark ? theme.tokens.border.strong : tokens.border;
     return c;
 }
+// Only the colors consumed by tone_color and card_theme during text output.
+TextPalette text_palette(const ProfileScene& s, const Theme& theme) noexcept {
+    TextPalette c{};
+    const bool app_dark = theme.appearance == ThemeAppearance::dark;
+    const auto& tokens = (app_dark == s.theme_dark ? theme : s.theme_dark ? kDefaultTheme : kLightTheme).tokens.profile;
+    c.text = c.strong = s.themed ? tokens.text : theme.text_primary;
+    c.subtle = s.themed ? tokens.text_subtle : theme.text_secondary;
+    c.muted = s.themed ? tokens.text_muted : theme.tokens.text.muted;
+    c.border = s.themed ? tokens.border : theme.tokens.border.subtle;
+    c.on_accent = s.themed ? theme.tokens.text.on_accent : theme.tokens.emphasis.text;
+    return c;
+}
 // The application theme with the card's text colours, for shared widgets
 // (edit field, badges) drawn inside a themed card.
-Theme card_theme(const Theme& theme, const Palette& c) noexcept {
+Theme card_theme(const Theme& theme, const TextPalette& c) noexcept {
     Theme local = theme;
     local.text_primary = local.tokens.text.normal = c.text;
     local.text_secondary = local.tokens.text.muted = c.muted;
     local.tokens.border.strong = c.border;
     return local;
 }
-Color tone_color(const Palette& c, const Theme& theme, const ProfilePart& p) noexcept {
+Color tone_color(const TextPalette& c, const Theme& theme, const ProfilePart& p) noexcept {
     switch (p.tone) {
     case ProfileTone::strong:
         return c.strong;
@@ -2721,7 +2736,7 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                                const UiEditGeometry* edit) noexcept {
     if (!s.active)
         return true;
-    const auto c = palette(s, theme);
+    const auto c = text_palette(s, theme);
     const Theme local = card_theme(theme, c);
     for (u32 i = 0; i < s.part_count; ++i) {
         const auto& p = s.parts[i];

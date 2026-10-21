@@ -87,9 +87,8 @@ void configure_rich_input(MessageScene& scene, const UiSearchSource& source) noe
             if (redacted)
                 continue;
             const auto* rich =
-                !row    ? nullptr
-                : child ? message_rich_store_snapshot(*scene.timeline->rich_store, row->message_id)
-                        : message_rich_store_find(*scene.timeline->rich_store, row->message_id);
+                child ? message_rich_store_snapshot(*scene.timeline->rich_store, row->message_id)
+                      : message_rich_store_find(*scene.timeline->rich_store, row->message_id);
             if (!rich)
                 continue;
             for (u32 j = 0; j < rich->embed_count; ++j) {

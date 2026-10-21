@@ -571,7 +571,7 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
         // Reuse the shaped printable line; only cluster/run descriptors are appended.
         owner.last_valid=false;owner.prefer_multiline=false;const auto& line=owner.last_line;const auto& source=owner.last_storage;
         NativeAsciiParagraphStorage s{};s.glyphs=source.run.glyphs;s.placements=source.run.placements;s.source_glyphs=source.run.character_glyphs;
-        s.clusters=take<NativeParagraphCluster>(owner.scratch,line.cluster_count);auto runs=take<NativeParagraphRun>(owner.scratch,text.bytes);if(!s.clusters.data||!runs.data)return false;
+        s.clusters=take<NativeParagraphCluster>(owner.scratch,line.cluster_count);auto runs=take<NativeParagraphRun>(owner.scratch,line.run.source_units);if(!s.clusters.data||!runs.data)return false;
         u32 first=0;for(u32 i=0;i<line.cluster_count;++i){const auto& c=source.clusters[i];const u32 g=source.run.character_glyphs[first],end=c.source_end==line.run.source_units?line.run.glyph_count:source.run.character_glyphs[c.source_end];
             const u32 flags=latin?0u:(text.data[first]==' '?native_paragraph_space:0)|(i&&native_ascii_break_after(text,first)?native_paragraph_break_before:0);
             s.clusters[i]={first,c.source_end,g,end-g,c.width,flags};first=c.source_end;}
@@ -579,18 +579,19 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
         owner.paragraph_storage=s;owner.paragraph_shape={line.run.source_units,line.run.glyph_count,line.cluster_count,line.vertical};owner.paragraph_runs=runs;owner.last_paragraph=true;owner.last_styled=false;owner.last_valid=true;
     }
     else{
-        owner.last_valid=false;owner.prefer_multiline=false;u32 longest=0,segment=0,printable=0;
+        owner.last_valid=false;owner.prefer_multiline=false;u32 longest=0,segment=0,printable=0,units=latin?0:text.bytes;
         if(!latin)for(u32 i=0;i<text.bytes;++i){if(text.data[i]>=32){++segment;++printable;longest=maximum(longest,segment);}else segment=0;}
         else for(u32 i=0;i<text.bytes;){const auto cp=utf8_decode_one(text.data+i,text.bytes-i);if(!cp.valid)return false;
             if(cp.codepoint==9||cp.codepoint==10||cp.codepoint==13||cp.codepoint==0x85||cp.codepoint==0x2028||cp.codepoint==0x2029)segment=0;
-            else{segment+=cp.width;printable+=cp.width;longest=maximum(longest,segment);}i+=cp.width;}
+            else{segment+=cp.width;printable+=cp.width;longest=maximum(longest,segment);}units+=cp.codepoint>65535?2u:1u;i+=cp.width;}
         NativeAsciiParagraphStorage s{};NativeParagraphShape shape{};Slice<char> saved{};Slice<NativeParagraphRun> runs{};SfntStatus status{};
         for(u32 attempt=0;attempt<2;++attempt){
             arena_reset(&owner.scratch);const u32 factor=attempt?4u:1u;const u32 glyphs=printable?printable*factor+16:0;
             saved=take<char>(owner.scratch,text.bytes);if(!saved.data)return false;
             s={};if(longest)s.work=storage(owner.scratch,longest,longest*factor+16,false,attempt!=0);s.glyphs=take<u16>(owner.scratch,glyphs);s.placements=take<SfntPlacement>(owner.scratch,glyphs);
-            s.source_glyphs=take<u32>(owner.scratch,text.bytes);s.clusters=take<NativeParagraphCluster>(owner.scratch,text.bytes);
-            runs=take<NativeParagraphRun>(owner.scratch,text.bytes);if(!runs.data)return false;
+            // Source maps, clusters and runs are bounded by UTF-16 units, not UTF-8 bytes.
+            s.source_glyphs=take<u32>(owner.scratch,units);s.clusters=take<NativeParagraphCluster>(owner.scratch,units);
+            runs=take<NativeParagraphRun>(owner.scratch,units);if(!runs.data)return false;
             status=latin?native_latin_paragraph_shape(owner.store,binding.plan,text,system.independent_letters,em,s,boundary_storage(runs),&shape,nullptr,em*system.tracking,profile):native_ascii_paragraph_shape(owner.store,binding.plan,text,system.independent_letters,em,s,&shape,em*system.tracking);
             if(status!=SfntStatus::output_too_small||attempt)break;++owner.storage_retries;
         }

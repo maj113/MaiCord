@@ -5,6 +5,13 @@
 namespace maicord {
 namespace {
 
+// Gathered values and queued work items are assigned before their counts advance.
+template<class T, u32 Count> struct DecodeScratch {
+    static_assert(__is_trivially_copyable(T));
+    alignas(T) u8 storage[sizeof(T) * Count];
+    operator T*() noexcept { return reinterpret_cast<T*>(storage); }
+};
+
 using protocol_detail::accept_member;
 using protocol_detail::decode_failure;
 using protocol_detail::read_failure;
@@ -20,7 +27,7 @@ inline constexpr u32 kRichEmbedFooterMaximumBytes = 8 * 1024;
 inline constexpr u32 kRichComponentTextMaximumBytes = 4 * 1024;
 inline constexpr u32 kRichComponentIdMaximumBytes = 256;
 
-bool value_u32(JsonValue value, u32* output) noexcept {
+bool value_u32(const JsonValue& value, u32* output) noexcept {
     u64 parsed = 0;
     if (!json_value_to_u64(value, &parsed) || parsed > ~0u) {
         return false;
@@ -32,7 +39,7 @@ bool value_u32(JsonValue value, u32* output) noexcept {
 // Parse decimal seconds as checked milliseconds without CRT floating conversion.
 // JSON grammar has already been validated by the indexed reader. Sub-ms digits
 // are discarded; an absent field remains distinct from a known zero duration.
-bool duration_milliseconds(JsonValue value, u32* output) noexcept {
+bool duration_milliseconds(const JsonValue& value, u32* output) noexcept {
     if (value.kind != JsonValueKind::number || !value.source.data || !value.source.bytes)
         return false;
     const auto source = value.source;
@@ -847,7 +854,7 @@ GatewayEventDecodeResult decode_reactions(JsonValue array, const JsonIndexedDocu
                                           u32 maximum_depth, Slice<char> text_output, u32* text_used,
                                           GatewayMessageRichScratch output_scratch,
                                           GatewayMessageEvent* output) noexcept {
-    JsonValue values[kGatewayMessageReactionMaximum]{};
+    DecodeScratch<JsonValue, kGatewayMessageReactionMaximum> values;
     const u32 capacity = minimum<u32>(output_scratch.reactions.count, kGatewayMessageReactionMaximum);
     u32 count = 0;
     GatewayEventDecodeResult result =
@@ -985,7 +992,7 @@ GatewayEventDecodeResult decode_attachments(JsonValue array, const JsonIndexedDo
                                             u32 maximum_depth, Slice<char> text_output, u32* text_used,
                                             GatewayMessageRichScratch output_scratch,
                                             GatewayMessageEvent* output) noexcept {
-    JsonValue values[kGatewayMessageAttachmentMaximum]{};
+    DecodeScratch<JsonValue, kGatewayMessageAttachmentMaximum> values;
     const u32 capacity = minimum<u32>(output_scratch.attachments.count, kGatewayMessageAttachmentMaximum);
     u32 count = 0;
     GatewayEventDecodeResult result =
@@ -1439,7 +1446,7 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                                        u32 maximum_depth, Slice<char> text_output, u32* text_used,
                                        GatewayMessageRichScratch output_scratch,
                                        GatewayMessageEvent* output) noexcept {
-    JsonValue values[kGatewayMessageEmbedMaximum]{};
+    DecodeScratch<JsonValue, kGatewayMessageEmbedMaximum> values;
     const u32 capacity = minimum<u32>(output_scratch.embeds.count, kGatewayMessageEmbedMaximum);
     u32 count = 0;
     GatewayEventDecodeResult result =
@@ -1532,7 +1539,7 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
             destination.timestamp_ms = 0;
         }
         if ((context.seen & (1ull << 7)) != 0) {
-            JsonValue field_values[25]{};
+            DecodeScratch<JsonValue, 25> field_values;
             const u32 remaining = output_scratch.embed_fields.count > field_count
                                       ? output_scratch.embed_fields.count - field_count
                                       : 0;
@@ -1653,7 +1660,7 @@ GatewayEventDecodeResult decode_stickers(JsonValue array, const JsonIndexedDocum
                                          u32 maximum_depth, Slice<char> text_output, u32* text_used,
                                          GatewayMessageRichScratch output_scratch,
                                          GatewayMessageEvent* output) noexcept {
-    JsonValue values[kGatewayMessageStickerMaximum]{};
+    DecodeScratch<JsonValue, kGatewayMessageStickerMaximum> values;
     const u32 capacity = minimum<u32>(output_scratch.stickers.count, kGatewayMessageStickerMaximum);
     u32 count = 0;
     GatewayEventDecodeResult result =
@@ -1921,7 +1928,7 @@ struct ComponentWork {
 bool queue_component_children(JsonValue array, const JsonIndexedDocument& scratch, u32 maximum_depth,
                               u32 capacity, u16 parent, u16 pseudo_type, ComponentWork* work, u32* work_count,
                               GatewayMessageEvent* output, GatewayEventDecodeResult* result) noexcept {
-    JsonValue children[kGatewayMessageComponentMaximum]{};
+    DecodeScratch<JsonValue, kGatewayMessageComponentMaximum> children;
     const u32 remaining = capacity > *work_count ? capacity - *work_count : 0;
     u32 child_count = 0;
     *result = gather_array(array, scratch, maximum_depth, children, remaining,
@@ -1937,8 +1944,8 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
                                            u32 maximum_depth, Slice<char> text_output, u32* text_used,
                                            GatewayMessageRichScratch output_scratch,
                                            GatewayMessageEvent* output) noexcept {
-    ComponentWork work[kGatewayMessageComponentMaximum]{};
-    JsonValue root_values[kGatewayMessageComponentMaximum]{};
+    DecodeScratch<ComponentWork, kGatewayMessageComponentMaximum> work;
+    DecodeScratch<JsonValue, kGatewayMessageComponentMaximum> root_values;
     const u32 capacity = minimum<u32>(output_scratch.components.count, kGatewayMessageComponentMaximum);
     u32 root_count = 0;
     GatewayEventDecodeResult result =

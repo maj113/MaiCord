@@ -29,7 +29,7 @@ GifParseResult fail(GifParseResult result, GifError error) noexcept {
     return result;
 }
 
-GifDecodeResult decode_fail(GifDecodeResult result, GifError error) noexcept {
+GifDecodeResult decode_fail(GifDecodeResult& result, GifError error) noexcept {
     result.error = error;
     return result;
 }

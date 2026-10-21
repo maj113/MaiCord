@@ -114,7 +114,7 @@ float4 fx_builtin(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Tar
     }
     // Ink follows the foreground mode: additive light ink on a dark theme,
     // a lerp toward dark ink on a light one.
-    const float amount = min(saturate(detail) * strength * 0.38f, 0.42f);
+    const float amount = saturate(detail) * strength * 0.38f;
     if (fx_dark > 0.5f)
         return float4(float3(0.82f, 0.9f, 1.0f) * amount, 0.0f);
     return float4(float3(0.1f, 0.18f, 0.3f) * amount, amount);

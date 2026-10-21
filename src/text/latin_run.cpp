@@ -10,10 +10,13 @@
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 #include "generated/alphabetic_composition_data.inc"
+// Bucket by combining mark, then search the narrower base-character keys.
 u32 compose(u32 first,u32 last) noexcept {
-    if((first|last)>65535)return 0;const u32 key=(first<<16)|last;u32 lo=0,hi=sizeof(alphabetic_composition_keys)/sizeof(u32);
-    while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(alphabetic_composition_keys[mid]<key)lo=mid+1;else hi=mid;}
-    return lo<sizeof(alphabetic_composition_keys)/sizeof(u32)&&alphabetic_composition_keys[lo]==key?alphabetic_composition_values[lo]:0;
+    const u32 mark=last-alphabetic_composition_first_mark;
+    if(first>65535||mark>=sizeof(alphabetic_composition_offsets)/sizeof(u16)-1)return 0;
+    u32 lo=alphabetic_composition_offsets[mark],end=alphabetic_composition_offsets[mark+1],hi=end;
+    while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(alphabetic_composition_bases[mid]<first)lo=mid+1;else hi=mid;}
+    return lo<end&&alphabetic_composition_bases[lo]==first?alphabetic_composition_values[lo]:0;
 }
 bool attachment(u32 cp) noexcept {if(cp<0x300)return false;const auto* p=unicode_properties(cp);return p->combining_class()!=0&&!p->has(UnicodeFlag::default_ignorable_code_point);}
 bool lao_consonant_range(u32 cp) noexcept {return cp-0xe81u<46||cp-0xedcu<4;}

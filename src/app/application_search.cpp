@@ -1054,14 +1054,15 @@ void choice_add(SearchFilterChoices& b, u64 id, u8 rank, Utf8View label, Utf8Vie
     if (position >= kUiSearchFilterChoiceMaximum)
         return;
     const u32 count = minimum(b.source.rows.count + 1, kUiSearchFilterChoiceMaximum);
-    for (u32 i = count - 1; i > position; --i) {
-        b.rows[i] = b.rows[i - 1];
-        b.ranks[i] = b.ranks[i - 1];
-        copy_bytes(b.labels[i], b.labels[i - 1], sizeof(b.labels[i]));
-        copy_bytes(b.details[i], b.details[i - 1], sizeof(b.details[i]));
-        copy_bytes(b.values[i], b.values[i - 1], sizeof(b.values[i]));
-        copy_bytes(b.avatars[i], b.avatars[i - 1], sizeof(b.avatars[i]));
-        ++b.copies;
+    const u32 shifted = count - position - 1;
+    if (shifted) {
+        copy_bytes(b.rows + position + 1, b.rows + position, shifted * sizeof(b.rows[0]));
+        copy_bytes(b.ranks + position + 1, b.ranks + position, shifted * sizeof(b.ranks[0]));
+        copy_bytes(b.labels + position + 1, b.labels + position, shifted * sizeof(b.labels[0]));
+        copy_bytes(b.details + position + 1, b.details + position, shifted * sizeof(b.details[0]));
+        copy_bytes(b.values + position + 1, b.values + position, shifted * sizeof(b.values[0]));
+        copy_bytes(b.avatars + position + 1, b.avatars + position, shifted * sizeof(b.avatars[0]));
+        b.copies += shifted;
     }
     // An avatar hash is ASCII; one that does not fit is dropped, not cut.
     const Utf8View avatar_hash =

@@ -13,6 +13,7 @@ constexpr u32 maximum_leaves = 1024;
 template<u32 Count> struct ValueScratch {
     alignas(JsonValue) u8 storage[sizeof(JsonValue) * Count];
     operator JsonValue*() noexcept { return reinterpret_cast<JsonValue*>(storage); }
+    operator const JsonValue*() const noexcept { return reinterpret_cast<const JsonValue*>(storage); }
 };
 static_assert(__is_trivially_copyable(JsonValue));
 
@@ -227,7 +228,7 @@ struct Document {
     }
     struct GradientComponents {
         float starts[256];
-        JsonValue ends[256];
+        ValueScratch<256> ends;
         u32 count, end_count;
         JsonValue scalar_end;
     };
@@ -254,7 +255,7 @@ struct Document {
     }
     float scalar(const JsonValue& property,float fallback=0) noexcept {return interpolated(sampled(property),0,fallback);}
     __declspec(noinline) D2D1_POINT_2F point_array_components(JsonValue value, D2D1_POINT_2F fallback) noexcept {
-        JsonValue components[256]; u32 count = 0;
+        ValueScratch<256> components; u32 count = 0;
         if (!array(value, {components, 256}, &count) || !count)
             return fallback;
         return {number(components[0], fallback.x), number(components[minimum(1u, count - 1)], fallback.y)};

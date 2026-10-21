@@ -24,7 +24,7 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
             if(i<count)old|=old_hangul_jamo(scalars[i]);}}
     if(plain_ltr){for(u32 i=0;i<count;++i)levels[i]=0;}
     else {
-    auto order=take<u32>(owner.scratch,text.bytes);if(!order.data)return false;
+    auto order=take<u32>(owner.scratch,count);if(!order.data)return false;
     // In LTR paragraphs a tab supplies L context, including within bracket
     // pairs, so pairs stay intact. S is restored before the standard L1 reset.
     if(tabs)for(u32 i=0;i<count;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::l;
