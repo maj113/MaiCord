@@ -1,6 +1,7 @@
 #pragma once
 
 #include "account_ui_runtime.hpp"
+#include "maicord/app/rest_client.hpp"
 
 namespace maicord::app_detail {
 

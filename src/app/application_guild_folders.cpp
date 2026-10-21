@@ -12,6 +12,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/protocol/account_settings.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -4,6 +4,8 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/account_module_version.hpp"
+#include "maicord/app/account_profile.hpp"
 
 #if defined(MAICORD_PERF_PROBE)
 #include "../../tools/perf/perf_shared.hpp"

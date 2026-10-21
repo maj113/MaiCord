@@ -28,6 +28,8 @@
 #include "../src/app/application_search_navigation.cpp"
 #include "application_action_captcha_stubs.hpp"
 #include "test_output.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/protocol/message_pins.hpp"
 
 namespace maicord::app_detail {
 namespace {

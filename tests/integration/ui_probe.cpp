@@ -122,6 +122,7 @@
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::app_detail {
 // Search rendering fixtures bind caller-owned scenes directly. They do not

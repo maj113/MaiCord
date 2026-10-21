@@ -247,9 +247,6 @@ u64 offered_version(const ApplicationUpdatesView& v) noexcept {
 }
 } // namespace
 
-u32 application_updates_own_label(const ApplicationUpdatesView& v, Slice<char> output) noexcept {
-    return update_build_version_text(v.own_version, own_commit(v), output);
-}
 u32 application_updates_offer_label(const ApplicationUpdatesView& v, Slice<char> output) noexcept {
     const u64 version = offered_version(v);
     // The commit names the offer only when the changelog described this version.

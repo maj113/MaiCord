@@ -5,6 +5,7 @@
 #include "application_state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
+#include "maicord/app/captcha_bridge.hpp"
 
 namespace maicord::app_detail {
 namespace {

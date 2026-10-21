@@ -3,6 +3,7 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/sys/shell.hpp"
+#include "maicord/app/account_action_captcha.hpp"
 
 namespace maicord::app_detail {
 namespace {

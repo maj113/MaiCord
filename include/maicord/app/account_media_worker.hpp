@@ -3,7 +3,6 @@
 #include "maicord/app/account_media.hpp"
 #include "maicord/app/account_video_playback.hpp"
 #include "maicord/core/win32_records.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11DeviceContext4;
 struct ID3D11Fence;

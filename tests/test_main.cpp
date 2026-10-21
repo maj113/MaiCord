@@ -174,6 +174,11 @@
 
 
 #include "test_output.hpp"
+#include "maicord/app/account_module_version.hpp"
+#include "maicord/app/account_upload.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/protocol/message_poll.hpp"
+#include "maicord/protocol/private_conversation.hpp"
 
 extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned long long count);
 extern "C" void* __cdecl memset(void* destination, int value, unsigned long long count);

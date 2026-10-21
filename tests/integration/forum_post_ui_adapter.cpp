@@ -15,6 +15,8 @@
 #include "maicord/protocol/writer.hpp"
 #include "../tsf_composition_fixture.hpp"
 #include "../file_drop_fixture.hpp"
+#include "maicord/app/account_upload.hpp"
+#include "maicord/model/permission_bits.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;

@@ -1,55 +1,143 @@
 #pragma once
-#include "maicord/app/video_stream_decoders.hpp"
-#include <stddef.h>
-#include "maicord/app/account_message_search.hpp"
-#include "maicord/app/account_media_catalog.hpp"
-#include "maicord/app/voice_message.hpp"
-#include "maicord/app/account_gif_favorites.hpp"
-#include "maicord/app/account_action_captcha.hpp"
-#include "maicord/app/account_channel_overview.hpp"
-#include "maicord/app/account_guild_admin.hpp"
-#include "maicord/app/account_guild_assets.hpp"
-#include "maicord/app/account_pinned_messages.hpp"
-#include "maicord/app/account_thread_actions.hpp"
-#include "maicord/app/account_thread_browser.hpp"
-#include "maicord/app/account_thread_creation.hpp"
-#include "maicord/app/account_forum_post.hpp"
-#include "maicord/app/account_logout.hpp"
-#include "maicord/app/account_bulk_message_ack.hpp"
-#include "maicord/app/account_stage.hpp"
-#include "maicord/app/account_soundboard.hpp"
-#include "maicord/app/account_profile_edit.hpp"
-#include "maicord/protocol/account_settings.hpp"
-#include "maicord/protocol/cdn_url.hpp"
 
-#include "maicord/app/account_media.hpp"
-#include "maicord/app/account_video_playback.hpp"
-#include "maicord/app/account_upload.hpp"
-#include "maicord/app/account_download.hpp"
-#include "maicord/app/account_module_version.hpp"
-#include "maicord/app/rest_client.hpp"
-#include "maicord/app/gateway_client.hpp"
-#include "maicord/app/remote_auth_client.hpp"
-#include "maicord/app/user_auth_coordinator.hpp"
-#include "maicord/app/captcha_bridge.hpp"
-#include "maicord/protocol/message_history.hpp"
-#include "maicord/protocol/message_create.hpp"
-#include "maicord/protocol/message_delete.hpp"
-#include "maicord/protocol/message_edit.hpp"
-#include "maicord/protocol/message_reaction.hpp"
-#include "maicord/protocol/message_poll.hpp"
-#include "maicord/protocol/reaction_users.hpp"
-#include "maicord/protocol/message_typing.hpp"
-#include "maicord/protocol/private_conversation.hpp"
-#include "maicord/protocol/relationships.hpp"
-#include "maicord/protocol/guild_invite.hpp"
-#include "maicord/protocol/message_interaction.hpp"
-#include "maicord/protocol/user_social.hpp"
-#include "maicord/protocol/guild_community.hpp"
-#include "maicord/protocol/guild_moderation.hpp"
-#include "maicord/protocol/user_guild_settings.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
+#include "maicord/core/utf.hpp"
+#include <stddef.h>
+
 #include "maicord/core/win32_types.hpp"
-#include "maicord/sys/d3d11.hpp"
+
+struct ID3D11Device;
+
+namespace maicord {
+using RestTraceFunction = void (*)(const char* record) noexcept;
+struct AccountActionCaptchaRequest;
+enum class AccountDownloadOperation : u8;
+struct AccountDownloadResult;
+struct HttpsFileDownloadRequest;
+using AccountDownloadRequest = HttpsFileDownloadRequest;
+enum class AccountGifFavoritesOperation : u8;
+enum class AccountLocalPreviewOperation : u8;
+enum class AccountLogoutOperation : u8;
+struct AccountLogoutResponse;
+struct AccountLogoutResult;
+struct AccountMediaAttachmentRequest;
+enum class AccountMediaCatalogOperation : u8;
+struct AccountMediaCatalogPreviewRequest;
+struct AccountMediaFrame;
+struct AccountMediaGuildIconRequest;
+struct AccountMediaLocalPreviewRequest;
+struct AccountMediaRequestResult;
+enum class AccountMessageSearchOperation : u8;
+enum class AccountRequirement : u8;
+struct AccountSettingsRequest;
+enum class AccountUploadOperation : u8;
+struct AccountUploadRequest;
+struct AccountUploadResult;
+struct AccountVideoControl;
+struct AccountVideoFrame;
+struct AccountVideoPlaybackStatus;
+struct AccountVideoResult;
+struct AccountVideoSelection;
+struct AttachmentUrlResult;
+enum class Base64Error : u8;
+struct BulkMessageAckEntry;
+struct CaptchaBridgeStatus;
+enum class CaptchaChallengeSecretKind : u8;
+enum class CaptchaProvider : u8;
+enum class CdnHost : u8;
+enum class CdnMediaFormat : u8;
+struct CdnTargetResult;
+enum class ChannelOverviewOperation : u8;
+struct ChannelOverviewPatch;
+struct ForumPostRequest;
+struct GatewayActivitySharing;
+struct GatewayClientDispatchRouteResult;
+struct GatewayClientEvent;
+struct GatewayClientPopResult;
+struct GatewayClientSelfStatusSnapshot;
+struct GatewayClientStreamSnapshot;
+struct GatewayClientVoiceSnapshot;
+struct GatewayClientVoiceVideoSnapshot;
+struct GatewayEventDecodeResult;
+struct GatewayGuildMemberRequest;
+struct GatewayGuildSubscription;
+struct GatewayLocalPresence;
+struct GatewayMessageEvent;
+struct GatewayMessageNamedUser;
+struct GatewayMessagePoll;
+struct GatewayMessagePollScratch;
+struct GatewayMessageRichScratch;
+enum class GatewayStateRecoveryResult : u8;
+enum class GatewayUserStatus : u8;
+struct GatewayStreamKey;
+struct GatewayVoiceStateUpdate;
+struct GuildAdminRequest;
+struct GuildAssetRequest;
+struct GuildCommunityRequest;
+struct GuildInviteRequest;
+struct GuildModerationRequest;
+struct JsonIndexedDocument;
+enum class JsonReadError : u8;
+enum class JsonScanError : u8;
+struct JsonValue;
+struct MediaAssetKey;
+enum class MediaAttachmentFormat : u32;
+struct MediaCatalogQuery;
+struct MediaUrlResult;
+struct MentionsQuery;
+struct MessageForwardReference;
+struct MessageHistoryQuery;
+struct MessageInteractionRequest;
+struct MessagePinsRequest;
+enum class MessageReactionType : u8;
+struct MessageSearchQuery;
+struct PollCreate;
+struct PollRequest;
+struct PrivateChannelActionRequest;
+enum class PrivateConversationOperation : u8;
+struct ProfileEditRequest;
+struct ProfileImageRequest;
+enum class RelationshipOperation : u8;
+enum class RemoteAuthClientError : u8;
+enum class RemoteAuthClientEventKind : u8;
+enum class RemoteAuthCryptoError : u8;
+enum class RemoteAuthError : u8;
+enum class RemoteAuthHandshakeError : u8;
+enum class RemoteAuthHandshakeStage : u8;
+enum class RestBodyKind : u8;
+enum class RestClientError : u8;
+struct RestClientResponse;
+struct RestClientSubmitResult;
+struct RestClientTakeResult;
+enum class RestContentEncoding : u8;
+enum class RestContentType : u8;
+struct SecureBuffer;
+struct SecureBufferResult;
+struct SelfCustomStatus;
+enum class SelfStatusSettingsOperation : u8;
+struct SoundboardAudioCommand;
+struct SoundboardAudioStatus;
+struct SoundboardRequest;
+struct StageRequest;
+struct ThreadActionRequest;
+struct ThreadBrowserRequest;
+struct ThreadCreationRequest;
+struct UploadedAttachment;
+enum class UserAuthCoordinatorError : u8;
+enum class UserAuthCoordinatorEventKind : u8;
+enum class UserAuthDecodeError : u8;
+enum class UserAuthMfaType : u8;
+enum class UserAuthResponseKind : u8;
+enum class UserAuthTransitionError : u8;
+struct UserGuildSettingsPatch;
+struct UserSocialRequest;
+struct VideoStreamFrame;
+struct VoiceAudioSettings;
+struct VoiceAudioStatus;
+struct VoiceMessageCommand;
+struct VoiceMessageStatus;
+} // namespace maicord
 
 namespace maicord {
 

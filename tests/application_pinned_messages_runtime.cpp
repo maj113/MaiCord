@@ -4,6 +4,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::pins_runtime_test {
 using namespace app_detail;

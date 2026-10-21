@@ -6,6 +6,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/model/permission_bits.hpp"
 namespace maicord::thread_browser_test { u64 now = 1000; }
 namespace maicord { static u64 browser_fixture_now() noexcept { return thread_browser_test::now; } }
 #define clock_monotonic_milliseconds browser_fixture_now

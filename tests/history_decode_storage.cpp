@@ -16,6 +16,7 @@
 #include "application_action_captcha_stubs.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::history_decode_storage_test {
 using namespace app_detail;
