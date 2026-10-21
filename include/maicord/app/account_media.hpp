@@ -6,7 +6,6 @@
 #include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/app/local_draft_preview.hpp"
 #include "maicord/app/attachment_media_probe.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Device;
 

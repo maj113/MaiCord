@@ -2,7 +2,6 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/render/background_fx.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11BlendState;
 struct ID3D11Buffer;

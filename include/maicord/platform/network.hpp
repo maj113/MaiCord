@@ -3,7 +3,6 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
 #include "maicord/platform/file_identity.hpp"
-#include "maicord/sys/winsock.hpp"
 
 struct addrinfoexW;
 struct sockaddr;

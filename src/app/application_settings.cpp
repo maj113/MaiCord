@@ -1640,9 +1640,6 @@ void application_settings_refresh_pages() noexcept {
     if (g_app.settings->scene.active && !refresh())
         log_write(LogLevel::warning, "plugins", "settings_refresh_failed");
 }
-bool application_settings_signed_out() noexcept {
-    return g_signed_out.active;
-}
 bool application_settings_active() noexcept {
     return application_channel_overview_active() || (g_app.settings && g_app.settings->scene.active);
 }

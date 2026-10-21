@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 inline bool theme_typography_probe_require(bool valid, const char* label) noexcept {
