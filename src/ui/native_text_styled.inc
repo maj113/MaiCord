@@ -11,12 +11,13 @@ bool old_hangul_jamo(u32 cp) noexcept {
         (cp>=0xa960&&cp<=0xa97c)||(cp>=0xd7b0&&cp<=0xd7c6)||(cp>=0xd7cb&&cp<=0xd7fb);
 }
 bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* levels) noexcept {
-    arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);auto classes=take<NativeScriptClass>(owner.scratch,text.bytes);
-    auto cells=take<UnicodeBidiCell>(owner.scratch,text.bytes);
-    if(!scalars.data||!classes.data||!cells.data)return false;u32 count=0;bool tabs=false,old_hangul=false,plain_ltr=true;
+    arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);
+    if(!scalars.data)return false;u32 count=0;bool tabs=false,old_hangul=false,plain_ltr=true;
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;tabs|=cp.codepoint==9;old_hangul|=old_hangul_jamo(cp.codepoint);
         const auto type=unicode_properties(cp.codepoint)->bidi_class();plain_ltr=plain_ltr&&native_text_ltr_class(type);
-        cells[count]={cp.codepoint,~0u,~0u,type,type,0,0};scalars[count++]=cp.codepoint;at+=cp.width;}
+        // Borrow the level output for initial classes until bidi resolution.
+        levels[count]=static_cast<u8>(type);scalars[count++]=cp.codepoint;at+=cp.width;}
+    auto classes=take<NativeScriptClass>(owner.scratch,count);if(!classes.data)return false;
     if(native_script_resolve({scalars.data,count},classes)!=NativeScriptStatus::ok)return false;
     if(old_hangul){UnicodeGraphemeState state{};u32 first=0;bool old=false;
         for(u32 i=0;i<=count;++i){bool boundary=i==count;if(i<count&&!unicode_grapheme_next(&state,scalars[i],&boundary))return false;
@@ -24,7 +25,10 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
             if(i<count)old|=old_hangul_jamo(scalars[i]);}}
     if(plain_ltr){for(u32 i=0;i<count;++i)levels[i]=0;}
     else {
-    auto order=take<u32>(owner.scratch,count);if(!order.data)return false;
+    auto cells=take<UnicodeBidiCell>(owner.scratch,count);
+    auto order=take<u32>(owner.scratch,count);if(!cells.data||!order.data)return false;
+    for(u32 i=0;i<count;++i){const auto type=static_cast<UnicodeBidiClass>(levels[i]);
+        cells[i]={scalars[i],~0u,~0u,type,type,0,0};}
     // In LTR paragraphs a tab supplies L context, including within bracket
     // pairs, so pairs stay intact. S is restored before the standard L1 reset.
     if(tabs)for(u32 i=0;i<count;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::l;
@@ -111,17 +115,75 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
         const u32 first_byte=state.byte,first_source=state.source,end_source=static_cast<u32>(runs[last-1].source_first)+runs[last-1].source_count;
         while(state.source<end_source){const auto cp=utf8_decode_one(owner.last_text.data+state.byte,owner.last_text.count-state.byte);if(!cp.valid)return SfntStatus::invalid_input;state.source+=cp.codepoint>65535?2u:1u;state.byte+=cp.width;}
         if(state.source!=end_source)return SfntStatus::unsupported_sequence;NativeAsciiResult result{};
-        if(reshape){const bool arabic=((analysis>>8)&~7u)==arabic_script,deva=((analysis>>8)&~7u)==devanagari_script,tamil=((analysis>>8)&~7u)==tamil_script,sinhala=((analysis>>8)&~7u)==sinhala_script,khmer=((analysis>>8)&~7u)==khmer_script,myanmar=((analysis>>8)&~7u)==myanmar_script,tibetan=((analysis>>8)&~7u)==tibetan_script,form=form_script(static_cast<u16>((analysis>>8)&~7u));const auto* profile=arabic||deva||tamil||sinhala||khmer||myanmar||tibetan||form||emoji_item?nullptr:alphabetic_profile(owner,*item.binding(),static_cast<u16>((analysis>>8)&~7u),owner.last_independent);if(!arabic&&!deva&&!tamil&&!sinhala&&!khmer&&!myanmar&&!tibetan&&!form&&!emoji_item&&!profile)return SfntStatus::unsupported_sequence;
-            const Utf8View input{owner.last_text.data+first_byte,state.byte-first_byte};
-            const float spacing=owner.styled_spans[0].em*owner.last_tracking;
+        if (reshape) {
+            const u16 script = static_cast<u16>((analysis >> 8) & ~7u);
+            const Utf8View input{owner.last_text.data + first_byte, state.byte - first_byte};
+            const float spacing = owner.styled_spans[0].em * owner.last_tracking;
             // L1 resets the published level of trailing whitespace. Spacing
             // and glyph positioning retain the item's analyzed direction.
-            const bool shaping_rtl=(analysis&1)!=0;
-            auto status=emoji_item?native_emoji_run(owner.store,*item.binding()->emoji,input,item.em,s.work.run,&result,{},false,shaping_rtl,arabic):form?form_run(form_script_profile(static_cast<u16>((analysis>>8)&~7u)),owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):tibetan?tibetan_run(owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):myanmar?myanmar_run(owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):khmer?khmer_run(owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):sinhala?sinhala_run(owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):tamil?tamil_run(owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):deva?devanagari_run(owner,*item.binding(),input,item.em,s.work.run,&result,spacing,shaping_rtl):arabic?native_arabic_run(owner.arabic_store,item.binding()->arabic,input,owner.last_independent,shaping_rtl,item.em,s.work.run,&result):
-                native_alphabetic_run(owner.store,*profile,input,item.em,s.work.run,&result,{},profile->script_tag!=0&&!profile->allow_missing,!mixed||!(analysis&256),shaping_rtl);
-            if(status==SfntStatus::ok&&spacing&&!deva&&!tamil&&!sinhala&&!khmer&&!myanmar&&!tibetan&&!form&&!emoji_item)status=sfnt_trailing_spacing({s.work.run.placements.data,result.glyph_count},
-                result.nominal_ranges?ConstSlice<u8>{}:ConstSlice<u8>{s.work.run.shaping.flags.data,result.glyph_count},spacing,1000000,shaping_rtl);
-            if(status!=SfntStatus::ok)return status;if(result.source_units!=end_source-first_source)return SfntStatus::unsupported_sequence;}
+            const bool shaping_rtl = (analysis & 1) != 0;
+            SfntStatus status;
+            if (emoji_item)
+                status = native_emoji_run(owner.store, *item.binding()->emoji, input, item.em, s.work.run,
+                                          &result, {}, false, shaping_rtl, script == arabic_script);
+            else if (form_script(script))
+                status = form_run(form_script_profile(script), owner, *item.binding(), input, item.em,
+                                  s.work.run, &result, spacing, shaping_rtl);
+            else
+                switch (script) {
+                case tibetan_script:
+                    status = tibetan_run(owner, *item.binding(), input, item.em, s.work.run, &result,
+                                         spacing, shaping_rtl);
+                    break;
+                case myanmar_script:
+                    status = myanmar_run(owner, *item.binding(), input, item.em, s.work.run, &result,
+                                         spacing, shaping_rtl);
+                    break;
+                case khmer_script:
+                    status = khmer_run(owner, *item.binding(), input, item.em, s.work.run, &result, spacing,
+                                       shaping_rtl);
+                    break;
+                case sinhala_script:
+                    status = sinhala_run(owner, *item.binding(), input, item.em, s.work.run, &result,
+                                         spacing, shaping_rtl);
+                    break;
+                case tamil_script:
+                    status = tamil_run(owner, *item.binding(), input, item.em, s.work.run, &result, spacing,
+                                       shaping_rtl);
+                    break;
+                case devanagari_script:
+                    status = devanagari_run(owner, *item.binding(), input, item.em, s.work.run, &result,
+                                            spacing, shaping_rtl);
+                    break;
+                default:
+                    if (script == arabic_script)
+                        status = native_arabic_run(owner.arabic_store, item.binding()->arabic, input,
+                                                   owner.last_independent, shaping_rtl, item.em, s.work.run,
+                                                   &result);
+                    else {
+                        const auto* profile =
+                            alphabetic_profile(owner, *item.binding(), script, owner.last_independent);
+                        if (!profile)
+                            return SfntStatus::unsupported_sequence;
+                        status = native_alphabetic_run(owner.store, *profile, input, item.em, s.work.run,
+                                                       &result, {},
+                                                       profile->script_tag != 0 && !profile->allow_missing,
+                                                       !mixed || !(analysis & 256), shaping_rtl);
+                    }
+                    if (status == SfntStatus::ok && spacing)
+                        status = sfnt_trailing_spacing(
+                            {s.work.run.placements.data, result.glyph_count},
+                            result.nominal_ranges
+                                ? ConstSlice<u8>{}
+                                : ConstSlice<u8>{s.work.run.shaping.flags.data, result.glyph_count},
+                            spacing, 1000000, shaping_rtl);
+                    break;
+                }
+            if (status != SfntStatus::ok)
+                return status;
+            if (result.source_units != end_source - first_source)
+                return SfntStatus::unsupported_sequence;
+        }
         for(u32 part=run;part<last;++part){const auto& r=runs[part];
             while(state.span+1<owner.styled_spans.count&&owner.styled_spans[state.span].end_unit<=r.source_first)++state.span;
             const u32 source=r.source_first-first_source,source_end=source+r.source_count;
@@ -160,16 +222,40 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
     return SfntStatus::ok;
 }
 #include "native_text_directional_hits.inc"
-bool alphabetic_scripts(NativeTextContext& owner,Utf8View text,u8* bytes) noexcept {
-    arena_reset(&owner.scratch);auto scalars=take<u32>(owner.scratch,text.bytes);auto classes=take<NativeScriptClass>(owner.scratch,text.bytes);
-    if(!scalars.data||!classes.data)return false;u32 count=0;
-    for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return false;scalars[count++]=cp.codepoint;at+=cp.width;}
-    if(native_script_resolve({scalars.data,count},classes)!=NativeScriptStatus::ok)return false;
-    u32 index=0;
-    for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);const auto value=classes[index++];
-        if(value.script!=UnicodeScript::latn&&value.script!=UnicodeScript::grek&&value.script!=UnicodeScript::cyrl&&value.script!=UnicodeScript::zyyy&&value.script!=UnicodeScript::zzzz)return false;
-        const u8 script=value.script==UnicodeScript::grek?16u:value.script==UnicodeScript::cyrl?32u:0u;
-        for(u32 i=0;i<cp.width;++i)bytes[at+i]=static_cast<u8>(script>>3);at+=cp.width;}
+bool alphabetic_scripts(NativeTextContext& owner, Utf8View text, u8* bytes) noexcept {
+    arena_reset(&owner.scratch);
+    auto scalars = take<u32>(owner.scratch, text.bytes);
+    if (!scalars.data)
+        return false;
+    u32 count = 0;
+    for (u32 at = 0; at < text.bytes;) {
+        const auto cp = utf8_decode_one(text.data + at, text.bytes - at);
+        if (!cp.valid)
+            return false;
+        scalars[count++] = cp.codepoint;
+        at += cp.width;
+    }
+    auto classes = take<NativeScriptClass>(owner.scratch, count);
+    if (!classes.data)
+        return false;
+    if (native_script_resolve({scalars.data, count}, classes) != NativeScriptStatus::ok)
+        return false;
+    // The scalar pass already validated UTF-8; reuse it to expand script tags.
+    for (u32 at = 0, index = 0; index < count; ++index) {
+        const u32 cp = scalars[index];
+        const auto value = classes[index];
+        const u32 width = cp < 0x80 ? 1u : cp < 0x800 ? 2u : cp < 0x10000 ? 3u : 4u;
+        if (value.script != UnicodeScript::latn && value.script != UnicodeScript::grek &&
+            value.script != UnicodeScript::cyrl && value.script != UnicodeScript::zyyy &&
+            value.script != UnicodeScript::zzzz)
+            return false;
+        const u8 script = value.script == UnicodeScript::grek   ? 16u
+                          : value.script == UnicodeScript::cyrl ? 32u
+                                                                : 0u;
+        for (u32 i = 0; i < width; ++i)
+            bytes[at + i] = static_cast<u8>(script >> 3);
+        at += width;
+    }
     return true;
 }
 // Intersects paint/font styles with the maximal emoji font overrides. One sweep
@@ -595,27 +681,77 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
             bool part_nominal=false;const auto& r=resolved[first];const Utf8View input{text.data+r.first_byte,static_cast<u32>(resolved[last-1].end_byte)-r.first_byte};
             u32 shaping_script=continuity[first]&~7u,shaping_first=first;
             if(shaping_script==128)for(u32 i=first+1;i<last;++i)if((continuity[i]&~7u)==arabic_script){shaping_script=arabic_script;shaping_first=i;break;}
-            const bool deva=shaping_script==devanagari_script,tamil=shaping_script==tamil_script,sinhala=shaping_script==sinhala_script,khmer=shaping_script==khmer_script,myanmar=shaping_script==myanmar_script,tibetan=shaping_script==tibetan_script,form=form_script(static_cast<u16>(shaping_script));
-            const auto form_kind=form_script_profile(static_cast<u16>(shaping_script));
-            const auto* form_plan=form?form_profile(owner,*r.binding(),form_kind):nullptr;
-            if(form&&!form_plan){status=SfntStatus::unsupported_sequence;break;}
-            const auto* sinhala_plan=sinhala?sinhala_profile(owner,*r.binding(),system.independent_letters):nullptr;
-            if(sinhala&&!sinhala_plan){status=SfntStatus::unsupported_sequence;break;}
-            const auto* khmer_plan=khmer?khmer_profile(owner,*r.binding(),system.independent_letters):nullptr;
-            if(khmer&&!khmer_plan){status=SfntStatus::unsupported_sequence;break;}
-            const auto* myanmar_plan=myanmar?myanmar_profile(owner,*r.binding(),system.independent_letters):nullptr;
-            if(myanmar&&!myanmar_plan){status=SfntStatus::unsupported_sequence;break;}
-            const auto* tibetan_plan=tibetan?tibetan_profile(owner,*r.binding(),system.independent_letters):nullptr;
-            if(tibetan&&!tibetan_plan){status=SfntStatus::unsupported_sequence;break;}
-            const auto* tamil_plan=tamil?indic_profile(owner,*r.binding(),SfntIndicProfile::tamil):nullptr;
-            if(tamil&&!tamil_plan){status=SfntStatus::unsupported_sequence;break;}
-            const auto* deva_plan=deva?devanagari_profile(owner,*r.binding()):nullptr;
-            if(deva&&!deva_plan){status=SfntStatus::unsupported_sequence;break;}
-            status=tibetan_plan?native_tibetan_paragraph_shape(owner.store,*tibetan_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):myanmar_plan?native_myanmar_paragraph_shape(owner.store,*myanmar_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):khmer_plan?native_khmer_paragraph_shape(owner.store,*khmer_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):sinhala_plan?native_sinhala_paragraph_shape(owner.store,*sinhala_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):form_plan?indic_form_paragraph(form_kind,owner.store,*form_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):tamil?native_tamil_paragraph_shape(owner.store,*tamil_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):deva?native_devanagari_paragraph_shape(owner.store,*deva_plan,input,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking,mixed&&(directions[first]&1)!=0):r.binding()->font_flags==emoji_font_flag?native_emoji_paragraph_shape(owner.store,*r.binding()->emoji,input,r.em,segment,group_boundaries,&part,false,mixed&&(directions[first]&1)!=0,(continuity[first]&~7u)==arabic_script):
-                shaping_script==arabic_script?native_arabic_paragraph_shape(owner.arabic_store,resolved[shaping_first].binding()->arabic,input,system.independent_letters,(directions[first]&1)!=0,r.em,segment,group_boundaries,&part,resolved[0].em*system.tracking):
-                native_latin_paragraph_shape(owner.store,r.binding()->plan,input,system.independent_letters,r.em,segment,group_boundaries,&part,&part_nominal,resolved[0].em*system.tracking,
-                    (continuity[first]&~7u)?alphabetic_profile(owner,*r.binding(),continuity[first]&~7u,system.independent_letters):nullptr,alphabetic&&(!(continuity[first]&1)||system.tracking!=0)&&(!common_only||(r.binding()->key&(binding_default|binding_missing_family))!=binding_default||system.independent_letters||system.tracking!=0),mixed?(directions[first]&1)!=0:rtl);
-            nominal=nominal&&part_nominal;
+            const float tracking = resolved[0].em * system.tracking;
+            const bool group_rtl = mixed && (directions[first] & 1) != 0;
+            status = SfntStatus::unsupported_sequence;
+            if (form_script(static_cast<u16>(shaping_script))) {
+                const auto kind = form_script_profile(static_cast<u16>(shaping_script));
+                if (const auto* plan = form_profile(owner, *r.binding(), kind))
+                    status = indic_form_paragraph(kind, owner.store, *plan, input, r.em, segment,
+                                                  group_boundaries, &part, tracking, group_rtl);
+            } else
+                switch (shaping_script) {
+                case tibetan_script:
+                    if (const auto* plan = tibetan_profile(owner, *r.binding(), system.independent_letters))
+                        status =
+                            native_tibetan_paragraph_shape(owner.store, *plan, input, r.em, segment,
+                                                           group_boundaries, &part, tracking, group_rtl);
+                    break;
+                case myanmar_script:
+                    if (const auto* plan = myanmar_profile(owner, *r.binding(), system.independent_letters))
+                        status =
+                            native_myanmar_paragraph_shape(owner.store, *plan, input, r.em, segment,
+                                                           group_boundaries, &part, tracking, group_rtl);
+                    break;
+                case khmer_script:
+                    if (const auto* plan = khmer_profile(owner, *r.binding(), system.independent_letters))
+                        status = native_khmer_paragraph_shape(owner.store, *plan, input, r.em, segment,
+                                                              group_boundaries, &part, tracking, group_rtl);
+                    break;
+                case sinhala_script:
+                    if (const auto* plan = sinhala_profile(owner, *r.binding(), system.independent_letters))
+                        status =
+                            native_sinhala_paragraph_shape(owner.store, *plan, input, r.em, segment,
+                                                           group_boundaries, &part, tracking, group_rtl);
+                    break;
+                case tamil_script:
+                    if (const auto* plan = indic_profile(owner, *r.binding(), SfntIndicProfile::tamil))
+                        status = native_tamil_paragraph_shape(owner.store, *plan, input, r.em, segment,
+                                                              group_boundaries, &part, tracking, group_rtl);
+                    break;
+                case devanagari_script:
+                    if (const auto* plan = devanagari_profile(owner, *r.binding()))
+                        status =
+                            native_devanagari_paragraph_shape(owner.store, *plan, input, r.em, segment,
+                                                              group_boundaries, &part, tracking, group_rtl);
+                    break;
+                default:
+                    if (r.binding()->font_flags == emoji_font_flag)
+                        status = native_emoji_paragraph_shape(
+                            owner.store, *r.binding()->emoji, input, r.em, segment, group_boundaries, &part,
+                            false, group_rtl, (continuity[first] & ~7u) == arabic_script);
+                    else if (shaping_script == arabic_script)
+                        status = native_arabic_paragraph_shape(
+                            owner.arabic_store, resolved[shaping_first].binding()->arabic, input,
+                            system.independent_letters, (directions[first] & 1) != 0, r.em, segment,
+                            group_boundaries, &part, tracking);
+                    else
+                        status = native_latin_paragraph_shape(
+                            owner.store, r.binding()->plan, input, system.independent_letters, r.em,
+                            segment, group_boundaries, &part, &part_nominal, tracking,
+                            (continuity[first] & ~7u)
+                                ? alphabetic_profile(owner, *r.binding(), continuity[first] & ~7u,
+                                                     system.independent_letters)
+                                : nullptr,
+                            alphabetic && (!(continuity[first] & 1) || system.tracking != 0) &&
+                                (!common_only ||
+                                 (r.binding()->key & (binding_default | binding_missing_family)) !=
+                                     binding_default ||
+                                 system.independent_letters || system.tracking != 0),
+                            mixed ? (directions[first] & 1) != 0 : rtl);
+                    break;
+                }
+            nominal = nominal && part_nominal;
             if(status!=SfntStatus::ok)break;
             if(!first)shape.vertical=part.vertical;
             for(u32 c=0;c<part.cluster_count;++c){auto& cluster=segment.clusters[c];cluster.source_first+=shape.source_units;cluster.source_end+=shape.source_units;cluster.glyph_first+=shape.glyph_count;

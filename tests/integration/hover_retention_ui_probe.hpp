@@ -131,7 +131,7 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
     ui_widget_manager_hover(&scene.widgets, row.widget);
     scene.widgets.hover_started_ms = 1000;
     if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) || !prepare() || !draw_changed() ||
-        !renderer.text_effect_count || !readback.read(renderer, 1))
+        renderer.text_effect_count != 1 || !readback.read(renderer, 1))
         return false;
     const auto clip = raster_clip_rectangle(name, renderer.dpi / 96.f, readback.width, readback.height);
     u32 changed_ink = 0;
@@ -145,6 +145,21 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
         }
     if (changed_ink < 10)
         return false;
+    // Moving the same effect to the final slot, then back, exercises both
+    // a full upload and a short prefix after WRITE_DISCARD without stale data.
+    renderer.text_effects.materials[kTextEffectCapacity - 1] = renderer.text_effects.materials[0];
+    constexpr u32 slots[]{kTextEffectCapacity - 1, 0};
+    for (u32 slot : slots) {
+        renderer.text_effect_count = slot + 1;
+        for (u32 i = 0; i < renderer.content_text->quad_count; ++i)
+            if (renderer.content_text->quads[i].color.red < 0)
+                renderer.content_text->quads[i].color.red = -static_cast<float>(slot + 1);
+        renderer.uploaded_text_storage = nullptr;
+        if (!draw_changed() || !readback.read(renderer, 3) ||
+            bytes_hash(0, readback.images + readback.bytes, readback.bytes) !=
+                bytes_hash(0, readback.images + readback.bytes * 3, readback.bytes))
+            return false;
+    }
     stage = 5;
     ui_widget_manager_hover(&scene.widgets, ui_widget_invalid_handle());
     if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) || !prepare() || !draw_changed() ||

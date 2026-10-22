@@ -39,7 +39,7 @@ SOURCES = {
 }
 OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/thai_lexical_data.inc'
 LONGEST = 20  # ICU's longest entry; longer PyThaiNLP compounds are phrases.
-REFERENCE_SLOTS = 64
+REFERENCE_SLOTS = 96
 # Consonants, dependent vowels, leading vowels, LAKKHANGYAO and the marks.
 LEXICAL = {*range(0xe01, 0xe2f), *range(0xe30, 0xe3b), *range(0xe40, 0xe46), *range(0xe47, 0xe4f)}
 LEADING = range(0xe40, 0xe45)

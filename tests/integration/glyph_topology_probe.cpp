@@ -1,5 +1,6 @@
-// Glyph draw shaders against reference shaders, exact pixels and pipeline
-// statistics. MAICORD_GLYPH_PROBE selects the comparison: topology (unset; list
+// Glyph draw shaders against reference shaders and pipeline statistics.
+// Cubic reassociation permits sparse one-level rounding differences; other
+// comparisons remain exact. MAICORD_GLYPH_PROBE selects the comparison: topology (unset; list
 // reference vertex shader), easing, stage or color (reference vertex and pixel
 // shaders); stage and color take MAICORD_GLYPH_STAGE_CONTROL 0-2.
 #include "maicord/render/d3d11_draw_pipeline.hpp"
@@ -111,7 +112,7 @@ bool run() noexcept {
     s.context->PSSetShaderResources(0,2,s.views);s.context->PSSetSamplers(0,1,&s.pipeline.glyph_sampler);
     s.context->RSSetState(s.pipeline.ui_rasterizer_state);s.context->RSSetViewports(1,&viewport);s.context->OMSetBlendState(s.pipeline.ui_blend_state,blend,~0u);
     s.context->OMSetRenderTargets(1,&s.rtv,nullptr);
-    static u8 pixels[2][width*height*4];u64 channels=0,painted=0;
+    static u8 pixels[2][width*height*4];u64 channels=0,painted=0,rounded=0;
     TextEffectConstants effects{};
     for(u32 frame=0;frame<pixel_frames;++frame){effects.seconds=static_cast<float>(frame)*.173f;effects.scale=1+static_cast<float>(frame%4)*.25f;
         if(s.easing){
@@ -135,13 +136,19 @@ bool run() noexcept {
             s.context->CopyResource(s.staging,s.target);CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
             for(u32 y=0;y<height;++y)CopyMemory(pixels[side]+y*width*4,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,width*4);
             s.context->Unmap(s.staging,0);}
-        for(u32 i=0;i<width*height*4;++i){CHECK(pixels[0][i]==pixels[1][i]);++channels;if(pixels[0][i])++painted;}
+        for(u32 i=0;i<width*height*4;++i){
+            const i32 delta=static_cast<i32>(pixels[0][i])-pixels[1][i];
+            if((mode==Mode::easing||mode==Mode::stage)&&!control)CHECK(delta>=-1&&delta<=1);
+            else CHECK(!delta);
+            rounded+=delta!=0;++channels;if(pixels[0][i])++painted;
+        }
     }
-    CHECK(painted>100000);
+    // At most 0.001% of channels may differ by one level (PSNR >= 98 dB).
+    CHECK(painted>100000&&rounded*100000<=channels);
     test_write_text("{\"kind\":\"");test_write_text(shaders.kind);test_write_text("\",");
     if(stage){test_write_text("\"control\":");test_write_u64(control);test_write_text(",");}
     test_write_text("\"pixel_frames\":");
-    test_write_u64(pixel_frames);test_write_text(",\"exact_channels\":");test_write_u64(channels);test_write_text(",\"nonzero_channels\":");test_write_u64(painted);test_write_text(",\"batches\":[");
+    test_write_u64(pixel_frames);test_write_text(",\"exact_channels\":");test_write_u64(channels-rounded);test_write_text(",\"rounded_channels\":");test_write_u64(rounded);test_write_text(",\"nonzero_channels\":");test_write_u64(painted);test_write_text(",\"batches\":[");
     for(u32 batch=0;batch<6;++batch){
         if(s.easing){
             effects.seconds=.12f+static_cast<float>(batch)*.22f;

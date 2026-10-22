@@ -4,6 +4,8 @@
 // A decoder change that breaks that data still passes CPU-only output checks,
 // so here the production decoders feed the production GPU stages and the
 // pictures are compared with:
+//   - PNG: generated scanlines across every admitted sample layout, with
+//     integer expansion and premultiplication references;
 //   - JPEG: Pillow/libjpeg-turbo decodes of the same files (full images and
 //     the corpus sample grid), within the renderer's documented tolerance;
 //   - VP8: the CPU WebP thumbnail decoder (its own prediction, loop filter and
@@ -109,6 +111,82 @@ bool read_surface(const MediaAtlasResult& allocation) noexcept {
 
 u32 channel_error(u8 actual, u8 expected) noexcept {
     return actual > expected ? actual - expected : expected - actual;
+}
+
+// All admitted PNG sample layouts, with a complete 16-bit sample sweep and
+// every 8-bit color/alpha pair. Generate scanlines directly to isolate expansion.
+void check_png_formats() noexcept {
+    constexpr u8 depths[]{1, 2, 4, 8, 16}, types[]{0, 2, 3, 4, 6};
+    u32 formats = 0;
+    for (u8 type : types)
+        for (u8 depth : depths) {
+            PngImage image{};
+            const u32 height = depth == 16 || (depth == 8 && type == 6) ? 256 : 1;
+            if (!png_image_configure(&image, 256, height, depth, type))
+                continue;
+            ++formats;
+            const u32 mask = (1u << depth) - 1;
+            image.transparent_gray = mask / 2;
+            image.transparent_red = 0;
+            image.transparent_green = 19 & mask;
+            image.transparent_blue = 38 & mask;
+            image.has_transparency = true;
+            if (type == 3) {
+                image.palette_count = static_cast<u16>(mask + 1);
+                for (u32 i = 0; i <= mask; ++i)
+                    image.palette_rgba[i] =
+                        i | ((255 - i) << 8) | ((i ^ 85) << 16) | (((i * 17) & 255) << 24);
+            }
+            clear_bytes(g->workspace, image.inflated_bytes);
+            for (u32 y = 0; y < height; ++y)
+                for (u32 x = 0; x < 256; ++x) {
+                    const u32 pixel = y * 256 + x;
+                    u32 samples[4]{}, expanded[4]{};
+                    auto* row = g->workspace + y * image.row_stride + 1;
+                    for (u32 c = 0; c < image.channels; ++c) {
+                        const u32 value =
+                            depth == 8 && type == 6 && c == 3 ? y : (pixel * 37 + c * 19) & mask;
+                        samples[c] = value;
+                        expanded[c] = depth == 16 ? (value * 255 + 32767) / 65535 : value * 255 / mask;
+                        const u32 bit = (x * image.channels + c) * depth;
+                        if (depth < 8)
+                            row[bit / 8] |= static_cast<u8>(value << (8 - depth - bit % 8));
+                        else if (depth == 8)
+                            row[bit / 8] = static_cast<u8>(value);
+                        else {
+                            row[bit / 8] = static_cast<u8>(value >> 8);
+                            row[bit / 8 + 1] = static_cast<u8>(value);
+                        }
+                    }
+                    u32 rgba[]{expanded[0], expanded[1], expanded[2], 255};
+                    if (type == 0 || type == 4) {
+                        rgba[1] = rgba[2] = rgba[0];
+                        rgba[3] = type == 4 ? expanded[1] : samples[0] == image.transparent_gray ? 0 : 255;
+                    } else if (type == 2)
+                        rgba[3] = samples[0] == image.transparent_red &&
+                                          samples[1] == image.transparent_green &&
+                                          samples[2] == image.transparent_blue
+                                      ? 0
+                                      : 255;
+                    else if (type == 3) {
+                        const u32 packed = image.palette_rgba[samples[0]];
+                        for (u32 c = 0; c < 4; ++c)
+                            rgba[c] = (packed >> (c * 8)) & 255;
+                    } else
+                        rgba[3] = expanded[3];
+                    for (u32 c = 0; c < 4; ++c)
+                        g->reference[pixel * 4 + c] =
+                            static_cast<u8>(c == 3 ? rgba[c] : (rgba[c] * rgba[3] + 127) / 255);
+                }
+            media_atlas_reset(&g->atlas);
+            const auto uploaded = media_atlas_gpu_upload_png(&g->gpu, &g->atlas, g_device, g_context,
+                                                             media_asset_custom_emoji(9001, false), image,
+                                                             {g->workspace, image.inflated_bytes});
+            check(uploaded.ok() && read_surface(uploaded.allocation) &&
+                      bytes_equal(g->surface, g->reference, 256 * height * 4),
+                  "png_sample_expansion", type * 100 + depth);
+        }
+    check(formats == 15, "png_format_coverage", formats);
 }
 
 // ---- JPEG ------------------------------------------------------------------------------
@@ -315,6 +393,7 @@ int run() noexcept {
         return 4;
     }
 
+    check_png_formats();
     check_jpeg_reference("jpeg_420_reference", {kJpeg420Reference, sizeof(kJpeg420Reference)},
                          {kJpeg420ReferenceRgb, sizeof(kJpeg420ReferenceRgb)}, 1001);
     check_jpeg_reference("jpeg_progressive_reference",

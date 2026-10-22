@@ -211,7 +211,8 @@ void colr_paint(uint3 thread : SV_DispatchThreadID) {
         } else if(kind==6) {
 #if !COLR_LAYERS
             float4 upper=values[--top],lower=values[top-1];
-            values[top-1]=count?composite(upper,lower,mode):composite(lower,upper,mode);
+            // Select operands before inlining the full composite evaluator.
+            values[top-1]=composite(count?upper:lower,count?lower:upper,mode);
 #endif
 #if COLR_LAYERS
         }

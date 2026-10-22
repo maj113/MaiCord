@@ -60,10 +60,6 @@ ColrPaintNode* emit(Builder& b, u32 kind, const ColrMatrix* m = nullptr) noexcep
     if (m) {
         if (!inverse(*m, n->inverse))
             n->mode = ~0u; // Singular transforms paint nothing.
-    } else {
-        // Preserve the exact identity inverse, including its signed zeros.
-        constexpr float unit_inverse[6]{1, -0.f, -0.f, 1, 0, 0};
-        copy_bytes(n->inverse, unit_inverse, sizeof(unit_inverse));
     }
     if (kind <= 3 || kind == 7)
         ++b.p->stack;
@@ -366,7 +362,7 @@ bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth)
     }
     case ColrPaintKind::solid_glyph:
     case ColrPaintKind::solid: {
-        auto* n = emit(b, 0, &m);
+        auto* n = emit(b, 0);
         if (!n)
             return false;
         const auto c = e.kind == ColrPaintKind::solid ? p.solid.value : p.solidGlyph.color.value;

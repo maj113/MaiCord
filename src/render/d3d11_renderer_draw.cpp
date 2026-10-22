@@ -1234,7 +1234,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         if (!renderer->text_effect_buffer) {
             D3D11_BUFFER_DESC description{};
             description.ByteWidth = sizeof(TextEffectConstants);
-            description.Usage = D3D11_USAGE_DEFAULT;
+            description.Usage = D3D11_USAGE_DYNAMIC;
+            description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
             description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             if (FAILED(renderer->graphics.device->CreateBuffer(&description, nullptr,
                                                                &renderer->text_effect_buffer)))
@@ -1243,8 +1244,15 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         const u64 effect_ms = effect_time_ms == ~0ull ? frame_ms : effect_time_ms;
         renderer->text_effects.seconds = static_cast<float>(effect_ms % 60000) / 1000.f;
         renderer->text_effects.scale = static_cast<float>(renderer->dpi) / 96.f;
-        renderer->graphics.context->UpdateSubresource(renderer->text_effect_buffer, 0, nullptr,
-                                                      &renderer->text_effects, 0, 0);
+        // Glyphs reference only the active material prefix.
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(renderer->graphics.context->Map(renderer->text_effect_buffer, 0,
+                                                   D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            goto draw_failed;
+        CopyMemory(mapped.pData, &renderer->text_effects,
+                   offsetof(TextEffectConstants, materials) +
+                       renderer->text_effect_count * sizeof(TextEffectMaterial));
+        renderer->graphics.context->Unmap(renderer->text_effect_buffer, 0);
         // The glyph pipeline binds PS b1 when it is selected.
         renderer->graphics.context->VSSetConstantBuffers(1, 1, &renderer->text_effect_buffer);
     }

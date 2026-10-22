@@ -22,6 +22,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1         
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   # client + whole test suite
 ```
 
+- Add `-NoUpdater` to test the local client against your normal profile. This
+  disables update handoff in that build, so launching it runs the checkout
+  instead of an installed release.
 - There is one build directory, the sibling `..\MaiCord-build\Release`. Don't
   add other build trees, staging copies or archives. `build.ps1` removes test
   executables, profiles and logs after every run.

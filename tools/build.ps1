@@ -5,6 +5,8 @@
 [CmdletBinding()]
 param(
     [switch]$Test,
+    # Run this checkout directly instead of handing off to an installed update.
+    [switch]$NoUpdater,
     # Tests use the MaiCord.exe and MaiCordAccount.dll already in the build
     # directory (e.g. a running client) instead of building and auditing them.
     [switch]$SkipClient,
@@ -68,6 +70,7 @@ function Invoke-Native([string]$Command, [string[]]$Arguments) {
     if ($LASTEXITCODE) { throw "$Command failed ($LASTEXITCODE): $($Arguments[0..3] -join ' ') ..." }
 }
 function Invoke-Configure([string[]]$Options) {
+    if ($NoUpdater) { $Options += '-DMAICORD_UPDATE_REPOSITORY=', '-DMAICORD_UPDATE_PUBLIC_KEY=' }
     Invoke-Native cmake (@('-S', $repository, '--preset', 'x64-release') + $Options)
 }
 function Invoke-Build([string[]]$Targets) {

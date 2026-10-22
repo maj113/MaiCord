@@ -1,15 +1,19 @@
 #pragma once
+#include "../../src/render/picker_glyph_cache.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
 
 namespace maicord {
 // A wide picker used to reserve one batch per emoji, exhausting the message
 // budget and discarding all message text even before any atlas eviction.
+// Distinct row/card clips must also merge when they do not cut any ink;
+// 160 such message commands exceed the 128-batch budget without this merging.
 inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
     UiMediaPickerScene scene{};
-    MessageTextCommand commands[64]{};
+    constexpr u32 command_count = 160;
+    MessageTextCommand commands[command_count]{};
     MessageTextPresentation messages{};
-    messages.commands = {commands, 64};
-    messages.command_count = 64;
+    messages.commands = {commands, command_count};
+    messages.command_count = command_count;
     messages.active = true;
     struct Restore {
         D3D11Renderer& renderer;
@@ -26,7 +30,7 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
         }
     } restore{renderer, scene, renderer.media_picker_scene, renderer.message_text};
     const auto area = renderer.message_scene->viewport;
-    for (u32 i = 0; i < 64; ++i) {
+    for (u32 i = 0; i < command_count; ++i) {
         auto& command = commands[i];
         command.text = utf8_literal("Visible message text");
         command.rectangle = {area.left + 4, area.top + 4 + (i % 20) * 20.f,
@@ -35,6 +39,11 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
         command.clip.right -= i * .1f;
         command.color = kDefaultTheme.text_primary;
     }
+    // Keep a real cut through the glyphs on each edge among the mergeable rows.
+    commands[0].clip.left = commands[0].rectangle.left + 24;
+    commands[1].clip.right = commands[1].rectangle.left + 50;
+    commands[2].clip.top = commands[2].rectangle.top + 12;
+    commands[3].clip.bottom = commands[3].rectangle.top + 12;
     renderer.message_text = &messages;
     const auto catalog = unicode_emoji_catalog();
     UiMediaPickerSource source{nullptr, 0x71, 1, catalog.count, 1, {},
@@ -70,9 +79,25 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
         if (page) ui_media_picker_scene_scroll(&scene, scene.cell_pitch * 8 + .37f);
         renderer.retained_presentation.valid = false;
         if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) ||
-            renderer.content_text->quad_count < 64 * 16 || renderer.content_text->batch_count > 90 ||
+            renderer.content_text->quad_count < command_count * 16 || renderer.content_text->batch_count > 26 ||
             !surface_motion_probe_detail::draw_fixed(renderer) || !readback.read(renderer, 0))
             return false;
+        // A warm rebuild reuses centered, unclipped cell-local glyphs. It must
+        // preserve the cold pixels even at fractional scrolling positions.
+        if (!renderer.picker_glyph_cache) return false;
+        const u32 hits = renderer.picker_glyph_cache->hits;
+        content_text_retention_invalidate(&renderer.content_text_retention);
+        if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) ||
+            renderer.picker_glyph_cache->hits <= hits ||
+            !surface_motion_probe_detail::draw_fixed(renderer) || !readback.read(renderer, 1) ||
+            !bytes_equal(readback.images, readback.images + readback.bytes, readback.bytes))
+            return false;
+        for (u32 edge = 0; edge < 4; ++edge) {
+            bool kept_clip = false;
+            for (u32 b = 0; b < renderer.content_text->batch_count; ++b)
+                kept_clip |= ui_rect_equal(renderer.content_text->batches[b].clip, commands[edge].clip);
+            if (!kept_clip) return false;
+        }
         u64 hash = 0;
         const u32 right = static_cast<u32>(maximum(0.f, scene.panel.left * scale - 4));
         for (u32 y = 0; y < renderer.height; ++y)

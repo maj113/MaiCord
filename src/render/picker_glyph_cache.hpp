@@ -7,7 +7,7 @@ namespace maicord {
 struct PickerGlyphCache {
     struct Entry {
         TextSystem system;
-        GlyphQuad quads[4];
+        GlyphQuad quads[4]; // Centered in the cell, before clipping, relative to its origin.
         char text[64];
         Color color;
         float width,height,shaped_height;

@@ -259,8 +259,8 @@ bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept {
 
 namespace {
 
-bool append_text_batch(RendererTextStorage* storage, const UiRect& clip, u32 first_quad,
-                       bool force_new_batch = false) noexcept {
+bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 first_quad,
+                       bool force_new_batch, const UiRect* batch_clip) noexcept {
     if (first_quad > storage->quad_count) {
         return false;
     }
@@ -268,9 +268,23 @@ bool append_text_batch(RendererTextStorage* storage, const UiRect& clip, u32 fir
     if (count == 0) {
         return true;
     }
+    // A row/card scissor does no work when all its ink is inside it. Use the
+    // shared viewport so adjacent message runs can occupy one batch.
+    if (batch_clip && !ui_rect_equal(*clip, *batch_clip)) {
+        const UiRect bounds = ui_rect_intersection(*clip, *batch_clip);
+        u32 i = first_quad;
+        for (; i < storage->quad_count; ++i) {
+            const auto& q = storage->quads[i];
+            if (q.left < bounds.left || q.top < bounds.top || q.right > bounds.right ||
+                q.bottom > bounds.bottom)
+                break;
+        }
+        if (i == storage->quad_count)
+            clip = batch_clip;
+    }
     if (!force_new_batch && storage->batch_count != 0) {
         GlyphDrawBatch& last = storage->batches[storage->batch_count - 1];
-        if (ui_rect_equal(last.clip, clip) && last.first_quad + last.quad_count == first_quad) {
+        if (ui_rect_equal(last.clip, *clip) && last.first_quad + last.quad_count == first_quad) {
             last.quad_count += count;
             return true;
         }
@@ -278,7 +292,7 @@ bool append_text_batch(RendererTextStorage* storage, const UiRect& clip, u32 fir
     if (storage->batch_count >= storage->batch_capacity) {
         return false;
     }
-    storage->batches[storage->batch_count++] = GlyphDrawBatch{clip, first_quad, count};
+    storage->batches[storage->batch_count++] = GlyphDrawBatch{*clip, first_quad, count};
     return true;
 }
 
@@ -401,8 +415,8 @@ TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcep
 }
 
 bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_width, float maximum_height,
-                         float origin_x, float origin_y, const UiRect& clip, const Color& color,
-                         ConstSlice<TextStyleSpan> styles, const Theme* style_theme,
+                         float origin_x, float origin_y, const UiRect& clip, const UiRect* batch_clip,
+                         const Color& color, ConstSlice<TextStyleSpan> styles, const Theme* style_theme,
                          const Color* inline_role_color, float* shaped_height, bool* atlas_invalidated,
                          ConstSlice<MessageMarkdownSemantic> semantics = {}, u64 message_id = 0,
                          u32 message_revision = 0,
@@ -496,11 +510,10 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
                 q.bottom += command_rectangle.top;
                 storage->quads[storage->quad_count++] = q;
             }
-            if (!glyph_quad_center_range(storage->quads, first, storage->quad_count, command_rectangle) ||
-                !glyph_quad_clip_range(storage->quads, first, &storage->quad_count,
+            if (!glyph_quad_clip_range(storage->quads, first, &storage->quad_count,
                                        ui_rect_intersection(command_rectangle, clip))
                      .ok() ||
-                !append_text_batch(storage, clip, first, force_new_batch)) {
+                !append_text_batch(storage, &clip, first, force_new_batch, batch_clip)) {
                 storage->quad_count = first;
                 storage->last_error = RendererTextBuildError::capacity;
                 return false;
@@ -701,6 +714,12 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         return false;
     }
     if (center_emoji_ink) {
+        if (!glyph_quad_center_range(storage->quads, first_quad, storage->quad_count, command_rectangle)) {
+            storage->quad_count = first_quad;
+            storage->last_error = RendererTextBuildError::layout;
+            shaped_text_reset(&storage->scratch);
+            return false;
+        }
         if (picker_cache && !substituted && storage->quad_count - first_quad <= 4) {
             auto& e = picker_cache->entries[picker_cache->cursor++ % 256];
             e.system = text_system;
@@ -723,12 +742,6 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
                 e.quads[i].bottom -= command_rectangle.top;
             }
         }
-        if (!glyph_quad_center_range(storage->quads, first_quad, storage->quad_count, command_rectangle)) {
-            storage->quad_count = first_quad;
-            storage->last_error = RendererTextBuildError::layout;
-            shaped_text_reset(&storage->scratch);
-            return false;
-        }
         const UiRect bounds = ui_rect_intersection(command_rectangle, clip);
         const GlyphQuadBoundsResult bounded =
             glyph_quad_clip_range(storage->quads, first_quad, &storage->quad_count, bounds);
@@ -740,7 +753,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
             return false;
         }
     }
-    if (!append_text_batch(storage, clip, first_quad, force_new_batch)) {
+    if (!append_text_batch(storage, &clip, first_quad, force_new_batch, batch_clip)) {
         shaped_text_reset(&storage->scratch);
         storage->last_error = RendererTextBuildError::capacity;
         return false;
@@ -849,7 +862,8 @@ Color profile_tone(Color c, float light_scale, float floor = 0, float saturation
 }
 
 bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& command, const Theme& theme,
-                                 bool* atlas_invalidated, bool force_new_batch = false) noexcept {
+                                 bool* atlas_invalidated, bool force_new_batch = false,
+                                 const UiRect* batch_clip = nullptr) noexcept {
     // A partially visible virtual row can have a label wholly outside the
     // scroll clip; skip it rather than shape it or pass an empty intersection
     // to glyph clipping.
@@ -889,9 +903,11 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         bio_semantics = {composer_roles, composer_role_count};
     float shaped_height = 0.0f;
     const u32 first_quad = renderer->content_text->quad_count;
+    // Name effects can expand or animate their quads after batching.
     const bool appended = append_content_text(
         renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
-        command.rectangle.left, command.rectangle.top, command.clip, command.color, styles,
+        command.rectangle.left, command.rectangle.top, command.clip,
+        command.effect.kind ? nullptr : batch_clip, command.color, styles,
         composer_edit || bio ? &theme : nullptr, nullptr, &shaped_height, atlas_invalidated, bio_semantics,
         0, 0, command.owner, command.horizontal_alignment, command.vertical_alignment, command.wrapping,
         command.overflow, force_new_batch,
@@ -1081,16 +1097,19 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
                             : renderer->message_scene;
     const auto* users = search_result ? renderer->search_message_users : renderer->user_store;
     auto* cache = search_result ? renderer->search_message_measure_cache : renderer->message_measure_cache;
+    const UiRect* batch_clip = scene ? &scene->viewport : nullptr;
     MessageAuthorLayout header{};
     if (scene && renderer->chat_state && users &&
         message_author_layout(*scene, command, *renderer->chat_state, *users, cache, theme, &header,
                               presentation->guild_members)) {
-        if (!append_content_text_command(renderer, header.name, theme, atlas_invalidated, force_new_batch))
+        if (!append_content_text_command(renderer, header.name, theme, atlas_invalidated,
+                                          force_new_batch, batch_clip))
             return false;
         const UiTextCommand* decorations[]{&header.name_prefix, &header.name_suffix};
         for (const auto* decoration : decorations)
             if (decoration->text.bytes &&
-                !append_content_text_command(renderer, *decoration, theme, atlas_invalidated))
+                !append_content_text_command(renderer, *decoration, theme, atlas_invalidated,
+                                              false, batch_clip))
                 return false;
         const UiBadgeWidget* badges[2 + kUiPluginRenderBadges]{&header.badge, &header.plugin.badge};
         for (u32 d = 0; d < header.decoration_count; ++d)
@@ -1102,11 +1121,13 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
             UiTextCommandStream stream{};
             if (!ui_text_command_stream_initialize(&stream, {&badge_command, 1}) ||
                 !ui_badge_text(*badge, scene->widgets, theme, &stream) ||
-                !append_content_text_command(renderer, badge_command, theme, atlas_invalidated))
+                !append_content_text_command(renderer, badge_command, theme, atlas_invalidated,
+                                              false, batch_clip))
                 return false;
         }
         return !header.timestamp.text.bytes ||
-               append_content_text_command(renderer, header.timestamp, theme, atlas_invalidated);
+               append_content_text_command(renderer, header.timestamp, theme, atlas_invalidated,
+                                            false, batch_clip);
     }
     float shaped_height = 0.0f;
     const bool selected =
@@ -1117,8 +1138,8 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     const u32 first_semantic = renderer->content_text->content_semantic_count;
     if (!append_content_text(
             renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
-            command.rectangle.left, command.rectangle.top, command.clip, command.color, command.styles,
-            command.themed_styles ? &theme : nullptr, &command.inline_role_color, &shaped_height,
+            command.rectangle.left, command.rectangle.top, command.clip, batch_clip, command.color,
+            command.styles, command.themed_styles ? &theme : nullptr, &command.inline_role_color, &shaped_height,
             atlas_invalidated, command.semantics, command.message_id, command.message_revision,
             command.owner, command.horizontal_alignment, command.vertical_alignment, command.wrapping,
             command.overflow, force_new_batch, selected, renderer->message_text_selection_anchor,

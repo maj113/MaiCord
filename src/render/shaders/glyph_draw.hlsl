@@ -47,16 +47,16 @@ static const float2 kGlyphCorners[4] = {
 #endif
 
 // Cubic-bezier easing through control points (p.x,p.y) and (p.z,p.w); Newton
-// iterations solve the curve parameter for t.
+// iterations solve the curve parameter for t; Horner form reduces each step.
 float curve_ease(float t,float4 p) {
+    float2 a=1+3*(p.xy-p.zw),b=3*p.zw-6*p.xy,c=3*p.xy;
     float u=saturate(t);
     [unroll] for(int i=0;i<4;i++) {
-        float v=1-u;
-        float x=3*p.x*v*v*u+3*p.z*v*u*u+u*u*u;
-        float d=3*p.x*v*v+6*(p.z-p.x)*v*u+3*(1-p.z)*u*u;
+        float x=((a.x*u+b.x)*u+c.x)*u;
+        float d=(3*a.x*u+2*b.x)*u+c.x;
         u=saturate(u-(x-t)/max(d,.001));
     }
-    return 3*p.y*(1-u)*(1-u)*u+3*p.w*(1-u)*u*u+u*u*u;
+    return ((a.y*u+b.y)*u+c.y)*u;
 }
 float profile_ease(float t) { return curve_ease(t,float4(.44,.29,.48,1));
 }

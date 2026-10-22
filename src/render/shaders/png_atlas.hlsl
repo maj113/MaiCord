@@ -33,13 +33,15 @@ uint load_sample(uint offset) {
 }
 
 uint expand_sample(uint sample) {
-    if (bit_depth == 16u) {
-        return (sample * 255u + 32767u) / 65535u;
+    // Bit depth is uniform; keep unused integer divisions off the 8-bit path.
+    uint result = sample;
+    [branch] if (bit_depth != 8u) {
+        [branch] if (bit_depth == 16u)
+            result = (sample + 128u) / 257u;
+        else
+            result = sample * 255u / ((1u << bit_depth) - 1u);
     }
-    if (bit_depth == 8u) {
-        return sample;
-    }
-    return sample * 255u / ((1u << bit_depth) - 1u);
+    return result;
 }
 
 uint packed_sample(uint row, uint x) {

@@ -1816,6 +1816,7 @@ endforeach()
 # Isolated scene gates of the UI probe: each builds the shared fixture, drives
 # one scene through the real layout, text and draw path, and exits. They need
 # no GPU lock; every one is a hardware-renderer pixel and geometry check.
+# Unified picker also checks cached centering and dense message batch capacity.
 # MAICORD_<GATE>_PROBE runs as maicord_<gate>_probe, a leading UI_ moved to the end.
 foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_TITLE CATALOG_APNG_UI INBOX_UI
         LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI NOTIFICATION_SETTINGS_UI PLUGIN_CATALOG_UI
@@ -1866,8 +1867,8 @@ maicord_test(MaiCordMediaDecodeReferenceTests ENTRY maicord_media_decode_referen
     LIBS maicord_media_codec maicord_core kernel32
     TIMEOUT 10
     TEST maicord_media_decode_reference)
-# Production JPEG/VP8 decoders feeding the production GPU stages, against
-# Pillow decodes (JPEG) and the CPU WebP thumbnail decoder (VP8).
+# Production GPU image stages: all PNG sample layouts against integer references,
+# JPEG coefficients against Pillow, and VP8 against the CPU thumbnail decoder.
 maicord_test(MaiCordMediaGpuReferenceTests ENTRY maicord_media_gpu_reference_tests_entry
     SOURCES tests/media_gpu_reference.cpp
     LIBS maicord_atlas_gpu maicord_render_core maicord_media_codec maicord_core d3d11 kernel32

@@ -40,11 +40,16 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
     // Source-over with the transparent upper value keeps the lower value.
     const auto over=[&](u32 offset,u32 next) noexcept {auto* n=node_at(offset);n->next=next;n->kind=6;n->mode=3;n->count=1;};
     shaped(0,kShallow);push(kShallow,kShallowComposite);over(kShallowComposite,0);
+    // Reverse order keeps the lower green source over an opaque red value.
+    node_at(kShallowComposite)->count=0;
+    node_at(kShallow)->values[0]=node_at(kShallow)->values[3]=1;
     shaped(kDeep,kDeep+kSize);
     for(u32 i=0;i<kDeepPushes*2;++i){
         const u32 at=kDeep+kSize*(1+i),next=i+1<kDeepPushes*2?at+kSize:0;
         if(i<kDeepPushes)push(at,next);else over(at,next);
     }
+    // Forward order keeps an opaque yellow value over the deep stack's red base.
+    node_at(kDeep+kSize)->values[0]=node_at(kDeep+kSize)->values[1]=node_at(kDeep+kSize)->values[3]=1;
     // Independent square mask. Extra empty rows exercise larger mask bounds.
     auto* job=reinterpret_cast<ColrMask*>(base+72);
     job->segments=160;job->segment_count=4;job->fill=1;job->width=job->height=2;
@@ -70,6 +75,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
                 program.mask_pixels=4096;}
             program.first=shapes[i].first;program.nodes=shapes[i].nodes;program.peak_stack=shapes[i].peak_stack;
             for(u32 c=0;c<3;++c)node_at(0)->values[c]=node_at(kDeep)->values[c]=colors[i][c]/255.f;
+            if(i==3)node_at(kDeep)->values[1]=0;
             GlyphAtlasAllocation allocation{};allocation.x=static_cast<u16>(1+i*4);allocation.y=1;allocation.width=allocation.height=2;
             if(!colr_paint_rasterize(&gpu,context,program,rectangle,allocation,16,32,1,&batch)||
                !batch.active())return fail(10+i);
