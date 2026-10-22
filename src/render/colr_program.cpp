@@ -21,7 +21,7 @@ struct Builder {
 Point transform(const ColrMatrix& m, Point p) noexcept {
     return {p.x * m.m11 + p.y * m.m21 + m.dx, p.x * m.m12 + p.y * m.m22 + m.dy};
 }
-ColrMatrix multiply(ColrMatrix a, ColrMatrix b) noexcept {
+ColrMatrix multiply(const ColrMatrix& a, const ColrMatrix& b) noexcept {
     const auto offset = transform(b, {a.dx, a.dy});
     return {a.m11 * b.m11 + a.m12 * b.m21,
             a.m11 * b.m12 + a.m12 * b.m22,
@@ -299,7 +299,7 @@ bool mask(Builder& b, u32 glyph, const ColrMatrix& m) noexcept {
     return build_mask(b, glyph, m);
 }
 
-bool clip(Builder& b, ColrRect r, ColrMatrix m) noexcept {
+bool clip(Builder& b, const ColrRect& r, const ColrMatrix& m) noexcept {
     if (r.right <= r.left || r.bottom <= r.top)
         return true;
     auto* n = emit(b, 5, &m);
@@ -311,8 +311,8 @@ bool clip(Builder& b, ColrRect r, ColrMatrix m) noexcept {
     n->values[3] = r.bottom;
     return true;
 }
-bool tree(Builder& b, const ColrPaintElement& e, ColrMatrix m, u32 depth) noexcept;
-bool children(Builder& b, u32 count, ColrMatrix m, u32 depth, bool layers) noexcept {
+bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth) noexcept;
+bool children(Builder& b, u32 count, const ColrMatrix& m, u32 depth, bool layers) noexcept {
     ColrPaintElement child{};
     if (!count)
         return emit(b, 7) != nullptr;
@@ -333,7 +333,7 @@ bool children(Builder& b, u32 count, ColrMatrix m, u32 depth, bool layers) noexc
     }
     return b.source->parent(b.source->context);
 }
-bool tree(Builder& b, const ColrPaintElement& e, ColrMatrix m, u32 depth) noexcept {
+bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth) noexcept {
     if (depth > 64)
         return false;
     b.p->paint_types |= 1u << static_cast<u32>(e.kind);

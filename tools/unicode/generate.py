@@ -217,9 +217,11 @@ def main():
                 flags[cp] |= flag_bits['East_Asian_Line_Break']
         columns.append(flags)
         widths = [max(1, max(column).bit_length()) for column in columns]
-        offsets, bits = [], 0
-        for width in widths:
-            offsets.append(bits); bits += width
+        # Pack line breaks before GCB/WB so no field crosses a machine word.
+        # Keep FIELDS in the native dump/schema order used by verify_xml.py.
+        offsets, bits = [0] * len(widths), 0
+        for i in (0, 1, 2, 3, 6, 4, 5, 7, 8, 9, 10, 11):
+            offsets[i] = bits; bits += widths[i]
         words = (bits + 31) // 32
         if bits != 64:
             raise ValueError(f'Expected 64-bit runtime properties, got {bits}')

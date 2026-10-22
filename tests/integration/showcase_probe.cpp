@@ -1190,14 +1190,14 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             continue;
         auto& c = out[count];
         c = {settings_control_id(panel, i),
-             n.label,
-             n.description,
+             n.label(),
+             n.description(),
              n.kind,
              true,
              (i % 3) != 1,
              n.choices,
              n.default_choice < n.choices.count ? n.default_choice : 0,
-             n.action_label,
+             n.action_label(),
              nullptr};
         if (n.kind == UiSettingsControlKind::choice && !c.choices.count)
             c.choices = n.binding == static_cast<u32>(SettingBinding::add_game)

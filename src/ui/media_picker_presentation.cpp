@@ -28,10 +28,11 @@ bool text(UiTextOutput* output, const UiMediaPickerScene& scene, UiWidgetHandle 
     const auto clip = ui_rect_intersection(rectangle, region);
     if (!value.bytes || !ui_rect_has_area(clip))
         return true;
+    // Emoji quads are clipped to rectangle on the CPU; share the region scissor.
     return ui_text_output_push(output, {value,
                                         {&scene.widgets, owner},
                                         rectangle,
-                                        clip,
+                                        (flags & text_style_picker_emoji) ? region : clip,
                                         color,
                                         flags,
                                         alignment,
@@ -369,7 +370,7 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
         } else if (cell.item.kind == UiMediaPickerItemKind::emoji && cell.item.glyph.bytes &&
                    !cell.item.regional_flag) {
             if (!text(output, scene, cell.widget, cell.item.glyph, cell.rectangle,
-                      ui_rect_intersection(cell.clip, grid), theme.text_primary, glyph_style,
+                      grid, theme.text_primary, glyph_style,
                       UiTextAlignment::center, UiTextOverflow::clip))
                 return false;
         } else if (cell.item.kind == UiMediaPickerItemKind::category &&

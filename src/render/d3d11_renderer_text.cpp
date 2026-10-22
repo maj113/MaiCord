@@ -50,7 +50,7 @@ struct TextRasterScope {
         owner.color_batch = &batch;
     }
     ~TextRasterScope() noexcept {
-        batch.cancel();
+        batch.reset();
         owner.color_batch = previous;
     }
 };
@@ -1446,11 +1446,21 @@ void reset_motion_text_ranges(D3D11Renderer* renderer, u32 batch) noexcept {
 }
 struct OverlayReservation {
     u32 capacity, quads;
+    u32 batches{};
+    const UiWidgetManager* picker_owner{};
+    UiRect picker_clip{};
 };
 bool reserve_overlay_text(void* context, const UiTextCommand& command, u32) noexcept {
     auto& reserve = *static_cast<OverlayReservation*>(context);
     const u64 requested = static_cast<u64>(command.text.bytes) + 2u;
     reserve.quads += static_cast<u32>(minimum<u64>(requested, reserve.capacity - reserve.quads));
+    // Picker emoji are CPU-clipped to their cells and share a scissor within
+    // one scene. Reserve their merged batch, not one batch per emoji.
+    const auto* picker = (command.style_flags & text_style_picker_emoji) ? command.owner.manager : nullptr;
+    if (!picker || picker != reserve.picker_owner || !ui_rect_equal(command.clip, reserve.picker_clip))
+        ++reserve.batches;
+    reserve.picker_owner = picker;
+    reserve.picker_clip = command.clip;
     return true;
 }
 struct BrowserShellTextFilter {
@@ -2292,8 +2302,8 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         } else {
             storage->quad_capacity = storage->quad_count;
         }
-        if (overlay.count < full_batch_capacity - storage->batch_count) {
-            storage->batch_capacity = maximum(storage->batch_count, full_batch_capacity - overlay.count);
+        if (reservation.batches < full_batch_capacity - storage->batch_count) {
+            storage->batch_capacity = maximum(storage->batch_count, full_batch_capacity - reservation.batches);
         } else {
             storage->batch_capacity = storage->batch_count;
         }
@@ -2668,7 +2678,7 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
         renderer->friends_search_geometry = {};
     if (settings_active || login_form)
         text_edit_layout_invalidate(&renderer->composer_layout);
-    for (u32 attempt = 0; attempt < 4; ++attempt) {
+    for (u32 attempt = 0; attempt < 8; ++attempt) {
         bool atlas_invalidated = false;
         bool storage_modified = false;
         bool prefix_reused = false;
@@ -2702,7 +2712,10 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             return true;
         }
         if (atlas_invalidated) {
-            d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
+            // Eviction invalidates geometry, not the surviving rasterized tiles.
+            // Reserve a full reset for the last attempt if eviction keeps invalidating the build.
+            if (attempt == 6)
+                d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
             continue;
         }
         // A longer overlay can exhaust the retained suffix's capacity. Rebuild

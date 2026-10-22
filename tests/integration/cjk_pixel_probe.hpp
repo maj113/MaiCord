@@ -42,7 +42,7 @@ inline bool probe_cjk_pixels(D3D11Renderer& renderer,const wchar_t* options,
             request.count=&owner.title_quad_count;request.atlas_invalidated=&invalidated;request.source=text;
             request.color={1,1,1,1};request.origin_x=16+origins[origin][0];request.origin_y=32+origins[origin][1];
             request.capacity=kRendererGlyphCapacity;request.dpi=dpi[scale];
-            if(!d3d11_glyph_text_append(&owner,context,request)||invalidated||!colors.finish())return false;
+            if(!d3d11_glyph_text_append(&owner,context,request)||invalidated)return false;
             colors.reset();content.quad_count=owner.title_quad_count;batch.quad_count=content.quad_count;++content.rebuilds;
             if(!content.quad_count)return false;
             for(u32 i=0;i<content.quad_count;++i){const auto& q=content.quads[i];const float factor=dpi[scale]/96.f;

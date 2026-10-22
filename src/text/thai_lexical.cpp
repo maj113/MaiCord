@@ -40,10 +40,10 @@ u32 graph_child(u32 node,u32 label) noexcept {
     }
     if(header>=248){
         const u8* mask=thai_word_graph+at;
-        const u64 low=graph_u64(mask),high=graph_u64(mask+8),word=label<64?low:high,bit=1ull<<(label&63);
+        const u64 low=graph_u64(mask),high=mask[8]|(u64{mask[9]}<<8),word=label<64?low:high,bit=1ull<<(label&63);
         if(!(word&bit))return no_node;
         const u32 index=graph_rank(word&(bit-1))+(label<64?0u:graph_rank(low)),width=header&2?3u:2u;
-        const u8* distance=mask+16+index*width;
+        const u8* distance=mask+10+index*width;
         return node-(distance[0]|(distance[1]<<8)|(width==3?static_cast<u32>(distance[2])<<16:0u));
     }
     for(u32 edges=(header-128)>>1;edges;--edges){

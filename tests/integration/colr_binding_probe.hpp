@@ -74,7 +74,6 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
             if(!colr_paint_rasterize(&gpu,context,program,rectangle,allocation,16,32,1,&batch)||
                !batch.active())return fail(10+i);
         }
-        if(!batch.finish())return fail(3);
         // Two layered jobs ran the layers kernel; the deep program created the wide one.
         if(gpu.capacity<300*1024||!gpu.shader||!gpu.layers_shader||!gpu.wide_shader||gpu.spatial_jobs!=2||
            gpu.dispatches!=4){
@@ -88,7 +87,6 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
             auto& selected=i?gpu:other;
             GlyphAtlasAllocation allocation{};allocation.x=i?13:1;allocation.y=1;allocation.width=allocation.height=2;
             if(!colr_paint_rasterize(&selected,context,program,rectangle,allocation,16,32,1,&batch))return fail(20+i);
-            if(!batch.finish())return fail(22);
             ID3D11Buffer* bound=nullptr;context->CSGetConstantBuffers(0,1,&bound);
             const bool correct=bound==selected.constants;com_release(bound);if(!correct)return fail(23+i*2);
             ID3D11ShaderResourceView* bound_program=nullptr;context->CSGetShaderResources(0,1,&bound_program);

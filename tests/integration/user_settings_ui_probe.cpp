@@ -79,8 +79,8 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             (n.kind == UiSettingsControlKind::category && (n.flags & ui_settings_schema_dynamic)))
             continue;
         auto& c = out[count];
-        c = {settings_control_id(panel, i), n.label, n.description, n.kind, true, (i % 3) != 1, n.choices,
-             n.default_choice < n.choices.count ? n.default_choice : 0, n.action_label, nullptr};
+        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, (i % 3) != 1, n.choices,
+             n.default_choice < n.choices.count ? n.default_choice : 0, n.action_label(), nullptr};
         if (n.kind == UiSettingsControlKind::choice && !c.choices.count)
             c.choices = n.binding == static_cast<u32>(SettingBinding::add_game) ? ConstSlice<Utf8View>{kGames, 1}
                                                                                   : ConstSlice<Utf8View>{kDevices, 2};
@@ -158,7 +158,7 @@ u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks
     for (u32 i = 0; i < nodes.count && count < kRows; ++i) {
         const auto& n = nodes[i];
         auto& c = out[count];
-        c = {settings_control_id(panel, i), n.label, n.description, n.kind, true, false, n.choices, 0, n.action_label,
+        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, false, n.choices, 0, n.action_label(),
              nullptr};
         looks[count] = {static_cast<UiSettingsVariant>(n.variant), 0, kUiSettingsNoDefault};
         items[count] = {};

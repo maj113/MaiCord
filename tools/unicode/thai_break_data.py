@@ -129,7 +129,7 @@ def build(words):
       table, so an absent edge needs only one label comparison.
     - 128 + 2 * edges + end, edges <= 59: (label, reference) pairs by label.
       A label's high bit names the terminal node at offset zero, with no reference.
-    - 248 + 2 * wide + end: a 128-bit label mask, then one backward distance
+    - 248 + 2 * wide + end: an 80-bit label mask, then one backward distance
       of 2 bytes (3 if wide) per set bit.
     """
     trie = {}
@@ -185,6 +185,7 @@ def build(words):
             if distances and max(distances) >= 1 << 24:
                 raise ValueError('Graph exceeds the 3-byte backward distance')
             linear = sum(1 + len(varint(d)) for d in distances)
+            # Retain the existing rank-lookup threshold when shrinking the mask.
             use_bitmap = len(edges) >= 32 or (len(edges) >= 8 and 16 + (3 if wide else 2) * len(edges) <= linear)
             if fixed_bitmaps is not None:
                 # Keep rank lookup at the same nodes when shared references
@@ -192,7 +193,7 @@ def build(words):
                 use_bitmap = identifier in fixed_bitmaps
             if use_bitmap:
                 data.append(248 + wide * 2 + end)
-                data += sum(1 << label for label, _ in edges).to_bytes(16, 'little')
+                data += sum(1 << label for label, _ in edges).to_bytes(10, 'little')
                 for distance in distances:
                     data += distance.to_bytes(3 if wide else 2, 'little')
                 bitmaps.add(identifier)
@@ -253,8 +254,8 @@ def decode(graph, node):
         return False, [(header, target(value))], at
     edges = []
     if header >= 248:
-        mask = int.from_bytes(data[at:at + 16], 'little')
-        at += 16
+        mask = int.from_bytes(data[at:at + 10], 'little')
+        at += 10
         width = 3 if header & 2 else 2
         for label in range(128):
             if mask >> label & 1:

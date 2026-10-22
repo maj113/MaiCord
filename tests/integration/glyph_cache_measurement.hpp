@@ -50,7 +50,7 @@ inline bool probe_glyph_cache(D3D11Renderer& renderer,bool (*capture)(const wcha
             D3D11GlyphTextAppendRequest request{};request.text=&owner.title;request.output=owner.title_quads;
             request.count=&owner.title_quad_count;request.atlas_invalidated=&invalidated;request.source=text;
             request.color={1,1,1,1};request.origin_x=16;request.origin_y=16;request.capacity=kRendererGlyphCapacity;request.dpi=renderer.dpi;
-            if(!d3d11_glyph_text_append(&owner,context,request)||invalidated||!batch.finish())return fail(__LINE__);
+            if(!d3d11_glyph_text_append(&owner,context,request)||invalidated)return fail(__LINE__);
             batch.reset();
             content.quad_count=owner.title_quad_count;content_batch.quad_count=content.quad_count;++content.rebuilds;
             if(first_shape){if(!QueryPerformanceCounter(&end)||!QueryThreadCycleTime(GetCurrentThread(),&ended))return fail(__LINE__);

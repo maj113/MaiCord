@@ -420,9 +420,9 @@ public:
     constexpr UnicodeGeneralCategory general_category() const noexcept {return static_cast<UnicodeGeneralCategory>(value<5,5>());}
     constexpr UnicodeScript script() const noexcept {return static_cast<UnicodeScript>(value<10,8>());}
     constexpr u8 combining_class() const noexcept {return static_cast<u8>(value<18,8>());}
-    constexpr UnicodeGraphemeBreak grapheme_break() const noexcept {return static_cast<UnicodeGraphemeBreak>(value<26,4>());}
-    constexpr UnicodeWordBreak word_break() const noexcept {return static_cast<UnicodeWordBreak>(value<30,5>());}
-    constexpr UnicodeLineBreak line_break() const noexcept {return static_cast<UnicodeLineBreak>(value<35,6>());}
+    constexpr UnicodeGraphemeBreak grapheme_break() const noexcept {return static_cast<UnicodeGraphemeBreak>(value<32,4>());}
+    constexpr UnicodeWordBreak word_break() const noexcept {return static_cast<UnicodeWordBreak>(value<36,5>());}
+    constexpr UnicodeLineBreak line_break() const noexcept {return static_cast<UnicodeLineBreak>(value<26,6>());}
     constexpr UnicodeJoiningType joining_type() const noexcept {return static_cast<UnicodeJoiningType>(value<41,3>());}
     constexpr UnicodeIndicConjunctBreak indic_conjunct_break() const noexcept {return static_cast<UnicodeIndicConjunctBreak>(value<44,2>());}
     constexpr UnicodeIndicSyllabicCategory indic_syllabic_category() const noexcept {return static_cast<UnicodeIndicSyllabicCategory>(value<46,6>());}

@@ -196,14 +196,14 @@ struct Tree {
 struct Header {
     u8 code_lengths[19];
     u16 code_codes[19];
-    u16 rle[kLiteralSymbols + kDistanceSymbols];
+    u8 rle[kLiteralSymbols + kDistanceSymbols];
     u8 rle_extra[kLiteralSymbols + kDistanceSymbols];
     u32 rle_count, hlit, hdist, hclen;
     u64 bits;
 };
 
 void rle_push(Header* h, u32 symbol, u32 extra) noexcept {
-    h->rle[h->rle_count] = static_cast<u16>(symbol);
+    h->rle[h->rle_count] = static_cast<u8>(symbol);
     h->rle_extra[h->rle_count++] = static_cast<u8>(extra);
 }
 

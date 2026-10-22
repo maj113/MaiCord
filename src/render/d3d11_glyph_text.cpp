@@ -32,11 +32,8 @@ bool rasterize_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
     if (!owner || !owner->gpu.width || !context || !target || allocation.width != extent ||
         allocation.height != extent)
         return false;
-    if (owner->color_batch) {
-        if (!owner->color_batch->finish())
-            return false;
+    if (owner->color_batch)
         owner->color_batch->reset();
-    }
     if (!owner->color)
         owner->color = static_cast<D3D11ColorGlyphOwner*>(
             VirtualAlloc(nullptr, sizeof(D3D11ColorGlyphOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -44,7 +41,7 @@ bool rasterize_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
         return false;
     const GlyphRasterBounds bounds{0, 0, extent, extent, extent, extent};
     return colr_paint_rasterize_target(&owner->color->gpu, context, program, bounds, allocation,
-                                       pixels_per_unit, owner->gpu.width, target_width, target_height,
+                                       pixels_per_unit, target_width, target_height,
                                        padding, target);
 }
 } // namespace
@@ -420,10 +417,6 @@ ColorGlyphAppendResult append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11
                 glyph_atlas_allocate_indexed(&owner->allocator, atlas_index(owner), key, bounds.width, bounds.height);
             if (!allocation.ok())
                 return ColorGlyphAppendResult::failed;
-            if (allocation.evicted_entries || allocation.atlas_reset) {
-                *request.atlas_invalidated = true;
-                return ColorGlyphAppendResult::failed;
-            }
             if (!colr_paint_rasterize(&color.gpu, context, color.program, bounds, allocation, pixels_per_em,
                                       owner->gpu.width, owner->allocator.padding, owner->color_batch)) {
                 log_u64(LogLevel::error, "render", "colrv1_raster_failed", glyph.index);
@@ -432,6 +425,10 @@ ColorGlyphAppendResult append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11
             }
             owner->atlas_origins[allocation.handle.slot] = {bounds.left, bounds.top};
             ++owner->cache_builds;
+            if (allocation.evicted_entries || allocation.atlas_reset) {
+                *request.atlas_invalidated = true;
+                return ColorGlyphAppendResult::failed;
+            }
         }
         if (*request.count >= request.capacity)
             return ColorGlyphAppendResult::failed;
@@ -647,16 +644,9 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                             static_cast<u64>(allocation.error));
                     return false;
                 }
-                if (allocation.evicted_entries != 0 || allocation.atlas_reset) {
-                    *request.atlas_invalidated = true;
-                    return false;
-                }
                 if (!allocation.cached) {
-                    if (owner->color_batch) {
-                        if (!owner->color_batch->finish())
-                            return false;
+                    if (owner->color_batch)
                         owner->color_batch->reset();
-                    }
                     const GlyphAtlasGpuResult rasterized =
                         raster.add(outline, bounds, allocation, pixels_per_em, owner->allocator.padding);
                     if (!rasterized.ok()) {
@@ -668,6 +658,13 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                     ++owner->cache_builds;
                 }
                 owner->atlas_origins[allocation.handle.slot] = {bounds.left, bounds.top};
+                if (allocation.evicted_entries || allocation.atlas_reset) {
+                    // A retry may reuse these entries, so submit every pending tile first.
+                    if (!raster.finish())
+                        glyph_atlas_reset(&owner->allocator);
+                    *request.atlas_invalidated = true;
+                    return false;
+                }
             }
             if (*request.count >= request.capacity) {
                 return false;
@@ -856,7 +853,7 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept {
     if (owner) {
         if (owner->color_batch)
-            owner->color_batch->cancel();
+            owner->color_batch->reset();
         glyph_atlas_reset(&owner->allocator);
     }
 }
@@ -866,7 +863,7 @@ void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept {
         return;
     }
     if (owner->color_batch)
-        owner->color_batch->cancel();
+        owner->color_batch->reset();
     owner->color_batch = nullptr;
     native_glyph_outlines_release(&owner->native_outlines);
     if (owner->color) {

@@ -427,7 +427,7 @@ bool cell(UiMediaPickerScene& scene, u32 index, UiRect rectangle, const UiMediaP
                                                : UiMediaPickerItemKind::emoji;
     if (!reused)
         ++scene.counters.resolves;
-    if ((!reused && !scene.source->resolve(scene.source->context, index, &item)) || !item_valid(item) ||
+    if ((!reused && (!scene.source->resolve(scene.source->context, index, &item) || !item_valid(item))) ||
         (item.kind != expected &&
          !(scene.kind == UiMediaPickerKind::gif && item.kind == UiMediaPickerItemKind::category)))
         return false;

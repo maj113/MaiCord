@@ -5,6 +5,8 @@
 #include "maicord/app/client_theme.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 
+#include "picker_text_capacity_probe.hpp"
+
 namespace maicord {
 namespace unified_picker_probe_detail {
 struct Source {
@@ -405,6 +407,7 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
             cell = scene.cell_width;
         }
     }
+    if (!picker_text_capacity_probe(renderer)) return fail();
     log_write(LogLevel::info, "probe", "unified_picker_native_gpu_passed");
     return true;
 }

@@ -25,7 +25,7 @@ float absf(float value) noexcept {
 }
 using Matrix = D2D1_MATRIX_3X2_F;
 constexpr Matrix identity{1, 0, 0, 1, 0, 0};
-Matrix compose(Matrix a, Matrix b) noexcept {
+Matrix compose(const Matrix& a, const Matrix& b) noexcept {
     return {a._11 * b._11 + a._12 * b._21,         a._11 * b._12 + a._12 * b._22,
             a._21 * b._11 + a._22 * b._21,         a._21 * b._12 + a._22 * b._22,
             a._31 * b._11 + a._32 * b._21 + b._31, a._31 * b._12 + a._32 * b._22 + b._32};
@@ -363,7 +363,7 @@ struct Document {
         ++leaf_count;
         return true;
     }
-    bool append_style(ID2D1Geometry* geometry, Matrix m, JsonValue style, float opacity) noexcept {
+    bool append_style(ID2D1Geometry* geometry, const Matrix& m, JsonValue style, float opacity) noexcept {
         if (!type(style, "gf") && !type(style, "gs"))
             return append(geometry, m, color(style, opacity));
         const u32 previous = leaf_count;
@@ -746,7 +746,7 @@ struct Document {
         return own;
     }
     // One layer's leaves. A matte source draws even when hidden.
-    bool layer(JsonValue value, ConstSlice<JsonValue> siblings, Matrix world, float opacity, u32 depth,
+    bool layer(JsonValue value, ConstSlice<JsonValue> siblings, const Matrix& world, float opacity, u32 depth,
                bool matte = false) noexcept {
         if ((!matte && hidden(value)) || frame < number(get(value, "ip"), -100000) ||
             frame >= number(get(value, "op"), 100000))
@@ -821,7 +821,7 @@ struct Document {
         return true;
     }
     // The world-space union of a matte source's painted geometry.
-    bool matte_region(JsonValue source, ConstSlice<JsonValue> siblings, Matrix world, float opacity, u32 depth,
+    bool matte_region(JsonValue source, ConstSlice<JsonValue> siblings, const Matrix& world, float opacity, u32 depth,
                       ID2D1Geometry** output) noexcept {
         *output = nullptr;
         const u32 mark = leaf_count;
@@ -920,7 +920,7 @@ struct Document {
         return true;
     }
     // Layer masks (masksProperties) as one world-space region; null when none apply.
-    bool mask(JsonValue owner, Matrix local, ID2D1Geometry** output, bool* outside) noexcept {
+    bool mask(JsonValue owner, const Matrix& local, ID2D1Geometry** output, bool* outside) noexcept {
         *output = nullptr;
         *outside = false;
         const auto property = get(owner, "masksProperties");
@@ -988,7 +988,7 @@ struct Document {
         }
         return true;
     }
-    bool layers(JsonValue array_value, Matrix world, float opacity, u32 depth) noexcept {
+    bool layers(JsonValue array_value, const Matrix& world, float opacity, u32 depth) noexcept {
         if (depth > 16)
             return false;
         ValueScratch<512> values;
