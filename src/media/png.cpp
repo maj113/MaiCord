@@ -263,7 +263,6 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
             transparency_seen = true;
         } else if (type == kChunkIdat) {
             if (stage == ParseStage::after_idat ||
-                stage == ParseStage::done ||
                 (image->color_type == 3 && !palette_seen)) {
                 return parse_failure(result, PngError::chunk_order);
             }
@@ -287,7 +286,7 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
             }
         } else if (type == kChunkIend) {
             if (!idat_seen || length != 0 ||
-                end != encoded.count || stage == ParseStage::header) {
+                end != encoded.count) {
                 return parse_failure(result, PngError::chunk_order);
             }
             stage = ParseStage::done;
@@ -329,17 +328,14 @@ bool png_image_configure(PngImage* image, u32 width, u32 height,
         !png_format_channels(color_type, bit_depth, &channels)) {
         return false;
     }
-    const u64 row_bits = static_cast<u64>(width) * channels * bit_depth;
-    const u64 row_bytes = (row_bits + 7) / 8;
-    const u64 row_stride = row_bytes + 1;
-    const u64 inflated = row_stride * height;
-    if (row_bytes == 0 || row_bytes > ~0u || row_stride > ~0u ||
-        inflated > kPngInflatedMaximumBytes) {
-        return false;
-    }
-    image->row_bytes = static_cast<u32>(row_bytes);
-    image->row_stride = static_cast<u32>(row_stride);
-    image->inflated_bytes = static_cast<u32>(inflated);
+    // Valid formats use at most eight bytes per pixel; admitted dimensions
+    // already bound every row and the complete image to the configured budget.
+    static_assert(u64{kPngDimensionMaximum} * (u64{kPngDimensionMaximum} * 8 + 1) ==
+                  kPngInflatedMaximumBytes);
+    const u32 row_bytes = (width * channels * bit_depth + 7) / 8;
+    image->row_bytes = row_bytes;
+    image->row_stride = row_bytes + 1;
+    image->inflated_bytes = (row_bytes + 1) * height;
     image->bit_depth = bit_depth;
     image->color_type = color_type;
     image->channels = channels;

@@ -13,7 +13,7 @@ bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
     const HGLOBAL group_data = group ? LoadResource(module, group) : nullptr;
     const auto* directory = group_data ? static_cast<const u8*>(LockResource(group_data)) : nullptr;
     const u32 directory_bytes = group ? SizeofResource(module, group) : 0;
-    if (!directory || directory_bytes < 6 || !extent || extent > kLargest)
+    if (!directory || directory_bytes < 6 || !pixels || !extent || extent > kLargest)
         return false;
     // GRPICONDIR: three WORDs, then 14-byte entries ending in the RT_ICON id.
     const u32 count = minimum<u32>(directory[4] | directory[5] << 8, (directory_bytes - 6) / 14);
@@ -33,7 +33,7 @@ bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
     struct Scratch {
         PngImage png;
         DeflateWorkspace workspace;
-        u8 scanlines[(kLargest * 4 + 1) * kLargest];
+        u8 scanlines[(kLargest + 1) * kLargest];
     };
     ScratchPages<Scratch> scratch;
     if (!scratch.data)
@@ -43,9 +43,23 @@ bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
     const auto decoded = png_decode_scanlines({encoded, SizeofResource(module, image)}, &png,
                                               &scratch.data->workspace,
                                               {scratch.data->scanlines, static_cast<u32>(sizeof(Scratch::scanlines))});
-    if (!decoded.ok() || png.width != best || png.height != best || png.color_type != 6 ||
+    if (!decoded.ok() || png.width != best || png.height != best || png.color_type != 3 ||
         png.bit_depth != 8)
         return false;
+    if (extent == best) {
+        // Reuse the decoded palette: exact-size icons need no averaging.
+        for (u32 i = 0; i < png.palette_count; ++i) {
+            const auto* rgba = reinterpret_cast<const u8*>(png.palette_rgba + i);
+            const u32 alpha = rgba[3];
+            png.palette_rgba[i] = (rgba[2] * alpha + 127) / 255 |
+                                 ((rgba[1] * alpha + 127) / 255) << 8 |
+                                 ((rgba[0] * alpha + 127) / 255) << 16 | alpha << 24;
+        }
+        for (u32 y = 0; y < extent; ++y)
+            for (u32 x = 0; x < extent; ++x)
+                pixels[y * extent + x] = png.palette_rgba[scanlines[y * png.row_stride + 1 + x]];
+        return true;
+    }
     const u32 step = best;
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
@@ -55,7 +69,8 @@ bool app_icon_decode(HMODULE module, u32 extent, u32* pixels) noexcept {
             u32 sum[4]{};
             for (u32 sy = y0; sy < y1; ++sy)
                 for (u32 sx = x0; sx < x1; ++sx) {
-                    const u8* rgba = scanlines + sy * png.row_stride + 1 + sx * 4;
+                    const auto* rgba = reinterpret_cast<const u8*>(
+                        png.palette_rgba + scanlines[sy * png.row_stride + 1 + sx]);
                     // Premultiply before averaging.
                     sum[0] += rgba[2] * rgba[3];
                     sum[1] += rgba[1] * rgba[3];

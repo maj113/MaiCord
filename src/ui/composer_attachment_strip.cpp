@@ -10,18 +10,26 @@
 namespace maicord {
 namespace {
 
-bool extension_in(Utf8View extension, const char* const* list, u32 count) noexcept {
+struct Extension {
+    char name[7];
+    u8 bytes;
+    template<usize N> constexpr Extension(const char (&text)[N]) noexcept : name{}, bytes(N - 1) {
+        static_assert(N <= 8);
+        for (usize i = 0; i + 1 < N; ++i)
+            name[i] = text[i];
+    }
+};
+static_assert(sizeof(Extension) == 8);
+
+bool extension_in(Utf8View extension, const Extension* list, u32 count) noexcept {
     for (u32 i = 0; i < count; ++i) {
-        u32 bytes = 0;
-        while (list[i][bytes])
-            ++bytes;
-        if (utf8_equal(extension, Utf8View{list[i], bytes}))
+        if (utf8_equal(extension, Utf8View{list[i].name, list[i].bytes}))
             return true;
     }
     return false;
 }
 
-template<u32 N> bool extension_in(Utf8View extension, const char* const (&list)[N]) noexcept {
+template<u32 N> bool extension_in(Utf8View extension, const Extension (&list)[N]) noexcept {
     return extension_in(extension, list, N);
 }
 
@@ -138,23 +146,23 @@ UiAttachmentFileKind ui_attachment_file_kind(Utf8View filename) noexcept {
     if (!extension.bytes)
         return UiAttachmentFileKind::unknown;
     // svg counts as web code, so web code is tested before the image family.
-    static constexpr const char* webcode[]{"html", "xhtml", "htm", "xml", "xsd", "css", "styl", "svg"};
-    static constexpr const char* image[]{"png", "jpg", "jpeg", "jfif", "gif", "webp", "avif", "bmp",
+    static constexpr Extension webcode[]{"html", "xhtml", "htm", "xml", "xsd", "css", "styl", "svg"};
+    static constexpr Extension image[]{"png", "jpg", "jpeg", "jfif", "gif", "webp", "avif", "bmp",
                                          "heic", "heif", "tif", "tiff", "ico", "apng"};
-    static constexpr const char* video[]{"mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv", "ogv", "3gp"};
-    static constexpr const char* acrobat[]{"pdf"};
-    static constexpr const char* archive[]{"rar", "zip", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"};
-    static constexpr const char* code[]{"c",    "cc",   "cpp",  "cxx", "h",    "hh",  "hpp",   "hxx",
+    static constexpr Extension video[]{"mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv", "ogv", "3gp"};
+    static constexpr Extension acrobat[]{"pdf"};
+    static constexpr Extension archive[]{"rar", "zip", "7z", "tar", "gz", "tgz", "bz2", "xz", "zst"};
+    static constexpr Extension code[]{"c",    "cc",   "cpp",  "cxx", "h",    "hh",  "hpp",   "hxx",
                                         "cs",   "js",   "jsx",  "mjs", "ts",   "tsx", "py",    "json",
                                         "sh",   "bash", "ps1",  "bat", "cmd",  "yaml", "yml",  "lua",
                                         "rs",   "go",   "java", "kt",  "rb",   "php", "pl",    "sql",
                                         "toml", "ini",  "cfg",  "swift", "m",  "mm",  "asm",   "s",
                                         "zig",  "hs",   "dart", "vue", "glsl", "hlsl", "cmake", "diff",
                                         "patch"};
-    static constexpr const char* document[]{"txt", "rtf", "doc", "docx", "md", "pages", "ppt", "pptx",
+    static constexpr Extension document[]{"txt", "rtf", "doc", "docx", "md", "pages", "ppt", "pptx",
                                             "pptm", "key", "log", "odt", "odp"};
-    static constexpr const char* spreadsheet[]{"xls", "xlsx", "numbers", "csv", "ods", "tsv"};
-    static constexpr const char* audio[]{"mp3", "ogg", "opus", "wav", "aiff", "aif", "flac", "m4a", "aac", "wma"};
+    static constexpr Extension spreadsheet[]{"xls", "xlsx", "numbers", "csv", "ods", "tsv"};
+    static constexpr Extension audio[]{"mp3", "ogg", "opus", "wav", "aiff", "aif", "flac", "m4a", "aac", "wma"};
     if (extension_in(extension, webcode))
         return UiAttachmentFileKind::webcode;
     if (extension_in(extension, image))

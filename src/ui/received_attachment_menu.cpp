@@ -13,8 +13,8 @@ bool equal_ascii_case(const char* data, u32 bytes, const char* literal) noexcept
     }
     return index == bytes && !literal[index];
 }
-// Whether the final segment of the URL path ends in one of the extensions (ASCII case-insensitive).
-bool path_extension(Utf8View path, const char* const* extensions, u32 count) noexcept {
+// Index of the final path extension, or count when no extension matches.
+u32 path_extension(Utf8View path, const char* const* extensions, u32 count) noexcept {
     u32 dot = path.bytes;
     for (u32 index = path.bytes; index-- > 0;) {
         if (path.data[index] == '/')
@@ -25,13 +25,14 @@ bool path_extension(Utf8View path, const char* const* extensions, u32 count) noe
         }
     }
     if (dot == path.bytes)
-        return false;
+        return count;
     for (u32 index = 0; index < count; ++index)
         if (equal_ascii_case(path.data + dot + 1, path.bytes - dot - 1, extensions[index]))
-            return true;
-    return false;
+            return index;
+    return count;
 }
-constexpr const char* kImageExtensions[]{"png", "jpg", "jpeg", "webp", "avif", "bmp", "svg"};
+// The first seven entries are still-image formats with special CDN wording.
+constexpr u32 kImageExtensionCount = 7;
 constexpr const char* kMediaExtensions[]{"png", "jpg", "jpeg", "webp", "avif", "bmp",
                                          "svg", "gif", "mp4",  "webm", "mov"};
 template <u32 N> constexpr u32 count_of(const char* const (&)[N]) noexcept {
@@ -51,13 +52,13 @@ ReceivedAttachmentLinkKind received_attachment_link_kind(Utf8View url) noexcept 
     while (path_end < url.bytes && url.data[path_end] != '?' && url.data[path_end] != '#')
         ++path_end;
     const Utf8View path{url.data + host_end, path_end - host_end};
-    const bool cdn =
-        equal_ascii_case(url.data + scheme.bytes, host_end - scheme.bytes, "cdn.discordapp.com");
-    if (cdn && path_extension(path, kImageExtensions, count_of(kImageExtensions)))
-        return ReceivedAttachmentLinkKind::image;
-    if (path_extension(path, kMediaExtensions, count_of(kMediaExtensions)))
-        return ReceivedAttachmentLinkKind::media;
-    return ReceivedAttachmentLinkKind::link;
+    const u32 extension = path_extension(path, kMediaExtensions, count_of(kMediaExtensions));
+    if (extension == count_of(kMediaExtensions))
+        return ReceivedAttachmentLinkKind::link;
+    return extension < kImageExtensionCount &&
+                   equal_ascii_case(url.data + scheme.bytes, host_end - scheme.bytes, "cdn.discordapp.com")
+               ? ReceivedAttachmentLinkKind::image
+               : ReceivedAttachmentLinkKind::media;
 }
 
 u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<PopupItem> output) noexcept {

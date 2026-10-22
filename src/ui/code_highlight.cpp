@@ -17,12 +17,6 @@ bool identifier_continue(char value) noexcept {
 }
 
 bool tag_equal(Utf8View tag, const char* expected, u32 expected_bytes) noexcept {
-    while (tag.bytes != 0 && tag.data[tag.bytes - 1] == '\r') {
-        --tag.bytes;
-    }
-    if (tag.bytes != expected_bytes) {
-        return false;
-    }
     for (u32 index = 0; index < expected_bytes; ++index) {
         if (ascii_lower(tag.data[index]) != expected[index]) {
             return false;
@@ -60,128 +54,207 @@ struct LanguageLexicon {
     bool ignore_case;
 };
 
+// Length-prefixed words avoid rescanning fixed keyword lists during highlighting.
+template<usize N> struct PackedWords {
+    char data[N + 1]{};
+    bool valid = true;
+    consteval PackedWords(const char (&text)[N]) noexcept {
+        usize source = 0, target = 0;
+        while (source + 1 < N) {
+            while (text[source] == ' ')
+                ++source;
+            const usize begin = source;
+            while (text[source] && text[source] != ' ')
+                ++source;
+            const usize bytes = source - begin;
+            if (!bytes)
+                break;
+            if (bytes > 255) {
+                valid = false;
+                return;
+            }
+            data[target++] = static_cast<char>(bytes);
+            for (usize i = begin; i < source; ++i)
+                data[target++] = text[i];
+        }
+    }
+};
+
+#define WORDS(name, text) \
+    constexpr PackedWords words_##name{text}; \
+    static_assert(words_##name.valid);
+// Tokens in words_common take precedence and need no language-specific entry.
+WORDS(c_keywords, "auto break case const continue default do else enum extern for goto if inline register "
+                   "restrict return sizeof static struct switch typedef union volatile while")
+WORDS(c_types, "char double float int long short signed unsigned void _Bool size_t")
+WORDS(c_builtins, "NULL offsetof alignof _Alignof _Atomic")
+WORDS(cpp_keywords,
+      "alignas asm break case catch class concept const consteval constexpr constinit continue "
+      "co_await co_return co_yield decltype default delete do else enum explicit export extern "
+      "for friend goto if inline mutable namespace new noexcept operator private protected public "
+      "requires return sizeof static struct switch template thread_local throw try typedef typeid "
+      "typename union using virtual volatile while")
+WORDS(cpp_types, "auto bool char char8_t char16_t char32_t double float int long short signed unsigned void "
+                "wchar_t size_t string u8 u16 u32 u64 i8 i16 i32 i64")
+WORDS(cpp_builtins,
+      "static_cast reinterpret_cast const_cast dynamic_cast alignof __declspec")
+WORDS(csharp_keywords,
+      "abstract as base break case catch checked class const continue default delegate do else "
+      "enum event explicit extern finally fixed for foreach goto if implicit in interface "
+      "internal is lock namespace new operator out override params private protected public "
+      "readonly ref return sealed sizeof stackalloc static struct switch throw try typeof "
+      "unchecked unsafe using virtual volatile while async await record required init")
+WORDS(csharp_types, "bool byte char decimal double float int long object sbyte short string uint ulong ushort "
+                "void var dynamic")
+WORDS(csharp_builtins,
+      "get set value nameof")
+WORDS(rust_keywords,
+      "as async await break const continue crate dyn else enum extern fn for if impl in let loop "
+      "match mod move mut pub ref return Self static struct trait type unsafe use where while "
+      "yield")
+WORDS(rust_types, "bool char f32 f64 i8 i16 i32 i64 i128 isize str u8 u16 u32 u64 u128 usize Option Result "
+                "String Vec")
+WORDS(rust_builtins,
+      "Some Ok Err Box println panic todo unreachable")
+WORDS(typescript_keywords, "async await break case catch class const continue debugger default delete do else "
+                   "export extends finally for from function get if import in instanceof let new of return "
+                   "set static switch throw try typeof var void while with yield")
+WORDS(typescript_types, "any boolean bigint never number object string symbol unknown void interface type "
+                      "enum namespace readonly keyof infer asserts is")
+WORDS(javascript_types, "Array BigInt Boolean Date Error Map Number Object Promise RegExp Set String Symbol "
+                      "WeakMap WeakSet")
+WORDS(typescript_builtins, "console document globalThis JSON Math module process require window parseInt "
+                   "parseFloat setTimeout setInterval")
+WORDS(java_keywords,
+      "abstract assert break case catch class const continue default do else enum extends final "
+      "finally for goto if implements import instanceof interface native new package private "
+      "protected public return static strictfp switch synchronized throw throws transient try "
+      "volatile while record sealed permits var yield")
+WORDS(java_types, "boolean byte char double float int long short void String Object Integer Long Double List "
+                "Map Set Optional")
+WORDS(java_builtins,
+      "System Math")
+
+WORDS(python_keywords, "and as assert async await break class continue def del elif else except finally for "
+                   "from global if import in is lambda nonlocal not or pass raise return try while with "
+                   "yield match case")
+WORDS(python_types, "bool bytes bytearray complex dict float frozenset int list memoryview object range set "
+                "slice str tuple type")
+WORDS(python_builtins,
+      "abs all any bin callable chr dir enumerate filter format getattr hasattr hash help hex id "
+      "input isinstance issubclass iter len map max min next oct open ord pow print repr reversed "
+      "round sorted sum vars zip")
+WORDS(powershell_keywords, "begin break catch class continue data define do dynamicparam else elseif end enum exit "
+                   "filter finally for foreach from function hidden if in param process return static "
+                   "switch throw trap try until using var while workflow")
+WORDS(powershell_types, "string int int32 int64 bool boolean byte char datetime decimal double float hashtable "
+                "object psobject regex scriptblock switch void xml")
+WORDS(powershell_builtins, "Write-Host Write-Output Get-Item Get-ChildItem Set-Item Remove-Item Where-Object "
+                   "ForEach-Object Select-Object")
+WORDS(shell_keywords, "case do done elif else esac fi for function if in select then time until while")
+WORDS(shell_builtins,
+      "alias bg bind break builtin cd command continue echo eval exec exit export fg getopts hash "
+      "help jobs kill let local logout mapfile printf pwd read readonly return set shift source "
+      "suspend test times trap type typeset ulimit umask unalias unset wait")
+WORDS(glsl_keywords, "break case const continue default discard do else for if in inout out return static "
+                   "struct switch uniform volatile while cbuffer register")
+WORDS(glsl_types, "bool int uint half float double bool2 bool3 bool4 int2 int3 int4 uint2 uint3 uint4 half2 "
+                "half3 half4 float2 float3 float4 float2x2 float3x3 float4x4 vector matrix sampler "
+                "sampler2D Texture2D Texture3D TextureCube SamplerState void vec2 vec3 vec4 ivec2 ivec3 "
+                "ivec4 uvec2 uvec3 uvec4 mat2 mat3 mat4")
+WORDS(glsl_builtins, "abs clamp cos cross ddx ddy distance dot exp floor frac lerp length log max min mul "
+                   "normalize pow reflect refract saturate sin smoothstep sqrt step tex2D transpose")
+WORDS(sql_keywords, "ADD ALL ALTER AND ANY AS ASC BACKUP BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE "
+            "DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX "
+            "INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY PROCEDURE RIGHT "
+            "ROW ROWNUM SELECT SET TABLE TOP TRUNCATE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH")
+WORDS(sql_types, "BIGINT BINARY BIT BLOB BOOLEAN CHAR DATE DATETIME DECIMAL DOUBLE FLOAT INT INTEGER JSON "
+                "NUMERIC REAL SMALLINT TEXT TIME TIMESTAMP VARCHAR")
+WORDS(sql_builtins, "AVG COUNT MAX MIN SUM COALESCE CAST CONVERT LOWER UPPER LENGTH NOW")
+WORDS(markup_builtins, "html head body div span a img script style link meta title section article header "
+                   "footer nav main button input form label canvas svg path")
+WORDS(css_keywords, "important inherit initial revert unset auto none normal block inline flex grid "
+                   "absolute relative fixed sticky")
+WORDS(css_types, "color background border margin padding width height display position font transform "
+                "transition animation opacity overflow justify-content align-items")
+WORDS(css_builtins, "var calc rgb rgba hsl hsla url linear-gradient radial-gradient repeat minmax")
+WORDS(common, "true false null nullptr undefined NaN None True False self this super")
+
+#undef WORDS
+
 LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
     const char* keywords = "";
     const char* types = "";
     const char* builtins = "";
     switch (language) {
     case CodeLanguage::c:
-        keywords = "auto break case const continue default do else enum extern for goto if inline register "
-                   "restrict return sizeof static struct switch typedef union volatile while";
-        types = "char double float int long short signed unsigned void _Bool size_t";
-        builtins = "NULL offsetof alignof _Alignof _Atomic";
+        keywords = words_c_keywords.data;
+        types = words_c_types.data;
+        builtins = words_c_builtins.data;
         break;
     case CodeLanguage::cpp:
-        keywords = "alignas asm break case catch class concept const consteval constexpr constinit "
-                   "continue co_await co_return co_yield decltype default delete do else enum explicit "
-                   "export extern for friend goto if inline mutable namespace new noexcept operator "
-                   "private protected public requires return sizeof static struct switch template this "
-                   "thread_local throw try typedef typeid typename union using virtual volatile while";
-        types = "auto bool char char8_t char16_t char32_t double float int long short signed unsigned void "
-                "wchar_t size_t string u8 u16 u32 u64 i8 i16 i32 i64";
-        builtins = "nullptr static_cast reinterpret_cast const_cast dynamic_cast alignof __declspec";
+        keywords = words_cpp_keywords.data;
+        types = words_cpp_types.data;
+        builtins = words_cpp_builtins.data;
         break;
     case CodeLanguage::csharp:
         keywords =
-            "abstract as base break case catch checked class const continue default delegate do else enum "
-            "event explicit extern finally fixed for foreach goto if implicit in interface internal is "
-            "lock namespace new operator out override params private protected public readonly ref return "
-            "sealed sizeof stackalloc static struct switch this throw try typeof unchecked unsafe using "
-            "virtual volatile while async await record required init";
-        types = "bool byte char decimal double float int long object sbyte short string uint ulong ushort "
-                "void var dynamic";
-        builtins = "null true false get set value nameof";
+            words_csharp_keywords.data;
+        types = words_csharp_types.data;
+        builtins = words_csharp_builtins.data;
         break;
     case CodeLanguage::rust:
-        keywords = "as async await break const continue crate dyn else enum extern fn for if impl in let "
-                   "loop match mod move mut pub ref return self Self static struct super trait type unsafe "
-                   "use where while yield";
-        types = "bool char f32 f64 i8 i16 i32 i64 i128 isize str u8 u16 u32 u64 u128 usize Option Result "
-                "String Vec";
-        builtins = "Some None Ok Err Box println panic todo unreachable";
+        keywords = words_rust_keywords.data;
+        types = words_rust_types.data;
+        builtins = words_rust_builtins.data;
         break;
     case CodeLanguage::javascript:
     case CodeLanguage::typescript:
-        keywords = "async await break case catch class const continue debugger default delete do else "
-                   "export extends finally for from function get if import in instanceof let new of return "
-                   "set static switch throw try typeof var void while with yield";
+        keywords = words_typescript_keywords.data;
         types = language == CodeLanguage::typescript
-                    ? "any boolean bigint never number object string symbol unknown void interface type "
-                      "enum namespace readonly keyof infer asserts is"
-                    : "Array BigInt Boolean Date Error Map Number Object Promise RegExp Set String Symbol "
-                      "WeakMap WeakSet";
-        builtins = "console document globalThis JSON Math module process require window parseInt "
-                   "parseFloat setTimeout setInterval";
+                    ? words_typescript_types.data
+                    : words_javascript_types.data;
+        builtins = words_typescript_builtins.data;
         break;
     case CodeLanguage::java:
-        keywords = "abstract assert break case catch class const continue default do else enum extends "
-                   "final finally for goto if implements import instanceof interface native new package "
-                   "private protected public return static strictfp super switch synchronized this throw "
-                   "throws transient try volatile while record sealed permits var yield";
-        types = "boolean byte char double float int long short void String Object Integer Long Double List "
-                "Map Set Optional";
-        builtins = "null true false System Math";
-        break;
-    case CodeLanguage::json:
-        builtins = "true false null";
+        keywords = words_java_keywords.data;
+        types = words_java_types.data;
+        builtins = words_java_builtins.data;
         break;
     case CodeLanguage::python:
-        keywords = "and as assert async await break class continue def del elif else except finally for "
-                   "from global if import in is lambda nonlocal not or pass raise return try while with "
-                   "yield match case";
-        types = "bool bytes bytearray complex dict float frozenset int list memoryview object range set "
-                "slice str tuple type";
-        builtins = "None True False abs all any bin callable chr dir enumerate filter format getattr "
-                   "hasattr hash help hex id input isinstance issubclass iter len map max min next oct "
-                   "open ord pow print repr reversed round sorted sum vars zip";
+        keywords = words_python_keywords.data;
+        types = words_python_types.data;
+        builtins = words_python_builtins.data;
         break;
     case CodeLanguage::powershell:
-        keywords = "begin break catch class continue data define do dynamicparam else elseif end enum exit "
-                   "filter finally for foreach from function hidden if in param process return static "
-                   "switch throw trap try until using var while workflow";
-        types = "string int int32 int64 bool boolean byte char datetime decimal double float hashtable "
-                "object psobject regex scriptblock switch void xml";
-        builtins = "Write-Host Write-Output Get-Item Get-ChildItem Set-Item Remove-Item Where-Object "
-                   "ForEach-Object Select-Object";
+        keywords = words_powershell_keywords.data;
+        types = words_powershell_types.data;
+        builtins = words_powershell_builtins.data;
         break;
     case CodeLanguage::shell:
-        keywords = "case do done elif else esac fi for function if in select then time until while";
+        keywords = words_shell_keywords.data;
         builtins =
-            "alias bg bind break builtin cd command continue echo eval exec exit export false fg getopts "
-            "hash help jobs kill let local logout mapfile printf pwd read readonly return set shift source "
-            "suspend test times trap true type typeset ulimit umask unalias unset wait";
+            words_shell_builtins.data;
         break;
     case CodeLanguage::hlsl:
     case CodeLanguage::glsl:
-        keywords = "break case const continue default discard do else for if in inout out return static "
-                   "struct switch uniform volatile while cbuffer register";
-        types = "bool int uint half float double bool2 bool3 bool4 int2 int3 int4 uint2 uint3 uint4 half2 "
-                "half3 half4 float2 float3 float4 float2x2 float3x3 float4x4 vector matrix sampler "
-                "sampler2D Texture2D Texture3D TextureCube SamplerState void vec2 vec3 vec4 ivec2 ivec3 "
-                "ivec4 uvec2 uvec3 uvec4 mat2 mat3 mat4";
-        builtins = "abs clamp cos cross ddx ddy distance dot exp floor frac lerp length log max min mul "
-                   "normalize pow reflect refract saturate sin smoothstep sqrt step tex2D transpose";
+        keywords = words_glsl_keywords.data;
+        types = words_glsl_types.data;
+        builtins = words_glsl_builtins.data;
         break;
     case CodeLanguage::sql:
         keywords =
-            "ADD ALL ALTER AND ANY AS ASC BACKUP BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE DATABASE "
-            "DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX "
-            "INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL OR ORDER OUTER PRIMARY PROCEDURE RIGHT "
-            "ROW ROWNUM SELECT SET TABLE TOP TRUNCATE UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH";
-        types = "BIGINT BINARY BIT BLOB BOOLEAN CHAR DATE DATETIME DECIMAL DOUBLE FLOAT INT INTEGER JSON "
-                "NUMERIC REAL SMALLINT TEXT TIME TIMESTAMP VARCHAR";
-        builtins = "AVG COUNT MAX MIN SUM COALESCE CAST CONVERT LOWER UPPER LENGTH NOW";
+            words_sql_keywords.data;
+        types = words_sql_types.data;
+        builtins = words_sql_builtins.data;
         break;
     case CodeLanguage::markup:
-        builtins = "html head body div span a img script style link meta title section article header "
-                   "footer nav main button input form label canvas svg path";
+        builtins = words_markup_builtins.data;
         break;
     case CodeLanguage::css:
-        keywords = "important inherit initial revert unset auto none normal block inline flex grid "
-                   "absolute relative fixed sticky";
-        types = "color background border margin padding width height display position font transform "
-                "transition animation opacity overflow justify-content align-items";
-        builtins = "var calc rgb rgba hsl hsla url linear-gradient radial-gradient repeat minmax";
+        keywords = words_css_keywords.data;
+        types = words_css_types.data;
+        builtins = words_css_builtins.data;
         break;
     default:
         break;
@@ -194,20 +267,18 @@ LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
 bool token_in_words(Utf8View token, const char* words, bool ignore_case) noexcept {
     u32 offset = 0;
     while (words[offset]) {
-        while (words[offset] == ' ') {
-            ++offset;
-        }
+        const u32 bytes = static_cast<u8>(words[offset++]);
         const u32 begin = offset;
-        while (words[offset] && words[offset] != ' ') {
-            ++offset;
-        }
-        const u32 bytes = offset - begin;
+        offset += bytes;
         if (bytes == token.bytes) {
             bool equal = true;
             for (u32 index = 0; index < bytes; ++index) {
                 const char left = ignore_case ? ascii_lower(token.data[index]) : token.data[index];
                 const char right = ignore_case ? ascii_lower(words[begin + index]) : words[begin + index];
-                equal = equal && left == right;
+                if (left != right) {
+                    equal = false;
+                    break;
+                }
             }
             if (equal) {
                 return true;
@@ -219,7 +290,7 @@ bool token_in_words(Utf8View token, const char* words, bool ignore_case) noexcep
 
 u32 keyword_style(CodeLanguage language, Utf8View token) noexcept {
     const LanguageLexicon lexicon = language_lexicon(language);
-    if (token_in_words(token, "true false null nullptr undefined NaN None True False self this super",
+    if (token_in_words(token, words_common.data,
                        lexicon.ignore_case)) {
         return text_style_syntax_builtin;
     }
@@ -397,42 +468,50 @@ CodeLanguage code_language_from_tag(Utf8View tag) noexcept {
     if ((!tag.data && tag.bytes != 0) || tag.bytes > 32) {
         return CodeLanguage::none;
     }
-    if (tag_equal(tag, "c", 1))
-        return CodeLanguage::c;
-    if (tag_equal(tag, "cpp", 3) || tag_equal(tag, "c++", 3) || tag_equal(tag, "cc", 2) ||
-        tag_equal(tag, "cxx", 3))
-        return CodeLanguage::cpp;
-    if (tag_equal(tag, "cs", 2) || tag_equal(tag, "csharp", 6))
-        return CodeLanguage::csharp;
-    if (tag_equal(tag, "rs", 2) || tag_equal(tag, "rust", 4))
-        return CodeLanguage::rust;
-    if (tag_equal(tag, "js", 2) || tag_equal(tag, "javascript", 10) || tag_equal(tag, "jsx", 3))
-        return CodeLanguage::javascript;
-    if (tag_equal(tag, "ts", 2) || tag_equal(tag, "typescript", 10) || tag_equal(tag, "tsx", 3))
-        return CodeLanguage::typescript;
-    if (tag_equal(tag, "java", 4))
-        return CodeLanguage::java;
-    if (tag_equal(tag, "json", 4) || tag_equal(tag, "jsonc", 5))
-        return CodeLanguage::json;
-    if (tag_equal(tag, "py", 2) || tag_equal(tag, "python", 6))
-        return CodeLanguage::python;
-    if (tag_equal(tag, "ps1", 3) || tag_equal(tag, "powershell", 10))
-        return CodeLanguage::powershell;
-    if (tag_equal(tag, "sh", 2) || tag_equal(tag, "bash", 4) || tag_equal(tag, "zsh", 3) ||
-        tag_equal(tag, "shell", 5))
-        return CodeLanguage::shell;
-    if (tag_equal(tag, "hlsl", 4))
-        return CodeLanguage::hlsl;
-    if (tag_equal(tag, "glsl", 4) || tag_equal(tag, "vert", 4) || tag_equal(tag, "frag", 4))
-        return CodeLanguage::glsl;
-    if (tag_equal(tag, "sql", 3))
-        return CodeLanguage::sql;
-    if (tag_equal(tag, "html", 4) || tag_equal(tag, "xml", 3))
-        return CodeLanguage::markup;
-    if (tag_equal(tag, "css", 3))
-        return CodeLanguage::css;
-    if (tag_equal(tag, "ansi", 4))
-        return CodeLanguage::ansi;
+    while (tag.bytes != 0 && tag.data[tag.bytes - 1] == '\r') {
+        --tag.bytes;
+    }
+    struct Alias { const char* name; u8 bytes; CodeLanguage language; };
+    static constexpr Alias aliases[]{
+        {"c", 1, CodeLanguage::c},
+        {"cpp", 3, CodeLanguage::cpp},
+        {"c++", 3, CodeLanguage::cpp},
+        {"cc", 2, CodeLanguage::cpp},
+        {"cxx", 3, CodeLanguage::cpp},
+        {"cs", 2, CodeLanguage::csharp},
+        {"csharp", 6, CodeLanguage::csharp},
+        {"rs", 2, CodeLanguage::rust},
+        {"rust", 4, CodeLanguage::rust},
+        {"js", 2, CodeLanguage::javascript},
+        {"javascript", 10, CodeLanguage::javascript},
+        {"jsx", 3, CodeLanguage::javascript},
+        {"ts", 2, CodeLanguage::typescript},
+        {"typescript", 10, CodeLanguage::typescript},
+        {"tsx", 3, CodeLanguage::typescript},
+        {"java", 4, CodeLanguage::java},
+        {"json", 4, CodeLanguage::json},
+        {"jsonc", 5, CodeLanguage::json},
+        {"py", 2, CodeLanguage::python},
+        {"python", 6, CodeLanguage::python},
+        {"ps1", 3, CodeLanguage::powershell},
+        {"powershell", 10, CodeLanguage::powershell},
+        {"sh", 2, CodeLanguage::shell},
+        {"bash", 4, CodeLanguage::shell},
+        {"zsh", 3, CodeLanguage::shell},
+        {"shell", 5, CodeLanguage::shell},
+        {"hlsl", 4, CodeLanguage::hlsl},
+        {"glsl", 4, CodeLanguage::glsl},
+        {"vert", 4, CodeLanguage::glsl},
+        {"frag", 4, CodeLanguage::glsl},
+        {"sql", 3, CodeLanguage::sql},
+        {"html", 4, CodeLanguage::markup},
+        {"xml", 3, CodeLanguage::markup},
+        {"css", 3, CodeLanguage::css},
+        {"ansi", 4, CodeLanguage::ansi},
+    };
+    for (const auto& alias : aliases)
+        if (tag.bytes == alias.bytes && tag_equal(tag, alias.name, alias.bytes))
+            return alias.language;
     return CodeLanguage::none;
 }
 
