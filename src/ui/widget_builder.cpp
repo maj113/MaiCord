@@ -15,8 +15,8 @@ UiWidgetBuilder::UiWidgetBuilder(UiWidgetManager& manager) noexcept
       error_(manager.generation ? UiWidgetError::none : UiWidgetError::invalid_argument) {
 }
 
-UiWidgetResult UiWidgetBuilder::widget(UiWidgetHandle parent, UiWidgetKey key, UiWidgetKind kind, u16 flags,
-                                       const UiLayoutStyle& style, UiSize intrinsic,
+UiWidgetResult UiWidgetBuilder::widget(UiWidgetHandle parent, const UiWidgetKey& key, UiWidgetKind kind,
+                                       u16 flags, const UiLayoutStyle& style, UiSize intrinsic,
                                        float baseline) noexcept {
     if (ok() && manager_->generation != generation_) {
         error_ = UiWidgetError::invalid_parent;
@@ -32,24 +32,25 @@ UiWidgetResult UiWidgetBuilder::widget(UiWidgetHandle parent, UiWidgetKey key, U
     return result;
 }
 
-UiWidgetResult UiWidgetBuilder::container(UiWidgetHandle parent, UiWidgetKey key,
+UiWidgetResult UiWidgetBuilder::container(UiWidgetHandle parent, const UiWidgetKey& key,
                                           const UiLayoutStyle& style) noexcept {
     return widget(parent, key, UiWidgetKind::container, ui_widget_enabled, style);
 }
 
-UiWidgetResult UiWidgetBuilder::text(UiWidgetHandle parent, UiWidgetKey key, const UiLayoutStyle& style,
-                                     UiSize intrinsic, float baseline) noexcept {
+UiWidgetResult UiWidgetBuilder::text(UiWidgetHandle parent, const UiWidgetKey& key,
+                                     const UiLayoutStyle& style, UiSize intrinsic,
+                                     float baseline) noexcept {
     UiLayoutStyle measured_style = style;
     measured_style.flags |= ui_layout_node_text_content;
     return widget(parent, key, UiWidgetKind::text, ui_widget_none, measured_style, intrinsic, baseline);
 }
 
-UiWidgetResult UiWidgetBuilder::button(UiWidgetHandle parent, UiWidgetKey key, const UiLayoutStyle& style,
-                                       bool keyboard_focusable) noexcept {
+UiWidgetResult UiWidgetBuilder::button(UiWidgetHandle parent, const UiWidgetKey& key,
+                                       const UiLayoutStyle& style, bool keyboard_focusable) noexcept {
     return widget(parent, key, UiWidgetKind::button, control_flags(keyboard_focusable), style);
 }
 
-UiWidgetResult UiWidgetBuilder::text_field(UiWidgetHandle parent, UiWidgetKey key,
+UiWidgetResult UiWidgetBuilder::text_field(UiWidgetHandle parent, const UiWidgetKey& key,
                                            const UiLayoutStyle& style, bool keyboard_focusable) noexcept {
     return widget(parent, key, UiWidgetKind::text_field, control_flags(keyboard_focusable), style);
 }

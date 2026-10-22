@@ -904,12 +904,12 @@ UiSettingsTarget fallback_focus(const UiSettingsScene& scene) noexcept {
 UiWidgetHandle target_handle(const UiSettingsScene& scene, UiSettingsTarget target) noexcept {
     for (u32 i = 0; i < scene.widgets.count; ++i)
         if (ui_settings_target_equal(entries(scene)[i].target, target))
-            return {static_cast<u16>(i), scene.widgets.storage[i].generation};
+            return {static_cast<u16>(i), scene.widgets.generation};
     return ui_widget_invalid_handle();
 }
 UiWidgetHandle add(UiSettingsScene* scene, UiWidgetHandle parent, UiWidgetKind kind, Utf8View name,
-                   UiLayoutStyle style, UiSettingsTarget target = {}, u32 source_index = 0, bool enabled = true,
-                   EntryRole role = EntryRole::normal) noexcept {
+                   const UiLayoutStyle& style, UiSettingsTarget target = {}, u32 source_index = 0,
+                   bool enabled = true, EntryRole role = EntryRole::normal) noexcept {
     const u32 id = scene->widgets.count + 1;
     const auto result = ui_widget_manager_add_prevalidated(
         &scene->widgets, parent,
@@ -2246,7 +2246,7 @@ bool ui_settings_scene_drop_target(const UiSettingsScene& scene, float y, u64* c
             continue;
         RowLayout row{};
         UiRect clip{};
-        if (!row_layout_for(scene, t, {static_cast<u16>(i), scene.widgets.storage[i].generation}, entry.source_index,
+        if (!row_layout_for(scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry.source_index,
                             &row, &clip) ||
             !ui_rect_has_area(ui_rect_intersection(row.row, clip)))
             continue;
@@ -2380,7 +2380,7 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
             !avatar_backed(scene.content, index))
             continue;
         const auto& media = scene.content.avatar_media[index];
-        const UiWidgetHandle handle{static_cast<u16>(*cursor), scene.widgets.storage[*cursor].generation};
+        const UiWidgetHandle handle{static_cast<u16>(*cursor), scene.widgets.generation};
         RowLayout r{};
         UiRect clip{};
         if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(r.lead))
@@ -2799,7 +2799,7 @@ bool paint_nav(const UiSettingsScene& scene, const UiSettingsTokens& t, PaintStr
         const auto& entry = entries(scene)[i];
         if (entry.role != EntryRole::nav)
             continue;
-        const UiWidgetHandle handle{static_cast<u16>(i), scene.widgets.storage[i].generation};
+        const UiWidgetHandle handle{static_cast<u16>(i), scene.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
         NavRow row{};
         if (!node || !nav_row(scene, entry.source_index, &row) ||
@@ -2904,7 +2904,7 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
             const auto& entry = entries(scene)[i];
             if (entry.role != EntryRole::row || entry.source_index >= scene.content.controls.count)
                 continue;
-            ok = paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.storage[i].generation}, entry,
+            ok = paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry,
                            dpi);
         }
         ok = paint_stream_pop_clip(paint) && ok;
@@ -3203,7 +3203,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         const auto& entry = entries(scene)[i];
         if (entry.role != EntryRole::nav)
             continue;
-        const UiWidgetHandle handle{static_cast<u16>(i), scene.widgets.storage[i].generation};
+        const UiWidgetHandle handle{static_cast<u16>(i), scene.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
         NavRow row{};
         if (!node || !nav_row(scene, entry.source_index, &row) || row.kind == UiSettingsNavKind::separator ||
@@ -3270,7 +3270,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         const auto& entry = entries(scene)[i];
         if (entry.role != EntryRole::row || entry.source_index >= scene.content.controls.count)
             continue;
-        if (!row_text(scene, t, stream, {static_cast<u16>(i), scene.widgets.storage[i].generation}, entry))
+        if (!row_text(scene, t, stream, {static_cast<u16>(i), scene.widgets.generation}, entry))
             return false;
     }
     UiRect aside_heading{}, aside_clip{};

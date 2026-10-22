@@ -8,13 +8,15 @@ struct NativeKhmerPlan {
     const SfntCmap* cmap;
     union {const SfntLookupStep* substitution_steps;const u16* fallback_roots;};
     const u16* positioning_roots;
-    u32 substitution_count,positioning_count;
+    u32 substitution_count;
+    // GPOS has one deduplicated stage, bounded by the font's u16 lookup count.
+    u16 positioning_count;
     bool independent_letters,admitted;
     ConstSlice<SfntLookupStep> substitutions() const noexcept {return admitted?ConstSlice<SfntLookupStep>{substitution_steps,substitution_count}:ConstSlice<SfntLookupStep>{};}
     ConstSlice<u16> positioning() const noexcept {return {positioning_roots,positioning_count};}
     const SfntGposProgram* positioning_program=nullptr;
 };
-static_assert(sizeof(NativeKhmerPlan)==56);
+static_assert(sizeof(NativeKhmerPlan)==48);
 // No extra retain or font graph. Scratch always rewinds; failed preparation
 // rewinds state and clears output. State/scratch and parent arenas are disjoint.
 SfntStatus native_khmer_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,bool independent_letters,

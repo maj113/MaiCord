@@ -50,7 +50,7 @@ template<class Plan,class Planner> SfntStatus native_plan_tables(const NativePla
             return planner(layout,variations,mask,out,result);},steps,roots);
         if(status!=SfntStatus::ok)return status;
         if(!kind){plan.substitution_steps=steps.data;plan.substitution_count=steps.count;}
-        else{plan.positioning_roots=roots.data;plan.positioning_count=roots.count;}
+        else{plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);}
     }
     return SfntStatus::ok;
 }

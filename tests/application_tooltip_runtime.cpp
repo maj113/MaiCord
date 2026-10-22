@@ -68,7 +68,7 @@ void run() noexcept {
           "tooltip runtime: dormant host allocates no tooltip owner or deadline");
     if (!node)
         return;
-    video_target = {{{&g_app.shell_scene.widgets, {0, g_app.shell_scene.widgets.storage[0].generation}},
+    video_target = {{{&g_app.shell_scene.widgets, {0, g_app.shell_scene.widgets.generation}},
                      7,
                      9,
                      1,

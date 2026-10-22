@@ -64,6 +64,10 @@ void test_widget_builder(void (*check)(bool, const char*) noexcept) noexcept {
         check(replacement.button(replacement_root.handle, {id, utf8_literal("Button")}, control_style).ok(),
               "widget builder admits controls within the caller storage bound");
     }
+    check(!ui_widget_manager_resolve(manager, root.handle) &&
+              !ui_widget_manager_resolve(manager, button.handle) &&
+              ui_widget_manager_find(manager, 1).generation == replacement_root.handle.generation,
+          "widget reset rejects old handles after their slots are reused");
     const auto exhausted =
         replacement.button(replacement_root.handle, {7, utf8_literal("Capacity")}, control_style);
     check(exhausted.error == UiWidgetError::capacity && manager.count == 6 &&

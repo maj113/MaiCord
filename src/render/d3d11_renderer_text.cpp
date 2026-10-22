@@ -268,8 +268,8 @@ bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 fir
     if (count == 0) {
         return true;
     }
-    // A row/card scissor does no work when all its ink is inside it. Use the
-    // shared viewport so adjacent message runs can occupy one batch.
+    // A row/control scissor does no work when all its ink is inside it. Use
+    // the shared clip so adjacent runs can occupy one batch.
     if (batch_clip && !ui_rect_equal(*clip, *batch_clip)) {
         const UiRect bounds = ui_rect_intersection(*clip, *batch_clip);
         u32 i = first_quad;
@@ -503,12 +503,8 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
             const auto& e = *cached;
             const u32 first = storage->quad_count;
             for (u32 i = 0; i < e.count; ++i) {
-                auto q = e.quads[i];
-                q.left += command_rectangle.left;
-                q.right += command_rectangle.left;
-                q.top += command_rectangle.top;
-                q.bottom += command_rectangle.top;
-                storage->quads[storage->quad_count++] = q;
+                storage->quads[storage->quad_count++] =
+                    e.quads[i].placed(command_rectangle.left, command_rectangle.top, e.color);
             }
             if (!glyph_quad_clip_range(storage->quads, first, &storage->quad_count,
                                        ui_rect_intersection(command_rectangle, clip))
@@ -722,9 +718,13 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         }
         if (picker_cache && !substituted && storage->quad_count - first_quad <= 4) {
             auto& e = picker_cache->entries[picker_cache->cursor++ % 256];
-            e.system = text_system;
+            e.native_text = text_system.native_text;
+            e.native_format = text_system.native_format;
+            e.em_size = text_system.em_size;
+            e.tracking = text_system.tracking;
+            e.fixed_weight = text_system.fixed_weight;
             e.color = color;
-            e.bytes = input.bytes;
+            e.bytes = static_cast<u8>(input.bytes);
             copy_bytes(e.text, input.data, input.bytes);
             e.width = maximum_width;
             e.height = maximum_height;
@@ -733,13 +733,12 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
             e.flags = picker_cache_flags;
             e.evictions = glyph_owner.allocator.evicted_entries;
             e.resets = glyph_owner.allocator.full_resets;
-            e.count = storage->quad_count - first_quad;
+            e.count = static_cast<u8>(storage->quad_count - first_quad);
             for (u32 i = 0; i < e.count; ++i) {
-                e.quads[i] = storage->quads[first_quad + i];
-                e.quads[i].left -= command_rectangle.left;
-                e.quads[i].right -= command_rectangle.left;
-                e.quads[i].top -= command_rectangle.top;
-                e.quads[i].bottom -= command_rectangle.top;
+                const auto& q = storage->quads[first_quad + i];
+                e.quads[i] = {q.left - command_rectangle.left, q.top - command_rectangle.top,
+                              q.right - command_rectangle.left, q.bottom - command_rectangle.top,
+                              q.u0, q.v0, q.u1, q.v1};
             }
         }
         const UiRect bounds = ui_rect_intersection(command_rectangle, clip);
@@ -903,6 +902,11 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         bio_semantics = {composer_roles, composer_role_count};
     float shaped_height = 0.0f;
     const u32 first_quad = renderer->content_text->quad_count;
+    // UI labels whose ink fits their own clip can share the window scissor.
+    const UiRect window_clip{0, 0, renderer->ui_scene ? renderer->ui_scene->width : 0,
+                             renderer->ui_scene ? renderer->ui_scene->height : 0};
+    if (!batch_clip && renderer->ui_scene)
+        batch_clip = &window_clip;
     // Name effects can expand or animate their quads after batching.
     const bool appended = append_content_text(
         renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),

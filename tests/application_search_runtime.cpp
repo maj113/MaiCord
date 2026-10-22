@@ -188,7 +188,7 @@ UiRect action_bounds(UiSearchAction action) noexcept {
             continue;
         }
         const auto* node = ui_widget_manager_layout_node(
-            scene->widgets, {static_cast<u16>(slot), scene->widgets.storage[slot].generation});
+            scene->widgets, {static_cast<u16>(slot), scene->widgets.generation});
         if (node) {
             return node->rectangle;
         }
@@ -777,7 +777,7 @@ void rich_publication() noexcept {
     if (native) {
         UiWidgetHandle last{};
         for (u32 i = 0; i < native->widgets.count; ++i) {
-            const auto h = UiWidgetHandle{static_cast<u16>(i), native->widgets.storage[i].generation};
+            const auto h = UiWidgetHandle{static_cast<u16>(i), native->widgets.generation};
             if (ui_search_scene_rich_widget_target(g_app.search->scene, h).action ==
                 UiSearchAction::rich_item)
                 last = h;

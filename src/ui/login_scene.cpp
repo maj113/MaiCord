@@ -150,7 +150,7 @@ Utf8View element_name(LoginElement element) noexcept {
 }
 
 bool add_widget(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
-                UiWidgetKind kind, u16 widget_flags, UiLayoutStyle style, UiSize intrinsic = UiSize{},
+                UiWidgetKind kind, u16 widget_flags, const UiLayoutStyle& style, UiSize intrinsic = UiSize{},
                 float baseline = 0.0f) noexcept {
     const u32 id = login_element_id(element);
     const UiWidgetResult result =
@@ -185,7 +185,7 @@ bool add_text(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element,
 }
 
 bool add_control(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
-                 UiWidgetKind kind, UiLayoutStyle style, bool keyboard_focusable = true) noexcept {
+                 UiWidgetKind kind, const UiLayoutStyle& style, bool keyboard_focusable = true) noexcept {
     const UiWidgetKey key{login_element_id(element), element_name(element)};
     if (kind == UiWidgetKind::button || kind == UiWidgetKind::text_field) {
         const UiWidgetResult result = kind == UiWidgetKind::button

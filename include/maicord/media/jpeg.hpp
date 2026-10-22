@@ -173,8 +173,9 @@ struct JpegQuantizationTable {
 };
 
 struct JpegHuffmanTable {
-    i32 minimum_code[16];
-    i32 maximum_code[16];
+    // Empty code lengths use minimum 0xffff and maximum 0 (an inverted range).
+    u16 minimum_code[16];
+    u16 maximum_code[16];
     i32 value_offset[16];
     u8 symbols[256];
     u16 symbol_count;
@@ -313,7 +314,7 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                                             Slice<u8> row, JpegThumbnailRowSink sink, void* context) noexcept;
 
 static_assert(sizeof(JpegQuantizationTable) == 130);
-static_assert(sizeof(JpegHuffmanTable) == 452);
+static_assert(sizeof(JpegHuffmanTable) == 388);
 static_assert(sizeof(JpegComponent) == 20);
 static_assert(sizeof(JpegImage) == 128);
 static_assert(sizeof(JpegIccCurve) == 36);

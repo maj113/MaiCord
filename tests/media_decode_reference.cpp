@@ -520,7 +520,7 @@ bool decode_huffman_symbol(ReferenceReader* reader, const JpegHuffmanTable& tabl
         if (reader->error != JpegError::none) {
             return false;
         }
-        if (table.maximum_code[length] >= 0 && code >= table.minimum_code[length] &&
+        if (table.minimum_code[length] <= table.maximum_code[length] && code >= table.minimum_code[length] &&
             code <= table.maximum_code[length]) {
             const i32 index = table.value_offset[length] + code;
             if (index < 0 || static_cast<u32>(index) >= table.symbol_count) {

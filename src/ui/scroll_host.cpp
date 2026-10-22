@@ -212,11 +212,11 @@ UiScrollDispatch ui_scroll_host_wheel_widgets(UiScrollHost* host, UiWidgetManage
     // scroll owner, not merely a hit-testable button inside that owner.
     for (u32 i = widgets->count; i != 0; --i) {
         const UiWidget& widget = widgets->storage[i - 1];
-        if (virtual_owner.slot == i - 1 && virtual_owner.generation == widget.generation)
+        if (virtual_owner.slot == i - 1 && virtual_owner.generation == widgets->generation)
             continue;
         if (widget.kind != UiWidgetKind::scroll_view)
             continue;
-        const u64 key = (static_cast<u64>(widget.generation) << 16) | (i - 1);
+        const u64 key = (static_cast<u64>(widgets->generation) << 16) | (i - 1);
         const auto result = ui_scroll_host_wheel(host, {widgets, key, widget_read, widget_write}, point,
                                                  wheel_delta, lines, page, now_us, dips_per_pixel);
         if (result != UiScrollDispatch::unhandled)

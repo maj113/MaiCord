@@ -10,7 +10,7 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
     struct Restore {
         PickerGlyphCache& cache;
         PickerGlyphCache::Entry entries[3];
-        u32 bytes[256];
+        u8 bytes[256];
         u16 cursor, lookup_start;
         u32 hits, misses, probes;
         explicit Restore(PickerGlyphCache& value) noexcept
@@ -43,8 +43,10 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
     for(u32 i=0;i<3;++i) {
         auto& e=cache.entries[slots[i]];
         e=PickerGlyphCache::Entry{};
-        e.system=system;e.color=color;e.width=e.height=40.f;
-        e.bytes=1;e.text[0]=static_cast<char>('a'+i);e.count=i==2?4:i;
+        e.native_text=system.native_text;e.native_format=system.native_format;
+        e.em_size=system.em_size;e.tracking=system.tracking;e.fixed_weight=system.fixed_weight;
+        e.color=color;e.width=e.height=40.f;
+        e.bytes=1;e.text[0]=static_cast<char>('a'+i);e.count=static_cast<u8>(i==2?4:i);
         e.dpi=120;e.flags=text_style_picker_emoji;
     }
     for(u32 hint=0;hint<256;++hint) {
@@ -82,10 +84,10 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         case 5:e.flags^=text_style_bold;break;
         case 6:e.color.alpha=.5f;break;
         case 7:e.color.red=.5f;break;
-        case 8:e.system.em_size+=1;break;
-        case 9:e.system.tracking+=1;break;
-        case 10:e.system.fixed_weight=true;break;
-        case 11:e.system.native_format+=1;break;
+        case 8:e.em_size+=1;break;
+        case 9:e.tracking+=1;break;
+        case 10:e.fixed_weight=true;break;
+        case 11:e.native_format+=1;break;
         case 12:e.evictions+=1;break;
         case 13:e.resets+=1;break;
         case 14:e.color.green=.25f;break;
@@ -95,10 +97,15 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         if(find(utf8_literal("b")))return false;
     }
     e=exact;
-    e.system.native_format+=1;
+    e.native_format+=1;
     if(find(utf8_literal("b")))return false;
-    e=exact;e.system.native_text=reinterpret_cast<NativeTextContext*>(usize{1});
+    e=exact;e.native_text=reinterpret_cast<NativeTextContext*>(usize{1});
     if(find(utf8_literal("b")))return false;
+    e=exact;
+    // The largest admitted UTF-8 key still fits the compact byte count.
+    e.bytes=64;
+    for(u32 i=0;i<64;++i)e.text[i]=static_cast<char>('a'+i%26);
+    if(find({e.text,64})!=&e||find({e.text,63}))return false;
     e=exact;
     // The 16-bit insertion cursor produces the same ring positions across wrap.
     cache.cursor=65535;

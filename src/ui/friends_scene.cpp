@@ -501,7 +501,7 @@ UiWidgetHandle add(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, 
 UiWidgetHandle handle(const UiFriendsScene& s, UiFriendsTarget target) noexcept {
     for (u32 i = 0; i < s.widgets.count; ++i)
         if (ui_friends_target_equal(entries(s)[i].target, target))
-            return {static_cast<u16>(i), s.widgets.storage[i].generation};
+            return {static_cast<u16>(i), s.widgets.generation};
     return ui_widget_invalid_handle();
 }
 bool rebuild(UiFriendsScene& s) noexcept {
@@ -990,7 +990,7 @@ UiFriendsTarget ui_friends_scene_hit_test(const UiFriendsScene& s, float x, floa
         const auto& e = entries(s)[i];
         if (e.target.action == UiFriendsAction::none)
             continue;
-        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.storage[i].generation};
+        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         if (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes)
             continue;
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
@@ -1133,7 +1133,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         const auto& e = entries(s)[i];
         if (e.target.action == UiFriendsAction::none)
             continue;
-        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.storage[i].generation};
+        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
         if (e.target.action == UiFriendsAction::search ||
             (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes))
@@ -1360,7 +1360,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
         const auto& e = entries(s)[i];
         if (e.target.action == UiFriendsAction::none)
             continue;
-        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.storage[i].generation};
+        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
         if (!node)
             return false;
@@ -1479,7 +1479,7 @@ bool ui_friends_scene_icon_action(const UiFriendsScene& s, bool keyboard, float 
         const auto& e = entries(s)[i];
         if (e.row_label || !e.row.user_id || action_icon(e.target.action) == UiIcon::count)
             continue;
-        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.storage[i].generation};
+        const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
         const bool selected = keyboard ? s.widgets.focused.slot == h.slot && s.widgets.focused.generation == h.generation
                                        : node && ui_rect_contains(node->rectangle, x, y) &&

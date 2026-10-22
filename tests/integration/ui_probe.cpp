@@ -6915,7 +6915,7 @@ bool probe_settings_scene() noexcept {
                                   viewport())
                  .ok())
             return false;
-        hidden_bar.owner = {&hidden_popup.widgets, {0, hidden_popup.widgets.storage[0].generation}};
+        hidden_bar.owner = {&hidden_popup.widgets, {0, hidden_popup.widgets.generation}};
         hidden_bar.message_id = 1;
         hidden_bar.active = true;
         hidden_bar.item_count = kMessageActionBarItemCount;

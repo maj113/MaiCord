@@ -177,10 +177,7 @@ u64 command_measurement_identity(const MessageTextCommand& command, u32 owner_id
 // Builds emit commands in nearly the same order, so the search resumes after
 // the last match: a stable rebuild costs one comparison per command instead
 // of a scan of the whole history.
-void previous_measurement(MessageTextPresentation* presentation, u64 identity, float* height,
-                          float* width) noexcept {
-    *height = 0.0f;
-    *width = 0.0f;
+UiSize previous_measurement(MessageTextPresentation* presentation, u64 identity) noexcept {
     const u32 count = presentation->measurement_history_count;
     u32 index = presentation->measurement_history_cursor < count ? presentation->measurement_history_cursor : 0;
     for (u32 step = 0; step < count; ++step, index = index + 1u == count ? 0u : index + 1u) {
@@ -189,14 +186,13 @@ void previous_measurement(MessageTextPresentation* presentation, u64 identity, f
                               (static_cast<u64>(presentation->byte_style_scratch[offset + 1u]) << 32u);
         if (candidate != identity)
             continue;
-        FloatWord value{};
-        value.word = presentation->byte_style_scratch[offset + 2u];
-        *height = value.value;
-        value.word = presentation->byte_style_scratch[offset + 3u];
-        *width = value.value;
+        FloatWord height{}, width{};
+        height.word = presentation->byte_style_scratch[offset + 2u];
+        width.word = presentation->byte_style_scratch[offset + 3u];
         presentation->measurement_history_cursor = index + 1u;
-        return;
+        return {width.value, height.value};
     }
+    return {};
 }
 
 MessageTextPresentationResult result(const MessageTextPresentation& presentation,
@@ -639,8 +635,9 @@ bool append_command(MessageTextPresentation* presentation, Utf8View text, ConstS
                                overflow,
                                source_id};
     command.measurement_identity = command_measurement_identity(command, owner_widget->id);
-    previous_measurement(presentation, command.measurement_identity, &command.measured_height,
-                         &command.measured_width);
+    const UiSize measured = previous_measurement(presentation, command.measurement_identity);
+    command.measured_height = measured.height;
+    command.measured_width = measured.width;
     presentation->commands[presentation->command_count++] = command;
     return true;
 }
@@ -1357,6 +1354,12 @@ constexpr float quote_text_inset() noexcept {
 // crosses a boundary.
 u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
                          ConstSlice<MessageMarkdownSemantic> semantics, QuoteSegment* output) noexcept {
+    // Ordinary styled text has no block boundaries to split.
+    u32 block = 0;
+    while (block < styles.count && !(styles[block].flags & (text_style_quote | text_style_code_block)))
+        ++block;
+    if (block == styles.count)
+        return 0;
     struct Range {
         u32 begin, end;
         bool quote, code;
@@ -1386,8 +1389,9 @@ u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
         const bool quote = (flags & text_style_quote) != 0;
         if (flags & text_style_code_block) {
             u32 end = at;
+            // Block membership stays constant until the current style span ends.
             while (end < text.bytes && (flags_at(end) & text_style_code_block))
-                ++end;
+                end = minimum(text.bytes, styles[style].byte_offset + styles[style].byte_count);
             u32 last = end;
             while (last > at && text.data[last - 1] == '\n')
                 --last;
@@ -2840,11 +2844,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         content_color = theme.notification;
     }
     const u16 measurement_index = static_cast<u16>(presentation->measurement_count++);
-    presentation->measurements[measurement_index] = MessageTextMeasurement{};
     MessageTextMeasurement& row_measurement = presentation->measurements[measurement_index];
     row_measurement.message_id = record->id;
     row_measurement.message_revision = record->revision;
     row_measurement.source_index = row.source_index;
+    row_measurement.reply_height = 0.0f;
+    row_measurement.content_height = 0.0f;
     row_measurement.forwarded = forwarded;
     row_measurement.rich_layout = row.rich_layout;
     row_measurement.rich_item_layout = row.rich_item_layout;
@@ -3767,7 +3772,9 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
         const MessageTextCommand& command = presentation->commands[index];
         const UiTextMeasureRequest request{
             UiTextMeasureKey{
-                command.message_id, command_content_signature(command), command.message_revision,
+                command.message_id,
+                command.measurement_identity ? command.measurement_identity : command_content_signature(command),
+                command.message_revision,
                 static_cast<u16>(command.measurement_identity ^ (command.measurement_identity >> 16u) ^
                                  (command.measurement_identity >> 32u) ^
                                  (command.measurement_identity >> 48u)),

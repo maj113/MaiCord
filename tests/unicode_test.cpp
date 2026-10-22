@@ -43,7 +43,7 @@ bool cases() noexcept {
     if(mirrored!=428||opening!=64||closing!=64)return false;
     const auto bracket=unicode_bidi_bracket('(');
     return unicode_bidi_mirror('(')==')' && unicode_bidi_mirror(0x2208)==0x220b && bracket.paired==')' && bracket.type==UnicodeBracketType::open &&
-           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==45670;
+           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==45542;
 }
 u8 output_buffer[16384];u32 output_used=0;
 bool flush(HANDLE file) noexcept {

@@ -1,4 +1,5 @@
 #include "maicord/ui/layout_engine.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -769,7 +770,8 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
     }
     const u16 slot = static_cast<u16>(engine->count++);
     UiLayoutNode& node = engine->storage[slot];
-    node = UiLayoutNode{};
+    // Skip the specification prefix, which is overwritten below.
+    clear_bytes(reinterpret_cast<u8*>(&node) + sizeof(node.spec), sizeof(node) - sizeof(node.spec));
     node.spec = specification;
     node.parent = root ? kInvalidUiLayoutSlot : parent.slot;
     node.first_child = kInvalidUiLayoutSlot;

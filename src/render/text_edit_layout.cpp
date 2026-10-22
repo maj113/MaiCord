@@ -8,7 +8,6 @@
 #include "maicord/text/paragraph_hits.hpp"
 
 namespace maicord {
-static_assert(sizeof(TextEditMetric)==sizeof(NativeParagraphHitMetric));
 bool text_composer_emoji_rectangle(const TextEditLayoutOwner& owner,
     const MessageComposerScene& scene, u32 index, UiRect* rectangle, UiRect* clip) noexcept {
     if (!rectangle || !clip || !scene.active || !owner.active || index >= scene.projection_span_count) return false;
@@ -44,22 +43,16 @@ constexpr u32 edit_storage_words=storage_words(native_storage_bytes(kTextEditTex
 const NativeEditGeometry* native_geometry(const TextEditLayoutOwner& owner) noexcept {
     return owner.geometry?reinterpret_cast<const NativeEditGeometry*>(owner.storage.arena.base):nullptr;
 }
-TextEditMetric edit_metric(const NativeParagraphHitMetric& m) noexcept {
-    return {m.source_first,m.source_count,m.left,m.top,m.width,m.height,m.bidi_level};
-}
 bool position_metric(const TextEditLayoutOwner& owner,u32 position,float* x,float* y,TextEditMetric* metric) noexcept {
     const auto* native=native_geometry(owner);NativeParagraphHitMetric m{};
     if(!native||native_paragraph_hit_position(native->hits,position,false,&m,x)!=SfntStatus::ok)return false;
-    *metric=edit_metric(m);*y=m.top;return true;
+    *metric=m;*y=m.top;return true;
 }
 // Returns ok, output_too_small (count holds the required size) or a failure.
 SfntStatus range_metrics(const TextEditLayoutOwner& owner,u32 first,u32 length,float x,float y,TextEditMetric* output,u32 capacity,u32* count) noexcept {
     const auto* native=native_geometry(owner);
     if(!native||capacity>kTextEditSelectionCapacity)return SfntStatus::invalid_input;
-    NativeParagraphHitMetric metrics[kTextEditSelectionCapacity];
-    const auto status=native_paragraph_hit_range(native->hits,first,length,x,y,{metrics,capacity},count);
-    for(u32 i=0;i<minimum(capacity,*count);++i)output[i]=edit_metric(metrics[i]);
-    return status;
+    return native_paragraph_hit_range(native->hits,first,length,x,y,{output,capacity},count);
 }
 bool initialize_storage(TextEditLayoutOwner* owner) noexcept {
     return owner->storage.arena.base||stable_storage_initialize(&owner->storage,edit_storage_words,0,8,8);

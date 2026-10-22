@@ -10,15 +10,17 @@ struct NativeIndicPlan {
     const SfntCmap* cmap;
     const SfntLookupStep* substitution_steps;
     const u16* positioning_roots;
-    u32 substitution_count,positioning_count;
+    u32 substitution_count;
+    // GPOS has one deduplicated stage, bounded by the font's u16 lookup count.
+    u16 positioning_count;
     SfntIndicProfile profile;
     ConstSlice<SfntLookupStep> substitutions() const noexcept {return {substitution_steps,substitution_count};}
     ConstSlice<u16> positioning() const noexcept {return {positioning_roots,positioning_count};}
     const SfntGposProgram* positioning_program=nullptr;
 };
-static_assert(sizeof(NativeIndicPlan)==56);
+static_assert(sizeof(NativeIndicPlan)==48);
 struct NativeIndicFormPlan {NativeIndicPlan indic;u8 forms[128];};
-static_assert(sizeof(NativeIndicFormPlan)==184);
+static_assert(sizeof(NativeIndicFormPlan)==176);
 // Appends roots and any required GPOS subset; shares the parent's GSUB, coordinates,
 // mapping and metrics, with no extra parent reference or retained arena. Scratch
 // rewinds on every return; failed calls also rewind state and clear output. The

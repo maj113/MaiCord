@@ -853,12 +853,12 @@ bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* sy
             return false;
         }
         if (count != 0) {
-            table->minimum_code[length] = code;
-            table->maximum_code[length] = code + static_cast<i32>(count) - 1;
+            table->minimum_code[length] = static_cast<u16>(code);
+            table->maximum_code[length] = static_cast<u16>(code + count - 1);
             table->value_offset[length] = static_cast<i32>(symbol_offset) - code;
         } else {
-            table->minimum_code[length] = -1;
-            table->maximum_code[length] = -1;
+            table->minimum_code[length] = 0xffff;
+            table->maximum_code[length] = 0;
             table->value_offset[length] = 0;
         }
         code = (code + static_cast<i32>(count)) << 1;
@@ -1387,9 +1387,6 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode,
         return;
     }
     for (u32 length = 0; length < kJpegLookaheadBits; ++length) {
-        if (table.maximum_code[length] < 0) {
-            continue;
-        }
         const u32 shift = kJpegLookaheadBits - 1u - length;
         for (i32 code = table.minimum_code[length]; code <= table.maximum_code[length]; ++code) {
             const i32 index = table.value_offset[length] + code;
@@ -1454,8 +1451,7 @@ void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcD
 __declspec(noinline) u32 canonical_entry(const JpegHuffmanTable& table, u32 window) noexcept {
     for (u32 length = 0; length < 16; ++length) {
         const i32 code = static_cast<i32>(window >> (15u - length));
-        if (table.maximum_code[length] >= 0 && code >= table.minimum_code[length] &&
-            code <= table.maximum_code[length]) {
+        if (code >= table.minimum_code[length] && code <= table.maximum_code[length]) {
             const i32 index = table.value_offset[length] + code;
             if (index < 0 || static_cast<u32>(index) >= table.symbol_count) {
                 return 0x10000u | (length + 1u) << 8;

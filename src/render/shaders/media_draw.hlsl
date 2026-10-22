@@ -18,7 +18,7 @@ float2 decode_coordinate(float2 coordinate){
 }
 
 MediaVertexOutput media_vertex(MediaVertexInput input,uint id:SV_VertexID){
-    const float2 corners[6]={float2(0,0),float2(1,0),float2(0,1),float2(0,1),float2(1,0),float2(1,1)};
+    const float2 corners[4]={float2(0,0),float2(1,0),float2(0,1),float2(1,1)};
     MediaVertexOutput output;float2 corner=corners[id],position=lerp(input.rectangle.xy,input.rectangle.zw,corner);
     output.position=float4(position*coordinate_scale+coordinate_translation,0,1);
     // A negative blur parameter carries orientation flags instead (cropped

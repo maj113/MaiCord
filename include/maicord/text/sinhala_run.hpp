@@ -9,13 +9,15 @@ struct NativeSinhalaPlan {
     const SfntCmap* cmap;
     const SfntLookupStep* substitution_steps;
     const u16* positioning_roots;
-    u32 substitution_count,positioning_count;
+    u32 substitution_count;
+    // GPOS has one deduplicated stage, bounded by the font's u16 lookup count.
+    u16 positioning_count;
     bool independent_letters,language_found;
     ConstSlice<SfntLookupStep> substitutions() const noexcept {return {substitution_steps,substitution_count};}
     ConstSlice<u16> positioning() const noexcept {return {positioning_roots,positioning_count};}
     const SfntGposProgram* positioning_program=nullptr;
 };
-static_assert(sizeof(NativeSinhalaPlan)==56);
+static_assert(sizeof(NativeSinhalaPlan)==48);
 // Shares immutable font graphs, metrics and instance coordinates. State holds
 // selected roots and any missing positioning records; existing parent records
 // stay shared. Scratch always rewinds; failed preparation rewinds state and

@@ -98,8 +98,8 @@ const UiNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noe
                : nullptr;
 }
 
-// State every pipeline shares: target, rasterizer, blend, frame constants
-// (VS b0) and the sampler. Text and media rely on it as much as paint does.
+// State every pipeline shares: target, topology, rasterizer, blend, frame
+// constants (VS b0) and sampler. Text and media rely on it as much as paint does.
 void bind_shared_state(D3D11Renderer* renderer, DrawSubmissionState* submission) noexcept {
     auto* context = renderer->graphics.context;
     const auto& pipeline = renderer->pipeline;
@@ -110,6 +110,7 @@ void bind_shared_state(D3D11Renderer* renderer, DrawSubmissionState* submission)
         return;
     }
     context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     context->RSSetState(pipeline.ui_rasterizer_state);
     context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
     context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
@@ -117,18 +118,13 @@ void bind_shared_state(D3D11Renderer* renderer, DrawSubmissionState* submission)
 }
 
 // Binds a pipeline right before its first draw in a pass, unless it is the
-// bound one. Paint and media share a triangle list; glyphs draw strips.
+// bound one. Paint, media and glyphs all draw four-vertex strips.
 void select_pipeline(D3D11Renderer* renderer, DrawSubmissionState* submission, DrawPipeline next) noexcept {
     bind_shared_state(renderer, submission);
-    const DrawPipeline previous = submission->pipeline;
     if (!draw_submission_select(submission, next))
         return;
     auto* context = renderer->graphics.context;
     const auto& pipeline = renderer->pipeline;
-    const bool strip = next == DrawPipeline::glyph;
-    if (previous == DrawPipeline::none || (previous == DrawPipeline::glyph) != strip)
-        context->IASetPrimitiveTopology(strip ? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP
-                                              : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     const UINT offset = 0;
     if (next == DrawPipeline::paint) {
         const UINT stride = sizeof(PaintQuad);
@@ -196,7 +192,7 @@ struct RunTarget {
     D3D11Renderer* renderer;
     DrawSubmissionState* submission;
     DrawPipeline pipeline;
-    u32 vertices, prefix, prefix_base, suffix_base;
+    u32 prefix, prefix_base, suffix_base;
     u32 moved_first = 0, moved_end = 0, moved_base = 0;
 };
 
@@ -204,12 +200,12 @@ void draw_instances(const RunTarget& target, u32 first, u32 end) noexcept {
     D3D11Renderer* renderer = target.renderer;
     auto* context = renderer->graphics.context;
     if (first < end && first < target.prefix) {
-        context->DrawInstanced(target.vertices, minimum(end, target.prefix) - first, 0, target.prefix_base + first);
+        context->DrawInstanced(4, minimum(end, target.prefix) - first, 0, target.prefix_base + first);
         ++renderer->draw_calls_last_frame;
     }
     if (first < end && end > target.prefix) {
         const u32 from = maximum(first, target.prefix);
-        context->DrawInstanced(target.vertices, end - from, 0, target.suffix_base + (from - target.prefix));
+        context->DrawInstanced(4, end - from, 0, target.suffix_base + (from - target.prefix));
         ++renderer->draw_calls_last_frame;
     }
 }
@@ -229,7 +225,7 @@ void draw_run(const RunTarget& target, const DrawRun& run) noexcept {
     }
     const u32 first = maximum(run.first, target.moved_first), end = minimum(run.end, target.moved_end);
     draw_instances(target, run.first, first);
-    renderer->graphics.context->DrawInstanced(target.vertices, end - first, 0,
+    renderer->graphics.context->DrawInstanced(4, end - first, 0,
                                               target.moved_base + (first - target.moved_first));
     ++renderer->draw_calls_last_frame;
     draw_instances(target, end, run.end);
@@ -286,7 +282,7 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
     }
 
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
-    const RunTarget target{renderer, submission, DrawPipeline::media, 6, ~0u, 0, 0};
+    const RunTarget target{renderer, submission, DrawPipeline::media, ~0u, 0, 0};
     DrawRun run{};
     for (u32 index = first_batch; index < end_batch; ++index) {
         const MediaDrawBatch& batch = renderer->media_draw.batch_data[index];
@@ -416,7 +412,7 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
         return false;
     }
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
-    const RunTarget target{renderer, submission, DrawPipeline::glyph, 4, prefix, prefix_base, suffix_base};
+    const RunTarget target{renderer, submission, DrawPipeline::glyph, prefix, prefix_base, suffix_base};
     DrawRun run{};
     for (u32 index = first_batch; index < end_batch; ++index) {
         const GlyphDrawBatch batch =
@@ -451,7 +447,6 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
     const RunTarget target{renderer,
                            submission,
                            DrawPipeline::paint,
-                           6,
                            ~0u,
                            0,
                            0,
@@ -710,7 +705,7 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
     const float blend_factor[4]{0, 0, 0, 0};
     context->OMSetBlendState(renderer->pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
     context->RSSetState(renderer->pipeline.ui_rasterizer_state);
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     context->IASetInputLayout(renderer->pipeline.media_input_layout);
     context->IASetVertexBuffers(0, 1, &renderer->settings_backdrop_quad, &stride, &offset);
     context->VSSetShader(renderer->pipeline.media_vertex_shader, nullptr, 0);
@@ -724,7 +719,7 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
         scissor.top += static_cast<LONG>(renderer->target_origin_y);
         scissor.bottom += static_cast<LONG>(renderer->target_origin_y);
         context->RSSetScissorRects(1, &scissor);
-        context->DrawInstanced(6, 1, 0, 0);
+        context->DrawInstanced(4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
     }
     ID3D11ShaderResourceView* null_views[3]{};

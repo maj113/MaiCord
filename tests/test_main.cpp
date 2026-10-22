@@ -4657,6 +4657,26 @@ void test_text_measure_cache() noexcept {
                commands[1].measured_height == content_before_failure &&
                measurements[0].content_height == aggregate_before_failure,
            "message_text_measure_backend_failure_is_presentation_atomic");
+
+    // Supplied identities and zero-identity content hashing both invalidate
+    // changed text without requiring a new message revision.
+    for (u32 supplied = 0; supplied < 2; ++supplied) {
+        commands[1].text = valid_content;
+        commands[1].measurement_identity = supplied ? 0x1234u : 0u;
+        const u32 calls_before = fixture.calls;
+        expect(message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
+                   commands[1].measured_height == 90.0f && fixture.calls == calls_before + 1,
+               "message_text_measure_identity_initial_extent");
+        expect(message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
+                   !measurement_changed && fixture.calls == calls_before + 1,
+               "message_text_measure_identity_reuses_extent");
+        commands[1].text = utf8_literal("tiny");
+        commands[1].measurement_identity = supplied ? 0x5678u : 0u;
+        expect(message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
+                   measurement_changed && commands[1].measured_height == 18.0f &&
+                   fixture.calls == calls_before + 2,
+               "message_text_measure_identity_refreshes_changed_text");
+    }
 }
 
 void test_layout_engine_and_widget_manager() noexcept {
@@ -16607,7 +16627,6 @@ void test_message_media_controller() noexcept {
     scene.widgets.layout.count = 1;
     scene.widgets.layout.generation = 1;
     primary_widgets[0].layout = UiLayoutNodeHandle{0, 1};
-    primary_widgets[0].generation = 1;
     primary_layout[0].generation = 1;
     primary_layout[0].rectangle = UiRect{0.0f, 120.0f, 64.0f, 184.0f};
     primary_layout[0].content_rectangle = primary_layout[0].rectangle;

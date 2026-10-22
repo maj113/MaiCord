@@ -8,7 +8,7 @@ bool widget_focusable(const UiWidgetManager& manager, const UiWidget& widget) no
     if (!(widget.flags & ui_widget_focusable))
         return false;
     return ui_widget_manager_input_enabled(
-        manager, {static_cast<u16>(&widget - manager.storage.data), widget.generation});
+        manager, {static_cast<u16>(&widget - manager.storage.data), manager.generation});
 }
 
 UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const UiWidgetDesc& description,
@@ -32,16 +32,16 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
         return UiWidgetResult{UiWidgetError::invalid_parent, ui_widget_invalid_handle()};
     }
     UiLayoutNodeHandle layout_handle{};
-    UiLayoutNodeSpec layout_spec = description.layout;
-    if (description.kind == UiWidgetKind::scroll_view) {
-        layout_spec.style.flags |= ui_layout_node_clip_children;
-        if (!(layout_spec.style.flags &
-              (ui_layout_node_scroll_vertical | ui_layout_node_scroll_horizontal)))
-            layout_spec.style.flags |= ui_layout_node_scroll_vertical;
-    }
     const UiLayoutResult layout_result =
         ui_layout_engine_add(&manager->layout, root ? ui_layout_invalid_handle() : parent_widget->layout,
-                             layout_spec, &layout_handle);
+                             description.layout, &layout_handle);
+    // Scroll flags do not affect admission; set them on the retained copy.
+    if (layout_result.ok() && description.kind == UiWidgetKind::scroll_view) {
+        auto& flags = manager->layout.storage[layout_handle.slot].spec.style.flags;
+        flags |= ui_layout_node_clip_children;
+        if (!(flags & (ui_layout_node_scroll_vertical | ui_layout_node_scroll_horizontal)))
+            flags |= ui_layout_node_scroll_vertical;
+    }
     if (!layout_result.ok() || layout_handle.slot != manager->count) {
         ++manager->rejected;
         return UiWidgetResult{UiWidgetError::layout, ui_widget_invalid_handle()};
@@ -54,8 +54,7 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
     widget.id = description.id;
     widget.kind = description.kind;
     widget.flags = description.flags;
-    widget.generation = manager->generation;
-    return UiWidgetResult{UiWidgetError::none, UiWidgetHandle{slot, widget.generation}};
+    return UiWidgetResult{UiWidgetError::none, UiWidgetHandle{slot, manager->generation}};
 }
 
 } // namespace
@@ -210,11 +209,10 @@ UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, cons
 }
 
 const UiWidget* ui_widget_manager_resolve(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
-    if (handle.generation == 0 || handle.slot >= manager.count) {
+    if (handle.generation == 0 || handle.generation != manager.generation || handle.slot >= manager.count) {
         return nullptr;
     }
-    const UiWidget& widget = manager.storage[handle.slot];
-    return widget.generation == handle.generation ? &widget : nullptr;
+    return &manager.storage[handle.slot];
 }
 
 UiWidget* ui_widget_manager_resolve(UiWidgetManager* manager, UiWidgetHandle handle) noexcept {
@@ -227,8 +225,8 @@ UiWidget* ui_widget_manager_resolve(UiWidgetManager* manager, UiWidgetHandle han
 UiWidgetHandle ui_widget_manager_find(const UiWidgetManager& manager, u32 id) noexcept {
     for (u32 index = 0; index < manager.count; ++index) {
         const UiWidget& widget = manager.storage[index];
-        if (widget.id == id && widget.generation == manager.generation) {
-            return UiWidgetHandle{static_cast<u16>(index), widget.generation};
+        if (widget.id == id) {
+            return UiWidgetHandle{static_cast<u16>(index), manager.generation};
         }
     }
     return ui_widget_invalid_handle();
@@ -247,7 +245,7 @@ UiWidgetHandle ui_widget_manager_hit_test(const UiWidgetManager& manager, float 
             !ui_rect_contains(layout->clip_rectangle, x, y)) {
             continue;
         }
-        const UiWidgetHandle handle{static_cast<u16>(index), widget.generation};
+        const UiWidgetHandle handle{static_cast<u16>(index), manager.generation};
         if (ui_widget_manager_input_enabled(manager, handle) &&
             (!manager.hit_filter || manager.hit_filter(manager.hit_filter_context, manager, handle, x, y)))
             return handle;
@@ -407,7 +405,7 @@ UiWidgetHandle ui_widget_manager_next_focus(const UiWidgetManager& manager, UiWi
         current = index;
         const UiWidget& widget = manager.storage[index];
         if (widget_focusable(manager, widget))
-            return UiWidgetHandle{static_cast<u16>(index), widget.generation};
+            return UiWidgetHandle{static_cast<u16>(index), manager.generation};
     }
     return ui_widget_invalid_handle();
 }

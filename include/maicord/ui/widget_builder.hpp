@@ -21,16 +21,17 @@ class UiWidgetBuilder {
   public:
     explicit UiWidgetBuilder(UiWidgetManager& manager) noexcept;
 
-    UiWidgetResult widget(UiWidgetHandle parent, UiWidgetKey key, UiWidgetKind kind, u16 flags,
+    UiWidgetResult widget(UiWidgetHandle parent, const UiWidgetKey& key, UiWidgetKind kind, u16 flags,
                           const UiLayoutStyle& style, UiSize intrinsic = {}, float baseline = 0) noexcept;
-    UiWidgetResult container(UiWidgetHandle parent, UiWidgetKey key, const UiLayoutStyle& style) noexcept;
+    UiWidgetResult container(UiWidgetHandle parent, const UiWidgetKey& key,
+                             const UiLayoutStyle& style) noexcept;
     // Enables retained text measurement through the manager's callback/key.
     // Without a callback, the supplied intrinsic extent/baseline is used.
-    UiWidgetResult text(UiWidgetHandle parent, UiWidgetKey key, const UiLayoutStyle& style,
+    UiWidgetResult text(UiWidgetHandle parent, const UiWidgetKey& key, const UiLayoutStyle& style,
                         UiSize intrinsic = {}, float baseline = 0) noexcept;
-    UiWidgetResult button(UiWidgetHandle parent, UiWidgetKey key, const UiLayoutStyle& style,
+    UiWidgetResult button(UiWidgetHandle parent, const UiWidgetKey& key, const UiLayoutStyle& style,
                           bool keyboard_focusable = true) noexcept;
-    UiWidgetResult text_field(UiWidgetHandle parent, UiWidgetKey key, const UiLayoutStyle& style,
+    UiWidgetResult text_field(UiWidgetHandle parent, const UiWidgetKey& key, const UiLayoutStyle& style,
                               bool keyboard_focusable = true) noexcept;
 
     bool ok() const noexcept {

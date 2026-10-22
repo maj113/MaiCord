@@ -40,7 +40,7 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
     UiWidgetHandle settings = ui_widget_invalid_handle();
     for (u32 i = 0; i < source.count; ++i)
         if (source.storage[i].id == static_cast<u32>(UiSemantic::settings) + 1)
-            settings = {static_cast<u16>(i), source.storage[i].generation};
+            settings = {static_cast<u16>(i), source.generation};
     const auto* button = ui_widget_manager_layout_node(source, settings);
     if (!button || !ui_widget_manager_input_enabled(source, settings))
         return false;

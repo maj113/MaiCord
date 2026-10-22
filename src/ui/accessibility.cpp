@@ -243,7 +243,7 @@ void walk(WalkContext& context, u16 slot, u32 parent, bool leaf, u32 depth) noex
             walk(context, child, parent, true, depth + 1);
         return;
     }
-    const UiWidgetHandle handle{slot, widget.generation};
+    const UiWidgetHandle handle{slot, manager.generation};
     UiAccessWidgetInfo info{};
     info.role = default_role(widget.kind);
     const bool interactive = widget.kind == UiWidgetKind::button || widget.kind == UiWidgetKind::text_field;
@@ -251,7 +251,7 @@ void walk(WalkContext& context, u16 slot, u32 parent, bool leaf, u32 depth) noex
         info.state |= ui_access_focusable;
     if (interactive && !ui_widget_manager_input_enabled(manager, handle))
         info.state |= ui_access_disabled;
-    if (context.scope->focus_owner && manager.focused.slot == slot && manager.focused.generation == widget.generation)
+    if (context.scope->focus_owner && manager.focused.slot == slot && manager.focused.generation == manager.generation)
         info.state |= ui_access_focused;
     info.actions = ui_access_default_actions(info.role);
     if (context.scope->describe)

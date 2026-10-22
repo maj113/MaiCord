@@ -312,7 +312,7 @@ void search_runtime_fixture() noexcept {
                 return false;
             for (u32 slot = 0; slot < current->widgets.count; ++slot) {
                 const auto* layout = ui_widget_manager_layout_node(
-                    current->widgets, {static_cast<u16>(slot), current->widgets.storage[slot].generation});
+                    current->widgets, {static_cast<u16>(slot), current->widgets.generation});
                 if (!layout)
                     continue;
                 const float x = (layout->rectangle.left + layout->rectangle.right) * .5f;

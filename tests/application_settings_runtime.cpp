@@ -170,12 +170,12 @@ bool await_save_retained() noexcept {
     if (!current || !current->widgets.count)
         return false;
     const u32 revision = current->revision;
-    const u16 generation = current->widgets.storage[0].generation;
+    const u16 generation = current->widgets.generation;
     const u32 text_builds = observed.text_builds;
     void* widgets = current->storage.arena.base;
     // A successful save changes no visible state: the scene and text stay retained.
     return await_save() && scene() == current && current->revision == revision &&
-           current->widgets.storage[0].generation == generation && current->storage.arena.base == widgets &&
+           current->widgets.generation == generation && current->storage.arena.base == widgets &&
            observed.text_builds == text_builds;
 }
 bool labelled(const UiSettingsPageContent& page, u64 id, Utf8View label) noexcept {

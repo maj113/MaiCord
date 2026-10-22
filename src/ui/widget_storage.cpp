@@ -3,7 +3,7 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(UiWidget) == 20);
+static_assert(sizeof(UiWidget) == 16);
 static_assert(sizeof(UiLayoutNode) == 216);
 
 bool append_storage_bytes(usize* cursor, usize bytes, usize alignment) noexcept {

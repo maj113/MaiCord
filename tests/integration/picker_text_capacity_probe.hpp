@@ -7,8 +7,12 @@ namespace maicord {
 // budget and discarding all message text even before any atlas eviction.
 // Distinct row/card clips must also merge when they do not cut any ink;
 // 160 such message commands exceed the 128-batch budget without this merging.
+// Uncut shell and picker labels must also share batches within their layers.
 inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
     UiMediaPickerScene scene{};
+    Theme theme = kDefaultTheme;
+    // Exercise cached foreground RGB/alpha as well as color-atlas quads.
+    theme.text_primary = {.25f, .5f, .75f, .5f};
     constexpr u32 command_count = 160;
     MessageTextCommand commands[command_count]{};
     MessageTextPresentation messages{};
@@ -54,7 +58,8 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
             out->id = index + 1;
             out->kind = UiMediaPickerItemKind::emoji;
             out->label = entries[index].name();
-            out->glyph = entries[index].glyph();
+            // A mixed cell must preserve both monochrome and color glyphs on reuse.
+            out->glyph = index ? entries[index].glyph() : utf8_literal("A\xF0\x9F\x98\x80");
             out->enabled = true;
             return true;
         }};
@@ -78,8 +83,8 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
     for (u32 page = 0; page < 12; ++page) {
         if (page) ui_media_picker_scene_scroll(&scene, scene.cell_pitch * 8 + .37f);
         renderer.retained_presentation.valid = false;
-        if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) ||
-            renderer.content_text->quad_count < command_count * 16 || renderer.content_text->batch_count > 26 ||
+        if (!renderer_rebuild_content_text(&renderer, theme) ||
+            renderer.content_text->quad_count < command_count * 16 || renderer.content_text->batch_count > 18 ||
             !surface_motion_probe_detail::draw_fixed(renderer) || !readback.read(renderer, 0))
             return false;
         // A warm rebuild reuses centered, unclipped cell-local glyphs. It must
@@ -87,7 +92,7 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
         if (!renderer.picker_glyph_cache) return false;
         const u32 hits = renderer.picker_glyph_cache->hits;
         content_text_retention_invalidate(&renderer.content_text_retention);
-        if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) ||
+        if (!renderer_rebuild_content_text(&renderer, theme) ||
             renderer.picker_glyph_cache->hits <= hits ||
             !surface_motion_probe_detail::draw_fixed(renderer) || !readback.read(renderer, 1) ||
             !bytes_equal(readback.images, readback.images + readback.bytes, readback.bytes))

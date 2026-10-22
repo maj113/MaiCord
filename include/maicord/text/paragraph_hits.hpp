@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/ascii_line.hpp"
+#include "maicord/text/paragraph_hit_metric.hpp"
 namespace maicord {
 inline constexpr u32 native_hit_group_start=0x80000000u,native_hit_newline=0x40000000u;
 inline constexpr u32 native_hit_terminal_region=0x20000000u,native_hit_advance_mask=0x1fffffffu;
@@ -12,9 +13,6 @@ struct NativeParagraphHitCluster {
 // Source and hit-cluster counts are already bounded to 65535 by the fitter.
 // Recovered space stores metric indices without growing either geometry record.
 struct NativeParagraphHitLine {u16 first_cluster,cluster_count;float top,caret_end;u16 ascent_style,descent_style;};
-// Paragraph producers bound source positions to 65535. Reclaim their spare
-// source bits for the full bidi level without growing a returned rectangle.
-struct NativeParagraphHitMetric {u16 source_first,source_count;float left,top,width,height;u32 bidi_level=0;};
 struct NativeParagraphHitRun {u16 first_cluster,cluster_count;float left,width;u32 bidi_level;};
 struct NativeParagraphHitPoint {u32 source_position;bool inside;};
 struct NativeParagraphHits {
@@ -43,7 +41,7 @@ struct NativeParagraphHitStorage {
     Slice<float> alignment_widths{}; // Optional per-line width excluding trailing spaces.
 };
 static_assert(sizeof(NativeParagraphHitCluster)==24&&sizeof(NativeParagraphHitLine)==16&&sizeof(NativeParagraphHits)==80);
-static_assert(sizeof(NativeParagraphHitMetric)==24&&sizeof(NativeParagraphHitRun)==16);
+static_assert(sizeof(NativeParagraphHitRun)==16);
 // Query only immutable geometry successfully published by paragraph_layout.
 // The caller retains its storage. No font, OS object, allocation or glyph ID is
 // required. Source positions and range endpoints use shaping-cluster affinity.

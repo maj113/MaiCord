@@ -597,7 +597,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         ID3D11Buffer* pixel_constants[2]{pipeline.ui_frame_buffer,
                                          pipeline.background_active ? pipeline.background_buffer : nullptr};
         context->PSSetConstantBuffers(0, 2, pixel_constants);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         context->IASetInputLayout(pipeline.ui_input_layout);
         context->IASetVertexBuffers(0, 1, &caption->paint_buffer, &paint_stride, &offset);
         context->VSSetShader(pipeline.ui_vertex_shader, nullptr, 0);
@@ -622,7 +622,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     // over it in content DIPs, then the bar's own items.
     u32 first = 0;
     if (caption->paint.count && ui_background_canvas_quad(caption->paint.quads[0])) {
-        context->DrawInstanced(6, 1, 0, 0);
+        context->DrawInstanced(4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
         first = 1;
         const float top = -layout.height;
@@ -642,7 +642,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     const bool scrim = caption->scrim_quad < bar_end;
     const u32 buttons = scrim ? caption->buttons_first_quad : bar_end;
     if (buttons > first) {
-        context->DrawInstanced(6, buttons - first, 0, first);
+        context->DrawInstanced(4, buttons - first, 0, first);
         ++renderer->draw_calls_last_frame;
     }
     if (caption->icon_view) {
@@ -653,7 +653,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
         ID3D11ShaderResourceView* media_views[3]{caption->icon_view, nullptr, nullptr};
         context->PSSetShaderResources(0, 3, media_views);
-        context->DrawInstanced(6, 1, 0, 0);
+        context->DrawInstanced(4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
     }
     if (caption->image_drawn && renderer->media_gpu.texture_view) {
@@ -664,14 +664,13 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
         ID3D11ShaderResourceView* media_views[3]{renderer->media_gpu.texture_view, nullptr, nullptr};
         context->PSSetShaderResources(0, 3, media_views);
-        context->DrawInstanced(6, 1, 0, 0);
+        context->DrawInstanced(4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
     }
     const UINT glyph_stride = sizeof(GlyphQuad);
     ID3D11ShaderResourceView* glyph_views[]{renderer->glyph_text.gpu.texture_view,
                                             d3d11_glyph_text_color_view(renderer->glyph_text)};
     const auto draw_glyphs = [&](u32 first_glyph, u32 count) noexcept {
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         context->IASetInputLayout(pipeline.glyph_input_layout);
         context->IASetVertexBuffers(0, 1, &caption->glyph_buffer, &glyph_stride, &offset);
         context->VSSetShader(pipeline.glyph_vertex_shader, nullptr, 0);
@@ -686,9 +685,9 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         // The scrim over band, icon, title and items; the window buttons
         // follow undimmed.
         bind_paint_pipeline();
-        context->DrawInstanced(6, 1, 0, caption->scrim_quad);
+        context->DrawInstanced(4, 1, 0, caption->scrim_quad);
         if (caption->scrim_quad > buttons)
-            context->DrawInstanced(6, caption->scrim_quad - buttons, 0, buttons);
+            context->DrawInstanced(4, caption->scrim_quad - buttons, 0, buttons);
         renderer->draw_calls_last_frame += 2;
     }
     if (caption->paint.count > bar_end) {
@@ -706,7 +705,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         bind_paint_pipeline();
         context->RSSetViewports(1, &surface);
         context->RSSetScissorRects(1, &clip);
-        context->DrawInstanced(6, caption->paint.count - bar_end, 0, bar_end);
+        context->DrawInstanced(4, caption->paint.count - bar_end, 0, bar_end);
         ++renderer->draw_calls_last_frame;
         if (tooltip_glyphs)
             draw_glyphs(glyph_count, tooltip_glyphs);

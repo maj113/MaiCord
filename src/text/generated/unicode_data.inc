@@ -2,7 +2,7 @@
 // Copyright (c) 1991-2025 Unicode, Inc. See assets/licenses/Unicode-3.0.txt.
 static constexpr u32 unicode_leaf_shift=3,unicode_middle_shift=6;
 static constexpr u32 unicode_fold_first=640,unicode_fold_end=1792,unicode_fold_source=512;
-static constexpr u16 unicode_ascii[] = {
+static constexpr u8 unicode_ascii[] = {
     0,0,0,0,0,0,0,0,0,1,2,3,4,5,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,6,6,6,7,
     8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,

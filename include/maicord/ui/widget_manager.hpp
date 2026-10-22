@@ -38,13 +38,13 @@ struct UiWidgetDesc {
     UiLayoutNodeSpec layout;
 };
 
+// All active slots share the manager generation; reset invalidates the whole tree.
 struct UiWidget {
     UiLayoutNodeHandle layout;
     UiWidgetHandle parent;
     u32 id;
     UiWidgetKind kind;
     u16 flags;
-    u16 generation;
 };
 
 enum class UiWidgetError : u8 {

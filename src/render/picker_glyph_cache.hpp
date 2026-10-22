@@ -5,17 +5,30 @@ namespace maicord {
 // One bounded visible-neighborhood cache. It owns only copied quads/UTF-8,
 // never font handles or pointers into a recycled picker cell.
 struct PickerGlyphCache {
+    struct Quad {
+        float left, top, right, bottom, u0, v0, u1, v1;
+        GlyphQuad placed(float x, float y, Color foreground) const noexcept {
+            // Picker styles have no per-glyph color effects. Color-atlas quads
+            // use white RGB; monochrome fallback uses the entry foreground.
+            return {left + x, top + y, right + x, bottom + y, u0, v0, u1, v1,
+                    u0 >= 2.f ? Color{1, 1, 1, foreground.alpha} : foreground};
+        }
+    };
     struct Entry {
-        TextSystem system;
-        GlyphQuad quads[4]; // Centered in the cell, before clipping, relative to its origin.
-        char text[64];
+        NativeTextContext* native_text;
+        u8 bytes, count;
+        bool fixed_weight;
+        u32 native_format, dpi, flags, evictions, resets;
+        float width, height, em_size, tracking;
         Color color;
-        float width,height,shaped_height;
-        u32 bytes,count,dpi,flags,evictions,resets;
+        float shaped_height;
+        char text[64];
+        Quad quads[4]; // Centered in the cell, before clipping, relative to its origin.
     } entries[256];
     u16 cursor,lookup_start;
     u32 hits,misses,probes;
 };
+static_assert(sizeof(PickerGlyphCache::Entry) == 264);
 // Cursors and counters add exactly 16 bytes after the entries.
 static_assert(sizeof(PickerGlyphCache) == sizeof(PickerGlyphCache::Entry) * 256 + 16);
 inline bool picker_glyph_cache_matches(const PickerGlyphCache::Entry& e,
@@ -24,9 +37,9 @@ inline bool picker_glyph_cache_matches(const PickerGlyphCache::Entry& e,
     if(!e.bytes||e.bytes!=input.bytes||e.width!=width||e.height!=height||e.dpi!=dpi||e.flags!=flags||
        e.evictions!=owner.allocator.evicted_entries||e.resets!=owner.allocator.full_resets||
        e.color.red!=color.red||e.color.green!=color.green||e.color.blue!=color.blue||e.color.alpha!=color.alpha||
-       e.system.native_text!=system.native_text||e.system.native_format!=system.native_format||
-       e.system.em_size!=system.em_size||e.system.tracking!=system.tracking||
-       e.system.fixed_weight!=system.fixed_weight)return false;
+       e.native_text!=system.native_text||e.native_format!=system.native_format||
+       e.em_size!=system.em_size||e.tracking!=system.tracking||
+       e.fixed_weight!=system.fixed_weight)return false;
     for(u32 i=0;i<input.bytes;++i)if(e.text[i]!=input.data[i])return false;
     return true;
 }

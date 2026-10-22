@@ -62,7 +62,7 @@ UiRect action_bounds(UiPinnedMessagesAction action, u64 message) noexcept {
     for (u32 slot = 0; slot < scene->widgets.count; ++slot) {
         if (scene->targets[slot].action != action || scene->targets[slot].message_id != message) continue;
         const auto* node = ui_widget_manager_layout_node(scene->widgets,
-            {static_cast<u16>(slot), scene->widgets.storage[slot].generation});
+            {static_cast<u16>(slot), scene->widgets.generation});
         if (node) return node->rectangle;
     }
     return {};

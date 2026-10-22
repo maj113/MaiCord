@@ -159,20 +159,19 @@ void warm_draw_pipelines(D3D11Renderer* renderer) noexcept {
     context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
     context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
     context->PSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     if (zero_instance(pipeline.ui_instance_buffer, sizeof(PaintQuad))) {
         const UINT stride = sizeof(PaintQuad);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->IASetInputLayout(pipeline.ui_input_layout);
         context->IASetVertexBuffers(0, 1, &pipeline.ui_instance_buffer, &stride, &offset);
         context->VSSetShader(pipeline.ui_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.ui_pixel_shader, nullptr, 0);
-        context->DrawInstanced(6, 1, 0, 0);
+        context->DrawInstanced(4, 1, 0, 0);
     }
     // The glyph ring restarts with a discard on the first real upload.
     if (zero_instance(pipeline.glyph_instance_buffer, sizeof(GlyphQuad))) {
         const UINT stride = sizeof(GlyphQuad);
         pipeline.glyph_instance_end = 0;
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         context->IASetInputLayout(pipeline.glyph_input_layout);
         context->IASetVertexBuffers(0, 1, &pipeline.glyph_instance_buffer, &stride, &offset);
         context->VSSetShader(pipeline.glyph_vertex_shader, nullptr, 0);
@@ -182,12 +181,11 @@ void warm_draw_pipelines(D3D11Renderer* renderer) noexcept {
     }
     if (zero_instance(pipeline.media_instance_buffer, sizeof(MediaQuad))) {
         const UINT stride = sizeof(MediaQuad);
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->IASetInputLayout(pipeline.media_input_layout);
         context->IASetVertexBuffers(0, 1, &pipeline.media_instance_buffer, &stride, &offset);
         context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
-        context->DrawInstanced(6, 1, 0, 0);
+        context->DrawInstanced(4, 1, 0, 0);
     }
     ID3D11SamplerState* null_sampler = nullptr;
     context->PSSetSamplers(0, 1, &null_sampler);

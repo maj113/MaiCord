@@ -189,7 +189,7 @@ bool target_point(UiSettingsTarget target, LPARAM* point) noexcept {
         return true;
     }
     for (u32 i = 0; i < scene->widgets.count; ++i) {
-        const auto handle = UiWidgetHandle{static_cast<u16>(i), scene->widgets.storage[i].generation};
+        const auto handle = UiWidgetHandle{static_cast<u16>(i), scene->widgets.generation};
         const auto* node = ui_widget_manager_layout_node(scene->widgets, handle);
         if (!node)
             continue;

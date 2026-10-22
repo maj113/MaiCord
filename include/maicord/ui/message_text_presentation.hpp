@@ -45,6 +45,8 @@ struct MessageTextCommand {
     Color color;
     Color inline_role_color;
     u64 message_id;
+    // Identity of the shaping inputs and source. Refresh it when those change.
+    // Zero lets measurement hash the content of caller-supplied commands.
     u64 measurement_identity;
     u32 message_revision;
     float minimum_height;

@@ -2,6 +2,7 @@
 
 #include "maicord/core/slice.hpp"
 #include "maicord/core/stable_storage.hpp"
+#include "maicord/text/paragraph_hit_metric.hpp"
 #include "maicord/ui/text_style.hpp"
 
 namespace maicord {
@@ -13,10 +14,8 @@ struct UiRect;
 inline constexpr u32 kTextEditTextCapacity = 16 * 1'024;
 inline constexpr u32 kTextEditSelectionCapacity = 48;
 
-// One caret/selection rectangle in layout coordinates; source positions are
-// UTF-16 units. NativeParagraphHitMetric's layout without member initializers,
-// so owner arrays stay trivially zero-initialized (and constant-initialized).
-struct TextEditMetric {u16 source_first,source_count;float left,top,width,height;u32 bidi_level;};
+// Native queries publish directly into the retained editor rectangle buffer.
+using TextEditMetric = NativeParagraphHitMetric;
 
 enum TextEditLayoutOption : u8 {
     text_edit_layout_none = 0,

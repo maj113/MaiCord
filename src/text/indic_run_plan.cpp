@@ -55,7 +55,7 @@ SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
             return sfnt_indic_lookup_plan(layout,variations,profile,false,mask,out,result,limits.stage_work,ordered_presentation);},
             steps,roots,nullptr,!kind);
         if(status!=SfntStatus::ok)return status;
-        if(kind){plan.positioning_roots=roots.data;plan.positioning_count=roots.count;continue;}
+        if(kind){plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);continue;}
         plan.substitution_steps=steps.data;plan.substitution_count=steps.count;
         if(form_output.count){if(!malayalam_forms&&(status=prepare_forms())!=SfntStatus::ok)return status;continue;}
         for(u32 i=0;i<steps.count;++i)if(steps[i].feature_mask)return SfntStatus::unsupported_sequence;

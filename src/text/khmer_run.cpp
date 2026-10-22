@@ -26,7 +26,7 @@ SfntStatus native_khmer_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
     if(status!=SfntStatus::ok&&status!=SfntStatus::missing_table)return status;
     plan.admitted=status==SfntStatus::ok&&layouts[0].table.data&&layouts[1].table.data&&script_found;
     if(!plan.admitted){plan.fallback_roots=parent.substitution_roots.data;plan.substitution_count=parent.substitution_roots.count;
-        plan.positioning_roots=parent.positioning_roots.data;plan.positioning_count=parent.positioning_roots.count;}
+        plan.positioning_roots=parent.positioning_roots.data;plan.positioning_count=static_cast<u16>(parent.positioning_roots.count);}
     for(u32 kind=0;kind<2;++kind){const auto& layout=layouts[kind];if(!layout.table.data||(!plan.admitted&&(!independent||kind)))continue;
         ArenaScope temporary{scratch,arena_mark(scratch)};SfntFeatureSubstitutions variations{};
         status=native_layout_variations(*source.instance,layout,*scratch,variations,work);if(status!=SfntStatus::ok)return status;
@@ -42,7 +42,7 @@ SfntStatus native_khmer_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
             return sfnt_khmer_lookup_plan(layout,variations,mask,out,result,work);},steps,roots);
         if(status!=SfntStatus::ok)return status;
         if(!kind){plan.substitution_steps=steps.data;plan.substitution_count=steps.count;}
-        else{plan.positioning_roots=roots.data;plan.positioning_count=roots.count;}
+        else{plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);}
     }
     status=native_positioning_prepare(font,parent,plan.positioning(),*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*output=plan;return SfntStatus::ok;

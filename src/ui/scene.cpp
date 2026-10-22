@@ -92,7 +92,7 @@ UiWidgetKind semantic_kind(UiSemantic semantic) noexcept {
                : UiWidgetKind::container;
 }
 
-bool add_node(UiScene* scene, UiSemantic semantic, UiWidgetHandle parent, UiLayoutStyle style) noexcept {
+bool add_node(UiScene* scene, UiSemantic semantic, UiWidgetHandle parent, const UiLayoutStyle& style) noexcept {
     const u16 flags =
         semantic == UiSemantic::member_toggle || semantic == UiSemantic::pins_toggle ||
                 semantic == UiSemantic::threads_toggle || semantic == UiSemantic::home_button ||
@@ -219,9 +219,9 @@ bool project_shell(UiScene* scene) noexcept {
         UiNode& node = scene->nodes[index];
         node = UiNode{};
         node.rectangle = layout->rectangle;
-        node.widget = UiWidgetHandle{static_cast<u16>(index), widget.generation};
+        node.widget = UiWidgetHandle{static_cast<u16>(index), scene->widgets.generation};
         node.semantic = static_cast<UiSemantic>(widget.id - 1);
-        node.generation = widget.generation;
+        node.generation = scene->widgets.generation;
         node.visible = layout->visible;
     }
     return true;

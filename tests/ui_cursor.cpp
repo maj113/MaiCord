@@ -24,7 +24,7 @@ WalkResult walk_widgets(const UiWidgetManager& manager, Resolve resolve) noexcep
     constexpr u16 interactive = ui_widget_enabled | ui_widget_hit_test;
     for (u32 i = 0; i < manager.count; ++i) {
         const UiWidget& widget = manager.storage[i];
-        const UiWidgetHandle handle{static_cast<u16>(i), widget.generation};
+        const UiWidgetHandle handle{static_cast<u16>(i), manager.generation};
         if ((widget.flags & interactive) != interactive || !ui_widget_manager_input_enabled(manager, handle))
             continue;
         const auto* node = ui_widget_manager_layout_node(manager, handle);
@@ -268,7 +268,7 @@ void test_settings(Check check) noexcept {
     u32 buttons = 0;
     for (u32 i = 0; built && i < scene.widgets.count; ++i) {
         const auto& widget = scene.widgets.storage[i];
-        const UiWidgetHandle handle{static_cast<u16>(i), widget.generation};
+        const UiWidgetHandle handle{static_cast<u16>(i), scene.widgets.generation};
         if (widget.kind != UiWidgetKind::button || ui_widget_cursor(scene.widgets, handle) != UiCursor::hand)
             continue;
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
