@@ -230,7 +230,7 @@ struct ListParts {
     UiRect actions[kUiSettingsListActions];
 };
 ListParts list_parts(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index,
-                     UiRect row) noexcept {
+                     const UiRect& row) noexcept {
     const auto& m = t.metric;
     ListParts parts{};
     const auto* item = list_item(content, index);
@@ -264,14 +264,14 @@ ListParts list_parts(const UiSettingsTokens& t, const UiSettingsPageContent& con
     return parts;
 }
 // The count column's glyph after its text.
-UiRect list_count_icon(const UiSettingsTokens& t, const UiSettingsControl& c, UiRect column) noexcept {
+UiRect list_count_icon(const UiSettingsTokens& t, const UiSettingsControl& c, const UiRect& column) noexcept {
     const float size = t.metric.list_icon * .75f, cy = (column.top + column.bottom) * .5f;
     const float text = c.choices.count ? ui_settings_text_width(c.choices[0], kUiSettingsLabelEm) * 1.04f : 0;
     const float left = minimum(column.left + text + t.metric.chip_gap, column.right - size);
     return {left, cy - size * .5f, left + size, cy + size * .5f};
 }
 // The part of a list row under a point (UiSettingsListPart), or ~0u.
-u32 list_part(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index, UiRect row, float x,
+u32 list_part(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
               float y) noexcept {
     const auto* item = list_item(content, index);
     if (!item || !ui_rect_contains(row, x, y))
@@ -929,7 +929,7 @@ UiLayoutStyle sized(float width, float height) noexcept {
     style.flags |= ui_layout_node_allow_zero_size;
     return style;
 }
-UiLayoutStyle placed(UiRect rect, UiRect origin) noexcept {
+UiLayoutStyle placed(const UiRect& rect, const UiRect& origin) noexcept {
     auto style = sized(maximum(0.f, ui_rect_width(rect)), maximum(0.f, ui_rect_height(rect)));
     style.margin.left = rect.left - origin.left;
     style.margin.top = rect.top - origin.top;
@@ -2106,7 +2106,7 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, UiSettingsTarget
 namespace {
 // One option of a tabs, buttons or colors row inside its control rectangle;
 // colours report their trailing button as index choices.count.
-UiRect option_rect(const UiSettingsTokens& t, const UiSettingsControl& c, UiRect field, u32 index) noexcept {
+UiRect option_rect(const UiSettingsTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index) noexcept {
     float x = field.left;
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
@@ -2140,7 +2140,7 @@ UiRect option_rect(const UiSettingsTokens& t, const UiSettingsControl& c, UiRect
     }
     return {};
 }
-u32 option_hit(const UiSettingsTokens& t, const UiSettingsControl& c, UiRect field, float x, float y) noexcept {
+u32 option_hit(const UiSettingsTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y) noexcept {
     const u32 count = c.choices.count + (c.kind == UiSettingsControlKind::colors && c.action_label.bytes ? 1u : 0u);
     for (u32 i = 0; i < count; ++i)
         if (ui_rect_contains(option_rect(t, c, field, i), x, y))

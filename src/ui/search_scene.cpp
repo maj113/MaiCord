@@ -47,7 +47,7 @@ struct UiSearchRichProjection {
 };
 namespace {
 constexpr float default_body_height = 48;
-UiRect rich_item_clip(const UiSearchScene&, UiRect, UiRect) noexcept;
+UiRect rich_item_clip(const UiSearchScene&, const UiRect&, const UiRect&) noexcept;
 bool rich_enabled(const UiSearchScene& s) noexcept {
     return s.source && s.source->rich_timeline;
 }
@@ -289,7 +289,7 @@ UiRect choice_rows_rectangle(const UiSearchScene& scene) noexcept {
             scene.chooser.right - metrics.menu_padding,
             scene.chooser.bottom - metrics.menu_padding - choice_hint_height(scene)};
 }
-bool choice_menu_geometry(const UiSearchScene& scene, UiRect rectangle,
+bool choice_menu_geometry(const UiSearchScene& scene, const UiRect& rectangle,
                           UiMenuRowGeometry* geometry) noexcept {
     const auto& metrics = ui_theme_metrics(scene.theme_styles);
     const UiRect content{rectangle.left + metrics.menu_padding, rectangle.top + metrics.menu_padding,
@@ -303,7 +303,7 @@ bool choice_menu_geometry(const UiSearchScene& scene, UiRect rectangle,
 bool choice_person(const UiSearchFilterChoiceSource& source, const UiSearchFilterChoiceView& row) noexcept {
     return row.id && (source.kind == UiSearchFilterKind::from || source.kind == UiSearchFilterKind::mentions);
 }
-UiRect choice_avatar_rectangle(const UiMenuRowGeometry& geometry, UiRect row) noexcept {
+UiRect choice_avatar_rectangle(const UiMenuRowGeometry& geometry, const UiRect& row) noexcept {
     const float cx = (geometry.icon.left + geometry.icon.right) * .5f;
     const float cy = (row.top + row.bottom) * .5f;
     const float half = minimum(12.f, maximum(ui_rect_width(geometry.icon), ui_rect_height(geometry.icon)) * .5f + 2.f);
@@ -441,7 +441,7 @@ UiSearchLayout layout_for(const UiSearchSource* source, const UiSearchContent& c
 }
 // Plain (unmeasured) result header: the timestamp gets a slot sized to its
 // own text (estimated at subtext width), the author the rest, ellipsizing first.
-MessageResultCardHeaderLayout plain_header(UiRect card, const UiSearchRow& row) noexcept {
+MessageResultCardHeaderLayout plain_header(const UiRect& card, const UiSearchRow& row) noexcept {
     auto layout = message_result_card_header_layout(card.left + 52, card.right - 12,
                                                     static_cast<float>(row.author.bytes) * 9.f,
                                                     static_cast<float>(row.detail.bytes) * 7.f);
@@ -569,7 +569,7 @@ UiRect item_screen(const UiSearchScene& s, const UiSearchItem& item) noexcept {
     return {item.rectangle.left, item.rectangle.top + dy, item.rectangle.right, item.rectangle.bottom + dy};
 }
 // Images fill their tile: the quad covers it and the tile clips.
-UiRect tile_cover(const UiSearchScene& s, const UiSearchItem& item, UiRect tile) noexcept {
+UiRect tile_cover(const UiSearchScene& s, const UiSearchItem& item, const UiRect& tile) noexcept {
     float w = 0, h = 0;
     if (const auto* attachment = item_attachment(s, item)) {
         w = static_cast<float>(attachment->width);
@@ -734,7 +734,7 @@ Utf8View label(UiSearchAction a) noexcept {
         return {};
     }
 }
-UiWidgetHandle add(UiSearchScene& s, UiRect rectangle, UiSearchTarget target, Utf8View name,
+UiWidgetHandle add(UiSearchScene& s, const UiRect& rectangle, UiSearchTarget target, Utf8View name,
                    bool enabled = true, UiWidgetHandle parent = ui_widget_invalid_handle()) noexcept {
     auto style = ui_layout_style();
     style.width = ui_layout_fixed(ui_rect_width(rectangle));
@@ -788,7 +788,7 @@ void count_label(UiSearchScene& s) noexcept {
     CopyMemory(s.count_text + s.count_bytes, suffix.data, suffix.bytes);
     s.count_bytes += static_cast<u8>(suffix.bytes);
 }
-UiRect overlay_clip(const UiSearchScene& s, UiRect rectangle) noexcept {
+UiRect overlay_clip(const UiSearchScene& s, const UiRect& rectangle) noexcept {
     auto region = s.body;
     if (chooser_open(s) && ui_rect_has_area(ui_rect_intersection(rectangle, s.chooser)))
         region.top = maximum(region.top, s.chooser.bottom);
@@ -800,10 +800,10 @@ UiRect overlay_clip(const UiSearchScene& s, UiRect rectangle) noexcept {
     }
     return ui_rect_intersection(rectangle, region);
 }
-UiRect item_save_rectangle(UiRect row) noexcept {
+UiRect item_save_rectangle(const UiRect& row) noexcept {
     return {row.right - 44, row.top + 12, row.right - 12, row.top + 44};
 }
-UiRect item_jump_rectangle(UiRect row) noexcept {
+UiRect item_jump_rectangle(const UiRect& row) noexcept {
     return {row.right - 64, row.top + 16, row.right - 12, row.top + 40};
 }
 Utf8View item_title(const UiSearchScene& s, const UiSearchItem& item) noexcept {
@@ -1562,7 +1562,7 @@ const MessageSceneRowWidget* rich_target_row(const UiSearchScene& s, UiSearchTar
         *output_scene = scene;
     return target.snapshot ? message_scene_snapshot_row(*scene, *outer) : outer;
 }
-UiRect rich_item_clip(const UiSearchScene& s, UiRect rectangle, UiRect node_clip) noexcept {
+UiRect rich_item_clip(const UiSearchScene& s, const UiRect& rectangle, const UiRect& node_clip) noexcept {
     return ui_rect_intersection(ui_search_scene_content_clip(s, rectangle), node_clip);
 }
 } // namespace

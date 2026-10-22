@@ -21,7 +21,7 @@ namespace maicord {
 namespace {
 
 bool append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommandKind kind, u8 format,
-                  bool animated, UiRect rectangle, UiRect clip, UiWidgetReference owner,
+                  bool animated, const UiRect& rectangle, const UiRect& clip, UiWidgetReference owner,
                   u32 message_revision = 0, u8 embed_index = 0, u8 embed_resource = 0,
                   bool ordinary_video = false, bool snapshot = false,
                   MessageMediaObscure obscure = MessageMediaObscure::none) noexcept {
@@ -40,7 +40,7 @@ bool append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommand
     return true;
 }
 
-Color tone_color(const Theme& theme, MessageSystemTone tone) noexcept {
+const Color& tone_color(const Theme& theme, MessageSystemTone tone) noexcept {
     switch (tone) {
     case MessageSystemTone::positive:
         return theme.tokens.accent.success;
@@ -57,7 +57,7 @@ Color tone_color(const Theme& theme, MessageSystemTone tone) noexcept {
 
 // Blocked explicit media keeps its box as a muted notice; the text pass adds
 // the label. Obscured previews still draw (blurred by the media shader).
-bool push_blocked(PaintStream* paint, UiWidgetReference owner, UiRect rectangle, const Theme& theme) noexcept {
+bool push_blocked(PaintStream* paint, UiWidgetReference owner, const UiRect& rectangle, const Theme& theme) noexcept {
     return paint_stream_push_rounded_border(paint, rectangle.left, rectangle.top, rectangle.right,
                                             rectangle.bottom, theme.surface_high, theme.tokens.border.subtle,
                                             theme.scale.radius_sm, 1.0f) &&
@@ -65,7 +65,7 @@ bool push_blocked(PaintStream* paint, UiWidgetReference owner, UiRect rectangle,
                                        ui_layout_content_bounds_allow_overlap);
 }
 
-bool push_owned(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, const Color& fill,
+bool push_owned(PaintStream* stream, UiWidgetReference owner, const UiRect& rectangle, const Color& fill,
                 const Color& border, float radius, float border_width, UiLayoutContentKind kind,
                 u16 flags = ui_layout_content_bounds_collision) noexcept {
     return paint_stream_push_rounded_border(stream, rectangle.left, rectangle.top, rectangle.right,
@@ -73,7 +73,7 @@ bool push_owned(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, 
            paint_stream_record_content(stream, owner, rectangle, kind, flags);
 }
 // A card's accent: its leading border, following the card's rounded corners.
-bool push_accent(PaintStream* stream, UiWidgetReference owner, UiRect card, const Color& color,
+bool push_accent(PaintStream* stream, UiWidgetReference owner, const UiRect& card, const Color& color,
                  float card_radius) noexcept {
     return paint_stream_push_edge_strip(stream, card, kMessageEmbedAccentWidth, color, card_radius) &&
            paint_stream_record_content(stream, owner,
@@ -81,8 +81,8 @@ bool push_accent(PaintStream* stream, UiWidgetReference owner, UiRect card, cons
                                         card.bottom},
                                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap);
 }
-bool push_material(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, const Theme& theme,
-                   Color fill, Color border, float radius, float border_width, UiLayoutContentKind kind,
+bool push_material(PaintStream* stream, UiWidgetReference owner, const UiRect& rectangle, const Theme& theme,
+                   const Color& fill, const Color& border, float radius, float border_width, UiLayoutContentKind kind,
                    UiBackgroundTier tier,
                    UiBackgroundBorderTone tone = UiBackgroundBorderTone::palette) noexcept {
     return ui_background_paint_surface(stream, rectangle, theme, fill, border, radius, border_width, .9f,
@@ -93,7 +93,7 @@ bool push_material(PaintStream* stream, UiWidgetReference owner, UiRect rectangl
 
 // Invite card chrome and the server icon (fetched by URL like profile art).
 bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget& row, const MessageRecord& record,
-                         const Theme& theme, UiRect row_clip, PaintStream* paint,
+                         const Theme& theme, const UiRect& row_clip, PaintStream* paint,
                          MessageMediaCommandStream* media) noexcept {
     InviteLink links[kMessageInviteCardMaximum];
     const u32 count = minimum<u32>(row.invite_item_count,

@@ -188,7 +188,7 @@ bool ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
 // alpha-weighted so transparent pixels do not darken edges.
 struct ReducedWebpRows {
     u8* output;
-    u32* sums; // per output column: weighted R, G, B, alpha, samples
+    u32* sums; // per output column: weighted R, G, B, alpha
     u32 source_width, source_height, scale, width;
 };
 
@@ -198,25 +198,29 @@ bool reduced_webp_row(void* context, u32 y, const u8* rgba) noexcept {
         copy_bytes(r.output + static_cast<usize>(y) * r.width * 4u, rgba, r.width * 4u);
         return true;
     }
-    for (u32 x = 0; x < r.source_width; ++x) {
-        u32* sum = r.sums + (x / r.scale) * 5u;
-        const u32 alpha = rgba[x * 4u + 3u];
-        sum[0] += rgba[x * 4u] * alpha;
-        sum[1] += rgba[x * 4u + 1u] * alpha;
-        sum[2] += rgba[x * 4u + 2u] * alpha;
-        sum[3] += alpha;
-        ++sum[4];
+    for (u32 column = 0, x = 0; column < r.width; ++column) {
+        u32* sum = r.sums + column * 4u;
+        const u32 end = minimum(x + r.scale, r.source_width);
+        for (; x < end; ++x) {
+            const u32 alpha = rgba[x * 4u + 3u];
+            sum[0] += rgba[x * 4u] * alpha;
+            sum[1] += rgba[x * 4u + 1u] * alpha;
+            sum[2] += rgba[x * 4u + 2u] * alpha;
+            sum[3] += alpha;
+        }
     }
     if ((y + 1u) % r.scale != 0 && y + 1u != r.source_height)
         return true;
     u8* out = r.output + static_cast<usize>(y / r.scale) * r.width * 4u;
+    const u32 rows = y % r.scale + 1u;
     for (u32 x = 0; x < r.width; ++x) {
-        u32* sum = r.sums + x * 5u;
+        u32* sum = r.sums + x * 4u;
         const u32 alpha = sum[3];
         for (u32 c = 0; c < 3; ++c)
             out[x * 4u + c] = alpha ? static_cast<u8>((sum[c] + alpha / 2u) / alpha) : 0;
-        out[x * 4u + 3u] = sum[4] ? static_cast<u8>((alpha + sum[4] / 2u) / sum[4]) : 0;
-        for (u32 c = 0; c < 5; ++c)
+        const u32 samples = minimum(r.scale, r.source_width - x * r.scale) * rows;
+        out[x * 4u + 3u] = static_cast<u8>((alpha + samples / 2u) / samples);
+        for (u32 c = 0; c < 4; ++c)
             sum[c] = 0;
     }
     return true;
@@ -239,7 +243,7 @@ CdnStaticWebpResult reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8>
     const u64 pixels = u64{layout.width} * layout.height;
     const u64 output_bytes = align(u64{width} * height * 4u);
     const u64 alpha_bytes = layout.alpha_chunk.data ? align(pixels) : 0;
-    const u64 row_bytes = align(u64{width} * 5u * sizeof(u32)) + layout.workspace_bytes;
+    const u64 row_bytes = align(u64{width} * 4u * sizeof(u32)) + layout.workspace_bytes;
     // The ALPH decoder's ARGB scratch is free again before the rows decode.
     const u64 tail = maximum(layout.alpha_chunk.data ? pixels * 4u : 0ull, row_bytes);
     if (!ensure_scanlines(pipeline, output_bytes + alpha_bytes + tail + 16u)) {
@@ -264,9 +268,9 @@ CdnStaticWebpResult reduce_webp_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8>
         layout.alpha_filter = 0;
     }
     u32* sums = reinterpret_cast<u32*>(scratch);
-    clear_bytes(sums, width * 5u * sizeof(u32));
+    clear_bytes(sums, width * 4u * sizeof(u32));
     ReducedWebpRows rows{base, sums, layout.width, layout.height, scale, width};
-    const u32 sums_bytes = static_cast<u32>(align(u64{width} * 5u * sizeof(u32)));
+    const u32 sums_bytes = static_cast<u32>(align(u64{width} * 4u * sizeof(u32)));
     if (webp_thumbnail_decode(layout, {scratch + sums_bytes, layout.workspace_bytes}, reduced_webp_row, &rows) !=
         WebpThumbnailError::none) {
         result.decode.error = WebpError::bitstream;
@@ -361,6 +365,11 @@ struct ReducedJpegRows {
 bool reduced_jpeg_row(void* context, u32 y, const u8* rgba) noexcept {
     const auto& r = *static_cast<const ReducedJpegRows*>(context);
     const u32 w = r.width, h = r.height;
+    if (r.orientation == JpegOrientation::top_left || r.orientation == JpegOrientation::bottom_left) {
+        const u32 row = r.orientation == JpegOrientation::top_left ? y : h - 1u - y;
+        copy_bytes(r.output + static_cast<usize>(row) * w * 4u, rgba, w * 4u);
+        return true;
+    }
     const u32 pitch = jpeg_orientation_swaps_dimensions(r.orientation) ? h : w;
     for (u32 x = 0; x < w; ++x) {
         u32 dx = x, dy = y;

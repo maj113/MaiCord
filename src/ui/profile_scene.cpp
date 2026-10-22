@@ -277,7 +277,7 @@ bool prepare_biography(ProfileScene* s, Utf8View source) noexcept {
     s->bio_signature = signature;
     return true;
 }
-ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, UiRect r, Utf8View label = {},
+ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, Utf8View label = {},
                  ProfileAction action = ProfileAction::none, u32 flags = 0,
                  ProfileLook look = ProfileLook::plain, ProfileTone tone = ProfileTone::normal,
                  bool clip = false) noexcept {
@@ -325,14 +325,14 @@ ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, UiRect r, Utf8View labe
     part.icon = kProfileNoIcon;
     return &part;
 }
-ProfilePart* icon(ProfileScene* s, UiWidgetHandle parent, UiRect r, UiIcon glyph, ProfileAction action,
+ProfilePart* icon(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, UiIcon glyph, ProfileAction action,
                   ProfileTone tone = ProfileTone::subtle, ProfileLook look = ProfileLook::icon) noexcept {
     auto* part = add(s, parent, r, {}, action, 0, look, tone);
     if (part)
         part->icon = static_cast<u16>(glyph);
     return part;
 }
-bool place(ProfileScene* s, UiWidgetHandle handle, UiRect r) noexcept {
+bool place(ProfileScene* s, UiWidgetHandle handle, const UiRect& r) noexcept {
     auto* widget = ui_widget_manager_resolve(&s->widgets, handle);
     auto* node = widget ? ui_layout_engine_resolve(&s->widgets.layout, widget->layout) : nullptr;
     if (!node || !ui_rect_has_area(r))
@@ -1232,7 +1232,7 @@ float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, Utf8V
 
 // Header geometry shared by popout and modal: banner, avatar with its cut-out
 // stroke, decoration at 1.2x and the status dot.
-void header_geometry(ProfileScene* s, UiRect banner, float avatar_left, float avatar_top, float size) noexcept {
+void header_geometry(ProfileScene* s, const UiRect& banner, float avatar_left, float avatar_top, float size) noexcept {
     s->banner = banner;
     s->avatar = {avatar_left, avatar_top, avatar_left + size, avatar_top + size};
     const float grow = size * .1f;
@@ -1244,7 +1244,7 @@ void header_geometry(ProfileScene* s, UiRect banner, float avatar_left, float av
     s->status = {avatar_left + at, avatar_top + at, avatar_left + at + status, avatar_top + at + status};
 }
 // Banner, avatar and decoration parts (relative to owner at origin).
-bool header_parts(ProfileScene* s, UiWidgetHandle owner, UiRect origin, ProfileAction avatar_action) noexcept {
+bool header_parts(ProfileScene* s, UiWidgetHandle owner, const UiRect& origin, ProfileAction avatar_action) noexcept {
     const auto rel = [&](UiRect r) noexcept {
         return UiRect{r.left - origin.left, r.top - origin.top, r.right - origin.left, r.bottom - origin.top};
     };
@@ -2336,7 +2336,7 @@ Color card_backdrop(const ProfileScene& s, const Palette& c, float y, bool hot) 
     return over(hot ? c.card_hover : c.card, base);
 }
 // The rounded-top banner fill (its bottom corners square).
-bool banner_fill(PaintStream* paint, UiRect r, float radius, Color color) noexcept {
+bool banner_fill(PaintStream* paint, const UiRect& r, float radius, const Color& color) noexcept {
     if (!radius)
         return paint_stream_push(paint, r.left, r.top, r.right, r.bottom, color);
     return paint_stream_push_rounded(paint, r.left, r.top, r.right, minimum(r.bottom, r.top + radius * 2), color,
@@ -2344,7 +2344,7 @@ bool banner_fill(PaintStream* paint, UiRect r, float radius, Color color) noexce
            paint_stream_push(paint, r.left, r.top + radius, r.right, r.bottom, color);
 }
 // Thought bubble: two trailing circles and the rounded body.
-bool bubble_paint(PaintStream* paint, UiRect r, const Palette& c, float radius) noexcept {
+bool bubble_paint(PaintStream* paint, const UiRect& r, const Palette& c, float radius) noexcept {
     const UiRect big{r.left + 10, r.top - 8, r.left + 30, r.top + 12}, small{r.left - 3, r.top - 15, r.left + 7, r.top - 5};
     const float small_radius = ui_rect_width(small) * .5f, big_radius = ui_rect_width(big) * .5f;
     return paint_stream_push_rounded_border(paint, small.left, small.top, small.right, small.bottom, c.bubble,

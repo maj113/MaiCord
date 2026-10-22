@@ -559,7 +559,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         const u32 bytes=static_cast<u32>(resolved[last-1].end_byte)-resolved[i].first_byte;longest=maximum(longest,bytes);
         longest_units=maximum(longest_units,static_cast<u32>(resolved[last-1].end_unit)-resolved[i].first_unit);
         if((continuity[i]&~7u)!=devanagari_script)longest_ordinary=maximum(longest_ordinary,bytes);i=last;}
-    NativeAsciiParagraphStorage paragraph_buffers{};NativeParagraphShape shape{};Slice<char> saved{};Slice<TextStyleSpan> saved_styles{};
+    NativeAsciiParagraphStorage paragraph_buffers;NativeParagraphShape shape{};Slice<char> saved{};Slice<TextStyleSpan> saved_styles{};
     Slice<SfntFontLineParts> parts{};Slice<NativeParagraphRun> runs{};Slice<NativeParagraphLine> lines{};SfntStatus status=SfntStatus::ok;
     for(u32 attempt=0;attempt<2;++attempt){if(!arena_rewind(&owner.scratch,prefix))return false;const u32 factor=attempt?4u:1u,glyphs=text.bytes*factor+16;
         saved=take<char>(owner.scratch,text.bytes);saved_styles=take<TextStyleSpan>(owner.scratch,styles.count);parts=take<SfntFontLineParts>(owner.scratch,count);
@@ -571,7 +571,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         // item; the retry restores the full allocation if a font expands more.
         const u32 work_source=attempt?longest:minimum(longest,maximum(64u,longest_ordinary));
         const bool compact=work_source<longest;
-        paragraph_buffers={};paragraph_buffers.work=storage(owner.scratch,work_source,compact?maximum(128u,work_source+16):longest*factor+16,false,attempt!=0);
+        paragraph_buffers.work=storage(owner.scratch,work_source,compact?maximum(128u,work_source+16):longest*factor+16,false,attempt!=0);
         if(compact){auto& work=paragraph_buffers.work;work.clusters=take<NativeLineCluster>(owner.scratch,longest_units);
             work.run.glyphs=take<u16>(owner.scratch,longest+16);work.run.placements=take<SfntPlacement>(owner.scratch,longest+16);
             work.run.character_glyphs=take<u32>(owner.scratch,longest_units);

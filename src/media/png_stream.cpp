@@ -94,7 +94,7 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
         if (encoded[i] != kPngSignature[i])
             return parse_failure(result, PngError::signature);
     bool header = false, palette = false, transparency = false, idat = false, after_idat = false, end = false;
-    u64 compressed = 0;
+    u32 compressed = 0;
     u32 cursor = sizeof(kPngSignature);
     while (cursor < encoded.count && !end) {
         if (encoded.count - cursor < 12)
@@ -163,7 +163,7 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
     }
     if (!end || !layout->idat_chunks || compressed < 6 || (image->color_type == 3 && !image->palette_count))
         return parse_failure(result, PngError::chunk_order);
-    image->compressed_bytes = static_cast<u32>(minimum<u64>(compressed, ~0u));
+    image->compressed_bytes = compressed;
     return result;
 }
 

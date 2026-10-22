@@ -320,7 +320,7 @@ inline constexpr u32 kPendingLuma = 7, kPendingChroma = 4;
 u64 align16(u64 value) noexcept {
     return (value + 15u) & ~15ull;
 }
-Workspace carve(u8* base, u32 width) noexcept {
+Workspace carve(u8* base, u32 width, bool filtered_alpha) noexcept {
     const u32 columns = (width + 15u) / 16u;
     const u64 w16 = columns * 16ull, w8 = columns * 8ull;
     Workspace w{};
@@ -343,8 +343,10 @@ Workspace carve(u8* base, u32 width) noexcept {
     w.top_u = take(w8);
     w.top_v = take(w8);
     w.rgba = take(static_cast<u64>(width) * 4u);
-    w.alpha_previous = take(width);
-    w.alpha_current = take(width);
+    if (filtered_alpha) {
+        w.alpha_previous = take(width);
+        w.alpha_current = take(width);
+    }
     w.bytes = at;
     return w;
 }
@@ -354,9 +356,7 @@ Workspace carve(u8* base, u32 width) noexcept {
 void unfilter_alpha(u8 method, const u8* filtered, const u8* previous, u8* output, u32 width, u32 y) noexcept {
     for (u32 x = 0; x < width; ++x) {
         u32 predictor = 0;
-        if (method == 0) {
-            predictor = 0;
-        } else if (y == 0) {
+        if (y == 0) {
             predictor = x ? output[x - 1] : 0;
         } else if (x == 0) {
             predictor = previous[0];
@@ -422,12 +422,15 @@ bool emit(Decoder* d, u32 mb_y) noexcept {
     const auto clip = [](i32 v) noexcept -> u8 { return (v & ~16383) == 0 ? static_cast<u8>(v >> 6) : v < 0 ? 0 : 255; };
     const u8* alpha = nullptr;
     if (d->layout->alpha.data) {
-        u8* swap = d->w.alpha_previous;
-        d->w.alpha_previous = d->w.alpha_current;
-        d->w.alpha_current = swap;
-        unfilter_alpha(d->layout->alpha_filter, d->layout->alpha.data + static_cast<usize>(y) * d->width,
-                       d->w.alpha_previous, d->w.alpha_current, d->width, y);
-        alpha = d->w.alpha_current;
+        alpha = d->layout->alpha.data + static_cast<usize>(y) * d->width;
+        if (d->layout->alpha_filter) {
+            u8* swap = d->w.alpha_previous;
+            d->w.alpha_previous = d->w.alpha_current;
+            d->w.alpha_current = swap;
+            unfilter_alpha(d->layout->alpha_filter, alpha, d->w.alpha_previous, d->w.alpha_current,
+                           d->width, y);
+            alpha = d->w.alpha_current;
+        }
     }
     u8* out = d->w.rgba;
     for (u32 x = 0; x < d->width; ++x) {
@@ -637,7 +640,7 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
             layout->alpha_filter = static_cast<u8>((info >> 2) & 3u);
         }
     }
-    const u64 bytes = carve(nullptr, frame.width).bytes;
+    const u64 bytes = carve(nullptr, frame.width, layout->alpha.data && layout->alpha_filter).bytes;
     if (bytes > 0x7FFFFFFFull)
         return WebpThumbnailError::workspace;
     layout->workspace_bytes = static_cast<u32>(bytes);
@@ -651,7 +654,7 @@ WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slic
         return WebpThumbnailError::invalid_input;
     Decoder d{};
     d.layout = &layout;
-    d.w = carve(workspace.data, layout.width);
+    d.w = carve(workspace.data, layout.width, layout.alpha.data && layout.alpha_filter);
     d.sink = sink;
     d.context = context;
     d.width = layout.width;

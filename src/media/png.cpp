@@ -81,9 +81,11 @@ template <u32 Bytes> void scatter_pixels(const u8* source, u8* target, u32 width
 }
 
 // Expands reconstructed Adam7 passes (stored back to back after the output)
-// into the progressive layout; output rows start zeroed.
+// into the progressive layout. Packed sub-byte pixels need zeroed rows.
 void deinterlace(const PngImage& image, const u8* passes, u8* output) noexcept {
     const u32 bits = static_cast<u32>(image.channels) * image.bit_depth;
+    if (bits < 8)
+        clear_bytes(output, image.inflated_bytes);
     for (const auto& pass : kAdam7) {
         const u32 width = pass_extent(image.width, pass[0], pass[2]);
         const u32 height = pass_extent(image.height, pass[1], pass[3]);
@@ -94,6 +96,7 @@ void deinterlace(const PngImage& image, const u8* passes, u8* output) noexcept {
         for (u32 j = 0; j < height; ++j) {
             const u8* source = passes + j * stride + 1;
             u8* target = output + u64{pass[1] + j * pass[3]} * image.row_stride + 1;
+            target[-1] = 0;
             if (bits >= 8) {
                 const u32 bytes = bits / 8;
                 u8* to = target + u64{pass[0]} * bytes;
@@ -445,7 +448,6 @@ PngDecodeResult png_decode_parsed_scanlines(
             }
             pass += u64{height} * (row_bytes + 1u);
         }
-        clear_bytes(scanlines.data, image->inflated_bytes);
         deinterlace(*image, inflate_target, scanlines.data);
     } else if (!reconstruct_rows(scanlines.data, image->height, image->row_bytes, image->bytes_per_pixel)) {
         result.error = PngError::filter;

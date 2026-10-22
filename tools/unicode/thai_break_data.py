@@ -119,7 +119,7 @@ def read_varint(data, at):
 
 
 def build(words):
-    """Encode the word graph; the root becomes the 128-entry initial table.
+    """Encode the word graph; the root becomes a bounded initial table.
 
     Node encodings, where a reference below `len(references)` names a shared
     node by absolute offset and any larger value is a backward distance:
@@ -230,7 +230,7 @@ def build(words):
         if size < best[0]:
             best = (size, candidate, positions, special)
     _, data, offsets, special = best
-    initial = [0xffffffff] * 128
+    initial = [0xffffffff] * (max((label for label, _ in nodes[root][1]), default=0) + 1)
     for label, child in nodes[root][1]:
         initial[label] = offsets[child]
     return dict(data=data, offsets=offsets, nodes=nodes, root=root, initial=initial,
@@ -312,8 +312,8 @@ def emit(graph, words, inputs):
     data = graph['data']
     text += f'constexpr u32 thai_word_longest={LONGEST};\nconstexpr u8 thai_word_graph[]{{\n'
     text += ''.join('    ' + ','.join(str(b) for b in data[i:i + 32]) + ',\n' for i in range(0, len(data), 32))
-    text += '};\nconstexpr u32 thai_word_initial[128]{\n'
-    text += ''.join('    ' + ','.join(f'{v}u' for v in graph['initial'][i:i + 8]) + ',\n' for i in range(0, 128, 8))
+    text += '};\nconstexpr u32 thai_word_initial[]{\n'
+    text += ''.join('    ' + ','.join(f'{v}u' for v in graph['initial'][i:i + 8]) + ',\n' for i in range(0, len(graph['initial']), 8))
     references = graph['references']
     text += f'}};\nconstexpr u32 thai_word_reference_count={len(references)};\nconstexpr u32 thai_word_references[]{{\n'
     text += ''.join('    ' + ','.join(f'{v}u' for v in references[i:i + 8]) + ',\n' for i in range(0, len(references), 8))
@@ -341,8 +341,8 @@ def main():
                   excluded=dict(sorted(excluded.items())), longest=LONGEST,
                   nodes=graph['root'], bitmap_nodes=graph['bitmaps'], graph_bytes=len(graph['data']),
                   unshared_graph_bytes=graph['unshared_bytes'], reference_bytes=len(graph['references']) * 4,
-                  initial_bytes=512, unary_bytes=256,
-                  payload_bytes=len(graph['data']) + len(graph['references']) * 4 + 512 + 4 + 256,
+                  initial_bytes=len(graph['initial']) * 4, unary_bytes=256,
+                  payload_bytes=len(graph['data']) + len(graph['references']) * 4 + len(graph['initial']) * 4 + 4 + 256,
                   sources={k: dict(url=v['url'], sha256=v['sha256']) for k, v in SOURCES.items()},
                   generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                   output_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest())

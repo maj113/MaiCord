@@ -262,10 +262,13 @@ Utf8View skin_tone_variant(Utf8View base, u8 tone) noexcept {
 // Primary rows are emoji whose shortcode key (favorites, frecency) is neither
 // the catalog name nor the base's key with _toneN.
 Utf8View primary_row(u32 index) noexcept {
-    const auto glyph = kUnicodeEmoji16Entries[index].glyph();
-    for (const u16 row : kEmojiPrimaryShortcodes)
-        if (glyph_equal(kEmojiSharedNameShortcodes[row].glyph(), glyph))
-            return kEmojiSharedNameShortcodes[row].name();
+    const auto& glyph = kUnicodeEmoji16Entries[index];
+    // Both generators use the first occurrence in the shared, fully-qualified glyph pool.
+    for (const u16 row : kEmojiPrimaryShortcodes) {
+        const auto& alias = kEmojiSharedNameShortcodes[row];
+        if (alias.glyph_offset == glyph.glyph_offset && alias.glyph_bytes == glyph.glyph_bytes)
+            return alias.name();
+    }
     return {};
 }
 } // namespace

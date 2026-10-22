@@ -812,7 +812,7 @@ float result_card_text_width(const MessageScene& scene, const MessageRecord& rec
 // Name and timestamp are separate commands laid out from measured widths: the
 // timestamp always fits and follows the name, and a long name truncates first.
 bool append_result_card_header(MessageTextPresentation* presentation, const MessageScene& scene,
-                               const MessageSceneRowWidget& row, UiRect author, const UiRect& clip, Color color,
+                               const MessageSceneRowWidget& row, const UiRect& author, const UiRect& clip, const Color& color,
                                const MessageRecord& record, Utf8View name, u64 now_unix_seconds) noexcept {
     char storage[kMessageMarkdownTimestampMaximumBytes]{};
     const TimestampFormatResult stamp =
@@ -1779,7 +1779,7 @@ struct RetainedText {
 // The poll result card: the winning answer with its share, a tie or no winner.
 // The system line above links the poll itself.
 bool append_poll_result(MessageTextPresentation* presentation, BuildContext* context, const MessageRichStore& store,
-                        const MessageRichRecord& rich, UiTextFlowLayout* flow, Color text, Color muted,
+                        const MessageRichRecord& rich, UiTextFlowLayout* flow, const Color& text, const Color& muted,
                         UiWidgetReference owner, u64 message_id, u32 revision, u16 measurement_index) noexcept {
     const u32 total = parse_u32(poll_result_field(store, rich, utf8_literal("total_votes")));
     const u32 votes = parse_u32(poll_result_field(store, rich, utf8_literal("victor_answer_votes")));
@@ -1941,8 +1941,8 @@ bool retain_system_text(MessageTextPresentation* presentation, const ChatStateSt
 
 // Label of an obscured or blocked preview: inside the scrim pill, or across a
 // blocked notice box.
-bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObscure obscure, UiRect media,
-                          UiWidgetReference owner, UiRect clip, const Theme& theme, const MessageRecord& record,
+bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObscure obscure, const UiRect& media,
+                          UiWidgetReference owner, const UiRect& clip, const Theme& theme, const MessageRecord& record,
                           u16 measurement) noexcept {
     if (obscure == MessageMediaObscure::none)
         return true;
@@ -2115,7 +2115,7 @@ bool retain_text(MessageTextPresentation* presentation, Utf8View text, Utf8View*
 }
 
 bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 style, UiWidgetReference owner,
-                      UiRect rectangle, const UiRect& clip, Color color, const MessageRecord& record, u8 slot,
+                      const UiRect& rectangle, const UiRect& clip, const Color& color, const MessageRecord& record, u8 slot,
                       u16 measurement, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
     const UiRect visible = ui_rect_intersection(clip, rectangle);
     if (!text.bytes || !ui_rect_has_area(rectangle) || !ui_rect_has_area(visible))

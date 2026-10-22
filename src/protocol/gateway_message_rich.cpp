@@ -304,7 +304,7 @@ struct ReferencedContext {
 
 // Arrays are validated by the indexed reader: the first non-space byte after
 // "[" says whether any element follows.
-bool json_array_nonempty(JsonValue value) noexcept {
+bool json_array_nonempty(const JsonValue& value) noexcept {
     if (value.kind != JsonValueKind::array)
         return false;
     for (u32 at = 1; at < value.source.bytes; ++at) {
@@ -405,7 +405,7 @@ bool json_strings_equal(JsonString encoded, JsonString other) noexcept {
     return a.ok() && b.ok() && a.bytes == b.bytes && a.bytes && bytes_equal(left, right, a.bytes);
 }
 
-GatewayEventDecodeResult read_object(JsonValue value, const JsonIndexedDocument& scratch, u32 maximum_depth,
+GatewayEventDecodeResult read_object(const JsonValue& value, const JsonIndexedDocument& scratch, u32 maximum_depth,
                                      JsonMemberVisitor visitor, void* context,
                                      GatewayEventDecodeError* schema_error) noexcept {
     if (value.kind != JsonValueKind::object) {
@@ -594,7 +594,7 @@ bool visit_interaction(void* opaque, JsonString name, JsonValue value) noexcept 
     return accept_member(&context->seen, bit, valid, &context->error);
 }
 
-GatewayEventDecodeResult decode_interaction(JsonValue value, const JsonIndexedDocument& scratch, u32 depth,
+GatewayEventDecodeResult decode_interaction(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
                                             Slice<char> text, u32* used,
                                             GatewayMessageEvent* output) noexcept {
     if (value.kind == JsonValueKind::null_value)
@@ -696,7 +696,7 @@ bool visit_thread(void* opaque, JsonString name, JsonValue value) noexcept {
     return accept_member(&context->seen, bit, valid, &context->error);
 }
 
-GatewayEventDecodeResult decode_thread(JsonValue value, const JsonIndexedDocument& scratch, u32 depth,
+GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
                                        Slice<char> text, u32* used, GatewayMessageEvent* output) noexcept {
     output->thread = {};
     if (value.kind == JsonValueKind::null_value)
@@ -749,7 +749,7 @@ bool gather_objects(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 
-GatewayEventDecodeResult gather_array(JsonValue value, const JsonIndexedDocument& scratch,
+GatewayEventDecodeResult gather_array(const JsonValue& value, const JsonIndexedDocument& scratch,
                                       u32 maximum_depth, JsonValue* values, u32 capacity, u32 truncation,
                                       u32* truncations, u32* count) noexcept {
     // The root reader has already validated this array, including whitespace.

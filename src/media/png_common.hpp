@@ -29,7 +29,7 @@ inline constexpr u32 kChunkCicp = png_chunk_type('c', 'I', 'C', 'P');
 
 constexpr bool png_chunk_type_valid(const u8* type) noexcept {
     for (u32 index = 0; index < 4; ++index) {
-        if (!((type[index] >= 'A' && type[index] <= 'Z') || (type[index] >= 'a' && type[index] <= 'z'))) {
+        if (static_cast<u32>(type[index] | 0x20u) - 'a' >= 26u) {
             return false;
         }
     }

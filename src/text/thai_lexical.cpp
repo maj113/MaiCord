@@ -1,5 +1,6 @@
 #include "maicord/text/detail/thai_lexical.hpp"
 #include "maicord/text/detail/thai_syllable.hpp"
+#include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {
 // Word graph generated from ICU and PyThaiNLP word lists; see the file header
@@ -20,10 +21,7 @@ constexpr UnaryPatterns unary_patterns() noexcept {
 }
 constexpr auto unary=unary_patterns();
 u32 graph_rank(u64 value) noexcept {
-    value-=(value>>1)&0x5555555555555555ull;
-    value=(value&0x3333333333333333ull)+((value>>2)&0x3333333333333333ull);
-    value=(value+(value>>4))&0x0f0f0f0f0f0f0f0full;
-    return static_cast<u32>((value*0x0101010101010101ull)>>56);
+    return static_cast<u32>(__popcnt64(value));
 }
 u64 graph_u64(const u8* data) noexcept {
     u64 value=0;for(u32 i=8;i;--i)value=(value<<8)|data[i-1];return value;
@@ -71,7 +69,7 @@ NativeThaiWordCandidates native_thai_lexical_candidates(ConstSlice<u32> text,u32
     if(!text.data||first>=text.count)return output;
     const u32 cp=text[first];
     if(cp==0x20||cp==0x200b||cp==0xe2f||cp==0xe46){output.lengths[0]=1;return output;}
-    u32 node=cp-0xe00u<128?thai_word_initial[cp-0xe00u]:no_node;
+    u32 node=cp-0xe00u<sizeof(thai_word_initial)/sizeof(thai_word_initial[0])?thai_word_initial[cp-0xe00u]:no_node;
     // Lengths grow, so each word goes first and the eight longest are kept.
     for(u32 length=2;node!=no_node&&length<=thai_word_longest&&length<=text.count-first;++length){
         const u32 label=text[first+length-1]-0xe00u;

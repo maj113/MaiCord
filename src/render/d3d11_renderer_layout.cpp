@@ -351,7 +351,7 @@ MediaAtlasResult guild_icon_rail_allocation(MediaAtlas* atlas, const GuildRecord
 }
 
 // Collapsed folder tiles preview their first four member icons.
-bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row, UiRect tile) noexcept {
+bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row, const UiRect& tile) noexcept {
     const auto* view = renderer->navigation_view;
     for (u32 k = 0; view && k < 4 && k < row.view.folder_size; ++k) {
         const u32 source = row.source_index + 1 + k;
@@ -388,8 +388,8 @@ bool find_user_avatar(const D3D11Renderer& renderer, const UserRecord& user,
     return allocation->ok();
 }
 
-void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, UiRect rectangle,
-                           Color fallback) noexcept {
+void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, const UiRect& rectangle,
+                           const Color& fallback) noexcept {
     // Only an accepted native quad replaces a fallback. Keep all retained
     // geometry/batch/clip indices; alpha must reveal the actual surface below
     // the preview, rather than an opaque loading placeholder.
@@ -411,8 +411,8 @@ void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, UiRect rec
 }
 
 // A round avatar over its placeholder; a valid owner records the media as its content.
-bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, UiRect r, const UiRect& clip,
-                  UiWidgetReference owner, Color placeholder, bool first = false) noexcept {
+bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& r, const UiRect& clip,
+                  UiWidgetReference owner, const Color& placeholder, bool first = false) noexcept {
     const u32 before = renderer->media_quad_count;
     if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, clip, true, first) ||
         (owner.manager &&
