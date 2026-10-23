@@ -940,8 +940,8 @@ ProfileImageError crop_gif(ConstSlice<u8> s, const ImageCropOutput& crop, GuildI
     u64 bound = 13 + 3ull * global_colors + 19 + 1;
     for (u32 i = 0; i < image.frame_count; ++i) {
         const GifFrame& f = image.frames[i];
-        const u32 x0 = maximum(f.x_offset, cx), x1 = minimum(f.x_offset + f.width, cx + cw);
-        const u32 y0 = maximum(f.y_offset, cy), y1 = minimum(f.y_offset + f.height, cy + ch);
+        const u32 x0 = maximum<u32>(f.x_offset, cx), x1 = minimum<u32>(f.x_offset + f.width, cx + cw);
+        const u32 y0 = maximum<u32>(f.y_offset, cy), y1 = minimum<u32>(f.y_offset + f.height, cy + ch);
         const u64 area = x0 < x1 && y0 < y1 ? static_cast<u64>(x1 - x0) * (y1 - y0) : 1;
         bound += 8 + 10 + 3ull * 256 + lzw_bound(area);
     }
@@ -971,8 +971,8 @@ ProfileImageError crop_gif(ConstSlice<u8> s, const ImageCropOutput& crop, GuildI
         if (!decoded.ok())
             return ProfileImageError::decode;
         const GifFrame& f = decoded.frame;
-        const u32 x0 = maximum(f.x_offset, cx), x1 = minimum(f.x_offset + f.width, cx + cw);
-        const u32 y0 = maximum(f.y_offset, cy), y1 = minimum(f.y_offset + f.height, cy + ch);
+        const u32 x0 = maximum<u32>(f.x_offset, cx), x1 = minimum<u32>(f.x_offset + f.width, cx + cw);
+        const u32 y0 = maximum<u32>(f.y_offset, cy), y1 = minimum<u32>(f.y_offset + f.height, cy + ch);
         const bool empty = x0 >= x1 || y0 >= y1;
         const bool transparent = empty || (f.flags & gif_frame_transparent);
         const u32 disposal = empty ? 1 : f.dispose == GifDispose::background ? 2 : f.dispose == GifDispose::previous ? 3 : 1;

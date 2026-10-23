@@ -32,6 +32,7 @@ struct NativeGlyphOutlines {
     NativeColorState* color;
 };
 static_assert(sizeof(NativeGlyphOutlines)<=4096); // Fits one committed page.
+static_assert(is_trivial_v<NativeGlyphOutlines>); // Fresh VirtualAlloc storage is already zeroed.
 namespace {
 template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
 bool failed(NativeGlyphOutlines& o,u32 stage,u32 error) noexcept {++o.failures;log_u64(LogLevel::error,"render","native_outline_stage",stage);log_u64(LogLevel::error,"render","native_outline_error",error);return false;}
@@ -68,7 +69,7 @@ SfntStatus decode(NativeGlyphOutlines& o,const NativeFontInstance& instance,u16 
 bool prepare_owner(NativeGlyphOutlines** pointer,u16 face_id,NativeFontSession* fonts,NativeFontRunHandle run) noexcept {
     if(!pointer||!face_id||face_id>capacity||!fonts||!run.slot)return false;
     if(!*pointer){auto* o=static_cast<NativeGlyphOutlines*>(VirtualAlloc(nullptr,sizeof(NativeGlyphOutlines),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!o)return false;
-        *o={};if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){VirtualFree(o,0,MEM_RELEASE);return false;}
+        if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){VirtualFree(o,0,MEM_RELEASE);return false;}
         const bool shared=native_font_session_retain(fonts);if(shared)o->fonts=fonts;
         if(!shared){arena_release(&o->scratch);VirtualFree(o,0,MEM_RELEASE);return false;}*pointer=o;}
     auto& o=**pointer;if(fonts!=o.fonts)return false;const u32 index=face_id-1;if(!o.bindings[index].slot&&!bind(o,index,run))return false;

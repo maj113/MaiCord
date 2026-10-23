@@ -91,12 +91,40 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
         !transient_projection(&checked) && preflight.count == 1 && preflight.rejected == 1,
         "text emitter: explicit caller bound rejects before unbounded projection");
     ui_text_output_reset(&checked);
-    auto invisible = sample(); invisible.clip.right = invisible.clip.left;
+    auto invisible = sample();
+    invisible.clip.right = invisible.clip.left;
     check(ui_text_output_push(&checked, invisible) && !preflight.count && !preflight.rejected,
-        "text emitter: valid clipped overscan consumes no ordinal or capacity");
+          "text emitter: valid clipped overscan consumes no ordinal or capacity");
+    UiTextCommand hidden_storage[1]{};
+    UiTextCommandStream hidden_stream{};
+    ui_text_command_stream_initialize(&hidden_stream, {hidden_storage, 1});
+    UiTextOutput hidden_output{&hidden_stream, nullptr};
+    invisible.rectangle = {0, 0, 20, 20};
+    const UiRect outside[]{{20, 0, 40, 20}, {-20, 0, 0, 20}, {0, 20, 20, 40},
+                           {0, -20, 20, 0}, {5, 5, 5, 15},   {5, 5, 15, 5}};
+    const u64 hidden_signature = hidden_stream.signature;
+    for (const auto& clip : outside) {
+        invisible.clip = clip;
+        check(ui_text_output_push(&checked, invisible) && !preflight.count && !preflight.rejected &&
+                  preflight.signature == hidden_signature &&
+                  ui_text_output_push_owned(&hidden_output, invisible) && !hidden_stream.count &&
+                  !hidden_stream.rejected && !hidden_stream.owned_bytes &&
+                  hidden_stream.signature == hidden_signature,
+              "text emitter: disjoint and empty clips need no owned bytes or reservation");
+    }
+    invisible.owner.handle.generation = 0;
+    check(!ui_text_output_push(&checked, invisible) &&
+              !ui_text_output_push_owned(&hidden_output, invisible),
+          "text emitter: invisible commands still validate ownership");
+    invisible.owner = sample().owner;
+    invisible.clip = {19, 0, 40, 20};
+    check(ui_text_output_push(&checked, invisible) && preflight.count == 1 &&
+              ui_text_command_stream_push(&hidden_stream, invisible) && hidden_stream.count == 1 &&
+              preflight.signature == hidden_stream.signature,
+          "text emitter: a partially clipped label remains in both projections");
     UiTextOutput ambiguous{&f.stream, &emitter};
     check(!ui_text_output_valid(&ambiguous) && !ui_text_output_push(&ambiguous, sample()),
-        "text emitter: mutually exclusive stored and synchronous destinations enforced");
+          "text emitter: mutually exclusive stored and synchronous destinations enforced");
     const auto resolutions = f.resolutions;
     ui_text_command_stream_reset(&f.stream);
     // Friend row More actions are icon buttons and emit no text commands.

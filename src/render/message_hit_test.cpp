@@ -44,10 +44,11 @@ bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& co
     system.tracking=0;system.independent_letters=false;system.fixed_weight=false;system.message_hit_policy=true;
     TextStyleSpan spans[kTextStyleSpanMaximum];u32 count=0;
     constexpr u32 position_flags=text_style_bold|text_style_italic|text_style_monospace|text_style_jumbo_emoji|text_style_heading_1|text_style_heading_2|text_style_heading_3|text_style_subtext|text_style_custom_emoji;
-    for(u32 i=0;i<command.styles.count;++i){const auto& span=command.styles[i];u32 first=0,last=0;
+    // acquire_layout already validated the full UTF-8 string while counting units.
+    for(u32 i=0;i<command.styles.count;++i){const auto& span=command.styles[i];
         if(!span.byte_count||span.byte_offset>command.text.bytes||span.byte_count>command.text.bytes-span.byte_offset||
-           !utf8_utf16_position_for_byte_offset(command.text,span.byte_offset,&first)||
-           !utf8_utf16_position_for_byte_offset(command.text,span.byte_offset+span.byte_count,&last)||first>=last)return false;
+           !utf8_is_boundary(command.text,span.byte_offset)||
+           !utf8_is_boundary(command.text,span.byte_offset+span.byte_count))return false;
         if(span.size>=text_size_count)return false;const u32 flags=text_style_fold_size(span.flags,span.size)&position_flags;
         if(flags)spans[count++]={span.byte_offset,span.byte_count,flags};}
     const ConstSlice<TextStyleSpan> styles{spans,count};

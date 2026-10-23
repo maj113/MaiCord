@@ -29,6 +29,24 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
     renderer.message_action_bar = nullptr;
     if (!rebuild_model || renderer.message_scene != &scene || renderer.user_store != &users)
         return false;
+    if (!renderer.ui_scene) return false;
+    const auto* original_shell = renderer.ui_scene;
+    auto shell = *original_shell;
+    renderer.ui_scene = &shell;
+    const auto baseline_stamp = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
+    shell.width += .25f;
+    const auto resized_stamp = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
+    shell.width = original_shell->width;
+    auto changed_theme = kDefaultTheme;
+    changed_theme.text_primary.alpha *= .5f;
+    const auto themed_stamp = renderer_capture_presentation_stamp(renderer, changed_theme);
+    renderer.ui_scene = original_shell;
+    // Both a four-byte tail and a complete theme block affect frame retention.
+    if (!baseline_stamp.valid || !resized_stamp.valid || !themed_stamp.valid ||
+        renderer_presentation_stamp_equal(baseline_stamp, resized_stamp) ||
+        renderer_presentation_stamp_equal(baseline_stamp, themed_stamp) ||
+        baseline_stamp.count != resized_stamp.count || baseline_stamp.count != themed_stamp.count)
+        return false;
     constexpr u64 base = 1'270'000'000'100'000'000ull;
     for (u32 i = 0; i < 12; ++i)
         if (!message_store_upsert(&view.store,

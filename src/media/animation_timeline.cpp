@@ -73,13 +73,14 @@ u32 find_free_slot(AnimationTimeline* timeline) noexcept {
     if (timeline->entry_count >= timeline->capacity) {
         return 0xFFFFFFFFu;
     }
-    const u32 first = timeline->free_cursor % timeline->capacity;
+    u32 slot = timeline->free_cursor;
     for (u32 offset = 0; offset < timeline->capacity; ++offset) {
-        const u32 slot = (first + offset) % timeline->capacity;
         if (!occupied(timeline->entries[slot])) {
-            timeline->free_cursor = (slot + 1) % timeline->capacity;
+            timeline->free_cursor = slot + 1 == timeline->capacity ? 0 : slot + 1;
             return slot;
         }
+        if (++slot == timeline->capacity)
+            slot = 0;
     }
     return 0xFFFFFFFFu;
 }

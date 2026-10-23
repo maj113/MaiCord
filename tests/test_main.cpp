@@ -1800,9 +1800,9 @@ void test_paint_stream() noexcept {
     expect(paint_stream_reset(&stream, 100.0f, 80.0f) && stream.quad_capacity == kInitialPaintQuads,
            "paint_stream_demand_commits_initial_geometry");
     PaintQuad* const stable_quads = stream.quads;
-    expect(paint_stream_push_rounded_border(&stream, 0, 0, 10, 10, kDefaultTheme.accent,
-                                            kDefaultTheme.interactive, 20.0f, 2.0f) &&
-               stream.quads[0].radius == 5.0f && stream.quads[0].border_width == 2.0f &&
+    expect(paint_stream_push_rounded_border(&stream, 0, 0, 10, 6, kDefaultTheme.accent,
+                                            kDefaultTheme.interactive, 20.0f, 20.0f) &&
+               stream.quads[0].radius == 3.0f && stream.quads[0].border_width == 3.0f &&
                stream.batch_count == 1 && stream.batches[0].quad_count == 1,
            "paint_stream_rounded_border_clamp");
     expect(paint_stream_push(&stream, 4, 4, 4, 9, kDefaultTheme.accent), "paint_stream_ignore_empty");
@@ -9577,6 +9577,10 @@ void test_ui_variable_list() noexcept {
     const UiVariableRange range = ui_variable_list_range(list, 120, 200, 1);
     expect(range.first == 0 && range.count == 4 && range.first_offset_units == -120,
            "ui_variable_list_range_variable_heights");
+    const auto saturated_range = ui_variable_list_range(list, 120, ~u64{0}, ~u32{0});
+    expect(saturated_range.first == 0 && saturated_range.count == 5 &&
+               saturated_range.first_offset_units == -120,
+           "ui_variable_list_overscan_saturates_without_wrapping");
 
     UiScrollAnchor anchor{};
     u64 restored = 0;
@@ -10881,19 +10885,25 @@ void test_message_event_pump() noexcept {
 
 void test_glyph_quad_bounds() noexcept {
     const Color white{1.0f, 1.0f, 1.0f, 1.0f};
-    GlyphQuad quads[4]{
+    GlyphQuad quads[5]{
         GlyphQuad{2.0f, 2.0f, 4.0f, 4.0f, 0.1f, 0.2f, 0.3f, 0.4f, white},
         GlyphQuad{-2.0f, 6.0f, 6.0f, 14.0f, 0.0f, 0.0f, 1.0f, 1.0f, white},
         GlyphQuad{11.0f, 1.0f, 12.0f, 2.0f, 0.0f, 0.0f, 1.0f, 1.0f, white},
-        GlyphQuad{},
+        GlyphQuad{-2.0f, -2.0f, 14.0f, 14.0f, 2.0f, 0.0f, 3.0f, 1.0f, white},
+        GlyphQuad{3.0f, 4.0f, 8.0f, 7.0f, 0.1f, 0.2f, 0.3f, 0.4f, white},
     };
-    u32 count = 3;
+    u32 count = 5;
     const GlyphQuadBoundsResult bounded =
         glyph_quad_clip_range(quads, 0, &count, UiRect{0.0f, 0.0f, 10.0f, 10.0f});
-    expect(bounded.ok() && bounded.kept == 2 && bounded.dropped == 1 && bounded.clipped == 1 &&
-               count == 2 && quads[0].left == 2.0f && quads[0].u0 == 0.1f && quads[1].left == 0.0f &&
+    expect(bounded.ok() && bounded.kept == 4 && bounded.dropped == 1 && bounded.clipped == 2 &&
+               count == 4 && quads[0].left == 2.0f && quads[0].u0 == 0.1f && quads[1].left == 0.0f &&
                quads[1].top == 6.0f && quads[1].right == 6.0f && quads[1].bottom == 10.0f &&
-               quads[1].u0 == 0.25f && quads[1].v0 == 0.0f && quads[1].u1 == 1.0f && quads[1].v1 == 0.5f,
+               quads[1].u0 == 0.25f && quads[1].v0 == 0.0f && quads[1].u1 == 1.0f && quads[1].v1 == 0.5f &&
+               quads[2].left == 0.0f && quads[2].top == 0.0f && quads[2].right == 10.0f &&
+               quads[2].bottom == 10.0f && quads[2].u0 == 2.125f && quads[2].v0 == 0.125f &&
+               quads[2].u1 == 2.75f && quads[2].v1 == 0.75f &&
+               quads[3].left == 3.0f && quads[3].top == 4.0f && quads[3].right == 8.0f &&
+               quads[3].bottom == 7.0f && quads[3].u0 == 0.1f && quads[3].v1 == 0.4f,
            "glyph_quad_bounds_clip_uv_and_cull");
 
     quads[1].left = 5.0f;
@@ -11075,6 +11085,19 @@ void test_glyph_atlas_allocator() noexcept {
                glyph_atlas_allocate_indexed(&indexed, &index, 7, 4, 4).ok() &&
                glyph_atlas_find_indexed(&indexed, &index, 7).ok();
     expect(index_ok, "glyph_atlas_key_index_matches_linear_lookup_through_eviction_and_reset");
+
+    GlyphAtlasEntry wrap_entries[3]{};
+    GlyphAtlasRow wrap_row[1]{};
+    GlyphAtlasAllocator wrap{};
+    bool cursor_wrapped = glyph_atlas_initialize(&wrap, 3, 1, 0, {wrap_entries, 3}, {wrap_row, 1});
+    for (u32 i = 0; i < 12 && cursor_wrapped; ++i) {
+        const auto allocation = glyph_atlas_allocate_unique(&wrap, i + 1, 1, 1);
+        cursor_wrapped = allocation.ok() && allocation.handle.slot == i % 3 &&
+                         allocation.handle.generation == i / 3 + 1 && allocation.x == i % 3 &&
+                         allocation.evicted_entries == (i && i % 3 == 0 ? 3u : 0u) &&
+                         wrap.free_cursor == (i + 1) % 3;
+    }
+    expect(cursor_wrapped, "glyph_atlas_free_cursor_wraps_non_power_of_two_capacity_after_row_eviction");
 }
 
 // Buffered logging: ordinary lines reach the file through the deferred flush
@@ -16104,6 +16127,13 @@ void test_gif_decode() noexcept {
         }
     }
     expect(all_frames_exact, "gif_all_frames_exact_indices_local_palette_and_interlace");
+    const GifFrame saved_frame = workspace.frames[0];
+    workspace.frames[0].width = workspace.frames[0].height = 0xffff;
+    const auto oversized = gif_decode_parsed_frame({g_png_encoded, fixture.encoded_bytes}, image, 0,
+                                                  &workspace, {g_png_scanlines, 1});
+    expect(oversized.error == GifError::output_capacity && oversized.pixels == 0xfffe0001u,
+           "gif_16_bit_dimensions_multiply_without_signed_overflow");
+    workspace.frames[0] = saved_frame;
 
     u8 malformed[1'024]{};
     expect(fixture.encoded_bytes <= sizeof(malformed), "gif_fixture_mutation_capacity");
@@ -16136,6 +16166,15 @@ void test_gif_decode() noexcept {
     expect(gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &image, &workspace).error ==
                GifError::frame_rectangle,
            "gif_frame_rectangle_reject");
+
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
+    byte_store_le16(malformed + 6, 1024);byte_store_le16(malformed + 8, 1024);
+    const u16 rectangle[]{257, 513, 511, 255};
+    for(u32 field=0;field<4;++field)byte_store_le16(malformed+first_descriptor+1+field*2,rectangle[field]);
+    expect(gif_parse({malformed, fixture.encoded_bytes}, &image, &workspace).ok() &&
+               image.frames[0].x_offset == 257 && image.frames[0].y_offset == 513 &&
+               image.frames[0].width == 511 && image.frames[0].height == 255,
+           "gif_rectangle_preserves_each_16_bit_descriptor_field");
 
     for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
         malformed[index] = g_png_encoded[index];
@@ -17042,6 +17081,8 @@ void test_animation_frame_cache() noexcept {
         descriptors[index].control.gif.data_end = index * 8;
         descriptors[index].control.gif.width = 8;
         descriptors[index].control.gif.height = 8;
+        descriptors[index].control.gif.x_offset = static_cast<u16>(257 + index);
+        descriptors[index].control.gif.y_offset = static_cast<u16>(513 + index);
         descriptors[index].control.gif.delay_cs = 5;
         descriptors[index].control.gif.dispose = GifDispose::none;
         descriptors[index].duration_us = 16'667 + index;
@@ -17055,6 +17096,8 @@ void test_animation_frame_cache() noexcept {
         animation_frame_cache_find(&cache, AnimationFrameCacheKey{emoji, 2, 3, 0});
     expect(exact.ok() && exact.cached && exact.frame_index == 2 && exact.source_generation == 3 &&
                exact.duration_us == 16'669 && exact.control.gif.delay_cs == 5 &&
+               exact.control.gif.x_offset == 259 && exact.control.gif.y_offset == 515 &&
+               exact.allocation.width == 8 && exact.allocation.height == 8 &&
                animation_frame_cache_find(&cache, AnimationFrameCacheKey{emoji, 2, 4, 0}).error ==
                    AnimationFrameCacheError::not_found,
            "animation_frame_cache_exact_frame_generation_identity");
@@ -17136,12 +17179,12 @@ void test_animation_frame_cache() noexcept {
     // every resident entry must stay reachable from its home bucket, every
     // bucket must name a resident entry, and lookups must match residency.
     AnimationFrameCacheEntry churn_entries[16]{};
-    u32 churn_buckets[32]{};
+    u32 churn_buckets[33]{}; // Exercise non-power-of-two probe wrapping.
     GlyphAtlasEntry churn_allocations[16]{};
     GlyphAtlasRow churn_rows[8]{};
     AnimationFrameCache churn{};
     bool churn_ok = animation_frame_cache_initialize(
-        &churn, 32, 32, 0, Slice<AnimationFrameCacheEntry>{churn_entries, 16}, Slice<u32>{churn_buckets, 32},
+        &churn, 32, 32, 0, Slice<AnimationFrameCacheEntry>{churn_entries, 16}, Slice<u32>{churn_buckets, 33},
         Slice<GlyphAtlasEntry>{churn_allocations, 16}, Slice<GlyphAtlasRow>{churn_rows, 8});
     const auto churn_key = [](u32 id) noexcept {
         return AnimationFrameCacheKey{media_asset_custom_emoji(900'000 + id / 4, true), id % 4, 1, 0};

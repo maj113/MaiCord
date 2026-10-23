@@ -805,7 +805,7 @@ MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer
                                                          ConstSlice<u8> straight_rgba8) noexcept;
 bool renderer_capture_animation_frame(D3D11Renderer* renderer,
                                       const AnimationFrameCacheDescriptor& descriptor) noexcept;
-bool renderer_restore_animation_frame(D3D11Renderer* renderer, AnimationFrameCacheKey key,
+bool renderer_restore_animation_frame(D3D11Renderer* renderer, const AnimationFrameCacheKey& key,
                                       AnimationFrameCacheResult* result) noexcept;
 bool renderer_materialize_animation_frame(D3D11Renderer* renderer, MediaAssetKey key) noexcept;
 MediaAtlasGpuResult renderer_upload_png_scanlines(D3D11Renderer* renderer, MediaAssetKey key,

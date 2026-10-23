@@ -440,7 +440,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         return true;
     }
     const auto original_styles = styles;
-    UiInlineFlagProjection flag_projection{};
+    UiInlineFlagProjection flag_projection;
     RendererInlineMediaLayer flag_layer{};
     if (plain_flags && !semantics.count && !selection_active &&
         renderer_inline_media_owner(*renderer, layout_owner, &flag_layer) &&
@@ -958,18 +958,17 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         const u32 slot = renderer->text_effect_count++;
         auto& material = renderer->text_effects.materials[slot];
         material = {};
-        material.left = command.rectangle.left;
-        material.width = maximum(1.f, ui_rect_width(command.rectangle));
-        if (first_quad < renderer->content_text->quad_count) {
-            float ink_left = renderer->content_text->quads[first_quad].left,
-                  ink_right = renderer->content_text->quads[first_quad].right;
-            for (u32 i = first_quad + 1; i < renderer->content_text->quad_count; ++i) {
-                ink_left = minimum(ink_left, renderer->content_text->quads[i].left);
-                ink_right = maximum(ink_right, renderer->content_text->quads[i].right);
-            }
-            material.left = ink_left;
-            material.width = maximum(1.f, ink_right - ink_left);
+        UiRect effect_ink = command.rectangle;
+        for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
+            const auto& quad = renderer->content_text->quads[i];
+            effect_ink = i == first_quad ? UiRect{quad.left, quad.top, quad.right, quad.bottom}
+                                         : UiRect{minimum(effect_ink.left, quad.left),
+                                                  minimum(effect_ink.top, quad.top),
+                                                  maximum(effect_ink.right, quad.right),
+                                                  maximum(effect_ink.bottom, quad.bottom)};
         }
+        material.left = effect_ink.left;
+        material.width = maximum(1.f, ui_rect_width(effect_ink));
         material.kind = command.effect.kind;
         material.count = minimum<u8>(command.effect.count, 8);
         // Static effects keep the zero initialized above; only motion needs
@@ -984,15 +983,6 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         material.reserved[1] = text_system_font_size(renderer->glyph_text.system, command.style_flags);
         material.reserved[2] = command.rectangle.top;
         renderer->text_effect_animated |= material.animate != 0 && command.effect.kind != 1;
-        UiRect effect_ink = command.rectangle;
-        for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
-            const auto& quad = renderer->content_text->quads[i];
-            effect_ink = i == first_quad ? UiRect{quad.left, quad.top, quad.right, quad.bottom}
-                                         : UiRect{minimum(effect_ink.left, quad.left),
-                                                  minimum(effect_ink.top, quad.top),
-                                                  maximum(effect_ink.right, quad.right),
-                                                  maximum(effect_ink.bottom, quad.bottom)};
-        }
         // Covers the neon halo (4 + .12 em), pop offset (.13 em), gummy scale
         // and the later outline/shadow passes (< 1 + .02 em).
         const float reach = 4.f + .5f * material.reserved[1];
@@ -1056,25 +1046,26 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
             for (u32 i = count; i > 0; --i)
                 storage->quads[first_quad + extra + i - 1] = storage->quads[first_quad + i - 1];
             const float dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
-            for (u32 pass = 0; pass < passes; ++pass)
+            const float em = text_system_font_size(renderer->glyph_text.system, command.style_flags);
+            const float outline_offset = (command.effect.kind == 5 ? .6f : .8f) + .02f * em;
+            for (u32 pass = 0; pass < passes; ++pass) {
+                const bool shadow = command.effect.kind == 5 && pass == 0;
+                const u32 direction = (pass - (command.effect.kind == 5 ? 1 : 0)) % 4;
+                const float offset = shadow ? 0.f : outline_offset;
+                const float x = dx[direction] * offset, y = dy[direction] * offset;
                 for (u32 i = 0; i < count; ++i) {
                     auto q = storage->quads[first_quad + extra + i];
                     if (q.u0 >= 2.f)
                         q.color.alpha = 0.f;
-                    const bool shadow = command.effect.kind == 5 && pass == 0;
-                    const u32 direction = (pass - (command.effect.kind == 5 ? 1 : 0)) % 4;
-                    const float em =
-                        text_system_font_size(renderer->glyph_text.system, command.style_flags);
-                    const float offset =
-                        shadow ? 0.f : ((command.effect.kind == 5 ? .6f : .8f) + .02f * em);
-                    q.left += dx[direction] * offset;
-                    q.right += dx[direction] * offset;
-                    q.top += dy[direction] * offset;
-                    q.bottom += dy[direction] * offset;
+                    q.left += x;
+                    q.right += x;
+                    q.top += y;
+                    q.bottom += y;
                     q.color.blue = -1;
                     q.color.green = shadow ? 2.f : 1.f;
                     storage->quads[first_quad + pass * count + i] = q;
                 }
+            }
             storage->quad_count += extra;
             if (storage->batch_count)
                 storage->batches[storage->batch_count - 1].quad_count += extra;
@@ -2556,7 +2547,8 @@ bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypograph
         VirtualAlloc(nullptr, sizeof(RendererTypographyOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!owner)
         return false;
-    *owner = {};
+    // Fresh zeroed storage supplies the system fields; policy defaults are replaced below.
+    static_assert(is_trivial_v<TextSystem>);
     owner->policy.value = value;
     owner->policy.code_fixed_weight = text_fonts[static_cast<u32>(value.code_face)].file != nullptr;
     auto& system = owner->system;

@@ -125,32 +125,30 @@ bool fits(const ShapedTextGeneration& generation, u32 key_bytes, u32 glyphs, u32
            hits <= kShapedTextCacheHits - generation.hit_count;
 }
 
-// Caller checked fits(). Copies arrays and transfers ownership of owner_flags.
+// Caller checked fits() and populated the key bytes in place.
+// Copies arrays and transfers ownership of owner_flags.
 ShapedTextCacheEntry* append(ShapedTextGeneration& generation, const ShapedTextCacheEntry& key,
-                             const u8* key_bytes, const ShapedText& source) noexcept {
+                             u32 key_count, const ShapedText& source) noexcept {
     ShapedTextCacheEntry& entry = generation.entries[generation.entry_count];
     entry = key;
     entry.moved = false;
     entry.key_offset = generation.key_byte_count;
-    const u32 key_count = key.text_bytes + key.style_count * static_cast<u32>(sizeof(TextStyleSpan)) +
-                          key.hit_span_count * static_cast<u32>(sizeof(TextHitSpan));
-    copy_bytes(generation.key_bytes + entry.key_offset, key_bytes, key_count);
     generation.key_byte_count += key_count;
-    entry.first_glyph = generation.glyph_count;
-    entry.glyph_count = source.glyph_count;
+    entry.first_glyph = static_cast<u16>(generation.glyph_count);
+    entry.glyph_count = static_cast<u16>(source.glyph_count);
     copy_bytes(generation.glyphs + entry.first_glyph, source.glyphs, source.glyph_count * sizeof(TextGlyph));
     generation.glyph_count += source.glyph_count;
-    entry.first_run = generation.run_count;
-    entry.run_count = source.run_count;
+    entry.first_run = static_cast<u16>(generation.run_count);
+    entry.run_count = static_cast<u16>(source.run_count);
     copy_bytes(generation.runs + entry.first_run, source.runs, source.run_count * sizeof(TextRun));
     generation.run_count += source.run_count;
-    entry.first_decoration = generation.decoration_count;
-    entry.decoration_count = source.decoration_count;
+    entry.first_decoration = static_cast<u16>(generation.decoration_count);
+    entry.decoration_count = static_cast<u16>(source.decoration_count);
     copy_bytes(generation.decorations + entry.first_decoration, source.decorations,
                source.decoration_count * sizeof(TextDecoration));
     generation.decoration_count += source.decoration_count;
-    entry.first_hit = generation.hit_count;
-    entry.hit_count = source.hit_region_count;
+    entry.first_hit = static_cast<u16>(generation.hit_count);
+    entry.hit_count = static_cast<u16>(source.hit_region_count);
     copy_bytes(generation.hits + entry.first_hit, source.hit_regions,
                source.hit_region_count * sizeof(TextHitRegion));
     generation.hit_count += source.hit_region_count;
@@ -221,7 +219,8 @@ bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest
         return true;
     }
     const ShapedText source = view_of(older, *entry);
-    const ShapedTextCacheEntry* moved = append(current, *entry, older.key_bytes + entry->key_offset, source);
+    copy_bytes(current.key_bytes + current.key_byte_count, older.key_bytes + entry->key_offset, key_count);
+    const ShapedTextCacheEntry* moved = append(current, *entry, key_count, source);
     entry->moved = true;
     saturating_increment(cache->stats.promotions);
     *view = view_of(current, *moved);
@@ -264,7 +263,7 @@ bool shaped_text_cache_insert(ShapedTextCache* cache, const ShapedTextCacheReque
     key.hit_span_count = static_cast<u16>(request.hits.count);
     key.wrapping = request.wrapping;
     key.overflow = request.overflow;
-    append(generation, key, key_bytes, *shaped);
+    append(generation, key, key_count, *shaped);
     // The cache now owns the run and session references.
     shaped->run_count = 0;
     shaped->set_native_fonts(nullptr);

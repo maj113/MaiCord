@@ -88,7 +88,7 @@ bool animation_frame_cache_gpu_capture(
     MediaAtlasHandle* presented_media = nullptr) noexcept;
 bool animation_frame_cache_gpu_restore(
     AnimationFrameCacheGpu* gpu, MediaAtlas* media_atlas,
-    AnimationFrameCacheKey key, AnimationFrameCacheResult* result,
+    const AnimationFrameCacheKey& key, AnimationFrameCacheResult* result,
     MediaAtlasHandle* presented_media = nullptr) noexcept;
 bool animation_frame_cache_gpu_materialize(
     AnimationFrameCacheGpu* gpu, ID3D11DeviceContext1* context,

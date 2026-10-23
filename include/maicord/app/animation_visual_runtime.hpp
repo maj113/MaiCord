@@ -61,7 +61,7 @@ void animation_visual_runtime_suspend(AnimationVisualRuntime* runtime, u64 now_u
 void animation_visual_runtime_resume(AnimationVisualRuntime* runtime, u64 now_us) noexcept;
 void animation_visual_runtime_release(AnimationVisualRuntime* runtime) noexcept;
 
-static_assert(sizeof(AnimationVisualState) == 88);
+static_assert(sizeof(AnimationVisualState) == 80);
 static_assert(sizeof(AnimationVisualRuntime) < 1'024);
 
 } // namespace maicord

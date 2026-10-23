@@ -40,7 +40,7 @@ HRESULT upload_png_inputs(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11Device
 HRESULT upload_gif_inputs(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
                           const GifFrame& frame, const GifPalette& palette,
                           ConstSlice<u8> indices) noexcept {
-    return upload_png_shader_inputs(gpu, device, context, indices, frame.width * frame.height,
+    return upload_png_shader_inputs(gpu, device, context, indices, static_cast<u32>(frame.width) * frame.height,
                                     palette.rgba, palette.count);
 }
 

@@ -30,37 +30,35 @@ ColrMatrix multiply(const ColrMatrix& a, const ColrMatrix& b) noexcept {
             offset.x,
             offset.y};
 }
-bool inverse(const ColrMatrix& m, float* output) noexcept {
+void inverse(const ColrMatrix& m, float* output) noexcept {
     const float det = m.m11 * m.m22 - m.m12 * m.m21;
-    if (!(det > 1e-12f || det < -1e-12f))
-        return false;
     output[0] = m.m22 / det;
     output[1] = -m.m12 / det;
     output[2] = -m.m21 / det;
     output[3] = m.m11 / det;
     output[4] = -(m.dx * output[0] + m.dy * output[2]);
     output[5] = -(m.dx * output[1] + m.dy * output[3]);
-    return true;
 }
-ColrPaintNode* emit(Builder& b, u32 kind, const ColrMatrix* m = nullptr) noexcept {
+ColrPaintOp* emit(Builder& b, u32 kind, const ColrMatrix* m = nullptr,
+                  usize bytes = sizeof(ColrPaintOp)) noexcept {
     if (b.p->nodes >= 8192)
         return nullptr;
-    auto* n = arena_allocate_zero<ColrPaintNode>(&b.p->storage);
+    auto* n = static_cast<ColrPaintOp*>(arena_allocate_zero(
+        &b.p->storage, bytes, alignof(ColrPaintNode)));
     if (!n)
         return nullptr;
     const u32 offset = static_cast<u32>(reinterpret_cast<u8*>(n) - b.p->storage.base);
     if (b.p->last != none)
-        reinterpret_cast<ColrPaintNode*>(b.p->storage.base + b.p->last)->next = offset;
+        reinterpret_cast<ColrPaintOp*>(b.p->storage.base + b.p->last)->next = offset;
     else
         b.p->first = offset;
     b.p->last = offset;
     ++b.p->nodes;
     n->next = none;
     n->kind = kind;
-    if (m) {
-        if (!inverse(*m, n->inverse))
-            n->mode = ~0u; // Singular transforms paint nothing.
-    }
+    // tree rejects singular transforms before visiting their paints.
+    if (m)
+        inverse(*m, static_cast<ColrPaintNode*>(n)->inverse);
     if (kind <= 3 || kind == 7)
         ++b.p->stack;
     if (kind == 6) {
@@ -133,7 +131,7 @@ bool curve(SegmentWriter& b, Point a, Point c1, Point c2, Point z, u32 depth = 0
 }
 bool emit_mask(Builder& b, u32 job) noexcept {
     if (b.p->last != none) {
-        auto* paint = reinterpret_cast<ColrPaintNode*>(b.p->storage.base + b.p->last);
+        auto* paint = reinterpret_cast<ColrPaintOp*>(b.p->storage.base + b.p->last);
         if (paint->kind <= 3) {
             // A leaf paint clipped by a shape is one operation. Most pixels
             // miss that shape and need no gradient evaluation at all.
@@ -298,7 +296,7 @@ bool mask(Builder& b, u32 glyph, const ColrMatrix& m) noexcept {
 bool clip(Builder& b, const ColrRect& r, const ColrMatrix& m) noexcept {
     if (r.right <= r.left || r.bottom <= r.top)
         return true;
-    auto* n = emit(b, 5, &m);
+    auto* n = static_cast<ColrPaintNode*>(emit(b, 5, &m, sizeof(ColrPaintNode)));
     if (!n)
         return false;
     n->values[0] = r.left;
@@ -362,7 +360,7 @@ bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth)
     }
     case ColrPaintKind::solid_glyph:
     case ColrPaintKind::solid: {
-        auto* n = emit(b, 0);
+        auto* n = static_cast<ColrSolidPaintNode*>(emit(b, 0, nullptr, sizeof(ColrSolidPaintNode)));
         if (!n)
             return false;
         const auto c = e.kind == ColrPaintKind::solid ? p.solid.value : p.solidGlyph.color.value;
@@ -375,7 +373,7 @@ bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth)
     case ColrPaintKind::linear_gradient:
     case ColrPaintKind::radial_gradient:
     case ColrPaintKind::sweep_gradient: {
-        auto* n = emit(b, static_cast<u32>(e.kind) - 3, &m);
+        auto* n = static_cast<ColrPaintNode*>(emit(b, static_cast<u32>(e.kind) - 3, &m, sizeof(ColrPaintNode)));
         if (!n)
             return false;
         if (e.kind == ColrPaintKind::linear_gradient) {

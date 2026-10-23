@@ -166,6 +166,7 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
     } else if(input.texture_bounds.x>=0)coverage=glyph_mask(input.texture_coordinate,input.texture_bounds);
     float3 color=input.color.rgb;
     if(input.color.r<0) {
+        // Published materials have palette counts in [1,8] and widths >= 1.
         const TextEffectMaterial effect=effects[min(127u,(uint)(-input.color.r-1))];
         if(effect.kind==3 && input.texture_bounds.x>=0) {
             const float2 directions[8]={float2(1,0),float2(-1,0),float2(0,1),float2(0,-1),
@@ -194,11 +195,11 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
         else if(input.color.b>=0 && effect.kind==1)color=effect.colors[0].rgb;
         else if(input.color.b>=0 && effect.kind==5)color=float3(1,1,1);
         else if(input.color.b>=0 && effect.kind==8)
-            color=effect.colors[(uint)input.color.g%(uint)max(effect.count,1)].rgb;
+            color=effect.colors[(uint)input.color.g%(uint)effect.count].rgb;
         else if(input.color.b>=0 && effect.kind==9) {
             // Palette cycle: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs.
-            float segment=frac((input.position.x/effect_scale-effect.left)/100)*max(effect.count,1);
-            uint a=min((uint)segment,7u),b=a+1u<(uint)max(effect.count,1)?a+1u:0u;
+            float segment=frac((input.position.x/effect_scale-effect.left)/100)*effect.count;
+            uint a=min((uint)segment,7u),b=a+1u<(uint)effect.count?a+1u:0u;
             color=lerp(effect.colors[a].rgb,effect.colors[b].rgb,frac(segment));
         }
         else {
@@ -206,17 +207,16 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
             if(input.color.b>=0 && effect.kind==4)
                 color=toon_color(effect,saturate(y*.25+input.glyph_parameters.z*.75));
             else {
-                float x=saturate((input.position.x/effect_scale-effect.left)/max(effect.width,1));
+                float x=saturate((input.position.x/effect_scale-effect.left)/effect.width);
                 if(input.color.b<0)
                     color=lerp(effect.colors[0].rgb,effect.colors[1].rgb,saturate((x+y+input.glyph_parameters.z)*.5));
                 else {
                     float phase=effect.animate*(effect_seconds-effect.reserved.x+60);
                     float diagonal=saturate(((x+y)*.5-.1)/.8);
                     float prism_x=(input.position.x/effect_scale-effect.left)/max(effect.colors[7].a,38);
-                    float segment=effect.kind==7?frac(prism_x+phase*.5)*effect.count:diagonal*max(effect.count-1,0);
-                    uint a=min((uint)segment,7u),b=min(a+1u,(uint)max(effect.count-1,0));
-                    // The renderer supplies an integer palette count in [1,8].
-                    if(effect.kind==7)b=a+1u<(uint)max(effect.count,1)?a+1u:0u;
+                    float segment=effect.kind==7?frac(prism_x+phase*.5)*effect.count:diagonal*(effect.count-1);
+                    uint a=min((uint)segment,7u),b=min(a+1u,(uint)(effect.count-1));
+                    if(effect.kind==7)b=a+1u<(uint)effect.count?a+1u:0u;
                     color=lerp(effect.colors[a].rgb,effect.colors[b].rgb,frac(segment));
                 }
             }

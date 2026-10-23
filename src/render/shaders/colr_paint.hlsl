@@ -97,14 +97,13 @@ float mask(uint offset,uint indices,uint count,uint fill,float2 p,float4 bounds)
     bool inside=fill!=0?winding!=0:((abs(winding)&1)!=0);
     return saturate(.5+(inside?1:-1)*sqrt(distance2)*pixels_per_em);
 }
-float shape_coverage(uint data,uint2 pixel) {
+float shape_coverage(uint data,uint2 pixel,float2 p) {
     float coverage=0;
     int2 local=int2(outline_origin)+int2(pixel-allocation_padding)-asint(load2(data+16));
     uint2 size=load2(data+24);
     if(all(local>=0)&&all(local<int2(size))) {
         uint4 header=load4(data);
         uint2 row=load2(header.w+local.y*8);
-        float2 p=(float2(asint(load2(data+16)))+float2(local)+.5)/pixels_per_em;
         coverage=mask(header.x,row.x,row.y,header.z,p,asfloat(load4(data+32)));
     }
     return coverage;
@@ -142,7 +141,7 @@ void colr_paint(uint3 thread : SV_DispatchThreadID) {
         float4 leaf=0;
 #endif
         bool shaped=kind>=8&&kind<=11;float coverage=1;
-        if(shaped||kind==4)coverage=shape_coverage(shaped?load1(at+20):data,thread.xy);
+        if(shaped||kind==4)coverage=shape_coverage(shaped?load1(at+20):data,thread.xy,p);
         if(shaped) {
             if(coverage==0){
 #if !COLR_LAYERS
@@ -152,9 +151,9 @@ void colr_paint(uint3 thread : SV_DispatchThreadID) {
             }
             kind-=8;
         }
-        float4 m=asfloat(load4(at+24));float2 translation=asfloat(load2(at+40));
+        float4 m=asfloat(load4(at+48));float2 translation=asfloat(load2(at+64));
         float2 q=float2(p.x*m.x+p.y*m.z,p.x*m.y+p.y*m.w)+translation;
-        float4 a=asfloat(load4(at+48));float2 b=asfloat(load2(at+64));
+        float4 a=asfloat(load4(at+24));float2 b=asfloat(load2(at+40));
         uint mode=load1(at+16);
 #if COLR_LAYERS
         if(kind==0)leaf=premultiply(a);

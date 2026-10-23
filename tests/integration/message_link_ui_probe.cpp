@@ -20,6 +20,7 @@
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
 #include "maicord/render/renderer_presentation.hpp"
+#include "maicord/render/message_hit_test.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -657,6 +658,36 @@ bool gallery_activation() noexcept {
     return ok;
 }
 
+bool message_style_boundaries() noexcept {
+    MessageHitTestCacheOwner cache{};
+    struct Release {
+        MessageHitTestCacheOwner& cache;
+        ~Release() noexcept { message_hit_test_cache_release(&cache); }
+    } release{cache};
+    MessageTextCommand command{};
+    command.text = utf8_literal("a😀b");
+    command.rectangle = command.clip = {0, 0, 240, 40};
+    command.message_id = 1;
+    MessageTextPresentation presentation{};
+    presentation.commands = {&command, 1};
+    presentation.command_count = 1;
+    presentation.active = true;
+    // Zero-flag spans still require validation before the unstyled fallback.
+    const TextStyleSpan spans[]{{0, 1}, {1, 4}, {5, 1}, {0, 6},
+                               {2, 3}, {1, 3}, {6, 1}, {7, 1}, {0, 0}};
+    for (u32 i = 0; i < sizeof(spans) / sizeof(spans[0]); ++i) {
+        command.styles = {spans + i, 1};
+        message_hit_test_cache_invalidate(&cache);
+        const auto hit = message_position_hit_test(&cache, presentation, g_app.renderer.glyph_text.system,
+                                                   96, 8, 8);
+        if (hit.valid != (i < 4)) return false;
+    }
+    command.text = utf8_literal("a\x80" "b");
+    command.styles = {spans, 1};
+    message_hit_test_cache_invalidate(&cache);
+    return !message_position_hit_test(&cache, presentation, g_app.renderer.glyph_text.system, 96, 8, 8).valid;
+}
+
 bool scenarios() noexcept {
     if (!require(gallery_activation(), 11))
         return false;
@@ -810,7 +841,7 @@ bool message_link_ui_probe() noexcept {
     return require(renderer_initialize(&g_app.renderer, window) &&
                        initialize(window),
                    100) &&
-           scenarios();
+           require(message_style_boundaries(), 101) && scenarios();
 }
 } // namespace maicord
 

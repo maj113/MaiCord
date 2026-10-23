@@ -47,8 +47,11 @@ namespace {
 u32 layered_node_count(const ColrPaintProgram& p) noexcept {
     u32 at=p.first, depth=0, clipped=0;
     for(u32 i=0;i<p.nodes;++i) {
-        if(at>p.storage.offset || sizeof(ColrPaintNode)>p.storage.offset-at)return 0;
-        const auto& n=*reinterpret_cast<const ColrPaintNode*>(p.storage.base+at);
+        if(at>p.storage.offset || sizeof(ColrPaintOp)>p.storage.offset-at)return 0;
+        const auto& n=*reinterpret_cast<const ColrPaintOp*>(p.storage.base+at);
+        const usize bytes=n.kind==8?sizeof(ColrSolidPaintNode):
+            n.kind==6?sizeof(ColrPaintOp):sizeof(ColrPaintNode);
+        if(bytes>p.storage.offset-at)return 0;
         if(n.kind>=8&&n.kind<=11) {
             if(clipped||depth==2)return 0;
             if(n.reserved>p.storage.offset || sizeof(ColrMask)>p.storage.offset-n.reserved)return 0;
@@ -82,7 +85,7 @@ u32 write_layer_plan(const ColrPaintProgram& p,const GlyphRasterBounds& b,u16 pa
         const i64 left=i64{b.left}-padding+x*8,top=i64{b.top}-padding+y*8;
         u32 at=p.first;
         for(u32 i=0;i<p.nodes;++i) {
-            const auto& n=*reinterpret_cast<const ColrPaintNode*>(p.storage.base+at);
+            const auto& n=*reinterpret_cast<const ColrPaintOp*>(p.storage.base+at);
             bool include=n.kind==5;
             if(n.kind>=8&&n.kind<=11) {
                 const auto& mask=*reinterpret_cast<const ColrMask*>(p.storage.base+n.reserved);

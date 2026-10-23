@@ -32,10 +32,10 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
     constexpr u32 kSize=sizeof(ColrPaintNode);
     constexpr u32 kShallow=768,kShallowComposite=kShallow+kSize,kDeep=kShallowComposite+kSize;
     constexpr u32 kDeepPushes=8,kProgramEnd=kDeep+kSize*(1+kDeepPushes*2);
-    const auto node_at=[base](u32 offset) noexcept {return reinterpret_cast<ColrPaintNode*>(base+offset);};
+    const auto node_at=[base](u32 offset) noexcept {return reinterpret_cast<ColrSolidPaintNode*>(base+offset);};
     // A shaped solid (kind 8) reads the mask at offset 72; its color is set per tile.
     const auto shaped=[&](u32 offset,u32 next) noexcept {
-        auto* n=node_at(offset);n->next=next;n->kind=8;n->reserved=72;n->inverse[0]=n->inverse[3]=1;n->values[3]=1;};
+        auto* n=node_at(offset);n->next=next;n->kind=8;n->reserved=72;n->values[3]=1;};
     const auto push=[&](u32 offset,u32 next) noexcept {auto* n=node_at(offset);n->next=next;n->kind=0;};
     // Source-over with the transparent upper value keeps the lower value.
     const auto over=[&](u32 offset,u32 next) noexcept {auto* n=node_at(offset);n->next=next;n->kind=6;n->mode=3;n->count=1;};
@@ -73,6 +73,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
             // The third tile grows the upload buffer past its first quantum.
             if(i==2){program.storage.offset=300*1024;job->width=job->height=64;
                 program.mask_pixels=4096;}
+            if(i==3)program.storage.offset=kProgramEnd-sizeof(ColrPaintNode)+sizeof(ColrPaintOp);
             program.first=shapes[i].first;program.nodes=shapes[i].nodes;program.peak_stack=shapes[i].peak_stack;
             for(u32 c=0;c<3;++c)node_at(0)->values[c]=node_at(kDeep)->values[c]=colors[i][c]/255.f;
             if(i==3)node_at(kDeep)->values[1]=0;

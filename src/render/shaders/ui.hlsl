@@ -107,12 +107,11 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
     // A non-negative y is an ordinary rounded rectangle's border width: most
     // of every frame's pixels skip the special kinds (negative y) below.
     if (input.parameters.y >= 0.0f) {
-        const float radius = min(input.parameters.x, min(half_size.x, half_size.y));
-        const float border_width = min(input.parameters.y, min(half_size.x, half_size.y));
-        const float signed_distance = rounded_distance(local, half_size, radius);
+        // PaintStream already clamps both values to the rectangle's half extent.
+        const float signed_distance = rounded_distance(local, half_size, input.parameters.x);
         const float antialias_width = max(fwidth(signed_distance), 0.0001f);
         const float outer_coverage = saturate(0.5f - signed_distance / antialias_width);
-        return surface_pixel(input.fill, input.border, signed_distance, border_width, antialias_width,
+        return surface_pixel(input.fill, input.border, signed_distance, input.parameters.y, antialias_width,
                              outer_coverage);
     }
     if (input.parameters.y == -3.0f) {

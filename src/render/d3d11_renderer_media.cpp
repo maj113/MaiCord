@@ -325,7 +325,7 @@ bool renderer_capture_animation_frame(D3D11Renderer* renderer,
     return captured;
 }
 
-bool renderer_restore_animation_frame(D3D11Renderer* renderer, AnimationFrameCacheKey key,
+bool renderer_restore_animation_frame(D3D11Renderer* renderer, const AnimationFrameCacheKey& key,
                                       AnimationFrameCacheResult* result) noexcept {
     if (renderer && media_asset_large_preview(key.asset)) {
         auto& cache = renderer->preview_animation_gpu;

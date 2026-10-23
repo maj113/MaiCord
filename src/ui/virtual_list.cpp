@@ -250,9 +250,7 @@ UiVariableRange ui_variable_list_range(const UiVariableList& list, u64 scroll_un
     const u32 last_visible = lower_bound_item(list, end_offset);
     const u32 first = first_visible > overscan ? first_visible - overscan : 0;
     const u32 visible_end = last_visible + 1;
-    const u32 end = visible_end > list.count - minimum(list.count, overscan)
-                        ? list.count
-                        : visible_end + overscan;
+    const u32 end = visible_end + minimum(overscan, list.count - visible_end);
     const u64 first_prefix = ui_variable_list_prefix_units(list, first);
     return UiVariableRange{first, end - first,
                            static_cast<i64>(first_prefix) - static_cast<i64>(scroll_units)};

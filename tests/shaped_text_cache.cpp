@@ -159,6 +159,37 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
     check(!shaped_text_cache_insert(cache, oversized, 1, &fixture.shaped) && fixture.shaped.run_count == 1,
           "shaped text cache rejects a result larger than a generation without taking ownership");
     shaped_text_cache_clear(cache);
+    bool full = true;
+    for (u32 i = 0; i < 256 && full; ++i) {
+        fill(&fixture, 32, static_cast<float>(i));
+        for (u32 j = 1; j < 4; ++j) {
+            fixture.runs[j] = fixture.runs[0];
+            fixture.decorations[j] = fixture.decorations[0];
+            fixture.hits[j] = fixture.hits[0];
+        }
+        fixture.shaped.run_count = fixture.shaped.decoration_count = fixture.shaped.hit_region_count = 4;
+        const auto request = request_for(i);
+        full = !shaped_text_cache_find(cache, request, &hash, &view) &&
+               shaped_text_cache_insert(cache, request, hash, &fixture.shaped);
+    }
+    const auto last = request_for(255);
+    full = full && shaped_text_cache_find(cache, last, &hash, &view) && view.glyph_count == 32 &&
+           view.glyphs[31].advance == 286 && view.run_count == 4 && view.runs[3].baseline_x == 255 &&
+           view.decoration_count == 4 && view.hit_region_count == 4;
+    fill(&fixture, 0, 0);
+    fixture.shaped.run_count = fixture.shaped.decoration_count = fixture.shaped.hit_region_count = 0;
+    const auto empty = request_for(256);
+    const u32 generation = cache->current;
+    check(full && !shaped_text_cache_find(cache, empty, &hash, &view) &&
+              shaped_text_cache_insert(cache, empty, hash, &fixture.shaped) && cache->current == generation &&
+              shaped_text_cache_find(cache, empty, &hash, &view) && !view.glyph_count && !view.run_count &&
+              !view.decoration_count && !view.hit_region_count &&
+              view.glyphs == cache->generations[generation].glyphs + kShapedTextCacheGlyphs &&
+              view.runs == cache->generations[generation].runs + kShapedTextCacheRuns &&
+              view.decorations == cache->generations[generation].decorations + kShapedTextCacheDecorations &&
+              view.hit_regions == cache->generations[generation].hits + kShapedTextCacheHits,
+          "shaped text cache preserves full array counts and empty ranges at every capacity boundary");
+    shaped_text_cache_clear(cache);
     check(misses(base) && cache->generations[0].entry_count == 0 && cache->generations[1].entry_count == 0,
           "shaped text cache clear drops every entry");
     shaped_text_cache_destroy(&cache);

@@ -59,7 +59,9 @@ bool command_valid(const UiTextCommand& command) noexcept {
         command.wrapping <= UiTextWrapping::no_wrap && command.overflow <= UiTextOverflow::ellipsis;
 }
 bool command_visible(const UiTextCommand& command) noexcept {
-    return command.text.bytes && ui_rect_has_area(command.rectangle) && ui_rect_has_area(command.clip);
+    return command.text.bytes &&
+        minimum(command.rectangle.right, command.clip.right) > maximum(command.rectangle.left, command.clip.left) &&
+        minimum(command.rectangle.bottom, command.clip.bottom) > maximum(command.rectangle.top, command.clip.top);
 }
 
 } // namespace
@@ -94,7 +96,7 @@ void ui_text_command_stream_reset(UiTextCommandStream* stream) noexcept {
 }
 
 bool ui_text_command_stream_push_owned(UiTextCommandStream* stream, const UiTextCommand& command) noexcept {
-    if (!command.text.bytes || !ui_rect_has_area(command.rectangle) || !ui_rect_has_area(command.clip))
+    if (!command_visible(command))
         return ui_text_command_stream_push(stream, command);
     if (!stream || !command.text.data ||
         (!stream->owned_arena &&
@@ -128,9 +130,8 @@ bool ui_text_command_stream_push(UiTextCommandStream* stream, const UiTextComman
         saturating_increment_if(stream, stream->rejected);
         return false;
     }
-    // Virtualized lists retain overscan rows whose text rectangle or inherited
-    // clip can collapse to zero area at a viewport boundary. That is a valid
-    // invisible command; one overscan label must not reject the whole stream.
+    // Overscan labels outside their clip are valid but consume no storage,
+    // signature work or renderer reservation.
     if (!command_visible(command)) {
         return true;
     }

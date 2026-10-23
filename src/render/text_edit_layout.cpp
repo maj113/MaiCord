@@ -349,11 +349,11 @@ bool text_composer_layout_current(const TextEditLayoutOwner& owner,
     const auto* edit = message_composer_scene_layout_node(scene, MessageComposerControl::edit);
     const auto source = message_composer_text(*scene.model);
     const auto display = message_composer_scene_display_text(scene);
-    u32 source_anchor{}, source_caret{}, anchor{}, caret{};
+    u32 anchor{}, caret{};
     if (!edit || !ui_rect_has_area(edit->content_rectangle) || !utf8_validate(source).valid ||
         !utf8_validate(display).valid ||
-        !utf8_utf16_position_for_byte_offset(source, scene.model->anchor, &source_anchor) ||
-        !utf8_utf16_position_for_byte_offset(source, scene.model->caret, &source_caret))
+        !utf8_is_boundary(source, scene.model->anchor) ||
+        !utf8_is_boundary(source, scene.model->caret))
         return false;
     const u32 display_anchor = message_composer_scene_display_offset_from_model(scene, scene.model->anchor);
     const u32 display_caret = message_composer_scene_display_offset_from_model(scene, scene.model->caret);

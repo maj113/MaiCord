@@ -53,9 +53,11 @@ inline bool equal(const ColrPaintProgram& a,const ColrPaintProgram& b) noexcept 
        a.bounds.minimum_y!=b.bounds.minimum_y||a.bounds.maximum_x!=b.bounds.maximum_x||a.bounds.maximum_y!=b.bounds.maximum_y)return false;
     u32 x=a.first,y=b.first;
     for(u32 i=0;i<a.nodes;++i){
-        const auto* left=view<ColrPaintNode>(a,x);const auto* right=view<ColrPaintNode>(b,y);if(!left||!right)return false;
+        const auto* left=view<ColrPaintOp>(a,x);const auto* right=view<ColrPaintOp>(b,y);if(!left||!right)return false;
         auto l=*left,r=*right;if(l.kind!=r.kind||l.kind>11)return false;
         const bool shaped=l.kind>=8;const u32 kind=shaped?l.kind-8:l.kind;
+        if ((kind<=3||kind==5) && !bytes(a,x+sizeof(ColrPaintOp),b,y+sizeof(ColrPaintOp),
+            kind==0?sizeof(ColrSolidPaintNode)-sizeof(ColrPaintOp):sizeof(ColrPaintNode)-sizeof(ColrPaintOp)))return false;
         if(shaped){if(!mask(a,l.reserved,b,r.reserved))return false;l.reserved=r.reserved=0;}
         if(kind==4){if(!mask(a,l.data,b,r.data))return false;l.data=r.data=0;}
         else if(kind>=1&&kind<=3){

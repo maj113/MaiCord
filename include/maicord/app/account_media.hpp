@@ -391,6 +391,6 @@ static_assert(offsetof(AccountMediaRequestResult, video_failure) == 23);
 static_assert(sizeof(AccountMediaAttachmentRequest) == 64);
 static_assert(sizeof(AccountMediaGuildIconRequest) == 40);
 static_assert(sizeof(AccountMediaCatalogPreviewRequest) == 64);
-static_assert(sizeof(AccountMediaFrame) == 240);
+static_assert(sizeof(AccountMediaFrame) == 232);
 
 } // namespace maicord

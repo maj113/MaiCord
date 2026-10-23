@@ -34,10 +34,11 @@ struct GifFrame {
     u32 data_end;
     u32 palette_offset;
     u32 compressed_bytes;
-    u32 width;
-    u32 height;
-    u32 x_offset;
-    u32 y_offset;
+    // GIF image descriptors store all four rectangle fields as 16-bit words.
+    u16 width;
+    u16 height;
+    u16 x_offset;
+    u16 y_offset;
     u16 palette_count;
     u16 delay_cs;
     u8 minimum_code_size;
@@ -134,8 +135,8 @@ GifDecodeResult gif_decode_frame(
     ConstSlice<u8> encoded, u32 frame_index, GifImage* image,
     GifWorkspace* workspace, Slice<u8> indices) noexcept;
 
-static_assert(sizeof(GifFrame) == 40);
-static_assert(sizeof(GifWorkspace) == 81'920);
+static_assert(sizeof(GifFrame) == 32);
+static_assert(sizeof(GifWorkspace) == 65'536);
 static_assert(sizeof(GifImage) == 40);
 
 } // namespace maicord

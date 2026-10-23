@@ -96,13 +96,14 @@ u32 find_empty_entry(GlyphAtlasAllocator* atlas) noexcept {
     if (atlas->entry_count >= atlas->entry_capacity) {
         return atlas->entry_capacity;
     }
-    const u32 first = atlas->free_cursor % atlas->entry_capacity;
+    u32 index = atlas->free_cursor;
     for (u32 offset = 0; offset < atlas->entry_capacity; ++offset) {
-        const u32 index = (first + offset) % atlas->entry_capacity;
         if (!atlas->entries[index].occupied) {
-            atlas->free_cursor = (index + 1) % atlas->entry_capacity;
+            atlas->free_cursor = index + 1 == atlas->entry_capacity ? 0 : index + 1;
             return index;
         }
+        if (++index == atlas->entry_capacity)
+            index = 0;
     }
     return atlas->entry_capacity;
 }

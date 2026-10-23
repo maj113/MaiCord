@@ -48,7 +48,10 @@ bool same(Utf8View a, Utf8View b) noexcept {
 }
 bool run() noexcept {
     constexpr auto slovenian = utf8_literal("🇸🇮-𝓢𝓵𝓸-𝓒𝓱𝓪𝓽");
-    UiInlineFlagProjection labels{};
+    UiInlineFlagProjection labels;
+    CHECK(!labels.count && !labels.style_count);
+    for (u32 i = 0; i < sizeof(labels); ++i)
+        reinterpret_cast<u8*>(&labels)[i] = 0xa5;
     CHECK(ui_inline_flag_project(slovenian, text_style_bold, &labels) && labels.count == 1 &&
           labels.flags[0].sequence == 477 && labels.flags[0].first_byte == 0 &&
           labels.flags[0].end_byte == 8 && labels.style_count == 2 &&
@@ -68,6 +71,23 @@ bool run() noexcept {
     CHECK(ui_inline_flag_project({maximum, kUiInlineFlagCapacity * 8}, 0, &labels) &&
           labels.count == kUiInlineFlagCapacity && labels.style_count == kUiInlineFlagCapacity);
     CHECK(!ui_inline_flag_project({maximum, sizeof(maximum)}, 0, &labels) && !labels.count &&
+          !labels.style_count);
+    char separated[kUiInlineFlagCapacity * 9 + 1]{};
+    for (u32 i = 0; i < kUiInlineFlagCapacity; ++i) {
+        separated[i * 9] = 'x';
+        for (u32 byte = 0; byte < 8; ++byte)
+            separated[i * 9 + 1 + byte] = slovenian.data[byte];
+    }
+    separated[sizeof(separated) - 1] = 'x';
+    CHECK(ui_inline_flag_project({separated, sizeof(separated)}, text_style_bold, &labels) &&
+          labels.count == kUiInlineFlagCapacity && labels.style_count == kUiInlineFlagCapacity * 2 + 1);
+    for (u32 i = 0; i < labels.style_count; ++i) {
+        const auto& style = labels.styles[i];
+        CHECK(style.byte_offset == (i / 2) * 9 + (i % 2) && style.byte_count == (i % 2 ? 8u : 1u) &&
+              style.flags == (text_style_bold | (i % 2 ? text_style_custom_emoji : 0u)) && !style.size &&
+              !style.reserved[0] && !style.reserved[1] && !style.reserved[2]);
+    }
+    CHECK(ui_inline_flag_project(utf8_literal("No flag"), text_style_bold, &labels) && !labels.count &&
           !labels.style_count);
     char target[kRegionalFlagSvgTargetBytes + 1]{};
     u32 pairs = 0, catalog_flags = 0;

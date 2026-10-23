@@ -33,10 +33,16 @@ struct ColrPaintElement {
 };
 
 // Postfix program records uploaded to the COLR compute shader; the layout is a GPU contract.
-struct ColrPaintNode {
+struct ColrPaintOp {
     u32 next,kind,data,count;
     u32 mode,reserved;
-    float inverse[6],values[6];
+};
+struct ColrSolidPaintNode : ColrPaintOp {
+    float values[4];
+};
+// Gradients and rectangular clips also carry an inverse transform.
+struct ColrPaintNode : ColrPaintOp {
+    float values[6],inverse[6];
 };
 struct ColrMask {
     u32 segments,segment_count,fill,rows;
@@ -57,9 +63,12 @@ struct ColrPaintProgram {
     u32 paint_types;
     u32 mask_count,mask_pixels;
 };
+static_assert(sizeof(ColrPaintOp)==24);
+static_assert(sizeof(ColrSolidPaintNode)==40);
+static_assert(offsetof(ColrSolidPaintNode,values)==24);
 static_assert(sizeof(ColrPaintNode)==72);
-static_assert(offsetof(ColrPaintNode,inverse)==24);
-static_assert(offsetof(ColrPaintNode,values)==48);
+static_assert(offsetof(ColrPaintNode,inverse)==48);
+static_assert(offsetof(ColrPaintNode,values)==24);
 static_assert(offsetof(ColrPaintNode,mode)==16);
 static_assert(offsetof(ColrPaintNode,reserved)==20);
 static_assert(sizeof(ColrGradientStop)==20);

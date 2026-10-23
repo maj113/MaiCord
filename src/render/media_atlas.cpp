@@ -114,13 +114,14 @@ u32 find_free_slot(MediaAtlas* atlas) noexcept {
     if (atlas->entry_count >= atlas->entry_capacity) {
         return 0xFFFFFFFFu;
     }
-    const u32 first = atlas->free_cursor % atlas->entry_capacity;
+    u32 slot = atlas->free_cursor;
     for (u32 offset = 0; offset < atlas->entry_capacity; ++offset) {
-        const u32 slot = (first + offset) % atlas->entry_capacity;
         if (!atlas->entries[slot].occupied) {
-            atlas->free_cursor = (slot + 1u) % atlas->entry_capacity;
+            atlas->free_cursor = slot + 1 == atlas->entry_capacity ? 0 : slot + 1;
             return slot;
         }
+        if (++slot == atlas->entry_capacity)
+            slot = 0;
     }
     return 0xFFFFFFFFu;
 }

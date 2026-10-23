@@ -37,6 +37,8 @@ inline constexpr u32 kShapedTextCacheRuns = 1024;
 inline constexpr u32 kShapedTextCacheDecorations = 1024;
 inline constexpr u32 kShapedTextCacheHits = 1024;
 inline constexpr u32 kShapedTextCacheKeyBytes = 48 * 1024;
+static_assert(kShapedTextCacheGlyphs <= 0xFFFFu && kShapedTextCacheRuns <= 0xFFFFu &&
+              kShapedTextCacheDecorations <= 0xFFFFu && kShapedTextCacheHits <= 0xFFFFu);
 
 struct ShapedTextCacheEntry {
     u64 hash;
@@ -47,10 +49,10 @@ struct ShapedTextCacheEntry {
     u32 line_count, dpi, typography_revision;
     u32 key_offset, text_bytes;
     u16 style_count, hit_span_count;
-    u32 first_glyph, glyph_count;
-    u32 first_run, run_count;
-    u32 first_decoration, decoration_count;
-    u32 first_hit, hit_count;
+    u16 first_glyph, glyph_count;
+    u16 first_run, run_count;
+    u16 first_decoration, decoration_count;
+    u16 first_hit, hit_count;
     u8 wrapping, overflow;
     bool moved; // references now belong to a newer copy
 };

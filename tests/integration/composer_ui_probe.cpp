@@ -851,13 +851,27 @@ bool stale_geometry() noexcept {
         !text_composer_layout_current(r.composer_layout, scene))
         return false;
     const u64 old_document = g_app.message_composer.document_identity;
-    if (!message_composer_restore(&g_app.message_composer, kSource, utf8_literal("Restored source"), 0,
+    if (!message_composer_restore(&g_app.message_composer, kSource, utf8_literal("Restored source 😀"), 0,
                                   0) ||
         old_document == g_app.message_composer.document_identity ||
         text_composer_layout_current(r.composer_layout, scene) || !refresh_message_composer_ui() ||
         !text_composer_layout_current(r.composer_layout, scene))
         return false;
-    return true;
+    auto& model = g_app.message_composer;
+    const u32 anchor = model.anchor, caret = model.caret;
+    // Reject offsets inside the final emoji and beyond the document even
+    // when revision stamps still describe the current layout.
+    const u32 invalid_positions[]{model.bytes - 1, model.bytes + 1};
+    for (const u32 position : invalid_positions) {
+        model.anchor = position;
+        const bool bad_anchor = !text_composer_layout_current(r.composer_layout, scene);
+        model.anchor = anchor;
+        model.caret = position;
+        const bool bad_caret = !text_composer_layout_current(r.composer_layout, scene);
+        model.caret = caret;
+        if (!bad_anchor || !bad_caret) return false;
+    }
+    return text_composer_layout_current(r.composer_layout, scene);
 }
 
 bool warm(u32 sample) noexcept {

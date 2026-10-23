@@ -45,9 +45,7 @@ private:
 
 StampWriter& StampWriter::push(u64 value) noexcept {
     RendererPresentationStamp* stamp = stamp_;
-    if (!stamp->valid)
-        return *this;
-    if (stamp->count == ~0u) {
+    if (!stamp->valid || stamp->count == ~0u) {
         stamp->valid = false;
         return *this;
     }
@@ -71,13 +69,17 @@ StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
         return *this;
     }
     const u8* source = static_cast<const u8*>(bytes);
-    while (count != 0 && stamp_->valid) {
-        const u32 chunk = minimum<u32>(count, sizeof(u64));
-        u64 value = 0;
-        CopyMemory(&value, source, chunk);
+    while (count >= sizeof(u64) && stamp_->valid) {
+        u64 value;
+        CopyMemory(&value, source, sizeof(value));
         push(value);
-        source += chunk;
-        count -= chunk;
+        source += sizeof(value);
+        count -= sizeof(value);
+    }
+    if (count != 0 && stamp_->valid) {
+        u64 value = 0;
+        CopyMemory(&value, source, count);
+        push(value);
     }
     return *this;
 }

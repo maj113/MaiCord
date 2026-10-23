@@ -106,7 +106,7 @@ bool closing_edge_cases() noexcept {
     struct Release {ColrPaintProgram &a,&b;~Release() noexcept {arena_release(&a.storage);arena_release(&b.storage);}} release{implicit,explicit_close};
     if(!colr_program_build(&implicit,callbacks,root,{},32))return false;
     for(mode=1;mode<=4;++mode){if(!colr_program_build(&explicit_close,callbacks,root,{},32))return false;
-        const auto* paint=reinterpret_cast<const ColrPaintNode*>(explicit_close.storage.base+explicit_close.first);
+        const auto* paint=reinterpret_cast<const ColrPaintOp*>(explicit_close.storage.base+explicit_close.first);
         const auto* mask=reinterpret_cast<const ColrMask*>(explicit_close.storage.base+paint->reserved);
         if(mask->segment_count!=(mode==1?3u:mode==2?1u:mode==3?4u:0u))return false;
         if(mode==1&&!colr_test::equal(implicit,explicit_close))return false;
@@ -132,7 +132,7 @@ bool matrix_validation_cases() noexcept {
         // nonfinite behavior; these callbacks observe traversal, not pixels.
         const bool traversed=magnitude>bits;
         const bool built=colr_program_build(&program,callbacks,root,{},32);
-        const auto* node=built?reinterpret_cast<const ColrPaintNode*>(program.storage.base+program.first):nullptr;
+        const auto* node=built?reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.first):nullptr;
         if(!built || program.nodes!=1 || program.stack!=1 || visits!=(traversed?1u:0u) ||
            node->kind!=(traversed?0u:7u)) {
             char message[]="matrix boundary 00000000 build=0 visits=0 kind=0\n";
@@ -143,7 +143,21 @@ bool matrix_validation_cases() noexcept {
             return false;
         }
     }
-    return true;
+    // An invertible transform reaches the gradient with its complete inverse.
+    callbacks.first_child=+[](void* context,ColrPaintElement* output) noexcept {
+        ++*static_cast<u32*>(context);*output={};output->kind=ColrPaintKind::linear_gradient;
+        output->paint.linearGradient={0,2,0,0,1,0,0,1};return true;
+    };
+    ColrPaintElement root{};root.kind=ColrPaintKind::transform;root.paint.transform={2,0,0,4,6,8};visits=0;
+    if(!colr_program_build(&program,callbacks,root,{},32)||visits!=1||program.nodes!=1)return false;
+    const auto* gradient=reinterpret_cast<const ColrPaintNode*>(program.storage.base+program.first);
+    const float expected[]{.5f,0,0,.25f,-3,-2};
+    if(gradient->kind!=1)return false;
+    for(u32 i=0;i<6;++i)if(gradient->inverse[i]!=expected[i])return false;
+    // Singular non-diagonal transforms never reach the inverse calculation.
+    root.paint.transform={1,2,2,4,6,8};visits=0;
+    return colr_program_build(&program,callbacks,root,{},32)&&visits==0&&program.nodes==1&&
+        reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.first)->kind==7;
 }
 bool segment_capacity_cases() noexcept {
     Source source{};ColrPaintSource callbacks{&source,first,next,parent,stops,outline};
@@ -167,7 +181,8 @@ bool segment_capacity_cases() noexcept {
         source.commands=1024;
         // Gradient payloads shift segment starts through every four-byte
         // alignment within a segment; a page may end with unusable tail bytes.
-        const usize start=sizeof(ColrPaintNode)+sizeof(ColrMask)+sizeof(ColrGradientStop)*stops;
+        const usize start=(stops?sizeof(ColrPaintNode):sizeof(ColrSolidPaintNode))+
+            sizeof(ColrMask)+sizeof(ColrGradientStop)*stops;
         const usize consumed=4096-((4096-start)%16);
         const usize peak=maximum(limited.storage.peak,consumed);
         if(colr_program_build(&limited,callbacks,root,{},1) || limited.storage.offset!=consumed || limited.storage.peak!=peak ||
@@ -208,7 +223,7 @@ bool row_bin_cases() noexcept {
             DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,sizeof(message)-1,&written,nullptr);return false;
         };
         if(!colr_program_build(&program,callbacks,root,{},scale)||program.mask_count!=1)return fail('b');
-        const auto* node=reinterpret_cast<const ColrPaintNode*>(program.storage.base+program.first);
+        const auto* node=reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.first);
         const auto* job=reinterpret_cast<const ColrMask*>(program.storage.base+node->reserved);
         const auto* edges=reinterpret_cast<const float*>(program.storage.base+job->segments);
         const auto* rows=reinterpret_cast<const u32*>(program.storage.base+job->rows);
@@ -241,7 +256,7 @@ bool row_bin_cases() noexcept {
        !limited.storage.offset||limited.storage.offset>limited.storage.committed)return false;
     fixture={0,0};
     if(!colr_program_build(&limited,callbacks,root,{},1)||limited.mask_count!=1)return false;
-    const auto* node=reinterpret_cast<const ColrPaintNode*>(limited.storage.base+limited.first);
+    const auto* node=reinterpret_cast<const ColrPaintOp*>(limited.storage.base+limited.first);
     const auto* job=reinterpret_cast<const ColrMask*>(limited.storage.base+node->reserved);
     const auto* rows=reinterpret_cast<const u32*>(limited.storage.base+job->rows);
     for(u32 y=0;y<job->height;++y){
@@ -269,7 +284,7 @@ bool outline_capacity_cases() noexcept {
     if(!colr_program_build(&candidate,callbacks,root,{},32)||candidate.storage.offset!=reference.storage.offset||
        !bytes_equal(candidate.storage.base,reference.storage.base,static_cast<u32>(reference.storage.offset))||
        !colr_test::equal(candidate,reference))return false;
-    auto* node=reinterpret_cast<ColrPaintNode*>(candidate.storage.base+candidate.first);
+    auto* node=reinterpret_cast<ColrPaintOp*>(candidate.storage.base+candidate.first);
     auto* job=reinterpret_cast<ColrMask*>(candidate.storage.base+node->reserved);
     auto* rows=reinterpret_cast<u32*>(candidate.storage.base+job->rows);
     auto* index=reinterpret_cast<u32*>(candidate.storage.base+rows[0]);const u32 saved_index=*index;
@@ -294,7 +309,7 @@ bool colr_program_tests() noexcept {
     i32 positions[3]{};
     for(u32 i=0;i<3 && vector_ok;++i){
         vector_ok=compile(moving,i*5);
-        if(vector_ok){const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
+        if(vector_ok){const auto* node=reinterpret_cast<const ColrPaintOp*>(vector_program.storage.base+vector_program.first);
             const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
             positions[i]=mask->left;}
     }
@@ -304,7 +319,7 @@ bool colr_program_tests() noexcept {
     constexpr auto open_fill=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"shapes":[{"ty":"sh","ks":{"k":{"c":false,"v":[[48,48],[272,48],[272,272]],"i":[[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0]]}}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
     vector_ok=vector_ok && compile(open_fill,0);
     if(vector_ok) {
-        const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
+        const auto* node=reinterpret_cast<const ColrPaintOp*>(vector_program.storage.base+vector_program.first);
         const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
         // Two authored edges plus the implicit closing edge are required for
         // winding coverage; losing the third made real open-path fills vanish.
@@ -316,7 +331,7 @@ bool colr_program_tests() noexcept {
     for(u32 frame=0;frame<3&&vector_ok;++frame) {
         vector_ok=compile(morphing,frame*5)&&vector_program.mask_count==1;
         if(vector_ok) {
-            const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
+            const auto* node=reinterpret_cast<const ColrPaintOp*>(vector_program.storage.base+vector_program.first);
             const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
             const i32 left=12+32*static_cast<i32>(frame);
             vector_ok=node->kind==8&&mask->segment_count==3&&mask->left>=left-1&&mask->left<=left+1;
@@ -338,7 +353,7 @@ bool colr_program_tests() noexcept {
     // Exactly one painted mask spanning rows [low, high) of the 128 px raster.
     const auto half=[&](i32 low,i32 high) noexcept {
         if(vector_program.mask_count!=1)return false;
-        const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
+        const auto* node=reinterpret_cast<const ColrPaintOp*>(vector_program.storage.base+vector_program.first);
         const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
         const i32 bottom=mask->top+static_cast<i32>(mask->height);
         return mask->top>=low-2 && mask->top<=low+2 && bottom>=high-2 && bottom<=high+2;
@@ -359,16 +374,27 @@ bool colr_program_tests() noexcept {
     ok=ok && program.nodes==4 && program.stack==1 && program.peak_stack==2 && program.mask_count==1 && source.outlines==1 &&
         program.bounds.has_bounds && program.bounds.maximum_x==1 && program.bounds.maximum_y==1;
     if(ok) {
-        const auto* a=reinterpret_cast<const ColrPaintNode*>(program.storage.base+program.first);
-        const auto* b=reinterpret_cast<const ColrPaintNode*>(program.storage.base+a->next);
-        const auto* c=reinterpret_cast<const ColrPaintNode*>(program.storage.base+b->next);
-        ok=a->kind==8 && b->kind==8 && a->reserved==b->reserved && c->kind==6 && c->mode==3 && c->count==1;
+        const auto* a=reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.first);
+        const auto* b=reinterpret_cast<const ColrPaintOp*>(program.storage.base+a->next);
+        const auto* c=reinterpret_cast<const ColrPaintOp*>(program.storage.base+b->next);
+        ok=a->kind==8 && b->kind==8 && a->reserved==b->reserved && c->kind==6 && c->mode==3 && c->count==1 && c->next-b->next==sizeof(ColrPaintOp);
     }
     source.fail=true;ok=ok && !colr_program_build(&program,callbacks,root,{0,0,1,1},32);
     source.fail=false;source.cycle=true;root.kind=ColrPaintKind::transform;root.paint.transform={1,0,0,1,0,0};
     ok=ok && !colr_program_build(&program,callbacks,root,{},32);
     root.paint.transform={0,0,0,0,0,0};
-    ok=ok && colr_program_build(&program,callbacks,root,{},32) && program.nodes==1 && program.stack==1;
+    ok=ok && colr_program_build(&program,callbacks,root,{},32) && program.nodes==1 && program.stack==1 && program.storage.offset==sizeof(ColrPaintOp);
+    root={};root.kind=ColrPaintKind::solid;root.paint.solid.value={.25f,.5f,.75f,1};
+    ok=ok && colr_program_build(&program,callbacks,root,{},32) && program.nodes==1 &&
+        program.storage.offset==sizeof(ColrSolidPaintNode) &&
+        bytes_equal(program.storage.base+sizeof(ColrPaintOp),&root.paint.solid.value,sizeof(ColrColor));
+    root={};root.kind=ColrPaintKind::glyph;root.paint.glyph.glyphIndex=7;
+    callbacks.first_child=+[](void*,ColrPaintElement* output) noexcept {*output={};return true;};
+    ok=ok && colr_program_build(&program,callbacks,root,{},32) && program.nodes==2;
+    if(ok){const auto* mask=reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.last);
+        const auto* job=reinterpret_cast<const ColrMask*>(program.storage.base+mask->data);
+        ok=mask->kind==4 && job->segments-program.last==sizeof(ColrPaintOp);}
+    callbacks.first_child=first;
     root={};root.kind=ColrPaintKind::linear_gradient;root.paint.linearGradient={2,2,0,0,1,0,0,1};
     ok=ok && colr_program_build(&program,callbacks,root,{0,0,1,1},32) && program.nodes==2;
     root.paint.linearGradient.gradientStopCount=0;

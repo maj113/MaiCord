@@ -13,12 +13,12 @@ u64 mix64(u64 value) noexcept {
     return value ^ (value >> 31);
 }
 
-bool key_valid(AnimationFrameCacheKey key) noexcept {
+bool key_valid(const AnimationFrameCacheKey& key) noexcept {
     return media_asset_key_valid(key.asset) && key.source_generation != 0;
 }
 
-bool key_equal(AnimationFrameCacheKey left,
-               AnimationFrameCacheKey right) noexcept {
+bool key_equal(const AnimationFrameCacheKey& left,
+               const AnimationFrameCacheKey& right) noexcept {
     if (left.content_identity != 0 || right.content_identity != 0)
         return left.content_identity == right.content_identity &&
                left.frame_index == right.frame_index;
@@ -27,17 +27,20 @@ bool key_equal(AnimationFrameCacheKey left,
            left.source_generation == right.source_generation;
 }
 
-u32 key_bucket(AnimationFrameCacheKey key, u32 capacity) noexcept {
+u32 key_bucket(const AnimationFrameCacheKey& key, u32 capacity) noexcept {
+    u64 hash;
     if (key.content_identity != 0)
-        return static_cast<u32>(mix64(key.content_identity ^ mix64(key.frame_index)) % capacity);
-    const u64 asset_tail = static_cast<u64>(key.asset.variant) |
-                           (static_cast<u64>(key.asset.flags) << 32) |
-                           (static_cast<u64>(key.asset.kind) << 48);
-    const u64 frame_tail = static_cast<u64>(key.frame_index) |
-                           (static_cast<u64>(key.source_generation) << 32);
-    return static_cast<u32>(
-        mix64(key.asset.id ^ mix64(asset_tail) ^ mix64(frame_tail)) %
-        capacity);
+        hash = mix64(key.content_identity ^ mix64(key.frame_index));
+    else {
+        const u64 asset_tail = static_cast<u64>(key.asset.variant) |
+                               (static_cast<u64>(key.asset.flags) << 32) |
+                               (static_cast<u64>(key.asset.kind) << 48);
+        const u64 frame_tail = static_cast<u64>(key.frame_index) |
+                               (static_cast<u64>(key.source_generation) << 32);
+        hash = mix64(key.asset.id ^ mix64(asset_tail) ^ mix64(frame_tail));
+    }
+    return (capacity & (capacity - 1)) == 0 ? static_cast<u32>(hash) & (capacity - 1)
+                                          : static_cast<u32>(hash % capacity);
 }
 
 AnimationFrameCacheResult failure(AnimationFrameCacheError error) noexcept {
@@ -62,13 +65,12 @@ AnimationFrameCacheError translate_error(GlyphAtlasError error) noexcept {
 }
 
 u32 find_bucket(const AnimationFrameCache* cache,
-                AnimationFrameCacheKey key) noexcept {
+                const AnimationFrameCacheKey& key) noexcept {
     if (cache->bucket_capacity == 0) {
         return 0xFFFFFFFFu;
     }
-    const u32 first = key_bucket(key, cache->bucket_capacity);
+    u32 bucket = key_bucket(key, cache->bucket_capacity);
     for (u32 probe = 0; probe < cache->bucket_capacity; ++probe) {
-        const u32 bucket = (first + probe) % cache->bucket_capacity;
         const u32 value = cache->buckets[bucket];
         if (value == kEmptyBucket) {
             break;
@@ -78,20 +80,24 @@ u32 find_bucket(const AnimationFrameCache* cache,
             key_equal(cache->entries[slot].key, key)) {
             return bucket;
         }
+        if (++bucket == cache->bucket_capacity)
+            bucket = 0;
     }
     return 0xFFFFFFFFu;
 }
 
 bool insert_bucket(AnimationFrameCache* cache,
-                   AnimationFrameCacheKey key, u32 slot, u64* home_bucket) noexcept {
+                   const AnimationFrameCacheKey& key, u32 slot, u32* home_bucket) noexcept {
     const u32 first = key_bucket(key, cache->bucket_capacity);
+    u32 bucket = first;
     for (u32 probe = 0; probe < cache->bucket_capacity; ++probe) {
-        const u32 bucket = (first + probe) % cache->bucket_capacity;
         if (cache->buckets[bucket] == kEmptyBucket) {
             cache->buckets[bucket] = slot + 1;
             *home_bucket = first;
             return true;
         }
+        if (++bucket == cache->bucket_capacity)
+            bucket = 0;
     }
     return false;
 }
@@ -108,7 +114,7 @@ void erase_bucket(AnimationFrameCache* cache, u32 bucket) noexcept {
         const u32 slot = value - 1;
         if (slot >= cache->entry_capacity || !cache->entries[slot].occupied)
             continue;
-        const u32 home = static_cast<u32>(cache->entries[slot].home_bucket);
+        const u32 home = cache->entries[slot].home_bucket;
         const u32 hole_distance = hole >= home ? hole - home : cache->bucket_capacity - home + hole;
         const u32 current_distance = current >= home ? current - home : cache->bucket_capacity - home + current;
         // Continue past keys at their home bucket. A later key can still cross the hole.
@@ -147,13 +153,14 @@ u32 find_free_slot(AnimationFrameCache* cache) noexcept {
     if (cache->entry_count >= cache->entry_capacity) {
         return 0xFFFFFFFFu;
     }
-    const u32 first = cache->free_cursor % cache->entry_capacity;
+    u32 slot = cache->free_cursor;
     for (u32 offset = 0; offset < cache->entry_capacity; ++offset) {
-        const u32 slot = (first + offset) % cache->entry_capacity;
         if (!cache->entries[slot].occupied) {
-            cache->free_cursor = (slot + 1) % cache->entry_capacity;
+            cache->free_cursor = slot + 1 == cache->entry_capacity ? 0 : slot + 1;
             return slot;
         }
+        if (++slot == cache->entry_capacity)
+            slot = 0;
     }
     return 0xFFFFFFFFu;
 }
@@ -280,7 +287,7 @@ void animation_frame_cache_begin_visibility(
 }
 
 AnimationFrameCacheResult animation_frame_cache_find(
-    AnimationFrameCache* cache, AnimationFrameCacheKey key) noexcept {
+    AnimationFrameCache* cache, const AnimationFrameCacheKey& key) noexcept {
     if (!cache || !cache->entries || !cache->buckets || !key_valid(key)) {
         if (cache) {
             ++cache->counters.rejected;
@@ -350,7 +357,7 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
         clear_stale(cache);
     }
     const u32 slot = find_free_slot(cache);
-    u64 home_bucket = 0;
+    u32 home_bucket = 0;
     if (slot == 0xFFFFFFFFu ||
         !insert_bucket(cache, descriptor.key, slot, &home_bucket)) {
         ++cache->counters.rejected;
@@ -365,8 +372,6 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
     entry.control = descriptor.control;
     entry.allocation = allocation.handle;
     entry.background_rgba = descriptor.background_rgba;
-    entry.width = descriptor.width;
-    entry.height = descriptor.height;
     entry.kind = descriptor.kind;
     entry.occupied = true;
     if (!glyph_atlas_pin(&cache->allocations, entry.allocation)) {

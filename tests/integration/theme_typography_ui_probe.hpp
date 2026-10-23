@@ -117,7 +117,11 @@ inline bool theme_typography_ui_probe(D3D11Renderer& renderer) noexcept {
                 renderer_prepare_typography(&renderer, changed, &scope.candidate) &&
                 renderer_commit_typography(&renderer, &scope.candidate) &&
                 renderer_typography_revision(renderer) == initial_revision + 1 &&
-                renderer.glyph_text.system.em_size == 18 && cache.generation != cached_generation,
+                renderer.glyph_text.system.em_size == 18 && cache.generation != cached_generation &&
+                !renderer.glyph_text.system.independent_letters &&
+                !renderer.glyph_text.system.message_hit_policy &&
+                !renderer.glyph_text.system.fixed_weight &&
+                !renderer.glyph_text.system.typography->code_fixed_weight,
             "real font commit invalidates measured geometry"))
         return false;
     if (!theme_typography_probe_require(

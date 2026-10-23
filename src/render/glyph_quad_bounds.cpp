@@ -27,27 +27,6 @@ bool valid_quad(const GlyphQuad& quad) noexcept {
            ui_coordinate_valid(quad.color.alpha);
 }
 
-GlyphQuad clipped_quad(const GlyphQuad& source, UiRect clip) noexcept {
-    GlyphQuad result = source;
-    const float inverse_width = 1.0f / (source.right - source.left);
-    const float inverse_height = 1.0f / (source.bottom - source.top);
-    const float left = maximum(source.left, clip.left);
-    const float top = maximum(source.top, clip.top);
-    const float right = minimum(source.right, clip.right);
-    const float bottom = minimum(source.bottom, clip.bottom);
-    const float u_extent = source.u1 - source.u0;
-    const float v_extent = source.v1 - source.v0;
-    result.u0 = source.u0 + (left - source.left) * inverse_width * u_extent;
-    result.v0 = source.v0 + (top - source.top) * inverse_height * v_extent;
-    result.u1 = source.u0 + (right - source.left) * inverse_width * u_extent;
-    result.v1 = source.v0 + (bottom - source.top) * inverse_height * v_extent;
-    result.left = left;
-    result.top = top;
-    result.right = right;
-    result.bottom = bottom;
-    return result;
-}
-
 } // namespace
 
 bool glyph_quad_center_range(GlyphQuad* quads, u32 first, u32 count, UiRect owner) noexcept {
@@ -91,7 +70,6 @@ GlyphQuadBoundsResult glyph_quad_clip_range(
     }
 
     u32 write = first;
-    u32 dropped = 0;
     u32 clipped = 0;
     for (u32 index = first; index < original_count; ++index) {
         const GlyphQuad& source = quads[index];
@@ -99,19 +77,30 @@ GlyphQuadBoundsResult glyph_quad_clip_range(
             maximum(source.left, clip.left), maximum(source.top, clip.top),
             minimum(source.right, clip.right),
             minimum(source.bottom, clip.bottom)};
-        if (!ui_rect_has_area(intersection)) {
-            ++dropped;
+        if (!ui_rect_has_area(intersection))
             continue;
-        }
         const bool changed = intersection.left != source.left ||
                              intersection.top != source.top ||
                              intersection.right != source.right ||
                              intersection.bottom != source.bottom;
-        quads[write++] = changed ? clipped_quad(source, clip) : source;
-        clipped += changed ? 1u : 0u;
+        if (changed) {
+            const float inverse_width = 1.0f / (source.right - source.left);
+            const float inverse_height = 1.0f / (source.bottom - source.top);
+            const float u_extent = source.u1 - source.u0;
+            const float v_extent = source.v1 - source.v0;
+            quads[write] = {intersection.left, intersection.top, intersection.right, intersection.bottom,
+                source.u0 + (intersection.left - source.left) * inverse_width * u_extent,
+                source.v0 + (intersection.top - source.top) * inverse_height * v_extent,
+                source.u0 + (intersection.right - source.left) * inverse_width * u_extent,
+                source.v0 + (intersection.bottom - source.top) * inverse_height * v_extent, source.color};
+            ++clipped;
+        } else if (write != index) {
+            quads[write] = source;
+        }
+        ++write;
     }
     *count = write;
-    return GlyphQuadBoundsResult{write - first, dropped, clipped,
+    return GlyphQuadBoundsResult{write - first, original_count - write, clipped,
                                  GlyphQuadBoundsError::none};
 }
 

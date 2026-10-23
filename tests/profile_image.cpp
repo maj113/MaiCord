@@ -562,8 +562,8 @@ bool gif_crop_matches(ConstSlice<u8> source, ConstSlice<u8> output, const ImageC
         if (!s.ok() || !d.ok() || s.frame.delay_cs != d.frame.delay_cs)
             return false;
         const GifFrame& f = s.frame;
-        const u32 x0 = maximum(f.x_offset, crop.x), x1 = minimum(f.x_offset + f.width, crop.x + crop.width);
-        const u32 y0 = maximum(f.y_offset, crop.y), y1 = minimum(f.y_offset + f.height, crop.y + crop.height);
+        const u32 x0 = maximum<u32>(f.x_offset, crop.x), x1 = minimum<u32>(f.x_offset + f.width, crop.x + crop.width);
+        const u32 y0 = maximum<u32>(f.y_offset, crop.y), y1 = minimum<u32>(f.y_offset + f.height, crop.y + crop.height);
         if (x0 >= x1 || y0 >= y1) {
             if (d.frame.width != 1 || d.frame.height != 1 || !(d.frame.flags & gif_frame_transparent) ||
                 d.palette.rgba[b.data[0]] >> 24 || d.frame.dispose != GifDispose::none)
@@ -571,7 +571,7 @@ bool gif_crop_matches(ConstSlice<u8> source, ConstSlice<u8> output, const ImageC
             continue;
         }
         const u32 area = (x1 - x0) * (y1 - y0);
-        if (d.frame.width * d.frame.height != area || d.frame.dispose != f.dispose ||
+        if (static_cast<u32>(d.frame.width) * d.frame.height != area || d.frame.dispose != f.dispose ||
             (d.frame.flags & gif_frame_transparent) != (f.flags & gif_frame_transparent) ||
             ((f.flags & gif_frame_transparent) && d.frame.transparent_index != f.transparent_index))
             return false;

@@ -46,16 +46,15 @@ struct AnimationFrameCacheDescriptor {
 
 struct AnimationFrameCacheEntry {
     AnimationFrameCacheKey key;
-    u64 home_bucket;
     u64 duration_us;
     AnimationFrameCacheControl control;
     GlyphAtlasHandle allocation;
     u32 background_rgba;
-    u16 width;
-    u16 height;
+    u32 home_bucket;
     AnimationFrameCacheKind kind;
     bool occupied;
-    u8 reserved[2];
+    // Retain a multiple-of-16 stride for cache population.
+    u8 reserved[10];
 };
 
 struct AnimationFrameCacheCounters {
@@ -118,26 +117,24 @@ void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept;
 void animation_frame_cache_begin_visibility(
     AnimationFrameCache* cache) noexcept;
 AnimationFrameCacheResult animation_frame_cache_find(
-    AnimationFrameCache* cache, AnimationFrameCacheKey key) noexcept;
+    AnimationFrameCache* cache, const AnimationFrameCacheKey& key) noexcept;
 AnimationFrameCacheResult animation_frame_cache_allocate(
     AnimationFrameCache* cache,
     const AnimationFrameCacheDescriptor& descriptor) noexcept;
 
 static_assert(sizeof(AnimationFrameCacheKey) == 32);
-static_assert(sizeof(AnimationFrameCacheControl) == 40);
-static_assert(sizeof(AnimationFrameCacheDescriptor) == 96);
-static_assert(sizeof(AnimationFrameCacheEntry) == 104);
+static_assert(sizeof(AnimationFrameCacheControl) == 32);
+static_assert(sizeof(AnimationFrameCacheDescriptor) == 88);
+static_assert(sizeof(AnimationFrameCacheEntry) == 96);
 static_assert(offsetof(AnimationFrameCacheEntry, key) == 0);
-static_assert(offsetof(AnimationFrameCacheEntry, home_bucket) == 32);
-static_assert(offsetof(AnimationFrameCacheEntry, duration_us) == 40);
-static_assert(offsetof(AnimationFrameCacheEntry, control) == 48);
-static_assert(offsetof(AnimationFrameCacheEntry, allocation) == 88);
-static_assert(offsetof(AnimationFrameCacheEntry, background_rgba) == 92);
-static_assert(offsetof(AnimationFrameCacheEntry, width) == 96);
-static_assert(offsetof(AnimationFrameCacheEntry, height) == 98);
-static_assert(offsetof(AnimationFrameCacheEntry, kind) == 100);
-static_assert(offsetof(AnimationFrameCacheEntry, occupied) == 101);
-static_assert(offsetof(AnimationFrameCacheEntry, reserved) == 102);
+static_assert(offsetof(AnimationFrameCacheEntry, duration_us) == 32);
+static_assert(offsetof(AnimationFrameCacheEntry, control) == 40);
+static_assert(offsetof(AnimationFrameCacheEntry, allocation) == 72);
+static_assert(offsetof(AnimationFrameCacheEntry, background_rgba) == 76);
+static_assert(offsetof(AnimationFrameCacheEntry, home_bucket) == 80);
+static_assert(offsetof(AnimationFrameCacheEntry, kind) == 84);
+static_assert(offsetof(AnimationFrameCacheEntry, occupied) == 85);
+static_assert(offsetof(AnimationFrameCacheEntry, reserved) == 86);
 static_assert(sizeof(AnimationFrameCacheCounters) == 40);
 static_assert(sizeof(AnimationFrameCache) == 160);
 

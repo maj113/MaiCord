@@ -335,7 +335,7 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, ID3D11Device
 }
 
 bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* media_atlas,
-                                       AnimationFrameCacheKey key, AnimationFrameCacheResult* result,
+                                       const AnimationFrameCacheKey& key, AnimationFrameCacheResult* result,
                                        MediaAtlasHandle* presented_media) noexcept {
     if (result) {
         *result = AnimationFrameCacheResult{};

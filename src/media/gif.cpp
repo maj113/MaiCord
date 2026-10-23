@@ -419,10 +419,11 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
                                                                             : GifError::truncated);
         }
         GifFrame frame{};
-        frame.x_offset = byte_load_le16(encoded.data + cursor);
-        frame.y_offset = byte_load_le16(encoded.data + cursor + 2);
-        frame.width = byte_load_le16(encoded.data + cursor + 4);
-        frame.height = byte_load_le16(encoded.data + cursor + 6);
+        const u64 rectangle = byte_load_le64(encoded.data + cursor);
+        frame.x_offset = static_cast<u16>(rectangle);
+        frame.y_offset = static_cast<u16>(rectangle >> 16);
+        frame.width = static_cast<u16>(rectangle >> 32);
+        frame.height = static_cast<u16>(rectangle >> 48);
         const u8 packed = encoded[cursor + 8];
         cursor += 9;
         if ((packed & 0x18u) != 0) {
@@ -513,7 +514,7 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
     result.frame = frame;
     const u64 delay_us = static_cast<u64>(frame.delay_cs) * 10'000ull;
     result.duration_us = delay_us <= kGifShortFrameThresholdUs ? kGifShortFrameReplacementUs : delay_us;
-    const u32 pixels = frame.width * frame.height;
+    const u32 pixels = static_cast<u32>(frame.width) * frame.height;
     result.pixels = pixels;
     if (frame.width == 0 || frame.height == 0 || frame.width > kGifDimensionMaximum ||
         frame.height > kGifDimensionMaximum || pixels > kGifPixelMaximum || indices.count < pixels) {
