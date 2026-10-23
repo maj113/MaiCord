@@ -1,4 +1,5 @@
 #include "maicord/platform/desktop_integration.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -445,7 +446,7 @@ HANDLE desktop_instance_publish(const wchar_t* name, HWND window) noexcept {
         CloseHandle(mapping);
         return nullptr;
     }
-    const PublishedWindow published{kPublishedMagic, GetCurrentProcessId(), reinterpret_cast<u64>(window)};
+    const PublishedWindow published{kPublishedMagic, process_id(), reinterpret_cast<u64>(window)};
     copy_bytes(view, &published, sizeof(published));
     UnmapViewOfFile(view);
     return mapping;
@@ -487,7 +488,7 @@ DesktopForwardResult desktop_instance_forward(const wchar_t* name, const Desktop
     if (published.magic != kPublishedMagic || !window || !IsWindow(window) ||
         !GetWindowThreadProcessId(window, &process) || process != published.process)
         return DesktopForwardResult::no_window;
-    if (process != GetCurrentProcessId())
+    if (process != process_id())
         AllowSetForegroundWindow(process);
     ForwardPayload payload{};
     payload.version = 1;

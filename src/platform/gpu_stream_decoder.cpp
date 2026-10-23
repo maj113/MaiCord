@@ -451,7 +451,6 @@ GpuStreamDecoder* gpu_stream_decoder_create(const GpuStreamDecoderOptions& optio
     stream->options = options;
     stream->presented = 255;
     backend(*stream).reset(stream);
-    InitializeSRWLock(&stream->lock);
     stream->device = options.device;
     options.device->AddRef();
     options.device->GetImmediateContext(&stream->immediate);

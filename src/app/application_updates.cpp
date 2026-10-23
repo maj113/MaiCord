@@ -500,7 +500,6 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
     auto* w = static_cast<Worker*>(VirtualAlloc(nullptr, sizeof(Worker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!w) return false;
     w->config = config;
-    InitializeSRWLock(w->lock.native());
     w->view.own_version = config.own_version;
     if (commit.bytes >= kApplicationUpdatesCommitChars) copy_bytes(w->view.own_commit, commit.data, kApplicationUpdatesCommitChars);
     w->view.state = config.configured ? State::idle : State::disabled;

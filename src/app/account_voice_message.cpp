@@ -155,7 +155,7 @@ void account_voice_message_initialize(AccountVoiceMessage* v, const VoiceMessage
                                       void* capture_self) noexcept {
     if (!v)
         return;
-    InitializeSRWLock(v->lock.native());
+    v->lock = SRWLOCK_INIT;
     v->capture_ops = ops ? ops : &kWasapi;
     v->capture_self = ops ? capture_self : &v->capture;
     const auto defaults = voice_audio_settings_defaults();

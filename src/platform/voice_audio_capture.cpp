@@ -208,7 +208,7 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
     // High resolution keeps 20 ms pacing wakes within about a millisecond.
     r->timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!r->timer)
-        r->timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+        r->timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     r->state = static_cast<LONG>(VoiceCaptureState::opening);
     if (r->stop && r->wake && r->notify && r->poke)
         r->thread =

@@ -2007,7 +2007,6 @@ bool uia_host_initialize(UiaProviderHost* host, HWND window, const UiaHostCallba
     host->callbacks = callbacks;
     host->thread = GetCurrentThreadId();
     host->call_message = window ? RegisterWindowMessageW(L"MaiCord.UiaProviderCall") : 0;
-    InitializeSRWLock(host->call_lock.native());
     host->connected = true;
     return true;
 }

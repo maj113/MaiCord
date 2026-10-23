@@ -171,7 +171,6 @@ u32 decodable(void* context) noexcept {
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept {
     if (!decoders) return;
     *decoders = {};
-    InitializeSRWLock(decoders->lock.native());
 }
 
 void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Device* device) noexcept {

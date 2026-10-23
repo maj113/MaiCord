@@ -441,7 +441,6 @@ bool plugin_browser_worker_start(const PluginBrowserConfig& config, const Plugin
     if (!w) return false;
     w->config = config;
     w->options = options;
-    InitializeSRWLock(w->lock.native());
     if (options.base && options.base_count && options.base_count <= kPluginManagerBaseMaximumCharacters) {
         copy_bytes(w->base, options.base, options.base_count * static_cast<u32>(sizeof(wchar_t)));
         w->base_count = options.base_count;

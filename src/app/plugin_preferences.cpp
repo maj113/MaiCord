@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_preferences.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
@@ -161,7 +162,7 @@ NativePluginPreferencesResult save_file(NativePluginPreferencesIo* io,const wcha
     // Uniqueness is confirmed by CREATE_NEW, never assumed from the suffix.
     // Each transaction gets fresh candidates rather than a permanent slot set.
     static u64 sequence=0;
-    u64 suffix=hash64_mix(hash64_mix(GetTickCount64(),GetCurrentProcessId()),++sequence);
+    u64 suffix=hash64_mix(hash64_mix(GetTickCount64(),process_id()),++sequence);
     constexpr wchar_t hexadecimal[]=L"0123456789abcdef";
     for(u32 attempt=0;attempt<16;++attempt) {
         for(u32 i=0;i<16;++i) held.path[base+4+i]=hexadecimal[(suffix>>((15-i)*4))&15];

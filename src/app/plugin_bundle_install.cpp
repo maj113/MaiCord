@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_bundle_install.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/hash.hpp"
@@ -258,7 +259,7 @@ Error stage(Runtime& r) noexcept {
     if(r.manifest_characters+20>=128)return fail(r,Error::path);
     wchar_t temporary[128]{};for(u32 i=0;i<r.manifest_characters;++i)temporary[i]=r.manifest_leaf[i];
     const u32 base=r.manifest_characters;temporary[base]=L'.';temporary[base+1]=L'n';temporary[base+2]=L'e';temporary[base+3]=L'w';
-    u64 nonce=hash64_mix(GetTickCount64(),GetCurrentProcessId());
+    u64 nonce=hash64_mix(GetTickCount64(),process_id());
     for(u32 attempt=0;attempt<16;++attempt){hexadecimal(nonce+attempt,temporary+base+4);temporary[base+20]=0;
         checked=native_plugin_pinned_file_open(r.destination_directory,{temporary,base+20},&r.staged_manifest,GENERIC_WRITE|DELETE,FILE_SHARE_READ,
             CREATE_NEW,FILE_ATTRIBUTE_TEMPORARY|FILE_FLAG_WRITE_THROUGH);

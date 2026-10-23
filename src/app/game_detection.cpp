@@ -1,4 +1,5 @@
 #include "maicord/app/game_detection.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/app/account_profile.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/ascii.hpp"
@@ -168,7 +169,7 @@ u32 game_detection_snapshot(Slice<char> storage, Slice<Utf8View> names, bool win
     const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE)
         return 0;
-    const DWORD self = GetCurrentProcessId();
+    const DWORD self = process_id();
     PROCESSENTRY32W entry{};
     entry.dwSize = sizeof(entry);
     u32 count = 0, used = 0;

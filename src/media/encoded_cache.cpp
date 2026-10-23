@@ -247,7 +247,6 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
         return false;
     }
     *cache = EncodedMediaCache{};
-    InitializeSRWLock(cache->lock.native());
     cache->entries = entries.data;
     cache->entry_capacity = entries.count;
     cache->page_owners = page_owners.data;

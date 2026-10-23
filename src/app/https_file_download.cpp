@@ -1,4 +1,5 @@
 #include "maicord/app/https_file_download.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/platform/staged_file.hpp"
 #include "maicord/protocol/http_response_stream.hpp"
@@ -70,7 +71,7 @@ StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
         constexpr wchar_t prefix[] = L".maicord-download-";
         copy_bytes(suffix, prefix, sizeof(prefix) - sizeof(wchar_t));
         suffix += sizeof(prefix) / sizeof(wchar_t) - 1;
-        hex(suffix, GetCurrentProcessId(), 8); suffix += 8; *suffix++ = L'-';
+        hex(suffix, process_id(), 8); suffix += 8; *suffix++ = L'-';
         hex(suffix, GetTickCount64(), 16); suffix += 16; *suffix++ = L'-';
         hex(suffix, static_cast<u32>(InterlockedIncrement(&serial)), 8); suffix += 8;
         constexpr wchar_t ending[] = L".part";
