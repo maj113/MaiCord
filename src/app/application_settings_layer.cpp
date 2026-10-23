@@ -217,11 +217,9 @@ bool choose_pointer(SettingsLayer* layer, UINT message, float x, float y) noexce
 void settings_layer_reset(SettingsLayer* layer) noexcept {
     auto* scene = layer->scene;
     const auto* hooks = layer->hooks;
-    void* owner = layer->owner;
     *layer = {};
     layer->scene = scene;
     layer->hooks = hooks;
-    layer->owner = owner;
 }
 
 bool settings_layer_editor(SettingsLayer* layer, u64* control_id, MessageComposer** model, BoundedEdit** binding,

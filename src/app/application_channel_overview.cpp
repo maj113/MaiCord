@@ -1062,7 +1062,6 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
             return false;
         owner->layer.scene = &owner->scene;
         owner->layer.hooks = &kHooks;
-        owner->layer.owner = owner;
         // User limit labels: "No limit", then the member count.
         Bank text{owner->user_limit_text, sizeof(owner->user_limit_text), 0};
         owner->user_limit_labels[0] = utf8_literal("No limit");

@@ -1182,7 +1182,6 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
             return false;
         owner->layer.scene = &owner->scene;
         owner->layer.hooks = &kHooks;
-        owner->layer.owner = owner;
         message_composer_initialize(&owner->models[editor_name], {owner->name_text, kGuildAdminNameBytes});
         message_composer_initialize(&owner->models[editor_hex], {owner->hex_text, 16});
         message_composer_initialize(&owner->models[editor_search], {owner->search_text, kSearchBytes});

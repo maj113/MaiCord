@@ -453,7 +453,6 @@ bool ensure_owner() noexcept {
         return false;
     owner->layer.scene = &owner->scene;
     owner->layer.hooks = &kHooks;
-    owner->layer.owner = owner;
     return true;
 }
 } // namespace

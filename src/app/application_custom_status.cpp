@@ -412,7 +412,6 @@ bool application_custom_status_open() noexcept {
             return false;
         form->layer.scene = &form->scene;
         form->layer.hooks = &kHooks;
-        form->layer.owner = form;
         message_composer_initialize(&form->models[0], {form->emoji, sizeof(form->emoji)});
         message_composer_initialize(&form->models[1], {form->text, sizeof(form->text)});
     }

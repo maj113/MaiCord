@@ -1494,7 +1494,6 @@ bool ensure_owner() noexcept {
         return false;
     owner->layer.scene = &owner->scene;
     owner->layer.hooks = &kHooks;
-    owner->layer.owner = owner;
     for (u32 i = 0; i < editor_count; ++i)
         message_composer_initialize(&owner->models[i], {editor_buffer(i), editor_capacity(i)});
     return true;

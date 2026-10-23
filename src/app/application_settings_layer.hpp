@@ -46,7 +46,6 @@ struct SettingsLayerHooks {
 struct SettingsLayer {
     UiSettingsScene* scene;
     const SettingsLayerHooks* hooks;
-    void* owner;
     UiSettingsTarget pressed;
     u64 blink_at, shake_started, drag_id, entrance_started, drop_target;
     u32 pressed_revision, popup_opens, popup_pressed, held_key;

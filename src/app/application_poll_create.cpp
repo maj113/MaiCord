@@ -381,7 +381,6 @@ bool application_poll_create_open(u64 channel_id) noexcept {
             return false;
         owner->layer.scene = &owner->scene;
         owner->layer.hooks = &kHooks;
-        owner->layer.owner = owner;
         for (u32 i = 0; i < kEditorCount; ++i)
             message_composer_initialize(&owner->models[i], editor_storage(i));
         nonce_sequence = GetTickCount64();

@@ -2,7 +2,6 @@
 #include "maicord/sys/simd.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {

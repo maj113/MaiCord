@@ -716,7 +716,6 @@ bool ensure_owner() noexcept {
         return false;
     owner->layer.scene = &owner->scene;
     owner->layer.hooks = &kHooks;
-    owner->layer.owner = owner;
     message_composer_initialize(&owner->model, {owner->name, kNameBytes});
     return true;
 }
