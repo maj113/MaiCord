@@ -3,6 +3,13 @@
 #include "maicord/text/lookup_plan.hpp"
 #include "lookup_plan_finish.hpp"
 namespace maicord {
+void native_profile_shape_plan(SfntShapePlan& output,const SfntShapePlan& parent,const SfntGposProgram* positioning,
+    ConstSlice<u16> substitutions,ConstSlice<u16> roots) noexcept {
+    output=parent;
+    if(positioning)output.positioning=positioning;
+    output.substitution_roots=substitutions;output.positioning_roots=roots;
+    output.refresh_substitution_classes=true;
+}
 SfntStatus native_plan_source(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,const Arena* state,
     const Arena* scratch,NativePlanSource& output) noexcept {
     output={};output.parent=native_run_plan_get(store,run,independent);

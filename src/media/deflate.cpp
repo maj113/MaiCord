@@ -224,20 +224,22 @@ bool build_table(const u8* lengths, u32 symbol_count, TableKind kind, u32 table_
             table[index] = make_entry(0, kEntryEmpty, 0, 0);
         return true;
     }
+    // Longer lengths have zero counts. Validate and prefix-sum the live range.
+    u16 offsets[16];
+    u32 first = 0;
     i32 remaining = 1;
-    for (u32 bits = 1; bits <= 15; ++bits) {
-        remaining = (remaining << 1) - counts[bits];
+    for (u32 bits = 1; bits <= maximum_length; ++bits) {
+        const i32 count = counts[bits];
+        remaining = (remaining << 1) - count;
         if (remaining < 0)
             return false;
+        offsets[bits] = static_cast<u16>(first);
+        first += count;
     }
     const bool incomplete = remaining != 0;
     if (incomplete && !(allow_single && used == 1 && maximum_length == 1))
         return false;
 
-    u16 offsets[16];
-    offsets[1] = 0;
-    for (u32 bits = 1; bits < 15; ++bits)
-        offsets[bits + 1] = static_cast<u16>(offsets[bits] + counts[bits]);
     u16 sorted[kDeflateLiteralSymbolCapacity];
     for (u32 symbol = 0; symbol < symbol_count; ++symbol)
         if (lengths[symbol] != 0)

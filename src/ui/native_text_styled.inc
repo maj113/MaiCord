@@ -408,7 +408,7 @@ __declspec(noinline) bool normalize_flag_cells(Utf8View text, ConstSlice<StyledS
     bool have_flag = next_flag(), changed = false;
     u32 written = 0;
     for (u32 read = 0; read < shape.cluster_count;) {
-        const auto original = storage.clusters[read];
+        const auto& original = storage.clusters[read];
         while (have_flag && end_unit <= original.source_first) have_flag = next_flag();
         const u32 style = original.flags >> native_paragraph_style_shift;
         if (style >= spans.count) return false;

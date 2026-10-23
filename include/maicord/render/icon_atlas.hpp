@@ -37,9 +37,9 @@ struct IconPlacement {
 bool icon_atlas_initialize(IconAtlas* atlas, ID3D11Device* device) noexcept;
 void icon_atlas_release(IconAtlas* atlas) noexcept;
 bool icon_atlas_stale(const IconAtlas& atlas, u32 dpi, float weight) noexcept;
-// Copy-time resolve: rewrites icon quads of source into destination (the
-// mapped instance buffer, already holding the plain copy) with snapped
-// rectangles and atlas origins, rasterizing missing cells first.
+// Copies all quads into the mapped instance buffer, resolving icons with
+// snapped rectangles and atlas origins and rasterizing missing cells first.
+// With valid buffers, failure still copies the unresolved tail unchanged.
 bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const PaintQuad* source,
                         PaintQuad* destination, u32 count, u32 dpi, float weight) noexcept;
 

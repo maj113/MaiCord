@@ -56,7 +56,7 @@ SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPla
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
     SfntStatus status;
     if(prepared.admitted){ConstSlice<u32> scalars{};const auto decoded=decode_run_scalars(text,storage,scalars);if(decoded!=SfntStatus::ok)return decoded;
-        auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;plan.substitution_roots={};plan.positioning_roots=prepared.positioning();plan.refresh_substitution_classes=true;
+        SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,{},prepared.positioning());
         status=sfnt_khmer_shape_run(plan,*prepared.cmap,scalars,em,storage,result,prepared.substitutions(),limits,rtl);
     }else status=native_khmer_fallback_shape_run(store,prepared.run,text,prepared.independent_letters,rtl,em,storage,result,
         {prepared.fallback_roots,prepared.substitution_count},prepared.positioning(),limits);

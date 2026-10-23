@@ -4,6 +4,9 @@
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/core/color_hex.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/ui/theme_styles.hpp"
+#include <stddef.h>
 
 namespace maicord {
 namespace {
@@ -162,6 +165,27 @@ void test_controls(Check check) noexcept {
     check(bytes_equal(&layout_tokens, static_cast<const UiSettingsLayoutTokens*>(&tokens),
                       sizeof(layout_tokens)),
           "settings controls: layout-only tokens preserve all geometry and motion values");
+    // Every packed metric lane, including the unsigned high half and final tail.
+    const u16 values[]{0, 1, 255, 256, 32767, 32768, 65535};
+    bool exact = true;
+    for (u32 shift = 0; shift < 7; ++shift) {
+        UiResolvedThemeStyles varied{};
+        varied.ready = true;
+        auto* packed = reinterpret_cast<u8*>(&varied.settings) + offsetof(UiThemeSettings, modal_max_width);
+        for (u32 i = 0; i < 49; ++i)
+            copy_bytes(packed + i * sizeof(u16), &values[(i + shift) % 7], sizeof(u16));
+        const auto resolved = ui_settings_layout_tokens(&varied);
+        for (u32 i = 0; i < 49; ++i) {
+            float actual;
+            copy_bytes(&actual, reinterpret_cast<const u8*>(&resolved.metric) + i * sizeof(float), sizeof(float));
+            const float expected = i == 1 ? static_cast<float>(values[(i + shift) % 7]) / 100
+                                          : static_cast<float>(values[(i + shift) % 7]);
+            exact = exact && bytes_equal(&actual, &expected, sizeof(float));
+        }
+        exact = exact && resolved.duration.switch_ms == varied.settings.switch_ms &&
+                resolved.duration.flash_fade_ms == varied.settings.flash_fade_ms && resolved.metric.segment_size == 28;
+    }
+    check(exact, "settings controls: all packed metrics convert exactly without overwriting derived fields");
     // Settings and every dialog (Events included) share the official modal spring:
     // visually settled by half the token duration, complete at its end.
     const u32 enter = tokens.duration.modal_enter_ms;

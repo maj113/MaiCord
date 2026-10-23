@@ -12,6 +12,10 @@ template<class T> bool filled(Slice<T> values) noexcept {return !values.count||v
 struct NativePlanSource {const SfntShapePlan* parent;const NativeFontInstance* instance;const NativeFontFace* font;};
 SfntStatus native_plan_source(const NativeRunPlanStore&,NativeRunPlanHandle,bool independent,const Arena* state,
     const Arena* scratch,NativePlanSource&) noexcept;
+// Builds a per-run plan with the script's lookup selection while borrowing
+// the parent's immutable font tables and metric callbacks.
+void native_profile_shape_plan(SfntShapePlan& output,const SfntShapePlan&,const SfntGposProgram*,
+    ConstSlice<u16> substitutions,ConstSlice<u16> positioning) noexcept;
 // Opens the face's GSUB (kind 0) or GPOS (kind 1); missing_table when absent.
 SfntStatus native_layout_open(const NativeFontFace&,u32 kind,SfntLayout&) noexcept;
 // FeatureVariations substitutions for the instance's coordinates (none when the

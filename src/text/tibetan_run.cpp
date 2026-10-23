@@ -50,7 +50,7 @@ SfntStatus native_tibetan_run(const NativeRunPlanStore& store,const NativeTibeta
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
-    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;if(prepared.admitted){plan.substitution_roots={};plan.positioning_roots=prepared.positioning();}plan.refresh_substitution_classes=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.admitted?ConstSlice<u16>{}:parent->substitution_roots,prepared.admitted?prepared.positioning():parent->positioning_roots);
     return native_tibetan_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,rtl,spacing,prepared.admitted);
 }
 SfntStatus native_tibetan_run(const NativeRunPlanStore& store,const NativeTibetanPlan& prepared,Utf8View text,float em,

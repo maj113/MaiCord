@@ -1971,10 +1971,18 @@ void test_code_block_embeds(Check check) noexcept {
     // Message bodies share the blocks: at most 90% of the markup, the text
     // after a block starts at its box, and a leading block's box counts.
     const auto body = utf8_literal(
-        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"before\n```ansi\nSimple app to make \u001b[31mcolored\u001b[0m\n```\nafter","timestamp":"2026-09-05T10:00:00Z"}})");
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"before **bold** and _italic_\nsecond plain line\n```ansi\nSimple app to make \u001b[31mcolored\u001b[0m\n```\nafter","timestamp":"2026-09-05T10:00:00Z"}})");
     c = code_block_case(body, {});
     const MessageTextCommand* before = command_containing(f.presentation, utf8_literal("before"));
     const MessageTextCommand* after = command_containing(f.presentation, utf8_literal("after"));
+    u32 before_flags = 0;
+    if (before)
+        for (u32 i = 0; i < before->styles.count; ++i)
+            before_flags |= before->styles[i].flags;
+    check(before && utf8_equal(before->text, utf8_literal("before bold and italic\nsecond plain line")) &&
+              (before_flags & text_style_bold) && (before_flags & text_style_italic) &&
+              after && utf8_equal(after->text, utf8_literal("after")),
+          "message code block: styled plain lines merge up to the next code boundary");
     const float markup = before ? ui_rect_width(before->rectangle) : 0.0f;
     check(c.row && before && after && framed_throughout(c.code) &&
               close_to(c.box.left, before->rectangle.left) && close_to(c.box.right - c.box.left, markup * .9f) &&

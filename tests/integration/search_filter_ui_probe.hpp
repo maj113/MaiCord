@@ -209,15 +209,17 @@ inline bool row_ink(const Fixture& f, const D3D11Renderer& renderer,
         bool native_quads{};
         for (u32 batch = 0; renderer.content_text && batch < renderer.content_text->batch_count; ++batch) {
             const auto& b = renderer.content_text->batches[batch];
-            if (!ui_rect_equal(b.clip, line->clip))
-                continue;
+            // A shared viewport scissor is valid when it leaves this label's ink unchanged.
             for (u32 q = 0; q < b.quad_count; ++q) {
                 const auto& quad = renderer.content_text->quads[b.first_quad + q];
-                if (ui_rect_has_area(
-                        ui_rect_intersection({quad.left, quad.top, quad.right, quad.bottom}, visible)) &&
-                    quad.color.red == line->color.red && quad.color.green == line->color.green &&
-                    quad.color.blue == line->color.blue && quad.color.alpha == line->color.alpha)
-                    native_quads = true;
+                const UiRect ink = ui_rect_intersection({quad.left, quad.top, quad.right, quad.bottom}, b.clip);
+                if (!ui_rect_has_area(ui_rect_intersection(ink, visible)))
+                    continue;
+                if (!ui_rect_equal(ui_rect_intersection(ink, line->clip), ink) ||
+                    quad.color.red != line->color.red || quad.color.green != line->color.green ||
+                    quad.color.blue != line->color.blue || quad.color.alpha != line->color.alpha)
+                    return require(false, 1004 + index * 10 + line_index * 3);
+                native_quads = true;
             }
         }
         if (!native_quads)

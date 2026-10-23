@@ -21,6 +21,7 @@ struct ProfileMedia {
     // Clockwise turn of the image inside its rectangle (0, 90, 180, 270).
     u16 rotation;
 };
+// On success, initializes every output field; callers may reuse uncleared storage.
 bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* output) noexcept;
 bool user_guild_badge_media(const UserAppearance&, UiRect rectangle, UiRect clip, ProfileMedia*) noexcept;
 bool user_guild_badge_media(const UserAppearanceRecord&, UiRect rectangle, UiRect clip,

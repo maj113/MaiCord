@@ -98,7 +98,7 @@ SfntStatus native_sinhala_run(const NativeRunPlanStore& store,const NativeSinhal
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
-    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;if(prepared.language_found){plan.substitution_roots={};plan.positioning_roots=prepared.positioning();}plan.refresh_substitution_classes=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.language_found?ConstSlice<u16>{}:parent->substitution_roots,prepared.language_found?prepared.positioning():parent->positioning_roots);
     return native_sinhala_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,rtl,spacing,prepared.language_found);
 }
 SfntStatus native_sinhala_run(const NativeRunPlanStore& store,const NativeSinhalaPlan& prepared,Utf8View text,float em,

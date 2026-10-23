@@ -2506,12 +2506,17 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     if (!typing || !composer_surface || typing->rectangle.bottom >= composer_surface->rectangle.top ||
         ui_rect_height(composer_surface->rectangle) != 48.0f)
         return false;
+    // Uncut labels may share a viewport batch; validate their visible glyphs.
     for (u32 batch_index = 0; batch_index < g_probe.text.batch_count; ++batch_index) {
         const GlyphDrawBatch& batch = g_probe.text.batches[batch_index];
-        if (!ui_rect_equal(batch.clip, typing->clip_rectangle))
-            continue;
         for (u32 offset = 0; offset < batch.quad_count; ++offset) {
             const GlyphQuad& quad = g_probe.text.quads[batch.first_quad + offset];
+            const UiRect bounds{quad.left, quad.top, quad.right, quad.bottom};
+            const UiRect visible = ui_rect_intersection(bounds, batch.clip);
+            if (!ui_rect_has_area(ui_rect_intersection(visible, typing->rectangle)))
+                continue;
+            if (!ui_rect_equal(ui_rect_intersection(visible, typing->clip_rectangle), visible))
+                return false;
             const Color expected = kDefaultTheme.text_primary;
             if (quad.top < typing->rectangle.top || quad.bottom > typing->rectangle.bottom ||
                 quad.color.red != expected.red || quad.color.green != expected.green ||

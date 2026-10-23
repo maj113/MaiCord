@@ -2078,6 +2078,29 @@ void test_ui_scene() noexcept {
                shell_regions.message_view.right == 1040.0f,
            "shell_presentation_renderer_neutral_chrome");
     {
+        Theme square_theme = kDefaultTheme;
+        square_theme.scale.radius_sm = 0;
+        PaintStream square_paint{};
+        bool same_geometry = paint_stream_initialize(&square_paint) &&
+            shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene,
+                &chrome_navigation_scene, square_theme, 1280, 800, &square_paint, &shell_regions) &&
+            square_paint.count == shell_paint.count;
+        u32 changed_corners = 0;
+        for (u32 i = 0; same_geometry && i < square_paint.count; ++i) {
+            const auto& before = shell_paint.quads[i];
+            const auto& after = square_paint.quads[i];
+            same_geometry = ui_rect_equal({before.left,before.top,before.right,before.bottom},
+                                          {after.left,after.top,after.right,after.bottom});
+            if (before.radius != after.radius) {
+                same_geometry &= before.radius <= kDefaultTheme.scale.radius_sm && after.radius == 0;
+                ++changed_corners;
+            }
+        }
+        expect(same_geometry && changed_corners != 0,
+               "shell_small_radius_theme_changes_corners_without_changing_geometry");
+        paint_stream_release(&square_paint);
+    }
+    {
         const auto* toggle = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_toggle));
         PaintQuad flat_toggle{};
         bool found_flat_toggle = false;

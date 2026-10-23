@@ -1,4 +1,6 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/sys/simd.hpp"
+#include <stddef.h>
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/transition.hpp"
 #include "maicord/ui/theme_styles.hpp"
@@ -19,58 +21,48 @@ const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexc
     static constexpr UiThemeSettings defaults{};
     return styles && styles->ready ? styles->settings : defaults;
 }
+// The first 49 metrics have the same field order in the packed theme and resolved layout.
+static_assert([]() constexpr {
+#define METRIC_OFFSET(field) {offsetof(UiThemeSettings, field), offsetof(UiSettingsMetrics, field)}
+    constexpr usize offsets[][2] = {
+        METRIC_OFFSET(modal_max_width), METRIC_OFFSET(modal_viewport_ratio), METRIC_OFFSET(modal_ratio_threshold),
+        METRIC_OFFSET(modal_inset_top), METRIC_OFFSET(modal_inset_side), METRIC_OFFSET(modal_inset_bottom),
+        METRIC_OFFSET(modal_radius), METRIC_OFFSET(modal_compact_width), METRIC_OFFSET(sidebar_width),
+        METRIC_OFFSET(sidebar_padding), METRIC_OFFSET(sidebar_top), METRIC_OFFSET(search_height),
+        METRIC_OFFSET(nav_header_height), METRIC_OFFSET(nav_item_height), METRIC_OFFSET(nav_item_radius),
+        METRIC_OFFSET(nav_item_gap), METRIC_OFFSET(nav_item_padding), METRIC_OFFSET(nav_icon),
+        METRIC_OFFSET(separator_margin), METRIC_OFFSET(panel_padding_x), METRIC_OFFSET(panel_padding_top),
+        METRIC_OFFSET(panel_padding_bottom), METRIC_OFFSET(panel_max_width), METRIC_OFFSET(title_gap),
+        METRIC_OFFSET(category_gap), METRIC_OFFSET(category_heading_gap), METRIC_OFFSET(row_padding),
+        METRIC_OFFSET(label_gap), METRIC_OFFSET(control_gap), METRIC_OFFSET(field_gap),
+        METRIC_OFFSET(switch_width), METRIC_OFFSET(switch_height), METRIC_OFFSET(switch_thumb),
+        METRIC_OFFSET(slider_bar), METRIC_OFFSET(slider_grabber), METRIC_OFFSET(slider_mark_height),
+        METRIC_OFFSET(radio_size), METRIC_OFFSET(radio_gap), METRIC_OFFSET(radio_spacing),
+        METRIC_OFFSET(control_height), METRIC_OFFSET(control_radius), METRIC_OFFSET(button_small),
+        METRIC_OFFSET(button_medium), METRIC_OFFSET(button_padding), METRIC_OFFSET(swatch),
+        METRIC_OFFSET(swatch_gap), METRIC_OFFSET(close_size), METRIC_OFFSET(close_caption_gap),
+        METRIC_OFFSET(notice_padding),
+    };
+#undef METRIC_OFFSET
+    for (usize i = 0; i < 49; ++i)
+        if (offsets[i][0] != offsetof(UiThemeSettings, modal_max_width) + i * sizeof(u16) ||
+            offsets[i][1] != i * sizeof(float))
+            return false;
+    return true;
+}());
 void set_layout_tokens(UiSettingsLayoutTokens& t, const UiThemeSettings& s, float space,
                          const UiResolvedThemeStyles* styles) noexcept {
     auto& m = t.metric;
+    const auto* packed = reinterpret_cast<const u8*>(&s) + offsetof(UiThemeSettings, modal_max_width);
+    auto* resolved = reinterpret_cast<u8*>(&m);
+    const auto zero = _mm_setzero_si128();
     m.modal_max_width = s.modal_max_width;
-    m.modal_viewport_ratio = static_cast<float>(s.modal_viewport_ratio) / 100;
-    m.modal_ratio_threshold = s.modal_ratio_threshold;
-    m.modal_inset_top = s.modal_inset_top;
-    m.modal_inset_side = s.modal_inset_side;
-    m.modal_inset_bottom = s.modal_inset_bottom;
-    m.modal_radius = s.modal_radius;
-    m.modal_compact_width = s.modal_compact_width;
-    m.sidebar_width = s.sidebar_width;
-    m.sidebar_padding = s.sidebar_padding;
-    m.sidebar_top = s.sidebar_top;
-    m.search_height = s.search_height;
-    m.nav_header_height = s.nav_header_height;
-    m.nav_item_height = s.nav_item_height;
-    m.nav_item_radius = s.nav_item_radius;
-    m.nav_item_gap = s.nav_item_gap;
-    m.nav_item_padding = s.nav_item_padding;
-    m.nav_icon = s.nav_icon;
-    m.separator_margin = s.separator_margin;
-    m.panel_padding_x = s.panel_padding_x;
-    m.panel_padding_top = s.panel_padding_top;
-    m.panel_padding_bottom = s.panel_padding_bottom;
-    m.panel_max_width = s.panel_max_width;
-    m.title_gap = s.title_gap;
-    m.category_gap = s.category_gap;
-    m.category_heading_gap = s.category_heading_gap;
-    m.row_padding = s.row_padding;
-    m.label_gap = s.label_gap;
-    m.control_gap = s.control_gap;
-    m.field_gap = s.field_gap;
-    m.switch_width = s.switch_width;
-    m.switch_height = s.switch_height;
-    m.switch_thumb = s.switch_thumb;
-    m.slider_bar = s.slider_bar;
-    m.slider_grabber = s.slider_grabber;
-    m.slider_mark_height = s.slider_mark_height;
-    m.radio_size = s.radio_size;
-    m.radio_gap = s.radio_gap;
-    m.radio_spacing = s.radio_spacing;
-    m.control_height = s.control_height;
-    m.control_radius = s.control_radius;
-    m.button_small = s.button_small;
-    m.button_medium = s.button_medium;
-    m.button_padding = s.button_padding;
-    m.swatch = s.swatch;
-    m.swatch_gap = s.swatch_gap;
-    m.close_size = s.close_size;
-    m.close_caption_gap = s.close_caption_gap;
-    m.notice_padding = s.notice_padding;
+    for (u32 i = 1; i < 49; i += 4) {
+        const auto words = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(packed + i * sizeof(u16)));
+        _mm_storeu_ps(reinterpret_cast<float*>(resolved + i * sizeof(float)),
+                      _mm_cvtepi32_ps(_mm_unpacklo_epi16(words, zero)));
+    }
+    m.modal_viewport_ratio /= 100;
     m.segment_size = 28;
     m.segment_gap = 4;
     m.color_cell = 24;
@@ -120,7 +112,8 @@ UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
     const auto& s = settings_style(theme.styles);
     const bool light = theme.appearance == ThemeAppearance::light;
     constexpr Color white{1, 1, 1, 1}, black{0, 0, 0, 1};
-    UiSettingsTokens t{};
+    // Palette fields below and set_layout_tokens initialize the complete result.
+    UiSettingsTokens t;
     t.light = light;
     auto& c = t.color;
     c.text_default = theme.text_primary;
@@ -169,7 +162,7 @@ UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
 }
 
 UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept {
-    UiSettingsLayoutTokens t{};
+    UiSettingsLayoutTokens t;
     set_layout_tokens(t, settings_style(styles), kDefaultTheme.scale.space_1, styles);
     return t;
 }

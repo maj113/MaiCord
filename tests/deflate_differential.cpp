@@ -524,6 +524,33 @@ void zlib_cases(void (*check)(bool, const char*) noexcept) noexcept {
     check(identical, "DEFLATE table decoder matches the reference on valid, mutated and bounded streams");
 }
 
+// Complete trees with every maximum depth, including both root-only and
+// subtable decoding. Each populated length contributes a literal.
+void depth_cases(void (*check)(bool, const char*) noexcept) noexcept {
+    bool exact = true;
+    for(u32 depth=1;depth<=15;++depth){
+        u8 lengths[257]{};u16 codes[257]{};
+        for(u32 symbol=0;symbol<depth;++symbol){lengths[symbol]=static_cast<u8>(symbol+1);g_raw[symbol]=static_cast<u8>(symbol);}
+        lengths[256]=static_cast<u8>(depth);
+        canonical_codes(lengths,257,codes);
+        BitWriter w{g_encoded,kMaximumEncoded};
+        zlib_header(w,7);w.put(1,1);w.put(2,2);
+        w.put(0,5);w.put(0,5);w.put(15,4);
+        for(u8 symbol:kPrecodeOrder)w.put(symbol<16?4:0,3);
+        for(u8 length:lengths)w.code(length,4);
+        w.code(1,4); // Single one-bit distance code, unused by these literals.
+        for(u32 symbol=0;symbol<depth;++symbol)w.code(codes[symbol],lengths[symbol]);
+        w.code(codes[256],lengths[256]);w.align();
+        const u32 checksum=adler(g_raw,depth);
+        for(u32 byte=0;byte<4;++byte)w.put((checksum>>(24-byte*8))&255,8);
+        const DeflateInputSpan span{g_encoded,w.bytes};
+        const auto reference=deflate_reference::zlib_inflate({&span,1},{g_reference,depth},depth);
+        const auto actual=zlib_inflate({&span,1},{g_actual,depth},depth,&g_workspace);
+        exact=exact&&!w.overflow&&actual.ok()&&bytes_equal(g_actual,g_raw,depth)&&same(actual,reference,g_actual,g_reference);
+    }
+    check(exact,"DEFLATE complete trees at every depth match the independent decoder");
+}
+
 // Every possible sole distance symbol, accepted one-bit codes, rejected
 // longer incomplete codes, and the unused branch of the literal/length tree.
 void single_code_cases(void (*check)(bool, const char*) noexcept) noexcept {
@@ -612,6 +639,7 @@ void stream_cases(void (*check)(bool, const char*) noexcept) noexcept {
 } // namespace
 
 void test_deflate_differential(void (*check)(bool, const char*) noexcept) noexcept {
+    depth_cases(check);
     single_code_cases(check);
     zlib_cases(check);
     stream_cases(check);

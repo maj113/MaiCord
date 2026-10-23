@@ -78,6 +78,55 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_text_emitter_initialize(&preflight) && transient_projection(&checked) &&
         preflight.signature == emitter.signature && preflight.count == emitter.count,
         "text emitter: callback-free structural preflight preserves complete ordered signature");
+    // Session signatures must retain every packed field and every color bit.
+    const auto signature_of = [](const UiTextCommand& command) noexcept {
+        UiTextEmitter target{};
+        UiTextOutput output{nullptr, &target};
+        return ui_text_emitter_initialize(&target) && ui_text_output_push(&output, command)
+                   ? target.signature : 0;
+    };
+    const auto base = sample();
+    const u64 base_signature = signature_of(base);
+    bool complete_signature = base_signature != 0;
+    for (u32 color = 0; color < 8; ++color) {
+        for (u32 bit = 0; bit < 32; ++bit) {
+            auto changed = base;
+            changed.effect.colors[color] ^= 1u << bit;
+            complete_signature &= signature_of(changed) != base_signature;
+        }
+        for (u32 other = color + 1; other < 8; ++other) {
+            auto changed = base;
+            changed.effect.colors[color] ^= 0x80000000u;
+            changed.effect.colors[other] ^= 0x80000000u;
+            complete_signature &= signature_of(changed) != base_signature;
+        }
+    }
+    for (u32 bit = 0; bit < 8; ++bit) {
+        auto kind = base, count = base;
+        kind.effect.kind = static_cast<u8>(1u << bit);
+        count.effect.count = static_cast<u8>(1u << bit);
+        const auto a = signature_of(kind), b = signature_of(count);
+        complete_signature &= a != base_signature && b != base_signature && a != b;
+    }
+    auto animated = base; animated.effect.animate = true;
+    complete_signature &= signature_of(animated) != base_signature;
+    u64 layouts[36]; u32 layout_count = 0;
+    for (u32 horizontal = 0; horizontal < 3; ++horizontal)
+        for (u32 vertical = 0; vertical < 3; ++vertical)
+            for (u32 wrap = 0; wrap < 2; ++wrap)
+                for (u32 overflow = 0; overflow < 2; ++overflow) {
+                    auto changed = base;
+                    changed.horizontal_alignment = static_cast<UiTextAlignment>(horizontal);
+                    changed.vertical_alignment = static_cast<UiTextAlignment>(vertical);
+                    changed.wrapping = static_cast<UiTextWrapping>(wrap);
+                    changed.overflow = static_cast<UiTextOverflow>(overflow);
+                    const auto hash = signature_of(changed);
+                    complete_signature &= hash != 0;
+                    for (u32 i = 0; i < layout_count; ++i) complete_signature &= layouts[i] != hash;
+                    layouts[layout_count++] = hash;
+                }
+    check(complete_signature && layout_count == 36,
+          "text emitter: color bits, paired high bits, effect metadata and layout combinations invalidate signatures");
     auto invalid = sample(); invalid.owner.handle.generation = 0;
     const auto signature = preflight.signature; const auto count = preflight.count;
     check(!ui_text_output_push(&checked, invalid) && preflight.count == count &&

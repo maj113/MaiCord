@@ -1905,3 +1905,13 @@ maicord_test(MaiCordStoreLimitsTests ENTRY maicord_store_limits_entry
     LIBS maicord_core maicord_protocol maicord_model kernel32
     TIMEOUT 10
     TEST maicord_store_limits)
+
+maicord_test(MaiCordIconAtlasCopyTests ENTRY maicord_icon_atlas_copy_entry
+    SOURCES tests/icon_atlas_copy.cpp
+    LIBS maicord_renderer maicord_atlas_gpu maicord_ui maicord_core d3d11 kernel32
+    TIMEOUT 5 TEST maicord_icon_atlas_copy)
+
+maicord_test(MaiCordRectangleGeometryTests ENTRY rectangle_geometry_entry
+    SOURCES tests/rectangle_geometry.cpp
+    LIBS maicord_ui maicord_core kernel32
+    TIMEOUT 5 TEST maicord_rectangle_geometry)

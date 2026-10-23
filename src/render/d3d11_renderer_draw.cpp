@@ -935,8 +935,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             return false;
         }
         auto* destination = static_cast<PaintQuad*>(mapped.pData);
-        CopyMemory(destination, renderer->paint_stream.quads,
-                   static_cast<usize>(renderer->paint_stream.count) * sizeof(PaintQuad));
         if (!icon_atlas_resolve(&renderer->icon_atlas, renderer->graphics.context, renderer->paint_stream.quads,
                                 destination, renderer->paint_stream.count, renderer->dpi, icon_weight))
             log_write(LogLevel::warning, "render", "icon_atlas_raster_failed");
@@ -970,6 +968,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const float pixel_scale = static_cast<float>(renderer->dpi) / 96.0f;
     // A visible toast's batches close both streams; every layer below ends
     // before them and the toast draws last.
+    const bool settings_active = renderer_settings_page_visible(*renderer);
     const bool toast = d3d11_renderer_toast_visible(*renderer);
     const u32 stream_paint_batches = renderer->paint_stream.batch_count;
     const u32 paint_batch_count =
@@ -980,7 +979,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const bool interaction_overlay =
         login_form ||
         (!renderer->login_visible &&
-         (renderer_theme_editor_visible(*renderer) || (renderer_settings_page_visible(*renderer)) ||
+         (renderer_theme_editor_visible(*renderer) || settings_active ||
           d3d11_renderer_active(renderer->profile_scene) ||
           d3d11_renderer_active(renderer->friends_requests_scene) ||
           d3d11_renderer_active(renderer->image_viewer) ||
@@ -1036,7 +1035,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const u32 gallery_media_end =
         maximum(gallery_media_first, minimum(renderer->media_picker_media_end_batch, popup_media_first));
     const bool friends_requests_active =
-        !renderer->login_visible && !(renderer_settings_page_visible(*renderer)) &&
+        !renderer->login_visible && !settings_active &&
         ((d3d11_renderer_active(renderer->friends_requests_scene)) ||
          d3d11_renderer_search_visible(*renderer) || d3d11_renderer_pinned_messages_visible(*renderer) ||
          d3d11_renderer_call_visible(*renderer));
@@ -1069,7 +1068,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                       minimum(base_paint_end, renderer->edit_overlay_paint_first_batch));
     const bool form_active =
         d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_form_active(*renderer) ||
-        (renderer_settings_page_visible(*renderer));
+        settings_active;
     const u32 form_paint =
         form_active ? minimum(renderer->form_paint_first_batch, paint_batch_count) : paint_batch_count;
     const u32 form_text =
@@ -1093,7 +1092,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const bool gallery_current = d3d11_renderer_media_picker_visible(*renderer);
     const u32 gallery_foreground = maximum(
         gallery_paint_first, minimum(renderer->media_picker_foreground_first_batch, gallery_paint_end));
-    const bool settings_active = renderer_settings_page_visible(*renderer);
     const bool popup_current = d3d11_renderer_quick_switcher_visible(*renderer) ||
                                d3d11_renderer_inbox_visible(*renderer) ||
                                d3d11_renderer_message_forward_visible(*renderer) ||

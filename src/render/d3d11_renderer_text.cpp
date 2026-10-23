@@ -1835,6 +1835,10 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
             const u32 index = raster.search_command_cursor++;
             if (!search_message_command(*renderer, index, &native, &neutral))
                 continue;
+            // The emitter validates every command but omits fully clipped labels.
+            // Advance this source cursor over the same omitted commands.
+            if (!ui_rect_has_area(ui_rect_intersection(neutral.rectangle, neutral.clip)))
+                continue;
             // The hashing and raster visitors walk the same immutable projection.
             if (neutral.text.data != command.text.data || neutral.text.bytes != command.text.bytes ||
                 neutral.owner.manager != command.owner.manager ||

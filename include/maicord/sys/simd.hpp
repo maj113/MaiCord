@@ -144,6 +144,7 @@ extern "C" extern __m128i _mm_shuffle_epi32(__m128i _A, int _Imm);
 extern "C" extern __m128i _mm_unpackhi_epi32(__m128i _A, __m128i _B);
 extern "C" extern __m128i _mm_unpackhi_epi64(__m128i _A, __m128i _B);
 extern "C" extern __m128i _mm_unpacklo_epi8(__m128i _A, __m128i _B);
+extern "C" extern __m128 _mm_cvtepi32_ps(__m128i _A);
 extern "C" extern __m128i _mm_unpacklo_epi16(__m128i _A, __m128i _B);
 extern "C" extern __m128i _mm_unpacklo_epi32(__m128i _A, __m128i _B);
 extern "C" extern __m128i _mm_loadu_si128(__m128i const* _P);

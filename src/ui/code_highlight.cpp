@@ -186,50 +186,38 @@ LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
     const char* keywords = "";
     const char* types = "";
     const char* builtins = "";
+    const auto select = [&](const char* keyword_words, const char* type_words, const char* builtin_words) noexcept {
+        keywords = keyword_words;
+        types = type_words;
+        builtins = builtin_words;
+    };
     switch (language) {
     case CodeLanguage::c:
-        keywords = words_c_keywords.data;
-        types = words_c_types.data;
-        builtins = words_c_builtins.data;
+        select(words_c_keywords.data, words_c_types.data, words_c_builtins.data);
         break;
     case CodeLanguage::cpp:
-        keywords = words_cpp_keywords.data;
-        types = words_cpp_types.data;
-        builtins = words_cpp_builtins.data;
+        select(words_cpp_keywords.data, words_cpp_types.data, words_cpp_builtins.data);
         break;
     case CodeLanguage::csharp:
-        keywords =
-            words_csharp_keywords.data;
-        types = words_csharp_types.data;
-        builtins = words_csharp_builtins.data;
+        select(words_csharp_keywords.data, words_csharp_types.data, words_csharp_builtins.data);
         break;
     case CodeLanguage::rust:
-        keywords = words_rust_keywords.data;
-        types = words_rust_types.data;
-        builtins = words_rust_builtins.data;
+        select(words_rust_keywords.data, words_rust_types.data, words_rust_builtins.data);
         break;
     case CodeLanguage::javascript:
     case CodeLanguage::typescript:
-        keywords = words_typescript_keywords.data;
-        types = language == CodeLanguage::typescript
+        select(words_typescript_keywords.data, language == CodeLanguage::typescript
                     ? words_typescript_types.data
-                    : words_javascript_types.data;
-        builtins = words_typescript_builtins.data;
+                    : words_javascript_types.data, words_typescript_builtins.data);
         break;
     case CodeLanguage::java:
-        keywords = words_java_keywords.data;
-        types = words_java_types.data;
-        builtins = words_java_builtins.data;
+        select(words_java_keywords.data, words_java_types.data, words_java_builtins.data);
         break;
     case CodeLanguage::python:
-        keywords = words_python_keywords.data;
-        types = words_python_types.data;
-        builtins = words_python_builtins.data;
+        select(words_python_keywords.data, words_python_types.data, words_python_builtins.data);
         break;
     case CodeLanguage::powershell:
-        keywords = words_powershell_keywords.data;
-        types = words_powershell_types.data;
-        builtins = words_powershell_builtins.data;
+        select(words_powershell_keywords.data, words_powershell_types.data, words_powershell_builtins.data);
         break;
     case CodeLanguage::shell:
         keywords = words_shell_keywords.data;
@@ -238,23 +226,16 @@ LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
         break;
     case CodeLanguage::hlsl:
     case CodeLanguage::glsl:
-        keywords = words_glsl_keywords.data;
-        types = words_glsl_types.data;
-        builtins = words_glsl_builtins.data;
+        select(words_glsl_keywords.data, words_glsl_types.data, words_glsl_builtins.data);
         break;
     case CodeLanguage::sql:
-        keywords =
-            words_sql_keywords.data;
-        types = words_sql_types.data;
-        builtins = words_sql_builtins.data;
+        select(words_sql_keywords.data, words_sql_types.data, words_sql_builtins.data);
         break;
     case CodeLanguage::markup:
         builtins = words_markup_builtins.data;
         break;
     case CodeLanguage::css:
-        keywords = words_css_keywords.data;
-        types = words_css_types.data;
-        builtins = words_css_builtins.data;
+        select(words_css_keywords.data, words_css_types.data, words_css_builtins.data);
         break;
     default:
         break;

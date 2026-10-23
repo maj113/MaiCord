@@ -1,6 +1,7 @@
 #include "maicord/render/icon_atlas.hpp"
 
 #include "maicord/ui/icon.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
@@ -99,17 +100,22 @@ bool icon_atlas_stale(const IconAtlas& atlas, u32 dpi, float weight) noexcept {
 
 bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const PaintQuad* source,
                         PaintQuad* destination, u32 count, u32 dpi, float weight) noexcept {
-    if (!atlas || !context || !source || !destination || dpi == 0)
+    if (!source || !destination)
         return false;
+    if (!atlas || !context || dpi == 0) {
+        memmove(destination, source, static_cast<usize>(count) * sizeof(PaintQuad));
+        return false;
+    }
     const float scale = static_cast<float>(dpi) / 96.f;
     atlas->resolved_dpi = dpi;
     atlas->resolved_weight = weight;
     glyph_atlas_clear_pins(&atlas->allocator);
     GlyphRasterBatch batch(&atlas->gpu, context);
-    bool ok = true;
     for (u32 i = 0; i < count; ++i) {
-        if (!ui_icon_quad(source[i]))
+        if (!ui_icon_quad(source[i])) {
+            destination[i] = source[i];
             continue;
+        }
         PaintQuad quad = source[i];
         quad.reserved_x = quad.reserved_y = -1;
         const UiIconQuadData data = ui_icon_quad_data(quad);
@@ -138,8 +144,8 @@ bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const Pa
                 // The cell holds no coverage; drop every cell rather than track a hole.
                 batch.cancel();
                 glyph_atlas_reset(&atlas->allocator);
-                ok = false;
-                break;
+                memmove(destination + i, source + i, static_cast<usize>(count - i) * sizeof(PaintQuad));
+                return false;
             }
             if (cell.ok())
                 ++atlas->rasterized;
@@ -158,7 +164,7 @@ bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const Pa
         quad.reserved_y = cell.y;
         destination[i] = quad;
     }
-    return batch.finish() && ok;
+    return batch.finish();
 }
 
 } // namespace maicord

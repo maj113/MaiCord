@@ -199,12 +199,13 @@ def deflate_smallest(streams):
 
 
 def encode_png(extent, pixels, indexed=False):
-    prefix = b'\x89PNG\r\n\x1a\n'
+    def encode(rows, bpp, color_type, palette=b''):
+        header = struct.pack('>IIBBBBB', extent, extent, 8, color_type, 0, 0, 0)
+        return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) + palette +
+                chunk(b'IDAT', deflate_smallest(filter_rows(rows, bpp))) + chunk(b'IEND', b''))
+
     if not indexed:
-        rows = [pixels[y * extent * 4:(y + 1) * extent * 4] for y in range(extent)]
-        header = struct.pack('>IIBBBBB', extent, extent, 8, 6, 0, 0, 0)
-        return (prefix + chunk(b'IHDR', header) +
-                chunk(b'IDAT', deflate_smallest(filter_rows(rows, 4))) + chunk(b'IEND', b''))
+        return encode([pixels[y * extent * 4:(y + 1) * extent * 4] for y in range(extent)], 4, 6)
     colors = Counter(tuple(pixels[i:i + 4]) for i in range(0, len(pixels), 4))
     if len(colors) > 256:
         return None
@@ -214,14 +215,13 @@ def encode_png(extent, pixels, indexed=False):
     candidates = []
     for palette in orders:
         lookup = {color: i for i, color in enumerate(palette)}
-        indices = [lookup[tuple(pixels[i:i + 4])] for i in range(0, len(pixels), 4)]
-        rows = [bytes(indices[y * extent:(y + 1) * extent]) for y in range(extent)]
-        header = struct.pack('>IIBBBBB', extent, extent, 8, 3, 0, 0, 0)
+        indices = bytes(lookup[tuple(pixels[i:i + 4])] for i in range(0, len(pixels), 4))
+        rows = [indices[y * extent:(y + 1) * extent] for y in range(extent)]
         alpha = bytes(color[3] for color in palette).rstrip(b'\xff')
-        candidates.append(prefix + chunk(b'IHDR', header) +
-                          chunk(b'PLTE', bytes(v for color in palette for v in color[:3])) +
-                          (chunk(b'tRNS', alpha) if alpha else b'') +
-                          chunk(b'IDAT', deflate_smallest(filter_rows(rows, 1))) + chunk(b'IEND', b''))
+        chunks = chunk(b'PLTE', bytes(v for color in palette for v in color[:3]))
+        if alpha:
+            chunks += chunk(b'tRNS', alpha)
+        candidates.append(encode(rows, 1, 3, chunks))
     return min(candidates, key=len)
 
 

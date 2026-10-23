@@ -37,6 +37,22 @@ bool run() noexcept {
     const auto england=utf8_literal("\xF0\x9F\x8F\xB4\xF3\xA0\x81\xA7\xF3\xA0\x81\xA2\xF3\xA0\x81\xA5\xF3\xA0\x81\xAE\xF3\xA0\x81\xA7\xF3\xA0\x81\xBF");
     CHECK(atom(system,tj,text_style_custom_emoji,16)&&atom(system,tk,text_style_custom_emoji,16)&&atom(system,england,text_style_custom_emoji,16));
     CHECK(atom(system,tj,text_style_custom_emoji|text_style_jumbo_emoji,48));
+    // Compaction preserves ordinary clusters between and after projected flags.
+    const auto mixed = utf8_literal("A\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF" "B\xF0\x9F\x87\xB9\xF0\x9F\x87\xB0" "C");
+    const TextStyleSpan mixed_styles[]{{1,8,text_style_custom_emoji},{10,8,text_style_custom_emoji}};
+    NativeParagraphHits mixed_geometry{}; TextMeasureResult mixed_measure{};
+    auto mixed_storage = storage(&mixed_geometry);
+    CHECK(native_text_candidate_styled(system,mixed,{mixed_styles,2},256,128,nullptr,&mixed_measure,
+        TextWrapping::wrap,TextOverflow::clip,{},&mixed_storage));
+    CHECK(mixed_geometry.source_units==11&&mixed_geometry.lines.count==1);
+    NativeParagraphHitMetric mixed_metric{};u32 mixed_count=0;
+    for(u32 first=1;first<=6;first+=5) {
+        CHECK(native_paragraph_hit_range(mixed_geometry,first,4,0,0,{&mixed_metric,1},&mixed_count)==SfntStatus::ok);
+        CHECK(mixed_count==1&&close(mixed_metric.width,16)&&mixed_metric.source_first==first&&mixed_metric.source_count==4);
+    }
+    CHECK(native_paragraph_hit_range(mixed_geometry,10,1,0,0,{&mixed_metric,1},&mixed_count)==SfntStatus::ok&&
+        mixed_count==1&&mixed_metric.width>0&&mixed_metric.source_first==10);
+
     const auto adjacent=utf8_literal("\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF\xF0\x9F\x87\xB9\xF0\x9F\x87\xB0");
     const TextStyleSpan style{0,adjacent.bytes,text_style_custom_emoji};NativeParagraphHits geometry{};TextMeasureResult measured{};
     auto retained=storage(&geometry);

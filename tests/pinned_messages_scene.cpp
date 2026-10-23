@@ -119,6 +119,21 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               ui_pinned_messages_scene_text_output(s, kDefaultTheme, &output) &&
               paint.rejected == 0 && paint.clip_depth == 1 && stream.rejected == 0 && stream.count > 10,
           "pins scene: native theme paint and clipped UTF8 excerpt text emit without stream rejection");
+    {
+        Theme rounded = kDefaultTheme;
+        rounded.scale.radius_sm = 1.25f;
+        UiRect avatar_bounds{}, avatar_clip{};
+        const bool ready = ui_pinned_messages_scene_avatar(s, 0, &avatar_bounds, &avatar_clip) &&
+            paint_stream_reset(&paint, 1300, 780) && ui_pinned_messages_scene_paint(s, rounded, &paint);
+        const UiRect head{avatar_bounds.left + 10, avatar_bounds.top + 6, avatar_bounds.right - 10, avatar_bounds.top + 14};
+        bool found = false;
+        for (u32 i = 0; ready && i < paint.count; ++i) {
+            const auto& quad = paint.quads[i];
+            if (ui_rect_equal({quad.left,quad.top,quad.right,quad.bottom}, head))
+                found = quad.radius == rounded.scale.radius_sm;
+        }
+        check(found, "pins scene: avatar placeholder head follows the small-radius theme scale");
+    }
     bool clipped = true;
     for (u32 i = 0; i < stream.count; ++i) {
         const auto& command = stream.storage[i];

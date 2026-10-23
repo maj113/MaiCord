@@ -382,7 +382,7 @@ bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme&
                 ok = paint_stream_push_rounded(out, avatar.left, avatar.top, avatar.right, avatar.bottom,
                     theme.avatar_placeholder, theme.scale.radius_full) &&
                     paint_stream_push_rounded(out, avatar.left + 10, avatar.top + 6, avatar.right - 10, avatar.top + 14,
-                                              theme.text_secondary, 4) &&
+                                              theme.text_secondary, theme.scale.radius_sm) &&
                     paint_stream_push_rounded(out, avatar.left + 6, avatar.top + 16, avatar.right - 6, avatar.bottom - 4,
                                               theme.text_secondary, 6);
             const float action_top = r.bottom - 38;

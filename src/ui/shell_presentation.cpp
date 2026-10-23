@@ -246,7 +246,7 @@ bool paint_folder_groups(PaintStream* stream, const GuildRailScene& scene, const
             const UiRect plate{top->rectangle.left - 4, top->rectangle.top - 4, top->rectangle.right + 4,
                                bottom->rectangle.bottom + 4};
             if (!paint_stream_push_rounded(stream, plate.left, plate.top, plate.right, plate.bottom,
-                              folder_color(theme, first.view, .15f), 16) ||
+                              folder_color(theme, first.view, .15f), theme.scale.radius_xl) ||
                 !record_content(stream, scene.widgets, first.widget, plate, UiLayoutContentKind::decoration,
                                 static_cast<u16>(ui_layout_content_bounds_allow_overflow |
                                                  ui_layout_content_bounds_allow_overlap)))
@@ -265,7 +265,7 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
         const float half = kUiNavigationIconExtent * .5f;
         const float x = (rectangle.left + rectangle.right) * .5f, y = (rectangle.top + rectangle.bottom) * .5f;
         return (!hovered || paint_stream_push_rounded(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom,
-                                         folder_color(theme, row, .25f), 12)) &&
+                                         folder_color(theme, row, .25f), theme.scale.radius_lg)) &&
                ui_icon_paint(stream, UiIcon::folder, {x - half, y - half, x + half, y + half},
                              folder_color(theme, row, 1));
     }
@@ -564,7 +564,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                       ui_background_hover_color(
                                           theme, row_selected ? theme.interactive : theme.surface_high,
                                           row_selected ? .28f : .20f),
-                                      4.0f)) {
+                                      theme.scale.radius_sm)) {
                         return false;
                     }
                     if ((row_selected || row_hovered) &&
@@ -578,7 +578,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     if (row.unread && !row_selected &&
                         !paint_stream_push_rounded(stream, row_rectangle.left - 3.0f, row_top + 10.0f,
                                       row_rectangle.left + 3.0f, row_top + row_height - 10.0f,
-                                      theme.text_primary, 3.0f)) {
+                                      theme.text_primary, theme.scale.radius_full)) {
                         return false;
                     }
                     if (row.unread && !row_selected &&
@@ -609,7 +609,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     if (row.mention_count != 0 &&
                         !paint_stream_push_rounded(stream, badge_layout->rectangle.left, badge_layout->rectangle.top,
                                       badge_layout->rectangle.right, badge_layout->rectangle.bottom,
-                                      theme.notification, 8.0f)) {
+                                      theme.notification, theme.scale.radius_md)) {
                         return false;
                     }
                     if (row.mention_count != 0 &&
@@ -635,7 +635,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                         Color veil = theme.base_lower;
                         veil.alpha = .6f;
                         if (!paint_stream_push_rounded(stream, row_rectangle.left, row_top, row_rectangle.right,
-                                          row_top + row_height, veil, 4.0f))
+                                          row_top + row_height, veil, theme.scale.radius_sm))
                             return false;
                     }
                 }
@@ -786,7 +786,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                               ? ui_background_hover_color(theme, theme.interactive, .28f)
                           : hovered ? ui_background_hover_color(theme, theme.surface_high, .20f)
                                     : ui_background_surface_color(theme, theme.base_lower, .12f),
-                          4.f) ||
+                          theme.scale.radius_sm) ||
             !record_content(stream, scene.widgets, friends->widget, friends->rectangle,
                             UiLayoutContentKind::control))
             return false;
@@ -812,7 +812,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             if (!avatar_layout ||
                 !paint_stream_push_rounded(stream, avatar_layout->rectangle.left, avatar_layout->rectangle.top,
                               avatar_layout->rectangle.right, avatar_layout->rectangle.bottom,
-                              theme.avatar_placeholder, 16.0f) ||
+                              theme.avatar_placeholder, theme.scale.radius_xl) ||
                 !record_content(stream, member_scene->widgets, row.avatar, avatar_layout->rectangle,
                                 UiLayoutContentKind::media)) {
                 paint_stream_pop_clip(stream);
@@ -824,7 +824,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     !paint_stream_push_rounded(
                         stream, label->content_rectangle.left, label->content_rectangle.top + 9.0f,
                         minimum(label->content_rectangle.right, label->content_rectangle.left + 92.0f),
-                        label->content_rectangle.top + 17.0f, theme.avatar_placeholder, 4.0f)) {
+                        label->content_rectangle.top + 17.0f, theme.avatar_placeholder, theme.scale.radius_sm)) {
                     paint_stream_pop_clip(stream);
                     return false;
                 }

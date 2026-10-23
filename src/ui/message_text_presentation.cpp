@@ -1366,7 +1366,7 @@ u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
     } ranges[kQuoteSegmentMaximum];
     u32 count = 0;
     bool blocks = false;
-    u32 style = 0;
+    u32 style = 0, code_style = 0;
     const auto flags_at = [&](u32 at) noexcept {
         while (style < styles.count && styles[style].byte_offset + styles[style].byte_count <= at)
             ++style;
@@ -1401,8 +1401,15 @@ u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
             at = end < text.bytes && text.data[end] == '\n' ? end + 1 : end;
             continue;
         }
+        code_style = maximum(code_style, style);
+        while (code_style < styles.count &&
+               (!(styles[code_style].flags & text_style_code_block) ||
+                styles[code_style].byte_offset + styles[code_style].byte_count <= at))
+            ++code_style;
+        const u32 limit = code_style < styles.count ? minimum(text.bytes, styles[code_style].byte_offset)
+                                                    : text.bytes;
         u32 end = at;
-        while (end < text.bytes && text.data[end] != '\n' && !(flags_at(end) & text_style_code_block))
+        while (end < limit && text.data[end] != '\n')
             ++end;
         blocks = blocks || quote;
         if (!add(at, end, quote, false))

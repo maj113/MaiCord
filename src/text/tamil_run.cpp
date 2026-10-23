@@ -1,3 +1,4 @@
+#include "run_profile.hpp"
 #include "maicord/text/tamil_run.hpp"
 #include "maicord/text/tamil_shape_run.hpp"
 #include "maicord/text/base.hpp"
@@ -16,7 +17,7 @@ SfntStatus native_tamil_run(const NativeRunPlanStore& store,const NativeIndicPla
     if(!result)return SfntStatus::invalid_input;*result={};
     if(prepared.profile!=SfntIndicProfile::tamil)return SfntStatus::invalid_input;
     const auto* parent=native_run_plan_get(store,prepared.run);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
-    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;plan.substitution_roots={};plan.positioning_roots=prepared.positioning();plan.refresh_substitution_classes=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,{},prepared.positioning());
     return native_tamil_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,trailing_spacing,rtl);
 }
 SfntStatus native_tamil_run(const NativeRunPlanStore& store,const NativeIndicPlan& prepared,Utf8View text,float em,

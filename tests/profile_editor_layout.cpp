@@ -192,7 +192,13 @@ void test_dialogs(Check check) noexcept {
                   close_to((scene.rectangle.left + scene.rectangle.right) * .5f, viewport.right * .5f),
               "profile crop dialog: a 480 DIP modal with a 430 DIP editor and a 128 DIP zoom slider");
         ProfileMedia dim{}, bright{};
+        dim.rotation = bright.rotation = 270;
+        dim.playback_epoch = bright.playback_epoch = 123;
+        dim.circular = bright.circular = true;
         const bool media = ui_profile_dialog_media(scene, 0, &dim) && ui_profile_dialog_media(scene, 1, &bright);
+        check(media && dim.rotation == 0 && bright.rotation == 0 && dim.playback_epoch == 0 &&
+                  bright.playback_epoch == 0 && !dim.circular && !bright.circular,
+              "profile crop dialog: resolver overwrites reused output");
         const auto mask = image_crop_mask_rect(crop);
         check(media && dim.domain == 1 && dim.opacity < 1 && close_to(ui_rect_width(bright.mask), mask.right - mask.left) &&
                   close_to(bright.mask_radius, ui_rect_width(bright.mask) * .5f) &&

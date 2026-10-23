@@ -440,12 +440,18 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     scene.rectangle = {0, 0, 420, 600};
     scene.banner = {0, 0, 420, 112};
     ProfileMedia media{};
+    media.domain = 7;
+    media.rotation = 270;
+    media.circular = true;
+    media.mask_radius = 31;
     check(profile_effect_media_resolve(scene, 0, 1100, &media) &&
               !profile_effect_media_resolve(scene, 1, 1100, &media) &&
               profile_effect_media_resolve(scene, 1, 1600, &media) &&
               !profile_effect_media_resolve(scene, 1, 2600, &media) &&
               profile_effect_media_resolve(scene, 1, 3100, &media),
           "profile_effect_intro_and_loop_delay_gate_visible_layers");
+    check(media.domain == 0 && media.rotation == 0 && !media.circular && media.mask_radius == 0,
+          "profile_effect_resolver_overwrites_reused_output");
     effect.layers[1].loop_delay_ms = 0;
     ProfileMedia first_cycle{}, later_cycle{};
     check(profile_effect_media_resolve(scene, 1, 1600, &first_cycle) &&
@@ -474,11 +480,19 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     bool banner_found = false;
     for (u32 i = 0; i < scene.part_count; ++i)
         if (scene.parts[i].media == ProfileMediaKind::banner) {
+            media.domain = 7;
+            media.rotation = 270;
+            media.circular = true;
+            media.playback_epoch = 123;
+            media.opacity = .75f;
             banner_found =
                 profile_media_resolve(scene, i, &media) &&
                 utf8_equal(media.url.view(), utf8_literal("https://cdn.discordapp.com/guilds/7/users/42/"
                                                           "banners/a_guild.webp?size=512&animated=true")) &&
                 !ui_rect_has_area(media.mask) && media.clip.bottom <= scene.banner.bottom;
+            check(banner_found && media.domain == 0 && media.rotation == 0 && !media.circular &&
+                      media.playback_epoch == 0 && media.opacity == 0,
+                  "profile_media_resolver_overwrites_reused_output");
             const auto guild_key = media.key;
             profile.guild_banner = {};
             banner_found =

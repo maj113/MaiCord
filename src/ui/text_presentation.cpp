@@ -1,6 +1,7 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/text_style.hpp"
+#include <stddef.h>
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -37,16 +38,19 @@ u64 append_signature(u64 signature, const UiTextCommand& command, u32 index) noe
     signature = hash64_mix(signature, command.style_flags);
     signature = append_bytes(signature, command.styles.data, command.styles.count * sizeof(TextStyleSpan));
     signature = hash64_mix(signature, static_cast<u8>(command.face));
-    for (u32 i = 0; i < 8; ++i)
-        signature = hash64_mix(signature, command.effect.colors[i]);
-    signature = hash64_mix(signature, command.effect.kind);
-    signature = hash64_mix(signature, command.effect.count);
-    signature = hash64_mix(signature, command.effect.animate);
+    signature = append_bytes(signature, command.effect.colors, sizeof(command.effect.colors));
+    static_assert(offsetof(UiTextEffect, count) == offsetof(UiTextEffect, kind) + 1);
+    u16 kind_count;
+    CopyMemory(&kind_count, &command.effect.kind, sizeof(kind_count));
+    const u32 effect = kind_count | (static_cast<u32>(command.effect.animate) << 16);
+    signature = hash64_mix(signature, effect);
     signature = hash64_mix(signature, command.effect.started_ms);
-    signature = hash64_mix(signature, static_cast<u8>(command.horizontal_alignment));
-    signature = hash64_mix(signature, static_cast<u8>(command.vertical_alignment));
-    signature = hash64_mix(signature, static_cast<u8>(command.wrapping));
-    return hash64_mix(signature, static_cast<u8>(command.overflow));
+    static_assert(offsetof(UiTextCommand, vertical_alignment) == offsetof(UiTextCommand, horizontal_alignment) + 1 &&
+                  offsetof(UiTextCommand, wrapping) == offsetof(UiTextCommand, horizontal_alignment) + 2 &&
+                  offsetof(UiTextCommand, overflow) == offsetof(UiTextCommand, horizontal_alignment) + 3);
+    u32 layout;
+    CopyMemory(&layout, &command.horizontal_alignment, sizeof(layout));
+    return hash64_mix(signature, layout);
 }
 
 bool command_valid(const UiTextCommand& command) noexcept {

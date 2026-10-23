@@ -62,7 +62,7 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
     if(!parent||!prepared.cmap||!valid(prepared.substitution_roots)||!valid(prepared.positioning_roots)||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||!valid(s.mapped)||!valid(s.glyphs)||!valid(s.placements)||!valid(s.character_glyphs)||
        !valid(s.shaping.advances)||!valid(s.shaping.targets))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;u32 mapped=0,units=0,boundaries=0;bool controls=false,simple=true;u16 misses[4]{};u32 cached=0,next_miss=0;u64 proof_work=limits.stage_work;
-    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;plan.substitution_roots=prepared.substitution_roots;plan.positioning_roots=prepared.positioning_roots;plan.refresh_substitution_classes=true;plan.position_instance.round_variable_anchors=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.substitution_roots,prepared.positioning_roots);plan.position_instance.round_variable_anchors=true;
     auto* provenance=reinterpret_cast<u8*>(s.shaping.advances.data);const u64 provenance_bytes=static_cast<u64>(s.shaping.advances.count)*sizeof(double);
     for(u32 at=0;at<text.bytes;){const auto scalar=utf8_decode_one(text.data+at,text.bytes-at);if(!scalar.valid)return SfntStatus::invalid_input;
         const u32 cp=scalar.codepoint;const auto* properties=unicode_properties(cp);const auto category=properties->general_category();

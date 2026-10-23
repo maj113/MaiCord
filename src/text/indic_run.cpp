@@ -1,3 +1,4 @@
+#include "run_profile.hpp"
 #include "maicord/text/indic_input.hpp"
 #include "maicord/text/unicode.hpp"
 #include "indic_cluster.hpp"
@@ -121,7 +122,7 @@ SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& st
     if(!result)return SfntStatus::invalid_input;*result={};
     if(!indic_form_profile(profile)||prepared.indic.profile!=profile)return SfntStatus::invalid_input;
     const auto* parent=native_run_plan_get(store,prepared.indic.run);if(!parent||!prepared.indic.cmap)return SfntStatus::invalid_input;
-    auto plan=*parent;if(prepared.indic.positioning_program)plan.positioning=prepared.indic.positioning_program;plan.substitution_roots={};plan.positioning_roots=prepared.indic.positioning();plan.refresh_substitution_classes=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.indic.positioning_program,{},prepared.indic.positioning());
     return indic_utf8_run(profile,plan,*prepared.indic.cmap,text,{prepared.forms,128},em,storage,result,prepared.indic.substitutions(),limits,rtl,trailing_spacing);
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,

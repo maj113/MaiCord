@@ -256,7 +256,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         auto& profile = application.profile->scene;
         // Submit the banner and avatar before decorative effect layers can fill the worker queue.
         for (u32 i = 0; i < profile.part_count; ++i) {
-            ProfileMedia media{};
+            ProfileMedia media;
             if (!profile_media_resolve(profile, i, &media) || media.domain)
                 continue;
             AccountMediaRequestResult failed{};
@@ -281,7 +281,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         }
         bool effects_ready = true;
         for (u32 i = 0; profile.effect && i < maximum<u8>(1, profile.effect->count); ++i) {
-            ProfileMedia media{};
+            ProfileMedia media;
             if (!profile_effect_media_resolve(profile, i, now_ms, &media))
                 continue;
             bool stop = false;
@@ -329,7 +329,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
     // The DM profile panel beside a one-to-one DM (no profile effect).
     if (const auto* panel = application.renderer.dm_profile_panel; panel && panel->active && content_media_visible()) {
         for (u32 i = 0; i < panel->part_count; ++i) {
-            ProfileMedia media{};
+            ProfileMedia media;
             if (!profile_media_resolve(*panel, i, &media) || media.domain || !media.url.bytes)
                 continue;
             bool stop = false;
@@ -343,7 +343,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
     // picked images are local previews and never fetched).
     if (auto* preview = application_profile_editor_preview()) {
         for (u32 i = 0; i < preview->part_count; ++i) {
-            ProfileMedia media{};
+            ProfileMedia media;
             if (!profile_media_resolve(*preview, i, &media) || media.domain || !media.url.bytes)
                 continue;
             bool stop = false;
@@ -354,7 +354,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         }
         bool effects_ready = true;
         for (u32 i = 0; preview->effect && i < maximum<u8>(1, preview->effect->count); ++i) {
-            ProfileMedia media{};
+            ProfileMedia media;
             if (!profile_effect_media_resolve(*preview, i, now_ms, &media))
                 continue;
             bool stop = false;
@@ -370,8 +370,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             preview->effect_started_ms = now_ms + 500;
     }
     if (const auto* dialog = application_profile_editor_dialog()) {
-        ProfileMedia media{};
-        for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i, media = {}) {
+        ProfileMedia media;
+        for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i) {
             if (media.domain || !media.url.bytes)
                 continue;
             bool stop = false;

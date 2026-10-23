@@ -46,7 +46,7 @@ SfntStatus native_myanmar_run(const NativeRunPlanStore& store,const NativeMyanma
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
-    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;plan.substitution_roots={};plan.positioning_roots=prepared.positioning();plan.refresh_substitution_classes=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,{},prepared.positioning());
     return native_myanmar_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,rtl,spacing,prepared.modern);
 }
 SfntStatus native_myanmar_run(const NativeRunPlanStore& store,const NativeMyanmarPlan& prepared,Utf8View text,float em,

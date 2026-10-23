@@ -93,7 +93,7 @@ void remove_covered_shell_paint(PaintStream* stream, UiRect panel) noexcept {
         const auto& clip = stream->clips[batch.clip_index];
         const u32 first = count;
         for (u32 j = 0; j < batch.quad_count; ++j) {
-            const auto quad = stream->quads[batch.first_quad + j];
+            const auto& quad = stream->quads[batch.first_quad + j];
             const auto visible = ui_rect_intersection({quad.left, quad.top, quad.right, quad.bottom},
                                                       {clip.left, clip.top, clip.right, clip.bottom});
             if (visible.left >= panel.left && visible.top >= panel.top && visible.right <= panel.right &&
@@ -275,19 +275,19 @@ bool refresh_media_quad_sources(D3D11Renderer* renderer, bool* changed) noexcept
     return true;
 }
 
-bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocation, float left, float top,
-                      float right, float bottom, const UiRect& clip, bool rounded_mask = false,
-                      bool force_new_batch = false, u8 domain = 0, float opacity = 1.f, float radius = 0.f,
+bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& rectangle,
+                      const UiRect& clip, bool rounded_mask = false, bool force_new_batch = false, u8 domain = 0, float opacity = 1.f, float radius = 0.f,
                       UiRect rounded_clip = {}, float clip_radius = 0.f, float blur = 0.f) noexcept {
     // A retained row can intersect the viewport while its media does not.
     // Cull before pinning or reserving draw storage, including on source refreshes.
-    if (!ui_rect_has_area(ui_rect_intersection(UiRect{left, top, right, bottom}, clip))) {
+    if (!ui_rect_has_area(ui_rect_intersection(rectangle, clip))) {
         return true;
     }
     const bool surface_ready = domain == 0 ? renderer->media_atlas && renderer->media_gpu.texture_view
                                            : domain == 1 && renderer->preview_media_atlas &&
                                                  renderer->media_gpu.preview_texture_view;
-    if (!allocation.ok() || !surface_ready || left >= right || top >= bottom ||
+    if (!allocation.ok() || !surface_ready || rectangle.left >= rectangle.right ||
+        rectangle.top >= rectangle.bottom ||
         renderer->media_quad_count >= kRendererMediaQuadCapacity ||
         !renderer_media_draw_storage_reserve_quads(&renderer->media_draw,
                                                    renderer->media_quad_count + 1u)) {
@@ -315,10 +315,11 @@ bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocatio
         *batch = MediaDrawBatch{clip, renderer->media_quad_count, 0};
     }
     if (rounded_mask)
-        radius = minimum(right - left, bottom - top) * .5f;
+        radius = minimum(rectangle.right - rectangle.left, rectangle.bottom - rectangle.top) * .5f;
     const u32 quad_index = renderer->media_quad_count;
     renderer->media_draw.quad_data[quad_index] = MediaQuad{
-        left, top, right, bottom, 0.0f, 0.0f, 0.0f, 0.0f, opacity, radius, clip_radius, blur, rounded_clip,
+        rectangle.left, rectangle.top, rectangle.right, rectangle.bottom,
+        0.0f, 0.0f, 0.0f, 0.0f, opacity, radius, clip_radius, blur, rounded_clip,
     };
     bool source_changed = false;
     if (!update_media_quad_source(renderer, allocation, domain, &renderer->media_draw.quad_data[quad_index],
@@ -364,7 +365,7 @@ bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row
         if (!allocation.ok())
             continue;
         const UiRect mini = guild_rail_folder_preview_rectangle(tile, k);
-        if (!queue_media_quad(renderer, allocation, mini.left, mini.top, mini.right, mini.bottom,
+        if (!queue_media_quad(renderer, allocation, mini,
                               renderer->guild_rail_scene->viewport, true) ||
             !paint_stream_record_content(&renderer->paint_stream,
                                          UiWidgetReference{&renderer->guild_rail_scene->widgets, row.widget}, mini,
@@ -414,7 +415,7 @@ void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, const UiRe
 bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& r, const UiRect& clip,
                   UiWidgetReference owner, const Color& placeholder, bool first = false) noexcept {
     const u32 before = renderer->media_quad_count;
-    if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, clip, true, first) ||
+    if (!queue_media_quad(renderer, allocation, r, clip, true, first) ||
         (owner.manager &&
          !paint_stream_record_content(&renderer->paint_stream, owner, r, UiLayoutContentKind::media,
                                       ui_layout_content_bounds_allow_overlap)))
@@ -484,7 +485,7 @@ bool queue_profile_part(D3D11Renderer* renderer, const ProfileMedia& media, cons
         return true;
     const auto r = media.rectangle;
     const bool masked = ui_rect_has_area(media.mask);
-    return queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip,
+    return queue_media_quad(renderer, allocation, r, media.clip,
                             media.circular && !masked, first, local ? 1 : 0,
                             media.opacity > 0 ? media.opacity : 1, 0, masked ? media.mask : fallback_mask,
                             masked ? media.mask_radius : fallback_radius, media_orientation(media.rotation));
@@ -501,7 +502,7 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
     bool first = true;
     const ProfileCardMask card = profile_scene_card_mask(profile, theme);
     for (u32 i = 0; i < profile.part_count; ++i) {
-        ProfileMedia media{};
+        ProfileMedia media;
         if (!profile_media_resolve(profile, i, &media))
             continue;
         const u32 media_before = renderer->media_quad_count;
@@ -532,7 +533,7 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
     for (u32 i = 0; profile.effect && (profile.reduced_motion || profile.effect_started_ms) &&
                     i < maximum<u8>(1, profile.effect->count);
          ++i) {
-        ProfileMedia media{};
+        ProfileMedia media;
         if (!profile.effect_started_ms || effect_now_ms < profile.effect_started_ms ||
             !profile_effect_media_resolve(profile, i, effect_now_ms, &media))
             continue;
@@ -541,7 +542,7 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
         if (allocation.ok() && allocation.width) {
             r.bottom = r.top + ui_rect_width(r) * allocation.height / allocation.width;
             // Hovering the card dims its effect (ProfileMedia::opacity).
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false, first, 0,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, false, first, 0,
                                   media.opacity > 0 ? media.opacity : 1, 0, card.rectangle, card.radius))
                 return false;
             first = false;
@@ -590,8 +591,8 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
     media_first = renderer->media_batch_count;
     if (dialog) {
         bool first = true;
-        ProfileMedia media{};
-        for (u32 i = 0; ui_profile_dialog_media(*scene, i, &media); ++i, media = {}) {
+        ProfileMedia media;
+        for (u32 i = 0; ui_profile_dialog_media(*scene, i, &media); ++i) {
             const u32 before = renderer->media_quad_count;
             if (!queue_profile_part(renderer, media, {}, 0, first))
                 return false;
@@ -650,7 +651,7 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
                                                      media_asset_call_video(media.user_id, media.video_ssrc));
             const auto r = media.video;
             if (allocation.ok() &&
-                !queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false, first,
+                !queue_media_quad(renderer, allocation, r, media.clip, false, first,
                                   1, 1.f, 0.f, media.rounded_clip, media.radius))
                 return false;
         }
@@ -660,7 +661,7 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
             if (find_call_preview(*renderer, media.preview, &allocation, &domain)) {
                 const auto r = ui_call_video_fit(media.rounded_clip, allocation.width, allocation.height, false);
                 // Under a state scrim the preview is softened as well.
-                if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false, first,
+                if (!queue_media_quad(renderer, allocation, r, media.clip, false, first,
                                       domain, 1.f, 0.f, media.rounded_clip, media.radius, media.dim ? 6.f : 0.f))
                     return false;
             }
@@ -671,7 +672,7 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
             MediaAtlasResult allocation{};
             const auto a = media.avatar;
             if (user && find_user_avatar(*renderer, *user, &allocation)) {
-                if (!queue_media_quad(renderer, allocation, a.left, a.top, a.right, a.bottom, media.clip, true, first))
+                if (!queue_media_quad(renderer, allocation, a, media.clip, true, first))
                     return false;
                 reveal_media_underlay(*renderer, before, a, theme.avatar_placeholder);
             }
@@ -691,7 +692,7 @@ bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
         const auto a = media.avatar;
         if (!user || !find_user_avatar(*renderer, *user, &allocation))
             continue;
-        if (!queue_media_quad(renderer, allocation, a.left, a.top, a.right, a.bottom, media.clip, true, first))
+        if (!queue_media_quad(renderer, allocation, a, media.clip, true, first))
             return false;
         reveal_media_underlay(*renderer, before, a, theme.avatar_placeholder);
         first = first && renderer->media_quad_count == before;
@@ -728,7 +729,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                 break;
             }
             const auto r = flag.rectangle;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, flag.clip, false,
+            if (!queue_media_quad(renderer, allocation, r, flag.clip, false,
                                   first))
                 return false;
             first = false;
@@ -748,7 +749,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                 const float width = allocation.width * scale, height = allocation.height * scale;
                 const float left = (square.left + square.right - width) * .5f,
                             top = (square.top + square.bottom - height) * .5f;
-                if (!queue_media_quad(renderer, allocation, left, top, left + width, top + height,
+                if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + width, top + height},
                                       renderer->tooltip_scene->viewport, false, first))
                     return false;
                 first = false;
@@ -777,7 +778,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                     const float width = allocation.width * scale, height = allocation.height * scale;
                     const float left = (tile.left + tile.right - width) * .5f,
                                 top = (tile.top + tile.bottom - height) * .5f;
-                    if (!queue_media_quad(renderer, allocation, left, top, left + width, top + height, clip,
+                    if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + width, top + height}, clip,
                                           false, first, 1, 1.f, 0, tile, list.style.radius) ||
                         !paint_stream_record_content(
                             &renderer->paint_stream, {&scene.widgets, list.parts[row][2]}, tile,
@@ -1031,7 +1032,7 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
         const UiRect quad = ui_rect_has_area(cover) ? cover : command.rectangle;
         const UiRect quad_clip =
             ui_rect_has_area(cover) ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
-        if (!queue_media_quad(renderer, allocation, quad.left, quad.top, quad.right, quad.bottom, quad_clip,
+        if (!queue_media_quad(renderer, allocation, quad, quad_clip,
                               false, first, domain, 1.f,
                               command.ordinary_video ? UiVideoSceneStyle{}.preview_radius : 0.f, tile,
                               static_cast<float>(command.tile_radius), blur) ||
@@ -1093,8 +1094,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                                            command.clip, &badge_media)) {
                     const auto allocation = media_atlas_find(renderer->media_atlas, badge_media.key);
                     const auto r = badge_media.rectangle;
-                    if (allocation.ok() && !queue_media_quad(renderer, allocation, r.left, r.top, r.right,
-                                                             r.bottom, badge_media.clip, false))
+                    if (allocation.ok() && !queue_media_quad(renderer, allocation, r, badge_media.clip, false))
                         return layout_step_failed(__LINE__);
                 }
             }
@@ -1167,7 +1167,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
                                         composer.command.animated));
             if (allocation.ok() &&
-                !queue_media_quad(renderer, allocation, avatar.left, avatar.top, avatar.right, avatar.bottom,
+                !queue_media_quad(renderer, allocation, avatar,
                                   composer.viewport, true))
                 return layout_step_failed(__LINE__);
         }
@@ -1180,8 +1180,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 renderer->media_atlas, span.kind == MessageComposerProjectionKind::regional_flag
                                            ? media_asset_regional_flag(static_cast<u16>(span.target))
                                            : media_asset_custom_emoji(span.target, span.animated));
-            if (allocation.ok() && !queue_media_quad(renderer, allocation, rectangle.left, rectangle.top,
-                                                     rectangle.right, rectangle.bottom, clip))
+            if (allocation.ok() && !queue_media_quad(renderer, allocation, rectangle, clip))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -1214,8 +1213,8 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 flag ? minimum(48.0f, region.right - region.left) : minimum(48.0f, maximum(16.0f, height));
             const float center_x = (region.left + region.right) * 0.5f;
             const float center_y = (region.top + region.bottom) * 0.5f;
-            if (!queue_media_quad(renderer, allocation, center_x - extent * 0.5f, center_y - extent * 0.5f,
-                                  center_x + extent * 0.5f, center_y + extent * 0.5f,
+            if (!queue_media_quad(renderer, allocation,
+                                  UiRect{center_x - extent * 0.5f, center_y - extent * 0.5f, center_x + extent * 0.5f, center_y + extent * 0.5f},
                                   message_scene->viewport, false)) {
                 return layout_step_failed(__LINE__);
             }
@@ -1241,7 +1240,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             const UiRect fitted = ui_composer_attachment_fit(media, allocation.width, allocation.height);
             // Spoilered uploads keep their thumbnail, blurred in the media shader.
             const float blur = ui_composer_attachment_thumbnail_blur(strip.tiles[i], fitted);
-            if (!queue_media_quad(renderer, allocation, fitted.left, fitted.top, fitted.right, fitted.bottom, clip,
+            if (!queue_media_quad(renderer, allocation, fitted, clip,
                                   false, first_thumbnail, 1, 1.f, 0.f, fitted, theme.scale.radius_sm, blur) ||
                 !paint_stream_record_content(&renderer->paint_stream, strip.owner,
                                              ui_rect_intersection(fitted, clip), UiLayoutContentKind::media,
@@ -1400,8 +1399,8 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
                 const float cx = (region.left + region.right) * .5f,
                             cy = (region.top + region.bottom) * .5f;
                 const u32 before = renderer->media_quad_count;
-                if (!queue_media_quad(renderer, allocation, cx - extent * .5f, cy - extent * .5f,
-                                      cx + extent * .5f, cy + extent * .5f, clip, false, first))
+                if (!queue_media_quad(renderer, allocation,
+                                  UiRect{cx - extent * .5f, cy - extent * .5f, cx + extent * .5f, cy + extent * .5f}, clip, false, first))
                     return layout_step_failed(__LINE__);
                 if (renderer->media_quad_count != before)
                     first = false;
@@ -1458,7 +1457,7 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
             // Emoji and sticker previews keep their own shape.
             const auto kind = avatar.media->key.kind;
             const bool round = kind != MediaAssetKind::custom_emoji && kind != MediaAssetKind::sticker;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, avatar.clip, round,
+            if (!queue_media_quad(renderer, allocation, r, avatar.clip, round,
                                   first))
                 return layout_step_failed(__LINE__);
             reveal_media_underlay(*renderer, before, r, theme.avatar_placeholder);
@@ -1709,7 +1708,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto& drag = renderer->guild_rail_scene->drag;
             const bool dimmed = (drag.active && drag.source_id == row.view.id) ||
                                 (row.view.muted && !row.view.selected && !hovered);
-            if (!queue_media_quad(renderer, allocation, icon.left, icon.top, icon.right, icon.bottom,
+            if (!queue_media_quad(renderer, allocation, icon,
                                   renderer->guild_rail_scene->viewport, false, false, 0, dimmed ? .5f : 1.f,
                                   guild_rail_icon_radius(icon, &row.indicator, row.view.selected, hovered)) ||
                 !paint_stream_record_content(
@@ -1744,13 +1743,13 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 clip, {banner.header.left, banner.header.top, banner.header.right, banner.header.bottom + 1});
             const float glass_opacity = banner.glass * banner.opacity;
             if ((banner.opacity > 0 && ui_rect_has_area(clip) &&
-                 (!queue_media_quad(renderer, allocation, picture.left, picture.top, picture.right, picture.bottom,
+                 (!queue_media_quad(renderer, allocation, picture,
                                     clip, false, false, 0, banner.opacity) ||
                   !paint_stream_record_content(&renderer->paint_stream,
                                                UiWidgetReference{&shell_scene.widgets, sidebar->widget}, clip,
                                                UiLayoutContentKind::media, ui_layout_content_bounds_allow_overlap))) ||
                 (glass_opacity > 0 && ui_rect_has_area(glass) &&
-                 !queue_media_quad(renderer, allocation, picture.left, picture.top, picture.right, picture.bottom,
+                 !queue_media_quad(renderer, allocation, picture,
                                    glass, false, false, 0, glass_opacity, 0.f, {}, 0.f, kUiGuildBannerGlassBlur)))
                 return layout_step_failed(__LINE__);
         }
@@ -1879,7 +1878,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 !find_call_preview(*renderer, media.key, &allocation, &domain))
                 continue;
             const auto r = media.rectangle;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false, false,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, false, false,
                                   domain) ||
                 !paint_stream_record_content(&renderer->paint_stream, media.owner, r, UiLayoutContentKind::media,
                                              ui_layout_content_bounds_allow_overlap))
@@ -1961,7 +1960,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 const bool hovered = hovered_row == &row;
                 const u32 media_before = renderer->media_quad_count;
                 if (allocation.ok() &&
-                    !queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip,
+                    !queue_media_quad(renderer, allocation, r, media.clip,
                                       media.circular, false, 0, offline && !hovered ? .4f : 1.f,
                                       layer == 0 ? 8.f : 0.f))
                     return layout_step_failed(__LINE__);
@@ -2074,7 +2073,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             const auto r = media.rectangle;
             const u32 before = renderer->media_quad_count;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, true,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, true,
                                   first) ||
                 !paint_stream_record_content(&renderer->paint_stream, media.owner, r,
                                              UiLayoutContentKind::media,
@@ -2115,7 +2114,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             const auto r = media.rectangle;
             const u32 before = renderer->media_quad_count;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, true,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, true,
                                   first) ||
                 !paint_stream_record_content(&renderer->paint_stream, media.owner, r,
                                              UiLayoutContentKind::media,
@@ -2214,7 +2213,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const float width = allocation.width * scale, height = allocation.height * scale;
             const float left = (tile.left + tile.right - width) * .5f;
             const float top = (tile.top + tile.bottom - height) * .5f;
-            if (!queue_media_quad(renderer, allocation, left, top, left + width, top + height,
+            if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + width, top + height},
                                   ui_rect_intersection(slot.clip, tile), false, first_media, emoji ? 0 : 1,
                                   slot.opacity, 0, tile, slot.radius))
                 return layout_step_failed(__LINE__);
@@ -2244,7 +2243,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 r = {(r.left + r.right - width) * .5f, (r.top + r.bottom - height) * .5f,
                      (r.left + r.right + width) * .5f, (r.top + r.bottom + height) * .5f};
             }
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, slot.clip, false,
+            if (!queue_media_quad(renderer, allocation, r, slot.clip, false,
                                   first_media, preview ? 1 : 0, 1.f, preview ? 0.f : slot.radius))
                 return layout_step_failed(__LINE__);
             first_media = false;
@@ -2371,7 +2370,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             // The open/close motion travels from the inline preview, outside the body.
             const auto r = viewer.display;
             if (allocation.ok() &&
-                !queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom,
+                !queue_media_quad(renderer, allocation, r,
                                   viewer.reveal < 1 ? viewer.viewport : viewer.body, false, true, domain,
                                   ui_image_viewer_media_opacity(viewer)))
                 return layout_step_failed(__LINE__);
@@ -2409,7 +2408,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, media.key);
             if (allocation.ok() && allocation.width && allocation.height) {
                 const auto r = ui_call_video_fit(media.rectangle, allocation.width, allocation.height, true);
-                if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false, true,
+                if (!queue_media_quad(renderer, allocation, r, media.clip, false, true,
                                       0, media.opacity, 0.f, media.mask, media.mask_radius))
                     return layout_step_failed(__LINE__);
             }
@@ -2429,7 +2428,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok())
                 continue;
             const auto r = media.rectangle;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, true,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, true,
                                   first_interaction_media))
                 return layout_step_failed(__LINE__);
             first_interaction_media = false;
@@ -2447,7 +2446,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok())
                 continue;
             const auto r = media.rectangle;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, media.circle,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, media.circle,
                                   first_interaction_media, 0, 1.f, media.radius))
                 return layout_step_failed(__LINE__);
             first_interaction_media = false;
@@ -2481,7 +2480,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 allocation.error = MediaAtlasError::not_found;
             if (allocation.ok()) {
                 const auto r = ui_call_video_fit(media.rectangle, allocation.width, allocation.height, true);
-                if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false,
+                if (!queue_media_quad(renderer, allocation, r, media.clip, false,
                                       first_interaction_media, domain, media.opacity, 0.f, media.clip, media.radius))
                     return layout_step_failed(__LINE__);
                 first_interaction_media = false;
@@ -2499,7 +2498,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok())
                 continue;
             const auto r = media.rectangle;
-            if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, media.clip, false,
+            if (!queue_media_quad(renderer, allocation, r, media.clip, false,
                                   first_interaction_media, 0, media.opacity, media.radius))
                 return layout_step_failed(__LINE__);
             first_interaction_media = false;
@@ -2550,8 +2549,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             }
             const u32 before = renderer->media_quad_count;
-            if (!queue_media_quad(renderer, allocation, command.rectangle.left, command.rectangle.top,
-                                  command.rectangle.right, command.rectangle.bottom, command.clip,
+            if (!queue_media_quad(renderer, allocation, command.rectangle, command.clip,
                                   command.avatar || command.guild_icon, first_interaction_media)) {
                 return layout_step_failed(__LINE__);
             }
@@ -2590,7 +2588,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const float extent = 24.0f;
             const float left = row.left + 8.0f;
             const float top = (row.top + row.bottom - extent) * 0.5f;
-            if (!queue_media_quad(renderer, allocation, left, top, left + extent, top + extent, viewer.body,
+            if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + extent, top + extent}, viewer.body,
                                   false, first_interaction_media)) {
                 return layout_step_failed(__LINE__);
             }
@@ -2615,7 +2613,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }
             constexpr float extent = 32.0f;
             const float top = (row.top + row.bottom - extent) * 0.5f;
-            if (!queue_media_quad(renderer, allocation, row.left, top, row.left + extent, top + extent,
+            if (!queue_media_quad(renderer, allocation, UiRect{row.left, top, row.left + extent, top + extent},
                                   viewer.body, true, first_interaction_media)) {
                 return layout_step_failed(__LINE__);
             }

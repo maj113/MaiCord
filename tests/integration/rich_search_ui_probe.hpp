@@ -334,17 +334,32 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
         const auto header = ui_scene_header_geometry(*renderer.ui_scene);
         auto viewport = ui_scene_content_rectangle(*renderer.ui_scene,UiSemantic::content);
         viewport.right = renderer.width * 96.f / renderer.dpi;
-        if (!title || !ui_search_scene_update(&f.scene,&f.source,&f.content,viewport,title->rectangle,&header)) return false;
+        if (!require(title && ui_search_scene_update(&f.scene,&f.source,&f.content,viewport,title->rectangle,&header),701)) return false;
         renderer.search_scene = &f.scene;
-        if (!renderer_bind_search_message_text_presentation(&renderer,&f.presentation,&f.users,&measure)) return false;
+        if (!require(renderer_bind_search_message_text_presentation(&renderer,&f.presentation,&f.users,&measure),702)) return false;
         auto* scene = ui_search_scene_message_scene(&f.scene);
-        if (!scene) return false;
-        return message_text_coordinator_converge({scene,&f.presentation,&measure,renderer.chat_state,&f.users,
+        if (!require(scene != nullptr,703)) return false;
+        const auto result = message_text_coordinator_converge({scene,&f.presentation,&measure,renderer.chat_state,&f.users,
             renderer.navigation_view,&theme,+[](void* owner,const Theme& current_theme) noexcept {
                 auto& r = *static_cast<D3D11Renderer*>(owner);
-                return ui_search_scene_refresh_rich(const_cast<UiSearchScene*>(r.search_scene)) &&
-                    renderer_rebuild_content_text(&r,current_theme);
-            },&renderer,1'759'667'400ull,static_cast<u16>(renderer.dpi),nullptr}).ok();
+                if (!ui_search_scene_refresh_rich(const_cast<UiSearchScene*>(r.search_scene))) {
+                    log_write(LogLevel::error,"probe","rich_search_finalize_refresh_failed");
+                    return false;
+                }
+                if (!renderer_rebuild_content_text(&r,current_theme)) {
+                    log_write(LogLevel::error,"probe","rich_search_finalize_text_failed");
+                    log_u64(LogLevel::error,"probe","rich_search_text_error",static_cast<u32>(r.content_text->last_error));
+                    log_u64(LogLevel::error,"probe","rich_search_shape_error",static_cast<u32>(r.content_text->last_shape_error));
+                    return false;
+                }
+                return true;
+            },&renderer,1'759'667'400ull,static_cast<u16>(renderer.dpi),nullptr});
+        if (!result.ok()) {
+            log_u64(LogLevel::error,"probe","rich_search_coordinator_error",static_cast<u32>(result.error));
+            log_u64(LogLevel::error,"probe","rich_search_scene_error",static_cast<u32>(result.scene_error));
+            log_u64(LogLevel::error,"probe","rich_search_presentation_error",static_cast<u32>(result.presentation_error));
+        }
+        return result.ok();
     };
     const auto reproject_main = [&]() noexcept {
         return message_text_coordinator_converge({const_cast<MessageScene*>(renderer.message_scene),
@@ -356,8 +371,9 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
             },&renderer,1'759'667'400ull,static_cast<u16>(renderer.dpi),nullptr}).ok();
     };
     const auto show = [&](const wchar_t* name) noexcept {
-        return project() && upload_media(renderer,f) && renderer_rebuild_content_text(&renderer,theme) &&
-            probe_present(&renderer,theme) && (!capture || capture(name,theme));
+        return require(project(),601) && require(upload_media(renderer,f),602) &&
+            require(renderer_rebuild_content_text(&renderer,theme),603) &&
+            require(probe_present(&renderer,theme),604) && require(!capture || capture(name,theme),605);
     };
     const auto warm = [&]() noexcept {
         const auto* scene = ui_search_scene_message_scene(f.scene);
@@ -440,8 +456,18 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
     for (u32 i = 0; i + 1 < kRows; ++i) f.result_order[i] = f.result_order[i + 1];
     f.result_order[kRows - 1] = first_handle; ++f.source.revision; ++f.content.revision;
     f.content.offset = 25; f.content.previous = true; f.content.next = false;
-    if (!require(!ui_search_scene_target_current(f.scene,jump) && !ui_search_scene_target_current(f.scene,snapshot_target) &&
-        show(L"rich-search-media-only-page.bmp"),12)) return false;
+    if (!require(!ui_search_scene_target_current(f.scene,jump),1201) ||
+        !require(!ui_search_scene_target_current(f.scene,snapshot_target),1202) ||
+        !require(show(L"rich-search-media-only-page.bmp"),12)) return false;
+    u32 clipped_commands = 0;
+    for (u32 i = 0; i < f.presentation.command_count; ++i) {
+        const auto& command = f.presentation.commands[i];
+        const UiRect clip = ui_search_scene_content_clip(f.scene,command.clip);
+        if (command.text.bytes && ui_rect_has_area(command.rectangle) && ui_rect_has_area(clip) &&
+            !ui_rect_has_area(ui_rect_intersection(command.rectangle,clip)))
+            ++clipped_commands;
+    }
+    if (!require(clipped_commands != 0,1204)) return false;
     {
         surface_motion_probe_detail::Readback rb{};
         if (!require(read(renderer,theme,rb,0) && pixels(f,renderer,theme,rb,0,2),13)) return false;

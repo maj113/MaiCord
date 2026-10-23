@@ -1,3 +1,4 @@
+#include "run_profile.hpp"
 #include "maicord/text/devanagari_run_plan.hpp"
 #include "maicord/text/indic_run_plan.hpp"
 namespace maicord {
@@ -13,7 +14,7 @@ SfntStatus native_devanagari_run(const NativeRunPlanStore& store,const NativeDev
     NativeDevanagariRunStorage storage,NativeAsciiResult* result,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};const auto* parent=native_run_plan_get(store,prepared.run);
     if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
-    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;plan.substitution_roots={};plan.positioning_roots=prepared.positioning;plan.refresh_substitution_classes=true;
+    SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,{},prepared.positioning);
     return native_devanagari_run(plan,*prepared.cmap,{prepared.forms,128},prepared.substitutions,text,em,storage,result,limits,trailing_spacing,true,rtl);
 }
 }

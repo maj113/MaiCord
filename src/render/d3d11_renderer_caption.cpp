@@ -184,8 +184,6 @@ bool upload_paint(D3D11Renderer* renderer, RendererCaption* caption, float weigh
         !mapped.pData)
         return false;
     auto* destination = static_cast<PaintQuad*>(mapped.pData);
-    copy_bytes(destination, caption->paint.quads,
-               caption->paint.count * static_cast<u32>(sizeof(PaintQuad)));
     if (!icon_atlas_resolve(&renderer->icon_atlas, context, caption->paint.quads, destination,
                             caption->paint.count, renderer->dpi, weight))
         log_write(LogLevel::warning, "render", "caption_icon_raster_failed");

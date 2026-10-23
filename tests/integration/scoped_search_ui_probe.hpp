@@ -75,20 +75,24 @@ inline bool centered_pages(const UiSearchScene& scene, const D3D11Renderer& rend
         const u8 ink[]{static_cast<u8>(command->color.blue * 255.f + .5f),
                        static_cast<u8>(command->color.green * 255.f + .5f),
                        static_cast<u8>(command->color.red * 255.f + .5f)};
+        // Uncut labels may share a viewport batch; validate their visible glyphs.
         bool native_color = false;
         if (renderer.content_text)
             for (u32 b = 0; b < renderer.content_text->batch_count; ++b) {
                 const auto& batch = renderer.content_text->batches[b];
-                if (!ui_rect_equal(batch.clip, command->clip) || !batch.quad_count)
-                    continue;
-                native_color = true;
                 for (u32 q = 0; q < batch.quad_count; ++q) {
-                    const auto color = renderer.content_text->quads[batch.first_quad + q].color;
-                    native_color &=
-                        color.red == command->color.red && color.green == command->color.green &&
-                        color.blue == command->color.blue && color.alpha == command->color.alpha;
+                    const auto& quad = renderer.content_text->quads[batch.first_quad + q];
+                    const UiRect bounds{quad.left, quad.top, quad.right, quad.bottom};
+                    const UiRect visible = ui_rect_intersection(bounds, batch.clip);
+                    if (!ui_rect_has_area(ui_rect_intersection(visible, command->rectangle)))
+                        continue;
+                    const auto& color = quad.color;
+                    if (!ui_rect_equal(ui_rect_intersection(visible, command->clip), visible) ||
+                        color.red != command->color.red || color.green != command->color.green ||
+                        color.blue != command->color.blue || color.alpha != command->color.alpha)
+                        return false;
+                    native_color = true;
                 }
-                break;
             }
         if (!native_color) {
             log_u64(LogLevel::error, "probe", "search_center_native_color_slot", i);
