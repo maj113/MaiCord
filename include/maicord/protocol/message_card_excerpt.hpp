@@ -13,8 +13,8 @@ struct MessageCardExcerptInput {
 struct MessageCardExcerptResult { u16 bytes{}; bool truncated{}; u16 quoted_offset{}, quoted_bytes{}; };
 // A card summary is plain text, never a conversation event or mention parser.
 // Reserve room for the quoted portion when an outer caption is also present.
-inline MessageCardExcerptResult message_card_excerpt(MessageCardExcerptInput input,
-                                                      Slice<char> output) noexcept {
+__declspec(noinline) inline MessageCardExcerptResult message_card_excerpt(MessageCardExcerptInput input,
+                                                                          Slice<char> output) noexcept {
     if (!output.data || !output.count || !utf8_validate(input.outer).valid ||
         !utf8_validate(input.quoted).valid) return {};
     const u32 capacity = minimum(output.count, kMessageCardExcerptMaximumBytes);

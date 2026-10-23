@@ -13,16 +13,16 @@ namespace maicord::app_detail {
 struct CatalogPreviewLog {
     char text[320];
     u32 bytes = 0;
-    explicit CatalogPreviewLog(const char* stage) noexcept {
+    __declspec(noinline) explicit CatalogPreviewLog(const char* stage) noexcept {
         add("catalog_preview_fallback stage=");
         add(stage);
     }
-    CatalogPreviewLog& add(const char* value) noexcept {
+    __declspec(noinline) CatalogPreviewLog& add(const char* value) noexcept {
         while (*value && bytes + 1 < sizeof(text))
             text[bytes++] = *value++;
         return *this;
     }
-    CatalogPreviewLog& field(const char* key, u64 value) noexcept {
+    __declspec(noinline) CatalogPreviewLog& field(const char* key, u64 value) noexcept {
         char digits[20];
         const u32 count = decimal_write(digits, value);
         add(" ");

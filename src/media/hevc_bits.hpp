@@ -7,7 +7,7 @@ struct HevcBits {
     u32 cursor{}, position{};
     u8 current{}, remaining{}, zeros{};
     HevcError error{};
-    u8 byte() noexcept {
+    __declspec(noinline) u8 byte() noexcept {
         if (error != HevcError::none)
             return 0;
         if (cursor >= source.count) {
@@ -29,7 +29,7 @@ struct HevcBits {
         zeros = value == 0 ? static_cast<u8>(zeros + 1) : 0;
         return value;
     }
-    u32 read(u32 count) noexcept {
+    __declspec(noinline) u32 read(u32 count) noexcept {
         if (count > 32) {
             error = HevcError::invalid_input;
             return 0;

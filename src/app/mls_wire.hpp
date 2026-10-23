@@ -14,7 +14,7 @@ namespace maicord {
 inline u32 mls_varint_size(u32 value) noexcept {
     return value < 64 ? 1u : value < 16384 ? 2u : 4u;
 }
-inline bool mls_equal(const void* left, const void* right, u32 bytes) noexcept {
+__declspec(noinline) inline bool mls_equal(const void* left, const void* right, u32 bytes) noexcept {
     const volatile u8* a = static_cast<const u8*>(left);
     const volatile u8* b = static_cast<const u8*>(right);
     u32 difference = 0;
@@ -26,7 +26,7 @@ inline bool mls_done(const MlsReader& reader) noexcept {
     return reader.error == MlsWireError::none && reader.used == reader.input.count;
 }
 // A P-256 SEC1 uncompressed point vector; null after any failure.
-inline const u8* mls_read_point(MlsReader& reader) noexcept {
+__declspec(noinline) inline const u8* mls_read_point(MlsReader& reader) noexcept {
     const auto point = reader.vector();
     if (reader.error != MlsWireError::none)
         return nullptr;
@@ -47,7 +47,7 @@ inline void mls_store_be64(u64 value, u8* output) noexcept {
         output[7 - i] = static_cast<u8>(value >> (8 * i));
 }
 // Sorted big-endian u32 list membership (unmerged leaves).
-inline bool mls_u32_list_contains(ConstSlice<u8> values, u32 target) noexcept {
+__declspec(noinline) inline bool mls_u32_list_contains(ConstSlice<u8> values, u32 target) noexcept {
     for (u32 i = 0; i + 4 <= values.count; i += 4) {
         const u32 value = byte_load_be32(values.data + i);
         if (value == target)

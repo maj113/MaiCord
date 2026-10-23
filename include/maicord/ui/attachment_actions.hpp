@@ -26,9 +26,10 @@ inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) no
 // Virtual child action: the attachment widget owns its hover/focus and content
 // bounds. The caller passes the same action rectangle and clip that input uses,
 // and may expose the action while the containing media row is active.
-inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner,
-    UiRect rectangle, UiRect clip, const Theme& theme, bool file_card,
-    bool parent_active = false) noexcept {
+__declspec(noinline) inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner,
+                                                          UiRect rectangle, UiRect clip, const Theme& theme,
+                                                          bool file_card,
+                                                          bool parent_active = false) noexcept {
     if (!paint || !ui_rect_valid_or_empty(rectangle) || !ui_rect_valid_or_empty(clip)) return false;
     if (!ui_rect_has_area(rectangle) || !ui_rect_has_area(clip)) return true;
     if (!owner.manager || !ui_widget_manager_input_enabled(*owner.manager,owner.handle)) return true;
