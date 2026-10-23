@@ -572,7 +572,6 @@ bool forum_meta_response(ApplicationThreadBrowser& value, const RestClientRespon
     repaint(); return true;
 }
 struct BatchContext {
-    ApplicationThreadBrowser* owner;
     BrowserBank* bank;
     u32 indices[kThreadBrowserSearchMaximumRows];
     u32 count;
@@ -611,7 +610,7 @@ bool read_input(const void* opaque, u32 index, ChannelInput* output) noexcept {
     return true;
 }
 bool apply_page(ApplicationThreadBrowser& value, BrowserBank& bank, const BrowserFlight& flight) noexcept {
-    BatchContext context{&value, &bank, {}, 0, flight.request.mode == ThreadBrowserMode::active};
+    BatchContext context{&bank, {}, 0, flight.request.mode == ThreadBrowserMode::active};
     const bool changed = flight.gateway_serial != value.gateway_serial;
     for (u32 i = 0; i < bank.page.row_count; ++i) {
         const auto& row = bank.page.rows.data[i];

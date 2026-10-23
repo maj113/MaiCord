@@ -5,18 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (-not (Test-Path -LiteralPath $vswhere)) {
-    throw 'Visual Studio Installer (vswhere.exe) was not found.'
-}
-$installation = & $vswhere -latest -prerelease -products * -property installationPath
-if (-not $installation) {
-    throw 'A Visual Studio C++ installation was not found.'
-}
-
-Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation `
-    -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+. (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -SkipNinjaFallback
 
 Push-Location $repository
 try {

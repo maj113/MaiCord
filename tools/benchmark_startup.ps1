@@ -17,16 +17,7 @@ $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
 $cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
 $binary = Join-Path $cacheRoot 'MaiCord.exe'
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer (vswhere.exe) was not found.' }
-$installation = & $vswhere -latest -prerelease -products * -property installationPath
-if (-not $installation) { throw 'A Visual Studio C++ installation was not found.' }
-Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation `
-    -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
-if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
-    $env:PATH = (Join-Path $installation 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') + ';' + $env:PATH
-}
+. (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
 
 function Read-StartupLog([string]$Path) {
     $values = @{}

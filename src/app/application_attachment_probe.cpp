@@ -24,7 +24,6 @@ struct Probe {
 };
 struct ProbeOwner {
     Probe probes[kProbeSlots];
-    u32 revision;
 };
 ProbeOwner* owner;
 

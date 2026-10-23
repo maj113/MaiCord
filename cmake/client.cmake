@@ -3,30 +3,22 @@
 
 option(MAICORD_STARTUP_PROBE "Measure isolated production-path startup" OFF)
 
-add_library(MaiCordAccount SHARED
-    src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
+# No manifest: LINK's default one holds only an asInvoker trustInfo, which a
+# DLL ignores, and would cost the image a .rsrc section.
+maicord_program(MaiCordAccount SHARED ENTRY maicord_account_module_entry
+    SOURCES src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
     src/app/account_module.cpp src/app/account_message_search.cpp
     src/app/account_media_catalog.cpp src/app/account_guild_assets.cpp src/app/guild_image.cpp
     src/app/profile_image.cpp src/app/account_profile_edit.cpp
-    $<TARGET_OBJECTS:maicord_runtime>)
-target_link_libraries(MaiCordAccount PRIVATE
-    maicord_compile_contract maicord_core maicord_platform maicord_protocol
+    LIBS maicord_compile_contract maicord_core maicord_platform maicord_protocol
     maicord_app_core maicord_model maicord_account_media maicord_media_core
     maicord_media_codec maicord_cdn_media
-    kernel32 ws2_32 secur32 bcrypt crypt32 maicord_voice_encoder)
-set_target_properties(MaiCordAccount PROPERTIES
-    CXX_EXTENSIONS OFF
-    MSVC_RUNTIME_LIBRARY "MultiThreaded")
-# No manifest: LINK's default one holds only an asInvoker trustInfo, which a
-# DLL ignores, and would cost the image a .rsrc section.
-target_link_options(MaiCordAccount PRIVATE
-    /ENTRY:maicord_account_module_entry
-    /EXPORT:maicord_account_get_api,@135,NONAME
-    /SUBSYSTEM:WINDOWS,6.02
-    /MANIFEST:NO)
+    kernel32 ws2_32 secur32 bcrypt crypt32 maicord_voice_encoder
+    LINK_OPTIONS /EXPORT:maicord_account_get_api,@135,NONAME /MANIFEST:NO
+    PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-add_executable(MaiCord WIN32
-    src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
+maicord_program(MaiCord WIN32 ENTRY maicord_entry
+    SOURCES src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
     "${MAICORD_NOTIFICATION_SOUND_RESOURCE}" src/app/application_state.cpp src/app/application_settings.cpp
     src/app/settings_catalog.cpp src/app/application_user_settings.cpp src/app/application_account_settings.cpp
     src/app/application_theme_editor.cpp src/app/application_custom_theme.cpp
@@ -110,14 +102,15 @@ add_executable(MaiCord WIN32
     src/app/application_voice_settings.cpp src/app/voice_settings_binding.cpp src/app/application_call.cpp
     src/app/application_stage.cpp src/app/application_voice_channels.cpp src/app/application_message_components.cpp
     src/app/application_channel_memory.cpp
-    src/app/application_invite_cards.cpp src/app/application_stream.cpp)
-target_link_libraries(MaiCord PRIVATE maicord_compile_contract
+    src/app/application_invite_cards.cpp src/app/application_stream.cpp
+    LIBS maicord_compile_contract
     maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences
     maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager maicord_ui_input
     maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
-    kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 secur32 bcrypt)
-target_include_directories(MaiCord PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+    kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 secur32 bcrypt
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
+    PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 if(MAICORD_STARTUP_PROBE)
     set_property(TARGET MaiCord PROPERTY MAICORD_STARTUP_PROBE ON)
     # Only these sources use the probe. Restoring a normal client after the
@@ -127,12 +120,6 @@ if(MAICORD_STARTUP_PROBE)
         APPEND PROPERTY COMPILE_DEFINITIONS
         "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_STARTUP_PROBE>>:MAICORD_STARTUP_PROBE=1>")
 endif()
-set_target_properties(MaiCord PROPERTIES
-    CXX_EXTENSIONS OFF
-    MSVC_RUNTIME_LIBRARY "MultiThreaded")
-target_link_options(MaiCord PRIVATE
-    /ENTRY:maicord_entry
-    /SUBSYSTEM:WINDOWS,6.02)
 option(MAICORD_SIZE_REPORT "Report shipping linker-map code extents" OFF)
 if(MAICORD_SIZE_REPORT)
     foreach(image IN ITEMS MaiCord MaiCordAccount)

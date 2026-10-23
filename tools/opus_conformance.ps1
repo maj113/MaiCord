@@ -24,16 +24,7 @@ if (-not $Archive) {
     New-Item -ItemType Directory -Path $download | Out-Null
     $Archive = Join-Path $download 'opus_testvectors-rfc8251.tar.gz'
 }
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer (vswhere.exe) was not found.' }
-$installation = & $vswhere -latest -prerelease -products * -property installationPath
-if (-not $installation) { throw 'A Visual Studio C++ installation was not found.' }
-Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation `
-    -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
-if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
-    $env:PATH = (Join-Path $installation 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') + ';' + $env:PATH
-}
+. (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
 
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
@@ -57,13 +48,7 @@ try {
     Remove-Item Env:MAICORD_OPUS_VECTORS -ErrorAction SilentlyContinue
     if ($download -and (Test-Path -LiteralPath $download)) { Remove-Item -LiteralPath $download -Recurse -Force }
     if ($locked) {
-        foreach ($path in @($binary, $objects)) {
-            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
-        }
-        cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=OFF | Out-Null
-        Get-ChildItem -LiteralPath (Join-Path $cacheRoot 'CMakeFiles') -Directory -Filter '*Benchmark.dir' |
-            Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Recurse -File) } |
-            Remove-Item -Recurse -Force
+        & (Join-Path $PSScriptRoot 'clear_benchmark_outputs.ps1') -CacheRoot $cacheRoot -Paths @($binary, $objects)
         $mutex.ReleaseMutex()
     }
     $mutex.Dispose()

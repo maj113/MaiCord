@@ -134,7 +134,7 @@ endfunction()
 #     [LIBS <library>...] [INCLUDES <dir>...] [DEFINES <definition>...]
 #     [OPTIONS <option>...] [LINK_OPTIONS <option>...] [PROPERTIES <name> <value>...]
 #     [DEPENDS <target>...])
-# A freestanding tool, test or fixture image: its sources plus the runtime
+# A freestanding image: its sources plus the runtime
 # helper objects, the compile contract (first unless LIBS places it), /ENTRY
 # and a console subsystem (windows for WIN32 executables and SHARED DLLs).
 function(maicord_program target)
@@ -143,15 +143,19 @@ function(maicord_program target)
     if(ARG_UNPARSED_ARGUMENTS OR NOT ARG_ENTRY)
         message(FATAL_ERROR "maicord_program(${target}): needs ENTRY; unexpected: ${ARG_UNPARSED_ARGUMENTS}")
     endif()
+    # Preserve explicit runtime placement in a shipping target's source list.
+    if(NOT "$<TARGET_OBJECTS:maicord_runtime>" IN_LIST ARG_SOURCES)
+        list(APPEND ARG_SOURCES $<TARGET_OBJECTS:maicord_runtime>)
+    endif()
     set(subsystem CONSOLE)
     if(ARG_SHARED)
-        add_library(${target} SHARED ${ARG_SOURCES} $<TARGET_OBJECTS:maicord_runtime>)
+        add_library(${target} SHARED ${ARG_SOURCES})
         set(subsystem WINDOWS)
     elseif(ARG_WIN32)
-        add_executable(${target} WIN32 ${ARG_SOURCES} $<TARGET_OBJECTS:maicord_runtime>)
+        add_executable(${target} WIN32 ${ARG_SOURCES})
         set(subsystem WINDOWS)
     else()
-        add_executable(${target} ${ARG_SOURCES} $<TARGET_OBJECTS:maicord_runtime>)
+        add_executable(${target} ${ARG_SOURCES})
     endif()
     if(NOT "maicord_compile_contract" IN_LIST ARG_LIBS)
         list(PREPEND ARG_LIBS maicord_compile_contract)
