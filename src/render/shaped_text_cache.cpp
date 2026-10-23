@@ -101,11 +101,15 @@ ShapedText view_of(ShapedTextGeneration& generation, const ShapedTextCacheEntry&
 }
 
 void clear_generation(ShapedTextGeneration& generation) noexcept {
+    ShapedText view; // Reset reads only the ownership fields assigned below.
     for (u32 index = 0; index < generation.entry_count; ++index) {
         ShapedTextCacheEntry& entry = generation.entries[index];
         if (entry.moved)
             continue;
-        ShapedText view = view_of(generation, entry);
+        // Reset releases only the runs and session; no rendering view is needed.
+        view.runs = generation.runs + entry.first_run;
+        view.run_count = entry.run_count;
+        view.owner_flags = entry.owner_flags;
         shaped_text_reset(&view);
     }
     clear_bytes(generation.buckets, sizeof(generation.buckets));

@@ -16,7 +16,7 @@ inline constexpr u32 indic_cluster_capacity=32;
 // failures set no output lengths. Whole-run GPOS is not applied. defer_output skips
 // source-map export, pixel finalization and tracking for the run coordinator.
 SfntStatus indic_scalar_cluster(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,ConstSlice<u8>,
-    float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits,
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits,
     bool word_initial,bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept;
 // Shared retained-run entry for owned profiles: validated UTF-8, a bounded decode
 // window of complete clusters and one run-wide GPOS pass. No allocation; failed

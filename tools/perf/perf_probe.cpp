@@ -1169,7 +1169,7 @@ bool due(u64 interval_ms) noexcept {
     const u64 now = qpc_now();
     if (now < g_probe.next_action_qpc)
         return false;
-    g_probe.next_action_qpc = now + interval_ms * g_probe.qpc_frequency / 1000;
+    g_probe.next_action_qpc = now + interval_ms * g_probe.qpc_frequency / (1000 * kPerfScenarioSpeed);
     ++g_probe.actions;
     return true;
 }
@@ -2639,7 +2639,7 @@ void probe_observe_wait(u32 timeout_ms, bool timeout, bool frame_signal, bool me
 // without extra messages.
 u64 phase_deadline_qpc() noexcept {
     const u64 start = g_probe.phase_start_qpc;
-    const auto at = [&](u64 ms) noexcept { return start + ms * g_probe.qpc_frequency / 1000; };
+    const auto at = [&](u64 ms) noexcept { return start + ms * g_probe.qpc_frequency / (1000 * kPerfScenarioSpeed); };
     const auto action = [&](u32 limit, u64 end_ms) noexcept {
         return g_probe.actions < limit ? g_probe.next_action_qpc : at(end_ms);
     };
@@ -2750,7 +2750,7 @@ bool probe_step_phases(int* exit_code) noexcept {
         g_probe.counters = reinterpret_cast<PerfAccountCountersFunction>(
             GetProcAddress(g_app.account.module, kPerfAccountCountersExport));
     }
-    const u64 phase_ms = elapsed_ms(g_probe.phase_start_qpc);
+    const u64 phase_ms = elapsed_ms(g_probe.phase_start_qpc) * kPerfScenarioSpeed;
     constexpr u64 kStartupTimeoutMs = 30'000;
     switch (g_probe.phase) {
     case Phase::startup:
@@ -2765,7 +2765,7 @@ bool probe_step_phases(int* exit_code) noexcept {
         }
         break;
     case Phase::history_wait:
-        // History applied and visible media decoded; then settle 1.5 s.
+        // History applied and visible media decoded; then a short settling window.
         if (!g_probe.history_100ns && g_app.message_view.store.count >= 20)
             g_probe.history_100ns = now_100ns();
         if (g_probe.history_100ns && phase_ms > 1'500) {
@@ -2815,9 +2815,9 @@ bool probe_step_phases(int* exit_code) noexcept {
             if (g_probe.control) {
                 PerfAccountControl control{};
                 control.command = PerfAccountCommand::start_churn;
-                control.typing_per_second = 8;
-                control.presence_per_second = 40;
-                control.messages_per_second = 2;
+                control.typing_per_second = 8 * kPerfScenarioSpeed;
+                control.presence_per_second = 40 * kPerfScenarioSpeed;
+                control.messages_per_second = 2 * kPerfScenarioSpeed;
                 control.channel_id = g_probe.media_channel;
                 control.guild_id = g_probe.lab_guild;
                 if (!g_probe.control(&control))

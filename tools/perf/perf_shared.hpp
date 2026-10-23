@@ -10,6 +10,10 @@ namespace maicord::perf {
 
 inline constexpr wchar_t kPerfAccountModuleFileName[] = L"MaiCordPerfAccount.dll";
 
+// Compress scenario scheduling, never the clocks used for measurements.
+// Keep all scrolls, switches and settings visits while avoiding long idle waits.
+inline constexpr u32 kPerfScenarioSpeed = 10;
+
 // The synthetic account shape. One large "Perf Lab" guild carries the
 // scenario channels; the remaining guilds fill READY like a busy account.
 inline constexpr u32 kPerfGuilds = 100;

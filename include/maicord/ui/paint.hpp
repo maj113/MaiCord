@@ -92,9 +92,11 @@ bool paint_stream_bind_content_recorder(PaintStream* stream, UiPaintContentRecor
                                         Slice<UiPaintContentBounds> storage) noexcept;
 bool paint_stream_reset(PaintStream* stream, float right = kMaximumPaintCoordinate,
                         float bottom = kMaximumPaintCoordinate) noexcept;
-bool paint_stream_record_content(PaintStream* stream, UiWidgetReference owner, const UiRect& rectangle,
-                                 UiLayoutContentKind kind,
-                                 u16 flags = ui_layout_content_bounds_collision) noexcept;
+// Content recording is disabled. Expose the no-op so callers do not prepare
+// discarded metadata or branch on a result that is always true.
+inline bool paint_stream_record_content(PaintStream*, UiWidgetReference, const UiRect&,
+                                        UiLayoutContentKind,
+                                        u16 = ui_layout_content_bounds_collision) noexcept { return true; }
 bool paint_stream_push_clip(PaintStream* stream, float left, float top, float right, float bottom) noexcept;
 bool paint_stream_pop_clip(PaintStream* stream) noexcept;
 // A layer boundary: closes the current batch so the next quad starts a new one

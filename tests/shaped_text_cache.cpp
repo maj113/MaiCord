@@ -1,5 +1,6 @@
 #include "../src/render/shaped_text_cache.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/text/font_session.hpp"
 
 namespace maicord {
 namespace {
@@ -192,6 +193,30 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
     shaped_text_cache_clear(cache);
     check(misses(base) && cache->generations[0].entry_count == 0 && cache->generations[1].entry_count == 0,
           "shaped text cache clear drops every entry");
+    NativeFontSession* sessions[2]{};
+    for(u32 i=0;i<2;++i){
+        const bool created=native_font_session_create(&sessions[i]);
+        check(created,"shaped cache cleanup creates independent session owners");
+        if(!created)continue;
+        fill(&fixture,1,static_cast<float>(i));
+        const bool retained=native_font_session_retain(sessions[i]);
+        check(retained,"shaped cache cleanup retains each entry session");
+        if(!retained)continue;
+        fixture.shaped.set_native_fonts(sessions[i]);
+        const auto request=request_for(i);
+        shaped_text_cache_find(cache,request,&hash,&view);
+        const bool stored=shaped_text_cache_insert(cache,request,hash,&fixture.shaped);
+        check(stored&&native_font_session_stats(sessions[i]).references==2,
+              "shaped cache insertion transfers distinct session ownership");
+        if(!stored)shaped_text_reset(&fixture.shaped);
+    }
+    shaped_text_cache_clear(cache);
+    shaped_text_cache_clear(cache);
+    for(auto*& session:sessions)if(session){
+        check(native_font_session_stats(session).references==1,
+              "shaped cache repeated cleanup releases each session exactly once");
+        check(native_font_session_release(&session),"shaped cache cleanup leaves no live ownership");
+    }
     shaped_text_cache_destroy(&cache);
     check(cache == nullptr, "shaped text cache destroy releases storage");
 }

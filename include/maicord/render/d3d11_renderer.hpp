@@ -66,6 +66,7 @@
 
 #include "maicord/core/win32_records.hpp"
 #include "maicord/sys/d3d11.hpp"
+#include <stddef.h>
 
 struct ID3D11Buffer;
 struct ID3D11RenderTargetView;
@@ -337,6 +338,16 @@ struct RendererTypingDots {
 };
 
 struct D3D11Renderer {
+    // Frequent draw/layout accesses use short x64 displacements. Keep these
+    // fields ahead of the large inline effect, atlas and selection arrays.
+    D3D11DeviceOwner graphics;
+    RendererTextStorage* content_text;
+    u32 media_quad_count;
+    u32 media_batch_count;
+    // Content size: the target less the caption rows above it.
+    u32 width;
+    u32 height;
+    u32 dpi;
     // Startup storage remains zero-filled; renderer_initialize binds identity.
     RendererLayerOpacity layer_opacity;
     float background_phase_seconds;
@@ -347,6 +358,7 @@ struct D3D11Renderer {
     u32 text_effect_count;
     bool text_effect_animated;
     bool reduced_motion;
+    u8 text_effect_uploaded_count;
     u64 text_effect_next_ms;
     // Per material slot: DIP area an animated effect can touch, including its
     // vertex-shader displacement. Shader time is not part of the retained
@@ -360,7 +372,6 @@ struct D3D11Renderer {
     u32 typography_revision;
     u16 text_measure_revision;
     u32 native_text_faces[static_cast<u32>(UiTextFace::count)];
-    D3D11DeviceOwner graphics;
     D3D11DrawPipelineOwner pipeline;
     D3D11GlyphTextOwner glyph_text;
     IconAtlas icon_atlas;
@@ -478,7 +489,6 @@ struct D3D11Renderer {
     const ChatStateStore* chat_state;
     const UserStore* user_store;
     const NavigationView* navigation_view;
-    RendererTextStorage* content_text;
     RendererLoginFormTextStorage* login_form_text;
     RendererInlineMediaStorage inline_media;
     u32 inline_media_first_batch, inline_media_last_batch;
@@ -523,8 +533,6 @@ struct D3D11Renderer {
     u32 draw_calls_last_frame;
     u32 draw_calls_max;
     u32 resize_clipped_updates;
-    u32 media_quad_count;
-    u32 media_batch_count;
     u32 media_draws_last_frame;
     u32 media_draws_total;
     u64 preview_media_uploaded_pixels;
@@ -655,10 +663,6 @@ struct D3D11Renderer {
     // epoch prefix_epoch), the remainder from instance suffix_base.
     u32 uploaded_text_prefix, uploaded_text_prefix_base, uploaded_text_suffix_base;
     u32 uploaded_text_prefix_serial, uploaded_text_prefix_epoch, text_ring_epoch;
-    // Content size: the target less the caption rows above it.
-    u32 width;
-    u32 height;
-    u32 dpi;
     // Window caption drawn above the content (renderer_set_caption_height).
     RendererCaption* caption;
     u32 caption_height;
@@ -681,6 +685,8 @@ struct D3D11Renderer {
     u32 interaction_text_active_mask;
     RendererLoginStatus login_status;
 };
+static_assert(offsetof(D3D11Renderer, dpi) < 128);
+static_assert(sizeof(D3D11Renderer) == 120712);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

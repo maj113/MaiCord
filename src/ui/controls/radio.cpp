@@ -3,32 +3,32 @@
 
 namespace maicord {
 namespace {
-float option_height(const UiSettingsTokens& tokens) noexcept {
+float option_height(const UiSettingsLayoutTokens& tokens) noexcept {
     return maximum(tokens.metric.radio_size, kUiSettingsLabelLine) + 4;
 }
 } // namespace
 
-float ui_radio_group_height(const UiSettingsTokens& tokens, u32 count) noexcept {
+float ui_radio_group_height(const UiSettingsLayoutTokens& tokens, u32 count) noexcept {
     return count ? count * option_height(tokens) + (count - 1) * tokens.metric.radio_spacing : 0;
 }
 
-UiRect ui_radio_option(const UiSettingsTokens& tokens, UiRect group, u32 index) noexcept {
+UiRect ui_radio_option(const UiSettingsLayoutTokens& tokens, UiRect group, u32 index) noexcept {
     const float top = group.top + index * (option_height(tokens) + tokens.metric.radio_spacing);
     return {group.left, top, group.right, top + option_height(tokens)};
 }
 
-UiRect ui_radio_indicator(const UiSettingsTokens& tokens, UiRect option) noexcept {
+UiRect ui_radio_indicator(const UiSettingsLayoutTokens& tokens, UiRect option) noexcept {
     const float size = tokens.metric.radio_size;
     const float top = (option.top + option.bottom - size) * .5f;
     return {option.left, top, option.left + size, top + size};
 }
 
-UiRect ui_radio_label(const UiSettingsTokens& tokens, UiRect option) noexcept {
+UiRect ui_radio_label(const UiSettingsLayoutTokens& tokens, UiRect option) noexcept {
     return {option.left + tokens.metric.radio_size + tokens.metric.radio_gap, option.top, option.right,
             option.bottom};
 }
 
-u32 ui_radio_hit(const UiSettingsTokens& tokens, UiRect group, u32 count, float x, float y) noexcept {
+u32 ui_radio_hit(const UiSettingsLayoutTokens& tokens, UiRect group, u32 count, float x, float y) noexcept {
     for (u32 i = 0; i < count; ++i)
         if (ui_rect_contains(ui_radio_option(tokens, group, i), x, y))
             return i;

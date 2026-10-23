@@ -19,7 +19,7 @@ const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexc
     static constexpr UiThemeSettings defaults{};
     return styles && styles->ready ? styles->settings : defaults;
 }
-void set_layout_tokens(UiSettingsTokens& t, const UiThemeSettings& s, float space,
+void set_layout_tokens(UiSettingsLayoutTokens& t, const UiThemeSettings& s, float space,
                          const UiResolvedThemeStyles* styles) noexcept {
     auto& m = t.metric;
     m.modal_max_width = s.modal_max_width;
@@ -168,8 +168,8 @@ UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
     return t;
 }
 
-UiSettingsTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept {
-    UiSettingsTokens t{};
+UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept {
+    UiSettingsLayoutTokens t{};
     set_layout_tokens(t, settings_style(styles), kDefaultTheme.scale.space_1, styles);
     return t;
 }

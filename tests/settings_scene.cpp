@@ -158,6 +158,10 @@ void test_color_hex(Check check) noexcept {
 
 void test_controls(Check check) noexcept {
     const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const auto layout_tokens = ui_settings_layout_tokens(kDefaultTheme.styles);
+    check(bytes_equal(&layout_tokens, static_cast<const UiSettingsLayoutTokens*>(&tokens),
+                      sizeof(layout_tokens)),
+          "settings controls: layout-only tokens preserve all geometry and motion values");
     // Settings and every dialog (Events included) share the official modal spring:
     // visually settled by half the token duration, complete at its end.
     const u32 enter = tokens.duration.modal_enter_ms;

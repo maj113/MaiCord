@@ -1,6 +1,7 @@
 #include "maicord/text/detail/thai_lexical.hpp"
 #include "maicord/text/detail/thai_syllable.hpp"
 #include "maicord/sys/intrin.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {namespace {
 // Word graph generated from ICU and PyThaiNLP word lists; see the file header
@@ -23,10 +24,7 @@ constexpr auto unary=unary_patterns();
 u32 graph_rank(u64 value) noexcept {
     return static_cast<u32>(__popcnt64(value));
 }
-u64 graph_u64(const u8* data) noexcept {
-    u64 value=0;for(u32 i=8;i;--i)value=(value<<8)|data[i-1];return value;
-}
-u32 graph_reference(u32 node,u32& at) noexcept {
+u32 graph_reference(u32 node,u32 at) noexcept {
     u32 value=0,shift=0;
     for(;;){const u32 byte=thai_word_graph[at++];value|=(byte&127)<<shift;if(!(byte&128))break;shift+=7;}
     return value<thai_word_reference_count?thai_word_references[value]:node-(value-thai_word_reference_count);
@@ -40,7 +38,7 @@ u32 graph_child(u32 node,u32 label) noexcept {
     }
     if(header>=248){
         const u8* mask=thai_word_graph+at;
-        const u64 low=graph_u64(mask),high=mask[8]|(u64{mask[9]}<<8),word=label<64?low:high,bit=1ull<<(label&63);
+        const u64 low=byte_load_le64(mask),high=mask[8]|(u64{mask[9]}<<8),word=label<64?low:high,bit=1ull<<(label&63);
         if(!(word&bit))return no_node;
         const u32 index=graph_rank(word&(bit-1))+(label<64?0u:graph_rank(low)),width=header&2?3u:2u;
         const u8* distance=mask+10+index*width;

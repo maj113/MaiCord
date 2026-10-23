@@ -132,7 +132,7 @@ bool composer_composition_geometry(const D3D11Renderer& renderer, Slice<TextComp
         u32 first = 0, last = 0;
         if (!message_composer_scene_composition_range(*scene, span, &first, &last))
             continue;
-        TextEditMetric metrics[kTextEditSelectionCapacity]{};
+        TextEditMetric metrics[kTextEditSelectionCapacity];
         u32 count = 0;
         if (!text_edit_layout_range_geometry(renderer.composer_layout, first, last,
                                                {metrics, kTextEditSelectionCapacity}, &count))
@@ -1602,14 +1602,15 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     const bool friends_requests_active = d3d11_renderer_active(renderer->friends_requests_scene);
     const bool browser_active = d3d11_renderer_thread_browser_visible(*renderer);
     const bool content_hidden = friends_active || browser_active;
-    UiRect composer_selections[kMessageComposerSelectionRectangleCapacity]{};
+    // Only the fully written prefixes are passed to presentation and hashing.
+    UiRect composer_selections[kMessageComposerSelectionRectangleCapacity];
     for (u32 index = 0; !content_hidden && index < renderer->composer_layout.selection_count; ++index) {
         const TextEditMetric& metric = renderer->composer_layout.selections[index];
         composer_selections[index] =
             UiRect{metric.left, metric.top, metric.left + metric.width, metric.top + metric.height};
     }
     const TextEditMetric& composer_caret = renderer->composer_layout.caret;
-    TextCompositionMark composer_marks[kTextCompositionSpanCapacity]{};
+    TextCompositionMark composer_marks[kTextCompositionSpanCapacity];
     u32 composer_mark_count = 0;
     if (!content_hidden &&
         !composer_composition_geometry(*renderer, {composer_marks, kTextCompositionSpanCapacity},
@@ -1760,7 +1761,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->media_gpu.texture_view) {
         const auto& scene = *renderer->shell_navigation_scene;
         // One avatar per DM; a generated group icon stacks its first two members.
-        const auto private_avatars = [&](u8 type, u64 channel_id, UiRect icon, UiRect clip,
+        const auto private_avatars = [&, renderer](u8 type, u64 channel_id, UiRect icon, UiRect clip,
                                          UiWidgetReference owner) noexcept {
             // A custom group icon replaces the generated member stack.
             if (type == 3) {
@@ -2049,7 +2050,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (!build_search_media(renderer, theme))
         return false;
     if (friends_requests_active) {
-        if (!paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        if (!paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
                 return ui_friends_scene_paint(*renderer->friends_requests_scene, theme, &renderer->paint_stream,
                                               nullptr, renderer->dpi, false);
             }))
@@ -2180,7 +2181,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->media_picker_media_first_batch = renderer->media_batch_count;
     if (d3d11_renderer_media_picker_visible(*renderer)) {
         const auto& gallery = *renderer->media_picker_scene;
-        if (!paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        if (!paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
                 return ui_media_picker_scene_paint(gallery, theme, &renderer->paint_stream,
                                                    &renderer->media_picker_edit_geometry, renderer->dpi);
             }))
@@ -2294,12 +2295,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->media_batch_count;
     const auto popup_edit = d3d11_renderer_popup_edit_geometry(*renderer);
     if (d3d11_renderer_download_visible(*renderer) &&
-        !paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        !paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
             return ui_download_scene_paint(*renderer->download_scene, theme, &renderer->paint_stream);
         }))
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_message_forward_visible(*renderer) &&
-        !paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        !paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
             return ui_message_forward_scene_paint(*renderer->message_forward_scene, theme,
                                                   &renderer->paint_stream,
                                                   &renderer->media_picker_edit_geometry, &popup_edit,
@@ -2316,13 +2317,13 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !ui_poll_voters_scene_paint(*renderer->poll_voters_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_quick_switcher_visible(*renderer) &&
-        !paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        !paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
             return ui_quick_switcher_scene_paint(*renderer->quick_switcher_scene, theme, &renderer->paint_stream,
                                                  &renderer->media_picker_edit_geometry, renderer->dpi);
         }))
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_inbox_visible(*renderer) &&
-        !paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        !paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
             return ui_inbox_scene_paint(*renderer->inbox_scene, theme, &renderer->paint_stream);
         }))
         return layout_step_failed(__LINE__);
@@ -2341,7 +2342,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
     }
     if (d3d11_renderer_shortcuts_visible(*renderer) &&
-        !paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+        !paint_unfiltered(&renderer->paint_stream, [&, renderer]() noexcept {
             return ui_shortcuts_scene_paint(*renderer->shortcuts_scene, theme, &renderer->paint_stream);
         }))
         return layout_step_failed(__LINE__);

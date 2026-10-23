@@ -41,7 +41,7 @@ bool ui_input_shell_paint(PaintStream* paint, const UiSettingsTokens& tokens, Ui
 
 // Select text and chevron share the field's inner padding: the chevron sits
 // in a square end cell as tall as the field.
-UiRect ui_select_text_rect(const UiSettingsTokens& tokens, UiRect field) noexcept {
+UiRect ui_select_text_rect(const UiSettingsLayoutTokens& tokens, UiRect field) noexcept {
     return {field.left + tokens.metric.field_padding, field.top, field.right - ui_rect_height(field), field.bottom};
 }
 
@@ -57,7 +57,7 @@ bool ui_select_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect 
                          ui_settings_color_alpha(tokens.color.text_strong, state.enabled ? 1.f : tokens.disabled_alpha));
 }
 
-float ui_settings_button_width(const UiSettingsTokens& tokens, UiSettingsButtonSize size,
+float ui_settings_button_width(const UiSettingsLayoutTokens& tokens, UiSettingsButtonSize size,
                                float label_width) noexcept {
     const bool compact = size == UiSettingsButtonSize::compact;
     const float padding = compact ? tokens.metric.button_padding - 4 : tokens.metric.button_padding;

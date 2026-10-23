@@ -156,6 +156,22 @@ void test_channel_memory(void (*check)(bool, const char*) noexcept) noexcept {
                decoded.entries[i].channel_id == visits.entries[i].channel_id &&
                decoded.entries[i].parent_id == visits.entries[i].parent_id;
     check(same && bytes == 10 + visits.count * kChannelMemoryEntryBytes, "channel memory round-trips in order");
+    // Keep the on-disk byte order independent of the matching decoder.
+    const u64 wire_ids[]{0x0123456789abcdefull,0xfedcba9876543210ull,0x1020304050607080ull};
+    ChannelMemory wide{};channel_memory_remember(&wide,wire_ids[0],wire_ids[1],wire_ids[2]);
+    u8 unaligned[36]{};unaligned[0]=0xa5;unaligned[35]=0x5a;
+    const u32 wide_bytes=channel_memory_encode(wide,{unaligned+1,34});
+    bool exact=wide_bytes==34&&unaligned[0]==0xa5&&unaligned[35]==0x5a;
+    for(u32 field=0;field<3;++field)for(u32 byte=0;byte<8;++byte)
+        exact=exact&&unaligned[7+field*8+byte]==static_cast<u8>(wire_ids[field]>>(byte*8));
+    u32 expected_hash=2166136261u;
+    for(u32 byte=1;byte<=30;++byte)expected_hash=(expected_hash^unaligned[byte])*16777619u;
+    for(u32 byte=0;byte<4;++byte)
+        exact=exact&&unaligned[31+byte]==static_cast<u8>(expected_hash>>(byte*8));
+    check(exact&&channel_memory_decode({unaligned+1,34},&decoded)&&decoded.count==1&&
+              decoded.entries[0].guild_id==wire_ids[0]&&decoded.entries[0].channel_id==wire_ids[1]&&
+              decoded.entries[0].parent_id==wire_ids[2],
+          "channel memory preserves exact unaligned 64-bit fields, checksum and adjacent bytes");
     ChannelMemory full{};
     for (u64 guild = 1; guild <= kChannelMemoryCapacity; ++guild)
         channel_memory_remember(&full, guild, guild + 1000, guild % 2 ? guild + 2000 : 0);

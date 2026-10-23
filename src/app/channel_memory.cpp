@@ -2,6 +2,7 @@
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -16,16 +17,6 @@ u32 checksum(const u8* data, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i)
         hash = (hash ^ data[i]) * 16777619u;
     return hash;
-}
-u64 read_u64(const u8* at) noexcept {
-    u64 value = 0;
-    for (u32 i = 8; i-- > 0;)
-        value = (value << 8) | at[i];
-    return value;
-}
-void write_u64(u8* at, u64 value) noexcept {
-    for (u32 i = 0; i < 8; ++i)
-        at[i] = static_cast<u8>(value >> (8 * i));
 }
 bool entry_valid(const ChannelMemoryEntry& entry) noexcept {
     return entry.channel_id != 0 && entry.parent_id != entry.channel_id;
@@ -92,13 +83,12 @@ u32 channel_memory_encode(const ChannelMemory& memory, Slice<u8> output) noexcep
     copy_bytes(output.data, header, sizeof(header));
     for (u32 i = 0; i < memory.count; ++i) {
         u8* at = output.data + 6 + i * kChannelMemoryEntryBytes;
-        write_u64(at, memory.entries[i].guild_id);
-        write_u64(at + 8, memory.entries[i].channel_id);
-        write_u64(at + 16, memory.entries[i].parent_id);
+        byte_store_le64(at, memory.entries[i].guild_id);
+        byte_store_le64(at + 8, memory.entries[i].channel_id);
+        byte_store_le64(at + 16, memory.entries[i].parent_id);
     }
     const u32 hash = checksum(output.data, body);
-    for (u32 i = 0; i < 4; ++i)
-        output.data[body + i] = static_cast<u8>(hash >> (8 * i));
+    byte_store_le32(output.data + body, hash);
     return body + 4;
 }
 
@@ -108,14 +98,13 @@ bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept
         input.count != 10 + input[5] * kChannelMemoryEntryBytes)
         return false;
     const u32 body = input.count - 4;
-    const u32 stored = input[body] | (u32{input[body + 1]} << 8) | (u32{input[body + 2]} << 16) |
-                       (u32{input[body + 3]} << 24);
+    const u32 stored = byte_load_le32(input.data + body);
     if (stored != checksum(input.data, body))
         return false;
     ChannelMemory decoded{};
     for (u32 i = 0; i < input[5]; ++i) {
         const u8* at = input.data + 6 + i * kChannelMemoryEntryBytes;
-        const ChannelMemoryEntry entry{read_u64(at), read_u64(at + 8), read_u64(at + 16)};
+        const ChannelMemoryEntry entry{byte_load_le64(at), byte_load_le64(at + 8), byte_load_le64(at + 16)};
         if (!entry_valid(entry) || channel_memory_find(decoded, entry.guild_id))
             return false;
         decoded.entries[i] = entry;

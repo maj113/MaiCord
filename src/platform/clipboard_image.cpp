@@ -1,6 +1,7 @@
 #include "maicord/platform/clipboard_image.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/sys/gdi.hpp"
 
 extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
@@ -142,8 +143,6 @@ u64 clipboard_image_build_dib(const u8* rgba, u32 width, u32 height, u32 stride,
 
 namespace {
 // ---- Paste conversion -------------------------------------------------------
-u32 load_u32_le(const u8* p) noexcept { return u32{p[0]} | u32{p[1]} << 8 | u32{p[2]} << 16 | u32{p[3]} << 24; }
-u32 load_u32_be(const u8* p) noexcept { return u32{p[0]} << 24 | u32{p[1]} << 16 | u32{p[2]} << 8 | u32{p[3]}; }
 u8* reserve(u64 bytes) noexcept {
     return bytes && bytes <= (u64{1} << 40)
                ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(bytes), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
@@ -175,10 +174,10 @@ struct Dib {
 bool dib_layout(ConstSlice<u8> dib, Dib* out) noexcept {
     *out = {};
     if (!dib.data || dib.count < 40) return false;
-    const u32 header = load_u32_le(dib.data);
-    const i32 width = static_cast<i32>(load_u32_le(dib.data + 4)), height = static_cast<i32>(load_u32_le(dib.data + 8));
+    const u32 header = byte_load_le32(dib.data);
+    const i32 width = static_cast<i32>(byte_load_le32(dib.data + 4)), height = static_cast<i32>(byte_load_le32(dib.data + 8));
     const u32 planes = u32{dib.data[12]} | u32{dib.data[13]} << 8, bits = u32{dib.data[14]} | u32{dib.data[15]} << 8;
-    const u32 compression = load_u32_le(dib.data + 16), used = load_u32_le(dib.data + 32);
+    const u32 compression = byte_load_le32(dib.data + 16), used = byte_load_le32(dib.data + 32);
     if (header < 40 || header > dib.count || planes != 1 || width <= 0 || !height || height == (-2147483647 - 1)) return false;
     const u32 w = static_cast<u32>(width), h = static_cast<u32>(height < 0 ? -height : height);
     if (w > kClipboardPasteMaximumExtent || h > kClipboardPasteMaximumExtent || u64{w} * h > kClipboardPasteMaximumPixels) return false;
@@ -190,11 +189,11 @@ bool dib_layout(ConstSlice<u8> dib, Dib* out) noexcept {
             const u32 count = compression == alphabitfields ? 4 : 3;
             if (header >= 40 + count * 4) {
                 // V2+ headers (52/56/108/124 bytes) hold the masks themselves.
-                for (u32 i = 0; i < 4 && 40 + i * 4 + 4 <= header; ++i) masks[i] = load_u32_le(dib.data + 40 + i * 4);
+                for (u32 i = 0; i < 4 && 40 + i * 4 + 4 <= header; ++i) masks[i] = byte_load_le32(dib.data + 40 + i * 4);
             } else {
                 // A BITMAPINFOHEADER carries its masks after the header.
                 if (offset + count * 4 > dib.count) return false;
-                for (u32 i = 0; i < count; ++i) masks[i] = load_u32_le(dib.data + offset + i * 4);
+                for (u32 i = 0; i < count; ++i) masks[i] = byte_load_le32(dib.data + offset + i * 4);
                 offset += count * 4;
             }
         } else if (compression == rgb) {
@@ -206,8 +205,8 @@ bool dib_layout(ConstSlice<u8> dib, Dib* out) noexcept {
         // (CF_DIB layout); detect the copy, or a payload exactly that long.
         const u64 pixels = (u64{w} * bits + 31) / 32 * 4 * h;
         if (header > 40 && compression != rgb && offset + 12 <= dib.count) {
-            const bool repeated = load_u32_le(dib.data + offset) == masks[0] && load_u32_le(dib.data + offset + 4) == masks[1] &&
-                                  load_u32_le(dib.data + offset + 8) == masks[2];
+            const bool repeated = byte_load_le32(dib.data + offset) == masks[0] && byte_load_le32(dib.data + offset + 4) == masks[1] &&
+                                  byte_load_le32(dib.data + offset + 8) == masks[2];
             if ((repeated && offset + 12 + pixels <= dib.count) || (dib.count >= pixels && dib.count - pixels == offset + 12 + u64{used} * 4))
                 offset += 12;
         }
@@ -240,7 +239,7 @@ void dib_row(const Dib& dib, u32 y, u8* rgba) noexcept {
             const u8* p = row + u64{x} * 3;
             out[0] = p[2]; out[1] = p[1]; out[2] = p[0]; out[3] = 255;
         } else {
-            const u32 pixel = dib.bits == 16 ? u32{row[x * 2]} | u32{row[x * 2 + 1]} << 8 : load_u32_le(row + u64{x} * 4);
+            const u32 pixel = dib.bits == 16 ? byte_load_le16(row + x * 2) : byte_load_le32(row + u64{x} * 4);
             out[0] = extract(pixel, dib.red); out[1] = extract(pixel, dib.green); out[2] = extract(pixel, dib.blue);
             out[3] = dib.use_alpha ? extract(pixel, dib.alpha) : 255;
         }
@@ -426,11 +425,11 @@ u32 clipboard_paste_plan(ClipboardPasteFormats formats, ClipboardPasteKind (&pla
 u64 clipboard_image_png_length(ConstSlice<u8> png) noexcept {
     constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     if (!png.data || png.count < 8 + 25 + 12 || !bytes_equal(png.data, signature, 8) ||
-        load_u32_be(png.data + 8) != 13 || !bytes_equal(png.data + 12, "IHDR", 4))
+        byte_load_be32(png.data + 8) != 13 || !bytes_equal(png.data + 12, "IHDR", 4))
         return 0;
     u64 cursor = 8;
     while (cursor + 12 <= png.count) {
-        const u32 length = load_u32_be(png.data + cursor);
+        const u32 length = byte_load_be32(png.data + cursor);
         if (length > 0x7fffffffu || cursor + 12 + length > png.count) return 0;
         const bool end = bytes_equal(png.data + cursor + 4, "IEND", 4);
         cursor += 12 + u64{length};

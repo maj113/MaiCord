@@ -957,6 +957,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         renderer->text_effect_count < kTextEffectCapacity) {
         const u32 slot = renderer->text_effect_count++;
         auto& material = renderer->text_effects.materials[slot];
+        renderer->text_effect_uploaded_count = 0;
         material = {};
         UiRect effect_ink = command.rectangle;
         for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {

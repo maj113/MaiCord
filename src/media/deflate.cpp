@@ -244,45 +244,12 @@ bool build_table(const u8* lengths, u32 symbol_count, TableKind kind, u32 table_
             sorted[offsets[lengths[symbol]]++] = static_cast<u16>(symbol);
     if (!incomplete)
         return build_complete_table(counts, sorted, maximum_length, kind, table_bits, capacity, table);
-    for (u32 index = 0; index < root_entries; ++index)
-        table[index] = make_entry(0, kEntryInvalid, 0, 0);
-
-    const u32 root_mask = root_entries - 1;
-    u32 code = 0, sorted_index = 0, next_subtable = root_entries;
-    u32 prefix = ~0u, subtable = 0, subtable_bits = 0;
-    for (u32 length = 1; length <= maximum_length; ++length, code <<= 1) {
-        for (u32 left_at_length = counts[length]; left_at_length != 0; --left_at_length, ++code) {
-            u32 reversed = 0;
-            for (u32 bit = 0; bit < length; ++bit)
-                reversed |= ((code >> bit) & 1u) << (length - 1 - bit);
-            const u32 entry = symbol_entry(kind, sorted[sorted_index++]);
-            if (length <= table_bits) {
-                for (u32 index = reversed; index < root_entries; index += 1u << length)
-                    table[index] = entry | length;
-                continue;
-            }
-            if ((reversed & root_mask) != prefix) {
-                // Size the subtable for the remaining codewords sharing this prefix.
-                prefix = reversed & root_mask;
-                subtable_bits = length - table_bits;
-                i32 left = 1 << subtable_bits;
-                for (u32 at = length; at < maximum_length; ++at) {
-                    left -= at == length ? static_cast<i32>(left_at_length) : counts[at];
-                    if (left <= 0)
-                        break;
-                    ++subtable_bits;
-                    left <<= 1;
-                }
-                if (next_subtable + (1u << subtable_bits) > capacity)
-                    return false;
-                subtable = next_subtable;
-                next_subtable += 1u << subtable_bits;
-                table[prefix] = make_entry(subtable, kEntrySubtable, subtable_bits, table_bits);
-            }
-            for (u32 index = reversed >> table_bits; index < (1u << subtable_bits);
-                 index += 1u << (length - table_bits))
-                table[subtable + index] = entry | (length - table_bits);
-        }
+    // Validation admits only one one-bit codeword here. Its canonical code
+    // is zero; the other half of the root table must reject codeword one.
+    const u32 entry = symbol_entry(kind, sorted[0]) | 1u;
+    for (u32 index = 0; index < root_entries; index += 2) {
+        table[index] = entry;
+        table[index + 1] = make_entry(0, kEntryInvalid, 0, 0);
     }
     return true;
 }

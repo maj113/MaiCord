@@ -3835,8 +3835,10 @@ bool probe_capture_frame(const wchar_t* filename, const Theme& theme) noexcept {
         ~RestoreEffectStarts() noexcept {
             for (u32 i = 0; i < renderer.text_effect_count; ++i)
                 renderer.text_effects.materials[i].reserved[0] = starts[i];
+            renderer.text_effect_uploaded_count = 0;
         }
     } restore{g_probe.renderer, {}};
+    g_probe.renderer.text_effect_uploaded_count = 0;
     for (u32 i = 0; i < g_probe.renderer.text_effect_count; ++i) {
         auto& start = g_probe.renderer.text_effects.materials[i].reserved[0];
         restore.starts[i] = start;

@@ -183,6 +183,7 @@ bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<Tex
                             Slice<u16> clusters) noexcept;
 bool shaped_text_bind_decorations(ShapedText* text, Slice<TextDecoration> decorations) noexcept;
 bool shaped_text_bind_hit_regions(ShapedText* text, Slice<TextHitRegion> hit_regions) noexcept;
+// Reads runs, run_count and owner_flags; resets all output counts and extents.
 void shaped_text_reset(ShapedText* text) noexcept;
 
 // Creates a native font session, text context and the family's format. Only

@@ -25,7 +25,7 @@ float clamp01(float value) noexcept {
 }
 } // namespace
 
-UiSwitchThumb ui_switch_thumb(const UiSettingsTokens& tokens, UiRect track, bool checked, float motion,
+UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens& tokens, UiRect track, bool checked, float motion,
                               bool reduced_motion, bool pressed) noexcept {
     const float unit = ui_rect_height(track) / 24;
     const float travel = ui_rect_width(track) - ui_rect_height(track);

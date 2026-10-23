@@ -316,7 +316,9 @@ def emit(graph, words, inputs):
     text += '};\nconstexpr u32 thai_word_initial[]{\n'
     text += ''.join('    ' + ','.join(f'{v}u' for v in graph['initial'][i:i + 8]) + ',\n' for i in range(0, len(graph['initial']), 8))
     references = graph['references']
-    text += f'}};\nconstexpr u32 thai_word_reference_count={len(references)};\nconstexpr u32 thai_word_references[]{{\n'
+    if any(v > 0xffff for v in references):
+        raise ValueError('Shared Thai graph target exceeds 16 bits')
+    text += f'}};\nconstexpr u32 thai_word_reference_count={len(references)};\nconstexpr u16 thai_word_references[]{{\n'
     text += ''.join('    ' + ','.join(f'{v}u' for v in references[i:i + 8]) + ',\n' for i in range(0, len(references), 8))
     text += ('' if references else '    0u,\n') + '};\n'
     special = ','.join(map(str, graph['special'])) or '0'
@@ -341,9 +343,9 @@ def main():
                   from_pythainlp=len(pythainlp_words), pythainlp_only=len(pythainlp_words - icu_words),
                   excluded=dict(sorted(excluded.items())), longest=LONGEST,
                   nodes=graph['root'], bitmap_nodes=graph['bitmaps'], graph_bytes=len(graph['data']),
-                  unshared_graph_bytes=graph['unshared_bytes'], reference_bytes=len(graph['references']) * 4,
+                  unshared_graph_bytes=graph['unshared_bytes'], reference_bytes=len(graph['references']) * 2,
                   initial_bytes=len(graph['initial']) * 4, unary_bytes=256,
-                  payload_bytes=len(graph['data']) + len(graph['references']) * 4 + len(graph['initial']) * 4 + 4 + 256,
+                  payload_bytes=len(graph['data']) + len(graph['references']) * 2 + len(graph['initial']) * 4 + 4 + 256,
                   sources={k: dict(url=v['url'], sha256=v['sha256']) for k, v in SOURCES.items()},
                   generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                   output_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest())

@@ -3881,7 +3881,7 @@ constexpr u32 thai_word_initial[]{
     108132u,113930u,119329u,119796u,123127u,
 };
 constexpr u32 thai_word_reference_count=96;
-constexpr u32 thai_word_references[]{
+constexpr u16 thai_word_references[]{
     0u,37u,66u,4u,15u,1u,733u,156u,
     47u,183u,51u,60u,147u,874u,54u,652u,
     58u,493u,217u,5124u,257u,630u,3665u,487u,

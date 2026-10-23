@@ -12,7 +12,7 @@
 // plans and paragraphs, shared by every profile except Devanagari and Tamil.
 namespace maicord {
 SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> font_forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
     bool word_initial,bool followed_by_text,float trailing_spacing,bool rtl,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if(font_forms.count!=128||!font_forms.data)return SfntStatus::invalid_input;
@@ -80,9 +80,10 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
         for(u32 at=0;at<window;){u32 length=1;while(at+length<window&&!boundaries[at+length])++length;
             const u32 consumed=byte_offsets[at+length]-byte_offsets[at];
             if(at+length==window&&first+consumed<source_size)break;
-            auto local=storage;local.glyphs=tail(storage.glyphs,count);local.character_glyphs=tail(storage.character_glyphs,units);
-            local.targets=tail(storage.targets,targets);local.associations=tail(storage.associations,count);local.advances=tail(storage.advances,count);
-            local.flags=tail(storage.flags,count);local.positions=tail(storage.positions,count);local.placements=tail(storage.placements,count);
+            const SfntShapeStorage local{tail(storage.glyphs,count),storage.components,storage.cluster_bits,
+                tail(storage.character_glyphs,units),tail(storage.targets,targets),tail(storage.associations,count),
+                tail(storage.advances,count),tail(storage.flags,count),tail(storage.positions,count),
+                tail(storage.placements,count),storage.substitutions,storage.positioning};
             // Component trees are dead after export; reuse that scratch per cluster.
             auto remaining=limits;remaining.lookup_operations-=result->lookup_operations;SfntShapeRunResult shaped{};
             const bool initial=profile==SfntIndicProfile::bengali&&(!have_previous||!word_character(previous));

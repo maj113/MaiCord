@@ -1,4 +1,5 @@
 #include "../src/render/glyph_effect_ordinals.hpp"
+#include "maicord/render/text_effect.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;u64 color_calls=0;
@@ -24,6 +25,19 @@ bool compare(ShapedText& text,Utf8View source) noexcept {
     return true;
 }
 bool run() noexcept {
+    TextEffectConstants uploaded{};u32 uploaded_count=0,uploads=0;
+    const auto frame=[&](u32 count,bool animated,float seconds,float scale) noexcept {
+        if(text_effect_upload_required(uploaded,uploaded_count,count,animated,seconds,scale)){
+            ++uploads;uploaded_count=count;uploaded.seconds=seconds;uploaded.scale=scale;}
+    };
+    for(u32 i=0;i<100;++i)frame(128,false,static_cast<float>(i),1);
+    frame(64,false,100,1);frame(128,false,101,1);
+    CHECK(uploads==1); // Static redraws and retained prefixes share one upload.
+    uploaded_count=0;frame(1,false,102,1);frame(128,false,103,1);
+    CHECK(uploads==3); // Material edits and growth after discard refresh the buffer.
+    frame(128,true,104,1);frame(128,true,104,1);frame(128,true,0,1);
+    frame(128,true,0,2);frame(128,false,105,2);frame(128,false,106,1);
+    CHECK(uploads==7); // Animated ticks, clock wrap and DPI changes remain visible.
     TextGlyph glyphs[96]{};u16 clusters[96]{};ShapedText text{};text.glyphs=glyphs;text.glyph_capacity=96;text.clusters=clusters;text.cluster_capacity=96;text.glyph_count=96;
     for(u32 i=0;i<96;++i)glyphs[i]={3.25f,.25f,-.5f,static_cast<u16>(i),0};
     const Utf8View samples[]{utf8_literal("AV office ffi  abc"),utf8_literal("A\xf0\x9f\x98\x80" "B\xcc\x81  Z"),utf8_literal("\xd7\x90\xd7\x91 AB \xd8\xa7\xd9\x84"),utf8_literal("A\xc2\xa0\xe1\x9a\x80\xe2\x80\x80\xe2\x80\xaf\xe2\x81\x9f\xe3\x80\x80" "B"),utf8_literal("abc\xff"),utf8_literal("")};

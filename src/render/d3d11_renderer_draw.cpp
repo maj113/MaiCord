@@ -820,6 +820,39 @@ void release_stream_views(D3D11Renderer* renderer, const DrawSubmissionState& su
     ID3D11ShaderResourceView* null_views[3]{};
     renderer->graphics.context->PSSetShaderResources(0, 3, null_views);
 }
+bool prepare_text_effects(D3D11Renderer* renderer, u64 effect_ms) noexcept {
+    if (!renderer->text_effect_buffer) {
+        D3D11_BUFFER_DESC description{};
+        description.ByteWidth = sizeof(TextEffectConstants);
+        description.Usage = D3D11_USAGE_DYNAMIC;
+        description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        if (FAILED(renderer->graphics.device->CreateBuffer(&description, nullptr,
+                                                           &renderer->text_effect_buffer)))
+            return false;
+        renderer->text_effect_uploaded_count = 0;
+    }
+    const float seconds = static_cast<float>(effect_ms % 60000) / 1000.f;
+    const float scale = static_cast<float>(renderer->dpi) / 96.f;
+    if (text_effect_upload_required(renderer->text_effects, renderer->text_effect_uploaded_count,
+                                    renderer->text_effect_count, renderer->text_effect_animated, seconds, scale)) {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(renderer->graphics.context->Map(renderer->text_effect_buffer, 0,
+                                                   D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return false;
+        renderer->text_effects.seconds = seconds;
+        renderer->text_effects.scale = scale;
+        CopyMemory(mapped.pData, &renderer->text_effects,
+                   offsetof(TextEffectConstants, materials) +
+                       renderer->text_effect_count * sizeof(TextEffectMaterial));
+        renderer->graphics.context->Unmap(renderer->text_effect_buffer, 0);
+        renderer->text_effect_uploaded_count = static_cast<u8>(renderer->text_effect_count);
+    }
+    // The glyph pipeline binds PS b1 when it is selected.
+    renderer->graphics.context->VSSetConstantBuffers(1, 1, &renderer->text_effect_buffer);
+    return true;
+}
+
 } // namespace
 
 bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, bool upload_paint,
@@ -1183,35 +1216,35 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::form)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::form)], 1}};
     float current_opacity = 1;
-    const auto paint = [&](u32 first, u32 end) noexcept {
+    const auto paint = [&, renderer](u32 first, u32 end) noexcept {
         return draw_opacity_batches(
-            renderer, first, end, paint_layers, current_opacity, [&](u32 begin, u32 limit) noexcept {
+            renderer, first, end, paint_layers, current_opacity, [&, renderer](u32 begin, u32 limit) noexcept {
                 return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
             });
     };
-    const auto text = [&](u32 first, u32 end, bool upload) noexcept {
+    const auto text = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         return draw_opacity_batches(renderer, first, end, text_layers, current_opacity,
-                                    [&](u32 begin, u32 limit) noexcept {
+                                    [&, renderer](u32 begin, u32 limit) noexcept {
                                         return draw_gpu_text(renderer, &submission, theme, begin, limit, upload,
                                                              damage);
                                     });
     };
-    const auto media = [&](u32 first, u32 end, bool upload) noexcept {
+    const auto media = [&, renderer](u32 first, u32 end, bool upload) noexcept {
         return draw_opacity_batches(
-            renderer, first, end, media_layers, current_opacity, [&](u32 begin, u32 limit) noexcept {
+            renderer, first, end, media_layers, current_opacity, [&, renderer](u32 begin, u32 limit) noexcept {
                 const bool ok = draw_gpu_media(renderer, &submission, begin, limit, upload, damage);
                 upload = false;
                 return ok;
             });
     };
-    const auto inline_media = [&](RendererInlineMediaLayer layer) noexcept {
+    const auto inline_media = [&, renderer](RendererInlineMediaLayer layer) noexcept {
         if (!inline_tail ||
             ((settings_active || layer != RendererInlineMediaLayer::base) && !interaction_text_current))
             return true;
         const u32 i = static_cast<u32>(layer);
         return media(renderer->inline_media_layer_first[i], renderer->inline_media_layer_end[i], false);
     };
-    const auto forms = [&](u32 first_paint, u32 first_text, bool upload) noexcept {
+    const auto forms = [&, renderer](u32 first_paint, u32 first_text, bool upload) noexcept {
         if (!forum_current)
             return paint(first_paint, paint_batch_count) && inline_media(RendererInlineMediaLayer::form) &&
                    text(first_text, visible_text_end, upload);
@@ -1225,32 +1258,9 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                text(forum_text_end, visible_text_end, upload && forum_text_end == first_text);
     };
     // Materials and buffer bindings stay unchanged across text layers.
-    if (renderer->text_effect_count && renderer->glyph_text.ready && glyph_count && visible_text_end) {
-        if (!renderer->text_effect_buffer) {
-            D3D11_BUFFER_DESC description{};
-            description.ByteWidth = sizeof(TextEffectConstants);
-            description.Usage = D3D11_USAGE_DYNAMIC;
-            description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-            description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-            if (FAILED(renderer->graphics.device->CreateBuffer(&description, nullptr,
-                                                               &renderer->text_effect_buffer)))
-                goto draw_failed;
-        }
-        const u64 effect_ms = effect_time_ms == ~0ull ? frame_ms : effect_time_ms;
-        renderer->text_effects.seconds = static_cast<float>(effect_ms % 60000) / 1000.f;
-        renderer->text_effects.scale = static_cast<float>(renderer->dpi) / 96.f;
-        // Glyphs reference only the active material prefix.
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(renderer->graphics.context->Map(renderer->text_effect_buffer, 0,
-                                                   D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-            goto draw_failed;
-        CopyMemory(mapped.pData, &renderer->text_effects,
-                   offsetof(TextEffectConstants, materials) +
-                       renderer->text_effect_count * sizeof(TextEffectMaterial));
-        renderer->graphics.context->Unmap(renderer->text_effect_buffer, 0);
-        // The glyph pipeline binds PS b1 when it is selected.
-        renderer->graphics.context->VSSetConstantBuffers(1, 1, &renderer->text_effect_buffer);
-    }
+    if (renderer->text_effect_count && renderer->glyph_text.ready && glyph_count && visible_text_end &&
+        !prepare_text_effects(renderer, effect_time_ms == ~0ull ? frame_ms : effect_time_ms))
+        goto draw_failed;
     if (settings_active) {
         // The profile editor's preview card follows the page's own media; its
         // dialog follows the page's choice popup. Each draws paint, media,

@@ -1020,12 +1020,17 @@ void churn_message(Module& m, Scratch& scratch, u64 channel, u64 guild, u64 tick
 
 DWORD WINAPI churn_thread(void* context) noexcept {
     Module& m = *static_cast<Module*>(context);
-    constexpr u32 kTickMs = 50;
+    constexpr u32 kTickMs = 50 / kPerfScenarioSpeed;
     u64 typing_budget = 0, presence_budget = 0, message_budget = 0;
+    u64 previous = GetTickCount64();
     while (WaitForSingleObject(m.churn_stop, kTickMs) == WAIT_TIMEOUT) {
-        typing_budget += m.churn.typing_per_second * kTickMs;
-        presence_budget += m.churn.presence_per_second * kTickMs;
-        message_budget += m.churn.messages_per_second * kTickMs;
+        // Windows can round the wait up to its timer resolution. Accrue by
+        // elapsed time so a short run still exercises the requested event rate.
+        const u64 now = GetTickCount64(), elapsed = now - previous;
+        previous = now;
+        typing_budget += m.churn.typing_per_second * elapsed;
+        presence_budget += m.churn.presence_per_second * elapsed;
+        message_budget += m.churn.messages_per_second * elapsed;
         for (; typing_budget >= 1000; typing_budget -= 1000)
             churn_typing(m, m.churn_scratch, m.churn_counter++);
         for (; presence_budget >= 1000; presence_budget -= 1000)

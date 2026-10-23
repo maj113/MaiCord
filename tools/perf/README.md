@@ -12,6 +12,17 @@ against a temporary `LOCALAPPDATA`, prints a table, and removes the probe, its o
 and the profiles. It never needs or touches a running client, a real account or the
 network.
 
+Each offline launch uses a short scenario and a 10-second timeout.
+The scenario keeps 90 timeline scrolls, 24 channel switches, 60 member-list scrolls and six settings visits.
+Scenario deadlines and input intervals are ten times shorter than the original workload.
+The synthetic account sends churn events at ten times the original rate.
+CPU, GPU, memory and elapsed-time measurements use the real clocks.
+
+The shorter idle phases do not measure long-term timer behavior or cache expiry.
+Compare results from the same scenario version.
+Use `-Runs 1 -WarmOnly` for one launch during local comparisons.
+The build time is separate from the timeout for each launch.
+
 | Switch | Effect |
 | --- | --- |
 | `-Runs N` | Repeats (1-10, default 2): a cold launch on a fresh profile, then a warm launch on the same profile. Tables show medians. |

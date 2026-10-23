@@ -10,7 +10,7 @@ template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
 template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;}
 }
 SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyphs,const SfntGlyphSummary& glyph_bounds,const SfntGlyphSummary& mark_bounds,
-    u32 targets,float em,bool rtl,SfntShapeStorage s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output) noexcept {
+    u32 targets,float em,bool rtl,const SfntShapeStorage& s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output) noexcept {
     const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;
     for(u32 index=0;index<plan.positioning_roots.count;++index){const u16 root=plan.positioning_roots[index];SfntGposExecutionResult execution{};
         // The first successful root validates the whole run. GPOS cannot edit glyph
@@ -35,7 +35,7 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
     return status;
 }
 SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
-    u32 units,ConstSlice<u32> boundaries,bool rtl,float em,SfntShapeStorage s,
+    u32 units,ConstSlice<u32> boundaries,bool rtl,float em,const SfntShapeStorage& s,
     SfntShapeRunResult* result,SfntShapeLimits limits,ConstSlice<SfntLookupStep> steps,ConstSlice<u32> input_order,SfntShapeGlyphPolicy policy,const SfntShapeInputPolicy* initial,const SfntShapeStagePolicy* stages,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;
     *result={};

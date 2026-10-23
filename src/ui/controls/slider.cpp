@@ -17,7 +17,7 @@ UiSliderGeometry active(const UiSettingsTokens& tokens, UiSliderGeometry g, UiCo
 }
 } // namespace
 
-float ui_slider_height(const UiSettingsTokens& tokens, bool marks) noexcept {
+float ui_slider_height(const UiSettingsLayoutTokens& tokens, bool marks) noexcept {
     return 24 + (marks ? tokens.metric.slider_mark_height : 0);
 }
 
@@ -28,7 +28,7 @@ float ui_slider_position(const UiSliderGeometry& geometry, u32 count, u32 index)
     return geometry.track_left + (geometry.track_right - geometry.track_left) * fraction;
 }
 
-UiSliderGeometry ui_slider_geometry(const UiSettingsTokens& tokens, UiRect bounds, u32 count, u32 index,
+UiSliderGeometry ui_slider_geometry(const UiSettingsLayoutTokens& tokens, UiRect bounds, u32 count, u32 index,
                                     bool marks) noexcept {
     UiSliderGeometry g{};
     g.bounds = bounds;
@@ -61,7 +61,7 @@ float ui_slider_grab_offset(UiRect grabber, float x, float y) noexcept {
     return ui_rect_contains(grabber, x, y) ? x - (grabber.left + grabber.right) * .5f : 0.f;
 }
 
-UiRect ui_slider_mark_label(const UiSettingsTokens& tokens, const UiSliderGeometry& geometry, u32 count,
+UiRect ui_slider_mark_label(const UiSettingsLayoutTokens& tokens, const UiSliderGeometry& geometry, u32 count,
                             u32 index) noexcept {
     const float x = ui_slider_position(geometry, count, index);
     const float half = 28;

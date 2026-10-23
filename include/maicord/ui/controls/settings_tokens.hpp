@@ -48,19 +48,24 @@ struct UiSettingsDurations {
     u32 switch_ms, switch_reduced_ms, modal_enter_ms, flash_ms, flash_fade_ms;
 };
 
-struct UiSettingsTokens {
-    UiSettingsColors color;
+struct UiSettingsLayoutTokens {
     UiSettingsMetrics metric;
     UiSettingsDurations duration;
     // Opacity of every disabled control.
     float disabled_alpha;
+};
+
+struct UiSettingsTokens : UiSettingsLayoutTokens {
+    UiSettingsColors color;
     bool light;
 };
+static_assert(sizeof(UiSettingsTokens) ==
+              sizeof(UiSettingsLayoutTokens) + sizeof(UiSettingsColors) + sizeof(float));
 
 UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept;
 Color ui_settings_focus_color(const Theme& theme) noexcept;
-// Default-theme geometry and motion only; colors are empty and must not be painted.
-UiSettingsTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept;
+// Geometry and motion queries do not construct a paint palette.
+UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept;
 // Entrance progress (0..1) of every modal and dialog elapsed_ms after it
 // opened: a spring (tension 1000, friction 48) over modal_enter_ms, so Settings
 // and each dialog open on one timeline.

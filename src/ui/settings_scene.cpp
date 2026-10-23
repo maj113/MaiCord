@@ -82,7 +82,7 @@ float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept
         return 0;
     return kSectionGap * 2 + 1;
 }
-UiSettingsTokens layout_tokens(const UiSettingsScene& scene) noexcept {
+UiSettingsLayoutTokens layout_tokens(const UiSettingsScene& scene) noexcept {
     return ui_settings_layout_tokens(scene.theme_styles);
 }
 const UiSettingsControlPresentation* presentation(const UiSettingsPageContent& content, u32 index) noexcept {
@@ -194,7 +194,7 @@ float slider_value_width(const UiSettingsControl& c) noexcept {
 }
 // Mark sliders inset their track so the end labels, centred on the end
 // ticks, stay inside the column.
-float slider_mark_inset(const UiSettingsTokens& t, const UiSettingsControl& c) noexcept {
+float slider_mark_inset(const UiSettingsLayoutTokens& t, const UiSettingsControl& c) noexcept {
     if (!c.choices.count)
         return 0;
     const float half = maximum(slider_label_width(c.choices[0]), slider_label_width(c.choices[c.choices.count - 1])) * .5f;
@@ -229,7 +229,7 @@ struct ListParts {
     UiRect content, icon, lock, column, chevron;
     UiRect actions[kUiSettingsListActions];
 };
-ListParts list_parts(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index,
+ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index,
                      const UiRect& row) noexcept {
     const auto& m = t.metric;
     ListParts parts{};
@@ -264,14 +264,14 @@ ListParts list_parts(const UiSettingsTokens& t, const UiSettingsPageContent& con
     return parts;
 }
 // The count column's glyph after its text.
-UiRect list_count_icon(const UiSettingsTokens& t, const UiSettingsControl& c, const UiRect& column) noexcept {
+UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& column) noexcept {
     const float size = t.metric.list_icon * .75f, cy = (column.top + column.bottom) * .5f;
     const float text = c.choices.count ? ui_settings_text_width(c.choices[0], kUiSettingsLabelEm) * 1.04f : 0;
     const float left = minimum(column.left + text + t.metric.chip_gap, column.right - size);
     return {left, cy - size * .5f, left + size, cy + size * .5f};
 }
 // The part of a list row under a point (UiSettingsListPart), or ~0u.
-u32 list_part(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
+u32 list_part(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
               float y) noexcept {
     const auto* item = list_item(content, index);
     if (!item || !ui_rect_contains(row, x, y))
@@ -289,7 +289,7 @@ u32 list_part(const UiSettingsTokens& t, const UiSettingsPageContent& content, u
     return ui_settings_list_row;
 }
 // Width taken by a row's leading handle, avatar or dot.
-float lead_width(const UiSettingsTokens& t, const UiSettingsPageContent& content, u32 index) noexcept {
+float lead_width(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index) noexcept {
     if (content.controls[index].kind != UiSettingsControlKind::action)
         return 0;
     const auto& m = t.metric;
@@ -308,13 +308,13 @@ float text_block(const UiSettingsMetrics& m, Utf8View label, Utf8View descriptio
                       kUiSettingsDescriptionLine;
     return height;
 }
-float swatch_rows_height(const UiSettingsTokens& t, u32 count, float width) noexcept {
+float swatch_rows_height(const UiSettingsLayoutTokens& t, u32 count, float width) noexcept {
     const u32 columns = ui_swatch_columns(t, width);
     const u32 rows = (count + columns - 1) / columns;
     return rows ? rows * (t.metric.swatch + ui_swatch_label_height()) + (rows - 1) * t.metric.swatch_gap * .5f + 4
                 : 0;
 }
-RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, const UiSettingsPageContent& content,
+RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& style, const UiSettingsPageContent& content,
                      u32 index, float left, float top, float width) noexcept {
     const auto& m = t.metric;
     const auto& c = content.controls[index];
@@ -1101,7 +1101,7 @@ bool build(UiSettingsScene* scene) noexcept {
     ++scene->revision;
     return true;
 }
-bool row_layout_for(const UiSettingsScene& scene, const UiSettingsTokens& t, UiWidgetHandle handle, u32 source,
+bool row_layout_for(const UiSettingsScene& scene, const UiSettingsLayoutTokens& t, UiWidgetHandle handle, u32 source,
                     RowLayout* layout, UiRect* clip = nullptr) noexcept {
     const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
     if (!node || source >= scene.content.controls.count)
@@ -1243,7 +1243,7 @@ UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle,
                          scene.widgets.captured.generation == handle.generation;
     return {enabled, hovered, pressed, scene.focus_visible && ui_settings_target_equal(scene.focus, target)};
 }
-float toggle_motion(const UiSettingsScene& scene, UiSettingsTarget target, const UiSettingsTokens& t,
+float toggle_motion(const UiSettingsScene& scene, UiSettingsTarget target, const UiSettingsLayoutTokens& t,
                     bool* checked) noexcept {
     for (const auto& animation : scene.animations) {
         if (!animation.started_ms || animation.control_id != target.control_id)
@@ -1345,7 +1345,7 @@ UiSettingsFocusZone zone_of(UiSettingsTarget target) noexcept {
 }
 } // namespace
 
-UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsTokens& tokens, UiRect viewport,
+UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tokens, UiRect viewport,
                                                UiSettingsPresentation presentation) noexcept {
     const auto& m = tokens.metric;
     UiSettingsModalLayout l{};
@@ -1621,17 +1621,15 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     const bool changed_page = scene->registry != registry || !ui_page_key_equal(selected, scene->selected_page);
     if ((!scene->active || changed_page) && scene->page_generation == ~u64{0})
         return false;
-    {
-        // Reject an unrepresentable virtual extent before touching retained state.
-        const auto tokens = layout_tokens(*scene);
-        const auto layout = ui_settings_modal_layout(tokens, viewport, scene->presentation);
-        const float width = maximum(1.f, ui_rect_width(layout.column));
-        float extent = 0;
-        for (u32 i = 0; i < content.controls.count; ++i) {
-            extent += row_layout(tokens, style, content, i, 0, 0, width).height;
-            if (extent > kMaximumUiCoordinate - 8192)
-                return false;
-        }
+    // Validate once before touching retained state, then reuse the same geometry.
+    const auto tokens = layout_tokens(*scene);
+    const auto layout = ui_settings_modal_layout(tokens, viewport, scene->presentation);
+    const float width = maximum(1.f, ui_rect_width(layout.column));
+    float rows = 0;
+    for (u32 i = 0; i < content.controls.count; ++i) {
+        rows += row_layout(tokens, style, content, i, 0, 0, width).height;
+        if (rows > kMaximumUiCoordinate - 8192)
+            return false;
     }
     const bool previous_active = scene->active;
     const auto* previous_registry = scene->registry;
@@ -1642,14 +1640,9 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     scene->style = style;
     scene->footer = content.footer ? *content.footer : UiSettingsFooter{};
     scene->viewport = viewport;
-    scene->layout = ui_settings_modal_layout(layout_tokens(*scene), viewport, scene->presentation);
+    scene->layout = layout;
     if (scene->presentation == UiSettingsPresentation::dialog) {
         // Fit the dialog to its title, rows and footer band.
-        const auto tokens = layout_tokens(*scene);
-        const float width = maximum(1.f, ui_rect_width(scene->layout.column));
-        float rows = 0;
-        for (u32 i = 0; i < content.controls.count; ++i)
-            rows += row_layout(tokens, style, content, i, 0, 0, width).height;
         const auto f = frame(*scene, tokens.metric);
         ui_settings_dialog_fit(&scene->layout, viewport,
                                f.body.top - scene->layout.modal.top + rows + kUiSettingsDialogBodyEnd +
@@ -2106,7 +2099,7 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, UiSettingsTarget
 namespace {
 // One option of a tabs, buttons or colors row inside its control rectangle;
 // colours report their trailing button as index choices.count.
-UiRect option_rect(const UiSettingsTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index) noexcept {
+UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index) noexcept {
     float x = field.left;
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
@@ -2140,7 +2133,7 @@ UiRect option_rect(const UiSettingsTokens& t, const UiSettingsControl& c, const 
     }
     return {};
 }
-u32 option_hit(const UiSettingsTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y) noexcept {
+u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y) noexcept {
     const u32 count = c.choices.count + (c.kind == UiSettingsControlKind::colors && c.action_label.bytes ? 1u : 0u);
     for (u32 i = 0; i < count; ++i)
         if (ui_rect_contains(option_rect(t, c, field, i), x, y))

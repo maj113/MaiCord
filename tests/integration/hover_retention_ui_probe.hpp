@@ -164,8 +164,9 @@ inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime
     if (changed_ink < 10)
         return false;
     // Moving the same effect to the final slot, then back, exercises both
-    // a full upload and a short prefix after WRITE_DISCARD without stale data.
+    // a full upload and a retained short prefix without stale data.
     renderer.text_effects.materials[kTextEffectCapacity - 1] = renderer.text_effects.materials[0];
+    renderer.text_effect_uploaded_count = 0;
     constexpr u32 slots[]{kTextEffectCapacity - 1, 0};
     for (u32 slot : slots) {
         renderer.text_effect_count = slot + 1;

@@ -1795,7 +1795,49 @@ void test_message_rich_store() noexcept {
            "message_rich_store_delete_and_reset");
 }
 
+#pragma float_control(precise, on, push)
+__declspec(noinline) bool reference_coordinate_valid(float value) noexcept {
+    return value == value && value >= -kMaximumUiCoordinate && value <= kMaximumUiCoordinate;
+}
+__declspec(noinline) bool reference_rectangle_valid(const UiRect& r) noexcept {
+    const float width = r.right - r.left, height = r.bottom - r.top;
+    return reference_coordinate_valid(r.left) && reference_coordinate_valid(r.top) &&
+           reference_coordinate_valid(r.right) && reference_coordinate_valid(r.bottom) &&
+           r.right >= r.left && r.bottom >= r.top &&
+           width == width && width >= 0 && width <= kMaximumUiCoordinate &&
+           height == height && height >= 0 && height <= kMaximumUiCoordinate;
+}
+#pragma float_control(pop)
+
 void test_paint_stream() noexcept {
+    static_assert(ui_coordinate_valid(kMaximumUiCoordinate) && ui_coordinate_valid(-kMaximumUiCoordinate));
+    const u32 coordinate_patterns[]{0, 0x80000000u, 1, 0x80000001u, 0x49800000u, 0xc9800000u,
+                                    0x49800001u, 0xc9800001u, 0x7f800000u, 0xff800000u,
+                                    0x7fc00000u, 0xffc00000u, 0x7f800001u, 0xffffffffu};
+    bool equivalent = true;
+    for (u32 bits : coordinate_patterns) {
+        const float value = __builtin_bit_cast(float, bits);
+        equivalent = equivalent && ui_coordinate_valid(value) == reference_coordinate_valid(value) &&
+                     paint_coordinate_valid(value) == reference_coordinate_valid(value);
+    }
+    u32 random = 0x5314ab91u;
+    for (u32 i = 0; i < 65536; ++i) {
+        random = random * 1664525u + 1013904223u;
+        const float value = __builtin_bit_cast(float, random);
+        equivalent = equivalent && ui_coordinate_valid(value) == reference_coordinate_valid(value) &&
+                     paint_coordinate_valid(value) == reference_coordinate_valid(value);
+    }
+    expect(equivalent, "coordinate validation preserves IEEE range boundaries, signed zero, infinities and NaNs");
+    bool rectangles = true;
+    for (u32 first : coordinate_patterns) {
+        for (u32 last : coordinate_patterns) {
+            const float a = __builtin_bit_cast(float, first), b = __builtin_bit_cast(float, last);
+            const UiRect wide{a, 0, b, 1}, tall{0, a, 1, b};
+            rectangles = rectangles && ui_rect_valid_or_empty(wide) == reference_rectangle_valid(wide) &&
+                         ui_rect_valid_or_empty(tall) == reference_rectangle_valid(tall);
+        }
+    }
+    expect(rectangles, "rectangle validation preserves empty, reversed, oversized and non-finite bounds");
     PaintStream stream{};
     expect(paint_stream_reset(&stream, 100.0f, 80.0f) && stream.quad_capacity == kInitialPaintQuads,
            "paint_stream_demand_commits_initial_geometry");

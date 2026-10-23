@@ -14,12 +14,12 @@ bool ui_admin_chip_dot(Utf8View label, bool dots) noexcept {
     return dots && !(label.bytes && label.data[0] == '+');
 }
 
-float ui_admin_chip_width(const UiSettingsTokens& tokens, Utf8View label, bool dot) noexcept {
+float ui_admin_chip_width(const UiSettingsLayoutTokens& tokens, Utf8View label, bool dot) noexcept {
     const float text = minimum(160.f, ui_settings_text_width(label, kChipEm) * kChipEstimateSlack);
     return text + tokens.metric.chip_padding * 2 + (dot ? tokens.metric.accent_dot - 2 + 6 : 0);
 }
 
-UiRect ui_admin_chip_rect(const UiSettingsTokens& tokens, ConstSlice<Utf8View> labels, bool dots, UiRect area,
+UiRect ui_admin_chip_rect(const UiSettingsLayoutTokens& tokens, ConstSlice<Utf8View> labels, bool dots, UiRect area,
                           u32 index) noexcept {
     const auto& m = tokens.metric;
     float x = area.left, y = area.top;
@@ -37,14 +37,14 @@ UiRect ui_admin_chip_rect(const UiSettingsTokens& tokens, ConstSlice<Utf8View> l
     return {};
 }
 
-u32 ui_admin_chip_rows(const UiSettingsTokens& tokens, ConstSlice<Utf8View> labels, bool dots, float width) noexcept {
+u32 ui_admin_chip_rows(const UiSettingsLayoutTokens& tokens, ConstSlice<Utf8View> labels, bool dots, float width) noexcept {
     if (!labels.count)
         return 0;
     const auto last = ui_admin_chip_rect(tokens, labels, dots, {0, 0, maximum(1.f, width), 0}, labels.count - 1);
     return static_cast<u32>(last.top / (tokens.metric.chip_height + tokens.metric.chip_gap) + .5f) + 1;
 }
 
-float ui_admin_chips_height(const UiSettingsTokens& tokens, u32 rows) noexcept {
+float ui_admin_chips_height(const UiSettingsLayoutTokens& tokens, u32 rows) noexcept {
     return rows ? rows * tokens.metric.chip_height + (rows - 1) * tokens.metric.chip_gap : 0;
 }
 
@@ -64,7 +64,7 @@ bool ui_admin_chip_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiR
     return ok;
 }
 
-UiRect ui_admin_chip_label_rect(const UiSettingsTokens& tokens, UiRect chip, bool dot) noexcept {
+UiRect ui_admin_chip_label_rect(const UiSettingsLayoutTokens& tokens, UiRect chip, bool dot) noexcept {
     const float left = chip.left + tokens.metric.chip_padding + (dot ? tokens.metric.accent_dot - 2 + 4 : 0);
     return {left, chip.top, chip.right - tokens.metric.chip_padding + 2, chip.bottom};
 }

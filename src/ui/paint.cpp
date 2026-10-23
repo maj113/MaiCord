@@ -78,16 +78,6 @@ bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept
     return true;
 }
 
-bool paint_stream_record_content(PaintStream* stream, UiWidgetReference owner, const UiRect& rectangle,
-                                 UiLayoutContentKind kind, u16 flags) noexcept {
-    (void)stream;
-    (void)owner;
-    (void)rectangle;
-    (void)kind;
-    (void)flags;
-    return true;
-}
-
 bool paint_stream_push_clip(PaintStream* stream, float left, float top, float right,
                             float bottom) noexcept {
     if (!stream || !paint_coordinate_valid(left) || !paint_coordinate_valid(top) ||

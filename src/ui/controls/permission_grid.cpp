@@ -4,16 +4,16 @@
 
 namespace maicord {
 namespace {
-float pitch(const UiSettingsTokens& tokens) noexcept {
+float pitch(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.color_cell + tokens.metric.color_gap;
 }
 } // namespace
 
-float ui_segments_width(const UiSettingsTokens& tokens, u32 count) noexcept {
+float ui_segments_width(const UiSettingsLayoutTokens& tokens, u32 count) noexcept {
     return count ? count * tokens.metric.segment_size + (count - 1) * tokens.metric.segment_gap : 0;
 }
 
-UiRect ui_segments_option(const UiSettingsTokens& tokens, UiRect group, u32 count, u32 index) noexcept {
+UiRect ui_segments_option(const UiSettingsLayoutTokens& tokens, UiRect group, u32 count, u32 index) noexcept {
     if (index >= count)
         return {};
     const float size = tokens.metric.segment_size;
@@ -22,7 +22,7 @@ UiRect ui_segments_option(const UiSettingsTokens& tokens, UiRect group, u32 coun
     return {left, top, left + size, top + size};
 }
 
-u32 ui_segments_hit(const UiSettingsTokens& tokens, UiRect group, u32 count, float x, float y) noexcept {
+u32 ui_segments_hit(const UiSettingsLayoutTokens& tokens, UiRect group, u32 count, float x, float y) noexcept {
     // Gaps resolve to the nearer option so the group has no dead pixels.
     const float half = tokens.metric.segment_gap * .5f;
     for (u32 i = 0; i < count; ++i) {
@@ -56,22 +56,22 @@ bool ui_segments_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRec
     return ok;
 }
 
-float ui_tristate_width(const UiSettingsTokens& tokens) noexcept {
+float ui_tristate_width(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.tristate_segment * kUiTristateCount;
 }
 
-float ui_tristate_radius(const UiSettingsTokens& tokens) noexcept {
+float ui_tristate_radius(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.control_radius * .5f;
 }
 
-UiRect ui_tristate_option(const UiSettingsTokens& tokens, UiRect group, u32 index) noexcept {
+UiRect ui_tristate_option(const UiSettingsLayoutTokens& tokens, UiRect group, u32 index) noexcept {
     if (index >= kUiTristateCount)
         return {};
     const float width = tokens.metric.tristate_segment, left = group.left + index * width;
     return {left, group.top, left + width, group.bottom};
 }
 
-u32 ui_tristate_hit(const UiSettingsTokens& tokens, UiRect group, float x, float y) noexcept {
+u32 ui_tristate_hit(const UiSettingsLayoutTokens& tokens, UiRect group, float x, float y) noexcept {
     if (!ui_rect_contains(group, x, y) || !(tokens.metric.tristate_segment > 0))
         return ~0u;
     const u32 index = static_cast<u32>((x - group.left) / tokens.metric.tristate_segment);
@@ -130,24 +130,24 @@ bool ui_tristate_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRec
     return ok;
 }
 
-u32 ui_color_grid_columns(const UiSettingsTokens& tokens, float width) noexcept {
+u32 ui_color_grid_columns(const UiSettingsLayoutTokens& tokens, float width) noexcept {
     return maximum(1u, static_cast<u32>((width + tokens.metric.color_gap) / pitch(tokens)));
 }
 
 namespace {
 // Room around the outer cells for the selection ring.
-float ring_room(const UiSettingsTokens& tokens) noexcept {
+float ring_room(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.ring_gap + tokens.metric.ring_width;
 }
 } // namespace
 
-float ui_color_grid_height(const UiSettingsTokens& tokens, u32 count, float width) noexcept {
+float ui_color_grid_height(const UiSettingsLayoutTokens& tokens, u32 count, float width) noexcept {
     const u32 columns = ui_color_grid_columns(tokens, width);
     const u32 rows = (count + columns - 1) / columns;
     return rows ? rows * pitch(tokens) - tokens.metric.color_gap + ring_room(tokens) * 2 : 0;
 }
 
-UiRect ui_color_grid_cell(const UiSettingsTokens& tokens, UiRect field, u32 index) noexcept {
+UiRect ui_color_grid_cell(const UiSettingsLayoutTokens& tokens, UiRect field, u32 index) noexcept {
     const float room = ring_room(tokens);
     const u32 columns = ui_color_grid_columns(tokens, ui_rect_width(field) - room * 2);
     const float left = field.left + room + (index % columns) * pitch(tokens);
@@ -155,7 +155,7 @@ UiRect ui_color_grid_cell(const UiSettingsTokens& tokens, UiRect field, u32 inde
     return {left, top, left + tokens.metric.color_cell, top + tokens.metric.color_cell};
 }
 
-u32 ui_color_grid_hit(const UiSettingsTokens& tokens, UiRect field, u32 count, float x, float y) noexcept {
+u32 ui_color_grid_hit(const UiSettingsLayoutTokens& tokens, UiRect field, u32 count, float x, float y) noexcept {
     for (u32 i = 0; i < count; ++i) {
         const auto cell = ui_color_grid_cell(tokens, field, i);
         if (ui_rect_contains({cell.left - 2, cell.top - 2, cell.right + 2, cell.bottom + 2}, x, y))

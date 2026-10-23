@@ -524,6 +524,34 @@ void zlib_cases(void (*check)(bool, const char*) noexcept) noexcept {
     check(identical, "DEFLATE table decoder matches the reference on valid, mutated and bounded streams");
 }
 
+// Every possible sole distance symbol, accepted one-bit codes, rejected
+// longer incomplete codes, and the unused branch of the literal/length tree.
+void single_code_cases(void (*check)(bool, const char*) noexcept) noexcept {
+    bool exact = true;
+    constexpr u8 lengths[]{1, 2, 15};
+    for (u8 length : lengths) for (u32 symbol = 0; symbol < 32; ++symbol)
+        for (u32 miss = 0; miss < 2; ++miss) {
+            BitWriter w{g_encoded, kMaximumEncoded};
+            zlib_header(w, 7);
+            w.put(1, 1); w.put(2, 2); // Final dynamic block.
+            w.put(0, 5); w.put(31, 5); w.put(15, 4);
+            for (u8 value : kPrecodeOrder)
+                w.put(value == 0 || value == length ? 1 : 0, 3);
+            for (u32 i = 0; i < 257; ++i) w.put(i == 256 ? 1 : 0, 1);
+            for (u32 i = 0; i < 32; ++i) w.put(i == symbol ? 1 : 0, 1);
+            w.put(miss, length);
+            w.align();
+            w.put(0, 8); w.put(0, 8); w.put(0, 8); w.put(1, 8);
+            const DeflateInputSpan span{g_encoded, w.bytes};
+            const auto reference = deflate_reference::zlib_inflate({&span, 1}, {g_reference, 0}, 0);
+            const auto actual = zlib_inflate({&span, 1}, {g_actual, 0}, 0, &g_workspace);
+            const auto expected = length == 1 && !miss ? ZlibInflateError::none
+                                                     : ZlibInflateError::invalid_huffman;
+            exact = exact && actual.error == expected && same(actual, reference, g_actual, g_reference);
+        }
+    check(exact, "DEFLATE sole codewords and invalid branches match the independent decoder");
+}
+
 void stream_cases(void (*check)(bool, const char*) noexcept) noexcept {
     Random random{0xD1B54A32D192ED03ull};
     bool encoder_valid = true, identical = true;
@@ -584,6 +612,7 @@ void stream_cases(void (*check)(bool, const char*) noexcept) noexcept {
 } // namespace
 
 void test_deflate_differential(void (*check)(bool, const char*) noexcept) noexcept {
+    single_code_cases(check);
     zlib_cases(check);
     stream_cases(check);
 }

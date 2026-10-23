@@ -68,10 +68,12 @@ constexpr bool ui_rect_contains(const UiRect& rectangle, float x, float y) noexc
 }
 
 constexpr bool ui_rect_valid_or_empty(const UiRect& rectangle) noexcept {
+    // Valid ordered edges already imply finite, nonnegative extents.
     return ui_coordinate_valid(rectangle.left) && ui_coordinate_valid(rectangle.top) &&
            ui_coordinate_valid(rectangle.right) && ui_coordinate_valid(rectangle.bottom) &&
            rectangle.right >= rectangle.left && rectangle.bottom >= rectangle.top &&
-           ui_extent_valid(ui_rect_width(rectangle)) && ui_extent_valid(ui_rect_height(rectangle));
+           ui_rect_width(rectangle) <= kMaximumUiCoordinate &&
+           ui_rect_height(rectangle) <= kMaximumUiCoordinate;
 }
 
 constexpr bool ui_rect_valid(const UiRect& rectangle) noexcept {

@@ -31,13 +31,13 @@ Color ui_settings_nav_item_text(const UiSettingsTokens& tokens, bool selected, b
     return selected || state.hovered ? c.text_strong : c.text_subtle;
 }
 
-UiRect ui_settings_nav_icon_rect(const UiSettingsTokens& tokens, UiRect item) noexcept {
+UiRect ui_settings_nav_icon_rect(const UiSettingsLayoutTokens& tokens, UiRect item) noexcept {
     const float size = tokens.metric.nav_icon, left = item.left + tokens.metric.nav_item_padding;
     const float top = (item.top + item.bottom - size) * .5f;
     return {left, top, left + size, top + size};
 }
 
-UiRect ui_settings_nav_label_rect(const UiSettingsTokens& tokens, UiRect item, bool icon) noexcept {
+UiRect ui_settings_nav_label_rect(const UiSettingsLayoutTokens& tokens, UiRect item, bool icon) noexcept {
     const float left =
         item.left + tokens.metric.nav_item_padding + (icon ? tokens.metric.nav_icon + tokens.metric.nav_item_padding : 0);
     return {left, item.top, item.right - tokens.metric.nav_item_padding, item.bottom};
@@ -75,21 +75,21 @@ bool ui_settings_search_paint(PaintStream* paint, const UiSettingsTokens& tokens
     return ok;
 }
 
-UiRect ui_settings_search_text_rect(const UiSettingsTokens&, UiRect field) noexcept {
+UiRect ui_settings_search_text_rect(const UiSettingsLayoutTokens&, UiRect field) noexcept {
     return {field.left + 10, field.top, field.right - 32, field.bottom};
 }
 
-UiRect ui_settings_search_clear_rect(const UiSettingsTokens&, UiRect field) noexcept {
+UiRect ui_settings_search_clear_rect(const UiSettingsLayoutTokens&, UiRect field) noexcept {
     const float size = 24, cy = (field.top + field.bottom) * .5f;
     return {field.right - 4 - size, cy - size * .5f, field.right - 4, cy + size * .5f};
 }
 
-UiRect ui_settings_close_rect(const UiSettingsTokens& tokens, float center_x, float top) noexcept {
+UiRect ui_settings_close_rect(const UiSettingsLayoutTokens& tokens, float center_x, float top) noexcept {
     const float half = tokens.metric.close_size * .5f;
     return {center_x - half, top, center_x + half, top + tokens.metric.close_size};
 }
 
-UiRect ui_settings_close_caption_rect(const UiSettingsTokens& tokens, UiRect circle) noexcept {
+UiRect ui_settings_close_caption_rect(const UiSettingsLayoutTokens& tokens, UiRect circle) noexcept {
     const float top = circle.bottom + tokens.metric.close_caption_gap;
     return {circle.left - 12, top, circle.right + 12, top + kUiSettingsCaptionLine};
 }

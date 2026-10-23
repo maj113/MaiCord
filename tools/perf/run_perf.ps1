@@ -14,7 +14,7 @@ param(
     [switch]$Execute,
     [string]$Probe,
     [string]$ProfileRoot,
-    [ValidateRange(10, 600)][int]$RunTimeoutSeconds = 120,
+    [ValidateRange(1, 600)][int]$RunTimeoutSeconds = 10,
     # Run each launch under cdb and print the faulting stack (diagnosis only).
     [switch]$Debugger,
     # 1 kHz in-process sampling of the main thread; prints hot functions per

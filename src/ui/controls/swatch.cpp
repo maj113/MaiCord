@@ -11,12 +11,12 @@ float ui_swatch_label_height() noexcept {
     return kLabelHeight;
 }
 
-u32 ui_swatch_columns(const UiSettingsTokens& tokens, float width) noexcept {
+u32 ui_swatch_columns(const UiSettingsLayoutTokens& tokens, float width) noexcept {
     const float pitch = tokens.metric.swatch + tokens.metric.swatch_gap + 12;
     return maximum(1u, static_cast<u32>((width + tokens.metric.swatch_gap) / pitch));
 }
 
-UiRect ui_swatch_rect(const UiSettingsTokens& tokens, UiRect field, u32 index, u32 columns) noexcept {
+UiRect ui_swatch_rect(const UiSettingsLayoutTokens& tokens, UiRect field, u32 index, u32 columns) noexcept {
     columns = maximum(1u, columns);
     const float size = tokens.metric.swatch, pitch_x = size + tokens.metric.swatch_gap + 12;
     const float pitch_y = size + kLabelHeight + tokens.metric.swatch_gap * .5f;

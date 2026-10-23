@@ -307,8 +307,8 @@ struct UiSettingsModalLayout {
     UiRect modal, sidebar, panel, column, close;
     bool compact;
 };
-struct UiSettingsTokens;
-UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsTokens&, UiRect viewport,
+struct UiSettingsLayoutTokens;
+UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens&, UiRect viewport,
                                                UiSettingsPresentation) noexcept;
 // Dialogs: shrinks a non-compact layout to the content height (title through
 // footer band) and re-centres it vertically; taller content keeps the full

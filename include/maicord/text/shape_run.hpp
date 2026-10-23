@@ -114,5 +114,5 @@ static_assert(sizeof(SfntShapeStagePolicy)==24);
 // callers use the default complete finalization.
 SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
     u32 source_units,ConstSlice<u32> cluster_boundaries,bool rtl,float em_size,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits={},ConstSlice<SfntLookupStep> steps={},ConstSlice<u32> input_order={},SfntShapeGlyphPolicy glyph_policy={},const SfntShapeInputPolicy* input_policy=nullptr,const SfntShapeStagePolicy* stage_policy=nullptr,bool defer_output=false) noexcept;
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,SfntShapeLimits limits={},ConstSlice<SfntLookupStep> steps={},ConstSlice<u32> input_order={},SfntShapeGlyphPolicy glyph_policy={},const SfntShapeInputPolicy* input_policy=nullptr,const SfntShapeStagePolicy* stage_policy=nullptr,bool defer_output=false) noexcept;
 }

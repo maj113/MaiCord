@@ -120,9 +120,9 @@ bool measure_large_selection(TextEditLayoutOwner* owner, const TextEditLayoutInp
     // The public edit projection is viewport bounded. Subdivide oversized
     // ranges instead of retaining thousands of off-screen boxes.
     // At most log2(16K UTF-16 units) right halves are pending at once.
-    struct Range { u32 first, last; } pending[16]{};
+    struct Range { u32 first, last; } pending[16];
     u32 pending_count = 0;
-    TextEditMetric batch[kTextEditSelectionCapacity]{};
+    TextEditMetric batch[kTextEditSelectionCapacity];
     owner->selection_count = 0;
     for (;;) {
         u32 actual = 0;
@@ -498,7 +498,7 @@ bool text_edit_layout_scroll(TextEditLayoutOwner* owner, float delta) noexcept {
     auto projection = *owner;
     const float offset = owner->scroll_y - next;
     projection.origin_y += offset;
-    TextEditMetric metrics[kTextEditSelectionCapacity]{};
+    TextEditMetric metrics[kTextEditSelectionCapacity];
     u32 count = 0;
     if (!text_edit_layout_range_geometry(projection, minimum(owner->anchor, owner->caret_offset),
         maximum(owner->anchor, owner->caret_offset), {metrics, owner->selection_capacity}, &count)) return false;
