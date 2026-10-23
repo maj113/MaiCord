@@ -1,7 +1,7 @@
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/winsock.hpp"
+#include "loopback_listener.hpp"
 
 namespace maicord {
 namespace {
@@ -113,15 +113,9 @@ void reconnect_cases(Check check) noexcept {
         check(false, "voice reconnect loop startup");
         return;
     }
-    const SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    int length = sizeof(address);
-    const bool listening = listener != INVALID_SOCKET &&
-                           bind(listener, reinterpret_cast<const sockaddr*>(&address), length) == 0 &&
-                           getsockname(listener, reinterpret_cast<sockaddr*>(&address), &length) == 0 &&
-                           listen(listener, 4) == 0;
+    TestLoopbackListener loopback;
+    const bool listening = loopback.start(4);
+    const SOCKET listener = loopback.handle;
     check(listening, "voice reconnect loopback listener");
     if (!listening) {
         if (listener != INVALID_SOCKET)
@@ -129,17 +123,9 @@ void reconnect_cases(Check check) noexcept {
         network_loop_release(&loop);
         return;
     }
-    char endpoint[32] = "127.0.0.1:", reverse[6]{};
-    u32 digits = 0, port = ntohs(address.sin_port);
-    do {
-        reverse[digits++] = static_cast<char>('0' + port % 10);
-        port /= 10;
-    } while (port);
-    for (u32 i = 0; i < digits; ++i)
-        endpoint[10 + i] = reverse[digits - 1 - i];
     const auto session = text(utf8_literal("test-session"));
     const GatewayVoiceState state{10, 20, 30, session, 0, 0};
-    const GatewayVoiceServer server{10, 0, text(utf8_literal("tok")), text({endpoint, 10 + digits}), false};
+    const GatewayVoiceServer server{10, 0, text(utf8_literal("tok")), text(loopback.endpoint()), false};
     voice_setup_bind_utf8(&setup, 30, session.encoded);
     voice_setup_begin(&setup, 10, 20, GetTickCount64());
     voice_setup_server(&setup, server);

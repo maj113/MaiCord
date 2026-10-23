@@ -2,85 +2,16 @@
 #include "maicord/protocol/mls_reader.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
 #include "maicord/app/mls_key_package.hpp"
-#include "maicord/sys/crypto.hpp"
+#include "mls_fixture_digest.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/mls_object_vectors.hpp"
-bool filled(const void* ptr, u32 n, u8 value = 0xa5) noexcept {
-    const auto* p = static_cast<const u8*>(ptr);
-    for (u32 i = 0; i != n; ++i)
-        if (p[i] != value)
-            return false;
-    return true;
+bool filled(const void* data, u32 count, u8 value = 0xa5) noexcept {
+    return test_filled(static_cast<const u8*>(data), count, value);
 }
-struct Digest {
-    Check check;
-    void* hash;
-    ConstSlice<u8> input;
-    void field(ConstSlice<u8> value, bool borrowed = true) noexcept {
-        if (borrowed && value.count) {
-            const auto begin = reinterpret_cast<usize>(input.data), p = reinterpret_cast<usize>(value.data);
-            check(p >= begin && p - begin <= input.count && value.count <= input.count - (p - begin),
-                  "MLS view borrows only supplied input");
-        }
-        u8 size[4];
-        for (u32 i = 0; i != 4; ++i)
-            size[i] = static_cast<u8>(value.count >> (24 - i * 8));
-        check(BCryptHashData(hash, size, 4, 0) >= 0, "MLS normalized field length");
-        if (value.count)
-            check(BCryptHashData(hash, const_cast<u8*>(value.data), value.count, 0) >= 0,
-                  "MLS normalized field bytes");
-    }
-    void number(u64 value, u32 n) noexcept {
-        u8 b[8];
-        for (u32 i = 0; i != n; ++i)
-            b[n - 1 - i] = static_cast<u8>(value >> (i * 8));
-        field({b, n}, false);
-    }
-    void leaf(const MlsLeafView& v) noexcept {
-        field(v.encryption_key);
-        field(v.signature_key);
-        number(v.credential.type, 2);
-        field(v.credential.identity);
-        field(v.credential.certificates);
-        field(v.capabilities.versions);
-        field(v.capabilities.cipher_suites);
-        field(v.capabilities.extensions);
-        field(v.capabilities.proposals);
-        field(v.capabilities.credentials);
-        number(static_cast<u8>(v.source), 1);
-        number(v.not_before, 8);
-        number(v.not_after, 8);
-        field(v.parent_hash);
-        field(v.extensions);
-        field(v.signature);
-        field(v.serialized);
-        field(v.tbs);
-    }
-    void package(const MlsKeyPackageView& v) noexcept {
-        number(v.version, 2);
-        number(v.cipher_suite, 2);
-        field(v.init_key);
-        leaf(v.leaf);
-        field(v.extensions);
-        field(v.signature);
-        field(v.serialized);
-        field(v.tbs);
-    }
-    void group(const MlsGroupContextView& v) noexcept {
-        number(v.version, 2);
-        number(v.cipher_suite, 2);
-        field(v.group_id);
-        number(v.epoch, 8);
-        field(v.tree_hash);
-        field(v.confirmed_transcript_hash);
-        field(v.extensions);
-        field(v.serialized);
-    }
-};
 void exercise_tbs(Check, const MlsGroupContextView&, u8*) noexcept {
 }
 template <typename T> void exercise_tbs(Check check, T view, u8* encoded) noexcept {
@@ -203,7 +134,7 @@ void corpus(Check check, u8* buffer) noexcept {
         return;
     for (const auto& v : mls_object_vectors) {
         const u32 n = test_unhex(v.hex, buffer);
-        Digest d{check, hash, {buffer, n}};
+        MlsFixtureDigest d{check, hash, {buffer, n}};
         if (v.kind == 1) {
             d.package(exercise<MlsKeyPackageView, mls_key_package_decode_prefix>(check, buffer, n));
             MlsKeyPackageView unchanged;

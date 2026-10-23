@@ -52,14 +52,7 @@ void write(Utf8View value) noexcept {
 }
 
 void check(bool passed, const char* label) noexcept {
-    if (passed)
-        return;
-    ++failures;
-    u32 bytes{};
-    while (label[bytes])
-        ++bytes;
-    write({label, bytes});
-    write(utf8_literal("\n"));
+    test_check(&failures, passed, label);
 }
 
 void metric(const char* label, u64 value) noexcept {

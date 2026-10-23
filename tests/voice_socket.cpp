@@ -2,7 +2,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/platform/network_worker.hpp"
 
-#include "maicord/sys/winsock.hpp"
+#include "loopback_listener.hpp"
 
 namespace maicord {
 namespace {
@@ -71,28 +71,12 @@ void test_voice_socket(void (*check)(bool, const char*) noexcept) noexcept {
     static NetworkWorker owner;
     NetworkLoop listener_loop{};
     check(network_loop_initialize(&listener_loop).ok(), "voice socket loopback Winsock startup");
-    const SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    int address_bytes = sizeof(address);
-    const bool listening =
-        listener != INVALID_SOCKET &&
-        bind(listener, reinterpret_cast<const sockaddr*>(&address), address_bytes) == 0 &&
-        getsockname(listener, reinterpret_cast<sockaddr*>(&address), &address_bytes) == 0 &&
-        listen(listener, 4) == 0;
+    TestLoopbackListener loopback;
+    const bool listening = loopback.start(4);
+    const SOCKET listener = loopback.handle;
     check(listening, "voice socket loopback listener");
     if (listening) {
-        char authority[32] = "127.0.0.1:";
-        char port[6]{};
-        u32 digits = 0, value = ntohs(address.sin_port);
-        do {
-            port[digits++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
-        for (u32 i = 0; i < digits; ++i)
-            authority[10 + i] = port[digits - 1 - i];
-        check(voice_gateway_endpoint({authority, 10 + digits}, &fixture.endpoint) ==
+        check(voice_gateway_endpoint(loopback.endpoint(), &fixture.endpoint) ==
                   GatewayEndpointError::none,
               "voice socket loopback endpoint");
         fixture.connected = CreateEventW(nullptr, TRUE, FALSE, nullptr);

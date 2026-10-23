@@ -1,5 +1,5 @@
 #include "maicord/protocol/mls_objects.hpp"
-#include "maicord/sys/crypto.hpp"
+#include "mls_fixture_digest.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -7,48 +7,9 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/mls_join_message_vectors.hpp"
 constexpr u32 capacity = 32768;
-bool filled(const void* data, u32 n) noexcept {
-    const auto* b = static_cast<const u8*>(data);
-    for (u32 i = 0; i != n; ++i)
-        if (b[i] != 0xa5)
-            return false;
-    return true;
+bool filled(const void* data, u32 count, u8 value = 0xa5) noexcept {
+    return test_filled(static_cast<const u8*>(data), count, value);
 }
-struct Digest {
-    Check check;
-    void* hash;
-    ConstSlice<u8> input;
-    void field(ConstSlice<u8> value, bool borrowed = true) noexcept {
-        if (borrowed && value.count) {
-            const auto start = reinterpret_cast<usize>(input.data), p = reinterpret_cast<usize>(value.data);
-            check(p >= start && p - start <= input.count && value.count <= input.count - (p - start),
-                  "MLS join fields borrow only supplied wire");
-        }
-        u8 n[4];
-        for (u32 i = 0; i != 4; ++i)
-            n[3 - i] = static_cast<u8>(value.count >> (i * 8));
-        check(BCryptHashData(hash, n, 4, 0) >= 0, "MLS join normalized field size");
-        if (value.count)
-            check(BCryptHashData(hash, const_cast<u8*>(value.data), value.count, 0) >= 0,
-                  "MLS join normalized field payload");
-    }
-    void number(u64 value, u32 n) noexcept {
-        u8 b[8];
-        for (u32 i = 0; i != n; ++i)
-            b[n - i - 1] = static_cast<u8>(value >> (i * 8));
-        field({b, n}, false);
-    }
-    void context(const MlsGroupContextView& v) noexcept {
-        number(v.version, 2);
-        number(v.cipher_suite, 2);
-        field(v.group_id);
-        number(v.epoch, 8);
-        field(v.tree_hash);
-        field(v.confirmed_transcript_hash);
-        field(v.extensions);
-        field(v.serialized);
-    }
-};
 template <typename T, MlsDecodeResult (*Exact)(ConstSlice<u8>, T*) noexcept>
 T exercise(Check check, u8* data, u32 n) noexcept {
     T view{};
@@ -82,7 +43,8 @@ void corpus(Check check, u8* data) noexcept {
         const u32 n = test_unhex(hex, data);
         const u16 version = be16(data), format = be16(data + 2);
         check(n > 4 && version == 1 && (format == 3 || format == 4), "MLS join envelope is a Welcome or GroupInfo");
-        Digest digest{check, hash, {data, n}};
+        MlsFixtureDigest digest{check, hash, {data, n},
+            "MLS join fields borrow only supplied wire", "MLS join normalized field size", "MLS join normalized field payload"};
         digest.number(version, 2);
         digest.number(format, 2);
         if (format == 3) {
@@ -110,7 +72,7 @@ void corpus(Check check, u8* data) noexcept {
             auto raw = exercise<MlsGroupInfoView, mls_group_info_decode>(check, data + 4, n - 4);
             check(raw.context.serialized.data == data + 4 && raw.tbs.data == data + 4,
                   "MLS nested GroupInfo signed context excludes message header");
-            digest.context(raw.context);
+            digest.group(raw.context);
             digest.field(raw.extensions);
             digest.field(raw.confirmation_tag);
             digest.number(raw.signer, 4);

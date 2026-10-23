@@ -9,11 +9,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/hpke_derivation_vectors.hpp"
 bool filled(const void* ptr, u32 n, u8 value = 0xa5) noexcept {
-    const auto* p = static_cast<const u8*>(ptr);
-    for (u32 i = 0; i != n; ++i)
-        if (p[i] != value)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(ptr), n, value);
 }
 void record(Check check, HANDLE file, ConstSlice<u8> enc, ConstSlice<u8> seq, ConstSlice<u8> info,
             ConstSlice<u8> aad, ConstSlice<u8> pt, ConstSlice<u8> ct) noexcept {

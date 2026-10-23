@@ -10,27 +10,16 @@
 #include "maicord/model/image_crop.hpp"
 #include "media_fixture.hpp"
 #include "webp_fixture.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace profile_image_test {
 
 u32 failures;
 
-void write_text(const char* text) noexcept {
-    u32 bytes = 0;
-    while (text[bytes])
-        ++bytes;
-    DWORD written;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, bytes, &written, nullptr);
-}
 
 void check(bool valid, const char* label) noexcept {
-    if (valid)
-        return;
-    ++failures;
-    write_text(label);
-    write_text("\n");
+    test_check(&failures, valid, label);
 }
 
 // Owned scratch, released on scope exit.
@@ -811,6 +800,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_profile_image_entry() noexce
     test_invalid();
     constexpr char pass[] = "PASS profile image crop\n";
     constexpr char fail[] = "FAIL profile image crop\n";
-    write_text(failures ? fail : pass);
+    maicord::test_write_text(failures ? fail : pass);
     ExitProcess(failures ? 1 : 0);
 }

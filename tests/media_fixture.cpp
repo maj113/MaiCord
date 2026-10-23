@@ -449,6 +449,50 @@ bool append_deferred_lzw(Slice<u8> output, u32* cursor, ConstSlice<u8> lzw) noex
     return append_bytes(output, cursor, ConstSlice<u8>{&terminator, 1});
 }
 
+template <usize Capacity>
+bool insert_jpeg_icc_profile(ConstSlice<u8> source, Slice<u8> encoded, u32 insertion,
+                             const u8 (&profile)[Capacity], u32 profile_bytes, bool reverse_chunks,
+                             JpegIccFixtureResult* result) noexcept {
+    JpegIccFixtureResult output{};
+    output.profile_bytes = profile_bytes;
+    const u32 first_bytes = profile_bytes / 2u - 3u;
+    output.chunk_data_bytes[0] = static_cast<u16>(first_bytes);
+    output.chunk_data_bytes[1] = static_cast<u16>(profile_bytes - first_bytes);
+    u32 cursor = 0;
+    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data, insertion})) {
+        return false;
+    }
+    for (u32 placement = 0; placement < 2; ++placement) {
+        const u32 sequence = reverse_chunks ? 2u - placement : placement + 1u;
+        const u32 profile_offset = sequence == 1 ? 0 : first_bytes;
+        const u32 part_bytes = output.chunk_data_bytes[sequence - 1u];
+        u8 payload[14 + sizeof(profile)]{};
+        constexpr u8 signature[12] = {
+            'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', 0,
+        };
+        for (u32 index = 0; index < sizeof(signature); ++index) {
+            payload[index] = signature[index];
+        }
+        payload[12] = static_cast<u8>(sequence);
+        payload[13] = 2;
+        for (u32 index = 0; index < part_bytes; ++index) {
+            payload[14u + index] = profile[profile_offset + index];
+        }
+        output.chunk_data_offsets[sequence - 1u] = cursor + 18u;
+        if (!append_jpeg_segment(encoded, &cursor, 0xE2,
+                                 ConstSlice<u8>{payload, 14u + part_bytes})) {
+            return false;
+        }
+    }
+    if (!append_jpeg_bytes(encoded, &cursor,
+                           ConstSlice<u8>{source.data + insertion, source.count - insertion})) {
+        return false;
+    }
+    output.encoded_bytes = cursor;
+    *result = output;
+    return true;
+}
+
 } // namespace
 
 u32 png_fixture_crc32(ConstSlice<u8> bytes) noexcept {
@@ -1496,44 +1540,8 @@ bool build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded,
         return false;
     }
 
-    JpegIccFixtureResult output{};
-    output.profile_bytes = profile_cursor;
-    const u32 first_bytes = profile_cursor / 2u - 3u;
-    output.chunk_data_bytes[0] = static_cast<u16>(first_bytes);
-    output.chunk_data_bytes[1] = static_cast<u16>(profile_cursor - first_bytes);
-    u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data, insertion})) {
-        return false;
-    }
-    for (u32 placement = 0; placement < 2; ++placement) {
-        const u32 sequence = reverse_chunks ? 2u - placement : placement + 1u;
-        const u32 profile_offset = sequence == 1 ? 0 : first_bytes;
-        const u32 profile_part_bytes = output.chunk_data_bytes[sequence - 1u];
-        u8 payload[14 + sizeof(profile)]{};
-        constexpr u8 signature[12] = {
-            'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', 0,
-        };
-        for (u32 index = 0; index < sizeof(signature); ++index) {
-            payload[index] = signature[index];
-        }
-        payload[12] = static_cast<u8>(sequence);
-        payload[13] = 2;
-        for (u32 index = 0; index < profile_part_bytes; ++index) {
-            payload[14u + index] = profile[profile_offset + index];
-        }
-        output.chunk_data_offsets[sequence - 1u] = cursor + 18u;
-        if (!append_jpeg_segment(encoded, &cursor, 0xE2,
-                                 ConstSlice<u8>{payload, 14u + profile_part_bytes})) {
-            return false;
-        }
-    }
-    if (!append_jpeg_bytes(encoded, &cursor,
-                           ConstSlice<u8>{source.data + insertion, source.count - insertion})) {
-        return false;
-    }
-    output.encoded_bytes = cursor;
-    *result = output;
-    return true;
+    return insert_jpeg_icc_profile(source, encoded, insertion, profile, profile_cursor,
+                                   reverse_chunks, result);
 }
 
 bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
@@ -1645,43 +1653,8 @@ bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
         return false;
     }
 
-    JpegIccFixtureResult output{};
-    output.profile_bytes = profile_bytes;
-    const u32 first_bytes = profile_bytes / 2u - 3u;
-    output.chunk_data_bytes[0] = static_cast<u16>(first_bytes);
-    output.chunk_data_bytes[1] = static_cast<u16>(profile_bytes - first_bytes);
-    cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data, insertion})) {
-        return false;
-    }
-    for (u32 placement = 0; placement < 2; ++placement) {
-        const u32 sequence = reverse_chunks ? 2u - placement : placement + 1u;
-        const u32 profile_offset = sequence == 1 ? 0 : first_bytes;
-        const u32 part_bytes = output.chunk_data_bytes[sequence - 1u];
-        u8 payload[14 + sizeof(profile)]{};
-        constexpr u8 signature[12] = {
-            'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', 0,
-        };
-        for (u32 index = 0; index < sizeof(signature); ++index) {
-            payload[index] = signature[index];
-        }
-        payload[12] = static_cast<u8>(sequence);
-        payload[13] = 2;
-        for (u32 index = 0; index < part_bytes; ++index) {
-            payload[14u + index] = profile[profile_offset + index];
-        }
-        output.chunk_data_offsets[sequence - 1u] = cursor + 18u;
-        if (!append_jpeg_segment(encoded, &cursor, 0xE2, ConstSlice<u8>{payload, 14u + part_bytes})) {
-            return false;
-        }
-    }
-    if (!append_jpeg_bytes(encoded, &cursor,
-                           ConstSlice<u8>{source.data + insertion, source.count - insertion})) {
-        return false;
-    }
-    output.encoded_bytes = cursor;
-    *result = output;
-    return true;
+    return insert_jpeg_icc_profile(source, encoded, insertion, profile, profile_bytes,
+                                   reverse_chunks, result);
 }
 
 bool build_jpeg_icc_gray_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded, bool pcs_lab,
@@ -1721,43 +1694,8 @@ bool build_jpeg_icc_gray_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded, b
         return false;
     }
 
-    JpegIccFixtureResult output{};
-    output.profile_bytes = sizeof(profile);
-    const u32 first_bytes = sizeof(profile) / 2u - 3u;
-    output.chunk_data_bytes[0] = static_cast<u16>(first_bytes);
-    output.chunk_data_bytes[1] = static_cast<u16>(sizeof(profile) - first_bytes);
-    u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data, insertion})) {
-        return false;
-    }
-    for (u32 placement = 0; placement < 2; ++placement) {
-        const u32 sequence = reverse_chunks ? 2u - placement : placement + 1u;
-        const u32 profile_offset = sequence == 1 ? 0 : first_bytes;
-        const u32 part_bytes = output.chunk_data_bytes[sequence - 1u];
-        u8 payload[14 + sizeof(profile)]{};
-        constexpr u8 signature[12] = {
-            'I', 'C', 'C', '_', 'P', 'R', 'O', 'F', 'I', 'L', 'E', 0,
-        };
-        for (u32 index = 0; index < sizeof(signature); ++index) {
-            payload[index] = signature[index];
-        }
-        payload[12] = static_cast<u8>(sequence);
-        payload[13] = 2;
-        for (u32 index = 0; index < part_bytes; ++index) {
-            payload[14u + index] = profile[profile_offset + index];
-        }
-        output.chunk_data_offsets[sequence - 1u] = cursor + 18u;
-        if (!append_jpeg_segment(encoded, &cursor, 0xE2, ConstSlice<u8>{payload, 14u + part_bytes})) {
-            return false;
-        }
-    }
-    if (!append_jpeg_bytes(encoded, &cursor,
-                           ConstSlice<u8>{source.data + insertion, source.count - insertion})) {
-        return false;
-    }
-    output.encoded_bytes = cursor;
-    *result = output;
-    return true;
+    return insert_jpeg_icc_profile(source, encoded, insertion, profile, sizeof(profile),
+                                   reverse_chunks, result);
 }
 
 bool jpeg_icc_fixture_write_profile_byte(Slice<u8> encoded, const JpegIccFixtureResult& fixture,

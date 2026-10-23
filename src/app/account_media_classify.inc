@@ -76,4 +76,3 @@ bool catalog_png_key(const MediaAssetKey& key) noexcept {
     return key.kind == MediaAssetKind::catalog_preview &&
            media_asset_catalog_format(key) == MediaAttachmentFormat::png;
 }
-

@@ -3,31 +3,24 @@
 // adds or ignores words, so the user's dictionary is untouched.
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/spell_checker.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
 u32 g_failures;
-void print(const char* text) noexcept {
-    u32 bytes = 0;
-    while (text[bytes])
-        ++bytes;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, bytes, &written, nullptr);
-}
 void expect(bool condition, const char* name) noexcept {
     if (condition)
         return;
     ++g_failures;
-    print("FAIL ");
-    print(name);
-    print("\r\n");
+    test_write_text("FAIL ");
+    test_write_text(name);
+    test_write_text("\r\n");
 }
 u32 run() noexcept {
     SpellChecker spell{};
     if (!spell_checker_open(&spell)) {
         spell_checker_release(&spell);
-        print("SKIP system spell checker unavailable\r\n");
+        test_write_text("SKIP system spell checker unavailable\r\n");
         return 0;
     }
     const bool english = spell.language[0] == L'e' && spell.language[1] == L'n';
@@ -54,7 +47,7 @@ u32 run() noexcept {
     spell_checker_release(&spell);
     expect(!spell.checker && !spell.factory, "release clears the checker");
     if (!g_failures)
-        print("PASS system_spellcheck\r\n");
+        test_write_text("PASS system_spellcheck\r\n");
     return g_failures;
 }
 } // namespace

@@ -8,7 +8,7 @@
 #include "../src/platform/gpu_decoder_surfaces.hpp"
 #include "h264_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -19,13 +19,6 @@ struct Buffers {
     Output out;
 };
 
-void say(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count])
-        ++count;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, count, &written, nullptr);
-}
 
 struct Movie {
     u8* bytes;
@@ -373,7 +366,7 @@ int h264_attachment_gpu_test(ID3D11Device* device, ID3D11DeviceContext* immediat
     if (!status)
         status = run_movie(device, context, movie, hd, 6, true);
     if (status)
-        say("h264 attachment gpu: failed\n");
+        test_write_text("h264 attachment gpu: failed\n");
     if (movie.bytes)
         VirtualFree(movie.bytes, 0, MEM_RELEASE);
     context->Release();

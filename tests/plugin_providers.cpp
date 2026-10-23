@@ -6,20 +6,14 @@
 
 #include "maicord/core/win32_kernel.hpp"
 
-#if !defined(MAICORD_PLUGIN_INDEX_FIXTURES)
-#error "MAICORD_PLUGIN_INDEX_FIXTURES must name tests/fixtures/plugin_index"
-#endif
+#include "plugin_index_fixture.hpp"
 
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 using AE = PluginProviderAddressError;
 using PE = PluginProviderProbeError;
-constexpr u8 kGenerator[65]{4,
-    0x6b,0x17,0xd1,0xf2,0xe1,0x2c,0x42,0x47,0xf8,0xbc,0xe6,0xe5,0x63,0xa4,0x40,0xf2,
-    0x77,0x03,0x7d,0x81,0x2d,0xeb,0x33,0xa0,0xf4,0xa1,0x39,0x45,0xd8,0x98,0xc2,0x96,
-    0x4f,0xe3,0x42,0xe2,0xfe,0x1a,0x7f,0x9b,0x8e,0xe7,0xeb,0x4a,0x7c,0x0f,0x9e,0x16,
-    0x2b,0xce,0x33,0x57,0x6b,0x31,0x5e,0xce,0xcb,0xb6,0x40,0x68,0x37,0xbf,0x51,0xf5};
+using plugin_index_fixture::kGenerator;
 // Known answer: SHA-256("MaiCord plugin provider key v1\n" || generator).
 constexpr char kGeneratorFingerprint[] = "57a1ac71f6ef337677c570b04332366c765e6d8f242aca1efcd31c369742ca74";
 constexpr char kKeyMember[] = ",\"key\":\"046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5\"";
@@ -41,21 +35,7 @@ Fixture g;
 u32 length(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
 Utf8View view(const char* s) noexcept { return {s, length(s)}; }
 bool same(const char* data, u32 bytes, const char* expected) noexcept { return bytes == length(expected) && bytes_equal(data, expected, bytes); }
-bool read_fixture(const wchar_t* name, void* output, u32 capacity, u32* bytes) noexcept {
-    wchar_t path[MAX_PATH]{};
-    const wchar_t root[] = MAICORD_PLUGIN_INDEX_FIXTURES;
-    u32 n = 0;
-    for (; root[n] && n < MAX_PATH - 1; ++n) path[n] = root[n];
-    path[n++] = L'/';
-    for (u32 i = 0; name[i] && n < MAX_PATH - 1; ++i) path[n++] = name[i];
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD got = 0;
-    const bool ok = ReadFile(file, output, capacity, &got, nullptr) && got < capacity;
-    CloseHandle(file);
-    *bytes = got;
-    return ok;
-}
+using plugin_index_fixture::read_fixture;
 bool hex_bytes(const char* hex, u8* out, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes * 2; ++i) {
         const char c = hex[i];

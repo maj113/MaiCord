@@ -8,11 +8,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/dave_crypto_vectors.hpp"
 bool filled(const void* memory, u32 count, u8 value) noexcept {
-    const auto* bytes = static_cast<const u8*>(memory);
-    for (u32 i = 0; i != count; ++i)
-        if (bytes[i] != value)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(memory), count, value);
 }
 bool expected(const DaveCryptoVector& vector, const u8* bytes) noexcept {
     for (u32 i = 0; i != vector.body_bytes; ++i)

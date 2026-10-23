@@ -8,10 +8,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/p256_vectors.hpp"
 bool filled(const u8* data, u32 n, u8 value) noexcept {
-    for (u32 i = 0; i != n; ++i)
-        if (data[i] != value)
-            return false;
-    return true;
+    return test_filled(data, n, value);
 }
 void record(Check check, HANDLE file, const P256Key& key, const u8* digest, const u8* sig) noexcept {
     if (file == INVALID_HANDLE_VALUE)

@@ -7,11 +7,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/dave_frame_vectors.hpp"
 bool filled(const void* bytes, u32 count, u8 value) noexcept {
-    const auto* p = static_cast<const u8*>(bytes);
-    for (u32 i = 0; i != count; ++i)
-        if (p[i] != value)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(bytes), count, value);
 }
 u32 fixture(u8* frame, u32 body, ConstSlice<u8> metadata) noexcept {
     memset(frame, 0x55, body);

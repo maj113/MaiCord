@@ -64,4 +64,3 @@ const AuditAction* audit_action(u16 type) noexcept {
             return &action;
     return nullptr;
 }
-

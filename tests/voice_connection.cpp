@@ -1,6 +1,6 @@
 #include "maicord/app/voice_connection.hpp"
 
-#include "maicord/sys/winsock.hpp"
+#include "loopback_listener.hpp"
 
 namespace maicord {
 namespace {
@@ -32,15 +32,9 @@ void test_voice_connection(void (*check)(bool, const char*) noexcept) noexcept {
         check(false, "voice handoff loop startup");
         return;
     }
-    const SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    int length = sizeof(address);
-    const bool listening = listener != INVALID_SOCKET &&
-                           bind(listener, reinterpret_cast<const sockaddr*>(&address), length) == 0 &&
-                           getsockname(listener, reinterpret_cast<sockaddr*>(&address), &length) == 0 &&
-                           listen(listener, 4) == 0;
+    TestLoopbackListener loopback;
+    const bool listening = loopback.start(4);
+    const SOCKET listener = loopback.handle;
     check(listening, "voice handoff loopback listener");
     if (!listening) {
         if (listener != INVALID_SOCKET)
@@ -48,17 +42,9 @@ void test_voice_connection(void (*check)(bool, const char*) noexcept) noexcept {
         network_loop_release(&loop);
         return;
     }
-    char endpoint[32] = "127.0.0.1:", reverse[6]{};
-    u32 digits = 0, port = ntohs(address.sin_port);
-    do {
-        reverse[digits++] = static_cast<char>('0' + port % 10);
-        port /= 10;
-    } while (port);
-    for (u32 i = 0; i < digits; ++i)
-        endpoint[10 + i] = reverse[digits - 1 - i];
     const auto session = text(utf8_literal("test-session"));
     GatewayVoiceState state{10, 20, 30, session, 0, 0};
-    GatewayVoiceServer server{10, 0, text(utf8_literal("test-token-one")), text({endpoint, 10 + digits}),
+    GatewayVoiceServer server{10, 0, text(utf8_literal("test-token-one")), text(loopback.endpoint()),
                               false};
     check(voice_setup_bind_utf8(&setup, 30, session.encoded) == VoiceSetupResult::updated &&
               voice_setup_begin(&setup, 10, 20, GetTickCount64()),
@@ -137,7 +123,7 @@ void test_voice_connection(void (*check)(bool, const char*) noexcept) noexcept {
                   connection.attempted_generation == setup.generation &&
                   !voice_socket_deadline(connection.socket),
               "voice handoff invalid endpoint has no automatic restart or timed spin");
-        server.endpoint = text({endpoint, 10 + digits});
+        server.endpoint = text(loopback.endpoint());
         server.token = text(utf8_literal("test-token-three"));
         voice_setup_server(&setup, server);
         voice_connection_drive(&connection, setup, &loop, GetTickCount64());

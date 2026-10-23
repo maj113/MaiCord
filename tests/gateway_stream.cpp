@@ -2,7 +2,7 @@
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/winsock.hpp"
+#include "loopback_listener.hpp"
 
 namespace maicord {
 namespace {
@@ -375,30 +375,16 @@ void test_stream_connection(Check check) noexcept {
         check(false, "stream connection loop startup");
         return;
     }
-    const SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    int length = sizeof(address);
-    const bool listening = listener != INVALID_SOCKET &&
-                           bind(listener, reinterpret_cast<const sockaddr*>(&address), length) == 0 &&
-                           getsockname(listener, reinterpret_cast<sockaddr*>(&address), &length) == 0 &&
-                           listen(listener, 1) == 0;
+    TestLoopbackListener loopback;
+    const bool listening = loopback.start(1);
+    const SOCKET listener = loopback.handle;
     check(listening, "stream connection loopback listener");
     if (listening) {
-        char endpoint[32] = "127.0.0.1:", reverse[6]{};
-        u32 digits = 0, port = ntohs(address.sin_port);
-        do {
-            reverse[digits++] = static_cast<char>('0' + port % 10);
-            port /= 10;
-        } while (port);
-        for (u32 i = 0; i < digits; ++i)
-            endpoint[10 + i] = reverse[digits - 1 - i];
         const GatewayStreamKey key = gateway_stream_key_for(1, 20, 300);
         gateway_stream_bind(&control, 42, utf8_literal("main-session"));
         gateway_stream_watch(&control, key, GetTickCount64());
         gateway_stream_create(&control, {key, 5000, 4321, {}, 1, false}, GetTickCount64());
-        gateway_stream_server(&control, {key, text(utf8_literal("stream-token")), text({endpoint, 10 + digits}), false});
+        gateway_stream_server(&control, {key, text(utf8_literal("stream-token")), text(loopback.endpoint()), false});
         voice_connection_drive(&connection, control.setup, &loop, GetTickCount64());
         constexpr auto identify = utf8_literal(
             "{\"op\":0,\"d\":{\"server_id\":\"5000\",\"channel_id\":\"4321\",\"session_id\":\"main-session\","

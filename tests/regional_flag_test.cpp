@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/protocol/cdn_http.hpp"
@@ -7,34 +8,12 @@
 
 namespace maicord {
 namespace {
-void print(const char* text) noexcept {
-    u32 n = 0;
-    while (text[n])
-        ++n;
-    DWORD done = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, n, &done, nullptr);
-}
-void number(u32 value) noexcept {
-    char text[16];
-    u32 n = 0;
-    do {
-        text[n++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < n / 2; ++i) {
-        const char c = text[i];
-        text[i] = text[n - i - 1];
-        text[n - i - 1] = c;
-    }
-    DWORD done = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, n, &done, nullptr);
-}
 #define CHECK(x)                                                                                           \
     do {                                                                                                   \
         if (!(x)) {                                                                                        \
-            print("regional_flag_identity_failed line=");                                                  \
-            number(__LINE__);                                                                              \
-            print("\n");                                                                                   \
+            test_write_text("regional_flag_identity_failed line=");                                                  \
+            test_write_u64(__LINE__);                                                                              \
+            test_write_text("\n");                                                                                   \
             return false;                                                                                  \
         }                                                                                                  \
     } while (0)
@@ -191,7 +170,7 @@ bool run() noexcept {
     CHECK(validate_static_image_response(CdnImageType::regional_flag_svg,
                                          {reinterpret_cast<const u8*>(head.data), head.bytes}, 65537, 1)
               .error == CdnHttpError::body_too_large);
-    print("regional_flag_identity_passed pairs=259 subdivisions=3 catalog=262\n");
+    test_write_text("regional_flag_identity_passed pairs=259 subdivisions=3 catalog=262\n");
     return true;
 }
 } // namespace

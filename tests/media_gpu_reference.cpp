@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 // GPU-assisted image decode against independent references. The CPU decoders
 // hand the renderer intermediate data (JPEG coefficient blocks; VP8 modes,
 // dequantized residuals and frame header), and the GPU finishes the picture.
@@ -55,40 +56,18 @@ ID3D11DeviceContext1* g_context;
 ID3D11Texture2D* g_staging;
 u32 g_failures;
 
-void say(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length]) {
-        ++length;
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, length, &written, nullptr);
-}
 
-void say_number(u64 value) noexcept {
-    char digits[24];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    char text[24];
-    for (u32 i = 0; i < count; ++i) {
-        text[i] = digits[count - 1 - i];
-    }
-    text[count] = 0;
-    say(text);
-}
 
 void check(bool passed, const char* name, u64 detail = 0) noexcept {
     if (passed) {
         return;
     }
     ++g_failures;
-    say("FAIL ");
-    say(name);
-    say(" ");
-    say_number(detail);
-    say("\r\n");
+    test_write_text("FAIL ");
+    test_write_text(name);
+    test_write_text(" ");
+    test_write_u64(detail);
+    test_write_text("\r\n");
 }
 
 // Copies the allocation's RGBA8 texels from the atlas texture.
@@ -371,7 +350,7 @@ int run() noexcept {
     if (FAILED(status) ||
         FAILED(context->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&g_context)))) {
         // WARP ships with Windows, so no device at all is a failure, not a skip.
-        say("media gpu reference: no D3D11 device\r\n");
+        test_write_text("media gpu reference: no D3D11 device\r\n");
         return 5;
     }
     context->Release();
@@ -379,7 +358,7 @@ int run() noexcept {
     if (!media_atlas_initialize(&g->atlas, kAtlasExtent, kAtlasExtent, 1, {g->entries, 16}, {g->buckets, 32},
                                 {g->allocations, 16}, {g->rows, 16}) ||
         !media_atlas_gpu_initialize(&g->gpu, g_device, g_context, kAtlasExtent, kAtlasExtent).ok()) {
-        say("media gpu reference: atlas initialization failed\r\n");
+        test_write_text("media gpu reference: atlas initialization failed\r\n");
         return 3;
     }
     g->gpu.texture->GetDesc(&description);
@@ -389,7 +368,7 @@ int run() noexcept {
     description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     if (FAILED(g_device->CreateTexture2D(&description, nullptr, &g_staging)) ||
         description.Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
-        say("media gpu reference: staging texture failed\r\n");
+        test_write_text("media gpu reference: staging texture failed\r\n");
         return 4;
     }
 

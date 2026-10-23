@@ -9,10 +9,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/mls_signature_vectors.hpp"
 bool filled(const u8* p, u32 n, u8 v = 0xa5) noexcept {
-    for (u32 i = 0; i != n; ++i)
-        if (p[i] != v)
-            return false;
-    return true;
+    return test_filled(p, n, v);
 }
 void* aggregate(Check check) noexcept {
     void* hash = nullptr;

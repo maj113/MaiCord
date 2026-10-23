@@ -1,6 +1,6 @@
 #include "maicord/app/dave_welcome.hpp"
 #include "maicord/protocol/mls_reader.hpp"
-#include "maicord/sys/crypto.hpp"
+#include "mls_fixture_digest.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -9,37 +9,8 @@ using Check = void (*)(bool, const char*) noexcept;
 #include "data/mls_welcome_crypto_vectors.hpp"
 #include "data/mls_group_secrets_vectors.hpp"
 bool filled(const void* data, u32 count, u8 value = 0) noexcept {
-    const auto* b = static_cast<const u8*>(data);
-    for (u32 i = 0; i != count; ++i)
-        if (b[i] != value)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(data), count, value);
 }
-struct Digest {
-    Check check;
-    void* hash;
-    ConstSlice<u8> input;
-    void field(ConstSlice<u8> value, bool borrowed = true) noexcept {
-        if (borrowed && value.count) {
-            const auto base = reinterpret_cast<usize>(input.data), p = reinterpret_cast<usize>(value.data);
-            check(p >= base && p - base <= input.count && value.count <= input.count - (p - base),
-                  "GroupSecrets views borrow supplied plaintext only");
-        }
-        u8 size[4];
-        for (u32 i = 0; i != 4; ++i)
-            size[3 - i] = static_cast<u8>(value.count >> (8 * i));
-        check(BCryptHashData(hash, size, 4, 0) >= 0, "GroupSecrets normalized field length");
-        if (value.count)
-            check(BCryptHashData(hash, const_cast<u8*>(value.data), value.count, 0) >= 0,
-                  "GroupSecrets normalized field bytes");
-    }
-    void number(u64 value, u32 size) noexcept {
-        u8 b[8];
-        for (u32 i = 0; i != size; ++i)
-            b[size - i - 1] = static_cast<u8>(value >> (8 * i));
-        field({b, size}, false);
-    }
-};
 void group_secrets_cases(Check check, u8* buffer) noexcept {
     void* hash = nullptr;
     check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
@@ -50,7 +21,8 @@ void group_secrets_cases(Check check, u8* buffer) noexcept {
         const u32 n = test_unhex(fixture, buffer);
         MlsGroupSecretsView view{};
         check(mls_group_secrets_decode({buffer, n}, &view).ok(), "Published GroupSecrets decode");
-        Digest digest{check, hash, {buffer, n}};
+        MlsFixtureDigest digest{check, hash, {buffer, n},
+            "GroupSecrets views borrow supplied plaintext only", "GroupSecrets normalized field length", "GroupSecrets normalized field bytes"};
         digest.field(view.joiner_secret);
         digest.number(view.has_path_secret ? 1 : 0, 1);
         digest.field(view.path_secret);

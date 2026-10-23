@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 // Live H.265 stream decoder on real DXVA hardware (CTest label "gpu"; not run
 // on hosted CI). Synthetic PCM/skip streams make every decoded pixel
 // predictable, so frames are verified by readback without a reference decoder.
@@ -13,29 +14,7 @@ namespace maicord {
 namespace {
 using namespace hevc_fixture;
 
-void say(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count])
-        ++count;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, count, &written, nullptr);
-}
 
-void say_number(const char* label, u64 value) noexcept {
-    say(label);
-    char digits[24]{};
-    u32 n = 0;
-    do {
-        digits[n++] = static_cast<char>('0' + value % 10u);
-        value /= 10u;
-    } while (value && n < 20);
-    char text[24]{};
-    u32 count = 0;
-    while (n)
-        text[count++] = digits[--n];
-    text[count++] = '\n';
-    say(text);
-}
 
 struct Capture {
     ID3D11Device* device;
@@ -162,12 +141,12 @@ void measure(Capture* capture, Stream* s, u32 rtp, const char* label) noexcept {
     const u64 complete = now_ticks();
     query->Release();
     const u64 hz = static_cast<u64>(frequency.QuadPart ? frequency.QuadPart : 1);
-    say(label);
-    say_number(" cpu_us ", (submitted - start) * 1'000'000ull / hz);
-    say(label);
-    say_number(" cpu_cycles ", cycles_after - cycles_before);
-    say(label);
-    say_number(" gpu_wait_us ", (complete - submitted) * 1'000'000ull / hz);
+    test_write_text(label);
+    test_write_metric(" cpu_us ", (submitted - start) * 1'000'000ull / hz);
+    test_write_text(label);
+    test_write_metric(" cpu_cycles ", cycles_after - cycles_before);
+    test_write_text(label);
+    test_write_metric(" gpu_wait_us ", (complete - submitted) * 1'000'000ull / hz);
 }
 
 int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits, Output* out) noexcept {
@@ -194,7 +173,7 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
     s.push(100);
     auto stats = gpu_stream_decoder_stats(decoder);
     if (stats.unsupported || !stats.reinitializations) {
-        say("hevc stream gpu: DXVA HEVC short-slice decoding unavailable; skipped\n");
+        test_write_text("hevc stream gpu: DXVA HEVC short-slice decoding unavailable; skipped\n");
         gpu_stream_decoder_destroy(decoder);
         com_release(capture.staging);
         return 0;
@@ -215,19 +194,19 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
         stats.uploaded_bytes - uploaded != 3 * p_upload ||
         stats.surfaces < u32{base.max_buffering} + kVideoStreamPresentationSurfaces ||
         stats.surfaces > 32 || (capture.subresources & (capture.subresources - 1u)) == 0) {
-        say_number("hevc frames ", capture.frames);
-        say_number("hevc mismatches ", capture.mismatches);
-        say_number("hevc requests ", capture.requests);
-        say_number("hevc decoded ", stats.decoded);
-        say_number("hevc damaged ", stats.damaged);
-        say_number("hevc gpu_failures ", stats.gpu_failures);
-        say_number("hevc last_status ", static_cast<u32>(stats.last_status));
-        say_number("hevc uploaded ", stats.uploaded_bytes - uploaded);
-        say_number("hevc expected ", 3 * p_upload);
+        test_write_metric("hevc frames ", capture.frames);
+        test_write_metric("hevc mismatches ", capture.mismatches);
+        test_write_metric("hevc requests ", capture.requests);
+        test_write_metric("hevc decoded ", stats.decoded);
+        test_write_metric("hevc damaged ", stats.damaged);
+        test_write_metric("hevc gpu_failures ", stats.gpu_failures);
+        test_write_metric("hevc last_status ", static_cast<u32>(stats.last_status));
+        test_write_metric("hevc uploaded ", stats.uploaded_bytes - uploaded);
+        test_write_metric("hevc expected ", 3 * p_upload);
         fail(51);
     }
-    say_number("hevc stream surfaces ", stats.surfaces);
-    say_number("hevc stream p_upload_bytes ", p_upload);
+    test_write_metric("hevc stream surfaces ", stats.surfaces);
+    test_write_metric("hevc stream p_upload_bytes ", p_upload);
     // A lost reference (POC 4 missing): frozen output, one immediate request,
     // then throttled while waiting.
     if (!status) {
@@ -257,12 +236,12 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
         if (capture.frames != 6 || capture.mismatches || stats.reinitializations != 2 ||
             stats.coded_width != 192 || capture.texture_width != 192 || capture.texture_height != 128 ||
             !capture.zero_copy) {
-            say_number("hevc resize frames ", capture.frames);
-            say_number("hevc resize mismatches ", capture.mismatches);
-            say_number("hevc resize reinitializations ", stats.reinitializations);
-            say_number("hevc resize texture ", capture.texture_width * 10000u + capture.texture_height);
-            say_number("hevc resize damaged ", stats.damaged);
-            say_number("hevc resize last_status ", static_cast<u32>(stats.last_status));
+            test_write_metric("hevc resize frames ", capture.frames);
+            test_write_metric("hevc resize mismatches ", capture.mismatches);
+            test_write_metric("hevc resize reinitializations ", stats.reinitializations);
+            test_write_metric("hevc resize texture ", capture.texture_width * 10000u + capture.texture_height);
+            test_write_metric("hevc resize damaged ", stats.damaged);
+            test_write_metric("hevc resize last_status ", static_cast<u32>(stats.last_status));
             fail(53);
         }
     }
@@ -356,26 +335,26 @@ int large_streams(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
         s.push(500 + i);
         const auto stats = gpu_stream_decoder_stats(decoder);
         if (i == 2 && stats.unsupported) {
-            say("hevc stream gpu: this GPU does not decode 4K HEVC; 4K case skipped\n");
+            test_write_text("hevc stream gpu: this GPU does not decode 4K HEVC; 4K case skipped\n");
             break;
         }
         if (capture.frames != before + 2 || capture.mismatches || stats.unsupported || stats.gpu_failures ||
             !capture.zero_copy) {
-            say_number("hevc large frames ", capture.frames - before);
-            say_number("hevc large mismatches ", capture.mismatches);
-            say_number("hevc large unsupported ", stats.unsupported);
-            say_number("hevc large gpu_failures ", stats.gpu_failures);
-            say_number("hevc large last_status ", static_cast<u32>(stats.last_status));
-            say_number("hevc large damaged ", stats.damaged);
+            test_write_metric("hevc large frames ", capture.frames - before);
+            test_write_metric("hevc large mismatches ", capture.mismatches);
+            test_write_metric("hevc large unsupported ", stats.unsupported);
+            test_write_metric("hevc large gpu_failures ", stats.gpu_failures);
+            test_write_metric("hevc large last_status ", static_cast<u32>(stats.last_status));
+            test_write_metric("hevc large damaged ", stats.damaged);
             status = 61 + static_cast<int>(i);
             break;
         }
-        say(labels[i]);
-        say_number(" idr_bytes ", idr_bytes);
-        say(labels[i]);
-        say_number(" surfaces ", stats.surfaces);
-        say(labels[i]);
-        say_number(" surface_bytes ", u64{stats.surfaces} * ((large[i].width + 63u) & ~63u) *
+        test_write_text(labels[i]);
+        test_write_metric(" idr_bytes ", idr_bytes);
+        test_write_text(labels[i]);
+        test_write_metric(" surfaces ", stats.surfaces);
+        test_write_text(labels[i]);
+        test_write_metric(" surface_bytes ", u64{stats.surfaces} * ((large[i].width + 63u) & ~63u) *
                                           ((large[i].height + 63u) & ~63u) * 3u / 2u);
         write_picture(out, bits, large[i], pps, kTrailR, 2, 0);
         measure(&capture, &s, 600 + i, labels[i]);
@@ -463,10 +442,10 @@ int hevc_stream_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h26
     QueryPerformanceFrequency(&frequency);
     const u64 probe_start = now_ticks();
     const u32 codecs = gpu_stream_decoder_codecs(device);
-    say_number("hevc capability probe us ",
+    test_write_metric("hevc capability probe us ",
                (now_ticks() - probe_start) * 1'000'000ull / static_cast<u64>(frequency.QuadPart ? frequency.QuadPart : 1));
     if (!(codecs & gpu_stream_codec_bit(GpuStreamCodec::h265))) {
-        say("hevc stream gpu: no hardware HEVC Main decode with shader-readable output; skipped\n");
+        test_write_text("hevc stream gpu: no hardware HEVC Main decode with shader-readable output; skipped\n");
         return 0;
     }
     // The H.264 switch case uses the upper half of the shared buffers.

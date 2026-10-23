@@ -8,11 +8,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/mls_hpke_vectors.hpp"
 bool filled(const void* ptr, u32 n, u8 v = 0xa5) noexcept {
-    const auto* p = static_cast<const u8*>(ptr);
-    for (u32 i = 0; i != n; ++i)
-        if (p[i] != v)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(ptr), n, v);
 }
 void record(Check check, HANDLE file, ConstSlice<u8> enc, ConstSlice<u8> label, ConstSlice<u8> context,
             ConstSlice<u8> pt, ConstSlice<u8> ct) noexcept {

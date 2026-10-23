@@ -9,11 +9,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/hpke_derivation_vectors.hpp"
 bool filled(const void* pointer, u32 n, u8 value = 0xa5) noexcept {
-    const auto* p = static_cast<const u8*>(pointer);
-    for (u32 i = 0; i != n; ++i)
-        if (p[i] != value)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(pointer), n, value);
 }
 void pair(Check check, KdfSha256Workspace& workspace, ConstSlice<u8> ikm, const char* sk,
           const char* pk) noexcept {

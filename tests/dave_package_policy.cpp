@@ -7,11 +7,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/dave_package_policy_vectors.hpp"
 bool filled(const void* value, u32 count) noexcept {
-    const auto* b = static_cast<const u8*>(value);
-    for (u32 i = 0; i != count; ++i)
-        if (b[i] != 0xa5)
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(value), count, 0xa5);
 }
 void guard(Check check, KdfSha256Workspace& workspace, ConstSlice<u8> input) noexcept {
     Win32SystemInfo system{};
