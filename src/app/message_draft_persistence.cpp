@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/message_draft_persistence.hpp"
+#include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
@@ -87,18 +88,11 @@ bool transfer(HANDLE file, u8* bytes, u32 count, bool write, u32* native_error) 
     return true;
 }
 
-void erase_release(u8* bytes, u32 count) noexcept {
-    if (bytes) {
-        secure_clear_bytes(bytes, count);
-        VirtualFree(bytes, 0, MEM_RELEASE);
-    }
-}
-
 // Erases and releases the buffer on every exit of a load.
 struct ErasedBuffer {
     u8* bytes;
     u32 count;
-    ~ErasedBuffer() noexcept { erase_release(bytes, count); }
+    ~ErasedBuffer() noexcept { file_persistence_secure_release(bytes, count); }
 };
 
 bool trim_whitespace(u32 codepoint) noexcept {
@@ -133,7 +127,7 @@ bool records_duplicate(const u8* records, u32 record_bytes, u32 record_index, u6
 
 void message_drafts_image_release(MessageDraftImage* image) noexcept {
     if (image) {
-        erase_release(image->bytes, image->count);
+        file_persistence_secure_release(image->bytes, image->count);
         *image = MessageDraftImage{};
     }
 }
@@ -228,7 +222,7 @@ MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, Message
                               nullptr);
     if (file == INVALID_HANDLE_VALUE) {
         const u32 native_error = thread_last_error();
-        erase_release(file_bytes, total);
+        file_persistence_secure_release(file_bytes, total);
         return failure(MessageDraftPersistenceError::open, native_error);
     }
     u32 native_error = 0;
@@ -238,7 +232,7 @@ MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, Message
         native_error = thread_last_error();
     }
     CloseHandle(file);
-    erase_release(file_bytes, total);
+    file_persistence_secure_release(file_bytes, total);
     if (!written || !flushed) {
         DeleteFileW(temporary);
         return failure(written ? MessageDraftPersistenceError::flush : MessageDraftPersistenceError::write,

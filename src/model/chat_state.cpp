@@ -349,21 +349,7 @@ bool valid_name(Utf8View name) noexcept {
     return name.bytes <= 400 && (!name.data ? name.bytes == 0 : utf8_validate(name).valid);
 }
 
-bool valid_guild_icon_hash(Utf8View hash) noexcept {
-    if (hash.bytes == 0) {
-        return true;
-    }
-    const u32 begin = asset_hash_animated(hash) ? 2u : 0u;
-    if (!hash.data || hash.bytes - begin != 32) {
-        return false;
-    }
-    for (u32 index = begin; index < hash.bytes; ++index) {
-        if (!ascii_is_hex_digit(hash.data[index])) {
-            return false;
-        }
-    }
-    return true;
-}
+#include "asset_hash_validation.inc"
 
 u32 guild_icon_variant(Utf8View hash) noexcept {
     u32 value = 2'166'136'261u;
@@ -390,19 +376,7 @@ GuildRecord* mutable_guild(ChatStateStore* store, u64 guild_id) noexcept {
     return found ? &store->guilds[store->guild_order[order]] : nullptr;
 }
 
-void adjust_guild_activity(GuildRecord* guild, bool old_unread, u32 old_mentions, bool new_unread,
-                           u32 new_mentions) noexcept {
-    if (!guild || (old_unread == new_unread && old_mentions == new_mentions)) {
-        return;
-    }
-    if (old_unread && guild->unread_channels != 0) {
-        --guild->unread_channels;
-    }
-    saturating_increment_if(new_unread, guild->unread_channels);
-    guild->mention_count = old_mentions > guild->mention_count ? 0 : guild->mention_count - old_mentions;
-    guild->mention_count += minimum(new_mentions, ~0u - guild->mention_count);
-    saturating_increment(guild->revision);
-}
+#include "guild_activity.inc"
 
 bool guild_unavailable(const ChatStateStore& store, u64 guild_id) noexcept {
     const GuildRecord* guild = chat_state_store_find_guild(store, guild_id);
@@ -592,7 +566,7 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
     if (!store || !store->guilds || input.id == 0 || !valid_name(input.name) || input.nsfw_level > 3 ||
         (input.settings && !guild_settings_valid(*input.settings)) ||
         (!input.nsfw_level_known && input.nsfw_level) || input.kind == GuildMutationKind::remove ||
-        (input.icon_known && !valid_guild_icon_hash(input.icon_hash))) {
+        (input.icon_known && !asset_hash_valid(input.icon_hash))) {
         return state_error(store, ChatStateStoreError::invalid_input);
     }
     bool found = false;
@@ -639,7 +613,7 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
     }
     // Banners are presentation: a malformed hash is dropped, never the guild.
     if (input.banner_known) {
-        const bool valid = valid_guild_icon_hash(input.banner_hash);
+        const bool valid = asset_hash_valid(input.banner_hash);
         const u32 bytes = valid ? input.banner_hash.bytes : 0u;
         for (u32 index = 0; index < kGuildIconHashMaximumBytes; ++index)
             record.banner_hash[index] = index < bytes ? input.banner_hash.data[index] : 0;
@@ -697,7 +671,7 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
     NamePreflight budget{};
     if (!preflight_names(store, &budget) || guild.id == 0 || guild.nsfw_level > 3 ||
         (!guild.nsfw_level_known && guild.nsfw_level) || guild.kind != GuildMutationKind::update ||
-        !valid_name(guild.name) || (guild.icon_known && !valid_guild_icon_hash(guild.icon_hash)) ||
+        !valid_name(guild.name) || (guild.icon_known && !asset_hash_valid(guild.icon_hash)) ||
         !read_role || role_count == 0 || role_count > kGuildRoleMaximum)
         return ChatStateStoreError::invalid_input;
     bool found = false;
@@ -755,7 +729,7 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
     NamePreflight budget{};
     if (!preflight_names(store, &budget) || guild.id == 0 ||
         guild.kind != GuildMutationKind::create || !valid_name(guild.name) ||
-        (guild.icon_known && !valid_guild_icon_hash(guild.icon_hash)) || !read_role || role_count == 0 ||
+        (guild.icon_known && !asset_hash_valid(guild.icon_hash)) || !read_role || role_count == 0 ||
         role_count > kGuildRoleMaximum || (channel_count != 0 && !read_channel))
         return ChatStateStoreError::invalid_input;
     bool found = false;

@@ -103,7 +103,7 @@ maicord_program(MaiCordRuntimeBenchmark ENTRY maicord_runtime_benchmark_entry
     LIBS kernel32)
 maicord_program(MaiCordCoreBenchmark ENTRY maicord_core_benchmark_entry
     SOURCES benchmarks/core_benchmark.cpp src/core/log.cpp src/app/message_draft_persistence.cpp
-        src/app/message_draft_session.cpp
+        src/app/message_draft_session.cpp src/app/file_persistence.cpp
     LIBS maicord_core maicord_protocol maicord_model kernel32)
 maicord_program(MaiCordTextBenchmark ENTRY maicord_text_benchmark_entry
     SOURCES benchmarks/text_benchmark.cpp src/render/message_hit_test.cpp

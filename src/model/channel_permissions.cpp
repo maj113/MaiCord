@@ -125,20 +125,7 @@ bool channel_activity_visible(const ChatStateStore& store,
     return channel.last_message_id > (cursor ? cursor : channel.id);
 }
 
-void adjust_guild_activity(GuildRecord* guild, bool old_unread, u32 old_mentions, bool new_unread,
-                           u32 new_mentions) noexcept {
-    if (!guild || (old_unread == new_unread && old_mentions == new_mentions)) {
-        return;
-    }
-    if (old_unread && guild->unread_channels != 0) {
-        --guild->unread_channels;
-    }
-    saturating_increment_if(new_unread, guild->unread_channels);
-    guild->mention_count = old_mentions > guild->mention_count ? 0 : guild->mention_count - old_mentions;
-    const u32 remaining = ~0u - guild->mention_count;
-    guild->mention_count += minimum(new_mentions, remaining);
-    saturating_increment(guild->revision);
-}
+#include "guild_activity.inc"
 
 void collect_channel_activity(const ChatStateStore& store, const ChannelRecord& channel,
                               u32* unread, u32* mentions) noexcept {
