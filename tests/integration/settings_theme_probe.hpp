@@ -1,6 +1,7 @@
 #pragma once
 #include "background_theme_probe.hpp"
 #include "probe_present.hpp"
+#include "probe_capture.hpp"
 #include "maicord/app/client_theme.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
@@ -28,51 +29,23 @@ inline bool palette(void*, u64, u32 choice, BackgroundTheme* out) noexcept {
 }
 struct Pixels {
     D3D11Renderer& r;
-    ID3D11Texture2D* staging{};
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    u32 width{}, height{};
+    ProbeTargetReadback readback;
     bool bgra{}, ready{};
     explicit Pixels(D3D11Renderer& renderer) noexcept : r(renderer) {
-        ID3D11Resource* resource = nullptr;
-        ID3D11Texture2D* source = nullptr;
         if (!r.graphics.target)
             return;
-        r.graphics.target->GetResource(&resource);
-        const HRESULT queried = resource ? resource->QueryInterface(__uuidof(ID3D11Texture2D),
-                                                                    reinterpret_cast<void**>(&source))
-                                         : E_FAIL;
-        com_release(resource);
-        if (FAILED(queried))
-            return;
         D3D11_TEXTURE2D_DESC desc{};
-        source->GetDesc(&desc);
-        width = desc.Width;
-        height = desc.Height;
+        ready = readback.read_target(r, desc) == 0;
         bgra = desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
-        if (!bgra && desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
-            com_release(source);
-            return;
-        }
-        desc.Usage = D3D11_USAGE_STAGING;
-        desc.BindFlags = desc.MiscFlags = 0;
-        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        if (SUCCEEDED(r.graphics.device->CreateTexture2D(&desc, nullptr, &staging))) {
-            r.graphics.context->CopyResource(staging, source);
-            ready = SUCCEEDED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
-        }
-        com_release(source);
-    }
-    ~Pixels() noexcept {
-        if (ready)
-            r.graphics.context->Unmap(staging, 0);
-        com_release(staging);
+        ready = ready && (bgra || desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM);
     }
     bool point(float x, float y, u32* out) const noexcept {
         const float scale = r.dpi / 96.f;
         const i32 px = static_cast<i32>(x * scale), py = static_cast<i32>(y * scale);
-        if (!out || !ready || px < 0 || py < 0 || static_cast<u32>(px) >= width ||
-            static_cast<u32>(py) >= height)
+        if (!out || !ready || px < 0 || py < 0 || static_cast<u32>(px) >= readback.width ||
+            static_cast<u32>(py) >= readback.height)
             return false;
+        const auto& mapped = readback.mapped;
         const auto* pixel =
             static_cast<const u8*>(mapped.pData) + static_cast<usize>(py) * mapped.RowPitch + px * 4;
         *out = (static_cast<u32>(pixel[bgra ? 2 : 0]) << 16) | (static_cast<u32>(pixel[1]) << 8) |

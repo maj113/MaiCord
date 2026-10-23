@@ -32,11 +32,7 @@ RestClientResult rest_client_start_user_auth_capacity(RestClient* client, u32 re
     return rest_client_start_user_auth(client, response);
 }
 RestClientResult rest_client_start_user_auth(RestClient* client, u32) noexcept {
-    client->runtime = &browser_exchange_coordinator_test::fixture;
-    client->worker.thread = reinterpret_cast<HANDLE>(1);
-    browser_exchange_coordinator_test::fixture.phase = RestClientPhase::idle;
-    browser_exchange_coordinator_test::fixture.error = RestClientError::none;
-    RestClientResult result{}; result.phase = RestClientPhase::idle; return result;
+    return browser_exchange_coordinator_test::start_client(client);
 }
 RestClientSubmitResult rest_client_submit_user_auth(
     RestClient*, const RestUserAuthRequest& value) noexcept {
@@ -45,54 +41,23 @@ RestClientSubmitResult rest_client_submit_user_auth(
     if (fixture.fail_submit) return {RestClientSubmitError::busy};
     if (!value.body || !value.body->locked || !secure_buffer_assign(&fixture.request, secure_buffer_view(*value.body)).ok())
         return {RestClientSubmitError::invalid_input};
-    fixture.operation = value.operation; fixture.request_id = value.request_id; ++fixture.submissions;
-    secure_buffer_clear(&fixture.headers);
-    if (value.captcha_key) {
-        const auto utf8 = [](const SecureBuffer* buffer) noexcept -> Utf8View {
-            return buffer ? Utf8View{reinterpret_cast<const char*>(buffer->data), buffer->bytes} : Utf8View{};
-        };
-        const auto written = user_auth_write_captcha_headers(
-            {utf8(value.captcha_key), utf8(value.captcha_rqtoken), utf8(value.captcha_session_id)},
-            {fixture.headers.data, fixture.headers.capacity});
-        if (!written.ok()) return {RestClientSubmitError::invalid_input};
-        fixture.headers.bytes = written.bytes;
-    }
-    fixture.ready = false;
-    return {RestClientSubmitError::none};
+    return record_request(value);
 }
 RestClientResult rest_client_status(const RestClient*) noexcept {
-    RestClientResult result{};
-    result.phase = browser_exchange_coordinator_test::fixture.ready ? RestClientPhase::response_ready : browser_exchange_coordinator_test::fixture.phase;
-    result.error = browser_exchange_coordinator_test::fixture.error;
-    return result;
+    return browser_exchange_coordinator_test::client_status();
 }
 RestClientTakeResult rest_client_consume_user_auth_response(
     RestClient*, RestClientResponse* response,
     RestUserAuthConsumeFunction consume, void* context) noexcept {
-    using namespace browser_exchange_coordinator_test;
-    *response = fixture.metadata;
-    ++fixture.body_visits;
-    if (!consume(context, fixture.metadata, secure_buffer_view(fixture.response)))
-        return {0, RestClientTakeError::invalid_input};
-    fixture.ready = false;
-    secure_buffer_clear(&fixture.response);
-    return {response->body_bytes, RestClientTakeError::none};
+    ++browser_exchange_coordinator_test::fixture.body_visits;
+    return browser_exchange_coordinator_test::consume_response(response, consume, context);
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept {
     ++browser_exchange_coordinator_test::fixture.notification_reads;
     return reinterpret_cast<HANDLE>(1);
 }
 RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
-    using namespace browser_exchange_coordinator_test;
-    RestClientResult result{};
-    result.phase = fixture.fail_stop ? RestClientPhase::draining :
-        fixture.joined_error ? RestClientPhase::failed : RestClientPhase::stopped;
-    result.error = fixture.joined_error ? RestClientError::worker : RestClientError::none;
-    if (!fixture.fail_stop) {
-        *client = {}; fixture.ready = false;
-        secure_buffer_clear(&fixture.request); secure_buffer_clear(&fixture.response); secure_buffer_clear(&fixture.headers);
-    }
-    return result;
+    return browser_exchange_coordinator_test::stop_client(client);
 }
 }
 

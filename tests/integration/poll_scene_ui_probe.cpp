@@ -1,5 +1,6 @@
 #include "poll_scene_ui_probe.hpp"
 #include "probe_present.hpp"
+#include "probe_capture.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/ui/poll_presentation.hpp"
@@ -135,60 +136,37 @@ bool ink(D3D11Renderer& r, const Theme& theme, UiRect rectangle, Color color, u3
     r.graphics.context->ClearRenderTargetView(r.graphics.target, clear);
     if (!require(d3d11_renderer_draw_stream(&r, theme, false, false, nullptr), 70))
         return false;
-    ID3D11Resource* resource{};
-    r.graphics.target->GetResource(&resource);
-    ID3D11Texture2D* source{};
-    const HRESULT queried =
-        resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
-    resource->Release();
-    if (!require(SUCCEEDED(queried), 71))
-        return false;
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC desc{};
-    source->GetDesc(&desc);
+    const u32 failure = readback.read_target(r, desc);
+    if (!require(failure == 0, 70 + failure))
+        return false;
+    const auto& mapped = readback.mapped;
     const bool bgra = desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
-    if (!require((bgra || desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM) && desc.SampleDesc.Count == 1, 72)) {
-        source->Release();
+    if (!require((bgra || desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM) && desc.SampleDesc.Count == 1, 72))
         return false;
-    }
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = desc.MiscFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging{};
-    const HRESULT created = r.graphics.device->CreateTexture2D(&desc, nullptr, &staging);
-    if (!require(SUCCEEDED(created), 73)) {
-        source->Release();
-        return false;
-    }
-    r.graphics.context->CopyResource(staging, source);
-    source->Release();
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const HRESULT read = r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool valid = SUCCEEDED(read);
-    if (valid) {
-        const float scale = static_cast<float>(r.dpi) / 96;
-        const auto left = static_cast<u32>(rectangle.left * scale),
-                   top = static_cast<u32>(rectangle.top * scale);
-        const auto right = static_cast<u32>(rectangle.right * scale),
-                   bottom = static_cast<u32>(rectangle.bottom * scale);
-        valid = right <= r.width && bottom <= r.height && right > left && bottom > top;
-        const int expected[]{static_cast<int>(color.red * 255), static_cast<int>(color.green * 255),
-                             static_cast<int>(color.blue * 255)};
-        for (u32 y = top; valid && y < bottom; ++y) {
-            const auto* row = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
-            for (u32 x = left; x < right; ++x) {
-                const auto* pixel = row + x * 4;
-                const int channels[]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
-                bool match = true;
-                for (u32 c = 0; c < 3; ++c) {
-                    const int delta = channels[c] - expected[c];
-                    match = match && delta >= -24 && delta <= 24;
-                }
-                *pixels += match ? 1u : 0u;
+    bool valid = true;
+    const float scale = static_cast<float>(r.dpi) / 96;
+    const auto left = static_cast<u32>(rectangle.left * scale),
+               top = static_cast<u32>(rectangle.top * scale);
+    const auto right = static_cast<u32>(rectangle.right * scale),
+               bottom = static_cast<u32>(rectangle.bottom * scale);
+    valid = right <= r.width && bottom <= r.height && right > left && bottom > top;
+    const int expected[]{static_cast<int>(color.red * 255), static_cast<int>(color.green * 255),
+                         static_cast<int>(color.blue * 255)};
+    for (u32 y = top; valid && y < bottom; ++y) {
+        const auto* row = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
+        for (u32 x = left; x < right; ++x) {
+            const auto* pixel = row + x * 4;
+            const int channels[]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
+            bool match = true;
+            for (u32 c = 0; c < 3; ++c) {
+                const int delta = channels[c] - expected[c];
+                match = match && delta >= -24 && delta <= 24;
             }
+            *pixels += match ? 1u : 0u;
         }
-        r.graphics.context->Unmap(staging, 0);
     }
-    staging->Release();
     return require(valid, 74);
 }
 } // namespace

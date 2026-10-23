@@ -1,3 +1,4 @@
+#include "probe_capture.hpp"
 #include "inline_flags_probe.hpp"
 #include "probe_present.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
@@ -75,38 +76,16 @@ bool pixel_is_fixture(D3D11Renderer& r, UiRect rectangle, bool expected) noexcep
     // native text/pixel assertions, without writing a screenshot.
     if (!d3d11_renderer_draw_stream(&r, kDefaultTheme, true, true, nullptr))
         return false;
-    ID3D11Resource* resource = nullptr;
-    ID3D11Texture2D *source = nullptr, *staging = nullptr;
-    struct Release {
-        ID3D11Resource*& resource;
-        ID3D11Texture2D*& source;
-        ID3D11Texture2D*& staging;
-        ~Release() noexcept {
-            com_release(staging);
-            com_release(source);
-            com_release(resource);
-        }
-    } release{resource, source, staging};
     if (!r.graphics.target || !ui_rect_has_area(rectangle))
         return false;
-    r.graphics.target->GetResource(&resource);
-    if (!resource ||
-        FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source))))
-        return false;
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
+    if (readback.read_target(r, description) != 0)
+        return false;
     const bool bgra = description.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
     if (!bgra && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM)
         return false;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    if (FAILED(r.graphics.device->CreateTexture2D(&description, nullptr, &staging)))
-        return false;
-    r.graphics.context->CopyResource(staging, source);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
-        return false;
+    const auto& mapped = readback.mapped;
     const float scale = r.dpi / 96.f;
     const i32 x = static_cast<i32>((rectangle.left + rectangle.right) * .5f * scale);
     const i32 y = static_cast<i32>((rectangle.top + rectangle.bottom) * .5f * scale);
@@ -126,7 +105,6 @@ bool pixel_is_fixture(D3D11Renderer& r, UiRect rectangle, bool expected) noexcep
             log_u64(LogLevel::error, "probe", "inline_flags_expected_fixture_pixel", expected);
         }
     }
-    r.graphics.context->Unmap(staging, 0);
     return valid;
 }
 bool find_flag(const D3D11Renderer& r, UiWidgetManager* manager, RendererInlineFlag* output) noexcept {

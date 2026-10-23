@@ -475,6 +475,50 @@ bool finish(void*, const Theme&) noexcept {
     return true;
 }
 
+// Decoded views remain valid until the next payload; cases consume them before
+// replacing the single shared scene. Share the largest existing scratch limits.
+bool decode_message(Utf8View payload, GatewayMessageEvent* message) noexcept {
+    static u32 structurals[4096];
+    static char packed_text[32768];
+    static u64 ids[256];
+    static GatewayMessageComponent components[8];
+    static GatewayMessageEmbed embeds[10];
+    static GatewayMessageEmbedField fields[8];
+    static GatewayMessageAttachment attachments[4];
+    static GatewayMessageSticker stickers[3];
+    GatewayEnvelope envelope{};
+    GatewayClientEvent routed{};
+    ConstSlice<u8> packed{};
+    GatewayMessageRichScratch scratch{};
+    scratch.components = {components, 8};
+    scratch.embeds = {embeds, 10};
+    scratch.embed_fields = {fields, 8};
+    scratch.attachments = {attachments, 4};
+    scratch.stickers = {stickers, 3};
+    return gateway_decode_envelope(payload, {structurals, 4096}, 32, &envelope).ok() &&
+           gateway_client_route_dispatch(envelope, {structurals, 4096}, 32,
+               {packed_text, sizeof(packed_text)}, {ids, 256}, &routed, &packed).ok() &&
+           gateway_client_event_as_message(routed, packed, scratch, message);
+}
+
+bool initialize_fixture(const GatewayMessageEvent& message, float height = 1000) noexcept {
+    auto& f = fixture;
+    return message_store_initialize(&f.store, {f.record, 2}, {f.order, 2}, {f.text, sizeof(f.text)}) &&
+           message_reconcile_create(&f.store, message).ok() &&
+           message_rich_store_initialize(&f.rich, {f.rich_record, 2}, {f.rich_order, 2},
+                                         {f.rich_text, sizeof(f.rich_text)}) &&
+           message_rich_store_apply(&f.rich, 1, f.record[0].revision, message).ok() &&
+           ui_variable_list_initialize(&f.list, {f.heights, 2}, {f.fenwick, 2}, 1, ui_extent_units(57)) &&
+           message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57),
+                                       ui_extent_units(height), false) &&
+           message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+           message_scene_initialize_owned(&f.scene, &f.timeline, 2, 2, {f.widget, kWidgets}, {f.node, kWidgets}) &&
+           message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
+               {f.styles, 1024}, {f.semantics, 256}, {f.measurements, 4}, {f.spoilers, 4},
+               {f.byte_styles, 32768}) &&
+           ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 512}, measure, nullptr);
+}
+
 const MessageTextCommand* command(const MessageTextPresentation& p, u16 id, u32 nth = 0) noexcept {
     for (u32 i = 0; i < p.command_count; ++i)
         if (p.commands[i].source_id == id && !nth--)
@@ -552,25 +596,8 @@ float shaped_em(const MessageTextCommand* c, float* height = nullptr) noexcept {
 void test_fxtwitter_embed(Check check) noexcept {
     auto& f = fixture;
     const auto payload = utf8_literal(R"json({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"https://x.com/quill_example/status/1","timestamp":"2026-09-05T10:00:00Z","embeds":[{"type":"rich","url":"https://x.com/quill_example/status/1","color":6765239,"description":"[GOOD NEWS\\!] ⁣⁣Я Comet\\.\\.\\.\n\n> quoted tweet line\n> second line\n\n️️PREVIEW\\.\\.\\. IT SHIPS NOW\\! https://x.com/a_b_c","author":{"name":"quill (…) (@quill_example)","url":"https://x.com/quill_example","icon_url":"https://pbs.twimg.com/profile_images/1/a.jpg","proxy_icon_url":"https://images-ext-1.discordapp.net/external/abc/https/pbs.twimg.com/profile_images/1/a.jpg"},"footer":{"text":"EmbedX","icon_url":"https://embed.example.com/icon.png","proxy_icon_url":"https://images-ext-1.discordapp.net/external/def/https/embed.example.com/icon.png"},"timestamp":"2026-09-04T20:08:00.000000+00:00","provider":{"name":"EmbedX","url":"https://embed.example.com"},"thumbnail":{"url":"https://pbs.twimg.com/media/b.jpg","proxy_url":"https://images-ext-1.discordapp.net/external/ghi/https/pbs.twimg.com/media/b.jpg","width":1280,"height":720,"flags":0},"video":{"url":"https://video.twimg.com/c.mp4","proxy_url":"https://images-ext-1.discordapp.net/external/jkl/https/video.twimg.com/c.mp4","width":1280,"height":720,"flags":0}}]}})json");
-    static u32 structurals[2048];
-    static char packed_text[16384];
-    static u64 ids[128];
-    GatewayEnvelope envelope{};
-    GatewayClientEvent routed{};
-    ConstSlice<u8> packed{};
-    GatewayMessageComponent components[8]{};
-    GatewayMessageEmbed embeds[1]{};
-    GatewayMessageEmbedField fields[4]{};
-    GatewayMessageRichScratch scratch{};
-    scratch.components = {components, 8};
-    scratch.embeds = {embeds, 1};
-    scratch.embed_fields = {fields, 4};
     GatewayMessageEvent message{};
-    bool ok = gateway_decode_envelope(payload, {structurals, 2048}, 32, &envelope).ok() &&
-              gateway_client_route_dispatch(envelope, {structurals, 2048}, 32, {packed_text, sizeof(packed_text)},
-                                            {ids, 128}, &routed, &packed)
-                  .ok() &&
-              gateway_client_event_as_message(routed, packed, scratch, &message) && message.embeds.count == 1;
+    bool ok = decode_message(payload, &message) && message.embeds.count == 1;
     const GatewayMessageEmbed& decoded = message.embeds[0];
     check(ok && utf8_equal(decoded.author_url, utf8_literal("https://x.com/quill_example")) &&
               utf8_starts_with(decoded.author_icon, utf8_literal("https://images-ext-1.discordapp.net/external/abc/")) &&
@@ -581,20 +608,7 @@ void test_fxtwitter_embed(Check check) noexcept {
               utf8_starts_with(decoded.video.proxy_url, utf8_literal("https://images-ext-1.discordapp.net/")),
           "embed_decodes_author_footer_provider_timestamp_and_video_through_dispatch");
 
-    ok = ok && message_store_initialize(&f.store, {f.record, 2}, {f.order, 2}, {f.text, sizeof(f.text)}) &&
-         message_reconcile_create(&f.store, message).ok() &&
-         message_rich_store_initialize(&f.rich, {f.rich_record, 2}, {f.rich_order, 2},
-                                       {f.rich_text, sizeof(f.rich_text)}) &&
-         message_rich_store_apply(&f.rich, 1, f.record[0].revision, message).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, 2}, {f.fenwick, 2}, 1, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000),
-                                     false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, 2, 2, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 1024}, {f.semantics, 256}, {f.measurements, 4},
-                                              {f.spoilers, 4}, {f.byte_styles, 32768}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 512}, measure, nullptr);
+    ok = ok && initialize_fixture(message);
     const MessageRichRecord* rich = ok ? message_rich_store_find(f.rich, 1) : nullptr;
     const MessageRichEmbed* embed = rich && rich->embed_count == 1 ? &rich->embeds[0] : nullptr;
     MessageRichEmbedMediaSelection selected{};
@@ -973,39 +987,9 @@ void test_text_sizes(Check check) noexcept {
 void test_quote_blocks(Check check) noexcept {
     auto& f = fixture;
     const auto payload = utf8_literal(R"json({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","author":{"id":"9","username":"Poster"},"content":"# Title\nintro\n> quoted **bold** text long enough to wrap across several lines of this narrow pane, with https://q.test/x inside\n> second\n-# after","timestamp":"2026-09-05T10:00:00Z"}})json");
-    static u32 structurals[2048];
-    static char packed_text[16384];
-    static u64 ids[128];
-    GatewayEnvelope envelope{};
-    GatewayClientEvent routed{};
-    ConstSlice<u8> packed{};
-    GatewayMessageComponent components[8]{};
-    GatewayMessageEmbed embeds[1]{};
-    GatewayMessageEmbedField fields[4]{};
-    GatewayMessageRichScratch scratch{};
-    scratch.components = {components, 8};
-    scratch.embeds = {embeds, 1};
-    scratch.embed_fields = {fields, 4};
     GatewayMessageEvent message{};
-    bool ok = gateway_decode_envelope(payload, {structurals, 2048}, 32, &envelope).ok() &&
-              gateway_client_route_dispatch(envelope, {structurals, 2048}, 32, {packed_text, sizeof(packed_text)},
-                                            {ids, 128}, &routed, &packed)
-                  .ok() &&
-              gateway_client_event_as_message(routed, packed, scratch, &message);
-    ok = ok && message_store_initialize(&f.store, {f.record, 2}, {f.order, 2}, {f.text, sizeof(f.text)}) &&
-         message_reconcile_create(&f.store, message).ok() &&
-         message_rich_store_initialize(&f.rich, {f.rich_record, 2}, {f.rich_order, 2},
-                                       {f.rich_text, sizeof(f.rich_text)}) &&
-         message_rich_store_apply(&f.rich, 1, f.record[0].revision, message).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, 2}, {f.fenwick, 2}, 1, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000),
-                                     false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, 2, 2, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 1024}, {f.semantics, 256}, {f.measurements, 4},
-                                              {f.spoilers, 4}, {f.byte_styles, 32768}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 512}, measure, nullptr);
+    bool ok = decode_message(payload, &message);
+    ok = ok && initialize_fixture(message);
     ChatStateStore state{};
     NavigationView navigation{};
     const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr, &navigation,
@@ -1266,38 +1250,8 @@ const MessageSceneRowWidget* converge_native(Utf8View payload, GatewayMessageEve
                                             MessagePresentationResult* painted,
                                             MessageMediaCommandStream* media) noexcept {
     auto& f = fixture;
-    static u32 structurals[4096];
-    static char packed_text[32768];
-    static u64 ids[256];
-    static GatewayMessageComponent components[8];
-    static GatewayMessageEmbed embeds[10];
-    static GatewayMessageEmbedField fields[8];
-    GatewayEnvelope envelope{};
-    GatewayClientEvent routed{};
-    ConstSlice<u8> packed{};
-    GatewayMessageRichScratch scratch{};
-    scratch.components = {components, 8};
-    scratch.embeds = {embeds, 10};
-    scratch.embed_fields = {fields, 8};
-    bool ok = gateway_decode_envelope(payload, {structurals, 4096}, 32, &envelope).ok() &&
-              gateway_client_route_dispatch(envelope, {structurals, 4096}, 32, {packed_text, sizeof(packed_text)},
-                                            {ids, 256}, &routed, &packed)
-                  .ok() &&
-              gateway_client_event_as_message(routed, packed, scratch, message);
-    ok = ok && message_store_initialize(&f.store, {f.record, 2}, {f.order, 2}, {f.text, sizeof(f.text)}) &&
-         message_reconcile_create(&f.store, *message).ok() &&
-         message_rich_store_initialize(&f.rich, {f.rich_record, 2}, {f.rich_order, 2},
-                                       {f.rich_text, sizeof(f.rich_text)}) &&
-         message_rich_store_apply(&f.rich, 1, f.record[0].revision, *message).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, 2}, {f.fenwick, 2}, 1, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(4000),
-                                     false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, 2, 2, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 1024}, {f.semantics, 256}, {f.measurements, 4},
-                                              {f.spoilers, 4}, {f.byte_styles, 32768}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 512}, measure, nullptr);
+    bool ok = decode_message(payload, message);
+    ok = ok && initialize_fixture(*message, 4000);
     ChatStateStore state{};
     NavigationView navigation{};
     const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr, &navigation,
@@ -1517,45 +1471,11 @@ Utf8View c_text(const char* value) noexcept {
 const MessageSceneRowWidget* converge_message(Utf8View payload,
                                               GatewayMessageEvent* decoded = nullptr) noexcept {
     auto& f = fixture;
-    static u32 structurals[4096];
-    static char packed_text[32768];
-    static u64 ids[128];
-    static GatewayMessageComponent components[8];
-    static GatewayMessageEmbed embeds[4];
-    static GatewayMessageEmbedField fields[4];
-    static GatewayMessageAttachment attachments[4];
-    static GatewayMessageSticker stickers[3];
-    GatewayEnvelope envelope{};
-    GatewayClientEvent routed{};
-    ConstSlice<u8> packed{};
-    GatewayMessageRichScratch scratch{};
-    scratch.components = {components, 8};
-    scratch.embeds = {embeds, 4};
-    scratch.embed_fields = {fields, 4};
-    scratch.attachments = {attachments, 4};
-    scratch.stickers = {stickers, 3};
     GatewayMessageEvent message{};
-    bool ok = gateway_decode_envelope(payload, {structurals, 4096}, 32, &envelope).ok() &&
-              gateway_client_route_dispatch(envelope, {structurals, 4096}, 32, {packed_text, sizeof(packed_text)},
-                                            {ids, 128}, &routed, &packed)
-                  .ok() &&
-              gateway_client_event_as_message(routed, packed, scratch, &message);
+    bool ok = decode_message(payload, &message);
     if (decoded)
         *decoded = message;
-    ok = ok && message_store_initialize(&f.store, {f.record, 2}, {f.order, 2}, {f.text, sizeof(f.text)}) &&
-         message_reconcile_create(&f.store, message).ok() &&
-         message_rich_store_initialize(&f.rich, {f.rich_record, 2}, {f.rich_order, 2},
-                                       {f.rich_text, sizeof(f.rich_text)}) &&
-         message_rich_store_apply(&f.rich, 1, f.record[0].revision, message).ok() &&
-         ui_variable_list_initialize(&f.list, {f.heights, 2}, {f.fenwick, 2}, 1, ui_extent_units(57)) &&
-         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(1000),
-                                     false) &&
-         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
-         message_scene_initialize_owned(&f.scene, &f.timeline, 2, 2, {f.widget, kWidgets}, {f.node, kWidgets}) &&
-         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
-                                              {f.styles, 1024}, {f.semantics, 256}, {f.measurements, 4},
-                                              {f.spoilers, 4}, {f.byte_styles, 32768}) &&
-         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 512}, measure, nullptr);
+    ok = ok && initialize_fixture(message);
     if (!ok)
         return nullptr;
     static ChatStateStore state{};

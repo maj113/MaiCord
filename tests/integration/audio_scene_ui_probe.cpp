@@ -1,5 +1,6 @@
 #include "audio_scene_ui_probe.hpp"
 #include "probe_present.hpp"
+#include "probe_capture.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/audio_presentation.hpp"
@@ -62,63 +63,39 @@ bool current_ink(D3D11Renderer& renderer, const Theme& theme, UiRect rectangle, 
     renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, clear);
     if (!require(d3d11_renderer_draw_stream(&renderer, theme, false, false, nullptr), stage))
         return false;
-    ID3D11Resource* resource{};
-    renderer.graphics.target->GetResource(&resource);
-    ID3D11Texture2D* source{};
-    const HRESULT queried =
-        resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
-    resource->Release();
-    if (!require(SUCCEEDED(queried), stage + 1))
-        return false;
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
+    const u32 failure = readback.read_target(renderer, description);
+    if (!require(failure == 0, stage + failure))
+        return false;
+    const auto& mapped = readback.mapped;
     const bool bgra = description.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
     if ((!bgra && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM) || description.SampleDesc.Count != 1 ||
-        renderer.width > description.Width || renderer.height > description.Height) {
-        require(false, stage + 2);
-        source->Release();
-        return false;
-    }
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging{};
-    const HRESULT created = renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (!require(SUCCEEDED(created), stage + 3)) {
-        source->Release();
-        return false;
-    }
-    renderer.graphics.context->CopyResource(staging, source);
-    source->Release();
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const HRESULT result = renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    if (SUCCEEDED(result)) {
-        const float scale = static_cast<float>(renderer.dpi) / 96;
-        const auto left = static_cast<u32>(rectangle.left * scale);
-        const auto top = static_cast<u32>(rectangle.top * scale);
-        const auto right = static_cast<u32>(rectangle.right * scale);
-        const auto bottom = static_cast<u32>(rectangle.bottom * scale);
-        const int target[]{static_cast<int>(foreground.red * 255), static_cast<int>(foreground.green * 255),
-                           static_cast<int>(foreground.blue * 255)};
-        if (right <= renderer.width && bottom <= renderer.height) {
-            for (u32 y = top; y < bottom; ++y) {
-                const auto* row = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
-                for (u32 x = left; x < right; ++x) {
-                    const auto* pixel = row + x * 4;
-                    const int actual[]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
-                    bool color_matches = true;
-                    for (u32 channel = 0; channel < 3; ++channel) {
-                        const int difference = actual[channel] - target[channel];
-                        color_matches = color_matches && difference >= -24 && difference <= 24;
-                    }
-                    *count += color_matches ? 1u : 0u;
+        renderer.width > description.Width || renderer.height > description.Height)
+        return require(false, stage + 2);
+    const float scale = static_cast<float>(renderer.dpi) / 96;
+    const auto left = static_cast<u32>(rectangle.left * scale);
+    const auto top = static_cast<u32>(rectangle.top * scale);
+    const auto right = static_cast<u32>(rectangle.right * scale);
+    const auto bottom = static_cast<u32>(rectangle.bottom * scale);
+    const int target[]{static_cast<int>(foreground.red * 255), static_cast<int>(foreground.green * 255),
+                       static_cast<int>(foreground.blue * 255)};
+    if (right <= renderer.width && bottom <= renderer.height) {
+        for (u32 y = top; y < bottom; ++y) {
+            const auto* row = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
+            for (u32 x = left; x < right; ++x) {
+                const auto* pixel = row + x * 4;
+                const int actual[]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
+                bool color_matches = true;
+                for (u32 channel = 0; channel < 3; ++channel) {
+                    const int difference = actual[channel] - target[channel];
+                    color_matches = color_matches && difference >= -24 && difference <= 24;
                 }
+                *count += color_matches ? 1u : 0u;
             }
         }
-        renderer.graphics.context->Unmap(staging, 0);
     }
-    staging->Release();
-    return require(SUCCEEDED(result), stage + 4);
+    return true;
 }
 
 bool uploaded_paint_current(D3D11Renderer& renderer) noexcept {

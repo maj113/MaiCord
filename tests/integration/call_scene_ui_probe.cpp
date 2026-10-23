@@ -1,4 +1,5 @@
 #include "probe_present.hpp"
+#include "probe_capture.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/model/stage_policy.hpp"
@@ -43,25 +44,10 @@ bool present_frame(D3D11Renderer& r, const Nv12TestPicture& picture, u64 user, u
 bool sample(D3D11Renderer& r, const Theme& theme, float x_dip, float y_dip, u8 rgb[3]) noexcept {
     if (!d3d11_renderer_draw_stream(&r, theme, true, true, nullptr, 10000))
         return false;
-    ID3D11Resource* resource = nullptr;
-    r.graphics.target->GetResource(&resource);
-    ID3D11Texture2D* source = nullptr;
-    const HRESULT queried = resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
-    resource->Release();
-    if (FAILED(queried))
-        return false;
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC desc{};
-    source->GetDesc(&desc);
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = desc.MiscFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    bool ok = SUCCEEDED(r.graphics.device->CreateTexture2D(&desc, nullptr, &staging));
-    if (ok)
-        r.graphics.context->CopyResource(staging, source);
-    source->Release();
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    ok = ok && SUCCEEDED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
+    bool ok = readback.read_target(r, desc) == 0;
+    const auto& mapped = readback.mapped;
     const float scale = static_cast<float>(r.dpi) / 96.f;
     const u32 x = static_cast<u32>(x_dip * scale), y = static_cast<u32>(y_dip * scale);
     if (ok && x < desc.Width && y < desc.Height) {
@@ -72,10 +58,6 @@ bool sample(D3D11Renderer& r, const Theme& theme, float x_dip, float y_dip, u8 r
         rgb[2] = bgra ? p[0] : p[2];
     } else
         ok = false;
-    if (staging) {
-        r.graphics.context->Unmap(staging, 0);
-        staging->Release();
-    }
     return ok;
 }
 UiPoint center(UiRect r) noexcept {

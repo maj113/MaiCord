@@ -16,6 +16,7 @@
 #include "../application_downloads_inactive.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_present.hpp"
+#include "probe_capture.hpp"
 #include "maicord/app/account_media_worker.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "standalone_title_geometry.hpp"
@@ -314,6 +315,18 @@ struct ProbeState {
 
 constinit ProbeState g_probe{};
 
+bool probe_option_enabled(const wchar_t* name) noexcept {
+    wchar_t value[2]{};
+    return GetEnvironmentVariableW(name, value, 2) == 1 && value[0] == L'1';
+}
+
+int finish_probe(int result) noexcept {
+    renderer_shutdown(&g_probe.renderer);
+    DestroyWindow(g_probe.window);
+    return result;
+}
+
+
 bool initialize_probe_message_scene() noexcept {
     message_scene_release(&g_probe.message_scene);
     return message_scene_initialize_owned(
@@ -474,9 +487,7 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
             metrics.revision += 300000u;
         }
     }
-    wchar_t pins_option[2]{};
-    if (!friends && GetEnvironmentVariableW(L"MAICORD_UI_PINNED_MESSAGES_PROBE", pins_option, 2) == 1 &&
-        pins_option[0] == L'1')
+    if (!friends && probe_option_enabled(L"MAICORD_UI_PINNED_MESSAGES_PROBE"))
         metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins);
     if (navigation_width > 0) {
         metrics.navigation_width = navigation_width;
@@ -945,192 +956,81 @@ bool shaped_text_cache_equivalence() noexcept {
     return message_timeline_set_scroll(&timeline, start, false) && rebuild_probe_content_text();
 }
 
-bool apng_atlas_pixels_exact(const MediaAtlasResult& allocation,u32 presented_frame,bool preview=false) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = 4;
-    description.Height = 4;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
-        return false;
-    }
-    const D3D11_BOX box{allocation.x,allocation.y,0,allocation.x+4u,allocation.y+4u,1};
-    g_probe.renderer.graphics.context->CopySubresourceRegion(staging,0,0,0,0,
-        preview?g_probe.renderer.media_gpu.preview_texture:g_probe.renderer.media_gpu.texture,0,&box);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    for (u32 y = 0; y < 4 && exact; ++y) {
-        const u8* row =
-            static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
-        for (u32 x = 0; x < 4; ++x) {
+template<class Expected>
+bool rgba_pixels_exact(ProbeTargetReadback& readback, u32 left, u32 top,
+                       u32 width, u32 height, Expected expected) noexcept {
+    bool exact = SUCCEEDED(readback.map());
+    const auto& mapped = readback.mapped;
+    for (u32 y = 0; y < height && exact; ++y) {
+        const auto* row = static_cast<const u8*>(mapped.pData) + (top + y) * mapped.RowPitch + left * 4;
+        for (u32 x = 0; x < width; ++x) {
             const u8* pixel = row + x * 4;
             const u32 actual = static_cast<u32>(pixel[0]) | static_cast<u32>(pixel[1]) << 8 |
                                static_cast<u32>(pixel[2]) << 16 | static_cast<u32>(pixel[3]) << 24;
-            exact = exact && actual == apng_fixture_canvas_rgba(presented_frame, x, y);
+            exact = exact && actual == expected(x, y);
         }
     }
-    if (SUCCEEDED(result)) {
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
     return exact;
 }
 
-bool gif_atlas_pixels_exact(const MediaAtlasResult& allocation, u32 presented_frame) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+bool apng_atlas_pixels_exact(const MediaAtlasResult& allocation,u32 presented_frame,bool preview=false) noexcept {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, 4, 4))
         return false;
-    }
+    auto* staging = readback.staging;
+    const D3D11_BOX box{allocation.x,allocation.y,0,allocation.x+4u,allocation.y+4u,1};
+    g_probe.renderer.graphics.context->CopySubresourceRegion(staging,0,0,0,0,
+        preview?g_probe.renderer.media_gpu.preview_texture:g_probe.renderer.media_gpu.texture,0,&box);
+    return rgba_pixels_exact(readback, 0, 0, 4, 4,
+        [presented_frame](u32 x, u32 y) noexcept { return apng_fixture_canvas_rgba(presented_frame, x, y); });
+}
+
+bool gif_atlas_pixels_exact(const MediaAtlasResult& allocation, u32 presented_frame) noexcept {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
+        return false;
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopySubresourceRegion(
         staging, 0, 0, 0, 0, g_probe.renderer.media_gpu.texture, 0, nullptr);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    for (u32 y = 0; y < 4 && exact; ++y) {
-        const u8* row =
-            static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch + allocation.x * 4;
-        for (u32 x = 0; x < 4; ++x) {
-            const u8* pixel = row + x * 4;
-            const u32 actual = static_cast<u32>(pixel[0]) | static_cast<u32>(pixel[1]) << 8 |
-                               static_cast<u32>(pixel[2]) << 16 | static_cast<u32>(pixel[3]) << 24;
-            exact = exact && actual == gif_fixture_canvas_rgba(presented_frame, x, y);
-        }
-    }
-    if (SUCCEEDED(result)) {
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
-    return exact;
+    return rgba_pixels_exact(readback, allocation.x, allocation.y, 4, 4,
+        [presented_frame](u32 x, u32 y) noexcept { return gif_fixture_canvas_rgba(presented_frame, x, y); });
 }
 
 bool animated_webp_atlas_pixels_exact(const MediaAtlasResult& allocation, u32 presented_frame,
                                       bool preview = false) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = preview ? g_probe.renderer.media_gpu.preview_width : kProbeMediaExtent;
-    description.Height = preview ? g_probe.renderer.media_gpu.preview_height : kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer,
+            preview ? g_probe.renderer.media_gpu.preview_width : kProbeMediaExtent,
+            preview ? g_probe.renderer.media_gpu.preview_height : kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(
         staging, preview ? g_probe.renderer.media_gpu.preview_texture : g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    for (u32 y = 0; y < 4 && exact; ++y) {
-        const u8* row =
-            static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch + allocation.x * 4;
-        for (u32 x = 0; x < 4; ++x) {
-            const u8* pixel = row + x * 4;
-            const u32 actual = static_cast<u32>(pixel[0]) | static_cast<u32>(pixel[1]) << 8 |
-                               static_cast<u32>(pixel[2]) << 16 | static_cast<u32>(pixel[3]) << 24;
-            exact = exact && actual == animated_webp_fixture_canvas_rgba(presented_frame, x, y);
-        }
-    }
-    if (SUCCEEDED(result)) {
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
-    return exact;
+    return rgba_pixels_exact(readback, allocation.x, allocation.y, 4, 4,
+        [presented_frame](u32 x, u32 y) noexcept { return animated_webp_fixture_canvas_rgba(presented_frame, x, y); });
 }
 
 bool mixed_animated_webp_atlas_pixels_exact(const MediaAtlasResult& allocation,
                                             u32 presented_frame) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    for (u32 y = 0; y < 4 && exact; ++y) {
-        const u8* row =
-            static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch + allocation.x * 4;
-        for (u32 x = 0; x < 4; ++x) {
-            const u8* pixel = row + x * 4;
-            const u32 actual = static_cast<u32>(pixel[0]) | static_cast<u32>(pixel[1]) << 8 |
-                               static_cast<u32>(pixel[2]) << 16 | static_cast<u32>(pixel[3]) << 24;
-            exact = exact && actual == mixed_animated_webp_fixture_canvas_rgba(presented_frame, x, y);
-        }
-    }
-    if (SUCCEEDED(result)) {
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
-    return exact;
+    return rgba_pixels_exact(readback, allocation.x, allocation.y, 4, 4,
+        [presented_frame](u32 x, u32 y) noexcept { return mixed_animated_webp_fixture_canvas_rgba(presented_frame, x, y); });
 }
 
 bool jpeg_atlas_pixels_exact(const MediaAtlasResult& allocation, u16 width, u16 height,
                              bool preview = false) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(
         staging, preview ? g_probe.renderer.media_gpu.preview_texture : g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    for (u32 y = 0; y < height && exact; ++y) {
-        const u8* row =
-            static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch + allocation.x * 4u;
-        for (u32 x = 0; x < width; ++x) {
-            const u8* pixel = row + x * 4u;
-            const u32 actual = static_cast<u32>(pixel[0]) | static_cast<u32>(pixel[1]) << 8u |
-                               static_cast<u32>(pixel[2]) << 16u | static_cast<u32>(pixel[3]) << 24u;
-            exact = exact && actual == jpeg_fixture_rgba();
-        }
-    }
-    if (SUCCEEDED(result)) {
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
-    return exact;
+    return rgba_pixels_exact(readback, allocation.x, allocation.y, width, height,
+        [](u32, u32) noexcept { return jpeg_fixture_rgba(); });
 }
 
 bool jpeg_atlas_pixels_reference_tolerance(const MediaAtlasResult& allocation, u16 width, u16 height,
@@ -1147,23 +1047,13 @@ bool jpeg_atlas_pixels_reference_tolerance(const MediaAtlasResult& allocation, u
     if (allocation.width != output_width || allocation.height != output_height) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     u32 maximum_error = 0;
     bool alpha_exact = SUCCEEDED(result);
     if (SUCCEEDED(result)) {
@@ -1218,9 +1108,7 @@ bool jpeg_atlas_pixels_reference_tolerance(const MediaAtlasResult& allocation, u
                 }
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     return SUCCEEDED(result) && alpha_exact && maximum_error <= 2;
 }
 
@@ -1290,23 +1178,13 @@ bool jpeg_icc_rgb_lut_pixels_tolerance(const MediaAtlasResult& allocation,
         allocation.height != 16) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     u32 maximum_error = 0;
     bool alpha_exact = SUCCEEDED(result);
     if (SUCCEEDED(result)) {
@@ -1325,9 +1203,7 @@ bool jpeg_icc_rgb_lut_pixels_tolerance(const MediaAtlasResult& allocation,
                 alpha_exact = alpha_exact && row[x * 4u + 3u] == 255;
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     // D3D11 shader interpolation/rounding differs slightly across drivers.
     // The current hardware reaches 8/255; larger errors still fail the probe.
     return SUCCEEDED(result) && alpha_exact && maximum_error <= 8;
@@ -1338,23 +1214,13 @@ bool jpeg_atlas_uniform_rgb_tolerance(const MediaAtlasResult& allocation, u16 wi
     if (!expected || allocation.width != width || allocation.height != height) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     bool matches = SUCCEEDED(result);
     if (SUCCEEDED(result)) {
         for (u32 y = 0; y < height && matches; ++y) {
@@ -1370,9 +1236,7 @@ bool jpeg_atlas_uniform_rgb_tolerance(const MediaAtlasResult& allocation, u16 wi
                 matches = matches && row[x * 4u + 3u] == 255;
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     return matches;
 }
 
@@ -1382,23 +1246,13 @@ bool jpeg_atlas_differs_from_reference(const MediaAtlasResult& allocation, u16 w
         allocation.width != width || allocation.height != height) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     u32 maximum_error = 0;
     bool alpha_exact = SUCCEEDED(result);
     if (SUCCEEDED(result)) {
@@ -1415,9 +1269,7 @@ bool jpeg_atlas_differs_from_reference(const MediaAtlasResult& allocation, u16 w
                 alpha_exact = alpha_exact && row[x * 4u + 3u] == 255;
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     return SUCCEEDED(result) && alpha_exact && maximum_error >= minimum_error;
 }
 
@@ -1573,23 +1425,13 @@ void vp8_test_rgb(u8 y, u8 u, u8 v, u8 output[3]) noexcept {
 
 bool vp8_atlas_row_exact(const MediaAtlasResult& allocation, u32 origin_x, const u8* expected_gray,
                          u32 count) noexcept {
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     bool exact = SUCCEEDED(result);
     if (exact) {
         const u8* row = static_cast<const u8*>(mapped.pData) + allocation.y * mapped.RowPitch +
@@ -1602,9 +1444,7 @@ bool vp8_atlas_row_exact(const MediaAtlasResult& allocation, u32 origin_x, const
                 break;
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     return exact;
 }
 
@@ -1613,23 +1453,13 @@ bool vp8_alpha_atlas_exact(const MediaAtlasResult& allocation) noexcept {
         {0, 0}, {7, 0}, {8, 0}, {0, 7}, {0, 8}, {7, 7}, {8, 8},
     };
     constexpr u8 expected_u[7] = {124, 126, 130, 127, 133, 128, 126};
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     bool exact = SUCCEEDED(result);
     if (exact) {
         for (u32 index = 0; index < 7 && exact; ++index) {
@@ -1647,9 +1477,7 @@ bool vp8_alpha_atlas_exact(const MediaAtlasResult& allocation) noexcept {
             }
             exact = exact && pixel[3] == alpha;
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     return exact;
 }
 
@@ -1658,23 +1486,13 @@ bool media_surface_rgba_exact(ID3D11Texture2D* texture, const MediaAtlasResult& 
     if (!texture || !expected_rgba.data || expected_rgba.count == 0 || (expected_rgba.count & 3u) != 0) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     bool exact = SUCCEEDED(result);
     if (exact) {
         const u32 pixel_count = expected_rgba.count / 4u;
@@ -1692,9 +1510,7 @@ bool media_surface_rgba_exact(ID3D11Texture2D* texture, const MediaAtlasResult& 
                 }
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     return exact;
 }
 
@@ -1706,23 +1522,13 @@ bool vp8_atlas_rgba_hash(const MediaAtlasResult& allocation, u64* output) noexce
     if (!output || allocation.width == 0 || allocation.height == 0) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = kProbeMediaExtent;
-    description.Height = kProbeMediaExtent;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    ProbeTargetReadback readback;
+    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    }
+    auto* staging = readback.staging;
     g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
+    const HRESULT result = readback.map();
+    const auto& mapped = readback.mapped;
     u64 hash = 1'469'598'103'934'665'603ull;
     if (SUCCEEDED(result)) {
         for (u32 y = 0; y < allocation.height; ++y) {
@@ -1732,9 +1538,7 @@ bool vp8_atlas_rgba_hash(const MediaAtlasResult& allocation, u64* output) noexce
                 hash = (hash ^ row[byte]) * 1'099'511'628'211ull;
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
     if (FAILED(result)) {
         return false;
     }
@@ -3424,30 +3228,10 @@ bool probe_text_pixels(ConstSlice<UiRect> rectangles, u8 threshold = 160) noexce
     // target, excluding the QR region, before the flip-model buffer advances.
     if (!d3d11_renderer_draw_stream(&g_probe.renderer, kDefaultTheme, true, true, nullptr))
         return false;
-    ID3D11Resource* resource = nullptr;
-    g_probe.renderer.graphics.target->GetResource(&resource);
-    ID3D11Texture2D* source = nullptr;
-    const HRESULT queried =
-        resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
-    resource->Release();
-    if (FAILED(queried))
-        return false;
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    const HRESULT created =
-        g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (SUCCEEDED(created))
-        g_probe.renderer.graphics.context->CopyResource(staging, source);
-    source->Release();
-    if (FAILED(created))
-        return false;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    bool visible =
-        SUCCEEDED(g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
+    bool visible = readback.read_target(g_probe.renderer, description) == 0;
+    const auto& mapped = readback.mapped;
     if (visible) {
         const float scale = g_probe.renderer.dpi / 96.0f;
         for (u32 index = 0; index < rectangles.count; ++index) {
@@ -3472,9 +3256,7 @@ bool probe_text_pixels(ConstSlice<UiRect> rectangles, u8 threshold = 160) noexce
                 log_u64(LogLevel::error, "probe", "missing_text_height", bottom - top);
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    staging->Release();
     return visible;
 }
 
@@ -3735,34 +3517,13 @@ struct ProbePixelSample {
 bool probe_exact_pixels(ConstSlice<ProbePixelSample> samples) noexcept {
     if (!d3d11_renderer_draw_stream(&g_probe.renderer, kDefaultTheme, true, true, nullptr))
         return false;
-    ID3D11Resource* resource = nullptr;
-    g_probe.renderer.graphics.target->GetResource(&resource);
-    ID3D11Texture2D* source = nullptr;
-    const HRESULT queried =
-        resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
-    resource->Release();
-    if (FAILED(queried))
-        return false;
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
+    bool ok = readback.read_target(g_probe.renderer, description) == 0;
+    const auto& mapped = readback.mapped;
     const bool bgra = description.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
-    if (!bgra && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM) {
-        source->Release();
+    if (!bgra && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM)
         return false;
-    }
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    const HRESULT created =
-        g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging);
-    if (SUCCEEDED(created))
-        g_probe.renderer.graphics.context->CopyResource(staging, source);
-    source->Release();
-    if (FAILED(created))
-        return false;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    bool ok = SUCCEEDED(g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
     if (ok) {
         const float scale = g_probe.renderer.dpi / 96.f;
         for (u32 i = 0; i < samples.count; ++i) {
@@ -3789,9 +3550,7 @@ bool probe_exact_pixels(ConstSlice<ProbePixelSample> samples) noexcept {
                 }
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    staging->Release();
     return ok;
 }
 
@@ -6232,19 +5991,10 @@ bool probe_read_pixels(const Theme& theme, ConstSlice<UiPoint> points, u8 (*outp
         inside = inside && points[i].x >= 0 && points[i].y >= 0 &&
                  static_cast<u32>(points[i].x * scale) < description.Width &&
                  static_cast<u32>(points[i].y * scale) < description.Height;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    const HRESULT created =
-        inside ? g_probe.renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging) : E_INVALIDARG;
-    if (SUCCEEDED(created))
-        g_probe.renderer.graphics.context->CopyResource(staging, source);
+    ProbeTargetReadback readback;
+    const bool read = inside && readback.read(g_probe.renderer, source, description) == 0;
     source->Release();
-    if (FAILED(created))
-        return false;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    const bool read = SUCCEEDED(g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
+    const auto& mapped = readback.mapped;
     if (read) {
         for (u32 i = 0; i < points.count; ++i)
             copy_bytes(output[i],
@@ -6252,9 +6002,7 @@ bool probe_read_pixels(const Theme& theme, ConstSlice<UiPoint> points, u8 (*outp
                            static_cast<u32>(points[i].y * scale) * mapped.RowPitch +
                            static_cast<u32>(points[i].x * scale) * 4,
                        4);
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    staging->Release();
     return read;
 }
 
@@ -9626,8 +9374,7 @@ bool create_probe_window() noexcept {
 }
 
 bool once_requested() noexcept {
-    wchar_t value[2]{};
-    return GetEnvironmentVariableW(L"MAICORD_UI_PROBE_ONCE", value, 2) == 1 && value[0] == L'1';
+    return probe_option_enabled(L"MAICORD_UI_PROBE_ONCE");
 }
 
 bool device_owner_empty(const D3D11DeviceOwner& owner) noexcept {
@@ -9743,8 +9490,7 @@ bool gpu_timer_ready(const D3D11Renderer& renderer) noexcept {
 }
 
 bool resize_stress_requested() noexcept {
-    wchar_t value[2]{};
-    return GetEnvironmentVariableW(L"MAICORD_UI_PROBE_RESIZE_STRESS", value, 2) == 1 && value[0] == L'1';
+    return probe_option_enabled(L"MAICORD_UI_PROBE_RESIZE_STRESS");
 }
 
 bool run_resize_stress() noexcept {
@@ -10062,10 +9808,7 @@ int run_probe() noexcept {
         }
     } scene_release;
     (void)log_open();
-    wchar_t bootstrap_only[2]{};
-    const bool native_bootstrap =
-        GetEnvironmentVariableW(L"MAICORD_NATIVE_BOOTSTRAP_PROBE", bootstrap_only, 2) == 1 &&
-        bootstrap_only[0] == L'1';
+    const bool native_bootstrap = probe_option_enabled(L"MAICORD_NATIVE_BOOTSTRAP_PROBE");
     // The client's startup order: the device and draw pipeline start on a
     // worker before the model and window exist.
     renderer_prestart();
@@ -10079,28 +9822,20 @@ int run_probe() noexcept {
     g_probe.renderer_ready = true;
     if (g_probe.renderer.glyph_text.title.run_count || g_probe.renderer.glyph_text.title_quad_count ||
         g_probe.renderer.glyph_text.cache_builds || g_probe.renderer.glyph_text.gpu.dispatch_count) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 246;
+        return finish_probe(246);
     }
     // The prestarted device, draw pipeline and glyph atlas were adopted, not
     // recreated on this thread; the content glyph ring exists before content
     // text binds, so binding it never reallocates the ring.
     if (g_probe.renderer.startup_prestart != 7 ||
         g_probe.renderer.pipeline.glyph_instance_capacity != kRendererContentGlyphCapacity) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 229;
+        return finish_probe(229);
     }
     if (!memory_measurement.initialize(g_probe.renderer))
         return 244;
-    wchar_t bindings_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_COLR_BINDING_PROBE", bindings_only, 2) == 1 &&
-        bindings_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_COLR_BINDING_PROBE")) {
         const bool valid = colr_binding_probe(g_probe.renderer.graphics.device, g_probe.renderer.graphics.context);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 245;
+        return finish_probe(valid ? 0 : 245);
     }
     const bool device_ready = device_owner_ready(g_probe.renderer);
     const bool pipeline_ready = draw_pipeline_ready(g_probe.renderer);
@@ -10113,69 +9848,42 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "bootstrap_glyph_ready", glyph_ready);
         log_u64(LogLevel::error, "probe", "bootstrap_timer_ready", timer_ready);
         log_u64(LogLevel::error, "probe", "bootstrap_timer_enabled", g_probe.renderer.gpu_timer.enabled);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (native_bootstrap) {
         const auto& system = g_probe.renderer.glyph_text.system;
         if (!system.native_fonts || !system.native_text || !system.native_format ||
             !g_probe.renderer.glyph_text.color_glyphs) {
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            return 243;
+            return finish_probe(243);
         }
         log_write(LogLevel::info, "probe", "native_renderer_bootstrap_passed");
     }
-    wchar_t plugin_catalog_option[2]{};
-    const bool plugin_catalog_requested =
-        GetEnvironmentVariableW(L"MAICORD_PLUGIN_CATALOG_UI_PROBE", plugin_catalog_option, 2) == 1 &&
-        plugin_catalog_option[0] == L'1';
-    wchar_t caption_option[2]{};
-    const bool caption_requested =
-        GetEnvironmentVariableW(L"MAICORD_UI_CAPTION_PROBE", caption_option, 2) == 1 &&
-        caption_option[0] == L'1';
-    wchar_t inbox_option[2]{};
-    const bool inbox_requested = GetEnvironmentVariableW(L"MAICORD_INBOX_UI_PROBE", inbox_option, 2) == 1 &&
-                                 inbox_option[0] == L'1';
-    wchar_t notification_settings_option[2]{};
+    const bool plugin_catalog_requested = probe_option_enabled(L"MAICORD_PLUGIN_CATALOG_UI_PROBE");
+    const bool caption_requested = probe_option_enabled(L"MAICORD_UI_CAPTION_PROBE");
+    const bool inbox_requested = probe_option_enabled(L"MAICORD_INBOX_UI_PROBE");
     const bool notification_settings_requested =
-        GetEnvironmentVariableW(L"MAICORD_NOTIFICATION_SETTINGS_UI_PROBE", notification_settings_option,
-                                2) == 1 &&
-        notification_settings_option[0] == L'1';
-    wchar_t user_settings_option[2]{};
-    const bool user_settings_requested =
-        GetEnvironmentVariableW(L"MAICORD_USER_SETTINGS_UI_PROBE", user_settings_option, 2) == 1 &&
-        user_settings_option[0] == L'1';
-    wchar_t flag_surfaces_option[2]{};
-    const bool flag_surfaces_requested =
-        GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE", flag_surfaces_option, 2) == 1 &&
-        flag_surfaces_option[0] == L'1';
+        probe_option_enabled(L"MAICORD_NOTIFICATION_SETTINGS_UI_PROBE");
+    const bool user_settings_requested = probe_option_enabled(L"MAICORD_USER_SETTINGS_UI_PROBE");
+    const bool flag_surfaces_requested = probe_option_enabled(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE");
     if (!flag_surfaces_requested &&
         GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY", nullptr, 0)) {
         const bool valid =
             regional_flag_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "regional_flag_gpu_probe_passed" : "regional_flag_gpu_probe_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 242;
+        return finish_probe(valid ? 0 : 242);
     }
     wchar_t glyph_cache_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_GLYPH_CACHE_METRICS", glyph_cache_only, 2)) {
         const bool valid = probe_glyph_cache(g_probe.renderer, probe_capture_frame);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 247;
+        return finish_probe(valid ? 0 : 247);
     }
     wchar_t title_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_BOOTSTRAP_TITLE_PROBE", title_only, 2) == 1) {
         const bool valid = title_only[0] == L'2' || probe_bootstrap_title();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "bootstrap_title_passed" : "bootstrap_title_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 246;
+        return finish_probe(valid ? 0 : 246);
     }
     MediaQuad* initial_media_quads = g_probe.renderer.media_draw.quad_data;
     MediaAtlasHandle* initial_media_handles = g_probe.renderer.media_draw.handle_data;
@@ -10198,9 +9906,7 @@ int run_probe() noexcept {
                 g_probe.renderer.media_draw.quad_capacity);
         log_u64(LogLevel::error, "probe", "initial_media_batch_capacity",
                 g_probe.renderer.media_draw.batch_capacity);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     ID3D11Buffer* initial_glyph_buffer = g_probe.renderer.pipeline.glyph_instance_buffer;
     const u32 initial_glyph_capacity = g_probe.renderer.pipeline.glyph_instance_capacity;
@@ -10216,16 +9922,12 @@ int run_probe() noexcept {
         g_probe.renderer.pipeline.glyph_instance_buffer != grown_glyph_buffer ||
         g_probe.renderer.pipeline.glyph_instance_capacity != initial_glyph_capacity + 1u) {
         log_write(LogLevel::error, "probe", "initial_glyph_storage_growth_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (!message_composer_initialize(
             &g_probe.message_composer,
             Slice<char>{g_probe.message_composer_text, sizeof(g_probe.message_composer_text)})) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 2;
+        return finish_probe(2);
     }
     message_composer_reset(&g_probe.message_composer, 111, false);
     if (message_composer_insert_utf8(&g_probe.message_composer, Utf8View{"a\xF0\x9F\x9A\x80"
@@ -10233,9 +9935,7 @@ int run_probe() noexcept {
                                                                          6}) !=
             MessageComposerResult::changed ||
         message_composer_set_selection(&g_probe.message_composer, 1, 5) != MessageComposerResult::changed) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 2;
+        return finish_probe(2);
     }
     g_probe.message_composer.focused = true;
     if (!ui_scene_initialize_bootstrap(&g_probe.shell_scene) ||
@@ -10254,24 +9954,16 @@ int run_probe() noexcept {
             Slice<UiWidget>{g_probe.message_composer_widgets, kMessageComposerWidgetCapacity},
             Slice<UiLayoutNode>{g_probe.message_composer_layout_nodes, kMessageComposerWidgetCapacity}) ||
         !initialize_probe_message_scene() || !synchronize_probe_shell_layout()) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 2;
+        return finish_probe(2);
     }
-    wchar_t account_menu_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_ACCOUNT_MENU_UI_PROBE", account_menu_only, 2) == 1 &&
-        account_menu_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_ACCOUNT_MENU_UI_PROBE")) {
         const bool valid =
             initialize_fixture(true) && account_menu_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "account_menu_native_ui_passed" : "account_menu_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 255;
+        return finish_probe(valid ? 0 : 255);
     }
-    wchar_t background_theme_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_BACKGROUND_THEME_PROBE", background_theme_only, 2) == 1 &&
-        background_theme_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_BACKGROUND_THEME_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            background_theme_ui_probe({g_probe.renderer,
                                                       +[]() noexcept {
@@ -10281,24 +9973,16 @@ int run_probe() noexcept {
                                                       probe_capture_frame});
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "background_theme_native_ui_passed" : "background_theme_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 270;
+        return finish_probe(valid ? 0 : 270);
     }
-    wchar_t showcase_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_SHOWCASE_PROBE", showcase_only, 2) == 1 &&
-        showcase_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE")) {
         const bool valid =
             initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "showcase_native_ui_passed" : "showcase_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 304;
+        return finish_probe(valid ? 0 : 304);
     }
-    wchar_t inline_flags_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_INLINE_FLAGS_PROBE", inline_flags_only, 2) == 1 &&
-        inline_flags_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_INLINE_FLAGS_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            inline_flags_ui_probe({g_probe.renderer, g_probe.shell_scene, g_probe.chat_state,
                                                   g_probe.navigation, +[]() noexcept {
@@ -10307,13 +9991,9 @@ int run_probe() noexcept {
                                                   }});
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "inline_flags_native_ui_passed" : "inline_flags_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 269;
+        return finish_probe(valid ? 0 : 269);
     }
-    wchar_t guild_rail_icons_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_GUILD_RAIL_ICON_PROBE", guild_rail_icons_only, 2) == 1 &&
-        guild_rail_icons_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_GUILD_RAIL_ICON_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            guild_rail_icon_ui_probe({g_probe.renderer, g_probe.guild_rail_scene, g_probe.chat_state,
                                                      g_probe.navigation, +[]() noexcept {
@@ -10322,19 +10002,12 @@ int run_probe() noexcept {
                                                      }});
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "guild_rail_icons_native_ui_passed" : "guild_rail_icons_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 275;
+        return finish_probe(valid ? 0 : 275);
     }
-    wchar_t unified_picker_only[2]{};
-    wchar_t post_resize_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_POST_RESIZE_PACING_PROBE", post_resize_only, 2) == 1 &&
-        post_resize_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_POST_RESIZE_PACING_PROBE")) {
         if (post_resize_probe_detail::compositor_asleep()) {
             log_write(LogLevel::info, "probe", "post_resize_pacing_skipped_display_asleep");
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            return 77;
+            return finish_probe(77);
         }
         const bool valid =
             initialize_fixture(true) && post_resize_pacing_ui_probe(
@@ -10343,72 +10016,47 @@ int run_probe() noexcept {
                                             +[]() noexcept { return rebuild_probe_content_text(); });
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "post_resize_pacing_native_ui_passed" : "post_resize_pacing_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 268;
+        return finish_probe(valid ? 0 : 268);
     }
-    if (GetEnvironmentVariableW(L"MAICORD_UI_UNIFIED_PICKER_PROBE", unified_picker_only, 2) == 1 &&
-        unified_picker_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_UNIFIED_PICKER_PROBE")) {
         const bool valid =
             initialize_fixture(true) && unified_picker_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "unified_picker_native_ui_passed" : "unified_picker_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 266;
+        return finish_probe(valid ? 0 : 266);
     }
-    wchar_t hover_retention_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_HOVER_RETENTION_PROBE", hover_retention_only, 2) == 1 &&
-        hover_retention_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_HOVER_RETENTION_PROBE")) {
         const bool valid =
             initialize_fixture(true) &&
             hover_retention_ui_probe(g_probe.renderer, g_probe.message_view, g_probe.message_scene,
                                      g_probe.users, rebuild_probe_content_text);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "hover_retention_native_ui_passed" : "hover_retention_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 267;
+        return finish_probe(valid ? 0 : 267);
     }
-    wchar_t media_underlay_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE", media_underlay_only, 2) == 1 &&
-        media_underlay_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_media_underlay_and_quick_reactions();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "media_underlay_native_ui_passed" : "media_underlay_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 264;
+        return finish_probe(valid ? 0 : 264);
     }
-    wchar_t search_polish_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_SEARCH_POLISH_PROBE", search_polish_only, 2) == 1 &&
-        search_polish_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_SEARCH_POLISH_PROBE")) {
         const bool valid = initialize_fixture(true) && search_polish_ui_probe(g_probe.renderer);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "search_polish_native_ui_passed" : "search_polish_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 265;
+        return finish_probe(valid ? 0 : 265);
     }
-    wchar_t scoped_search_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_SCOPED_SEARCH_UI_PROBE", scoped_search_only, 2) == 1 &&
-        scoped_search_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_SCOPED_SEARCH_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && scoped_search_ui_probe(g_probe.renderer);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "scoped_search_native_ui_passed" : "scoped_search_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 263;
+        return finish_probe(valid ? 0 : 263);
     }
-    wchar_t pane_glyph_stress_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_PANE_GLYPH_STRESS_PROBE", pane_glyph_stress_only, 2) == 1 &&
-        pane_glyph_stress_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_PANE_GLYPH_STRESS_PROBE")) {
         const bool valid = initialize_fixture(true) && native_pane_glyph_stress_probe(g_probe.renderer);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "pane_glyph_stress_native_ui_passed" : "pane_glyph_stress_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 262;
+        return finish_probe(valid ? 0 : 262);
     }
     if (resize_stress_requested()) {
         // Live-resize stress over the rich-message fixture in a shown window:
@@ -10427,110 +10075,70 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : static_cast<int>(g_probe.failure_stage != 0 ? g_probe.failure_stage : 7u);
     }
-    wchar_t guild_roles_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_GUILD_ROLES_PROBE", guild_roles_only, 2) == 1 &&
-        guild_roles_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_GUILD_ROLES_PROBE")) {
         const bool valid = initialize_fixture(true) && guild_roles_ui_probe(g_probe.renderer);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "guild_roles_native_ui_passed" : "guild_roles_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 279;
+        return finish_probe(valid ? 0 : 279);
     }
-    wchar_t channel_overview_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_CHANNEL_OVERVIEW_PROBE", channel_overview_only, 2) == 1 &&
-        channel_overview_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_CHANNEL_OVERVIEW_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            channel_overview_ui_probe(g_probe.renderer, g_probe.text_measure_cache);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "channel_overview_native_ui_passed" : "channel_overview_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 261;
+        return finish_probe(valid ? 0 : 261);
     }
-    wchar_t long_embed_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_LONG_EMBED_UI_PROBE", long_embed_only, 2) == 1 &&
-        long_embed_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_LONG_EMBED_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_long_embed_text() && probe_embed_code_block();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "long_embed_native_ui_passed" : "long_embed_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 263;
+        return finish_probe(valid ? 0 : 263);
     }
-    wchar_t surface_motion_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_SURFACE_MOTION_PROBE", surface_motion_only, 2) == 1 &&
-        surface_motion_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_SURFACE_MOTION_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_ui_surface_motion();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "surface_motion_native_ui_passed" : "surface_motion_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 260;
+        return finish_probe(valid ? 0 : 260);
     }
-    wchar_t media_favorites_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_MEDIA_FAVORITES_UI_PROBE", media_favorites_only, 2) == 1 &&
-        media_favorites_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_MEDIA_FAVORITES_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_media_gallery(true);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "media_favorites_native_ui_passed" : "media_favorites_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 259;
+        return finish_probe(valid ? 0 : 259);
     }
-    wchar_t media_picker_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_MEDIA_PICKER_UI_PROBE", media_picker_only, 2) == 1 &&
-        media_picker_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_MEDIA_PICKER_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_media_gallery();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "media_gallery_native_ui_passed" : "media_gallery_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 258;
+        return finish_probe(valid ? 0 : 258);
     }
-    wchar_t forwarded_messages_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_FORWARDED_MESSAGES_PROBE", forwarded_messages_only, 2) == 1 &&
-        forwarded_messages_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_FORWARDED_MESSAGES_PROBE")) {
         const bool valid = initialize_fixture(true) && forwarded_messages_ui_probe(
             g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "forwarded_messages_native_ui_passed" : "forwarded_messages_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 289;
+        return finish_probe(valid ? 0 : 289);
     }
-    wchar_t shortcuts_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_SHORTCUTS_PROBE", shortcuts_only, 2) == 1 && shortcuts_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_SHORTCUTS_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            shortcuts_ui_probe(g_probe.renderer, +[](const wchar_t* filename, const Theme& theme) noexcept {
                                return probe_capture_frame(filename, theme);
                            });
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 397;
+        return finish_probe(valid ? 0 : 397);
     }
-    wchar_t media_memory_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_MEDIA_MEMORY_PROBE", media_memory_only, 2) == 1 &&
-        media_memory_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_MEDIA_MEMORY_PROBE")) {
         // Atlas growth/trim pixels and GPU memory of synthetic media workloads.
         const bool valid = initialize_fixture(true) && media_memory_probe(g_probe.renderer);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 156;
+        return finish_probe(valid ? 0 : 156);
     }
-    wchar_t call_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_CALL_PROBE", call_only, 2) == 1 && call_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_CALL_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            call_scene_ui_probe(g_probe.renderer, +[](const wchar_t* filename, const Theme& theme) noexcept {
                                return probe_capture_frame(filename, theme);
                            });
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 398;
+        return finish_probe(valid ? 0 : 398);
     }
-    wchar_t downloads_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_DOWNLOAD_PROBE", downloads_only, 2) == 1 &&
-        downloads_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_DOWNLOAD_PROBE")) {
         const auto capture_download = +[](const wchar_t* filename, const Theme& theme) noexcept {
             const auto* scene = g_probe.renderer.download_scene;
             if (scene && scene->active && theme.text_primary.red > .7f) {
@@ -10544,134 +10152,86 @@ int run_probe() noexcept {
                            download_ui_probe(g_probe.renderer, capture_download);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "downloads_native_ui_passed" : "downloads_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 291;
+        return finish_probe(valid ? 0 : 291);
     }
-    wchar_t reply_draft_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_REPLY_DRAFT_PROBE", reply_draft_only, 2) == 1 &&
-        reply_draft_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_REPLY_DRAFT_PROBE")) {
         const bool valid = initialize_fixture(true) && reply_draft_ui_probe(
             g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "reply_draft_native_ui_passed" : "reply_draft_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 296;
+        return finish_probe(valid ? 0 : 296);
     }
-    wchar_t forum_media_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_FORUM_MEDIA_PROBE", forum_media_only, 2) == 1 &&
-        forum_media_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_FORUM_MEDIA_PROBE")) {
         const bool valid =
             initialize_fixture(true) && forum_post_ui_probe(g_probe.renderer, g_probe.text_measure_cache,
                                                             g_probe.window, probe_capture_frame, true);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "forum_media_native_ui_passed" : "forum_media_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 301;
+        return finish_probe(valid ? 0 : 301);
     }
-    wchar_t thread_creation_only[2]{};
-    wchar_t forum_post_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_FORUM_POST_PROBE", forum_post_only, 2) == 1 &&
-        forum_post_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_FORUM_POST_PROBE")) {
         const bool valid =
             initialize_fixture(true) && forum_post_ui_probe(g_probe.renderer, g_probe.text_measure_cache,
                                                             g_probe.window, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "forum_post_native_ui_passed" : "forum_post_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 299;
+        return finish_probe(valid ? 0 : 299);
     }
-    if (GetEnvironmentVariableW(L"MAICORD_UI_THREAD_CREATION_PROBE", thread_creation_only, 2) == 1 &&
-        thread_creation_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_THREAD_CREATION_PROBE")) {
         const bool valid = initialize_fixture(true) && thread_creation_ui_probe(
             g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "thread_creation_native_ui_passed" : "thread_creation_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 298;
+        return finish_probe(valid ? 0 : 298);
     }
-    wchar_t thread_browser_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_THREAD_BROWSER_PROBE", thread_browser_only, 2) == 1 &&
-        thread_browser_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_THREAD_BROWSER_PROBE")) {
         const bool valid = initialize_fixture(true) && thread_browser_ui_probe(
             g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "thread_browser_native_ui_passed" : "thread_browser_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 297;
+        return finish_probe(valid ? 0 : 297);
     }
-    wchar_t thread_membership_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_THREAD_MEMBERSHIP_PROBE", thread_membership_only, 2) == 1 &&
-        thread_membership_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_THREAD_MEMBERSHIP_PROBE")) {
         const bool valid = initialize_fixture(true) && thread_membership_ui_probe(
             g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "thread_membership_native_ui_passed" : "thread_membership_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 295;
+        return finish_probe(valid ? 0 : 295);
     }
-    wchar_t reaction_intent_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_REACTION_INTENT_PROBE", reaction_intent_only, 2) == 1 &&
-        reaction_intent_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_REACTION_INTENT_PROBE")) {
         const bool valid = initialize_fixture(true) && reaction_intent_ui_probe(
             g_probe.renderer,g_probe.text_measure_cache,g_probe.window,probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error,"probe",
             valid ? "reaction_intent_native_ui_passed" : "reaction_intent_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 294;
+        return finish_probe(valid ? 0 : 294);
     }
-    wchar_t rich_search_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_RICH_SEARCH_PROBE", rich_search_only, 2) == 1 &&
-        rich_search_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_RICH_SEARCH_PROBE")) {
         const bool valid = initialize_fixture(true) && rich_search_ui_probe(
             g_probe.renderer,g_probe.text_measure_cache,probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error,"probe",
             valid ? "rich_search_native_ui_passed" : "rich_search_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 293;
+        return finish_probe(valid ? 0 : 293);
     }
-    wchar_t unread_boundary_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_UNREAD_BOUNDARY_PROBE", unread_boundary_only, 2) == 1 &&
-        unread_boundary_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_UNREAD_BOUNDARY_PROBE")) {
         const bool valid = initialize_fixture(true) && unread_boundary_ui_probe(
             g_probe.renderer,g_probe.text_measure_cache,probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error,"probe",
             valid ? "unread_boundary_native_ui_passed" : "unread_boundary_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 292;
+        return finish_probe(valid ? 0 : 292);
     }
-    wchar_t message_forward_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_MESSAGE_FORWARD_PROBE", message_forward_only, 2) == 1 &&
-        message_forward_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_MESSAGE_FORWARD_PROBE")) {
         const bool valid = initialize_fixture(true) && message_forward_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "message_forward_native_ui_passed" : "message_forward_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 290;
+        return finish_probe(valid ? 0 : 290);
     }
-    wchar_t quick_switcher_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_QUICK_SWITCHER_PROBE", quick_switcher_only, 2) == 1 &&
-        quick_switcher_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_QUICK_SWITCHER_PROBE")) {
         const bool valid = initialize_fixture(true) && quick_switcher_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "quick_switcher_native_ui_passed" : "quick_switcher_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 288;
+        return finish_probe(valid ? 0 : 288);
     }
-    wchar_t composer_workflow_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_COMPOSER_WORKFLOW_PROBE", composer_workflow_only, 2) == 1 &&
-        composer_workflow_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_COMPOSER_WORKFLOW_PROBE")) {
         const auto publish = +[](const ComposerWorkflowProbeState& state) noexcept {
             auto& renderer = g_probe.renderer;
             const float width = renderer.width * 96.f / maximum(renderer.dpi, 1u);
@@ -10704,79 +10264,53 @@ int run_probe() noexcept {
             publish, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "composer_workflow_native_ui_passed" : "composer_workflow_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 287;
+        return finish_probe(valid ? 0 : 287);
     }
-    wchar_t pinned_messages_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_UI_PINNED_MESSAGES_PROBE", pinned_messages_only, 2) == 1 &&
-        pinned_messages_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_UI_PINNED_MESSAGES_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            pinned_messages_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "pinned_messages_native_ui_passed" : "pinned_messages_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 286;
+        return finish_probe(valid ? 0 : 286);
     }
-    wchar_t search_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_SEARCH_UI_PROBE", search_only, 2) == 1 &&
-        search_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_SEARCH_UI_PROBE")) {
         const bool valid =
             initialize_fixture(true) && search_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "search_native_ui_passed" : "search_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 256;
+        return finish_probe(valid ? 0 : 256);
     }
-    wchar_t tooltip_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_TOOLTIP_UI_PROBE", tooltip_only, 2) == 1 &&
-        tooltip_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_TOOLTIP_UI_PROBE")) {
         const bool valid =
             initialize_fixture(true) && tooltip_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "tooltip_native_ui_passed" : "tooltip_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 254;
+        return finish_probe(valid ? 0 : 254);
     }
     if (GetEnvironmentVariableW(L"MAICORD_TOAST_UI_PROBE", nullptr, 0)) {
         const bool valid = initialize_fixture(true) && toast_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "toast_native_ui_passed" : "toast_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 276;
+        return finish_probe(valid ? 0 : 276);
     }
     if(GetEnvironmentVariableW(L"MAICORD_CATALOG_APNG_UI_PROBE",nullptr,0)) {
         const bool valid=initialize_fixture(true) && probe_catalog_apng();
         log_write(valid?LogLevel::info:LogLevel::error,"probe",valid?"catalog_apng_native_ui_passed":"catalog_apng_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);DestroyWindow(g_probe.window);return valid?0:273;
+        return finish_probe(valid?0:273);
     }
-    wchar_t transparent_guild_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_TRANSPARENT_GUILD_UI_PROBE", transparent_guild_only, 2) == 1 &&
-        transparent_guild_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_TRANSPARENT_GUILD_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_transparent_guild_icon();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "transparent_guild_native_ui_passed" : "transparent_guild_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 271;
+        return finish_probe(valid ? 0 : 271);
     }
-    wchar_t profile_editor_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_PROFILE_EDITOR_UI_PROBE", profile_editor_only, 2) == 1 &&
-        profile_editor_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_PROFILE_EDITOR_UI_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            profile_editor_ui_probe(g_probe.renderer, &g_probe.text_measure_cache, &g_probe.chat_state,
                                                    &g_probe.users, probe_capture_frame);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 272;
+        return finish_probe(valid ? 0 : 272);
     }
-    wchar_t activity_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_PROFILE_ACTIVITY_UI_PROBE", activity_only, 2) == 1 &&
-        activity_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_PROFILE_ACTIVITY_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_profile_activity_card();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "profile_activity_native_ui_passed" : "profile_activity_native_ui_failed");
@@ -10784,30 +10318,20 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : static_cast<int>(g_probe.failure_stage ? g_probe.failure_stage : 742);
     }
-    wchar_t braille_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_PROFILE_BRAILLE_UI_PROBE", braille_only, 2) == 1 &&
-        braille_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_PROFILE_BRAILLE_UI_PROBE")) {
         const bool valid = initialize_fixture(true) && probe_braille_profile();
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
             valid ? "braille_profile_native_ui_passed" : "braille_profile_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 270;
+        return finish_probe(valid ? 0 : 270);
     }
-    wchar_t animation_handoff_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_ANIMATION_HANDOFF_UI_PROBE", animation_handoff_only, 2) == 1 &&
-        animation_handoff_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_ANIMATION_HANDOFF_UI_PROBE")) {
         bool valid = initialize_fixture(true);
         valid = valid && application_media_animation_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "animation_handoff_native_ui_passed" : "animation_handoff_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 252;
+        return finish_probe(valid ? 0 : 252);
     }
-    wchar_t menu_rows_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_MENU_ROW_UI_PROBE", menu_rows_only, 2) == 1 &&
-        menu_rows_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_MENU_ROW_UI_PROBE")) {
         bool valid = initialize_fixture(true);
         if (!valid) {
             log_u64(LogLevel::error, "probe", "menu_rows_fixture_failure_stage", g_probe.failure_stage);
@@ -10815,13 +10339,9 @@ int run_probe() noexcept {
         valid = valid && menu_row_ui_probe(g_probe.renderer, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "shared_menu_rows_ui_passed" : "shared_menu_rows_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 251;
+        return finish_probe(valid ? 0 : 251);
     }
-    wchar_t video_controls_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_VIDEO_CONTROLS_UI_PROBE", video_controls_only, 2) == 1 &&
-        video_controls_only[0] == L'1') {
+    if (probe_option_enabled(L"MAICORD_VIDEO_CONTROLS_UI_PROBE")) {
         bool valid = initialize_fixture(true);
         if (!valid)
             log_u64(LogLevel::error, "probe", "video_controls_fixture_failure_stage",
@@ -10844,9 +10364,7 @@ int run_probe() noexcept {
                                                   probe_sync_shell_and_text, probe_capture_frame);
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "video_controls_injected_ui_passed" : "video_controls_injected_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 250;
+        return finish_probe(valid ? 0 : 250);
     }
     if (plugin_catalog_requested) {
         const bool valid =
@@ -10854,9 +10372,7 @@ int run_probe() noexcept {
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "plugin_catalog_isolated_production_descriptors_passed"
                         : "plugin_catalog_isolated_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 247;
+        return finish_probe(valid ? 0 : 247);
     }
     if (caption_requested) {
         bool valid = initialize_fixture(true);
@@ -10882,16 +10398,12 @@ int run_probe() noexcept {
     if (notification_settings_requested) {
         const bool valid = initialize_fixture(true) &&
                            notification_settings_ui_probe(g_probe.renderer, probe_capture_frame);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 249;
+        return finish_probe(valid ? 0 : 249);
     }
     if (user_settings_requested) {
         const bool valid = initialize_fixture(true) &&
                            user_settings_ui_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 302;
+        return finish_probe(valid ? 0 : 302);
     }
     const char password_mask[] = {static_cast<char>(0xE2u), static_cast<char>(0x80u),
                                   static_cast<char>(0xA2u), static_cast<char>(0xE2u),
@@ -10901,9 +10413,7 @@ int run_probe() noexcept {
     QrCode login_qr{};
     if (!qr_code_encode_v5_m(ConstSlice<u8>{reinterpret_cast<const u8*>(qr_payload.data), qr_payload.bytes},
                              &login_qr)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 8;
+        return finish_probe(8);
     }
     const RendererLoginView login_view{utf8_literal("native.user@example.test"),
                                        Utf8View{password_mask, sizeof(password_mask)},
@@ -10922,60 +10432,22 @@ int run_probe() noexcept {
                                        false,
                                        false,
                                        true};
-    wchar_t tibetan_wrap_only[2]{};
-    const bool tibetan_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_TIBETAN_WRAP_RENDER_PROBE", tibetan_wrap_only, 2) == 1 &&
-        tibetan_wrap_only[0] == L'1';
-    wchar_t myanmar_wrap_only[2]{};
-    const bool myanmar_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_MYANMAR_WRAP_RENDER_PROBE", myanmar_wrap_only, 2) == 1 &&
-        myanmar_wrap_only[0] == L'1';
-    wchar_t khmer_wrap_only[2]{};
-    const bool khmer_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_KHMER_WRAP_RENDER_PROBE", khmer_wrap_only, 2) == 1 &&
-        khmer_wrap_only[0] == L'1';
-    wchar_t sinhala_wrap_only[2]{};
-    const bool sinhala_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_SINHALA_WRAP_RENDER_PROBE", sinhala_wrap_only, 2) == 1 &&
-        sinhala_wrap_only[0] == L'1';
-    wchar_t malayalam_wrap_only[2]{};
-    const bool malayalam_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_MALAYALAM_WRAP_RENDER_PROBE", malayalam_wrap_only, 2) == 1 &&
-        malayalam_wrap_only[0] == L'1';
-    wchar_t kannada_wrap_only[2]{};
-    const bool kannada_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_KANNADA_WRAP_RENDER_PROBE", kannada_wrap_only, 2) == 1 &&
-        kannada_wrap_only[0] == L'1';
-    wchar_t telugu_wrap_only[2]{};
-    const bool telugu_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_TELUGU_WRAP_RENDER_PROBE", telugu_wrap_only, 2) == 1 &&
-        telugu_wrap_only[0] == L'1';
-    wchar_t odia_wrap_only[2]{};
-    const bool odia_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_ODIA_WRAP_RENDER_PROBE", odia_wrap_only, 2) == 1 &&
-        odia_wrap_only[0] == L'1';
-    wchar_t gurmukhi_wrap_only[2]{};
-    const bool gurmukhi_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_GURMUKHI_WRAP_RENDER_PROBE", gurmukhi_wrap_only, 2) == 1 &&
-        gurmukhi_wrap_only[0] == L'1';
-    wchar_t gujarati_wrap_only[2]{};
-    const bool gujarati_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_GUJARATI_WRAP_RENDER_PROBE", gujarati_wrap_only, 2) == 1 &&
-        gujarati_wrap_only[0] == L'1';
-    wchar_t bengali_wrap_only[2]{};
-    const bool bengali_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_BENGALI_WRAP_RENDER_PROBE", bengali_wrap_only, 2) == 1 &&
-        bengali_wrap_only[0] == L'1';
-    wchar_t tamil_wrap_only[2]{};
-    const bool tamil_wrap_render =
-        GetEnvironmentVariableW(L"MAICORD_TAMIL_WRAP_RENDER_PROBE", tamil_wrap_only, 2) == 1 &&
-        tamil_wrap_only[0] == L'1';
-    wchar_t thai_wrap_only[2]{};
+    const bool tibetan_wrap_render = probe_option_enabled(L"MAICORD_TIBETAN_WRAP_RENDER_PROBE");
+    const bool myanmar_wrap_render = probe_option_enabled(L"MAICORD_MYANMAR_WRAP_RENDER_PROBE");
+    const bool khmer_wrap_render = probe_option_enabled(L"MAICORD_KHMER_WRAP_RENDER_PROBE");
+    const bool sinhala_wrap_render = probe_option_enabled(L"MAICORD_SINHALA_WRAP_RENDER_PROBE");
+    const bool malayalam_wrap_render = probe_option_enabled(L"MAICORD_MALAYALAM_WRAP_RENDER_PROBE");
+    const bool kannada_wrap_render = probe_option_enabled(L"MAICORD_KANNADA_WRAP_RENDER_PROBE");
+    const bool telugu_wrap_render = probe_option_enabled(L"MAICORD_TELUGU_WRAP_RENDER_PROBE");
+    const bool odia_wrap_render = probe_option_enabled(L"MAICORD_ODIA_WRAP_RENDER_PROBE");
+    const bool gurmukhi_wrap_render = probe_option_enabled(L"MAICORD_GURMUKHI_WRAP_RENDER_PROBE");
+    const bool gujarati_wrap_render = probe_option_enabled(L"MAICORD_GUJARATI_WRAP_RENDER_PROBE");
+    const bool bengali_wrap_render = probe_option_enabled(L"MAICORD_BENGALI_WRAP_RENDER_PROBE");
+    const bool tamil_wrap_render = probe_option_enabled(L"MAICORD_TAMIL_WRAP_RENDER_PROBE");
     if (tibetan_wrap_render || myanmar_wrap_render || khmer_wrap_render || sinhala_wrap_render ||
         malayalam_wrap_render || kannada_wrap_render || telugu_wrap_render || odia_wrap_render ||
         gurmukhi_wrap_render || gujarati_wrap_render || bengali_wrap_render || tamil_wrap_render ||
-        (GetEnvironmentVariableW(L"MAICORD_THAI_WRAP_RENDER_PROBE", thai_wrap_only, 2) == 1 &&
-         thai_wrap_only[0] == L'1')) {
+        (probe_option_enabled(L"MAICORD_THAI_WRAP_RENDER_PROBE"))) {
         const bool valid = initialize_fixture(true) &&
                            probe_script_wrapped(tibetan_wrap_render     ? WrappedProbeScript::tibetan
                                                 : myanmar_wrap_render   ? WrappedProbeScript::myanmar
@@ -11021,32 +10493,18 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : 241;
     }
-    wchar_t extended_only[2]{}, hangul_only[2]{}, standard_only[2]{}, deva_only[2]{},
-        deva_tracking_only[2]{}, deva_direction_only[2]{}, direction_tracking_only[2]{};
-    const bool direction_tracking_render =
-        GetEnvironmentVariableW(L"MAICORD_DIRECTION_TRACKING_RENDER_PROBE", direction_tracking_only, 2) ==
-            1 &&
-        direction_tracking_only[0] == L'1';
-    const bool deva_direction_render = GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_DIRECTION_RENDER_PROBE",
-                                                               deva_direction_only, 2) == 1 &&
-                                       deva_direction_only[0] == L'1';
-    const bool deva_tracking_render =
-        GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_TRACKING_RENDER_PROBE", deva_tracking_only, 2) == 1 &&
-        deva_tracking_only[0] == L'1';
+    const bool direction_tracking_render = probe_option_enabled(L"MAICORD_DIRECTION_TRACKING_RENDER_PROBE");
+    const bool deva_direction_render = probe_option_enabled(L"MAICORD_DEVANAGARI_DIRECTION_RENDER_PROBE");
+    const bool deva_tracking_render = probe_option_enabled(L"MAICORD_DEVANAGARI_TRACKING_RENDER_PROBE");
     const bool deva_render =
         direction_tracking_render || deva_direction_render || deva_tracking_render ||
-        (GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_RENDER_PROBE", deva_only, 2) == 1 &&
-         deva_only[0] == L'1');
-    const bool extended_render =
-        GetEnvironmentVariableW(L"MAICORD_EXTENDED_STANDARD_RENDER_PROBE", extended_only, 2) == 1 &&
-        extended_only[0] == L'1';
+        (probe_option_enabled(L"MAICORD_DEVANAGARI_RENDER_PROBE"));
+    const bool extended_render = probe_option_enabled(L"MAICORD_EXTENDED_STANDARD_RENDER_PROBE");
     const bool standard_render =
         extended_render ||
-        (GetEnvironmentVariableW(L"MAICORD_STANDARD_RENDER_PROBE", standard_only, 2) == 1 &&
-         standard_only[0] == L'1');
+        (probe_option_enabled(L"MAICORD_STANDARD_RENDER_PROBE"));
     if (deva_render || standard_render ||
-        (GetEnvironmentVariableW(L"MAICORD_HANGUL_RENDER_PROBE", hangul_only, 2) == 1 &&
-         hangul_only[0] == L'1')) {
+        (probe_option_enabled(L"MAICORD_HANGUL_RENDER_PROBE"))) {
         const Utf8View hangul_samples[]{utf8_literal("한국어 메시지 😀"), utf8_literal("한글 각 각"),
                                         utf8_literal("ᄓᅡᇫ ᅟᅠᆨ 가〮 각〯"),
                                         utf8_literal("〮 가〮〯 가〮")};
@@ -11249,9 +10707,7 @@ int run_probe() noexcept {
                 g_probe.renderer.glyph_text.title_quad_count);
         log_u64(LogLevel::error, "probe", "login_paint_quads", g_probe.renderer.paint_stream.count);
         log_u64(LogLevel::error, "probe", "login_present_required", g_probe.renderer.present_required);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 8;
+        return finish_probe(8);
     }
     RendererLoginView restoring_view = login_view;
     restoring_view.status = RendererLoginStatus::restoring_session;
@@ -11261,9 +10717,7 @@ int run_probe() noexcept {
         !probe_present(&g_probe.renderer, kDefaultTheme) || !probe_login_pixels() ||
         !probe_capture_frame(L"login-text.bmp")) {
         log_write(LogLevel::error, "probe", "login_restore_text_pixels_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 8;
+        return finish_probe(8);
     }
     log_write(LogLevel::info, "probe", "login_and_restore_text_pixels_passed");
     char color_emoji_login[30 * 4]{};
@@ -11283,17 +10737,13 @@ int run_probe() noexcept {
     for (u32 iteration = 0; iteration < color_emoji_iterations; ++iteration) {
         if (!set_probe_login_view(color_emoji_view)) {
             log_u64(LogLevel::error, "probe", "color_emoji_login_failed_iteration", iteration);
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            return 8;
+            return finish_probe(8);
         }
         if (iteration == 0)
             warm_color_cache_builds = g_probe.renderer.glyph_text.cache_builds;
         else if (g_probe.renderer.glyph_text.cache_builds != warm_color_cache_builds) {
             log_write(LogLevel::error, "probe", "cached_colrv1_glyph_was_rasterized_again");
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            return 8;
+            return finish_probe(8);
         }
     }
     const bool color_factory_ready = g_probe.renderer.glyph_text.color_glyphs;
@@ -11320,9 +10770,7 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "color_emoji_cache_after",
                 g_probe.renderer.glyph_text.cache_builds);
         log_u64(LogLevel::error, "probe", "color_emoji_login_restored", login_restored);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 8;
+        return finish_probe(8);
     }
     const LoginScene& login_scene = g_probe.login_scene;
     const UiRect password_field = login_scene_rectangle(login_scene, LoginElement::password_field);
@@ -11334,9 +10782,7 @@ int run_probe() noexcept {
             login_scene, static_cast<float>(password_x) * 96.0f / static_cast<float>(g_probe.renderer.dpi),
             static_cast<float>(password_y) * 96.0f / static_cast<float>(g_probe.renderer.dpi)) !=
         LoginControl::password) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     RendererLoginView edit_view = login_view;
     edit_view.edit_anchor = 6;
@@ -11348,9 +10794,7 @@ int run_probe() noexcept {
     if (!set_probe_login_view(edit_view) || !probe_present(&g_probe.renderer, kDefaultTheme) ||
         !g_probe.renderer.login_edit.active || g_probe.renderer.login_edit.selection_count == 0 ||
         g_probe.renderer.login_edit.caret.height <= 0.0f || !probe_login_edit_centered()) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     const u32 original_login_dpi = g_probe.renderer.dpi;
     constexpr u32 login_dpis[]{96, 120, 144, 192};
@@ -11375,9 +10819,7 @@ int run_probe() noexcept {
                 (sample == 0 && dpi == 96 && !probe_capture_frame(L"login-caret-empty.bmp")) ||
                 (sample == 1 && dpi == 96 && !probe_capture_frame(L"login-caret-selection.bmp"))) {
                 log_write(LogLevel::error, "probe", "login_caret_alignment_failed");
-                renderer_shutdown(&g_probe.renderer);
-                DestroyWindow(g_probe.window);
-                return 9;
+                return finish_probe(9);
             }
         }
     }
@@ -11389,9 +10831,7 @@ int run_probe() noexcept {
     const u32 login_edit_hits = g_probe.renderer.login_edit.hits;
     if (!set_probe_login_view(edit_view) || g_probe.renderer.login_edit.builds != login_edit_builds ||
         g_probe.renderer.login_edit.hits != login_edit_hits + 1u) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     const UiRect edit_field = login_scene_content_rectangle(g_probe.login_scene, LoginElement::login_field);
     const i32 edit_start_x =
@@ -11407,24 +10847,18 @@ int run_probe() noexcept {
         !renderer_login_edit_hit_test(g_probe.renderer, edit_field, edit_view.login, edit_end_x, edit_y,
                                       &edit_end) ||
         edit_start != 0 || edit_end != utf8_validate(edit_view.login).codepoints) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     const u32 edit_paint_with_caret = g_probe.renderer.paint_stream.count;
     renderer_set_login_caret_visible(&g_probe.renderer, false);
     if (g_probe.renderer.login_caret_visible || !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream.count + 1 != edit_paint_with_caret) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     renderer_set_login_caret_visible(&g_probe.renderer, true);
     if (!g_probe.renderer.login_caret_visible || !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream.count != edit_paint_with_caret) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     // Synthetic scene projections exercise the shipping renderer/policy only;
     // they do not claim a live provider response or authentication cancellation.
@@ -11463,9 +10897,7 @@ int run_probe() noexcept {
             if (!valid || !probe_present(&g_probe.renderer, kDefaultTheme) ||
                 !probe_capture_frame(names[sample])) {
                 log_write(LogLevel::error, "probe", "login_blocked_flow_projection_failed");
-                renderer_shutdown(&g_probe.renderer);
-                DestroyWindow(g_probe.window);
-                return 9;
+                return finish_probe(9);
             }
         }
         RendererLoginView restored{};
@@ -11485,9 +10917,7 @@ int run_probe() noexcept {
             !probe_present(&g_probe.renderer, kDefaultTheme) ||
             !probe_capture_frame(L"login-flow-restored-credentials.bmp")) {
             log_write(LogLevel::error, "probe", "login_restored_flow_projection_failed");
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            return 9;
+            return finish_probe(9);
         }
         log_write(LogLevel::info, "probe", "login_blocked_back_and_restored_projections_passed");
     }
@@ -11496,9 +10926,7 @@ int run_probe() noexcept {
     mobile_view.status = RendererLoginStatus::remote_mobile_pending;
     mobile_view.focus = LoginControl::submit;
     if (!set_probe_login_view(mobile_view) || !probe_present(&g_probe.renderer, kDefaultTheme)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     RendererLoginView expired_view = mobile_view;
     expired_view.remote_user = {};
@@ -11506,9 +10934,7 @@ int run_probe() noexcept {
     expired_view.status = RendererLoginStatus::remote_expired;
     expired_view.focus = LoginControl::qr;
     if (!set_probe_login_view(expired_view) || !probe_present(&g_probe.renderer, kDefaultTheme)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     const RendererLoginView mfa_view{utf8_literal("native.user@example.test"),
                                      {},
@@ -11530,9 +10956,7 @@ int run_probe() noexcept {
                                      false,
                                      true};
     if (!set_probe_login_view(mfa_view)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     const LoginScene& mfa_scene = g_probe.login_scene;
     const UiRect mfa_backup = login_scene_rectangle(mfa_scene, LoginElement::mfa_backup);
@@ -11544,9 +10968,7 @@ int run_probe() noexcept {
             mfa_scene, static_cast<float>(backup_x) * 96.0f / static_cast<float>(g_probe.renderer.dpi),
             static_cast<float>(backup_y) * 96.0f / static_cast<float>(g_probe.renderer.dpi)) !=
         LoginControl::mfa_backup) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     RendererLoginView backup_acknowledgement_view = mfa_view;
     backup_acknowledgement_view.focus = LoginControl::submit;
@@ -11559,9 +10981,7 @@ int run_probe() noexcept {
         !probe_present(&g_probe.renderer, kDefaultTheme) || !g_probe.login_scene.credential_fields_hidden ||
         login_scene_element(g_probe.login_scene, LoginElement::password_field) ||
         !g_probe.login_scene.action_disabled) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (!set_probe_login_view(RendererLoginView{{},
                                                 {},
@@ -11580,34 +11000,24 @@ int run_probe() noexcept {
                                                 false,
                                                 false,
                                                 false})) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     // Recovery uses the standalone login renderer before account text is bound.
     if (!login_recovery_ui_probe(g_probe.renderer, probe_capture_frame, probe_login_recovery_text_pixels)) {
         log_write(LogLevel::error, "probe", "login_recovery_standalone_pixel_probe_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (!login_reset_ui_probe(g_probe.renderer, probe_capture_frame, probe_login_recovery_text_pixels)) {
         log_write(LogLevel::error, "probe", "login_reset_standalone_pixel_probe_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (!login_phone_ui_probe(g_probe.renderer, probe_capture_frame, probe_login_recovery_text_pixels)) {
         log_write(LogLevel::error, "probe", "login_phone_standalone_pixel_probe_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (!login_browser_ui_probe(g_probe.renderer, probe_capture_frame, probe_login_recovery_text_pixels)) {
         log_write(LogLevel::error, "probe", "login_browser_standalone_pixel_probe_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 9;
+        return finish_probe(9);
     }
     if (!initialize_fixture(flag_surfaces_requested)) {
         renderer_shutdown(&g_probe.renderer);
@@ -11672,20 +11082,14 @@ int run_probe() noexcept {
         renderer_presentation_stamp_equal(complete_stamp, changed_stamp) ||
         renderer_presentation_stamp_equal(complete_stamp, scrolled_widget_stamp)) {
         log_u64(LogLevel::error, "probe", "presentation_stamp_count", complete_stamp.count);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     if (!probe_present(&g_probe.renderer, kDefaultTheme)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     if (!media_pins_match_visible_quads()) {
         log_u64(LogLevel::error, "probe", "offscreen_media_pinned_or_queued", 1);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     const u32 retained_text_uploads = g_probe.renderer.text_instance_uploads;
     const u32 retained_paint_uploads = g_probe.renderer.paint_instance_uploads;
@@ -11720,9 +11124,7 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "retained_refreshes", g_probe.renderer.media_source_refreshes);
         log_u64(LogLevel::error, "probe", "retained_unchanged_skips",
                 g_probe.renderer.unchanged_present_skips);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     MediaAtlasResult cached_visible_source{};
     MediaAssetKey cached_visible_key{};
@@ -11775,9 +11177,7 @@ int run_probe() noexcept {
         log_u64(LogLevel::error, "probe", "media_only_partial_pixels",
                 g_probe.renderer.partial_present_pixels);
         log_u64(LogLevel::error, "probe", "media_only_draws_last", g_probe.renderer.media_draws_last_frame);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     const u32 stable_media_uploads = g_probe.renderer.media_instance_uploads;
     const u32 stable_media_skips = g_probe.renderer.media_source_upload_skips;
@@ -11795,9 +11195,7 @@ int run_probe() noexcept {
         g_probe.renderer.media_draws_last_frame != 0 ||
         g_probe.renderer.unchanged_present_skips != stable_unchanged_skips + 1u) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 3);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     MediaAtlasResult live_visible_source{};
     MediaAssetKey live_visible_key{};
@@ -11845,9 +11243,7 @@ int run_probe() noexcept {
         g_probe.renderer.media_draws_last_frame == 0 ||
         g_probe.renderer.media_gpu.uploads != live_gpu_uploads + 1u) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 4);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     const u32 catch_up_partial_presents = g_probe.renderer.partial_present_draws;
     const u32 catch_up_idle_presents = g_probe.renderer.idle_begin_frame_presents;
@@ -11859,9 +11255,7 @@ int run_probe() noexcept {
         g_probe.renderer.partial_present_pixels <= catch_up_partial_pixels ||
         g_probe.renderer.media_draws_last_frame == 0 || g_probe.renderer.previous_buffer_damage_valid) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 5);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     const u32 post_live_unchanged_skips = g_probe.renderer.unchanged_present_skips;
     const u32 post_live_media_draws_total = g_probe.renderer.media_draws_total;
@@ -11870,14 +11264,10 @@ int run_probe() noexcept {
         g_probe.renderer.media_draws_total != post_live_media_draws_total ||
         g_probe.renderer.media_draws_last_frame != 0) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 6);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 4;
+        return finish_probe(4);
     }
     if (g_probe.text.message_geometry_quads < 6) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 5;
+        return finish_probe(5);
     }
     // One live media upload and the reaction picker's server-icon fixture.
     if (g_probe.renderer.media_draws_last_frame != 0 || g_probe.renderer.media_gpu.uploads != 2 ||
@@ -11954,20 +11344,14 @@ int run_probe() noexcept {
             log_u64(LogLevel::error, "probe", "media_atlas_variant", entry.key.variant);
             log_u64(LogLevel::error, "probe", "media_atlas_flags", entry.key.flags);
         }
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 6;
+        return finish_probe(6);
     }
     if (!video_retention_probe(g_probe.renderer, live_visible_key, live_visible_source.width,
                                live_visible_source.height)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 10;
+        return finish_probe(10);
     }
     if (!animation_preview_probe(g_probe.renderer)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 11;
+        return finish_probe(11);
     }
     if (once_requested()) {
         {
@@ -11998,9 +11382,7 @@ int run_probe() noexcept {
         if (!video_frame_reference_probe(g_probe.renderer))
             return 1;
         if (!gif_scroll_probe(g_probe.renderer, true)) {
-            renderer_shutdown(&g_probe.renderer);
-            DestroyWindow(g_probe.window);
-            return 12;
+            return finish_probe(12);
         }
         if (!message_scene_navigate(&g_probe.message_scene, UiListMove::first).message_id ||
             !rebuild_probe_content_text())
