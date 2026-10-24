@@ -36,6 +36,27 @@ enum class CdnHost : u8 {
     // i.scdn.co: Spotify album art of rich presence cards ("/image/<id>" as
     // JPEG), which the official client loads from there too.
     activity_art,
+    // Resolved, credential-free YouTube media only. CDN client targets carry
+    // the full HTTPS URL because Google assigns a per-stream subdomain.
+    google_video,
+    tiktok_video,
+    twitch_video,
+    spotify_preview,
+    streamable_video,
+    apple_music_preview,
+    apple_music_video_preview,
+    steam_video,
+    twitch_vod,
+    twitch_live,
+    twitch_playlist,
+    imgur_video,
+    twitter_video,
+    amazon_music_preview,
+    youtube_live,
+    youtube_playlist,
+    pornhub_video,
+    vimeo_video,
+    soundcloud_audio,
 };
 inline constexpr char kActivityArtHost[] = "i.scdn.co";
 // An activity art target: "/image/" and 1-64 ASCII letters or digits.

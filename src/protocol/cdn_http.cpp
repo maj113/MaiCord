@@ -5,6 +5,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/protocol/http1.hpp"
+#include "maicord/protocol/embed_player.hpp"
 
 namespace maicord {
 bool catalog_provider_request_valid(CdnHost host, CdnImageType type,
@@ -231,7 +232,7 @@ bool parse_content_range(ConstSlice<u8> value, u64* first, u64* last, u64* lengt
 
 CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> response_head,
                                     u32 decoded_body_bytes, u64 now_seconds,
-                                    const CdnByteRange* range) noexcept;
+                                    const CdnByteRange* range, CdnHost host) noexcept;
 
 } // namespace
 
@@ -239,7 +240,9 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
                                               CdnHost host, ConstSlice<u8> target,
                                               ConstSlice<u8> etag, Slice<u8> output,
                                               CdnByteRange range) noexcept {
-    if (range.bytes && (image_type != CdnImageType::mp4 || etag.count ||
+    if (image_type == CdnImageType::hls_playlist || image_type == CdnImageType::mpeg_ts) return {0, CdnHttpError::invalid_input};
+    if (range.bytes && ((image_type != CdnImageType::mp4 && image_type != CdnImageType::m4a) || etag.count ||
+                        range.bytes > kMediaMaximumProgressiveVideoBytes ||
                         range.first > kMediaMaximumProgressiveVideoBytes - u64{range.bytes}))
         return CdnRequestResult{0, CdnHttpError::invalid_input};
     const Utf8View host_name = cdn_host_name(host);
@@ -363,24 +366,31 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
 CdnResponseResult validate_static_image_response(CdnImageType image_type,
                                                  ConstSlice<u8> response_head,
                                                  u32 decoded_body_bytes,
-                                                 u64 now_seconds) noexcept {
-    return validate_response(image_type, response_head, decoded_body_bytes, now_seconds, nullptr);
+                                                 u64 now_seconds, CdnHost host) noexcept {
+    return validate_response(image_type, response_head, decoded_body_bytes, now_seconds, nullptr, host);
 }
 
 CdnResponseResult validate_cdn_range_response(CdnImageType image_type,
                                               ConstSlice<u8> response_head,
                                               u32 decoded_body_bytes,
                                               CdnByteRange requested,
-                                              u64 now_seconds) noexcept {
-    if (image_type != CdnImageType::mp4 || !requested.bytes)
+                                              u64 now_seconds, CdnHost host) noexcept {
+    if ((image_type != CdnImageType::mp4 && image_type != CdnImageType::m4a && image_type != CdnImageType::mpeg_ts) || !requested.bytes)
         return response_failure(CdnHttpError::invalid_input);
-    return validate_response(image_type, response_head, decoded_body_bytes, now_seconds, &requested);
+    return validate_response(image_type, response_head, decoded_body_bytes, now_seconds, &requested,
+                             host);
 }
 
 namespace {
 CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> response_head,
                                     u32 decoded_body_bytes, u64 now_seconds,
-                                    const CdnByteRange* range) noexcept {
+                                    const CdnByteRange* range, CdnHost host) noexcept {
+    const bool playlist = image_type == CdnImageType::hls_playlist;
+    if (image_type == CdnImageType::mpeg_ts && host != CdnHost::twitch_live && host != CdnHost::youtube_live) return response_failure(CdnHttpError::invalid_input);
+    if (host==CdnHost::youtube_live && image_type!=CdnImageType::mpeg_ts) return response_failure(CdnHttpError::invalid_input);
+    if (playlist != embed_playlist_host(host) || (playlist && range)) return response_failure(CdnHttpError::invalid_input);
+    const bool binary_video = (image_type == CdnImageType::mp4 || image_type == CdnImageType::mpeg_ts) &&
+        (host == CdnHost::twitch_video || host == CdnHost::twitch_live || host == CdnHost::youtube_live);
     if (!response_head.data || response_head.count == 0) {
         return response_failure(CdnHttpError::invalid_input);
     }
@@ -431,7 +441,7 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
             image_type == CdnImageType::mp3 || image_type == CdnImageType::wav ||
             image_type == CdnImageType::m4a || image_type == CdnImageType::soundboard_sound;
         auto content_type = fields.content_type;
-        if (normalized_audio && fields.has_content_type) {
+        if ((normalized_audio || playlist || image_type == CdnImageType::mpeg_ts) && fields.has_content_type) {
             for (u32 i = 0; i < content_type.count; ++i)
                 if (content_type[i] == ';') {
                     content_type.count = i;
@@ -450,6 +460,8 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
             : image_type == CdnImageType::gif               ? "image/gif"
             : image_type == CdnImageType::jpeg              ? "image/jpeg"
             : image_type == CdnImageType::lottie_json       ? "application/json"
+            : image_type == CdnImageType::hls_playlist      ? "application/vnd.apple.mpegurl"
+            : image_type == CdnImageType::mpeg_ts           ? "video/mp2t"
             : image_type == CdnImageType::regional_flag_svg ? "image/svg+xml"
                                                                    : "video/mp4";
         const bool audio_content_type =
@@ -468,14 +480,20 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
             // QuickTime movies share the ISO base media container the MP4 demuxer reads.
             (image_type == CdnImageType::mp4 &&
              http_ascii_equal_case_insensitive(fields.content_type, "video/quicktime")) ||
+            (image_type == CdnImageType::mp4 && host == CdnHost::apple_music_video_preview &&
+             http_ascii_equal_case_insensitive(fields.content_type, "video/x-m4v")) ||
             (image_type == CdnImageType::m4a &&
              (http_ascii_equal_case_insensitive(content_type, "audio/x-m4a") ||
-              http_ascii_equal_case_insensitive(content_type, "audio/m4a"))) ||
+              http_ascii_equal_case_insensitive(content_type, "audio/m4a") ||
+              ((host == CdnHost::twitch_vod || host == CdnHost::twitch_live || host == CdnHost::vimeo_video) && http_ascii_equal_case_insensitive(content_type, "video/mp4")) ||
+              // Apple's public previews use this legacy label for clear mp4a;
+              // source admission still rejects encrypted sample entries.
+              (host == CdnHost::apple_music_preview && http_ascii_equal_case_insensitive(content_type, "audio/x-m4p")))) ||
             (image_type == CdnImageType::wav &&
              (http_ascii_equal_case_insensitive(content_type, "audio/x-wav") ||
               http_ascii_equal_case_insensitive(content_type, "audio/wave") ||
               http_ascii_equal_case_insensitive(content_type, "audio/vnd.wave"))) ||
-            (normalized_audio &&
+            ((normalized_audio || binary_video) &&
              (http_ascii_equal_case_insensitive(content_type, "application/octet-stream") ||
               http_ascii_equal_case_insensitive(content_type, "binary/octet-stream")));
         if (!fields.has_content_type ||

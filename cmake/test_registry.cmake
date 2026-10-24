@@ -1915,3 +1915,79 @@ maicord_test(MaiCordRectangleGeometryTests ENTRY rectangle_geometry_entry
     SOURCES tests/rectangle_geometry.cpp
     LIBS maicord_ui maicord_core kernel32
     TIMEOUT 5 TEST maicord_rectangle_geometry)
+
+maicord_test(MaiCordEmbedProviderTests ENTRY maicord_embed_provider_entry
+    SOURCES tests/embed_provider.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_embed_provider)
+
+maicord_test(MaiCordYoutubePlayerTests ENTRY maicord_youtube_player_entry
+    SOURCES tests/youtube_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_youtube_player)
+
+maicord_test(MaiCordTikTokPlayerTests ENTRY maicord_tiktok_player_entry
+    SOURCES tests/tiktok_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_tiktok_player)
+
+maicord_test(MaiCordTwitchPlayerTests ENTRY maicord_twitch_player_entry
+    SOURCES tests/twitch_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_twitch_player)
+
+maicord_test(MaiCordSpotifyPlayerTests ENTRY maicord_spotify_player_entry
+    SOURCES tests/spotify_player.cpp
+    LIBS maicord_protocol maicord_media_core maicord_core kernel32
+    TIMEOUT 5 TEST maicord_spotify_player)
+
+maicord_test(MaiCordStreamablePlayerTests ENTRY maicord_streamable_player_entry
+    SOURCES tests/streamable_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_streamable_player)
+
+maicord_test(MaiCordPornhubPlayerTests ENTRY maicord_pornhub_player_entry
+    SOURCES tests/pornhub_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_pornhub_player)
+
+# Vimeo canonical/share routes and native timestamp parsing.
+maicord_test(MaiCordVimeoPlayerTests ENTRY maicord_vimeo_player_entry
+    SOURCES tests/vimeo_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_vimeo_player)
+
+maicord_test(MaiCordAppleMusicPlayerTests ENTRY maicord_apple_music_player_entry
+    SOURCES tests/apple_music_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_apple_music_player)
+
+maicord_test(MaiCordDashManifestTests ENTRY maicord_dash_manifest_entry
+    SOURCES tests/dash_manifest.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_dash_manifest)
+
+maicord_test(MaiCordSteamPlayerTests ENTRY maicord_steam_player_entry
+    SOURCES tests/steam_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_steam_player)
+
+maicord_test(MaiCordHlsPlaylistTests ENTRY maicord_hls_playlist_entry
+    SOURCES tests/hls_playlist.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_hls_playlist)
+
+maicord_test(MaiCordImgurPlayerTests ENTRY maicord_imgur_player_entry
+    SOURCES tests/imgur_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_imgur_player)
+
+maicord_test(MaiCordTwitterPlayerTests ENTRY maicord_twitter_player_entry
+    SOURCES tests/twitter_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_twitter_player)
+
+maicord_test(MaiCordAmazonMusicPlayerTests ENTRY maicord_amazon_music_player_entry
+    SOURCES tests/amazon_music_player.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_amazon_music_player)

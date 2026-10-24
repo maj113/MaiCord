@@ -45,6 +45,9 @@ constexpr bool media_attachment_format_audio_supported(MediaAttachmentFormat for
     return format == MediaAttachmentFormat::ogg_opus || format == MediaAttachmentFormat::mp3 ||
            format == MediaAttachmentFormat::wav || format == MediaAttachmentFormat::m4a;
 }
+constexpr bool media_embed_audio_format_supported(MediaAttachmentFormat format) noexcept {
+    return format == MediaAttachmentFormat::mp3 || format == MediaAttachmentFormat::m4a;
+}
 
 enum class MediaEmbedResource : u8 {
     none,
@@ -66,6 +69,10 @@ enum class MediaResolutionTier : u8 {
     px1024,
     px2048,
 };
+constexpr u16 media_resolution_tier_extent(MediaResolutionTier tier) noexcept {
+    return tier >= MediaResolutionTier::px64 && tier <= MediaResolutionTier::px2048
+        ? static_cast<u16>(32u << static_cast<u8>(tier)) : 0;
+}
 
 inline constexpr u32 kMediaAttachmentFormatMask = 0x7u;
 // Attachment-only high format bit. It does not overlap the resolution and Search
@@ -92,9 +99,13 @@ inline constexpr u16 kMediaEmbedResolutionShift = 10;
 inline constexpr u16 kMediaEmbedResolutionMask = 0x1C00u;
 // The same outer message owns independently indexed forwarded embed content.
 inline constexpr u16 kMediaEmbedSnapshotFlag = 0x2000u;
+// The high format bit admits native MP3/AAC previews without changing existing
+// picture identities or enlarging the shared cache key.
+inline constexpr u16 kMediaEmbedFormatExtensionFlag = 0x8000u;
 inline constexpr u16 kMediaEmbedFlagsMask = media_asset_flag_animated | kMediaEmbedIndexMask |
                                             kMediaEmbedResourceMask | kMediaEmbedFormatMask |
-                                            kMediaEmbedResolutionMask | kMediaEmbedSnapshotFlag;
+                                            kMediaEmbedResolutionMask | kMediaEmbedSnapshotFlag |
+                                            kMediaEmbedFormatExtensionFlag;
 inline constexpr u16 kMediaCatalogFormatShift = 1;
 inline constexpr u16 kMediaCatalogFormatMask = 0xEu;
 
@@ -198,7 +209,8 @@ constexpr bool media_asset_key_valid(const MediaAssetKey& key) noexcept {
         const u16 index = static_cast<u16>((key.flags & kMediaEmbedIndexMask) >> kMediaEmbedIndexShift);
         const u16 resource =
             static_cast<u16>((key.flags & kMediaEmbedResourceMask) >> kMediaEmbedResourceShift);
-        const u16 format = static_cast<u16>((key.flags & kMediaEmbedFormatMask) >> kMediaEmbedFormatShift);
+        const u16 format = static_cast<u16>(((key.flags & kMediaEmbedFormatMask) >> kMediaEmbedFormatShift) |
+                                            (key.flags & kMediaEmbedFormatExtensionFlag ? 8u : 0u));
         const u16 resolution =
             static_cast<u16>((key.flags & kMediaEmbedResolutionMask) >> kMediaEmbedResolutionShift);
         return key.variant != 0 && index < 10 &&
@@ -207,8 +219,11 @@ constexpr bool media_asset_key_valid(const MediaAssetKey& key) noexcept {
                (!(key.flags & kMediaSearchFlag) || key.variant <= kMediaSearchRevisionMaximum) &&
                resource >= static_cast<u16>(MediaEmbedResource::image) &&
                resource <= static_cast<u16>(MediaEmbedResource::video) &&
-               format >= static_cast<u16>(MediaAttachmentFormat::png) &&
-               format <= static_cast<u16>(MediaAttachmentFormat::gif) &&
+               ((format >= static_cast<u16>(MediaAttachmentFormat::png) &&
+                 format <= static_cast<u16>(MediaAttachmentFormat::gif)) ||
+                (key.kind == MediaAssetKind::embed && media_embed_audio_format_supported(static_cast<MediaAttachmentFormat>(format)) &&
+                 resource == static_cast<u16>(MediaEmbedResource::video) && !resolution &&
+                 !(key.flags & media_asset_flag_animated))) &&
                resolution <= static_cast<u16>(MediaResolutionTier::px2048) &&
                (key.flags & ~(kMediaEmbedFlagsMask | kMediaSearchFlag)) == 0;
     }
@@ -308,11 +323,14 @@ constexpr MediaAssetKey media_asset_embed(u64 message_id, u32 message_revision, 
                                           bool animated = false,
                                           MediaResolutionTier resolution = MediaResolutionTier::original,
                                           bool snapshot = false) noexcept {
+    if (format > MediaAttachmentFormat::gif && !media_embed_audio_format_supported(format)) return {};
+    if (media_embed_audio_format_supported(format)) resolution = MediaResolutionTier::original;
     if (format == MediaAttachmentFormat::mp4)
         resolution = MediaResolutionTier::px512;
     const u16 flags = static_cast<u16>(
         (animated ? media_asset_flag_animated : media_asset_flag_none) |
         (snapshot ? kMediaEmbedSnapshotFlag : 0u) |
+        (media_embed_audio_format_supported(format) ? kMediaEmbedFormatExtensionFlag : 0u) |
         ((static_cast<u16>(embed_index) << kMediaEmbedIndexShift) & kMediaEmbedIndexMask) |
         ((static_cast<u16>(resource) << kMediaEmbedResourceShift) & kMediaEmbedResourceMask) |
         ((static_cast<u16>(format) << kMediaEmbedFormatShift) & kMediaEmbedFormatMask) |
@@ -343,7 +361,7 @@ constexpr MediaAssetKey media_asset_search_embed(
     MediaResolutionTier resolution = MediaResolutionTier::original, bool snapshot = false) noexcept {
     if (!publication_revision || publication_revision > kMediaSearchRevisionMaximum || embed_index >= 10 ||
         resource < MediaEmbedResource::image || resource > MediaEmbedResource::video ||
-        format < MediaAttachmentFormat::png || format > MediaAttachmentFormat::gif ||
+        format < MediaAttachmentFormat::png || (format > MediaAttachmentFormat::gif && !media_embed_audio_format_supported(format)) ||
         resolution > MediaResolutionTier::px2048)
         return {};
     auto key = media_asset_embed(message_id, publication_revision, embed_index, resource, format, animated,
@@ -381,8 +399,14 @@ constexpr MediaEmbedResource media_asset_embed_resource(MediaAssetKey key) noexc
 }
 
 constexpr MediaAttachmentFormat media_asset_embed_format(MediaAssetKey key) noexcept {
-    return static_cast<MediaAttachmentFormat>((key.flags & kMediaEmbedFormatMask) >>
-                                              kMediaEmbedFormatShift);
+    return static_cast<MediaAttachmentFormat>(((key.flags & kMediaEmbedFormatMask) >> kMediaEmbedFormatShift) |
+                                              (key.flags & kMediaEmbedFormatExtensionFlag ? 8u : 0u));
+}
+constexpr MediaAttachmentFormat media_asset_audio_format(MediaAssetKey key) noexcept {
+    return key.kind == MediaAssetKind::attachment ? media_asset_attachment_format(key)
+         : key.kind == MediaAssetKind::embed && media_asset_embed_resource(key) == MediaEmbedResource::video &&
+           media_embed_audio_format_supported(media_asset_embed_format(key)) ? media_asset_embed_format(key)
+                                                                     : MediaAttachmentFormat::unknown;
 }
 
 constexpr MediaResolutionTier media_asset_resolution_tier(MediaAssetKey key) noexcept {

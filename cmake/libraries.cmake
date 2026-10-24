@@ -165,6 +165,12 @@ maicord_library(maicord_protocol
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.
     src/protocol/cdn_icon_hash.cpp src/protocol/guild_moderation.cpp src/protocol/voice_channel_info.cpp
+    src/protocol/embed_provider.cpp
+    src/protocol/embed_player.cpp
+    src/protocol/dash_manifest.cpp
+    src/protocol/steam_player.cpp
+    src/protocol/hls_playlist.cpp
+    src/protocol/twitch_playback.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)

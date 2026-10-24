@@ -344,8 +344,7 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     // Hash cacheable retained animation/audio sources once per download,
     // outside the lock. Audio uses a typed format, never the animation flag.
     // Hashes filter candidates; exact byte equality decides shared identity.
-    const bool audio_source = key.kind == MediaAssetKind::attachment &&
-                              media_attachment_format_audio_supported(media_asset_attachment_format(key));
+    const bool audio_source = media_attachment_format_audio_supported(media_asset_audio_format(key));
     const bool retained_source = (key.flags & media_asset_flag_animated) != 0 || audio_source;
     const u64 fingerprint =
         retained_source ? hash64_counted_bytes(kHash64Seed, encoded.data, encoded.count) : 0;
@@ -356,11 +355,10 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
         for (u32 i = 0; i < cache->entry_capacity; ++i) {
             const auto& candidate = cache->entries[i];
             const bool candidate_audio =
-                candidate.key.kind == MediaAssetKind::attachment &&
-                media_attachment_format_audio_supported(media_asset_attachment_format(candidate.key));
+                media_attachment_format_audio_supported(media_asset_audio_format(candidate.key));
             if ((audio_source || candidate_audio) &&
                 !(audio_source && candidate_audio &&
-                  media_asset_attachment_format(candidate.key) == media_asset_attachment_format(key)))
+                  media_asset_audio_format(candidate.key) == media_asset_audio_format(key)))
                 continue;
             if (candidate.occupied && !candidate.retiring && candidate.content_identity != 0 &&
                 candidate.content_fingerprint == fingerprint && candidate.bytes == encoded.count &&

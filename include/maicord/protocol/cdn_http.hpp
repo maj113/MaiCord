@@ -26,6 +26,8 @@ enum class CdnImageType : u8 {
     m4a,
     // /soundboard-sounds/{id}: MP3 or Ogg Opus, told apart by content.
     soundboard_sound,
+    hls_playlist,
+    mpeg_ts,
 };
 // A catalog provider request: animated WebP from every provider, plus a Klipy
 // .gif asset (a GIF favourite's stored gif_src) or .mp4 asset (a VIDEO
@@ -33,6 +35,8 @@ enum class CdnImageType : u8 {
 bool catalog_provider_request_valid(CdnHost host, CdnImageType type, ConstSlice<u8> target) noexcept;
 constexpr u32 cdn_encoded_body_limit(CdnImageType type) noexcept {
     return type == CdnImageType::mp4                 ? kMediaMaximumEncodedVideoBytes
+           : type == CdnImageType::mpeg_ts            ? 8u * 1024u * 1024u
+           : type == CdnImageType::hls_playlist       ? 64u * 1024u
            : type == CdnImageType::regional_flag_svg ? 64u * 1024u
            : type == CdnImageType::lottie_json       ? 1024u * 1024u
            : type == CdnImageType::soundboard_sound  ? 1024u * 1024u
@@ -80,7 +84,8 @@ struct CdnRequestResult {
 CdnRequestResult write_static_cdn_get_request(CdnImageType image_type, CdnHost host, ConstSlice<u8> target,
                                               ConstSlice<u8> etag, Slice<u8> output,
                                               CdnByteRange range = {}) noexcept;
-// A range is accepted only for MP4 and never with an ETag.
+// A static-host range is accepted only for MP4/M4A and never with an ETag.
+// Native MPEG-TS uses the separately admitted provider request path.
 
 struct CdnRedirectResult {
     CdnHost host;
@@ -132,12 +137,13 @@ struct CdnResponseResult {
 // Parses and validates a fully received response head plus the decoded entity
 // byte count. The returned slices borrow response_head storage.
 CdnResponseResult validate_static_image_response(CdnImageType image_type, ConstSlice<u8> response_head,
-                                                 u32 decoded_body_bytes, u64 now_seconds) noexcept;
+                                                 u32 decoded_body_bytes, u64 now_seconds,
+                                                 CdnHost host = CdnHost::none) noexcept;
 // Range answers: 206 needs a single "bytes first-last/length" Content-Range
 // starting at the requested offset, within the request and matching the body.
 // A server that ignores Range answers 200 with the whole (bounded) entity.
 CdnResponseResult validate_cdn_range_response(CdnImageType image_type, ConstSlice<u8> response_head,
                                               u32 decoded_body_bytes, CdnByteRange requested,
-                                              u64 now_seconds) noexcept;
+                                              u64 now_seconds, CdnHost host = CdnHost::none) noexcept;
 
 } // namespace maicord

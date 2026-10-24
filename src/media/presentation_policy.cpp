@@ -10,24 +10,6 @@ u32 ceil_positive(float value) noexcept {
     const u32 truncated = static_cast<u32>(value);
     return truncated + (static_cast<float>(truncated) < value ? 1u : 0u);
 }
-
-u16 media_resolution_tier_extent(MediaResolutionTier tier) noexcept {
-    switch (tier) {
-    case MediaResolutionTier::px64:
-        return 64;
-    case MediaResolutionTier::px128:
-        return 128;
-    case MediaResolutionTier::px256:
-        return 256;
-    case MediaResolutionTier::px512:
-        return 512;
-    case MediaResolutionTier::px1024: return 1024;
-    case MediaResolutionTier::px2048: return 2048;
-    default:
-        return 0;
-    }
-}
-
 } // namespace
 
 MediaResolutionTier media_resolution_tier_for_display(
