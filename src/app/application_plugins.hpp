@@ -11,7 +11,6 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/core/win32_kernel.hpp"
 // Declared as <Windows.h> declares it, without parsing it.
 extern "C" __declspec(dllimport) int __stdcall WideCharToMultiByte(UINT code_page, DWORD flags,
     const wchar_t* wide, int wide_units, char* bytes, int byte_capacity, const char* default_char,

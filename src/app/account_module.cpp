@@ -41,6 +41,27 @@
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/app/account_action_captcha.hpp"
+#include "maicord/app/account_channel_overview.hpp"
+#include "maicord/app/account_download.hpp"
+#include "maicord/app/account_forum_post.hpp"
+#include "maicord/app/account_gif_favorites.hpp"
+#include "maicord/app/account_guild_admin.hpp"
+#include "maicord/app/account_guild_assets.hpp"
+#include "maicord/app/account_logout.hpp"
+#include "maicord/app/account_media_catalog.hpp"
+#include "maicord/app/account_message_search.hpp"
+#include "maicord/app/account_module_version.hpp"
+#include "maicord/app/account_pinned_messages.hpp"
+#include "maicord/app/account_profile_edit.hpp"
+#include "maicord/app/account_stage.hpp"
+#include "maicord/app/account_thread_creation.hpp"
+#include "maicord/app/account_upload.hpp"
+#include "maicord/app/video_stream_decoders.hpp"
+#include "maicord/protocol/message_delete.hpp"
+#include "maicord/protocol/message_edit.hpp"
+#include "maicord/protocol/message_interaction.hpp"
+#include "maicord/protocol/message_typing.hpp"
 
 namespace maicord {
 namespace {

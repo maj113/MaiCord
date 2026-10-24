@@ -13,6 +13,7 @@
 #include "maicord/ui/theme.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::scoped_read_native {
 using namespace app_detail;

@@ -2,6 +2,7 @@
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "maicord/protocol/account_requirement.hpp"
+#include "maicord/protocol/account_settings.hpp"
 
 // The account pages follow the connection: Offline only without a worker,
 // Connecting until READY's self user lands, a specific card for a pending

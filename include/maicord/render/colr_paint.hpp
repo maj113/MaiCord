@@ -3,7 +3,6 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/render/colr_program.hpp"
 #include "maicord/render/glyph_atlas_gpu.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 

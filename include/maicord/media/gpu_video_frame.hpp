@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Texture2D;
 struct ID3D11ShaderResourceView;

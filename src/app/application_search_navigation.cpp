@@ -9,6 +9,8 @@
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/app/account_message_search.hpp"
+#include "maicord/protocol/channel_overview.hpp"
 
 namespace maicord::app_detail {
 namespace {

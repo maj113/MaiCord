@@ -3,6 +3,7 @@
 
 #include "maicord/app/account_paths.hpp"
 #include "maicord/app/account_module_api.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_draft_session.hpp"
 #include "maicord/app/message_history_sync.hpp"

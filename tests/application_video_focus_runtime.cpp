@@ -12,6 +12,8 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/app/account_media.hpp"
+#include "maicord/app/account_video_playback.hpp"
 
 namespace maicord::video_focus_runtime_test {
 u32 confirmations, media_refreshes;

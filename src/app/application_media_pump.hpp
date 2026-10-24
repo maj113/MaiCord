@@ -5,6 +5,10 @@
 #include "maicord/ui/friends_media.hpp"
 #include "application_state.hpp"
 
+namespace maicord {
+enum class CdnImageType : u8;
+}
+
 namespace maicord::app_detail {
 
 struct ApplicationMediaPump {

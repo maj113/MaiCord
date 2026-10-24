@@ -10,6 +10,7 @@
 #include "maicord/ui/message_scene.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/account_settings.hpp"
 
 namespace maicord::app_detail {
 namespace {

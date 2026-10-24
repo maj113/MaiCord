@@ -11,6 +11,7 @@
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord::app_detail {
 void test_activity_retry(void (*)(bool, const char*) noexcept) noexcept;

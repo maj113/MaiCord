@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/platform/network.hpp"
 #include "maicord/protocol/voice_discovery.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 enum class VoiceUdpPhase : u8 {

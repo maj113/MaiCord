@@ -1,3 +1,4 @@
+#include "maicord/app/account_logout.hpp"
 #include "account_logout_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"

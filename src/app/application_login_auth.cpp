@@ -22,6 +22,7 @@
 #include "maicord/protocol/remote_auth.hpp"
 #include "maicord/protocol/webauthn_mfa.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/user_auth_coordinator.hpp"
 
 namespace maicord::app_detail {
 namespace {

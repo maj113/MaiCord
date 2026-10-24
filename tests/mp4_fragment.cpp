@@ -12,6 +12,7 @@
 #include "maicord/protocol/embed_player.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/sys/com.hpp"
+#include "maicord/sys/d3d11.hpp"
 #include "../src/platform/h264_gpu_configuration.hpp"
 #include "test_output.hpp"
 

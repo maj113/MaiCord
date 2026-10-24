@@ -2,7 +2,6 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 // LINK supplies the base of the image containing this translation unit, even
 // when it came from a static library. This does not acquire a loader reference.
