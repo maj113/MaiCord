@@ -176,6 +176,7 @@ maicord_library(maicord_protocol
     src/protocol/embed_player.cpp
     src/protocol/dash_manifest.cpp
     src/protocol/steam_player.cpp
+    src/protocol/oauth.cpp
     src/protocol/hls_playlist.cpp
     src/protocol/twitch_playback.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
@@ -236,6 +237,9 @@ maicord_library(maicord_app_core
     src/app/update_changelog.cpp
     src/app/embed_resolver.cpp
     src/app/segmented_video_fetch.cpp
+    src/app/oauth_authorization.cpp
+    src/app/oauth_sign_in.cpp
+    src/app/oauth_account.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 

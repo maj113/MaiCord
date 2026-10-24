@@ -302,6 +302,11 @@ constexpr UiSettingsSchemaNode voice_nodes[]{
     node(utf8_literal("voice.soundboard_muted"), K::toggle, utf8_literal("Mute soundboard"),
          utf8_literal("Don't play sounds other people send. You can still use the soundboard."),
          utf8_literal("soundboard sounds silence mute"), SettingBinding::voice_soundboard_muted),
+    node(utf8_literal("voice.media_accounts"), K::category, utf8_literal("Media accounts"), {}, {}),
+    node(utf8_literal("voice.spotify"), K::action, utf8_literal("Spotify"),
+         utf8_literal("Spotify opens in your browser. Playback is limited to previews."),
+         utf8_literal("spotify music podcast account login sign in"), SettingBinding::spotify_account,
+         {}, none, utf8_literal("Sign in"), dynamic),
 };
 
 constexpr UiSettingsSchemaNode account_nodes[]{

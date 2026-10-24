@@ -331,7 +331,7 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 13]{};
+        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 14]{};
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
@@ -348,6 +348,7 @@ int application_run() noexcept {
             push_handle(application_guild_settings_notification());
         }
         push_handle(application_preferences_notification());
+        push_handle(application_media_auth_notification());
         push_handle(application_custom_theme_notification());
         push_handle(application_plugins_notification());
         push_handle(application_downloads_notification());
@@ -456,6 +457,7 @@ int application_run() noexcept {
                 ++wake_ledger.handles;
         }
         application_preferences_poll();
+        application_media_auth_poll();
         application_custom_theme_poll();
         application_plugins_poll();
         application_plugin_browser_poll();
@@ -765,6 +767,7 @@ int application_run() noexcept {
     drain_deferred_text_services();
     application_media_picker_close();
     application_preferences_shutdown();
+    application_media_auth_shutdown();
     application_updates_release();
     application_plugin_browser_release();
     application_notifications_prepare_shutdown(&g_app);

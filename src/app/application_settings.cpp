@@ -36,6 +36,8 @@
 #include "application_keybinds_settings.hpp"
 #include "application_desktop.hpp"
 #include "maicord/app/client_theme.hpp"
+#include "maicord/app/oauth_sign_in.hpp"
+#include "maicord/app/oauth_account.hpp"
 #include "maicord/app/plugin_settings_projection.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -139,6 +141,64 @@ struct ApplicationSettings {
 // The bank is allocated lazily; nothing is allocated at application startup.
 static_assert(sizeof(ApplicationSettings) <= 3 * 4096);
 namespace {
+struct MediaAccount {
+    OAuthSignIn sign_in{};
+    u64 generation{};
+    char client[kOAuthClientBytes]{};
+    u32 client_bytes{};
+    bool launched{}, stopping{}, checked{}, saved{};
+    Utf8View message{};
+    Utf8View client_id() const noexcept { return {client, client_bytes}; }
+};
+MediaAccount g_spotify_account{};
+constexpr auto provider = OAuthProvider::spotify;
+Utf8View saved_account_message() noexcept {
+    return utf8_literal("Sign-in saved on this device. Spotify playback is limited to previews.");
+}
+void media_saved_state() noexcept {
+    auto& account = g_spotify_account;
+    if (account.checked) return;
+    account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
+    SecureBuffer refresh{};
+    account.saved = oauth_account_load(account.client_id(), &refresh, provider);
+    secure_buffer_release(&refresh);
+    account.checked = true;
+    if (account.saved) account.message = saved_account_message();
+}
+void media_close(MediaAccount& account) noexcept {
+    account.stopping = !oauth_sign_in_stop(&account.sign_in, 0);
+}
+bool media_account_action() noexcept {
+    media_saved_state();
+    auto& account = g_spotify_account;
+    if (account.saved) {
+        if (!oauth_account_forget(provider)) {
+            account.message = utf8_literal("Could not remove the saved sign-in. Try again.");
+            return false;
+        }
+        account.saved = false;
+        account.message = utf8_literal("Signed out on this device.");
+        return true;
+    }
+    if (account.sign_in.runtime) {
+        media_close(account);
+        account.message = utf8_literal("Sign-in cancelled.");
+        return true;
+    }
+    if (account.generation == ~u64{0}) return false;
+    account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
+    if (!account.client_bytes) {
+        account.message = utf8_literal("Configure MaiCord's Spotify client registration before signing in.");
+        return false;
+    }
+    if (!g_app.window) return false;
+    account.launched = false;
+    account.stopping = false;
+    const bool started = oauth_sign_in_start(&account.sign_in, account.client_id(), ++account.generation, 300000, {},
+        provider);
+    account.message = started ? utf8_literal("Opening sign-in in your browser...") : utf8_literal("Could not start sign-in. Try again.");
+    return started;
+}
 // Settings opened before sign-in: it borrows an account UI runtime for its
 // text and measurement (released again unless an account started meanwhile)
 // and covers the sign-in form until it closes.
@@ -286,6 +346,13 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
                      static_cast<u8>(node.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
                      node.default_choice < kUiSettingsNoDefault ? static_cast<u16>(node.default_choice)
                                                                 : kUiSettingsNoDefault};
+    if (binding == SettingBinding::spotify_account) {
+        media_saved_state();
+        const auto& account = g_spotify_account;
+        if (account.message.bytes) control->description = account.message;
+        control->action_label = account.saved ? utf8_literal("Sign out")
+                                : account.sign_in.runtime ? utf8_literal("Cancel") : utf8_literal("Sign in");
+    }
     if (binding == SettingBinding::update_changelog)
         return application_updates_project(binding, control, presentation);
     if (node.kind == UiSettingsControlKind::category)
@@ -1256,6 +1323,8 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
     switch (binding) {
     case SettingBinding::customize_theme:
         return application_theme_editor_open();
+    case SettingBinding::spotify_account:
+        return settled(*settings, media_account_action());
     case SettingBinding::custom_builtin:
         return settled(*settings, application_custom_theme_preferences_changed(true, true));
     case SettingBinding::custom_installed:
@@ -1650,6 +1719,75 @@ bool application_settings_appearance_selected() noexcept {
 }
 HANDLE application_preferences_notification() noexcept {
     return client_preferences_writer_completion_event(g_app.preferences_writer);
+}
+HANDLE application_media_auth_notification() noexcept { return oauth_sign_in_notification(&g_spotify_account.sign_in); }
+void poll_media_account() noexcept {
+    auto& account = g_spotify_account;
+    if (!account.sign_in.runtime) return;
+    if (account.stopping) {
+        media_close(account);
+        if (!account.stopping && g_app.settings) {
+            project(*g_app.settings);
+            if (g_app.settings->scene.active) refresh();
+        }
+        return;
+    }
+    const auto status = oauth_sign_in_status(&account.sign_in);
+    const auto previous = account.message;
+    using Phase = OAuthSignInPhase;
+    if (status.phase == Phase::waiting && !account.launched) {
+        SecureBuffer url{}, wide{};
+        bool opened = false;
+        if (oauth_sign_in_url(&account.sign_in, account.generation, &url) &&
+            secure_buffer_initialize(&wide, (url.bytes + 1) * sizeof(wchar_t)).ok()) {
+            auto* text = reinterpret_cast<wchar_t*>(wide.data);
+            for (u32 i = 0; i < url.bytes; ++i) text[i] = static_cast<wchar_t>(url.data[i]);
+            text[url.bytes] = 0;
+            opened = reinterpret_cast<usize>(ShellExecuteW(g_app.window, L"open", text, nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+        }
+        secure_buffer_release(&wide); secure_buffer_release(&url);
+        account.launched = true;
+        account.message = opened ? utf8_literal("Finish signing in in your browser.")
+                                   : utf8_literal("Could not open your browser. Try signing in again.");
+        if (!opened) media_close(account);
+    } else if (status.phase == Phase::exchanging) {
+        account.message = utf8_literal("Completing sign-in...");
+    } else if (status.phase == Phase::ready) {
+        SecureBuffer credentials{};
+        const bool taken = oauth_sign_in_take(&account.sign_in, account.generation, &credentials);
+        if (taken) {
+            const auto& tokens = *reinterpret_cast<const OAuthTokens*>(credentials.data);
+            account.saved = oauth_account_save(account.client_id(), {tokens.refresh, tokens.refresh_bytes}, provider);
+            account.message = account.saved ? saved_account_message()
+                : utf8_literal("Could not save sign-in on this device. Try again.");
+        } else account.message = utf8_literal("Could not complete sign-in. Try again.");
+        secure_buffer_release(&credentials);
+        media_close(account);
+    } else if (status.phase == Phase::failed || status.phase == Phase::expired || status.phase == Phase::cancelled) {
+        account.message = status.phase == Phase::expired ? utf8_literal("Sign-in expired. Try again.")
+            : status.phase == Phase::cancelled || status.error == OAuthError::denied ? utf8_literal("Sign-in cancelled.")
+            : status.error == OAuthError::invalid_client ? utf8_literal("The provider rejected this app's registration.")
+            : status.error == OAuthError::invalid_grant ? utf8_literal("Authorization expired or was already used. Sign in again.")
+            : status.error == OAuthError::invalid_request ? utf8_literal("The provider rejected the sign-in request.")
+            : status.error == OAuthError::scope ? utf8_literal("The required account permission was not granted. Sign in again.")
+            : status.error == OAuthError::malformed ? utf8_literal("The provider returned an unexpected sign-in response.")
+            : utf8_literal("Sign-in failed. Try again.");
+        media_close(account);
+    }
+    if (!utf8_equal(previous, account.message) && g_app.settings) {
+        project(*g_app.settings);
+        if (g_app.settings->scene.active) refresh();
+    }
+}
+void application_media_auth_poll() noexcept {
+    poll_media_account();
+}
+void application_media_auth_shutdown() noexcept {
+    auto& account = g_spotify_account;
+    if (oauth_sign_in_stop(&account.sign_in, 1000)) {
+        account.checked = false; account.saved = false; account.message = {};
+        account.stopping = false;
+    }
 }
 void application_preferences_poll() noexcept {
     if (!g_app.preferences_writer)

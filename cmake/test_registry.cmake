@@ -1981,6 +1981,31 @@ maicord_test(MaiCordMp4FragmentTests ENTRY maicord_mp4_fragment_entry
     LIBS maicord_account_media maicord_media_codec maicord_platform maicord_core kernel32 ole32 user32 d3d11 dxgi
     TIMEOUT 10 TEST maicord_mp4_fragment)
 
+maicord_test(MaiCordOAuthProtocolTests ENTRY maicord_oauth_protocol_entry
+    SOURCES tests/oauth_protocol.cpp
+    LIBS maicord_protocol maicord_core kernel32
+    TIMEOUT 5 TEST maicord_oauth_protocol)
+
+maicord_test(MaiCordSpotifyOAuthTests ENTRY maicord_spotify_oauth_entry
+    SOURCES tests/spotify_oauth.cpp
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    TIMEOUT 5 TEST maicord_spotify_oauth)
+
+maicord_test(MaiCordOAuthAuthorizationTests ENTRY maicord_oauth_authorization_entry
+    SOURCES tests/oauth_authorization.cpp
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    TIMEOUT 5 TEST maicord_oauth_authorization)
+
+maicord_test(MaiCordOAuthSignInTests ENTRY maicord_oauth_sign_in_entry
+    SOURCES tests/oauth_sign_in.cpp
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    TIMEOUT 8 TEST maicord_oauth_sign_in)
+
+maicord_test(MaiCordOAuthAccountTests ENTRY maicord_oauth_account_entry
+    SOURCES tests/oauth_account.cpp
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    TIMEOUT 5 TEST maicord_oauth_account)
+
 maicord_test(MaiCordDashManifestTests ENTRY maicord_dash_manifest_entry
     SOURCES tests/dash_manifest.cpp
     LIBS maicord_protocol maicord_core kernel32

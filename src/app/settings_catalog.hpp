@@ -138,6 +138,7 @@ enum class SettingBinding : u16 {
     update_problem,
     update_available,
     update_changelog,
+    spotify_account,
     count
 };
 enum class SettingBackend : u8 {
