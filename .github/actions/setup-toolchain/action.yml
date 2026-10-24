@@ -66,4 +66,5 @@ runs:
         # cl and link start vctip.exe (compiler telemetry) on every launch unless it is missing.
         Get-ChildItem -LiteralPath (Join-Path $msvc.FullName 'bin') -Recurse -Filter vctip.exe |
           Rename-Item -NewName 'vctip.exe.disabled'
-        cmake --version | Select-Object -First 1
+        # Read all of the output: stopping the pipe early can leave a failing exit code.
+        (cmake --version)[0]
