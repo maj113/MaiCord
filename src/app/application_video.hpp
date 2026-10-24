@@ -15,6 +15,9 @@ bool application_video_open_search(UiSearchTarget) noexcept;
 // playback owner before generic file-open handling.
 bool application_video_open_focused() noexcept;
 bool application_video_pump(bool* repaint) noexcept;
+// Reproject borrowed playback state after modal resize layout, without polling
+// the account, taking frames or submitting playback/network commands.
+bool application_video_synchronize() noexcept;
 u64 application_video_next_wake() noexcept;
 bool application_video_pointer(UINT message, LPARAM) noexcept;
 bool application_video_key(UINT key, bool shift, bool repeat) noexcept;

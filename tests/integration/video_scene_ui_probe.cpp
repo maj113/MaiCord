@@ -654,6 +654,24 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
         }
         paint_stream_release(&poster);
     }
+    if (valid) {
+        stage = __LINE__;
+        state.error = state.buffering = false;
+        state.collection_count = 11; state.collection_track = 4; state.can_change_track = true;
+        ++state.revision;
+        const float widths[]{196, 360};
+        const wchar_t* names[]{L"video-scene-collection-narrow.bmp", L"video-scene-collection-wide.bmp"};
+        for (u32 i=0; valid && i<2; ++i) {
+            valid = project(widths[i]);
+            const auto track_bounds = scene.projection.controls[9].bounds;
+            ui_video_scene_hover(&scene, {(track_bounds.left + track_bounds.right) * .5f, (track_bounds.top + track_bounds.bottom) * .5f});
+            ui_video_scene_titles(&scene, utf8_literal("Current track - Café by Artist"), scene.hover_track, utf8_literal("Hovered song by Another Artist"));
+            valid = valid && scene.projection.controls[7].enabled && scene.projection.controls[9].enabled &&
+                ui_video_scene_focus(&scene,UiVideoControl::track,true) &&
+                renderer_rebuild_content_text(&renderer,kDefaultTheme) && probe_present(&renderer,kDefaultTheme) &&
+                (!capture || capture(names[i]));
+        }
+    }
     if (semantic_command) {
         semantic_command->semantics = original_semantics;
         message_text->projection_signature = original_signature;

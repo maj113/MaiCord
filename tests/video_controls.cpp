@@ -3,6 +3,32 @@
 
 namespace maicord {
 namespace {
+void test_collection_controls(void (*check)(bool, const char*) noexcept) noexcept {
+    UiVideoPlaybackState state{7,8,9,30000,120000,40,true,false,false,false,true,true,true,true};
+    state.collection_count = 11; state.collection_track = 3; state.can_change_track = true;
+    UiVideoControlsProjection projection{}; UiVideoAction action{};
+    check(ui_video_controls_height({},196,true) == 64 && ui_video_controls_project(state,{0,0,196,64},{},kDefaultTheme,&projection) &&
+        projection.controls[7].enabled && projection.controls[8].enabled && projection.controls[9].enabled &&
+        utf8_equal(ui_video_controls_label(projection,UiVideoControl::track),utf8_literal("Track 3 / 11")),
+        "collection controls fit the minimum width with a dedicated bounded navigation row");
+    UiVideoControl focus = UiVideoControl::previous_track;
+    check(ui_video_controls_key(projection,UiVideoKey::activate,&focus,&action) && action.collection_track == 2 &&
+        ui_video_action_current(state,action),"previous track action carries exact ordinal and current session authority");
+    focus = UiVideoControl::track;
+    check(ui_video_controls_key(projection,UiVideoKey::increase,&focus,&action) && action.collection_track == 4 &&
+        ui_video_controls_key(projection,UiVideoKey::home,&focus,&action) && action.collection_track == 1 &&
+        ui_video_controls_key(projection,UiVideoKey::end,&focus,&action) && action.collection_track == 11,
+        "indexed collection selection steps by one and Home/End reach exact boundaries");
+    state.error = true; state.can_play = false; state.collection_track = 1;
+    check(ui_video_controls_project(state,{0,0,360,64},{},kDefaultTheme,&projection) && !projection.controls[7].enabled &&
+        projection.controls[8].enabled && !projection.controls[0].enabled,
+        "an unavailable first track keeps next-track navigation usable");
+    state.collection_track = 11;
+    check(ui_video_controls_project(state,{0,0,360,64},{},kDefaultTheme,&projection) && !projection.controls[8].enabled,
+        "last track disables next without wrapping the collection");
+    state.collection_track = 12;
+    check(!ui_video_controls_project(state,{0,0,360,64},{},kDefaultTheme,&projection),"collection projection rejects an out-of-range ordinal");
+}
 bool time_is(const UiVideoPlaybackState& state, Utf8View expected) noexcept {
     char text[64]{};
     const u32 bytes = ui_video_format_time(state, text, sizeof(text));
@@ -54,6 +80,13 @@ void test_video_player_keys(void (*check)(bool,const char*) noexcept) noexcept {
     check(!ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_forward,0,&action)&&
         !ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_percent,10,&action),
         "video keys: seek shortcuts follow the seek capability");
+    state.can_seek=true; state.live=true; project();
+    check(time_is(state,utf8_literal("LIVE")) && !projection.controls[1].enabled && !projection.controls[1].value &&
+        !ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_forward,0,&action) &&
+        !ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_percent,50,&action) &&
+        ui_video_controls_player_key(projection,UiVideoPlayerKey::toggle_play,0,&action) &&
+        ui_video_controls_player_key(projection,UiVideoPlayerKey::toggle_mute,0,&action),
+        "live controls display LIVE and reject seeking while retaining play and sound controls");
 }
 void test_video_time_and_expand(void (*check)(bool,const char*) noexcept) noexcept {
     UiVideoPlaybackState state{7,8,9,61000,3723000,40,true,false,false,false,true,true,true,true};
@@ -176,6 +209,7 @@ void test_video_controls(void (*check)(bool,const char*) noexcept) noexcept {
     check(!ui_video_controls_project(state,{0,0,nonfinite,100},style,kDefaultTheme,&projection)&&
         ui_video_controls_hit(before,{nonfinite,0})==UiVideoControl::none,
         "video controls: nonfinite geometry never produces an actionable target");
+    test_collection_controls(check);
     test_video_player_keys(check);
     test_video_time_and_expand(check);
 }

@@ -6,6 +6,94 @@
 
 namespace maicord {
 namespace {
+void test_collection_scene(void (*check)(bool, const char*) noexcept) noexcept {
+    UiVideoPlaybackState state{7,8,9,30000,120000,40,true,false,false,false,true,true,true,true};
+    state.collection_count=11; state.collection_track=1; state.can_change_track=true;
+    UiVideoScene scene{}; constexpr UiRect bounds{0,0,360,240};
+    check(ui_video_scene_project(&scene,state,bounds,bounds,{},{},kDefaultTheme),"collection scene projects native controls");
+    const auto track=scene.projection.controls[9].bounds;
+    const UiPoint first{track.left,track.top+4}, last{track.right-1,track.top+4};
+    ui_video_scene_focus(&scene,UiVideoControl::track,true);
+    auto event=ui_video_scene_pointer(&scene,UiVideoPointerEvent::down,first);
+    const auto before=ui_video_scene_paint_revision(scene);
+    check(event.request_capture && !event.action_requested,"collection drag begins without resolving a track");
+    for(u32 i=0;i<100;++i) {
+        const auto moved=ui_video_scene_pointer(&scene,UiVideoPointerEvent::move,last);
+        check(!moved.action_requested,"collection drag does not issue intermediate track requests");
+    }
+    check(ui_video_scene_paint_revision(scene)!=before,"collection draft thumb movement invalidates paint");
+    event=ui_video_scene_pointer(&scene,UiVideoPointerEvent::up,last);
+    check(event.action_requested && event.release_capture && event.action.collection_track==11,
+        "collection release commits one exact track selection");
+    ui_video_scene_pointer(&scene,UiVideoPointerEvent::down,first);
+    const auto cancelled=ui_video_scene_pointer(&scene,UiVideoPointerEvent::cancel,last);
+    check(cancelled.release_capture && !cancelled.action_requested,"cancelled collection gesture never starts playback");
+    ui_video_scene_pointer(&scene,UiVideoPointerEvent::down,first);
+    ++state.generation;
+    check(ui_video_scene_project(&scene,state,bounds,bounds,{},{},kDefaultTheme) && scene.capture==UiVideoControl::none &&
+        !ui_video_scene_pointer(&scene,UiVideoPointerEvent::up,last).action_requested,
+        "track replacement cancels a stale collection gesture");
+    const auto copied=scene;
+    check(utf8_equal(ui_video_scene_label(copied,UiVideoControl::track),utf8_literal("Track 1 / 11")),
+        "collection label survives a scene copy without borrowed projection pointers");
+}
+void test_video_repeated_drag(void (*check)(bool, const char*) noexcept) noexcept {
+    UiVideoPlaybackState playback{7, 8, 9, 30000, 120000, 25, true,
+                                 false, false, false, true, true, true, true};
+    constexpr UiRect previews[]{{0, 0, 360, 240}, {0, 0, 1920, 1080}};
+    constexpr u32 ranges[]{1, 4};
+    for (const auto preview : previews) {
+        for (const u32 index : ranges) {
+            UiVideoScene scene{};
+            const auto project = [&]() noexcept {
+                return ui_video_scene_project(&scene, playback, preview, preview, {}, {}, kDefaultTheme);
+            };
+            bool valid = project();
+            if (index == 4)
+                valid = valid && ui_video_scene_focus(&scene, UiVideoControl::volume, true) && project();
+            const auto bounds = scene.projection.controls[index].bounds;
+            const UiPoint point{(bounds.left + bounds.right) * .5f, (bounds.top + bounds.bottom) * .5f};
+            auto result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::down, point);
+            u32 requests = result.action_requested;
+            valid = valid && result.request_capture;
+            for (u32 i = 0; i < 1000; ++i) {
+                // An observed playback tick must not turn a stationary drag
+                // into another decoder reset or volume command.
+                ++playback.elapsed_ms;
+                valid = project() && valid;
+                result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::move,
+                                                {point.x, point.y + static_cast<float>(i % 2)});
+                requests += result.action_requested;
+                valid = result.handled && valid;
+            }
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::up, point);
+            requests += result.action_requested;
+            check(valid && result.release_capture && requests == 1,
+                  "video drag: inline and expanded seek/volume emit one request for 1002 unchanged pointer events across observation ticks");
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::down, point);
+            valid = result.action_requested && result.request_capture;
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::move, {bounds.right + 100, point.y});
+            valid = valid && result.action_requested &&
+                    (index == 1 ? result.action.position_ms == playback.duration_ms : result.action.volume == 100);
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::move, point);
+            valid = valid && result.action_requested;
+            ui_video_scene_pointer(&scene, UiVideoPointerEvent::cancel, {});
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::down, point);
+            check(valid && result.action_requested && result.request_capture,
+                  "video drag: changed values, returning to a prior value and a new gesture remain actionable");
+            result = ui_video_scene_player_key(&scene, index == 1 ? UiVideoPlayerKey::seek_forward
+                                                                  : UiVideoPlayerKey::volume_up, 0, 1);
+            valid = result.action_requested;
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::move, point);
+            valid = valid && result.action_requested;
+            result = ui_video_scene_key(&scene, UiVideoKey::decrease);
+            valid = valid && result.action_requested;
+            result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::up, point);
+            check(valid && result.action_requested && result.release_capture,
+                  "video drag: keyboard adjustments during capture let the pointer reclaim its requested position");
+        }
+    }
+}
 void test_video_pointer_tracks(void (*check)(bool, const char*) noexcept) noexcept {
     const UiVideoPlaybackState playback{7, 8, 9, 30000, 120000, 25, true,
                                         false, false, false, true, true, true, true};
@@ -372,7 +460,32 @@ UiWidgetReference poster_metadata(void (*check)(bool, const char*) noexcept) noe
 }
 } // namespace
 void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
+    MessageMediaCommand picture{};
+    picture.rectangle = {10, 20, 330, 200};
+    const auto poster_picture = message_media_picture_rectangle(picture, 320, 180, false);
+    const auto album = message_media_picture_rectangle(picture, 360, 360, true);
+    const auto video = message_media_picture_rectangle(picture, 640, 360, true);
+    picture.kind = MessageMediaCommandKind::embed;
+    const auto restored_poster = message_media_picture_rectangle(picture, 300, 300, false);
+    check(restored_poster.left == 80 && restored_poster.right == 260 &&
+          restored_poster.top == 20 && restored_poster.bottom == 200,
+          "a restored square thumbnail is contained in the widescreen player without stretching");
+    const auto portrait = message_media_picture_rectangle(picture, 320, 562, true);
+    check(portrait.top == 20 && portrait.bottom == 200 && portrait.left > 10 && portrait.right < 330 &&
+          absolute_value(ui_rect_width(portrait) / ui_rect_height(portrait) - 320.0f / 562.0f) < 0.0001f,
+          "inline portrait video retains decoded aspect inside a landscape poster slot");
+    check(poster_picture.left == 10 && poster_picture.right == 330 && album.left == 80 && album.right == 260 &&
+          album.top == 20 && album.bottom == 200 && video.left == 10 && video.right == 330,
+          "inline embed: square decoded album art retains its aspect ratio inside the landscape poster slot");
+    picture.cover = true;
+    const auto gallery = message_media_picture_rectangle(picture, 360, 360, false);
+    const auto playing = message_media_picture_rectangle(picture, 360, 360, true);
+    check(gallery.left == 10 && gallery.right == 330 && gallery.top == -50 && gallery.bottom == 270 &&
+          playing.left == 80 && playing.right == 260 && playing.top == 20 && playing.bottom == 200,
+          "inline embed: native playback contains decoded pixels while gallery posters keep their crop");
     test_video_pointer_tracks(check);
+    test_collection_scene(check);
+    test_video_repeated_drag(check);
     test_video_idle(check);
     test_video_polish(check);
     ContentTextRetentionOwner retained{};
@@ -591,9 +704,9 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     project(bounds);
     const auto copied = s;
     temporary[0] = 'X';
-    s.labels[0][0] = 'Y';
+    s.labels[0] = 'Y';
     check(utf8_equal(ui_video_scene_label(copied, UiVideoControl::play_pause), utf8_literal("Play")) &&
-              ui_video_scene_label(copied, UiVideoControl::time).data == copied.labels[2],
+              ui_video_scene_label(copied, UiVideoControl::time).data == copied.labels + copied.label_offsets[2],
           "video scene: copied scene owns both host labels and formatted time storage");
     controls = {};
     state.buffering = true;
@@ -644,6 +757,14 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(poster_clipped,
           "video posters: affordance clips exactly to preview and visible message intersection");
+    paint_stream_reset(&paint, 640, 200);
+    check(ui_video_play_affordance_paint(small, {}, affordance, kDefaultTheme, &paint) &&
+              ui_video_play_affordance_paint(small, {60, 25, 60, 85}, affordance, kDefaultTheme, &paint) &&
+              ui_video_play_affordance_paint(small, {20, 85, 100, 85}, affordance, kDefaultTheme, &paint) &&
+              !paint.count && !paint.rejected && paint.clip_depth == 1,
+          "video posters: search chooser occlusion and zero-area resize clips are successful empty paints");
+    check(!ui_video_play_affordance_paint(small, {100, 25, 20, 85}, affordance, kDefaultTheme, &paint),
+          "video posters: inverted clips remain invalid");
     state.error = false;
     state.can_play = true;
     check(ui_video_scene_project_play_only(&s, state, small, small, controls, style, affordance,
@@ -735,5 +856,34 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
                                   kDefaultTheme) &&
               !s.active && !ui_video_scene_pointer(&s, UiVideoPointerEvent::down, play).action_requested,
           "video scene: rejected narrow layout cannot leave a stale actionable surface");
+    state.collection_count = 50; state.collection_track = 3; state.can_change_track = true;
+    check(ui_video_scene_project(&s, state, poster, poster, controls, style, kDefaultTheme), "collection title scene");
+    ui_video_scene_hover(&s, center(poster));
+    auto track_bounds = s.projection.controls[9].bounds;
+    ui_video_scene_hover(&s, {track_bounds.left, (track_bounds.top + track_bounds.bottom) * .5f});
+    check(s.hover_track == 1, "collection tooltip uses the same bounded first-track geometry as selection");
+    ui_video_scene_titles(&s, utf8_literal("Playing - Café"), 1, utf8_literal("First song"));
+    check(utf8_equal({s.hover_time, s.hover_time_bytes}, utf8_literal("Track 1 - First song")) &&
+        utf8_equal({s.track_title, s.track_title_bytes}, utf8_literal("Playing - Café")), "current title and hovered title remain independent");
+    const auto title_revision = ui_video_scene_text_paint_revision(s);
+    ui_video_scene_titles(&s, utf8_literal("Playing - Café"), 2, utf8_literal("Wrong song"));
+    check(ui_video_scene_text_paint_revision(s) == title_revision, "stale metadata cannot rename another hovered ordinal");
+    ui_video_scene_tick(&s, 100, true);
+    check(s.track_hover_since_ms == 100 && ui_video_scene_next_wake(s, 100, true) == 250,
+        "hover metadata has one dwell deadline even with reduced motion");
+    ui_video_scene_hover(&s, {track_bounds.right - 1, (track_bounds.top + track_bounds.bottom) * .5f});
+    check(s.hover_track == 50 && !s.track_hover_since_ms && !s.track_hover_requested &&
+        utf8_equal({s.hover_time, s.hover_time_bytes}, utf8_literal("Track 50")), "moving across tracks resets metadata dwell and never shows the old name");
+    ui_video_scene_titles(&s, utf8_literal("Playing"), 50, utf8_literal("A long song title to exercise a bounded tooltip inside the player even on narrow cards"));
+    const auto tip = ui_video_scene_hover_bubble(s);
+    check(tip.left >= poster.left && tip.right <= poster.right && tip.bottom <= s.projection.bounds.top,
+        "track tooltip stays inside the player and above transport controls");
+    const auto copy = s;
+    check(ui_video_scene_project(&s, state, poster, poster, controls, style, kDefaultTheme) &&
+        s.hover_track == 50 && s.hover_time_bytes == copy.hover_time_bytes, "observation projection retains title metadata without borrowed pointers");
+    ++state.generation;
+    check(ui_video_scene_project(&s, state, poster, poster, controls, style, kDefaultTheme) && !s.hover_track && !s.track_title_bytes,
+        "replacing the source clears titles and hover identity");
+
 }
 } // namespace maicord

@@ -152,6 +152,14 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     ++content.revision;
     if (valid) {
         valid = show(L"search-compact-native.bmp") && scene.overlay && ui_rect_width(scene.panel) <= 360;
+        const auto scrollbar = ui_scrollbar_geometry(scene.body, scene.scroll_dips,
+                                                      scene.row_offsets[scene.measured_count]);
+        bool painted_thumb = false;
+        for (u32 i = 0; i < renderer.paint_stream.count; ++i) {
+            const auto& q = renderer.paint_stream.quads[i];
+            painted_thumb |= ui_rect_equal({q.left, q.top, q.right, q.bottom}, scrollbar.thumb);
+        }
+        valid = valid && scrollbar.visible && painted_thumb;
         if (!valid && !failure_stage)
             failure_stage = 76;
     }

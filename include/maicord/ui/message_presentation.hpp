@@ -48,6 +48,11 @@ struct MessageMediaCommandStream {
     u32 rejected;
 };
 
+// A playing embed can have a different aspect ratio from its poster. Fit its
+// actual decoded pixels inside the stable message rectangle without cropping.
+UiRect message_media_picture_rectangle(const MessageMediaCommand&, u32 width, u32 height,
+                                      bool playing_embed) noexcept;
+
 struct MessagePresentationResult {
     u32 geometry_quads;
     u32 media_commands;

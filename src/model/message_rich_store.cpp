@@ -1351,7 +1351,9 @@ bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 messag
     default:
         return false;
     }
-    if (!media->url.bytes && !media->proxy_url.bytes)
+    // Native providers can supply playback through the card URL alone.
+    if (!media->url.bytes && !media->proxy_url.bytes &&
+        !(slot == MessageRichEmbedMediaSlot::video && embed.url.bytes))
         return false;
     *changed = media->width != width || media->height != height || (media->state & 3u) != 3u;
     media->width = width;

@@ -1649,7 +1649,9 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
                                                 proxy.width,
                                                 proxy.height,
                                                 cdn_image_type(selected.format),
-                                                {0, 0, 0},
+                                                {static_cast<u8>(selected.format == MediaAttachmentFormat::mp4 &&
+                                                     rich.embeds[embed_index].type != GatewayMessageEmbedType::gifv),
+                                                 {0, 0}},
                                                 application.renderer.graphics.device};
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);

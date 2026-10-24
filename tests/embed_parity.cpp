@@ -773,6 +773,114 @@ void test_thumbnail_rules(Check check) noexcept {
     check(rich_corner && link_corner && link_media && article_large && !video.corner_thumbnail &&
               !video.description && !video.markdown && media.resource == MediaEmbedResource::video,
           "embed_thumbnail_image_video_selection_per_type");
+    // Provider frames are never fed to the MP4 decoder, even if a supplied
+    // MIME type claims they are video. A direct proxy still wins over a frame.
+    embeds[0].video.url = utf8_literal("https://www.youtube.com/embed/aB_01234-xy");
+    embeds[0].video.content_type = utf8_literal("video/mp4");
+    message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
+    message_rich_store_apply(&store, 5, 1, event);
+    auto* rich = message_rich_store_find(store, 5);
+    check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
+          media.resource == MediaEmbedResource::thumbnail && media.format == MediaAttachmentFormat::png,
+          "provider iframe remains a poster until media is resolved");
+    check(rich && message_rich_embed_playback_select(store, rich->embeds[0], &media) &&
+          media.provider && media.resource == MediaEmbedResource::video &&
+          utf8_equal(media.source, embeds[0].video.url), "explicit play resolves the YouTube video behind its poster");
+    const auto display = message_rich_display();
+    auto hidden = display;
+    hidden.embed_media = false;
+    message_rich_set_display(hidden);
+    check(!message_rich_embed_playback_select(store, rich->embeds[0], &media),
+          "hidden embeds cannot start provider playback");
+    message_rich_set_display(display);
+    embeds[0].video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/test/https/e.test/v.mp4");
+    message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
+    message_rich_store_apply(&store, 5, 1, event);
+    rich = message_rich_store_find(store, 5);
+    check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
+          media.resource == MediaEmbedResource::video && media.format == MediaAttachmentFormat::mp4,
+          "direct video proxy takes precedence over provider iframe");
+    check(rich && message_rich_embed_playback_select(store, rich->embeds[0], &media) && !media.provider,
+          "direct proxy playback does not use the provider resolver");
+    embeds[0].url = utf8_literal("https://www.pornhub.com/view_video.php?viewkey=683dbe0849d99");
+    const Utf8View ph_sources[]{utf8_literal("https://www.pornhub.com/embed/683dbe0849d99"),
+        utf8_literal("https://ev.phncdn.com/videos/old.mp4?validto=1")};
+    for (const auto source : ph_sources) {
+        embeds[0].video.url = source;
+        message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
+        message_rich_store_apply(&store, 5, 1, event);
+        rich = message_rich_store_find(store, 5);
+        check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
+              media.resource == MediaEmbedResource::thumbnail && media.format == MediaAttachmentFormat::png &&
+              utf8_equal(media.source, embeds[0].thumbnail.url),
+              "PH proxy video never replaces the card thumbnail or starts background MP4 decoding");
+        check(rich && message_rich_embed_playback_select(store, rich->embeds[0], &media) && media.provider &&
+              utf8_equal(media.source, embeds[0].url) && !media.fallback_source.bytes,
+              "PH click resolves fresh media from the canonical page despite a stale video proxy");
+    }
+    const auto saved_thumbnail = embeds[0].thumbnail;
+    embeds[0].type = GatewayMessageEmbedType::link;
+    embeds[0].url = utf8_literal("https://www.twitch.tv/redcs");
+    embeds[0].video = {};
+    for (u32 poster = 0; poster < 3; ++poster) {
+        embeds[0].image = poster == 1 ? saved_thumbnail : GatewayMessageEmbedMedia{};
+        embeds[0].thumbnail = poster == 0 ? saved_thumbnail : GatewayMessageEmbedMedia{};
+        message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
+        message_rich_store_apply(&store, 5, 1, event);
+        rich = message_rich_store_find(store, 5);
+        float width{}, height{};
+        check(rich && !message_rich_embed_plan(store, rich->embeds[0]).corner_thumbnail &&
+              message_rich_embed_media_select(store, rich->embeds[0], &media) &&
+              message_rich_embed_media_extent(media, 300, &width, &height) && width > 0 && height > 0 &&
+              (poster != 2 || !media.source.bytes),
+              "Twitch profile cards expose a play surface with thumbnail, image or no artwork");
+        check(rich && message_rich_embed_playback_select(store, rich->embeds[0], &media) && media.provider &&
+              utf8_equal(media.source, embeds[0].url),
+              "Twitch channel URL plays the live stream without an iframe video field");
+        bool changed = false;
+        check(message_rich_store_set_embed_dimensions(&store, 5, 1, 0, MessageRichEmbedMediaSlot::video,
+                                                      1920, 1080, &changed) && changed &&
+              message_rich_embed_media_select(store, rich->embeds[0], &media) &&
+              message_rich_embed_media_extent(media, 480, &width, &height) && width == 480 && height == 270 &&
+              (poster == 2 || utf8_equal(media.source, saved_thumbnail.url)),
+              "decoded Twitch video fills the card width at its own aspect ratio and preserves poster identity");
+        check(message_rich_embed_media_extent(media, 240, &width, &height) && width == 240 && height == 135 &&
+              message_rich_store_set_embed_dimensions(&store, 5, 1, 0, MessageRichEmbedMediaSlot::video,
+                                                      1920, 1080, &changed) && !changed,
+              "Twitch video resizes without stretching or invalidating unchanged frame dimensions");
+    }
+    embeds[0].image = {};
+    embeds[0].thumbnail = saved_thumbnail;
+    embeds[0].url = {};
+    embeds[0].video = {};
+    embeds[0].type = GatewayMessageEmbedType::rich;
+    const Utf8View preview_urls[]{utf8_literal("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl"),
+        utf8_literal("https://music.apple.com/us/album/imagine/255144028?i=255145362"),
+        utf8_literal("https://music.apple.com/us/music-video/name/1445828315"),
+        utf8_literal("https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5")};
+    const Utf8View preview_labels[]{utf8_literal("Spotify · Preview"), utf8_literal("Apple Music · Preview"), utf8_literal("Apple Music · Preview"), utf8_literal("Spotify · Preview")};
+    for (u32 preview = 0; preview < 4; ++preview) {
+        embeds[0].url = preview_urls[preview];
+        message_rich_store_initialize(&store, {records, 1}, {order, 1}, {text, sizeof(text)});
+        message_rich_store_apply(&store, 5, 1, event);
+        rich = message_rich_store_find(store, 5);
+        check(rich && message_rich_embed_media_select(store, rich->embeds[0], &media) &&
+              media.resource == MediaEmbedResource::thumbnail && !message_rich_embed_plan(store, rich->embeds[0]).corner_thumbnail &&
+              utf8_equal(message_rich_embed_provider_label(store, rich->embeds[0]), preview_labels[preview]),
+              "music track keeps large album art and labels preview playback before activation");
+        check(rich && message_rich_embed_playback_select(store, rich->embeds[0], &media) &&
+              media.provider && media.format == (preview == 2 ? MediaAttachmentFormat::mp4 : preview == 1 ? MediaAttachmentFormat::m4a : MediaAttachmentFormat::mp3) &&
+              media.animated == (preview == 2) && utf8_equal(media.source, embeds[0].url),
+              "music previews route to typed native audio or video without fetching the source during layout");
+        auto& f = fixture;
+        MessageTextCommand label{};
+        label.message_id = 5; label.message_revision = 1; label.source_id = 0x8008;
+        check(message_store_initialize(&f.store, {f.record, 2}, {f.order, 2}, {f.text, sizeof(f.text)}) &&
+              message_store_upsert(&f.store, {5, 7, 9, 0, 0, utf8_literal(""), 0}).ok() &&
+              utf8_equal(message_text_presentation_command_source(f.store, &store, label),
+                         preview_labels[preview]),
+              "preview label selection maps to displayed text instead of raw provider metadata");
+    }
 }
 // As in the official client, embeds sharing a url fold into the first, whose
 // media becomes a gallery of their images (a video wins over the images).

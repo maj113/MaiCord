@@ -1,6 +1,8 @@
 #include "application_downloads.hpp"
 #include "application_content_point.hpp"
 #include "application_video.hpp"
+#include "application_frame_presentation.hpp"
+#include "application_account_presentation.hpp"
 #include "application_call.hpp"
 #include "application_video_request.hpp"
 #include "application_state.hpp"
@@ -13,12 +15,14 @@
 #include "application_media_policy.hpp"
 #include "application_cursor.hpp"
 #include "maicord/media/presentation_policy.hpp"
+#include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/protocol/embed_provider.hpp"
 #include "maicord/ui/audio_presentation.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
@@ -40,6 +44,9 @@ struct InlineMediaSource {
     ApplicationSearchSourceTicket search_source{};
     UiWidgetReference owner{};
     bool audio{};
+    bool provider{};
+    u32 start_seconds{};
+    bool audio_preview{};
 };
 struct InlineAudioSceneSelection {};
 struct InlineVideoSceneSelection {};
@@ -69,6 +76,9 @@ struct ApplicationVideo {
     bool selecting{};
     bool selected{};
     bool requested_play{};
+    bool requested_seek{};
+    bool provider_frame_ready{};
+    u32 display_width{}, display_height{};
     bool hidden_pause{};
     bool input_focus{};
     bool presentation_failed{};
@@ -77,6 +87,13 @@ struct ApplicationVideo {
     bool source_refresh{};
     // The media viewer hosts this same session; geometry comes from the viewer.
     bool expanded{};
+    bool live_started{}, live_restart{}, restore_gain{}, restore_muted{};
+    u8 live_restarts{};
+    float restore_volume{1};
+    u16 collection_count{}, collection_track{};
+    bool collection_more{};
+    bool collection_continue{true};
+    UiVideoControl collection_focus{};
     UiPoint pointer{-kMaximumUiCoordinate, -kMaximumUiCoordinate};
     static void* operator new(usize, void* storage) noexcept {
         return storage;
@@ -138,6 +155,10 @@ bool unbind_playback_scenes() noexcept {
     const bool had_scene = g_app.renderer.video_scene != nullptr || g_app.renderer.audio_scene != nullptr;
     renderer_bind_audio_scene(&g_app.renderer, nullptr);
     g_app.renderer.video_scene = nullptr;
+    if (g_app.renderer.inline_embed_video.id) {
+        g_app.renderer.inline_embed_video = {};
+        g_app.renderer.retained_presentation.valid = false;
+    }
     g_app.renderer.video_scene_search_result = false;
     g_app.renderer.video_scene_viewer = false;
     return had_scene;
@@ -270,14 +291,20 @@ bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bo
     target.rich_index = item;
     target.snapshot = snapshot;
     MediaAssetKey key{};
+    bool provider = false;
+    u32 start_seconds = 0;
     if (embed) {
         MessageRichEmbedMediaSelection selected{};
         if (item >= source.rich->embed_count ||
             source.rich->embeds[item].type == GatewayMessageEmbedType::gifv ||
-            !message_rich_embed_media_select(*source.rich_store, source.rich->embeds[item], &selected) ||
-            selected.format != MediaAttachmentFormat::mp4)
+            !message_rich_embed_playback_select(*source.rich_store, source.rich->embeds[item], &selected) ||
+            (selected.format != MediaAttachmentFormat::mp4 && !media_embed_audio_format_supported(selected.format)))
             return false;
-        target.resource = selected.resource;
+        provider = selected.provider;
+        start_seconds = selected.start_seconds;
+        MessageRichEmbedMediaSelection poster{};
+        target.resource = provider && message_rich_embed_media_select(*source.rich_store,
+                              source.rich->embeds[item], &poster) ? poster.resource : selected.resource;
         key = media_asset_search_embed(source.message->id, source.message->revision, item,
                                        selected.resource, selected.format, selected.animated,
                                        MediaResolutionTier::px512, snapshot);
@@ -309,6 +336,9 @@ bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bo
             embed,
             snapshot,
             ticket};
+    out->provider = provider;
+    out->audio_preview = embed && media_embed_audio_format_supported(media_asset_embed_format(key));
+    out->start_seconds = start_seconds;
     out->audio = !embed && media_attachment_format_audio_supported(media_asset_attachment_format(key));
     if (out->audio) {
         const auto* rich_scene = ui_search_scene_message_scene(search);
@@ -352,6 +382,8 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
         float width = 0, height = 0;
         u32 source_width = 0, source_height = 0;
         MediaAssetKey key{};
+        bool provider = false;
+        u32 start_seconds = 0;
         UiRect rectangle{};
         if (!embed) {
             if (item >= rich->attachment_count)
@@ -397,9 +429,11 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
             if (item >= rich->embed_count || rich->embeds[item].type == GatewayMessageEmbedType::gifv)
                 return false;
             MessageRichEmbedMediaSelection media{};
-            if (!message_rich_embed_media_select(store, rich->embeds[item], &media) ||
-                media.format != MediaAttachmentFormat::mp4)
+            if (!message_rich_embed_playback_select(store, rich->embeds[item], &media) ||
+                (media.format != MediaAttachmentFormat::mp4 && !media_embed_audio_format_supported(media.format)))
                 return false;
+            provider = media.provider;
+            start_seconds = media.start_seconds;
             width = row.rich_item_layout.embed_media_widths[item];
             height = row.rich_item_layout.embed_media_heights[item];
             if (width <= 0 || height <= 0)
@@ -425,14 +459,18 @@ bool resolve_visible_video_source(u64 message_id, u32 revision, bool embed, u8 i
                 item,
                 embed,
                 snapshot};
+        out->provider = provider;
+        out->audio_preview = embed && media_embed_audio_format_supported(media_asset_embed_format(key));
+        out->start_seconds = start_seconds;
         return true;
     }
     return false;
 }
 // *refresh requests a forced signed-URL refresh for an attachment and reports
 // whether the media lane asked for one (403/410 or an expired URL).
-bool request_video_source(const InlineMediaSource& source, bool* refresh = nullptr) noexcept {
+bool request_video_source(const InlineMediaSource& source, bool* refresh = nullptr, ApplicationVideo* playback = nullptr) noexcept {
     const MessageRecord* message = nullptr;
+    Utf8View content{};
     const MessageRichRecord* rich = nullptr;
     const MessageRichStore* store = &g_app.account_ui->message_rich_store;
     ApplicationSearchSourceView searched{};
@@ -442,9 +480,11 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh = nullp
         message = searched.message;
         rich = searched.rich;
         store = searched.rich_store;
+        content = message_store_content(*searched.store, searched.handle);
     } else {
         const auto found = message_store_find(g_app.message_view.store, source.message_id);
         message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+        if (message) content = message_store_content(g_app.message_view.store, found.handle);
         rich = message ? (source.snapshot ? message_rich_store_snapshot(*store, source.message_id)
                                           : message_rich_store_find(*store, source.message_id))
                        : nullptr;
@@ -469,9 +509,12 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh = nullp
         if (source.index >= rich->embed_count)
             return false;
         MessageRichEmbedMediaSelection media{};
-        if (!message_rich_embed_media_select(*store, rich->embeds[source.index], &media))
+        if (!message_rich_embed_playback_select(*store, rich->embeds[source.index], &media))
             return false;
-        url = media.source;
+        // Embed URLs can lose the playlist query. Recover it from this exact
+        // message (or forwarded snapshot), never from another visible row.
+        if (source.snapshot) content = message_rich_store_string(*store, rich->snapshot.content);
+        url = youtube_collection_source(media.source, content);
         u8 target[kCdnMaximumTargetBytes]{};
         if (!parse_media_url(url, {target, sizeof(target)}).ok() && media.fallback_source.bytes &&
             parse_media_url(media.fallback_source, {target, sizeof(target)}).ok())
@@ -493,21 +536,30 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh = nullp
     }
     const auto proxy = media_presentation_request(width, height, ui_rect_width(source.preview),
                                                   ui_rect_height(source.preview), g_app.renderer.dpi, 512);
+    // Provider artwork describes the poster, not playback quality. Resolve up
+    // to 1080p within the existing media budgets so the same session can expand.
+    // Frame uploads remain sized to the actual display rectangle.
     const AccountMediaAttachmentRequest request{
         url,
         source.key,
         source.message_id,
         source.revision,
-        static_cast<u16>(source.audio ? 0 : proxy.width),
-        static_cast<u16>(source.audio ? 0 : proxy.height),
-        source.audio ? audio_source_type(media_asset_attachment_format(source.key))
+        static_cast<u16>(source.audio || source.audio_preview ? 0 : source.provider ? 1920 : proxy.width),
+        static_cast<u16>(source.audio || source.audio_preview ? 0 : source.provider ? 1080 : proxy.height),
+        source.audio || source.audio_preview ? audio_source_type(media_asset_audio_format(source.key))
                      : CdnImageType::mp4,
-        {0, 0, 0},
-        source.audio ? nullptr : g_app.renderer.graphics.device};
+        {static_cast<u8>(source.embed && (!source.audio_preview || soundcloud_track_url(original_url) || embed_collection_url(original_url))),
+         {0, 0}, playback ? playback->collection_track : u16{0}},
+        source.audio || source.audio_preview ? nullptr : g_app.renderer.graphics.device};
     const auto result =
         g_app.account.api.media_attachment_request(g_app.account.instance, &request, now, unix_seconds);
     if (refresh)
         *refresh = result.state == AccountMediaRequestState::refresh_required;
+    if (playback && result.collection_count && result.collection_track && result.collection_track <= result.collection_count) {
+        playback->collection_count = result.collection_count;
+        playback->collection_track = result.collection_track;
+        playback->collection_more = result.collection_more;
+    }
     return application_video_source_pending(result);
 }
 UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexcept {
@@ -519,24 +571,29 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
     out.generation = video.session_epoch;
     out.revision = u64{video.source.revision} + 1;
     out.elapsed_ms = playback.position_100ns > 0 ? static_cast<u64>(playback.position_100ns / 10000) : 0;
-    out.duration_ms = playback.duration_100ns > 0 ? static_cast<u64>(playback.duration_100ns / 10000) : 0;
+    out.live = playback.live;
+    out.duration_ms = !out.live && playback.duration_100ns > 0 ? static_cast<u64>(playback.duration_100ns / 10000) : 0;
     out.volume = playback.volume_valid ? static_cast<u32>(playback.applied_volume * 100 + .5f) : 0;
     out.playing = playback.playing;
     out.muted = playback.muted;
-    out.buffering = video.selecting || playback.buffering || playback.seeking;
     out.error = video.presentation_failed || playback.error != AccountVideoError::none ||
                 playback.rejected_error != AccountVideoError::none;
+    out.buffering = !out.error && (video.selecting || playback.buffering || playback.seeking);
     out.can_play = video.selected && video.status.selected && !video.selecting &&
                    !video.presentation_failed && !playback.release_pending &&
                    playback.error == AccountVideoError::none;
-    out.can_seek = out.can_play && out.duration_ms != 0;
+    out.can_seek = out.can_play && !out.live && out.duration_ms != 0;
     out.has_audio = playback.has_audio;
     out.can_volume = out.can_play && playback.has_audio;
+    out.collection_count = video.collection_count;
+    out.collection_track = video.collection_track;
+    out.collection_more = video.collection_more;
+    out.can_change_track = video.collection_count && !video.selecting && !playback.release_pending;
     // In the viewer the toolbar's full screen button replaces expand.
-    out.can_expand = !video.source.audio && !video.presentation_failed && !video.expanded;
+    out.can_expand = !video.source.audio && !video.source.audio_preview && !video.presentation_failed && !video.expanded;
     out.expanded = video.expanded;
     const auto& buffered = video.status.buffered;
-    out.buffered_count = minimum<u8>(buffered.count, 4);
+    out.buffered_count = out.live ? 0 : minimum<u8>(buffered.count, 4);
     for (u32 i = 0; i < out.buffered_count; ++i) {
         out.buffered_begin[i] = buffered.begin[i];
         out.buffered_end[i] = buffered.end[i];
@@ -636,10 +693,21 @@ bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 s
                         bool muted = false) noexcept {
     if (!video.selected || !video_session_available() || video.command_serial == ~u64{0})
         return false;
+    if (video.status.playback.live && kind == AccountVideoCommand::seek) return false;
+    if (video.status.playback.live && kind == AccountVideoCommand::play && video.live_started && !video.status.playback.playing) {
+        video.live_restart = true;
+        video.live_restarts = 0;
+        application_request_frame();
+        return true;
+    }
     const AccountVideoControl command{
         video.status.playback.identity, ++video.command_serial, seek, volume, kind, muted};
     const auto result = g_app.account.api.video_control(g_app.account.instance, &command);
-    return result.ok() && result.admitted;
+    const bool admitted = result.ok() && result.admitted;
+    if (admitted && (kind == AccountVideoCommand::play || kind == AccountVideoCommand::pause))
+        video.collection_continue = kind == AccountVideoCommand::play;
+    if (admitted && kind == AccountVideoCommand::play && video.status.playback.live) video.live_started = true;
+    return admitted;
 }
 bool set_video_expanded(ApplicationVideo& video, bool expanded) noexcept {
     if (video.source.audio || expanded == video.expanded)
@@ -671,6 +739,7 @@ enum class InlineMediaPolicyUse : u8 {
 };
 bool inline_media_activation_consumed(const InlineMediaSource& source,
                                       InlineMediaPolicyUse use = InlineMediaPolicyUse::activate) noexcept;
+bool switch_collection_track(ApplicationVideo&, u16 track, UiVideoControl focus) noexcept;
 void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& event) noexcept {
     if (event.request_capture)
         SetCapture(g_app.window);
@@ -688,16 +757,23 @@ void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& eve
         send_video_command(video, action.value ? AccountVideoCommand::play : AccountVideoCommand::pause);
         break;
     case UiVideoControl::seek:
-        if (action.position_ms <= static_cast<u64>(0x7fffffffffffffffll / 10000))
-            send_video_command(video, AccountVideoCommand::seek,
-                               static_cast<i64>(action.position_ms * 10000));
+        if (action.position_ms <= static_cast<u64>(0x7fffffffffffffffll / 10000) &&
+            !send_video_command(video, AccountVideoCommand::seek,
+                                static_cast<i64>(action.position_ms * 10000)))
+            video.ui.video.capture_value_valid = false;
         break;
     case UiVideoControl::volume:
-        send_video_command(video, AccountVideoCommand::volume, 0, action.volume / 100.0f);
+        if (!send_video_command(video, AccountVideoCommand::volume, 0, action.volume / 100.0f))
+            video.ui.video.capture_value_valid = false;
         break;
     case UiVideoControl::mute:
         send_video_command(video, AccountVideoCommand::mute, 0, 1, action.value);
         break;
+    case UiVideoControl::previous_track:
+    case UiVideoControl::next_track:
+    case UiVideoControl::track:
+        switch_collection_track(video, action.collection_track, action.control);
+        return;
     case UiVideoControl::expand:
         set_video_expanded(video, action.value);
         return;
@@ -731,8 +807,46 @@ bool start_video_session(const InlineMediaSource& source) noexcept {
     video->session_epoch = ++g_app.video_lifetime_serial;
     video->selecting = true;
     video->requested_play = true;
+    video->requested_seek = source.start_seconds != 0;
     acquire_video_focus(*video);
     application_request_frame();
+    return true;
+}
+bool switch_collection_track(ApplicationVideo& video, u16 track, UiVideoControl focus) noexcept {
+    if (!track || track > video.collection_count || track == video.collection_track || video.selecting) return false;
+    const auto source = video.source;
+    const u16 count = video.collection_count;
+    const bool more = video.collection_more;
+    const bool resume = video.collection_continue;
+    const bool muted = video.status.playback.muted;
+    const float volume = video.status.playback.volume_valid ? video.status.playback.desired_volume : 1;
+    if (!start_video_session(source)) return false;
+    g_app.video->collection_count = count;
+    g_app.video->collection_more = more;
+    g_app.video->collection_track = track;
+    g_app.video->collection_continue = resume;
+    g_app.video->collection_focus = focus;
+    g_app.video->requested_play = resume;
+    g_app.video->requested_seek = false;
+    g_app.video->restore_gain = true;
+    g_app.video->restore_volume = volume;
+    g_app.video->restore_muted = muted;
+    return true;
+}
+bool restart_live_session(ApplicationVideo& video) noexcept {
+    // Copy before close: the new selection waits for joined disposal of the
+    // previous session, while keeping viewer geometry and the user's sound settings.
+    const auto source = video.source;
+    const bool expanded = video.expanded, muted = video.status.playback.muted;
+    const float volume = video.status.playback.desired_volume;
+    const u8 retries = video.live_restarts;
+    if (!start_video_session(source)) return false;
+    g_app.video->expanded = expanded;
+    g_app.video->status.playback.live = true;
+    g_app.video->restore_gain = true;
+    g_app.video->restore_muted = muted;
+    g_app.video->restore_volume = volume;
+    g_app.video->live_restarts = retries;
     return true;
 }
 bool inline_media_activation_consumed(const InlineMediaSource& source, InlineMediaPolicyUse use) noexcept {
@@ -862,7 +976,8 @@ bool application_video_ordinary(MediaAssetKey key) noexcept {
     if (key.kind == MediaAssetKind::attachment)
         return media_asset_attachment_format(key) == MediaAttachmentFormat::mp4 ||
                media_attachment_format_audio_supported(media_asset_attachment_format(key));
-    if (key.kind != MediaAssetKind::embed || media_asset_embed_format(key) != MediaAttachmentFormat::mp4 ||
+    if (key.kind != MediaAssetKind::embed ||
+        (media_asset_embed_format(key) != MediaAttachmentFormat::mp4 && !media_embed_audio_format_supported(media_asset_embed_format(key))) ||
         !g_app.account_ui)
         return false;
     ApplicationSearchSourceView searched{};
@@ -888,8 +1003,7 @@ bool application_video_open_search(UiSearchTarget target) noexcept {
         !ui_search_scene_target_current(*g_app.renderer.search_scene, target))
         return false;
     const bool embed = target.rich_kind == MessageSceneRichItemKind::embed;
-    if (embed &&
-        (target.resource == MediaEmbedResource::none || target.resource == MediaEmbedResource::thumbnail))
+    if (embed && target.resource == MediaEmbedResource::none)
         return false;
     ApplicationSearchSourceTicket ticket{};
     if (!application_search_source_ticket(target.source_index, &ticket) ||
@@ -899,7 +1013,9 @@ bool application_video_open_search(UiSearchTarget target) noexcept {
     if (!resolve_search_video_source(ticket, embed, static_cast<u8>(target.rich_index), target.snapshot,
                                      &source) ||
         source.channel_id != target.channel_id ||
-        (embed && media_asset_embed_resource(source.key) != target.resource))
+        (embed && media_asset_embed_resource(source.key) != target.resource &&
+         !(source.provider && (target.resource == MediaEmbedResource::thumbnail ||
+                               target.resource == MediaEmbedResource::image))))
         return false;
     return activate_inline_source(source);
 }
@@ -1090,6 +1206,8 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
             .resolution;
     };
     MediaAssetKey selected{};
+    bool provider = false;
+    u32 start_seconds = 0;
     if (!embed) {
         if (index >= rich->attachment_count ||
             message_rich_attachment_format(*store, rich->attachments[index]) != MediaAttachmentFormat::mp4)
@@ -1102,9 +1220,11 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
     } else {
         MessageRichEmbedMediaSelection media{};
         if (index >= rich->embed_count || rich->embeds[index].type == GatewayMessageEmbedType::gifv ||
-            !message_rich_embed_media_select(*store, rich->embeds[index], &media) ||
+            !message_rich_embed_playback_select(*store, rich->embeds[index], &media) ||
             media.format != MediaAttachmentFormat::mp4)
             return false;
+        provider = media.provider;
+        start_seconds = media.start_seconds;
         selected = search ? media_asset_search_embed(message_id, revision, index, media.resource, media.format,
                                                      media.animated, MediaResolutionTier::px512, snapshot)
                           : media_asset_embed(message_id, revision, index, media.resource, media.format,
@@ -1115,6 +1235,8 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
         return false;
     InlineMediaSource source{selected, preview, preview, message_id, message->channel_id, revision, index,
                              embed,    snapshot};
+    source.provider = provider;
+    source.start_seconds = start_seconds;
     if (search)
         source.search_source = *search;
     if (!start_video_session(source))
@@ -1122,6 +1244,212 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
     g_app.video->expanded = true;
     *key = selected;
     return true;
+}
+
+namespace {
+bool position_video_scene(ApplicationVideo* video, InlineMediaSource& positioned) noexcept {
+    if (video->expanded && !g_app.image_viewer.scene.active)
+        video->expanded = false;
+    bool visible = false;
+    if (video->expanded) {
+        // The viewer owns geometry; message/revision authority was checked above.
+        positioned = video->source;
+        visible = video_surface_available() &&
+                  application_image_viewer_video_geometry(video->source.key, &positioned.preview,
+                                                          &positioned.clip) &&
+                  ui_rect_has_area(positioned.clip);
+    } else {
+        visible =
+            video_surface_available() &&
+            resolve_visible_video_source(video->source.message_id, video->source.revision,
+                                         video->source.embed, video->source.index, &positioned,
+                                         video->source.snapshot, &video->source.search_source) &&
+            ui_rect_has_area(positioned.clip) && media_asset_key_equal(positioned.key, video->source.key) &&
+            positioned.audio == video->source.audio;
+    }
+    return visible;
+}
+void refresh_video_text() noexcept {
+    if (!renderer_rebuild_content_text(&g_app.renderer, application_theme())) {
+        // Text/layout rejection does not invalidate the account or media owner.
+        // Leave its revision pending and use the ordinary presentation retry.
+        application_record_presentation_failure("video_text_projection_failed");
+        application_request_frame();
+    }
+}
+bool update_video_extent(ApplicationVideo& video, const GpuVideoFrame& frame) noexcept {
+    if (!video.source.provider || !video.source.embed)
+        return false;
+    const u32 width = gpu_video_frame_output_width(frame, 1);
+    const u32 height = gpu_video_frame_output_height(frame, 1);
+    if (!width || !height || (video.display_width == width && video.display_height == height))
+        return false;
+    ApplicationSearchSourceView searched{};
+    auto* store = &g_app.account_ui->message_rich_store;
+    if (media_asset_search(video.source.key)) {
+        if (!application_search_source_resolve(video.source.search_source, video.source.snapshot, &searched))
+            return false;
+        store = searched.rich_store;
+    }
+    bool changed = false;
+    if (!message_rich_store_set_embed_dimensions(store, video.source.message_id, video.source.revision,
+            video.source.index, MessageRichEmbedMediaSlot::video, width, height, &changed,
+            video.source.snapshot))
+        return false;
+    video.display_width = width;
+    video.display_height = height;
+    if (changed) {
+        if (media_asset_search(video.source.key))
+            application_search_media_dimensions_changed();
+        else
+            message_scene_invalidate_geometry(&g_app.message_scene);
+        g_app.renderer.retained_presentation.valid = false;
+    }
+    return changed;
+}
+bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& positioned, bool visible, bool* repaint) noexcept {
+    const bool searched = media_asset_search(video->source.key);
+    if (visible)
+        video->hidden_pause = false;
+    if (!visible) {
+        video->presentation_wake_ms = 0;
+        application_video_blur();
+        if (video->source.audio)
+            video->ui.audio.active = false;
+        else {
+            ui_opacity_transition_reset(&video->ui.video.controls_transition);
+            video->ui.video.active = false;
+        }
+        if (unbind_playback_scenes())
+            refresh_video_text();
+        return true;
+    }
+    video->source = positioned;
+    const MediaAssetKey inline_key = positioned.provider && video->provider_frame_ready && !video->expanded
+                                        ? positioned.key : MediaAssetKey{};
+    if (!media_asset_key_equal(g_app.renderer.inline_embed_video, inline_key)) {
+        g_app.renderer.inline_embed_video = inline_key;
+        g_app.renderer.retained_presentation.valid = false;
+    }
+    if (video->source.audio) {
+        const auto before = ui_audio_scene_paint_revision(video->ui.audio);
+        const auto capture = video->ui.audio.capture;
+        const bool projected = ui_audio_scene_project(
+            &video->ui.audio, project_audio_playback(*video), positioned.preview, positioned.clip,
+            positioned.owner, searched ? UiAudioSourceSurface::search : UiAudioSourceSurface::timeline,
+            kDefaultUiAudioControlsStyle, application_theme());
+        video->presentation_wake_ms = 0;
+        if (projected) {
+            if (video->input_focus && !video_input_focus_current(*video))
+                application_video_blur();
+            if (video_input_focus_current(*video) && video->ui.audio.focus == UiAudioControl::none)
+                ui_audio_scene_focus(&video->ui.audio, UiAudioControl::play_pause,
+                                     g_app.keyboard_focus_visible);
+            video->ui.audio.keyboard_focus =
+                video_input_focus_current(*video) && g_app.keyboard_focus_visible;
+            ui_audio_scene_hover(&video->ui.audio, video_pointer_position());
+            track_video_pointer(*video);
+            if (!renderer_bind_audio_scene(&g_app.renderer, &video->ui.audio))
+                return false;
+            if (capture != UiAudioControl::none && video->ui.audio.capture == UiAudioControl::none)
+                release_video_pointer_capture();
+            if (g_app.renderer.interaction_text_audio_revision != ui_audio_scene_text_revision(video->ui.audio))
+                refresh_video_text();
+        } else {
+            renderer_bind_audio_scene(&g_app.renderer, nullptr);
+            if (capture != UiAudioControl::none)
+                release_video_pointer_capture();
+        }
+        if (repaint && before != ui_audio_scene_paint_revision(video->ui.audio))
+            *repaint = true;
+        return true;
+    }
+    renderer_bind_audio_scene(&g_app.renderer, nullptr);
+    const u64 old_paint_revision = ui_video_scene_paint_revision(video->ui.video);
+    UiVideoControlsStyle metrics{};
+    if (searched) {
+        // Result cards and forwarded padding leave less width than timeline
+        // media. The existing compact controls still fit at their exact layout
+        // minimum without shrinking any button, range, label or inset.
+        metrics.minimum_width = 2 * metrics.padding + 2 * metrics.target + 3 * metrics.gap +
+                                metrics.time_width + metrics.range_height;
+    }
+    UiVideoSceneStyle visual{};
+    if (video->expanded) {
+        // Viewer media is square-cornered and hides idle controls sooner.
+        visual.preview_radius = 0;
+        visual.idle_ms = kUiVideoControlsExpandedIdleMs;
+        visual.scrim_lead = 40;
+    }
+
+    const float usable_width = ui_rect_width(positioned.preview) - 2 * visual.inset;
+    const float height = ui_video_controls_height(metrics, usable_width, video->collection_count != 0);
+    const auto before_capture = video->ui.video.capture;
+    const bool full = usable_width >= metrics.minimum_width &&
+                      ui_rect_height(positioned.preview) >= height + 2 * visual.inset;
+    const bool projected =
+        full ? ui_video_scene_project(&video->ui.video, project_video_playback(*video), positioned.preview,
+                                      positioned.clip, metrics, visual, application_theme())
+             : ui_video_scene_project_play_only(&video->ui.video, project_video_playback(*video),
+                                                positioned.preview, positioned.clip, metrics, visual, {},
+                                                application_theme());
+    if (projected) {
+        const u64 now_ms = clock_monotonic_milliseconds();
+        if (video->input_focus && !video_input_focus_current(*video))
+            application_video_blur();
+        if (video_input_focus_current(*video) && video->ui.video.focus == UiVideoControl::none) {
+            if (!ui_video_scene_focus(&video->ui.video, video->collection_focus, g_app.keyboard_focus_visible))
+                ui_video_scene_focus(&video->ui.video, UiVideoControl::play_pause, g_app.keyboard_focus_visible);
+        }
+        video->ui.video.keyboard_focus = video_input_focus_current(*video) && g_app.keyboard_focus_visible;
+        ui_video_scene_hover(&video->ui.video, video_pointer_position());
+        track_video_pointer(*video);
+        const bool was_idle = video->ui.video.idle;
+        ui_video_scene_tick(&video->ui.video, now_ms, g_app.preferences.reduced_motion);
+        if (video->collection_count && g_app.account.api.collection_title) {
+            MediaTrackTitle current{}, hovered{};
+            AccountMediaCollectionTitleRequest query{video->source.key, video->source.revision, video->collection_track, true};
+            g_app.account.api.collection_title(g_app.account.instance, &query, &current);
+            auto& scene = video->ui.video;
+            if (scene.hover_track) {
+                query.track = scene.hover_track;
+                query.fetch = scene.track_hover_since_ms && now_ms >= scene.track_hover_since_ms + 150;
+                const auto result = g_app.account.api.collection_title(g_app.account.instance, &query, &hovered);
+                if (query.fetch || result.state == AccountMediaRequestState::ready || result.state == AccountMediaRequestState::retry_wait) scene.track_hover_requested = true;
+            }
+            ui_video_scene_titles(&scene, {current.text, current.bytes}, scene.hover_track, {hovered.text, hovered.bytes});
+        }
+        // Idle viewer playback hides the pointer with its controls; motion restores it.
+        if (video->expanded && !was_idle && video->ui.video.idle && video->ui.video.preview_hovered)
+            application_set_cursor(UiCursor::hidden);
+        video->presentation_wake_ms =
+            ui_video_scene_next_wake(video->ui.video, now_ms, g_app.preferences.reduced_motion);
+        g_app.renderer.video_scene = &video->ui.video;
+        g_app.renderer.video_scene_search_result = searched && !video->expanded;
+        g_app.renderer.video_scene_viewer = video->expanded;
+        if (before_capture != UiVideoControl::none && video->ui.video.capture == UiVideoControl::none)
+            release_video_pointer_capture();
+        if (g_app.renderer.interaction_text_video_revision != ui_video_scene_text_paint_revision(video->ui.video))
+            refresh_video_text();
+    } else {
+        video->presentation_wake_ms = 0;
+        g_app.renderer.video_scene = nullptr;
+        g_app.renderer.video_scene_search_result = false;
+        g_app.renderer.video_scene_viewer = false;
+        if (before_capture != UiVideoControl::none)
+            release_video_pointer_capture();
+    }
+    if (repaint && old_paint_revision != ui_video_scene_paint_revision(video->ui.video))
+        *repaint = true;
+    return true;
+}
+} // namespace
+bool application_video_synchronize() noexcept {
+    auto* video = g_app.video;
+    if (!video) return true;
+    InlineMediaSource positioned{};
+    const bool visible = position_video_scene(video, positioned);
+    return project_video_scene(video, positioned, visible, nullptr);
 }
 
 bool application_video_pump(bool* repaint) noexcept {
@@ -1159,26 +1487,13 @@ bool application_video_pump(bool* repaint) noexcept {
         application_video_close();
         return true;
     }
-    InlineMediaSource positioned{};
-    if (video->expanded && !g_app.image_viewer.scene.active)
-        video->expanded = false;
-    bool visible = false;
-    if (video->expanded) {
-        // The viewer owns geometry; message/revision authority was checked above.
-        positioned = video->source;
-        visible = video_surface_available() &&
-                  application_image_viewer_video_geometry(video->source.key, &positioned.preview,
-                                                          &positioned.clip) &&
-                  ui_rect_has_area(positioned.clip);
-    } else {
-        visible =
-            video_surface_available() &&
-            resolve_visible_video_source(video->source.message_id, video->source.revision,
-                                         video->source.embed, video->source.index, &positioned,
-                                         video->source.snapshot, &video->source.search_source) &&
-            ui_rect_has_area(positioned.clip) && media_asset_key_equal(positioned.key, video->source.key) &&
-            positioned.audio == video->source.audio;
+    if (video->live_restart) {
+        restart_live_session(*video);
+        if (repaint) *repaint = true;
+        return true;
     }
+    InlineMediaSource positioned{};
+    bool visible = position_video_scene(video, positioned);
     const bool surface_covered = content_surface_covers_video();
     if (video->selecting && (!searched || visible || surface_covered)) {
         const auto existing = g_app.account.api.video_status(g_app.account.instance);
@@ -1201,14 +1516,14 @@ bool application_video_pump(bool* repaint) noexcept {
         } else if (!surface_covered) {
             const AccountVideoSelection selection{video->source.key,
                                                   {video->account_serial, video->source.message_id, 0,
-                                                   video->session_epoch, video->source.revision, 0, 0}};
+                                                   video->session_epoch, video->source.revision, 0, 0}, video->collection_track};
             const auto selected = g_app.account.api.video_select(g_app.account.instance, &selection);
             if (selected.ok() && selected.admitted) {
                 video->selecting = false;
                 video->selected = true;
                 video->status = g_app.account.api.video_status(g_app.account.instance);
             } else if (selected.error == AccountVideoError::busy) {
-                if (!request_video_source(video->source, &video->source_refresh)) {
+                if (!request_video_source(video->source, &video->source_refresh, video)) {
                     video->selecting = false;
                     video->status.playback.error = AccountVideoError::decoder;
                 }
@@ -1221,6 +1536,12 @@ bool application_video_pump(bool* repaint) noexcept {
     }
     if (video->selected) {
         video->status = g_app.account.api.video_status(g_app.account.instance);
+        if (video->status.collection_count && video->status.collection_track &&
+            video->status.collection_track <= video->status.collection_count) {
+            video->collection_count = video->status.collection_count;
+            video->collection_track = video->status.collection_track;
+            video->collection_more = video->status.collection_more;
+        }
         if (video->status.playback.identity.session_epoch != video->session_epoch ||
             video->status.playback.identity.account_serial != video->account_serial ||
             video->status.playback.identity.message_id != video->source.message_id ||
@@ -1231,25 +1552,58 @@ bool application_video_pump(bool* repaint) noexcept {
         if (!video->status.selected)
             video->requested_play = false;
         if (video->status.source_refresh && video->status.selected) {
-            // The playing source keeps its bytes; only its signed URL is replaced.
-            bool force = true;
-            request_video_source(video->source, &force);
+            if (video->status.playback.live) {
+                if (video->live_restarts < 3) {
+                    ++video->live_restarts;
+                    video->live_restart = true;
+                    application_request_frame();
+                }
+            } else {
+                // Signed attachments keep their entity and replace only the URL.
+                bool force = true;
+                request_video_source(video->source, &force, video);
+            }
         }
-        if (video->requested_play && visible) {
+        if (!video->status.source_refresh && video->status.playback.playing && video->status.playback.position_100ns >= 50000000)
+            video->live_restarts = 0;
+        if (video->restore_gain && !video->live_restart &&
+            send_video_command(*video, AccountVideoCommand::volume, 0, video->restore_volume) &&
+            send_video_command(*video, AccountVideoCommand::mute, 0, 1, video->restore_muted)) video->restore_gain = false;
+        if (video->requested_seek && visible && video->status.playback.duration_100ns > 0) {
+            const i64 target = minimum<i64>(i64{video->source.start_seconds} * 10000000,
+                                            video->status.playback.duration_100ns);
+            if (send_video_command(*video, AccountVideoCommand::seek, target))
+                video->requested_seek = false;
+        }
+        if (video->requested_play && !video->requested_seek && !video->restore_gain && !video->live_restart && visible) {
             if (send_video_command(*video, AccountVideoCommand::play))
                 video->requested_play = false;
         }
         if (!visible && video->status.playback.playing && !video->hidden_pause) {
             video->hidden_pause = send_video_command(*video, AccountVideoCommand::pause);
         }
+        if (visible && !surface_covered && video->collection_continue && !video->requested_play &&
+            video->collection_track && video->collection_track < video->collection_count && video->status.playback.ended &&
+            video->status.playback.error == AccountVideoError::none && video->status.playback.rejected_error == AccountVideoError::none &&
+            video->status.playback.observed_command >= video->status.playback.desired_command) {
+            const bool switched = switch_collection_track(*video, video->collection_track + 1, video->ui.video.focus);
+            if (repaint) *repaint = true;
+            return switched;
+        }
         AccountVideoFrame frame{};
         if (g_app.account.api.video_take(g_app.account.instance, &frame)) {
+            bool geometry_changed = false;
             const bool current =
                 account_video_identity_equal(frame.identity, video->status.playback.identity) &&
                 media_asset_key_equal(frame.key, video->source.key);
             if (current && visible && frame.gpu && !video->source.audio) {
-                const auto uploaded = renderer_present_video_frame(&g_app.renderer, frame.key, *frame.gpu);
+                const u32 extent = static_cast<u32>(maximum(ui_rect_width(positioned.preview),
+                    ui_rect_height(positioned.preview)) * g_app.renderer.dpi / 96.0f + .5f);
+                const auto uploaded = renderer_present_video_frame(&g_app.renderer, frame.key, *frame.gpu,
+                                                                  maximum(1u, extent));
                 if (uploaded.ok()) {
+                    video->provider_frame_ready = video->source.provider;
+                    geometry_changed = update_video_extent(*video, *frame.gpu);
                     if (repaint)
                         *repaint = true;
                 } else {
@@ -1260,6 +1614,13 @@ bool application_video_pump(bool* repaint) noexcept {
             }
             if (!g_app.account.api.video_acknowledge(g_app.account.instance, &frame))
                 return false;
+            if (geometry_changed) {
+                if (!refresh_account_text(true)) {
+                    application_record_presentation_failure("video_geometry_projection_failed");
+                    application_request_frame();
+                }
+                visible = position_video_scene(video, positioned);
+            }
         }
     }
     const auto& current_playback = video->status.playback;
@@ -1281,123 +1642,9 @@ bool application_video_pump(bool* repaint) noexcept {
         log_u64(LogLevel::warning, "media", "video_has_audio", current_playback.has_audio);
         log_u64(LogLevel::warning, "media", "video_selected", video->status.selected);
     }
-    if (visible)
-        video->hidden_pause = false;
-    if (!visible) {
-        video->presentation_wake_ms = 0;
-        application_video_blur();
-        if (video->source.audio)
-            video->ui.audio.active = false;
-        else {
-            ui_opacity_transition_reset(&video->ui.video.controls_transition);
-            video->ui.video.active = false;
-        }
-        return !unbind_playback_scenes() ||
-               renderer_rebuild_content_text(&g_app.renderer, application_theme());
-    }
-    video->source = positioned;
-    if (video->source.audio) {
-        const auto before = ui_audio_scene_paint_revision(video->ui.audio);
-        const auto capture = video->ui.audio.capture;
-        const bool projected = ui_audio_scene_project(
-            &video->ui.audio, project_audio_playback(*video), positioned.preview, positioned.clip,
-            positioned.owner, searched ? UiAudioSourceSurface::search : UiAudioSourceSurface::timeline,
-            kDefaultUiAudioControlsStyle, application_theme());
-        video->presentation_wake_ms = 0;
-        if (projected) {
-            if (video->input_focus && !video_input_focus_current(*video))
-                application_video_blur();
-            if (video_input_focus_current(*video) && video->ui.audio.focus == UiAudioControl::none)
-                ui_audio_scene_focus(&video->ui.audio, UiAudioControl::play_pause,
-                                     g_app.keyboard_focus_visible);
-            video->ui.audio.keyboard_focus =
-                video_input_focus_current(*video) && g_app.keyboard_focus_visible;
-            ui_audio_scene_hover(&video->ui.audio, video_pointer_position());
-            track_video_pointer(*video);
-            if (!renderer_bind_audio_scene(&g_app.renderer, &video->ui.audio))
-                return false;
-            if (capture != UiAudioControl::none && video->ui.audio.capture == UiAudioControl::none)
-                release_video_pointer_capture();
-            if (g_app.renderer.interaction_text_audio_revision !=
-                    ui_audio_scene_text_revision(video->ui.audio) &&
-                !renderer_rebuild_content_text(&g_app.renderer, application_theme()))
-                return false;
-        } else {
-            renderer_bind_audio_scene(&g_app.renderer, nullptr);
-            if (capture != UiAudioControl::none)
-                release_video_pointer_capture();
-        }
-        if (repaint && before != ui_audio_scene_paint_revision(video->ui.audio))
-            *repaint = true;
-        return true;
-    }
-    renderer_bind_audio_scene(&g_app.renderer, nullptr);
-    const u64 old_paint_revision = ui_video_scene_paint_revision(video->ui.video);
-    UiVideoControlsStyle metrics{};
-    if (searched) {
-        // Result cards and forwarded padding leave less width than timeline
-        // media. The existing compact controls still fit at their exact layout
-        // minimum without shrinking any button, range, label or inset.
-        metrics.minimum_width = 2 * metrics.padding + 2 * metrics.target + 3 * metrics.gap +
-                                metrics.time_width + metrics.range_height;
-    }
-    UiVideoSceneStyle visual{};
-    if (video->expanded) {
-        // Viewer media is square-cornered and hides idle controls sooner.
-        visual.preview_radius = 0;
-        visual.idle_ms = kUiVideoControlsExpandedIdleMs;
-        visual.scrim_lead = 40;
-    }
-
-    const float usable_width = ui_rect_width(positioned.preview) - 2 * visual.inset;
-    const float height = ui_video_controls_height(metrics, usable_width);
-    const auto before_capture = video->ui.video.capture;
-    const bool full = usable_width >= metrics.minimum_width &&
-                      ui_rect_height(positioned.preview) >= height + 2 * visual.inset;
-    const bool projected =
-        full ? ui_video_scene_project(&video->ui.video, project_video_playback(*video), positioned.preview,
-                                      positioned.clip, metrics, visual, application_theme())
-             : ui_video_scene_project_play_only(&video->ui.video, project_video_playback(*video),
-                                                positioned.preview, positioned.clip, metrics, visual, {},
-                                                application_theme());
-    if (projected) {
-        const u64 now_ms = clock_monotonic_milliseconds();
-        if (video->input_focus && !video_input_focus_current(*video))
-            application_video_blur();
-        if (video_input_focus_current(*video) && video->ui.video.focus == UiVideoControl::none)
-            ui_video_scene_focus(&video->ui.video, UiVideoControl::play_pause,
-                                 g_app.keyboard_focus_visible);
-        video->ui.video.keyboard_focus = video_input_focus_current(*video) && g_app.keyboard_focus_visible;
-        ui_video_scene_hover(&video->ui.video, video_pointer_position());
-        track_video_pointer(*video);
-        const bool was_idle = video->ui.video.idle;
-        ui_video_scene_tick(&video->ui.video, now_ms, g_app.preferences.reduced_motion);
-        // Idle viewer playback hides the pointer with its controls; motion restores it.
-        if (video->expanded && !was_idle && video->ui.video.idle && video->ui.video.preview_hovered)
-            application_set_cursor(UiCursor::hidden);
-        video->presentation_wake_ms =
-            ui_video_scene_next_wake(video->ui.video, now_ms, g_app.preferences.reduced_motion);
-        g_app.renderer.video_scene = &video->ui.video;
-        g_app.renderer.video_scene_search_result = searched && !video->expanded;
-        g_app.renderer.video_scene_viewer = video->expanded;
-        if (before_capture != UiVideoControl::none && video->ui.video.capture == UiVideoControl::none)
-            release_video_pointer_capture();
-        if (g_app.renderer.interaction_text_video_revision !=
-                ui_video_scene_text_paint_revision(video->ui.video) &&
-            !renderer_rebuild_content_text(&g_app.renderer, application_theme()))
-            return false;
-    } else {
-        video->presentation_wake_ms = 0;
-        g_app.renderer.video_scene = nullptr;
-        g_app.renderer.video_scene_search_result = false;
-        g_app.renderer.video_scene_viewer = false;
-        if (before_capture != UiVideoControl::none)
-            release_video_pointer_capture();
-    }
-    if (repaint && old_paint_revision != ui_video_scene_paint_revision(video->ui.video))
-        *repaint = true;
-    return true;
+    return project_video_scene(video, positioned, visible, repaint);
 }
+
 u64 application_video_next_wake() noexcept {
     const u64 inline_wake = g_app.video && video_surface_available() && !g_app.preferences.reduced_motion
                                 ? g_app.video->presentation_wake_ms
@@ -1733,8 +1980,8 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     auto& scene = video->ui.video;
     const u64 now = clock_monotonic_milliseconds();
     const bool modified = (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000);
-    const bool volume_focus =
-        focused && scene.keyboard_focus && scene.focus == UiVideoControl::volume;
+    const bool range_focus = focused && scene.keyboard_focus &&
+        (scene.focus == UiVideoControl::volume || scene.focus == UiVideoControl::track);
     const auto player = [&](UiVideoPlayerKey shortcut, u32 percent = 0) noexcept {
         return ui_video_scene_player_key(&scene, shortcut, percent, now);
     };
@@ -1760,14 +2007,14 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
         if (!repeat)
             result = player(UiVideoPlayerKey::toggle_play);
     } else if (key == VK_LEFT || key == VK_RIGHT) {
-        result = volume_focus ? ui_video_scene_key(&scene, key == VK_LEFT ? UiVideoKey::decrease
+        result = range_focus ? ui_video_scene_key(&scene, key == VK_LEFT ? UiVideoKey::decrease
                                                                           : UiVideoKey::increase)
                               : player(key == VK_LEFT ? UiVideoPlayerKey::seek_backward
                                                       : UiVideoPlayerKey::seek_forward);
     } else if (key == VK_UP || key == VK_DOWN) {
         result = player(key == VK_UP ? UiVideoPlayerKey::volume_up : UiVideoPlayerKey::volume_down);
     } else if (key == VK_HOME || key == VK_END) {
-        result = volume_focus ? ui_video_scene_key(&scene, key == VK_HOME ? UiVideoKey::home : UiVideoKey::end)
+        result = range_focus ? ui_video_scene_key(&scene, key == VK_HOME ? UiVideoKey::home : UiVideoKey::end)
                               : player(UiVideoPlayerKey::seek_percent, key == VK_HOME ? 0 : 100);
     } else if (digit < 10) {
         if (!repeat)

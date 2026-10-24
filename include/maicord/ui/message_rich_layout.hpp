@@ -174,6 +174,9 @@ struct MessageRichEmbedMediaSelection {
     MediaEmbedResource resource;
     MediaAttachmentFormat format;
     bool animated;
+    bool provider = false;
+    u32 start_seconds = 0;
+    const MessageRichEmbedMedia* playback_extent = nullptr;
 };
 
 // "Chat" display settings (the text_and_images settings proto). Process
@@ -233,6 +236,11 @@ bool message_rich_attachment_preview_extent(const MessageRichStore& store,
                                             float* width, float* height) noexcept;
 bool message_rich_embed_media_select(const MessageRichStore& store, const MessageRichEmbed& embed,
                                      MessageRichEmbedMediaSelection* selection) noexcept;
+// Explicit play intent; ordinary layout and prefetch continue using the poster.
+bool message_rich_embed_music_preview(const MessageRichStore&, const MessageRichEmbed&) noexcept;
+Utf8View message_rich_embed_provider_label(const MessageRichStore&, const MessageRichEmbed&) noexcept;
+bool message_rich_embed_playback_select(const MessageRichStore&, const MessageRichEmbed&,
+                                       MessageRichEmbedMediaSelection*) noexcept;
 bool message_rich_embed_media_only(const MessageRichEmbed& embed) noexcept;
 
 // Embeds that share a url (multi-photo posts: one card plus image-only embeds)

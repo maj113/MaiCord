@@ -954,6 +954,7 @@ maicord_test(MaiCordGifFavoritesRuntimeTests ENTRY maicord_application_gif_favor
     INCLUDES src/app
     TIMEOUT 15
     TEST maicord_gif_favorites_runtime)
+# Includes collection navigation, canonical embed queue recovery, joined restarts and failure recovery.
 maicord_test(MaiCordVideoFocusRuntimeTests ENTRY maicord_video_focus_runtime_entry
     SOURCES tests/application_video_focus_runtime.cpp src/app/application_video.cpp
         src/app/application_state.cpp src/core/log.cpp

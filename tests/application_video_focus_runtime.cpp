@@ -6,6 +6,7 @@
 #include "application_composer_text_input.hpp"
 #include "application_search.hpp"
 #include "maicord/media/gpu_video_frame.hpp"
+#include "maicord/protocol/embed_provider.hpp"
 #include "maicord/ui/audio_presentation.hpp"
 #include "test_output.hpp"
 
@@ -28,12 +29,19 @@ struct AccountFixture {
     AccountVideoFrame queued_frame{};
     u32 selections{}, commands{}, network_requests{}, gpu_publications{};
     u32 frame_leases{}, frame_acknowledgements{};
+    u32 reject_controls{};
     bool frame_pending{};
     AccountMediaAttachmentRequest last_request{};
 } account;
-u32 failures{}, text_publications{};
+u32 failures{}, text_publications{}, presentation_rejections{};
+bool reject_text_projection{};
 bool settings;
 bool selection_busy;
+bool provider_upload;
+bool live_selection;
+bool collection_selection, fail_collection_track;
+u16 available_track = 1;
+u32 unsafe_collection_requests;
 bool search_current;
 bool deferred_stop, stop_pending;
 u32 viewer_opens;
@@ -44,6 +52,8 @@ u64 download_message{}, download_attachment{};
 bool download_snapshot{};
 ApplicationSearchSourceView search_view{};
 AccountPlaybackKind audio_kind(MediaAttachmentFormat format) noexcept {
+    if (format == MediaAttachmentFormat::m4a)
+        return AccountPlaybackKind::mp4;
     if (format == MediaAttachmentFormat::mp3)
         return AccountPlaybackKind::mp3;
     if (format == MediaAttachmentFormat::wav)
@@ -51,6 +61,8 @@ AccountPlaybackKind audio_kind(MediaAttachmentFormat format) noexcept {
     return AccountPlaybackKind::ogg_opus;
 }
 CdnImageType audio_type(MediaAttachmentFormat format) noexcept {
+    if (format == MediaAttachmentFormat::m4a)
+        return CdnImageType::m4a;
     if (format == MediaAttachmentFormat::mp3)
         return CdnImageType::mp3;
     if (format == MediaAttachmentFormat::wav)
@@ -64,11 +76,12 @@ void check(bool passed, const char* label) noexcept {
 
 AccountVideoResult WINAPI select(void*, const AccountVideoSelection* selection) noexcept {
     ++account.selections;
-    if (selection_busy)
+    if (selection_busy || (collection_selection && selection->collection_track && selection->collection_track != available_track))
         return {AccountVideoError::busy};
     account.status = {};
     account.status.selected = true;
     account.status.key = selection->key;
+    if (collection_selection) { account.status.collection_count=3; account.status.collection_track=available_track; }
     auto& playback = account.status.playback;
     playback.identity = selection->identity;
     playback.identity.content_identity = 0x51;
@@ -76,10 +89,12 @@ AccountVideoResult WINAPI select(void*, const AccountVideoSelection* selection) 
     playback.duration_100ns = 120'000 * 10'000ll;
     playback.position_100ns = 3'000 * 10'000ll;
     playback.applied_volume = .4f;
+    if (collection_selection) playback.desired_volume = .4f;
     playback.has_audio = playback.volume_valid = true;
-    const auto format = media_asset_attachment_format(selection->key);
+    playback.live = live_selection;
+    const auto format = media_asset_audio_format(selection->key);
     playback.kind =
-        selection->key.kind == MediaAssetKind::attachment && media_attachment_format_audio_supported(format)
+        media_attachment_format_audio_supported(format)
             ? audio_kind(format)
             : AccountPlaybackKind::mp4;
     return {AccountVideoError::none, 0, true, true};
@@ -88,12 +103,17 @@ AccountVideoResult WINAPI control(void*, const AccountVideoControl* command) noe
     if (!account_video_identity_equal(account.status.playback.identity, command->identity) ||
         command->command_serial <= account.status.playback.desired_command)
         return {AccountVideoError::stale};
+    if (account.reject_controls) {
+        --account.reject_controls;
+        return {AccountVideoError::busy};
+    }
     ++account.commands;
     auto& playback = account.status.playback;
     const u64 observed_before = playback.observed_command;
     playback.desired_command = playback.observed_command = command->command_serial;
     switch (command->command) {
     case AccountVideoCommand::play:
+        playback.ended = false;
         playback.playing = true;
         playback.paused = false;
         break;
@@ -111,6 +131,7 @@ AccountVideoResult WINAPI control(void*, const AccountVideoControl* command) noe
         playback.muted = command->muted;
         break;
     case AccountVideoCommand::stop:
+        if (live_selection) selection_busy = true;
         if (deferred_stop) {
             playback.observed_command = observed_before;
             stop_pending = true;
@@ -154,13 +175,21 @@ AccountMediaRequestResult WINAPI request(void*, const AccountMediaAttachmentRequ
     ++account.network_requests;
     if (requested)
         account.last_request = *requested;
-    return {};
+    AccountMediaRequestResult result{};
+    result.state = AccountMediaRequestState::queued;
+    if (collection_selection && requested) {
+        if (account.status.selected) ++unsafe_collection_requests;
+        available_track = requested->options.collection_track ? requested->options.collection_track : 1;
+        result.collection_count = 3; result.collection_track = available_track;
+        if (fail_collection_track && available_track == 1) { result.state = AccountMediaRequestState::failed; result.error = AccountMediaError::http; }
+    }
+    return result;
 }
 
 struct SceneFixture {
     MessageRecord record[1]{};
     u32 order[1]{};
-    u8 text[32]{};
+    u8 text[512]{};
     MessageRichRecord rich_record[2]{};
     u16 rich_order[1]{};
     u8 rich_text[512]{};
@@ -175,12 +204,14 @@ struct SceneFixture {
 bool initialize_scene(SceneFixture& fixture,
                       Utf8View source = utf8_literal("https://example.com/focus-fixture.mp4"),
                       bool forwarded = false, bool audio = false, bool voice = false,
-                      MediaAttachmentFormat audio_format = MediaAttachmentFormat::ogg_opus) noexcept {
+                      MediaAttachmentFormat audio_format = MediaAttachmentFormat::ogg_opus,
+                      bool provider = false, MediaEmbedResource artwork = MediaEmbedResource::thumbnail, Utf8View shared_page = {}, bool canonical_queue = false) noexcept {
+    collection_selection = embed_collection_url(source); available_track = 1; fail_collection_track = false;
     auto& view = g_app.message_view;
     auto& rich = g_app.account_ui->message_rich_store;
     if (!message_store_initialize(&view.store, {fixture.record, 1}, {fixture.order, 1},
-                                  {fixture.text, 32}) ||
-        !message_store_upsert(&view.store, {1, 7, 9, 0, 0, utf8_literal(""), 0}).ok() ||
+                                  {fixture.text, sizeof(fixture.text)}) ||
+        !message_store_upsert(&view.store, {1, 7, 9, 0, 0, (canonical_queue ? source : utf8_literal("")), 0}).ok() ||
         !message_rich_store_initialize(&rich, {fixture.rich_record, 2}, {fixture.rich_order, 1},
                                        {fixture.rich_text, 512}) ||
         !ui_variable_list_initialize(&view.list, {fixture.heights, 1}, {fixture.fenwick, 1}, 1,
@@ -221,6 +252,61 @@ bool initialize_scene(SceneFixture& fixture,
     event.id = 1;
     event.fields = gateway_message_field_attachments;
     event.attachments = {&attachment, 1};
+    GatewayMessageEmbed embed{};
+    if (provider) {
+        event.fields = gateway_message_field_embeds;
+        event.attachments = {};
+        embed.type = GatewayMessageEmbedType::video;
+        embed.video.url = source;
+        embed.video.width = embed.thumbnail.width = 320;
+        embed.video.height = embed.thumbnail.height = 240;
+        embed.thumbnail.url = utf8_literal("https://example.com/poster.png");
+        if (embed_video_locator(source).provider == EmbedProvider::twitch_live) {
+            embed.url = source;
+            embed.video = {};
+            embed.type = GatewayMessageEmbedType::link;
+            embed.title = utf8_literal("Live channel");
+            if (utf8_starts_with(source, utf8_literal("https://player.twitch.tv/")))
+                embed.thumbnail = {};
+        }
+        if (embed_provider(source) == EmbedProvider::pornhub) {
+            embed.url = source;
+            embed.video.url = utf8_literal("https://ev.phncdn.com/videos/old.mp4?validto=1");
+            embed.video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/old/https/ev.phncdn.com/videos/old.mp4");
+            embed.video.content_type = utf8_literal("video/mp4");
+        }
+        if (utf8_starts_with(source, utf8_literal("https://open.spotify.com/")) ||
+            youtube_collection_locator(source).list.bytes ||
+            soundcloud_track_url(source) || soundcloud_collection_url(source) ||
+            utf8_starts_with(source, utf8_literal("https://music.amazon.com/")) ||
+            utf8_starts_with(source, utf8_literal("https://music.apple.com/"))) {
+            embed.url = source;
+            embed.type = GatewayMessageEmbedType::rich;
+            embed.video = {};
+        }
+        if (youtube_collection_locator(source).list.bytes) {
+            embed.title = utf8_literal("Music queue");
+            embed.description = utf8_literal("Playlist");
+            embed.thumbnail.width = embed.thumbnail.height = 96;
+        }
+        if (utf8_starts_with(source, utf8_literal("https://w.soundcloud.com/")) || utf8_starts_with(source,utf8_literal("https://embed.music.apple.com/"))) {
+            embed.url = {};
+            embed.video.url = source;
+        }
+        if (artwork != MediaEmbedResource::thumbnail) {
+            if (artwork == MediaEmbedResource::image) embed.image = embed.thumbnail;
+            embed.thumbnail = {};
+        }
+        if (canonical_queue) {
+            embed.url = utf8_literal("https://www.youtube.com/watch?v=eyk25H75ld0");
+            embed.video.url = utf8_literal("https://www.youtube.com/embed/eyk25H75ld0");
+            embed.type = GatewayMessageEmbedType::video;
+            embed.video.width = embed.thumbnail.width = 320;
+            embed.video.height = embed.thumbnail.height = 180;
+        }
+        if (shared_page.bytes) embed.url = shared_page;
+        event.embeds = {&embed, 1};
+    }
     if (voice) {
         event.fields |= gateway_message_field_flags;
         event.flags = kGatewayMessageVoiceFlag;
@@ -256,6 +342,59 @@ LPARAM point(UiRect bounds) noexcept {
 bool pump() noexcept {
     bool repaint = false;
     return application_video_pump(&repaint);
+}
+void retry_range_commands(bool expanded) noexcept {
+    constexpr u32 ranges[]{1, 4};
+    const auto pointer = [&](UINT message, UiRect bounds) noexcept {
+        const LPARAM position = point(bounds);
+        const UiPoint viewer_position{static_cast<float>(static_cast<i16>(LOWORD(position))),
+                                      static_cast<float>(static_cast<i16>(HIWORD(position)))};
+        return expanded ? application_video_viewer_pointer(message, viewer_position)
+                        : application_video_pointer(message, position);
+    };
+    for (const u32 index : ranges) {
+        auto* scene = g_app.renderer.video_scene;
+        if (!scene) {
+            check(false, "range retry fixture requires an active player");
+            return;
+        }
+        if (index == 4) {
+            pointer(WM_MOUSEMOVE, scene->projection.controls[3].bounds);
+            pump();
+        }
+        const auto bounds = scene->projection.controls[index].bounds;
+        for (u32 release_only = 0; release_only < 2; ++release_only) {
+            const auto commands = account.commands;
+            const auto before = account.status.playback;
+            account.reject_controls = 1;
+            bool valid = pointer(WM_LBUTTONDOWN, bounds) && GetCapture() == g_app.window &&
+                         !account.reject_controls && account.commands == commands &&
+                         account.status.playback.position_100ns == before.position_100ns &&
+                         account.status.playback.applied_volume == before.applied_volume;
+            valid = pump() && valid;
+            if (!release_only) {
+                valid = pointer(WM_MOUSEMOVE, bounds) && valid;
+                valid = pump() && valid;
+            }
+            valid = pointer(WM_LBUTTONUP, bounds) && valid;
+            check(valid && GetCapture() != g_app.window && account.commands == commands + 1,
+                  "range retry: inline/expanded seek and volume retry rejected commands on unchanged move/release without duplicating accepted commands");
+            account.reject_controls = 0;
+        }
+    }
+}
+void terminal_buffering() noexcept {
+    const auto before = account.status.playback;
+    account.status.playback.error = AccountVideoError::demux;
+    account.status.playback.seeking = account.status.playback.buffering = true;
+    check(pump() && g_app.renderer.video_scene &&
+              g_app.renderer.video_scene->projection.playback.error &&
+              !g_app.renderer.video_scene->projection.playback.buffering &&
+              !g_app.renderer.video_scene->projection.playback.can_seek &&
+              !application_video_next_wake(),
+          "terminal playback error clears stale seek spinner and animation wakes in the active player");
+    account.status.playback = before;
+    check(pump(), "playback error fixture restores its authoritative transport state");
 }
 bool dormant() noexcept {
     const auto* scene = g_app.renderer.video_scene;
@@ -341,6 +480,17 @@ void run_search_video() noexcept {
                   ui_rect_has_area(ui_rect_intersection(native.projection.controls[1].bounds, native.clip)),
               "search video runtime: actual forwarded card width retains full-sized native seek and volume "
               "controls");
+        const auto selected_identity = account.status.playback.identity;
+        const auto before_commands = account.commands, before_requests = account.network_requests;
+        reject_text_projection = true;
+        g_app.renderer.interaction_text_video_revision = 0;
+        const bool presentation_only = pump();
+        reject_text_projection = false;
+        check(presentation_only && presentation_rejections &&
+              account_video_identity_equal(account.status.playback.identity, selected_identity) &&
+              account.status.playback.playing && account.commands == before_commands &&
+              account.network_requests == before_requests && pump(),
+              "search video runtime: rejected overlay text keeps media and account healthy and retries presentation");
         g_app.keyboard_focus_visible = true;
         // The host initially assigns Play/Pause when the newly selected
         // full-control player acquires focus; Tab advances from that control.
@@ -432,6 +582,84 @@ void run_search_video() noexcept {
         ui_thread_browser_scene_release(&browser);
     }
     application_video_close();
+    search_current = true;
+    target.snapshot = false;
+    target.rich_kind = MessageSceneRichItemKind::embed;
+    constexpr MediaEmbedResource resources[]{MediaEmbedResource::thumbnail, MediaEmbedResource::image,
+                                             MediaEmbedResource::video};
+    for (u32 poster = 0; poster < 3; ++poster) {
+        GatewayMessageEmbed embed{};
+        embed.type = GatewayMessageEmbedType::link;
+        embed.url = utf8_literal("https://www.twitch.tv/example_channel");
+        embed.title = utf8_literal("Live channel");
+        if (poster < 2) {
+            auto& artwork = poster ? embed.image : embed.thumbnail;
+            artwork.url = utf8_literal("https://example.com/poster.png");
+            artwork.width = artwork.height = 300;
+        }
+        GatewayMessageEvent event{};
+        event.id = 1;
+        event.fields = gateway_message_field_embeds | gateway_message_field_attachments |
+                       gateway_message_field_message_snapshots;
+        event.embeds = {&embed, 1};
+        const bool applied = message_rich_store_apply(&g_app.account_ui->message_rich_store, 1,
+                                                      fixture.record[0].revision, event).ok();
+        ++source.revision;
+        target.source_revision = source.revision;
+        target.resource = resources[poster];
+        const bool layout = applied && ui_search_scene_update(&scene, &source, &content,
+                                                               {0, 0, 1400, 1200}, {0, 0, 1400, 48});
+        selection_busy = true;
+        const auto requests = account.network_requests;
+        check(layout && application_video_open_search(target) && pump() &&
+                  application_video_search_active() && account.network_requests == requests + 1 &&
+                  utf8_equal(account.last_request.signed_url, embed.url) &&
+                  account.last_request.proxy_height == 1080,
+              "Search live cards activate from thumbnail, image or an artwork-free play surface");
+        application_video_close();
+        selection_busy = false;
+    }
+    constexpr auto radio = utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs");
+    for (u32 forwarded = 0; forwarded != 2; ++forwarded) {
+        const auto updated = message_store_upsert(&bank.store, {1,7,9,0,0,
+            forwarded ? utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=PLwrong") : radio,0});
+        search_view.handle = message_store_ordered_handle(bank.store,0);
+        search_view.ticket.publication_revision = fixture.record[0].revision;
+        GatewayMessageEmbed embed{};
+        embed.type = GatewayMessageEmbedType::video;
+        embed.url = utf8_literal("https://www.youtube.com/watch?v=eyk25H75ld0");
+        embed.video.url = utf8_literal("https://www.youtube.com/embed/eyk25H75ld0");
+        embed.video.width = embed.thumbnail.width = 320;
+        embed.video.height = embed.thumbnail.height = 180;
+        embed.thumbnail.url = utf8_literal("https://example.com/poster.png");
+        GatewayMessageEvent event{};
+        event.id = 1;
+        event.fields = gateway_message_field_embeds | gateway_message_field_attachments |
+                       gateway_message_field_message_snapshots | gateway_message_field_message_reference;
+        if (forwarded) {
+            event.reference.type = 1;
+            event.reference.channel_id = 8;
+            event.reference.message_id = 99;
+            event.snapshot.present = true;
+            event.snapshot.fields = gateway_message_field_content | gateway_message_field_embeds;
+            event.snapshot.content = radio;
+            event.snapshot.embeds = {&embed,1};
+        } else event.embeds = {&embed,1};
+        const bool applied = updated.ok() && message_rich_store_apply(&g_app.account_ui->message_rich_store,1,
+            fixture.record[0].revision,event).ok();
+        ++source.revision;
+        target.source_revision = source.revision;
+        target.snapshot = forwarded != 0;
+        target.resource = MediaEmbedResource::video;
+        const bool layout = applied && ui_search_scene_update(&scene,&source,&content,{0,0,1400,1200},{0,0,1400,48});
+        selection_busy = true;
+        const auto requests = account.network_requests;
+        check(layout && application_video_open_search(target) && pump() &&
+              account.network_requests == requests + 1 && utf8_equal(account.last_request.signed_url,radio),
+              "Search canonical embeds recover queues only from the accepted message or forwarded snapshot");
+        application_video_close();
+        selection_busy = false;
+    }
     mutable_search_scene = nullptr;
     g_app.renderer.search_scene = nullptr;
     ui_search_scene_release(&scene);
@@ -809,6 +1037,13 @@ void run() noexcept {
     g_app.account.status.profile_id = 4;
     g_app.plugin_account_scope_serial = 9;
     g_app.account.instance = &account;
+    g_app.account.api.collection_title = +[](void*, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
+        AccountMediaRequestResult result{};
+        if (!request || !title || !request->track || request->track > 3) { result.state = AccountMediaRequestState::invalid; return result; }
+        const auto name = request->track == 1 ? utf8_literal("First song") : request->track == 2 ? utf8_literal("Second song") : utf8_literal("Last song");
+        copy_bytes(title->text, name.data, name.bytes); title->bytes = static_cast<u16>(name.bytes);
+        result.state = AccountMediaRequestState::ready; return result;
+    };
     g_app.account.api.video_select = select;
     g_app.account.api.video_control = control;
     g_app.account.api.video_status = status;
@@ -864,11 +1099,13 @@ void run() noexcept {
         release();
         return;
     }
+    terminal_buffering();
     application_video_pointer(WM_MOUSEMOVE, preview_point);
     check(g_app.renderer.video_scene->preview_hovered && !application_video_pointer(WM_MOUSELEAVE, 0) &&
               !g_app.renderer.video_scene->preview_hovered,
           "video focus runtime: production mouse leave observes and clears preview hover without consuming "
           "input");
+    retry_range_commands(false);
     {
         // Expansion moves the one session into the viewer and back again.
         const UiRect inline_preview = g_app.renderer.video_scene->preview;
@@ -884,6 +1121,8 @@ void run() noexcept {
         check(g_app.renderer.video_scene->style.idle_ms == kUiVideoControlsExpandedIdleMs &&
                   g_app.renderer.video_scene->projection.controls[6].selected,
               "video expand runtime: the hosted player uses the expanded idle delay and collapse control");
+        terminal_buffering();
+        retry_range_commands(true);
         check(application_video_key(VK_ESCAPE, false, false) && !application_video_expanded() &&
                   !g_app.image_viewer.scene.active && pump() && g_app.renderer.video_scene &&
                   !g_app.renderer.video_scene_viewer &&
@@ -1291,6 +1530,361 @@ void run() noexcept {
     run_search_audio(MediaAttachmentFormat::mp3);
     application_video_close();
     message_scene_release(&g_app.message_scene);
+    const Utf8View provider_urls[]{utf8_literal("https://www.youtube.com/embed/aB_01234-xy?start=12"),
+        utf8_literal("https://www.tiktok.com/player/v1/6718335390845095173"),
+        utf8_literal("https://clips.twitch.tv/IncredulousAbstemiousFennelImGlitch"),
+        utf8_literal("https://streamable.com/e/hn8hq"),
+        utf8_literal("https://music.apple.com/us/music-video/name/1445828315"),
+        utf8_literal("https://store.steampowered.com/video/570/256692021/"),
+        utf8_literal("https://player.twitch.tv/?video=v2908640776&parent=discord.com"),
+        utf8_literal("https://www.twitch.tv/example_channel"),
+        utf8_literal("https://player.twitch.tv/?channel=example_channel&parent=discord.com"),
+        utf8_literal("https://imgur.com/tfgwzwf/embed"),
+        utf8_literal("https://x.com/SpaceX/status/1732824684683784516/video/1"),
+        utf8_literal("https://twitter.com/i/videos/tweet/1819295962591862827?embed_source=clientlib"),
+        utf8_literal("https://www.pornhub.com/embed/683dbe0849d99"),
+        utf8_literal("https://www.pornhub.com/view_video.php?viewkey=683dbe0849d99"),
+        utf8_literal("https://player.vimeo.com/video/22439234"),
+        utf8_literal("https://player.vimeo.com/video/22439234?h=0123456789"),
+        utf8_literal("https://music.youtube.com/watch?v=zlQ0Lfpq078"),
+        utf8_literal("https://vimeo.com/channels/staffpicks/22439234#t=5s"),
+        utf8_literal("https://player.vimeo.com/video/22439234?autoplay=1"),
+        utf8_literal("https://music.youtube.com/watch?v=CZQdi1sxd30&list=RDAMVMCZQdi1sxd30"),
+        utf8_literal("https://music.youtube.com/playlist?list=OLAK5uy_nacpVF5ykESFyqIjhN1towfUdU2rUPqxY"),
+        utf8_literal("https://music.youtube.com/playlist?list=PLQ73uMywXkLE"),
+        utf8_literal("https://music.youtube.com/watch?v=j7bqDpjgM5M&list=RDAMVMj7bqDpjgM5M"),
+        utf8_literal("https://music.youtube.com/watch?v=eyk25H75ld0&list=RDAMVMY5f3S26WwDs")};
+    for (u32 provider = 0; provider < sizeof(provider_urls) / sizeof(provider_urls[0]); ++provider) {
+        const auto provider_url = provider_urls[provider];
+        const auto shared_page = utf8_equal(provider_url, utf8_literal("https://player.vimeo.com/video/22439234?autoplay=1"))
+            ? utf8_literal("https://vimeo.com/22439234#t=5s") : Utf8View{};
+        const bool canonical_queue = provider + 1 == sizeof(provider_urls) / sizeof(provider_urls[0]);
+        live_selection = provider == 7 || provider == 8;
+        const bool provider_scene = initialize_scene(fixture, provider_url, false, false, false,
+                                                    MediaAttachmentFormat::ogg_opus, true, MediaEmbedResource::thumbnail, shared_page, canonical_queue);
+        const auto* provider_record = message_rich_store_find(g_app.account_ui->message_rich_store, 1);
+        const bool media_only = provider_record && message_rich_embed_media_only(provider_record->embeds[0]);
+        const auto* provider_node = provider_scene ? message_scene_rich_item_layout_node(
+            g_app.message_scene, g_app.message_scene.rows[0], MessageSceneRichItemKind::embed, 0) : nullptr;
+        check(provider_node != nullptr, "provider runtime: poster has native message geometry");
+        if (provider_scene && !canonical_queue && youtube_collection_locator(provider_url).list.bytes) {
+            const auto& store = g_app.account_ui->message_rich_store;
+            const auto* record = message_rich_store_find(store, 1);
+            const auto& layout = g_app.message_scene.rows[0].rich_item_layout;
+            check(record && !message_rich_embed_plan(store, record->embeds[0]).corner_thumbnail &&
+                      layout.embed_media_widths[0] > 0 && layout.embed_media_heights[0] > 0,
+                  "YTM queue cards reserve a playable surface instead of a corner thumbnail without video metadata");
+            if (!(layout.embed_media_widths[0] > 0 && layout.embed_media_heights[0] > 0)) provider_node = nullptr;
+        }
+        if (provider_node) {
+            const auto& row = g_app.message_scene.rows[0];
+            const float left = provider_node->content_rectangle.left + message_rich_embed_media_left(media_only);
+            const float top = provider_node->content_rectangle.top + row.rich_item_layout.embed_media_tops[0];
+            const UiRect bounds{left, top, left + row.rich_item_layout.embed_media_widths[0],
+                               top + row.rich_item_layout.embed_media_heights[0]};
+            const auto requests = account.network_requests;
+            check(pump() && account.network_requests == requests,
+                  "provider runtime: idle poster never resolves a stream");
+            selection_busy = true;
+            check(application_video_pointer(WM_LBUTTONDOWN, point(bounds)) && pump() &&
+                  account.network_requests == requests + 1 && account.last_request.options.progressive == 1 &&
+                  utf8_equal(account.last_request.signed_url, provider_url),
+                  "provider runtime: explicit poster click requests native resolution");
+            check(account.last_request.proxy_width == 1920 && account.last_request.proxy_height == 1080,
+                  "native provider playback quality is independent of thumbnail and card dimensions");
+            const auto resize_requests = account.network_requests, resize_commands = account.commands,
+                       resize_selections = account.selections, resize_leases = account.frame_leases;
+            g_app.renderer.live_resize = true;
+            bool resize_ok = message_scene_update(&g_app.message_scene, {0, 0, 480, 400}).ok() &&
+                             application_video_synchronize();
+            const auto* resized = message_scene_rich_item_layout_node(
+                g_app.message_scene, g_app.message_scene.rows[0], MessageSceneRichItemKind::embed, 0);
+            const auto* loading = g_app.renderer.video_scene;
+            const auto& resized_row = g_app.message_scene.rows[0];
+            const float resized_left = resized ? resized->content_rectangle.left + message_rich_embed_media_left(media_only) : 0;
+            const float resized_top = resized ? resized->content_rectangle.top + resized_row.rich_item_layout.embed_media_tops[0] : 0;
+            const UiRect resized_preview{resized_left, resized_top,
+                resized_left + resized_row.rich_item_layout.embed_media_widths[0],
+                resized_top + resized_row.rich_item_layout.embed_media_heights[0]};
+            const bool loading_geometry = resize_ok && resized && loading && loading->projection.playback.buffering &&
+                  ui_rect_equal(loading->preview, resized_preview) &&
+                  ui_rect_equal(loading->buffering_indicator, ui_video_play_affordance_rectangle(resized_preview, {}));
+            check(loading_geometry &&
+                  account.network_requests == resize_requests && account.commands == resize_commands &&
+                  account.selections == resize_selections && account.frame_leases == resize_leases,
+                  "provider resize: buffering geometry follows modal layout without account or network work");
+            g_app.renderer.live_resize = false;
+            check(message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok() &&
+                  application_video_synchronize(), "provider resize: restoring layout retains the pending source");
+            selection_busy = false;
+            check(pump() && account.status.playback.playing &&
+                  account.status.playback.position_100ns ==
+                      (shared_page.bytes ? 50000000 : embed_video_locator(provider_url).start_seconds
+                          ? i64{embed_video_locator(provider_url).start_seconds} * 10000000 : 30000000) &&
+                  !g_app.renderer.inline_embed_video.id,
+                  "provider runtime: link timestamp is applied while the poster awaits a real frame");
+            GpuVideoFrame provider_frame{};
+            if (collection_selection) {
+                provider_frame.width = provider_frame.height = 720;
+                if (canonical_queue) provider_frame.width = 1280;
+            }
+            if (provider == 7 || provider == 8) {
+                provider_frame.width = 1920;
+                provider_frame.height = 1080;
+            }
+            account.queued_frame = {account.status.key, account.status.playback.identity, &provider_frame};
+            account.frame_pending = true;
+            provider_upload = true;
+            g_app.renderer.retained_presentation.valid = true;
+            check(pump() && media_asset_key_equal(g_app.renderer.inline_embed_video, account.status.key) &&
+                  !g_app.renderer.retained_presentation.valid,
+                  "provider runtime: first decoded frame replaces the retained poster");
+            provider_upload = false;
+            if (provider == 7 || provider == 8) {
+                const auto& layout = g_app.message_scene.rows[0].rich_item_layout;
+                check(layout.embed_media_widths[0] > 320 &&
+                      layout.embed_media_widths[0] * 9 == layout.embed_media_heights[0] * 16 &&
+                      g_app.renderer.video_scene &&
+                      ui_rect_width(g_app.renderer.video_scene->preview) == layout.embed_media_widths[0],
+                      "Twitch first frame expands the native player and controls to a widescreen card");
+                const auto passes = g_app.message_scene.layout_passes;
+                const auto geometry_selections = account.selections, geometry_requests = account.network_requests;
+                const auto width = layout.embed_media_widths[0];
+                account.frame_pending = true;
+                provider_upload = true;
+                check(pump() && g_app.message_scene.layout_passes == passes,
+                      "unchanged Twitch frames perform no layout passes");
+                provider_upload = false;
+                check(message_scene_update(&g_app.message_scene, {0, 0, 400, 480}).ok() && pump() &&
+                      g_app.message_scene.rows[0].rich_item_layout.embed_media_widths[0] < width &&
+                      g_app.message_scene.rows[0].rich_item_layout.embed_media_widths[0] * 9 ==
+                          g_app.message_scene.rows[0].rich_item_layout.embed_media_heights[0] * 16 &&
+                      account.selections == geometry_selections && account.network_requests == geometry_requests &&
+                      message_scene_update(&g_app.message_scene, {0, 0, 640, 480}).ok() && pump(),
+                      "playing Twitch cards resize without stretching or restarting playback");
+            }
+            const auto commands = account.commands;
+            check(pump() && pump() && account.commands == commands,
+                  "provider runtime: timestamp is applied only once");
+            auto* scene = g_app.renderer.video_scene;
+            UiRect mute_bounds{};
+            if (scene)
+                for (const auto& control : scene->projection.controls)
+                    if (control.id == UiVideoControl::mute && control.enabled && control.visible)
+                        mute_bounds = control.bounds;
+            check(ui_rect_has_area(mute_bounds) &&
+                  application_video_pointer(WM_LBUTTONDOWN, point(mute_bounds)) &&
+                  application_video_pointer(WM_LBUTTONUP, point(mute_bounds)) && pump() &&
+                  account.status.playback.muted && account.commands == commands + 1,
+                  "provider runtime: an admitted audio track enables the clickable sound control");
+            if (collection_selection) {
+                scene = g_app.renderer.video_scene;
+                check(scene && scene->projection.playback.collection_count == 3 && utf8_equal({scene->track_title, scene->track_title_bytes}, utf8_literal("First song")), "YTM card projects its current queue title");
+                const auto next = point(scene->projection.controls[8].bounds);
+                check(application_video_pointer(WM_LBUTTONDOWN, next) && application_video_pointer(WM_LBUTTONUP, next) && pump() && pump() && pump() && account.status.collection_track == 2 && utf8_equal({g_app.renderer.video_scene->track_title, g_app.renderer.video_scene->track_title_bytes}, utf8_literal("Second song")), "YTM card switches track and replaces current title through the native queue");
+                account.queued_frame = {account.status.key, account.status.playback.identity, &provider_frame, 2, 1, 2};
+                account.frame_pending = true; provider_upload = true;
+                check(pump() && !account.frame_pending, "YTM next track publishes its own frame before expansion");
+                provider_upload = false;
+            }
+            auto selected_before = account.selections, requested_before = account.network_requests;
+            auto position_before = account.status.playback.position_100ns;
+            check(application_video_key('F', false, false) && application_video_expanded() && pump() &&
+                  g_app.renderer.video_scene_viewer && g_app.renderer.video_scene && account.status.playback.playing &&
+                  account.status.playback.muted && account.selections == selected_before &&
+                  account.network_requests == requested_before && account.status.playback.position_100ns == position_before &&
+                  !g_app.renderer.inline_embed_video.id,
+                  "provider expansion keeps the playback position, sound state and one network/decoder session");
+            if (live_selection) {
+                const auto* controls = g_app.renderer.video_scene;
+                const auto epoch = account.status.playback.identity.session_epoch;
+                const auto before_seek = account.commands;
+                char label[64]{};
+                const auto label_bytes = controls ? ui_video_format_time(controls->projection.playback, label, sizeof(label)) : 0;
+                check(controls && controls->projection.playback.live && !controls->projection.playback.can_seek &&
+                    !controls->projection.playback.duration_ms && utf8_equal({label, label_bytes}, utf8_literal("LIVE")),
+                    "maximized live controls identify the stream without a finite duration");
+                application_video_key(VK_RIGHT, false, false);
+                check(account.commands == before_seek, "maximized live controls do not emit timeline seek commands");
+                account.status.playback.desired_volume = account.status.playback.applied_volume = .37f;
+                check(pump() && application_video_key(VK_SPACE, false, false) && pump() && !account.status.playback.playing,
+                    "live pause retains the current selection without resolving or polling");
+                check(application_video_key(VK_SPACE, false, false) && pump() && application_video_expanded() &&
+                    !account.status.selected && selection_busy && pump() && account.network_requests == requested_before + 1,
+                    "live resume joins the old owner and requests fresh media while preserving maximized geometry");
+                selection_busy = false;
+                check(pump() && account.status.playback.identity.session_epoch > epoch && account.status.playback.playing &&
+                    account.status.playback.muted && account.status.playback.desired_volume == .37f && application_video_expanded(),
+                    "fresh live playback restores volume and mute before playing on a new fenced epoch");
+                account.queued_frame = {account.status.key, account.status.playback.identity, &provider_frame};
+                account.frame_pending = true; provider_upload = true;
+                check(pump() && !account.frame_pending, "resumed live viewer accepts only its new epoch's GPU publication");
+                provider_upload = false;
+                selected_before = account.selections; requested_before = account.network_requests;
+                position_before = account.status.playback.position_100ns;
+            }
+            check(application_video_key(VK_ESCAPE, false, false) && pump() && !application_video_expanded() &&
+                  media_asset_key_equal(g_app.renderer.inline_embed_video, account.status.key) &&
+                  account.selections == selected_before && account.network_requests == requested_before,
+                  "provider collapse restores the decoded inline frame without another request or decoder");
+            if (live_selection && provider == 8) {
+                for (u32 retry = 0; retry < 3; ++retry) {
+                    const auto before = account.network_requests;
+                    account.status.source_refresh = true;
+                    account.status.playback.error = AccountVideoError::demux;
+                    account.status.playback.playing = false;
+                    check(pump() && pump() && pump() && account.network_requests == before + 1 && selection_busy,
+                        "expired live windows recover through joined source replacement");
+                    selection_busy = false;
+                    check(pump() && account.status.playback.playing, "live recovery starts the new selection");
+                }
+                const auto before = account.network_requests, selected = account.selections;
+                account.status.source_refresh = true; account.status.playback.error = AccountVideoError::demux;
+                account.status.playback.playing = false;
+                check(pump() && pump() && pump() && account.network_requests == before && account.selections == selected,
+                    "repeated live failures stop after three fresh attempts instead of making an idle retry loop");
+            }
+        }
+        application_video_close();
+        live_selection = selection_busy = false;
+        check(!g_app.renderer.inline_embed_video.id, "provider runtime: close clears the poster override");
+        message_scene_release(&g_app.message_scene);
+    }
+    const Utf8View preview_sources[]{utf8_literal("https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl"),
+        utf8_literal("https://music.apple.com/us/album/imagine/255144028?i=255145362"),
+        utf8_literal("https://music.amazon.com/albums/B000VBJ504?trackAsin=B000VBH2R2&iframe_url=https%3A%2F%2Fmusic.amazon.com%2Fembed%2FB000VBH2R2%2F"),
+        utf8_literal("https://soundcloud.com/forss/flickermood"),
+        utf8_literal("https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/293"),
+        utf8_literal("https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fforss%2Fflickermood"),
+        utf8_literal("https://soundcloud.com/forss/sets/soulhack"),
+        utf8_literal("https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/playlists/18"),
+        utf8_literal("https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fforss%2Fsets%2Fsoulhack"),
+        utf8_literal("https://soundcloud.com/discover/sets/artist-stations:59880230"),
+        utf8_literal("https://soundcloud.com/discover/sets/artist-stations:59880230"),
+        utf8_literal("https://soundcloud.com/discover/sets/artist-stations:59880230"),
+        utf8_literal("https://music.apple.com/us/album/imagine/255144028"),
+        utf8_literal("https://embed.music.apple.com/us/album/imagine/255144028?i="),
+        utf8_literal("https://music.apple.com/us/playlist/test/pl.test"),
+        utf8_literal("https://embed.music.apple.com/us/playlist/test/pl.test?i="),
+        utf8_literal("https://soundcloud.com/discover/sets/track-stations:293"),
+        utf8_literal("https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fdiscover%2Fsets%2Ftrack-stations%3A293")};
+    for (u32 preview = 0; preview < sizeof(preview_sources) / sizeof(preview_sources[0]); ++preview) {
+        const auto preview_source = preview_sources[preview];
+        const auto preview_format = preview == 1 || preview >= 3 ? MediaAttachmentFormat::m4a : MediaAttachmentFormat::mp3;
+        check(initialize_scene(fixture, preview_source, false, false, false, preview_format, true,
+            preview == 10 ? MediaEmbedResource::image : preview == 11 ? MediaEmbedResource::video : MediaEmbedResource::thumbnail),
+              "preview runtime: music card initialized");
+        if (apple_music_collection_locator(preview_source).id.bytes) {
+            const auto& store=g_app.account_ui->message_rich_store;
+            const auto* record=message_rich_store_find(store,1);
+            check(record && record->embed_count && utf8_equal(message_rich_embed_provider_label(store,record->embeds[0]),utf8_literal("Apple Music · Preview")),"album and iframe-only cards label preview playback");
+        }
+        if(preview==2) {
+            const auto& store=g_app.account_ui->message_rich_store;
+            const auto* record=message_rich_store_find(store,1);
+            check(record && record->embed_count && utf8_equal(message_rich_embed_provider_label(store,record->embeds[0]),
+                utf8_literal("Amazon Music · Preview")),"Amazon card explicitly identifies preview playback");
+        }
+        if (preview >= 3 && !apple_music_collection_locator(preview_source).id.bytes) {
+            const auto& store = g_app.account_ui->message_rich_store;
+            const auto* record = message_rich_store_find(store, 1);
+            check(record && record->embed_count && !message_rich_embed_music_preview(store, record->embeds[0]),
+                  "SoundCloud full audio does not inherit the music preview label");
+        }
+        const auto* preview_node = message_scene_rich_item_layout_node(
+            g_app.message_scene, g_app.message_scene.rows[0], MessageSceneRichItemKind::embed, 0);
+        if (preview_node) {
+            const auto& row = g_app.message_scene.rows[0];
+            const float left = preview_node->content_rectangle.left + message_rich_embed_media_left(false);
+            const float top = preview_node->content_rectangle.top + row.rich_item_layout.embed_media_tops[0];
+            const UiRect bounds{left, top, left + row.rich_item_layout.embed_media_widths[0],
+                               top + row.rich_item_layout.embed_media_heights[0]};
+            const auto requests = account.network_requests;
+            const auto click = [&](UiVideoControl id) noexcept {
+                if (!g_app.renderer.video_scene) return false;
+                for (const auto& control : g_app.renderer.video_scene->projection.controls) if (control.id == id) {
+                    const auto where = point(control.bounds);
+                    application_video_pointer(WM_MOUSEMOVE, where);
+                    return application_video_pointer(WM_LBUTTONDOWN, where) && application_video_pointer(WM_LBUTTONUP, where);
+                }
+                return false;
+            };
+            fail_collection_track = preview == 8;
+            selection_busy = true;
+            check(pump() && account.network_requests == requests &&
+                  application_video_pointer(WM_LBUTTONDOWN, point(bounds)) && pump() &&
+                  account.network_requests == requests + 1 && account.last_request.image_type == audio_type(preview_format) &&
+                  !account.last_request.video_device && account.last_request.options.progressive == (preview >= 3) &&
+                  !account.last_request.proxy_width && !account.last_request.proxy_height &&
+                  utf8_equal(account.last_request.signed_url, preview_source),
+                  "preview runtime: explicit click submits one native audio request without GPU or image resize");
+            selection_busy = false;
+            if (preview == 8) {
+                check(g_app.renderer.video_scene && g_app.renderer.video_scene->projection.playback.error &&
+                    g_app.renderer.video_scene->projection.controls[8].enabled && click(UiVideoControl::next_track) &&
+                    pump() && pump() && pump() && account.status.collection_track == 2 && account.status.playback.playing,
+                    "collection runtime: a failed first track retains navigation and the next track can play");
+            }
+            check(pump() && account.status.playback.playing && account.status.playback.kind == audio_kind(preview_format) &&
+                  g_app.renderer.video_scene && !g_app.renderer.video_scene->projection.playback.can_expand &&
+                  !g_app.renderer.inline_embed_video.id, "preview runtime: album art stays visible with native audio controls");
+            const auto selections = account.selections;
+            check(pump() && account.selections == selections && account.network_requests == requests + (preview == 8 ? 2u : 1u),
+                  "preview runtime: repeated layout reuses the selected audio session");
+            if (preview == 6) {
+                account.status.playback.desired_volume = account.status.playback.applied_volume = .25f;
+                account.status.playback.muted = true;
+                check(pump() && utf8_equal({g_app.renderer.video_scene->track_title, g_app.renderer.video_scene->track_title_bytes}, utf8_literal("First song")), "collection runtime: current title is fetched through the account ABI");
+                check(pump() && g_app.renderer.video_scene->projection.playback.collection_count == 3,
+                    "collection runtime: metadata exposes the ordered track controls");
+                const auto old_epoch = account.status.playback.identity.session_epoch;
+                deferred_stop = true;
+                check(click(UiVideoControl::next_track) && pump() && pump() && pump() &&
+                    account.status.collection_track == 2 && account.last_request.options.collection_track == 2 &&
+                    account.status.playback.identity.session_epoch != old_epoch && account.status.playback.playing &&
+                    account.status.playback.muted && account.status.playback.desired_volume == .25f && !unsafe_collection_requests,
+                    "collection runtime: Next waits for Stop, requests the exact track and restores volume/mute");
+                deferred_stop = false;
+                const auto stable_requests = account.network_requests;
+                check(pump() && pump() && account.status.collection_track == 2 && account.network_requests == stable_requests &&
+                    g_app.renderer.video_scene->projection.playback.collection_track == 2,
+                    "collection runtime: repeated layout preserves selected ordinal without restarting downloads");
+                check(message_scene_update(&g_app.message_scene,{0,0,480,400}).ok() && application_video_synchronize() && pump() &&
+                    g_app.renderer.video_scene->projection.playback.collection_track == 2 &&
+                    message_scene_update(&g_app.message_scene,{0,0,640,480}).ok() && application_video_synchronize() && pump() &&
+                    account.network_requests == stable_requests,
+                    "collection runtime: resize keeps the chosen track and does not redownload metadata");
+                check(click(UiVideoControl::play_pause) && pump() && !account.status.playback.playing &&
+                    click(UiVideoControl::previous_track) && pump() && pump() && pump() &&
+                    account.status.collection_track == 1 && !account.status.playback.playing,
+                    "collection runtime: switching tracks preserves a user pause");
+                account.status.playback.ended = true;
+                check(pump() && account.status.collection_track == 1 && !account.status.playback.playing,
+                    "collection runtime: a user pause prevents automatic advancement");
+                account.status.playback.ended = false;
+                check(click(UiVideoControl::play_pause) && pump() && account.status.playback.playing,
+                    "collection runtime: selected paused track resumes normally");
+                account.status.playback.playing = false; account.status.playback.ended = true;
+                check(pump() && pump() && pump() && account.status.collection_track == 2 && account.status.playback.playing,
+                    "collection runtime: EOF advances exactly once to the next track");
+                account.status.playback.playing = false; account.status.playback.ended = true;
+                check(pump() && pump() && pump() && account.status.collection_track == 3 && account.status.playback.playing,
+                    "collection runtime: EOF reaches the last track in order");
+                const auto last_requests = account.network_requests;
+                account.status.playback.playing = false; account.status.playback.ended = true;
+                check(pump() && pump() && account.status.collection_track == 3 && account.network_requests == last_requests &&
+                    !g_app.renderer.video_scene->projection.controls[8].enabled,
+                    "collection runtime: final EOF remains stopped without wrapping or fetching another track");
+                for (u32 i=0;i<10 && g_app.renderer.video_scene->focus!=UiVideoControl::track;++i) application_video_key(VK_TAB,false,false);
+                check(g_app.renderer.video_scene->focus==UiVideoControl::track && application_video_key(VK_HOME,false,false) &&
+                    pump() && pump() && pump() && account.status.collection_track==1 &&
+                    application_video_key(VK_RIGHT,false,false) && pump() && pump() && pump() && account.status.collection_track==2,
+                    "collection runtime: focused selector Home/Right selects tracks and keeps keyboard focus across restarts");
+            }
+        } else check(false, "preview runtime: album art geometry");
+        application_video_close();
+        message_scene_release(&g_app.message_scene);
+    }
     constexpr auto expired_source =
         utf8_literal("https://cdn.discordapp.com/attachments/7/70/focus-fixture.mp4");
     selection_busy = true;
@@ -1349,6 +1943,8 @@ bool renderer_bind_audio_scene(D3D11Renderer* renderer, const UiAudioScene* scen
 }
 bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme&) noexcept {
     ++video_focus_runtime_test::text_publications;
+    if (video_focus_runtime_test::reject_text_projection)
+        return false;
     renderer->interaction_text_video_revision =
         renderer->video_scene ? ui_video_scene_text_paint_revision(*renderer->video_scene) : 0;
     renderer->interaction_text_audio_revision =
@@ -1358,10 +1954,18 @@ bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme&) noexce
 MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer*, MediaAssetKey,
                                                  const GpuVideoFrame&, u32) noexcept {
     ++video_focus_runtime_test::account.gpu_publications;
+    if (video_focus_runtime_test::provider_upload) return {};
     return {{}, E_FAIL, MediaAtlasGpuError::invalid_input};
 }
 namespace app_detail {
+void application_record_presentation_failure(const char*) noexcept {
+    ++video_focus_runtime_test::presentation_rejections;
+}
 UiSearchScene* application_search_scene() noexcept { return video_focus_runtime_test::mutable_search_scene; }
+void application_search_media_dimensions_changed() noexcept {}
+bool refresh_account_text(bool) noexcept {
+    return message_scene_update(&g_app.message_scene, g_app.message_scene.viewport).ok();
+}
 bool refresh_account_frame(bool) noexcept {
     ++video_focus_runtime_test::media_refreshes;
     return true;

@@ -407,6 +407,7 @@ struct D3D11Renderer {
     const ReactionViewer* reaction_viewer;
     const UiImageViewer* image_viewer;
     const UiVideoScene* video_scene;
+    MediaAssetKey inline_embed_video;
     bool video_scene_search_result;
     bool video_scene_viewer; // The scene is hosted by the media viewer.
 
@@ -686,7 +687,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120712);
+static_assert(sizeof(D3D11Renderer) == 120728);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

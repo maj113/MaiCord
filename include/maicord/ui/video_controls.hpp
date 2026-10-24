@@ -4,7 +4,7 @@
 #include "maicord/ui/text_style.hpp"
 
 namespace maicord {
-enum class UiVideoControl : u8 { none, play_pause, seek, time, mute, volume, status, expand };
+enum class UiVideoControl : u8 { none, play_pause, seek, time, mute, volume, status, expand, previous_track, next_track, track };
 enum class UiVideoControlKind : u8 { button, range, label };
 enum class UiVideoKey : u8 { activate, previous, next, decrease, increase, home, end };
 // Player-level shortcuts, independent of which descriptor holds focus.
@@ -28,6 +28,10 @@ struct UiVideoPlaybackState {
     // Buffered media in 1/10000 of the duration, drawn on the seek track.
     u16 buffered_begin[4]{}, buffered_end[4]{};
     u8 buffered_count{};
+    bool live{};
+    u16 collection_count{}, collection_track{};
+    bool collection_more{};
+    bool can_change_track{};
 };
 // Inline player metrics: a 32 DIP bar, 24 DIP glyphs in 32 DIP targets and
 // 12-13 DIP tabular time. Seek/volume keys step by the amounts below.
@@ -48,6 +52,7 @@ struct UiVideoControlsStyle {
     Utf8View unavailable_audio{utf8_literal("Audio unavailable")};
     Utf8View buffering{utf8_literal("Buffering…")}, error{utf8_literal("Playback unavailable")};
     Utf8View expand{utf8_literal("Expand")}, collapse{utf8_literal("Exit expanded view")};
+    Utf8View previous_track{utf8_literal("Previous track")}, next_track{utf8_literal("Next track")};
 };
 struct UiVideoControlDescriptor {
     UiVideoControl id{};
@@ -59,7 +64,7 @@ struct UiVideoControlDescriptor {
     bool enabled{}, selected{};
     bool visible{true}; // Hidden volume remains available to keyboard navigation.
 };
-inline constexpr u32 kUiVideoControlCount = 7;
+inline constexpr u32 kUiVideoControlCount = 10;
 struct UiVideoControlsProjection {
     UiVideoPlaybackState playback{};
     UiVideoControlDescriptor controls[kUiVideoControlCount]{};
@@ -67,6 +72,8 @@ struct UiVideoControlsProjection {
     Color surface{}, focus{};
     char time_text[64]{};
     u32 time_bytes{};
+    char track_text[32]{};
+    u32 track_bytes{};
     bool compact{};
     bool volume_expanded{};
 };
@@ -74,13 +81,14 @@ struct UiVideoAction {
     UiVideoControl control{};
     u64 owner{}, generation{}, revision{}, position_ms{};
     u32 volume{};
+    u16 collection_track{};
     bool value{}; // Requested playing/muted/expanded value, never an optimistic state.
 };
 // One selected player. No allocations, retained widgets, clocks or OS calls.
 // Metrics and labels are host-controlled descriptors. Borrowed labels remain
 // valid until the next projection. Time text is read from its owning projection,
 // so copying projections never keeps a pointer to the old buffer.
-float ui_video_controls_height(const UiVideoControlsStyle&, float width) noexcept;
+float ui_video_controls_height(const UiVideoControlsStyle&, float width, bool collection = false) noexcept;
 bool ui_video_controls_project(const UiVideoPlaybackState&, UiRect,
     const UiVideoControlsStyle&, const Theme&, UiVideoControlsProjection*, bool volume_expanded = false) noexcept;
 // "m:ss / m:ss", hours when the duration needs them and "-:--" before metadata.

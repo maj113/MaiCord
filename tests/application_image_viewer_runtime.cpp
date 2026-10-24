@@ -32,6 +32,8 @@ u64 saved_attachment;
 bool saved_snapshot;
 u32 opened_urls, opened_bytes;
 char opened_url[256];
+MediaAssetKey hosted_video_key{};
+u32 hosted_video_opens{};
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
@@ -104,7 +106,7 @@ bool seed() noexcept {
     return message_rich_store_apply(&rich, 800, publication, event).ok() && publish_search();
 }
 // The same source message as a Tenor-style GIFV link: a looping MP4 shown as an image.
-bool seed_gifv() noexcept {
+bool seed_gifv(bool publish = true) noexcept {
     if (!message_store_initialize(&bank, {records, 4}, {order, 4}, {text, sizeof(text)}) ||
         !message_rich_store_initialize(&rich, {rich_records, 8}, {rich_order, 4}, {rich_text, sizeof(rich_text)}))
         return false;
@@ -124,6 +126,20 @@ bool seed_gifv() noexcept {
     gif.thumbnail.has_width = gif.thumbnail.has_height = gif.video.has_width = gif.video.has_height = true;
     GatewayMessageEvent event{}; event.id = 800;
     event.fields = gateway_message_field_embeds; event.embeds = {&gif, 1};
+    return message_rich_store_apply(&rich, 800, publication, event).ok() && (!publish || publish_search());
+}
+bool seed_provider(Utf8View url) noexcept {
+    if (!seed_gifv(false)) return false;
+    GatewayMessageEmbed embed{};
+    embed.type = GatewayMessageEmbedType::video;
+    embed.url = url; embed.video.url = url;
+    embed.thumbnail.url = utf8_literal("https://images-ext-1.discordapp.net/external/poster.jpg");
+    embed.thumbnail.content_type = utf8_literal("image/jpeg");
+    embed.thumbnail.width = embed.video.width = 1280;
+    embed.thumbnail.height = embed.video.height = 720;
+    embed.thumbnail.has_width = embed.thumbnail.has_height = embed.video.has_width = embed.video.has_height = true;
+    GatewayMessageEvent event{}; event.id = 800;
+    event.fields = gateway_message_field_embeds; event.embeds = {&embed, 1};
     return message_rich_store_apply(&rich, 800, publication, event).ok() && publish_search();
 }
 bool seed_authority() noexcept {
@@ -429,6 +445,53 @@ void run() noexcept {
         (g_app.image_viewer.key.flags & media_asset_flag_animated) && !g_app.image_viewer.scene.can_save,
         "Search viewer opens a GIFV embed full screen as the looping animation it plays inline");
     application_image_viewer_close();
+    const Utf8View provider_urls[]{utf8_literal("https://music.youtube.com/watch?v=CZQdi1sxd30"),
+        utf8_literal("https://www.tiktok.com/player/v1/6718335390845095173"),
+        utf8_literal("https://clips.twitch.tv/IncredulousAbstemiousFennelImGlitch"),
+        utf8_literal("https://streamable.com/e/hn8hq"),
+        utf8_literal("https://twitter.com/i/videos/tweet/1819295962591862827")};
+    for (auto url : provider_urls) {
+        const bool portrait = utf8_starts_with(url, utf8_literal("https://twitter.com/"));
+        const u16 decoded_width = portrait ? 320 : 360, decoded_height = portrait ? 562 : 360;
+        const auto correct_aspect = [&](UiRect rectangle) noexcept {
+            return ui_rect_has_area(rectangle) && absolute_value(ui_rect_width(rectangle) / ui_rect_height(rectangle) -
+                static_cast<float>(decoded_width) / decoded_height) < 0.0001f;
+        };
+        ++publication; ticket.publication_revision = publication;
+        check(seed_provider(url), "provider viewer fixture preserves an image poster and native playback URL");
+        hosted_video_key = media_asset_search_embed(800, publication, 0, MediaEmbedResource::video,
+            MediaAttachmentFormat::mp4, false, MediaResolutionTier::px512);
+        const auto before = hosted_video_opens;
+        check(application_image_viewer_open_video(800, publication, true, 0, false, &ticket, hosted_video_key, preview) &&
+              g_app.image_viewer.scene.video && g_app.image_viewer.items[0].video && hosted_video_opens == before + 1 &&
+              media_asset_key_equal(g_app.image_viewer.key, hosted_video_key),
+              "provider expansion hosts native playback instead of opening its thumbnail as an image");
+        MediaAssetKey requests[4]; UiRect video_bounds{}, video_clip{};
+        check(!application_image_viewer_request_keys(requests, 4) &&
+              application_image_viewer_video_geometry(hosted_video_key, &video_bounds, &video_clip) && ui_rect_has_area(video_bounds),
+              "expanded provider has usable player geometry and requests no duplicate poster decode");
+        MediaAtlas atlas{}; MediaAtlasEntry entries[4]{}; u32 buckets[8]{};
+        GlyphAtlasEntry allocations[4]{}; GlyphAtlasRow rows[4]{};
+        check(media_atlas_initialize(&atlas, 1024, 1024, 0, {entries, 4}, {buckets, 8}, {allocations, 4}, {rows, 4}) &&
+              media_atlas_allocate(&atlas, hosted_video_key, decoded_width, decoded_height).ok(), "decoded square or portrait picture fixture");
+        g_app.renderer.media_atlas = &atlas;
+        g_app.preferences.reduced_motion = true;
+        check(application_image_viewer_synchronize() && g_app.image_viewer.scene.pixels.width == decoded_width &&
+              g_app.image_viewer.scene.pixels.height == decoded_height && correct_aspect(g_app.image_viewer.scene.display),
+              "expanded provider uses decoded picture aspect instead of iframe metadata");
+        app_detail::activate(ui_image_viewer_fullscreen);
+        g_app.renderer.width = 1920; g_app.renderer.height = 1080;
+        check(application_image_viewer_synchronize() && g_app.image_viewer.scene.fullscreen &&
+              application_image_viewer_video_geometry(hosted_video_key, &video_bounds, &video_clip) &&
+              video_clip.right == 1920 && video_clip.bottom == 1080 &&
+              correct_aspect(video_bounds) && hosted_video_opens == before + 1,
+              "fullscreen resize retains one hosted session and decoded square or portrait geometry");
+        application_image_viewer_close();
+        check(!application_window_fullscreen(), "closing the player restores its owned fullscreen state");
+        g_app.renderer.media_atlas = nullptr;
+        g_app.renderer.width = 1200; g_app.renderer.height = 900;
+    }
+    hosted_video_key = {};
     ui_search_scene_release(&search_scene);
     g_app.renderer.search_scene = nullptr;
     DestroyWindow(g_app.window);
@@ -456,7 +519,12 @@ bool application_open_content_url(Utf8View url) noexcept {
     return true;
 }
 bool application_video_open_viewer_item(u64, u32, bool, u8, bool, const ApplicationSearchSourceTicket*, UiRect,
-                                        MediaAssetKey*) noexcept { return false; }
+                                        MediaAssetKey* key) noexcept {
+    if (!key || !media_asset_key_valid(image_viewer_runtime_test::hosted_video_key)) return false;
+    *key = image_viewer_runtime_test::hosted_video_key;
+    ++image_viewer_runtime_test::hosted_video_opens;
+    return true;
+}
 void application_video_viewer_detach() noexcept {}
 bool application_video_viewer_pointer(UINT, UiPoint) noexcept { return false; }
 bool application_video_viewer_hidden_cursor() noexcept { return false; }

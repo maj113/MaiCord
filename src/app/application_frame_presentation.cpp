@@ -7,6 +7,7 @@
 #include "application_shortcuts.hpp"
 #include "application_accessibility.hpp"
 #include "application_call.hpp"
+#include "application_video.hpp"
 #include "application_stream.hpp"
 #include "application_guild_card.hpp"
 #include "application_guild_banner.hpp"
@@ -270,6 +271,8 @@ bool application_present_frame() noexcept {
     // After search, pins and the thread browser published: they close the call view.
     if (!application_call_synchronize())
         return present_rejected("call");
+    if (g_app.renderer.live_resize && !application_video_synchronize())
+        return present_rejected("video_geometry");
     application_guild_card_synchronize(clock_monotonic_milliseconds());
     // Banner animation timing (5 s autoplay) and hover; scroll is current here.
     application_guild_banner_project(clock_monotonic_milliseconds());

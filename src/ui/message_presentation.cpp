@@ -16,8 +16,17 @@
 #include "maicord/model/scheduled_event_store.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/call_scene.hpp"
 
 namespace maicord {
+UiRect message_media_picture_rectangle(const MessageMediaCommand& command, u32 width, u32 height,
+                                      bool playing_embed) noexcept {
+    if (playing_embed || command.cover || command.kind == MessageMediaCommandKind::embed) {
+        const auto fitted = ui_call_video_fit(command.rectangle, width, height, command.cover && !playing_embed);
+        if (ui_rect_has_area(fitted)) return fitted;
+    }
+    return command.rectangle;
+}
 namespace {
 
 bool append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommandKind kind, u8 format,
@@ -584,12 +593,14 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                     return false;
                 continue;
             }
+            MessageRichEmbedMediaSelection playback{};
+            const bool playable = message_rich_embed_playback_select(*rich_store, embed, &playback);
             if (!push_owned(paint, owner, preview, theme.surface_high, theme.surface_high, 4.0f, 0.0f,
                             UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
                 !append_media(media, record->id, MessageMediaCommandKind::embed,
                               static_cast<u8>(selected.format), selected.animated, preview, row_clip, owner,
                               record->revision, static_cast<u8>(index), static_cast<u8>(selected.resource),
-                              selected.format == MediaAttachmentFormat::mp4 &&
+                              playable &&
                                   embed.type != GatewayMessageEmbedType::gifv && obscure == MessageMediaObscure::none,
                               row.forwarded_snapshot, obscure)) {
                 return false;

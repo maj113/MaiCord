@@ -279,8 +279,8 @@ inline bool search_layer_whole(const D3D11Renderer& r, const UiSearchScene& scen
     static MessageMediaCommand commands[kRendererMessageMediaCommandCapacity];
     MessageMediaCommandStream media{};
     const float scale = static_cast<float>(maximum(r.dpi, 1u)) / 96.f;
-    // The renderer's stream drops scrollbars outside its scrollbar viewport.
-    scratch.filter_scrollbars = r.paint_stream.filter_scrollbars;
+    // Search owns an overlay; its scrollbars are independent of the shell viewport.
+    scratch.filter_scrollbars = false;
     scratch.scrollbar_viewport = r.paint_stream.scrollbar_viewport;
     const bool painted =
         paint_stream_reset(&scratch, static_cast<float>(r.width) / scale, static_cast<float>(r.height) / scale) &&

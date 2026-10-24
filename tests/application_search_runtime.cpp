@@ -1624,6 +1624,52 @@ void indexing_retry_runtime() noexcept {
           "search indexing: old-profile receipt cannot retain or publish an index floor");
 }
 
+void rich_scroll_runtime() noexcept {
+    constexpr auto body = utf8_literal(R"json({"total_results":4,"messages":[[{"id":"410","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Short result","timestamp":"2026-01-01T00:00:00Z","hit":true}],[{"id":"409","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Video result","timestamp":"2026-01-01T00:00:00Z","hit":true,"embeds":[{"type":"video","video":{"url":"https://www.pornhub.com/embed/683dbe0849d99","width":1280,"height":720},"thumbnail":{"url":"https://example.com/poster.jpg","width":1280,"height":720}}]}],[{"id":"408","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Second video","timestamp":"2026-01-01T00:00:00Z","hit":true,"embeds":[{"type":"video","video":{"url":"https://www.youtube.com/embed/aB_01234-xy","width":1280,"height":720},"thumbnail":{"url":"https://example.com/second.jpg","width":1280,"height":720}}]}],[{"id":"407","channel_id":"70","author":{"id":"3","username":"Fixture"},"content":"Last result","timestamp":"2026-01-01T00:00:00Z","hit":true}]]})json");
+    check(query(utf8_literal("scroll fixture")) && application_search_submit(980, 1) && response(980, 200, body),
+          "search scrolling: four rich results publish through the real controller");
+    auto& s = *g_app.search;
+    measurement("search_scroll_maximum", static_cast<u64>(ui_search_scene_scroll_maximum(s.scene)));
+    measurement("search_scroll_total", static_cast<u64>(ui_extent_dips(s.bank->list.total_units)));
+    check(ui_search_scene_scroll_maximum(s.scene) > 0 &&
+          ui_scrollbar_geometry(s.scene.body, s.scene.scroll_dips, ui_extent_dips(s.bank->list.total_units)).visible,
+          "search scrolling: rich media contributes to the scrollbar extent");
+    const float maximum = ui_search_scene_scroll_maximum(s.scene);
+    check(ui_search_scene_scroll(&s.scene, maximum) && s.scene.scroll_dips > 0 &&
+          application_search_synchronize() && s.scene.scroll_dips > 0,
+          "search scrolling: the last rich result remains reachable after controller synchronization");
+    const auto saved_clock = g_app.clock;
+    const auto saved_start = g_app.process_start;
+    g_app.clock = clock_initialize();
+    g_app.process_start = clock_now();
+    ui_scroll_host_cancel(&g_app.scroll_host);
+    g_app.scroll_host.immediate = false;
+    POINT wheel{static_cast<LONG>(s.scene.body.left + 20), static_cast<LONG>(s.scene.body.top + 20)};
+    bool scrolled = ui_search_scene_scroll(&s.scene, 0) && application_search_synchronize();
+    const auto video_text_top = [&]() noexcept {
+        const auto* text = application_search_message_text_presentation();
+        for (u32 i = 0; text && i < text->command_count; ++i)
+            if (text->commands[i].message_id == 409 &&
+                text->commands[i].measurement_kind == MessageTextMeasurementKind::content)
+                return text->commands[i].rectangle.top;
+        return -10000.f;
+    };
+    const float before_top = video_text_top(), before_scroll = s.scene.scroll_dips;
+    scrolled = scrolled && ClientToScreen(g_app.window, &wheel) &&
+        application_search_window_message(WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-120)),
+                                          MAKELPARAM(wheel.x, wheel.y));
+    bool moved = false;
+    scrolled = scrolled && ui_scroll_host_tick(&g_app.scroll_host, application_now_us() + 500000, &moved);
+    const float after_top = video_text_top();
+    const float expected_top = before_top - (s.scene.scroll_dips - before_scroll);
+    check(before_top > 0 && after_top > 0 && after_top >= expected_top - .1f && after_top <= expected_top + .1f,
+          "search scrolling: one wheel notch publishes matching rich text before media or renderer work");
+    check(scrolled && moved && s.scene.scroll_dips > 0,
+          "search scrolling: native wheel and animation tick share the process-relative clock");
+    ui_scroll_host_cancel(&g_app.scroll_host);
+    g_app.clock = saved_clock;
+    g_app.process_start = saved_start;
+}
 void run() noexcept {
     check(initialize(), "search runtime: real borrowed model, shell and hidden native host initialize");
     if (!g_app.search || !g_app.renderer.search_scene) {
@@ -1933,6 +1979,7 @@ void run() noexcept {
     thread_scope_runtime();
     rich_bank_capacity();
     rich_publication();
+    rich_scroll_runtime();
     poll_publication();
     private_privacy();
     check(content_retirements != 0 && !navigation_releases,

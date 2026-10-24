@@ -5,8 +5,42 @@
 #include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
+bool video_display_extent_probe(D3D11Renderer& r) noexcept {
+    constexpr u32 width = 1920, height = 1080, bytes = width * height * 3 / 2;
+    auto* pixels = static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!pixels) return false;
+    memset(pixels, 128, bytes);
+    Nv12TestPicture picture{};
+    const bool created = picture.create(r.graphics.device, width, height, pixels);
+    VirtualFree(pixels, 0, MEM_RELEASE);
+    if (!created) return false;
+    const auto key = media_asset_embed(0x987654, 1, 0, MediaEmbedResource::video,
+                                       MediaAttachmentFormat::mp4, true, MediaResolutionTier::px512);
+    auto* atlas = r.preview_media_atlas;
+    const auto frame = picture.frame(width, height);
+    auto result = renderer_present_video_frame(&r, key, frame);
+    bool ok = atlas && result.ok() && result.allocation.width == 480 && result.allocation.height == 270;
+    if (ok) {
+        result = renderer_present_video_frame(&r, key, frame, 640);
+        ok = result.ok() && result.allocation.width == 640 && result.allocation.height == 360;
+    }
+    if (ok) {
+        // Expansion requests more pixels under the same playback identity.
+        result = renderer_present_video_frame(&r, key, frame, 1920);
+        ok = result.ok() && result.allocation.width == 1920 && result.allocation.height == 1080;
+    }
+    if (ok) {
+        result = renderer_present_video_frame(&r, key, frame, 640);
+        ok = result.ok() && result.allocation.width == 640 && result.allocation.height == 360;
+    }
+    if (atlas) media_atlas_forget(atlas, key);
+    picture.release();
+    log_u64(ok ? LogLevel::info : LogLevel::error, "probe", "native_video_display_extent", ok);
+    return ok;
+}
 bool video_retention_probe(D3D11Renderer& r, MediaAssetKey key, u16 width, u16 height) noexcept {
     if (!width || !height || width > 256 || height > 256) return false;
     // Exercise the shipping NV12 -> atlas -> retained UI path, independently

@@ -1841,6 +1841,10 @@ bool scroll_write(void* opaque, u64 key, double offset, bool* changed) noexcept 
     if (!ui_search_scene_scroll(&s.scene, static_cast<float>(offset)))
         return false;
     *changed = old != s.scene.scroll_dips;
+    // Scrolling replaces rich-row widget handles. Publish their text before
+    // the scroll host or video pump can rebuild renderer overlays this turn.
+    if (*changed && !application_search_synchronize())
+        return false;
     if (*changed)
         application_request_frame();
     return true;
@@ -2979,7 +2983,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
             ui_scroll_host_wheel(&g_app.scroll_host,
                                  {s, s->edit.document_identity, scroll_read, scroll_write}, {x, y}, delta,
                                  lines, lines == WHEEL_PAGESCROLL,
-                                 clock_microseconds(g_app.clock, 0, clock_now()), scale);
+                                 application_now_us(), scale);
             application_request_frame();
         }
         return true;

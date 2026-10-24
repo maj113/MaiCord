@@ -1,6 +1,7 @@
 #include "maicord/ui/message_rich_layout.hpp"
 
 #include "maicord/core/decimal.hpp"
+#include "maicord/protocol/embed_provider.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/audio_controls.hpp"
@@ -385,6 +386,10 @@ bool select_embed_media_candidate(const MessageRichStore& store, const MessageRi
     const Utf8View original = message_rich_store_string(store, media.url);
     Utf8View source = message_rich_store_string(store, media.proxy_url);
     if (source.bytes == 0) {
+        // A provider's player page is HTML, even when its path or metadata
+        // looks like an MP4. Only resolved media enters the native decoder.
+        if (resource == MediaEmbedResource::video && embed_provider(original) != EmbedProvider::none)
+            return false;
         source = original;
     }
     const MediaAttachmentFormat format = embed_media_format(store, media);
@@ -406,13 +411,75 @@ namespace {
 bool embed_media_valid(const MessageRichEmbedMedia& media) noexcept {
     return media.url.bytes != 0 || media.proxy_url.bytes != 0;
 }
+// PH embeds can carry signed media captured when the message was posted.
+// Resolve the stable video identity on activation; never fetch that stale MP4
+// merely to paint its poster.
+Utf8View renewable_embed_video(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    const auto page = message_rich_store_string(store, embed.url);
+    const auto page_video = embed_video_locator(page);
+    if (page_video.provider == EmbedProvider::pornhub && page_video.id.bytes)
+        return page;
+    const auto frame = message_rich_store_string(store, embed.video.url);
+    const auto frame_video = embed_video_locator(frame);
+    return frame_video.provider == EmbedProvider::pornhub && frame_video.id.bytes ? frame : Utf8View{};
+}
+Utf8View live_channel_video(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    const auto page = message_rich_store_string(store, embed.url);
+    const auto locator = embed_video_locator(page);
+    return locator.provider == EmbedProvider::twitch_live && locator.id.bytes ? page : Utf8View{};
+}
+bool embed_playback_poster(const MessageRichStore& store, const MessageRichEmbed& embed,
+                         MessageRichEmbedMediaSelection* out) noexcept {
+    if (select_embed_media_candidate(store, embed.image, MediaEmbedResource::image, false, out) ||
+        select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false, out)) {
+        if ((embed.video.state & 3u) == 3u && embed.video.width && embed.video.height)
+            out->playback_extent = &embed.video;
+        return true;
+    }
+    // Text-only playable cards still reserve a native play surface. No poster
+    // URL is invented or fetched; the existing media extent supplies its default.
+    *out = {&embed.video, {}, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, false};
+    if ((embed.video.state & 3u) == 3u && embed.video.width && embed.video.height)
+        out->playback_extent = &embed.video;
+    return true;
+}
 // ARTICLE and IMAGE thumbnails are normalized into the large image.
 bool embed_thumbnail_is_image(const MessageRichEmbed& embed) noexcept {
     return (embed.type == GatewayMessageEmbedType::article || embed.type == GatewayMessageEmbedType::image) &&
            !embed_media_valid(embed.image) && embed_media_valid(embed.thumbnail);
 }
+Utf8View soundcloud_audio_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    const auto page = message_rich_store_string(store, embed.url);
+    if (soundcloud_track_url(page) || soundcloud_collection_url(page)) return page;
+    const auto player = message_rich_store_string(store, embed.video.url);
+    return soundcloud_track_url(player) || soundcloud_collection_url(player) ? player : Utf8View{};
+}
+Utf8View apple_collection_url(const MessageRichStore& store,const MessageRichEmbed& embed) noexcept {
+    const auto page=message_rich_store_string(store,embed.url), player=message_rich_store_string(store,embed.video.url);
+    return apple_music_collection_locator(page).id.bytes ? page : apple_music_collection_locator(player).id.bytes ? player : Utf8View{};
+}
+Utf8View youtube_queue_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    const auto page = message_rich_store_string(store, embed.url), player = message_rich_store_string(store, embed.video.url);
+    return youtube_collection_locator(page).list.bytes ? page : youtube_collection_locator(player).list.bytes ? player : Utf8View{};
+}
 } // namespace
 
+bool message_rich_embed_music_preview(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    return embed.thumbnail.width && embed.thumbnail.height && embed_media_valid(embed.thumbnail) &&
+           (spotify_audio_locator(message_rich_store_string(store, embed.url)).bytes != 0 ||
+            amazon_music_track_locator(message_rich_store_string(store, embed.url)).id.bytes != 0 ||
+            apple_music_track_locator(message_rich_store_string(store, embed.url)).id.bytes != 0 ||
+            apple_music_collection_locator(message_rich_store_string(store, embed.url)).id.bytes != 0);
+}
+Utf8View message_rich_embed_provider_label(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    if (apple_collection_url(store,embed).bytes) return utf8_literal("Apple Music · Preview");
+    return message_rich_embed_music_preview(store, embed)
+               ? (embed_provider(message_rich_store_string(store, embed.url)) == EmbedProvider::apple_music
+                      ? utf8_literal("Apple Music · Preview")
+                      : embed_provider(message_rich_store_string(store, embed.url)) == EmbedProvider::amazon_music
+                          ? utf8_literal("Amazon Music · Preview") : utf8_literal("Spotify · Preview"))
+                                                         : message_rich_store_string(store, embed.provider_name);
+}
 bool message_rich_embed_media_select(const MessageRichStore& store, const MessageRichEmbed& embed,
                                      MessageRichEmbedMediaSelection* selection) noexcept {
     if (!selection) {
@@ -429,6 +496,11 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
         select_embed_media_candidate(store, embed.video, MediaEmbedResource::video, true, selection)) {
         return true;
     }
+    if (live_channel_video(store, embed).bytes || soundcloud_audio_url(store, embed).bytes ||
+        apple_collection_url(store,embed).bytes || youtube_queue_url(store,embed).bytes)
+        return embed_playback_poster(store, embed, selection);
+    if (message_rich_embed_music_preview(store, embed) || renewable_embed_video(store, embed).bytes)
+        return select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false, selection);
     if (embed_media_valid(embed.video) &&
         (select_embed_media_candidate(store, embed.video, MediaEmbedResource::video, false, selection) ||
          select_embed_media_candidate(store, embed.thumbnail, MediaEmbedResource::thumbnail, false,
@@ -441,7 +513,66 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
                                          selection));
 }
 
-MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore&, const MessageRichEmbed& embed) noexcept {
+bool message_rich_embed_playback_select(const MessageRichStore& store, const MessageRichEmbed& embed,
+                                       MessageRichEmbedMediaSelection* out) noexcept {
+    if (!out) return false;
+    *out = {};
+    if (!g_display.embed_media || embed.type == GatewayMessageEmbedType::gifv) return false;
+    if (const auto queue_url = youtube_queue_url(store,embed); queue_url.bytes) {
+        embed_playback_poster(store, embed, out);
+        *out = {out->media, queue_url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
+        return true;
+    }
+    if (const auto album_url=apple_collection_url(store,embed); album_url.bytes) {
+        embed_playback_poster(store,embed,out);
+        *out={out->media,album_url,{},MediaEmbedResource::video,MediaAttachmentFormat::m4a,true,true}; return true;
+    }
+    const auto audio_url = soundcloud_audio_url(store, embed);
+    if (audio_url.bytes) {
+        embed_playback_poster(store, embed, out);
+        *out = {out->media, audio_url, {}, MediaEmbedResource::video, MediaAttachmentFormat::m4a, false, true};
+        return true;
+    }
+    if (const auto url = live_channel_video(store, embed); url.bytes) {
+        embed_playback_poster(store, embed, out);
+        *out = {out->media, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
+        return true;
+    }
+    if (const auto url = renewable_embed_video(store, embed); url.bytes &&
+        embed.thumbnail.width && embed.thumbnail.height && embed_media_valid(embed.thumbnail)) {
+        *out = {&embed.thumbnail, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
+        return true;
+    }
+    if (message_rich_embed_media_select(store, embed, out) && out->format == MediaAttachmentFormat::mp4)
+        return true;
+    if (message_rich_embed_music_preview(store, embed)) {
+        const auto url = message_rich_store_string(store, embed.url);
+        const auto apple = apple_music_track_locator(url);
+        *out = {&embed.thumbnail, message_rich_store_string(store, embed.url), {}, MediaEmbedResource::video,
+                apple.id.bytes ? (apple.video ? MediaAttachmentFormat::mp4 : MediaAttachmentFormat::m4a)
+                               : MediaAttachmentFormat::mp3, apple.video, true};
+        return true;
+    }
+    const auto url = message_rich_store_string(store, embed.video.url);
+    const auto locator = embed_video_locator(url);
+    if (embed.video.proxy_url.bytes || !locator.id.bytes ||
+        !embed.thumbnail.width || !embed.thumbnail.height || !embed_media_valid(embed.thumbnail)) {
+        *out = {};
+        return false;
+    }
+    *out = {&embed.video, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
+    out->start_seconds = locator.start_seconds;
+    // Vimeo oEmbed may retain the iframe's canonical video URL but omit the shared
+    // link's fragment. Only the same exact provider/video may supply its time.
+    if (locator.provider == EmbedProvider::vimeo) {
+        const auto page = embed_video_locator(message_rich_store_string(store, embed.url));
+        if (page.provider == locator.provider && page.id.bytes && utf8_equal(page.id, locator.id) && page.start_seconds)
+            out->start_seconds = page.start_seconds;
+    }
+    return true;
+}
+
+MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
     const GatewayMessageEmbedType type = embed.type;
     const bool components = type == GatewayMessageEmbedType::components;
     const bool rich = type == GatewayMessageEmbedType::rich || type == GatewayMessageEmbedType::unknown;
@@ -455,7 +586,8 @@ MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore&, const Mess
                        type != GatewayMessageEmbedType::gifv;
     // A poll result shows its own card text, never its raw fields.
     plan.fields = rich;
-    const bool video = embed_media_valid(embed.video);
+    const bool video = embed_media_valid(embed.video) || message_rich_embed_music_preview(store, embed) ||
+                       live_channel_video(store, embed).bytes || youtube_queue_url(store,embed).bytes;
     const bool large = video || embed_media_valid(embed.image) || embed_thumbnail_is_image(embed);
     plan.corner_thumbnail = !plan.media_only && embed_media_valid(embed.thumbnail) &&
                             !embed_thumbnail_is_image(embed) && (rich || components ? !video : !large);
@@ -525,9 +657,16 @@ bool message_rich_embed_resource_select(const MessageRichStore& store, const Mes
         return select_embed_media_candidate(store, embed.image, resource, false, out);
     case MediaEmbedResource::thumbnail:
         return select_embed_media_candidate(store, embed.thumbnail, resource, false, out);
-    case MediaEmbedResource::video:
+    case MediaEmbedResource::video: {
+        MessageRichEmbedMediaSelection playback{};
+        if (message_rich_embed_playback_select(store, embed, &playback) && playback.provider) {
+            if (!out) return false;
+            *out = playback;
+            return true;
+        }
         return select_embed_media_candidate(store, embed.video, resource,
                                             embed.type == GatewayMessageEmbedType::gifv, out);
+    }
     default:
         return false;
     }
@@ -701,7 +840,10 @@ bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selec
         selection.format == MediaAttachmentFormat::unknown) {
         return false;
     }
-    // Embed media defaults to 400x300. Attachment mosaics have a separate
+    if (const auto* video = selection.playback_extent)
+        return bounded_media_extent(video->width, video->height, available_width,
+                                    kMessageEmbedMaximumWidth, 300.0f, width, height);
+    // Embed media defaults to 400x225. Attachment mosaics have a separate
     // policy; an inline URL image must not inherit their larger bounds or the
     // enclosing rich card's width.
     return bounded_media_extent(selection.media->width ? selection.media->width : 400,
@@ -717,7 +859,7 @@ float message_rich_embed_visual_height(const MessageRichStore& store, const Mess
     const float top = message_rich_embed_top_inset(plan.components);
     float height = top + kMessageEmbedBottomInset;
     const auto block = [&](float extent) noexcept { height += kMessageEmbedBlockGap + extent; };
-    if (embed.provider_name.bytes)
+    if (message_rich_embed_provider_label(store, embed).bytes)
         block(18.0f);
     if (embed.author_name.bytes)
         block(message_rich_embed_author_icon(store, embed).bytes ? kMessageEmbedAuthorIcon : 22.0f);

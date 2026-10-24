@@ -6,6 +6,7 @@
 // MAICORD_MEDIA_MEMORY_REPORT=<path> appends a plain-text report (no captures).
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
+#include "video_retention_probe.hpp"
 #include "maicord/platform/gpu_stream_decoder.hpp"
 #include "../hevc_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
@@ -548,6 +549,7 @@ bool media_memory_probe(D3D11Renderer& r) noexcept {
         }
     }
 
+    ok = ok && bind_production_atlases(r, true) && video_display_extent_probe(r);
     // Leave the renderer in its shipping configuration for later probes.
     bind_production_atlases(r, true);
     renderer_unbind_media_atlas(&r);

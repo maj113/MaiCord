@@ -32,11 +32,15 @@ struct UiVideoScene {
     UiVideoSceneStyle style{};
     UiRect clip{};
     UiRect preview{}, center_play{}, buffering_indicator{};
-    char labels[kUiVideoControlCount][129]{};
+    char labels[640]{};
+    u16 label_offsets[kUiVideoControlCount]{};
     u32 label_bytes[kUiVideoControlCount]{};
     // Fingerprint of emitted text, geometry, text style and theme. Subsecond
     // playback ticks, hover, focus and range paint do not invalidate glyphs.
     u64 text_revision{};
+    // Last requested range value in this gesture; observation ticks can lag it.
+    // The host clears validity if its transport rejects the request.
+    u64 capture_value{};
     UiVideoControl focus{}, hover{}, capture{};
     float play_opacity{1};
     UiOpacityTransition controls_transition{};
@@ -45,12 +49,18 @@ struct UiVideoScene {
     float hover_x{};
     // Time under the pointer on the seek track ("m:ss"), shown above it while
     // hovered or dragged; text_advance sizes its bubble.
-    char hover_time[24]{};
+    char track_title[160]{};
+    u16 track_title_bytes{}, hover_track{};
+    // A stable ordinal arms one background metadata request after pointer dwell.
+    u64 track_hover_since_ms{};
+    bool track_hover_requested{};
+    char hover_time[192]{};
     u32 hover_time_bytes{};
     float text_advance{6.25f};
     u8 spinner_phase{};
     bool active{}, keyboard_focus{}, play_only{};
     bool preview_hovered{}, idle{};
+    bool capture_value_valid{};
 };
 enum class UiVideoPointerEvent : u8 {
     down,
@@ -84,6 +94,8 @@ Utf8View ui_video_scene_label(const UiVideoScene&, UiVideoControl) noexcept;
 UiVideoControl ui_video_scene_hit(const UiVideoScene&, UiPoint) noexcept;
 // Observation only: never dispatches an action or changes capture.
 bool ui_video_scene_hover(UiVideoScene*, UiPoint) noexcept;
+// Copies bounded UTF-8 titles; hover metadata is accepted only for its exact ordinal.
+void ui_video_scene_titles(UiVideoScene*, Utf8View current, u16 hover_track, Utf8View hovered) noexcept;
 bool ui_video_scene_focus(UiVideoScene*, UiVideoControl, bool keyboard) noexcept;
 void ui_video_scene_blur(UiVideoScene*) noexcept;
 UiVideoSceneResult ui_video_scene_pointer(UiVideoScene*, UiVideoPointerEvent, UiPoint) noexcept;

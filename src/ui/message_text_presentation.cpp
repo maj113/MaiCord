@@ -2564,7 +2564,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 if (!ui_text_flow_advance(&flow, message_rich_embed_top_inset(plan.components)))
                     return fail(presentation, MessageTextPresentationError::layout);
                 // Provider: small subtext (12 DIP).
-                const Utf8View provider = message_rich_store_string(*rich_store, embed.provider_name);
+                const Utf8View provider = message_rich_embed_provider_label(*rich_store, embed);
                 const Utf8View provider_url = message_rich_store_string(*rich_store, embed.provider_url);
                 if (provider.bytes) {
                     const u32 first = presentation->command_count;
@@ -3921,6 +3921,13 @@ Utf8View message_text_presentation_command_source(const MessageStore& store,
                                         : message_rich_store_find(*rich_store, command.message_id);
     if (!rich || rich->message_revision != command.message_revision)
         return {};
+    const u16 source = command.source_id & ~(kRichTextSource | kForwardedTextSource);
+    if (source >= kRichTextEmbedBegin && source < kRichTextFieldBegin &&
+        (source - kRichTextEmbedBegin) % kRichTextEmbedSlots == 6) {
+        const u32 index = (source - kRichTextEmbedBegin) / kRichTextEmbedSlots;
+        if (index < rich->embed_count)
+            return message_rich_embed_provider_label(*rich_store, rich->embeds[index]);
+    }
     return message_rich_store_string(*rich_store, rich_source_string(*rich, command.source_id));
 }
 

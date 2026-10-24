@@ -134,9 +134,15 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
         if (message_rich_embed_gallery(store, rich, host, &gallery))
             for (u32 m = 0; m < gallery.count; ++m)
                 member = member || gallery.members[m] == i;
-        if ((host != i && !member) ||
-            !(member ? message_rich_embed_gallery_select(store, rich.embeds[i], &selected)
-                     : message_rich_embed_media_select(store, rich.embeds[i], &selected)) ||
+        if (host != i && !member)
+            continue;
+        // Provider posters are images, but expanding them hosts the same
+        // native video session. Gallery tiles and GIFV keep their image path.
+        const bool playable = !member && rich.embeds[i].type != GatewayMessageEmbedType::gifv &&
+                              message_rich_embed_playback_select(store, rich.embeds[i], &selected) &&
+                              selected.format == MediaAttachmentFormat::mp4;
+        if ((!playable && !(member ? message_rich_embed_gallery_select(store, rich.embeds[i], &selected)
+                                  : message_rich_embed_media_select(store, rich.embeds[i], &selected))) ||
             selected.format == MediaAttachmentFormat::unknown)
             continue;
         auto& item = items[count++];
@@ -553,6 +559,16 @@ bool application_image_viewer_synchronize() noexcept {
         if (item->index < source.rich->embed_count && message_rich_embed_resource_select(*source.rich_store,
             source.rich->embeds[item->index], item->resource, &media) && media.media->width && media.media->height)
             pixels = {static_cast<float>(media.media->width), static_cast<float>(media.media->height)};
+    }
+    if (item && item->video) {
+        MediaAtlasResult frame{};
+        frame.error = MediaAtlasError::not_found;
+        if (g_app.renderer.preview_media_atlas)
+            frame = media_atlas_peek(g_app.renderer.preview_media_atlas, viewer.key);
+        if (!frame.ok() && g_app.renderer.media_atlas)
+            frame = media_atlas_peek(g_app.renderer.media_atlas, viewer.key);
+        if (frame.ok() && frame.width && frame.height)
+            pixels = {static_cast<float>(frame.width), static_cast<float>(frame.height)};
     }
     if (pixels.width != scene.pixels.width || pixels.height != scene.pixels.height) {
         scene.pixels = pixels; scene.viewport = {};

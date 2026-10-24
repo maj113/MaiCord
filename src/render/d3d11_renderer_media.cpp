@@ -224,8 +224,9 @@ MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
     const u32 extent = key.kind == MediaAssetKind::local_draft_preview ||
                                key.kind == MediaAssetKind::catalog_preview
                            ? kGpuVideoPosterExtent
-                       : call ? maximum_extent
-                              : 0;
+                       : call || maximum_extent ? maximum_extent
+                       : key.kind == MediaAssetKind::embed || key.kind == MediaAssetKind::attachment
+                           ? media_resolution_tier_extent(media_asset_resolution_tier(key)) : 0;
     if (gpu_video_frame_visible_valid(frame.width, frame.height)) {
         const u32 step = gpu_video_frame_reduction(frame.width, frame.height, extent);
         const u32 width = gpu_video_frame_output_width(frame, step);

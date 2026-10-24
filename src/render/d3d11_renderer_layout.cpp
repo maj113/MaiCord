@@ -1003,6 +1003,15 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
         if (!atlas || !texture_view) {
             continue;
         }
+        const auto playing = renderer->inline_embed_video;
+        const bool playing_embed = command.kind == MessageMediaCommandKind::embed && playing.id == key.id &&
+            playing.variant == key.variant && playing.kind == MediaAssetKind::embed &&
+            media_asset_embed_index(playing) == command.embed_index &&
+            media_asset_embed_snapshot(playing) == command.snapshot &&
+            media_asset_search(playing) == command.search_result &&
+            media_atlas_peek(atlas, playing).ok();
+        if (playing_embed)
+            key = playing;
         const MediaAtlasResult allocation = media_atlas_peek(atlas, key);
         if (!allocation.ok()) {
             continue;
@@ -1026,12 +1035,9 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
                                                  ui_rect_height(command.rectangle)) * .25f)
                                : 0.f;
         // Gallery tiles: the image covers its tile, cropped by the tile clip.
-        const UiRect cover = command.cover ? ui_call_video_fit(command.rectangle, allocation.width,
-                                                               allocation.height, true)
-                                           : UiRect{};
-        const UiRect quad = ui_rect_has_area(cover) ? cover : command.rectangle;
-        const UiRect quad_clip =
-            ui_rect_has_area(cover) ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
+        const UiRect quad = message_media_picture_rectangle(command, allocation.width, allocation.height, playing_embed);
+        const UiRect quad_clip = command.cover || playing_embed
+            ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
         if (!queue_media_quad(renderer, allocation, quad, quad_clip,
                               false, first, domain, 1.f,
                               command.ordinary_video ? UiVideoSceneStyle{}.preview_radius : 0.f, tile,
@@ -1334,11 +1340,12 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
             &search_media_stream, {message_media_commands, kRendererMessageMediaCommandCapacity}))
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_search_visible(*renderer) &&
-        !ui_search_scene_paint(*renderer->search_scene, theme, &renderer->paint_stream,
-                               &renderer->search_edit_geometry, renderer->dpi, &search_media_stream,
-                               renderer->search_message_text && renderer->search_message_text->active
-                                   ? renderer->search_message_text
-                                   : nullptr))
+        !paint_unfiltered(&renderer->paint_stream, [&]() noexcept {
+            return ui_search_scene_paint(*renderer->search_scene, theme, &renderer->paint_stream,
+                                         &renderer->search_edit_geometry, renderer->dpi, &search_media_stream,
+                                         renderer->search_message_text && renderer->search_message_text->active
+                                             ? renderer->search_message_text : nullptr);
+        }))
         return layout_step_failed(__LINE__);
     renderer->friends_requests_media_first_batch = renderer->media_batch_count;
     if (!queue_message_media(renderer, theme, search_media_stream, true))
@@ -2368,7 +2375,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 domain = 0;
             }
             // The open/close motion travels from the inline preview, outside the body.
-            const auto r = viewer.display;
+            const auto r = viewer.video && allocation.ok()
+                ? ui_call_video_fit(viewer.display, allocation.width, allocation.height, false)
+                : viewer.display;
             if (allocation.ok() &&
                 !queue_media_quad(renderer, allocation, r,
                                   viewer.reveal < 1 ? viewer.viewport : viewer.body, false, true, domain,
