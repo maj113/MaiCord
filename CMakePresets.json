@@ -18,7 +18,7 @@
     {
       "name": "x64-release",
       "configurePreset": "x64-release",
-      "targets": ["MaiCord", "MaiCordAccount"],
+      "targets": ["MaiCord"],
       "jobs": 8
     }
   ]

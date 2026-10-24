@@ -52,7 +52,7 @@ add_custom_command(
 add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
 
 # Regional-flag SVGs ship deflate-compressed in groups; the generator packs
-# the committed Twemoji sources and the account DLL inflates a group on demand.
+# the committed Twemoji sources and the account module inflates a group on demand.
 file(GLOB MAICORD_REGIONAL_FLAG_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
 set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")
@@ -80,8 +80,7 @@ add_custom_command(
     DEPENDS tools/generate_app_icon.py
     VERBATIM)
 # Its own target: a custom command listed among MaiCord's sources would wait
-# for every library MaiCord links (and MaiCordAccount.dll), and every MaiCord
-# object would wait for it.
+# for every library MaiCord links, and every MaiCord object would wait for it.
 add_custom_target(maicord_app_icon DEPENDS "${MAICORD_APP_ICON}")
 set_source_files_properties(config/maicord.rc PROPERTIES
     OBJECT_DEPENDS "${MAICORD_APP_ICON}"

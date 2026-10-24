@@ -1,5 +1,4 @@
 #include "maicord/app/update_install.hpp"
-#include "maicord/app/account_module_version.hpp"
 #include "update_signed_fixture_helpers.hpp"
 #include "maicord/sys/crypto.hpp"
 
@@ -22,15 +21,15 @@ bool file_hash(HANDLE file, u64 bytes, u8* digest) noexcept {
 // Fault fixture acquires real authenticated disposal authority and real fixed
 // read owners, then retains the same boundaries the coordinator uses. Direct
 // owner inspection is test-only; production callers never modify context fields.
-bool retain_disposal_fixture(UpdateInstallContext& c, const UpdatePairDescriptor& pair) noexcept {
+bool retain_disposal_fixture(UpdateInstallContext& c, const UpdatePackageDescriptor& package) noexcept {
     if (!update_install_begin_disposal(&c, UpdateGenerationDisposalTarget::previous).ok()) return false;
     if (!c.directory.directory) {
         bool absent = false;
         if (!update_generation_disposal_directory_open(c.transaction, &c.directory, &absent).ok() || absent) return false;
     }
-    if (!bytes_equal(c.directory.document_sha256, pair.document_sha256, 32)) return false;
-    for (u32 i = 0; i < 5; ++i) {
-        if (!update_generation_file_open(&c.directory, static_cast<UpdateGenerationFile>(i), false, &c.files[i]).ok()) return false;
+    if (!bytes_equal(c.directory.document_sha256, package.document_sha256, 32)) return false;
+    for (u32 i = 0; i < update_generation_file_count(package); ++i) {
+        if (!update_generation_file_open(&c.directory, update_generation_file_name(package, i), false, &c.files[i]).ok()) return false;
         BY_HANDLE_FILE_INFORMATION info{};
         if (!GetFileInformationByHandle(c.files[i], &info)) return false;
         c.file_identities[i] = {info.dwVolumeSerialNumber, static_cast<u64>(info.nFileIndexHigh) << 32 | info.nFileIndexLow};
@@ -39,10 +38,10 @@ bool retain_disposal_fixture(UpdateInstallContext& c, const UpdatePairDescriptor
     return true;
 }
 bool dispose_intent_fixture_file(UpdateGenerationTransaction& t, u32 index) noexcept {
-    if (index >= 5 || t.state.disposal.target == UpdateGenerationDisposalTarget::none || !update_generation_validate(&t).ok()) return false;
+    if (index >= t.state.disposal.file_count || t.state.disposal.target == UpdateGenerationDisposalTarget::none || !update_generation_validate(&t).ok()) return false;
     const auto& ref = t.state.disposal.target == UpdateGenerationDisposalTarget::candidate ? t.state.candidate : t.state.previous;
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 count = 0;
-    if (!update_generation_path(t, {ref.pair.document_sha256, 32}, static_cast<UpdateGenerationFile>(index),
+    if (!update_generation_path(t, {ref.package.document_sha256, 32}, update_generation_file_name(ref.package, index),
         {path, sizeof(path) / sizeof(path[0])}, &count).ok()) return false;
     HANDLE file = CreateFileW(path, GENERIC_READ | DELETE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
@@ -61,17 +60,17 @@ bool fixture_journal_write(const wchar_t* path, const u8* record) noexcept {
 }
 // Test teardown targets only these fixture-owned fixed generations, without a
 // recursive deletion or discovery/adoption of unknown paths.
-void remove_fixture_generation(UpdateGenerationTransaction& transaction, const UpdatePairDescriptor& pair) noexcept {
-    if (!pair.version) return;
+void remove_fixture_generation(UpdateGenerationTransaction& transaction, const UpdatePackageDescriptor& package) noexcept {
+    if (!package.version) return;
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 count = 0;
-    for (u32 i = 0; i < 5; ++i) {
-        if (update_generation_path(transaction, {pair.document_sha256, 32}, static_cast<UpdateGenerationFile>(i),
+    for (u32 i = 0; i < update_generation_file_count(package); ++i) {
+        if (update_generation_path(transaction, {package.document_sha256, 32}, update_generation_file_name(package, i),
             {path, sizeof(path) / sizeof(path[0])}, &count).ok()) {
             HANDLE h = CreateFileW(path, DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
             if (h != INVALID_HANDLE_VALUE) dispose(&h);
         }
     }
-    if (update_generation_path(transaction, {pair.document_sha256, 32}, UpdateGenerationFile::executable,
+    if (update_generation_path(transaction, {package.document_sha256, 32}, kUpdatePackageExecutable,
         {path, sizeof(path) / sizeof(path[0])}, &count).ok()) {
         while (count && path[count - 1] != L'\\') --count; if (count) path[count - 1] = 0;
         RemoveDirectoryW(path);
@@ -104,15 +103,15 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     UpdateGenerationEnrollment enrollment{}; enrollment.root = {root, length(root)}; enrollment.installation.bytes[0] = 0x43;
     enrollment.explicitly_enrolled = true; copy_bytes(enrollment.publisher_inventory_sha256, inventory, 32);
     const bool identity = ancestry(root, ids, &id_count); enrollment.ancestors = {ids, id_count};
-    UpdateGenerationTransaction transaction{}; UpdateInstallContext install{}; UpdatePair selected{}, previous_pins{};
+    UpdateGenerationTransaction transaction{}; UpdateInstallContext install{}; UpdatePackage selected{}, previous_pins{};
     UpdatePreparationContext preparation{}; UpdatePreparationResult preparation_result{}; UpdateStage stage{};
-    UpdatePairDescriptor generations[3]{}; HANDLE package = nullptr;
+    UpdatePackageDescriptor generations[3]{}; HANDLE package = nullptr;
     struct Cleanup {
-        UpdateGenerationTransaction& t; UpdateInstallContext& i; UpdatePair& pair; UpdatePair& previous_pins; UpdatePreparationContext& p;
-        UpdatePreparationResult& result; UpdateStage& stage; UpdatePairDescriptor* generations; HANDLE& package;
+        UpdateGenerationTransaction& t; UpdateInstallContext& i; UpdatePackage& selected; UpdatePackage& previous_pins; UpdatePreparationContext& p;
+        UpdatePreparationResult& result; UpdateStage& stage; UpdatePackageDescriptor* generations; HANDLE& package;
         const wchar_t* root; const wchar_t* work; const wchar_t* artifact; const wchar_t* acceptance; const wchar_t* lock; const wchar_t* state; const wchar_t* gate;
         ~Cleanup() noexcept {
-            update_pair_release(&pair, false); update_pair_release(&previous_pins, false); update_install_release(&i); update_stage_cleanup_release(&result.stage);
+            update_package_release(&selected, false); update_package_release(&previous_pins, false); update_install_release(&i); update_stage_cleanup_release(&result.stage);
             update_stage_release(&stage, true); update_preparation_release(&p);
             dispose(&package);
             for (u32 n = 0; n < 3; ++n) remove_fixture_generation(t, generations[n]);
@@ -121,17 +120,17 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
         }
     } cleanup{transaction, install, selected, previous_pins, preparation, preparation_result, stage, generations, package,
         root, work, artifact, acceptance, acceptance_lock, state_path, gate_path};
-    // These coordinator faults depend on authentic pair/state identities, not
-    // shipping payload size. Shipping EXE/DLL integration remains in generation
+    // These coordinator faults depend on authentic package/state identities, not
+    // shipping payload size. Shipping EXE integration remains in generation
     // authentication and client tests; the parser shares this exact native ZIP.
     u8 package_data[4096]{};
-    const u32 package_bytes = native_pair_package({package_data, sizeof(package_data)});
+    const u32 package_bytes = native_package({package_data, sizeof(package_data)});
     const ConstSlice<u8> package_parts[]{{package_data, package_bytes}};
     package = CreateFileW(artifact, GENERIC_READ | GENERIC_WRITE | DELETE, FILE_SHARE_READ, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (package == INVALID_HANDLE_VALUE) package = nullptr;
-    const bool packaged = package_bytes == 2792 && package && write(package, package_data, package_bytes) && FlushFileBuffers(package) &&
+    const bool packaged = package_bytes == 2420 && package && write(package, package_data, package_bytes) && FlushFileBuffers(package) &&
         sha256(workspace, {package_parts, 1}, {package_digest, 32}).ok();
-    check(packaged, "install: shared generated native pair package contains exactly 2792 bytes without executing either member"); if (!packaged) return;
+    check(packaged, "install: shared generated native package contains exactly 2420 bytes without executing any member"); if (!packaged) return;
     if (!CloseHandle(package)) return; package = nullptr;
     const UpdateInstallLimits limits{64 * 1024 * 1024, 1000, kUpdateInstallMaximumRetainedBytes, 0};
     check(identity && update_generation_begin(enrollment, &transaction, true).ok() &&
@@ -141,7 +140,7 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     const auto seed_text = manifest(documents[0], package_bytes, package_digest, 6);
     const auto next_text = manifest(documents[1], package_bytes, package_digest, 7);
     check(sign(seed_text, signer, workspace, signatures[0]) && sign(next_text, signer, workspace, signatures[1]),
-        "install: independent signed release documents bind same generated native pair package");
+        "install: independent signed release documents bind same generated native package");
     UpdateManifestPolicy policy{4, 0, 100, 64 * 1024 * 1024, 1000, UpdateChannel::stable};
     UpdatePreparationRequest request{{acceptance, length(acceptance)}, {artifact, length(artifact)}, {work, length(work)}, seed_text, {signatures[0], 64}, true};
     preparation_result = update_prepare_stage(&preparation, request, key, workspace, &policy, {scratch, 256}, &stage);
@@ -160,14 +159,14 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
         "install: successful explicit provisioning begin supplies separate first-use authority");
     if (!install.initialized || !transaction.provisioning_admitted) return;
     const auto provision = update_install_provision_current(&install, &stage, {seed_text, {signatures[0], 64}}, policy, preparation.acceptance);
-    check(provision.ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.pair.version == 6 &&
-        transaction.state.active.pair.package_bytes == 2792 && transaction.state.active.pair.members[0].bytes == 1024 &&
-        transaction.state.active.pair.members[1].bytes == 1536 && transaction.state.active.pair.account_ordinal == kAccountModuleApiOrdinal &&
+    check(provision.ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.package.version == 6 &&
+        transaction.state.active.package.package_bytes == 2420 && transaction.state.active.package.member_count == 3 &&
+        transaction.state.active.package.members[0].bytes == 1024 && transaction.state.active.package.members[2].bytes == 64 &&
         !transaction.provisioning_admitted && provision.retained_bytes_bound && provision.required_free_bytes,
-        "install: explicit seed provision publishes authenticated native pair/ordinal and consumes first-use authority after disk/budget preflight");
-    if (!provision.ok()) return; generations[0] = transaction.state.active.pair;
-    check(update_install_select_pair(&install, &install.pair).error == UpdateInstallError::invalid_input && !install.pair.files[0] &&
-        transaction.state.active.pair.version == 6, "install: retained selector output cannot overwrite its opaque installation owner");
+        "install: explicit seed provision publishes authenticated native package and consumes first-use authority after disk/budget preflight");
+    if (!provision.ok()) return; generations[0] = transaction.state.active.package;
+    check(update_install_select_package(&install, &install.package).error == UpdateInstallError::invalid_input && !install.package.files[0] &&
+        transaction.state.active.package.version == 6, "install: retained selector output cannot overwrite its opaque installation owner");
     check(update_stage_release(&stage, true).ok() && update_preparation_release(&preparation).ok(), "install: seed work owners explicitly release separately from generation gate");
     policy.installed_version = 6; request.document = next_text; request.signature = {signatures[1], 64}; request.allow_first_use = false;
     preparation_result = update_prepare_stage(&preparation, request, key, workspace, &policy, {scratch, 256}, &stage);
@@ -180,36 +179,36 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
         !small.directory.created && transaction.state.sequence == stable_sequence && update_install_release(&small).ok(),
         "install: bounded retained-byte preflight rejects before candidate creation and preserves stable journal");
     check(update_install_prepare(&install, &stage, {next_text, {signatures[1], 64}}, policy, preparation.acceptance, transaction_id).ok() &&
-        transaction.state.phase == UpdateGenerationPhase::prepared, "install: current acceptance plus extraction and sealed fixed provenance commits prepared pair");
-    if (transaction.state.phase != UpdateGenerationPhase::prepared) return; generations[1] = transaction.state.candidate.pair;
-    check(update_install_select_pair(&install, &previous_pins).ok() && previous_pins.descriptor.version == 6,
-        "install: prepared recovery pins retained old pair, excluding candidate from normal launch");
+        transaction.state.phase == UpdateGenerationPhase::prepared, "install: current acceptance plus extraction and sealed fixed provenance commits prepared package");
+    if (transaction.state.phase != UpdateGenerationPhase::prepared) return; generations[1] = transaction.state.candidate.package;
+    check(update_install_select_package(&install, &previous_pins).ok() && previous_pins.descriptor.version == 6,
+        "install: prepared recovery pins retained old package, excluding candidate from normal launch");
     check(update_install_activate(&install).ok() && transaction.state.phase == UpdateGenerationPhase::pending &&
-        update_install_select_pair(&install, &selected).generation.error == UpdateGenerationError::state,
+        update_install_select_package(&install, &selected).generation.error == UpdateGenerationError::state,
         "install: live activation commits pending while normal cold selector refuses pending");
     UpdateGenerationLaunchAdmission launch{};
     const auto pending_alias_sequence = transaction.state.sequence;
     check(update_install_activation_admission(&install, reinterpret_cast<UpdateGenerationLaunchAdmission*>(&transaction)).error == UpdateInstallError::invalid_input &&
-        transaction.state.sequence == pending_alias_sequence && update_install_select_activation_pair(&install, &install.pair).error == UpdateInstallError::invalid_input &&
+        transaction.state.sequence == pending_alias_sequence && update_install_select_activation_package(&install, &install.package).error == UpdateInstallError::invalid_input &&
         install.activation_lease, "install: admission and pending selector refuse borrowed transaction or opaque owner output aliasing without consuming lease");
     check(update_install_activation_admission(&install, &launch).ok() && workspace.storage.capacity >= sizeof(launch),
         "install: live pending admission fits independently owned workspace alias fault fixture");
     if (workspace.storage.capacity >= sizeof(launch)) {
         copy_bytes(workspace.storage.data, &launch, sizeof(launch));
         const auto* aliased_admission = reinterpret_cast<const UpdateGenerationLaunchAdmission*>(workspace.storage.data);
-        check(update_generation_select_pending_pair_for_launch(&transaction, &install.authentication, *aliased_admission, &selected).error ==
+        check(update_generation_select_pending_package_for_launch(&transaction, &install.authentication, *aliased_admission, &selected).error ==
             UpdateGenerationError::invalid_input && !selected.files[0] && !selected.files[1] && install.activation_lease &&
             transaction.state.sequence == pending_alias_sequence,
             "install: pending selector refuses admission stored inside borrowed crypto workspace before authentication or publication");
         SecureZeroMemory(workspace.storage.data, workspace.storage.capacity);
     }
-    check(update_install_activation_admission(&install, &launch).ok() && update_install_select_activation_pair(&install, &selected).ok() &&
-        selected.descriptor.version == 7 && update_install_select_activation_pair(&install, &selected).error == UpdateInstallError::state,
-        "install: exact live pending admission provides one-shot retained new-pair pins");
-    check(update_pair_release(&selected, false).ok() && update_install_release(&install).ok() && update_generation_release(&transaction).ok() &&
+    check(update_install_activation_admission(&install, &launch).ok() && update_install_select_activation_package(&install, &selected).ok() &&
+        selected.descriptor.version == 7 && update_install_select_activation_package(&install, &selected).error == UpdateInstallError::state,
+        "install: exact live pending admission provides one-shot retained new-package pins");
+    check(update_package_release(&selected, false).ok() && update_install_release(&install).ok() && update_generation_release(&transaction).ok() &&
         update_generation_begin(enrollment, &transaction).ok() && update_install_initialize(&install, &transaction, key, workspace, limits).ok(),
         "install: cold reopen starts without a fabricated live activation lease");
-    check(update_install_select_activation_pair(&install, &selected).error == UpdateInstallError::state,
+    check(update_install_select_activation_package(&install, &selected).error == UpdateInstallError::state,
         "install: cold pending journal cannot reconstruct a live launch lease");
     UpdateGenerationState rolled_back{};
     check(update_generation_rollback(transaction.state, &rolled_back).ok() &&
@@ -220,10 +219,10 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     if (transaction.state.disposal.target != UpdateGenerationDisposalTarget::candidate) return;
     u8 intent_record[kUpdateGenerationRecordBytes]{};
     check(update_generation_encode(transaction.state, {intent_record, sizeof(intent_record)}).ok() &&
-        dispose_intent_fixture_file(transaction, 2) && dispose_intent_fixture_file(transaction, 4),
+        dispose_intent_fixture_file(transaction, kUpdateGenerationOfferSlot) && dispose_intent_fixture_file(transaction, kUpdateGenerationPackageSlot),
         "install: crash fixture disposes only captured offer/package identities after durable intent publication");
     wchar_t candidate_path[kUpdateGenerationMaximumRootCharacters + 100]{}, alien_path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 candidate_count = 0;
-    if (!update_generation_path(transaction, {generations[1].document_sha256, 32}, UpdateGenerationFile::executable,
+    if (!update_generation_path(transaction, {generations[1].document_sha256, 32}, kUpdatePackageExecutable,
         {candidate_path, sizeof(candidate_path) / sizeof(candidate_path[0])}, &candidate_count).ok()) return;
     while (candidate_count && candidate_path[candidate_count - 1] != L'\\') --candidate_count;
     candidate_path[candidate_count - 1] = 0; child(candidate_path, L"alien.fixture", alien_path);
@@ -237,11 +236,11 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
         "install: cold partial disposal rejects bounded unknown entry without adopting it or clearing durable intent");
     if (!install.initialized) return;
     check(update_install_release(&install).ok() && update_generation_release(&transaction).ok(), "install: failed unknown-entry recovery retains disk intent for a new cold owner");
-    intent_record[608] ^= 1;
+    intent_record[1304] ^= 1;
     check(fixture_journal_write(state_path, intent_record) && update_generation_begin(enrollment, &transaction).error == UpdateGenerationError::checksum &&
         transaction.gate && !transaction.record_present && !transaction.provisioning_admitted && GetFileAttributesW(alien_path) != INVALID_FILE_ATTRIBUTES,
         "install: torn durable disposal identity refuses cold journal admission without deleting unknown or surviving files");
-    intent_record[608] ^= 1;
+    intent_record[1304] ^= 1;
     // Checksum refusal retains the exact read owner; release it before the
     // fixture's explicit repair opens this same record for writing.
     const bool repaired_intent = update_generation_release(&transaction).ok() && fixture_journal_write(state_path, intent_record) && dispose(&alien);
@@ -256,16 +255,16 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     measurement("MEASURE install_cold_recover_generation_error=", static_cast<usize>(cold_recover.generation.error));
     measurement("MEASURE install_cold_recover_native_error=", cold_recover.native_error);
     check(cold_ready && cold_recover.ok() &&
-        transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.pair.version == 6 &&
+        transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.package.version == 6 &&
         !transaction.state.candidate.present && transaction.state.disposal.target == UpdateGenerationDisposalTarget::none &&
         preparation.acceptance.state.channels[0].highest_version == accepted.highest_version &&
         bytes_equal(preparation.acceptance.state.channels[0].manifest_sha256, accepted.manifest_sha256, 32),
-        "install: cold partial disposal resumes without target provenance, authenticates active pair and never lowers acceptance");
+        "install: cold partial disposal resumes without target provenance, authenticates active package and never lowers acceptance");
     if (!cold_ready || !cold_recover.ok() || transaction.state.phase != UpdateGenerationPhase::stable) return;
     policy.now_unix_seconds = 201;
     const auto expired = update_install_prepare(&install, &stage, {next_text, {signatures[1], 64}}, policy, preparation.acceptance, transaction_id);
     check(expired.error == UpdateInstallError::offer && expired.manifest_error == UpdateManifestError::time && !install.directory.created &&
-        update_install_select_pair(&install, &selected).ok() && selected.descriptor.version == 6 && update_pair_release(&selected, false).ok(),
+        update_install_select_package(&install, &selected).ok() && selected.descriptor.version == 6 && update_package_release(&selected, false).ok(),
         "install: authentic installed recovery cannot authorize an expired new prepared offer");
     policy.now_unix_seconds = 100;
     check(update_install_prepare(&install, &stage, {next_text, {signatures[1], 64}}, policy, preparation.acceptance, transaction_id).ok() &&
@@ -273,30 +272,31 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     UpdateGenerationIdentity wrong = transaction_id; wrong.bytes[1] = 1; const auto pending_sequence = transaction.state.sequence;
     check(!update_install_acknowledge(&install, wrong, {generations[1].document_sha256, 32}).ok() && transaction.state.sequence == pending_sequence &&
         update_install_acknowledge(&install, transaction_id, {generations[1].document_sha256, 32}).ok() &&
-        update_install_recover(&install).ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.pair.version == 7 &&
+        update_install_recover(&install).ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.package.version == 7 &&
         transaction.state.previous.present,
-        "install: exact startup acknowledgement completes stable pair while previous remains available");
+        "install: exact startup acknowledgement completes stable package while previous remains available");
     if (!transaction.state.previous.present) return;
     const auto pinned_disposal = update_install_forget_previous(&install);
     check(!pinned_disposal.ok() && pinned_disposal.native_error == ERROR_SHARING_VIOLATION &&
         transaction.state.disposal.target == UpdateGenerationDisposalTarget::previous && transaction.state.previous.present &&
-        previous_pins.files[0] && previous_pins.files[1] && transaction.state.active.pair.version == 7,
-        "install: retained previous-pair launch pins block deletion while durable intent and authenticated active pair remain selected");
-    check(update_pair_release(&previous_pins, false).ok() && update_install_release(&install).ok() &&
+        previous_pins.files[0] && previous_pins.files[1] && transaction.state.active.package.version == 7,
+        "install: retained previous-package launch pins block deletion while durable intent and authenticated active package remain selected");
+    check(update_package_release(&previous_pins, false).ok() && update_install_release(&install).ok() &&
         update_install_initialize(&install, &transaction, key, workspace, limits).ok(),
-        "install: releasing external pair pins and process-local cleanup owner permits a fresh exact-intent retry");
+        "install: releasing external package pins and process-local cleanup owner permits a fresh exact-intent retry");
     // Retain the final read close to fail before disposal. The EXE's earlier
     // captured read owner closes; replace that file while its expected identity
     // remains frozen, then prove retry never widens authority to the replacement.
-    check(retain_disposal_fixture(install, transaction.state.previous.pair), "install: cleanup fault fixture retains genuine signed previous-generation authority");
-    if (!install.files[4]) return;
-    const HANDLE blocked_close = install.files[4];
+    check(retain_disposal_fixture(install, transaction.state.previous.package), "install: cleanup fault fixture retains genuine signed previous-generation authority");
+    const u32 last = update_generation_file_count(transaction.state.previous.package) - 1;
+    if (!install.files[last]) return;
+    const HANDLE blocked_close = install.files[last];
     const bool close_blocked = SetHandleInformation(blocked_close, HANDLE_FLAG_PROTECT_FROM_CLOSE, HANDLE_FLAG_PROTECT_FROM_CLOSE) != FALSE;
-    check(close_blocked && !update_install_forget_previous(&install).ok() && install.files[4] == blocked_close,
+    check(close_blocked && !update_install_forget_previous(&install).ok() && install.files[last] == blocked_close,
         "install: authenticated previous disposal retains failed preserve-close owner before deleting files");
     wchar_t member[kUpdateGenerationMaximumRootCharacters + 100]{}, saved[MAX_PATH]{}; u32 member_count = 0;
     child(work, L"retained-original.exe", saved);
-    const bool member_path = update_generation_path(transaction, {generations[0].document_sha256, 32}, UpdateGenerationFile::executable,
+    const bool member_path = update_generation_path(transaction, {generations[0].document_sha256, 32}, kUpdatePackageExecutable,
         {member, sizeof(member) / sizeof(member[0])}, &member_count).ok();
     const bool moved = member_path && MoveFileExW(member, saved, 0);
     HANDLE original = moved ? CreateFileW(saved, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr) : INVALID_HANDLE_VALUE;
@@ -334,7 +334,7 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     // The generation path formatter needs its trusted root; reopen the intent
     // journal before creating this fixture-owned replacement directory.
     check(update_generation_begin(enrollment, &transaction).ok() &&
-        update_generation_path(transaction, {generations[0].document_sha256, 32}, UpdateGenerationFile::executable,
+        update_generation_path(transaction, {generations[0].document_sha256, 32}, kUpdatePackageExecutable,
             {replacement_directory_path, sizeof(replacement_directory_path) / sizeof(replacement_directory_path[0])}, &replacement_count).ok(),
         "install: cold complete-disposal journal retains exact target digest and directory identity");
     while (replacement_count && replacement_directory_path[replacement_count - 1] != L'\\') --replacement_count;
@@ -369,7 +369,7 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     check(update_stage_release(&stage, true).ok() && update_preparation_release(&preparation).ok(), "install: admitted retry stage and acceptance owners release");
 
     // Authenticated malformed ZIP passes outer admission, then extraction fails
-    // before pair creation. Cleanup must retain failed directory-close ownership.
+    // before member creation. Cleanup must retain failed directory-close ownership.
     package = CreateFileW(artifact, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     const u8 changed = 0;
     const bool corrupted = package != INVALID_HANDLE_VALUE && seek(package) && write(package, &changed, 1) && FlushFileBuffers(package) &&
@@ -385,8 +385,8 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     const auto before_failure = transaction.state.sequence;
     const auto failed = update_install_prepare(&install, &stage, {bad_text, {signatures[2], 64}}, policy, preparation.acceptance, transaction_id);
     check(failed.error == UpdateInstallError::extraction && install.directory.created && transaction.state.sequence == before_failure &&
-        transaction.state.active.pair.version == 7 && preparation.acceptance.state.channels[0].highest_version == 8,
-        "install: failed preparation keeps stable pair/journal atomic and accepted high-water advanced");
+        transaction.state.active.package.version == 7 && preparation.acceptance.state.channels[0].highest_version == 8,
+        "install: failed preparation keeps stable package/journal atomic and accepted high-water advanced");
     if (!install.directory.directory) return;
     const HANDLE retained = install.directory.directory;
     const bool protected_owner = SetHandleInformation(retained, HANDLE_FLAG_PROTECT_FROM_CLOSE, HANDLE_FLAG_PROTECT_FROM_CLOSE) != FALSE;
@@ -400,7 +400,7 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     check(update_stage_release(&stage, true).ok() && update_preparation_release(&preparation).ok(), "install: malformed release work owners clean up separately");
     UpdateAcceptanceState high_water{};
     check(update_acceptance_load({acceptance, length(acceptance)}, &high_water).ok() && high_water.channels[0].highest_version == 8 &&
-        update_install_select_pair(&install, &selected).ok() && selected.descriptor.version == 7,
-        "install: disk high-water survives rollback and failed install while authentic active pair remains selectable");
+        update_install_select_package(&install, &selected).ok() && selected.descriptor.version == 7,
+        "install: disk high-water survives rollback and failed install while authentic active package remains selectable");
 }
 } // namespace maicord

@@ -113,20 +113,6 @@ void transport() noexcept {
               capture.active_id == 201,
           "thread creation: published receipt remains available to normal drain");
 }
-void dormant_abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "thread creation: cold DLL loads without credentials");
-    if (!host.module)
-        return;
-    ThreadCreationRequest request{
-        20, 10, 30, utf8_literal("Thread"), 1440, 11, ThreadCreationOperation::from_message, {}};
-    check(host.api.thread_creation(nullptr, &request, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              host.api.thread_creation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "thread creation: dormant callback creates no account or worker");
-    account_host_release(&host);
-}
 } // namespace thread_creation_account_test
 RestClientSubmitResult rest_client_submit(RestClient* rest, const RestClientRequest& request) noexcept {
     auto& c = thread_creation_account_test::capture;
@@ -160,6 +146,5 @@ bool rest_client_cancel(RestClient* rest, u64 id) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_creation_test_entry() noexcept {
     maicord::thread_creation_account_test::transport();
-    maicord::thread_creation_account_test::dormant_abi();
     ExitProcess(maicord::thread_creation_account_test::failures ? 1 : 0);
 }

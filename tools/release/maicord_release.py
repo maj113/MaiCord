@@ -2,8 +2,8 @@
 """Package, describe and sign MaiCord update artifacts.
 
 The formats here mirror the client's verifiers exactly:
-  * src/app/update_pair_package.cpp - a ZIP with exactly two stored members,
-    MaiCord.exe then MaiCordAccount.dll, no flags/extra fields/comments.
+  * src/app/update_package.cpp - a ZIP of 1 to 4 stored members, MaiCord.exe
+    first, no flags/extra fields/comments.
   * src/app/update_manifest.cpp - a compact JSON document with ten fields,
     signed as SHA-256("MaiCord update manifest v1\\n" || document) with
     ECDSA P-256, stored as a raw 64-byte P1363 (r || s) signature.
@@ -43,10 +43,20 @@ MANIFEST_MAXIMUM_BYTES = 4096
 PACKAGE_MAXIMUM_BYTES = 0xFFFFFFFE
 # The client refuses larger packages (kUpdateDefaultArtifactCap).
 PACKAGE_CLIENT_MAXIMUM_BYTES = 64 * 1024 * 1024
-MEMBER_NAMES = ("MaiCord.exe", "MaiCordAccount.dll")
+# The update protocol (kUpdateProtocol in update_manifest.hpp): the package
+# layout and manifest schema. A client reads only updates/p<protocol>/ on the
+# Pages site and accepts manifests whose format is its protocol.
+PROTOCOL = 2
+ARTIFACT_PREFIX = f"MaiCord-x64-p{PROTOCOL}-"
+# The package members in order; the first is the launch target.
+MEMBER_NAMES = ("MaiCord.exe",)
+PACKAGE_MAXIMUM_MEMBERS = 4
+MEMBER_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}")
+# Names the generation directory keeps beside the members.
+PROVENANCE_NAMES = ("offer.json", "offer.sig", "package.zip")
 CHANNELS = ("stable", "preview")
 DEFAULT_VALIDITY_DAYS = 90
-UPDATES_DIRECTORY = "updates"
+SITE_DIRECTORY = f"updates/p{PROTOCOL}"
 PREVIEW_DIRECTORY = "preview"
 # Preview packages kept on Pages: the current build and the one before it.
 PREVIEW_PACKAGES_KEPT = 2
@@ -94,6 +104,10 @@ def is_stable(number: int) -> bool:
     return number % 1000 == STABLE_SEQUENCE
 
 
+def artifact_name(number: int) -> str:
+    return f"{ARTIFACT_PREFIX}{number}.zip"
+
+
 @dataclass(frozen=True)
 class ReleaseVersion:
     tag: str
@@ -108,7 +122,7 @@ class ReleaseVersion:
 
     @property
     def artifact_name(self) -> str:
-        return f"MaiCord-x64-{self.number}.zip"
+        return artifact_name(self.number)
 
 
 @dataclass(frozen=True)
@@ -134,7 +148,7 @@ class BuildIdentity:
 
     @property
     def artifact_name(self) -> str:
-        return f"MaiCord-x64-{self.number}.zip"
+        return artifact_name(self.number)
 
 
 def parse_tag(tag: str) -> ReleaseVersion:
@@ -200,6 +214,15 @@ def build_identity(repository: Path | str, ref: str = "HEAD") -> BuildIdentity:
 
 # --------------------------------------------------------------------------- PE sanity
 
+def member_name_valid(name: str) -> bool:
+    """update_package_member_name_valid: a portable file name, never a device
+    or provenance name."""
+    stem = name.split(".", 1)[0].lower()
+    return (bool(MEMBER_NAME_PATTERN.fullmatch(name)) and not name.endswith(".") and
+            name.lower() not in PROVENANCE_NAMES and stem not in ("con", "prn", "aux", "nul") and
+            not re.fullmatch(r"(com|lpt)\d", stem))
+
+
 def check_pe(data: bytes, dll: bool, name: str) -> None:
     """Cheap publisher-side subset of the client's offline PE checks."""
     def fail(reason: str):
@@ -229,15 +252,15 @@ VERSION_MADE_BY = 20  # host 0 (MS-DOS/FAT), spec 2.0
 EXTERNAL_ATTRIBUTES = 0x20  # FILE_ATTRIBUTE_ARCHIVE
 
 
-def build_update_zip(executable: Path, account: Path, output: Path) -> None:
+def build_update_zip(binaries: Path, names: tuple[str, ...], output: Path) -> None:
     members = []
-    for path, name, dll in ((executable, MEMBER_NAMES[0], False), (account, MEMBER_NAMES[1], True)):
-        if path.name.lower() != name.lower():
-            raise ReleaseError(f"Expected {name}, got {path}.")
+    for name in names:
+        path = binaries / name
         data = path.read_bytes()
         if not data:
             raise ReleaseError(f"{path} is empty.")
-        check_pe(data, dll, name)
+        if name.lower().endswith((".exe", ".dll")):
+            check_pe(data, name.lower().endswith(".dll"), name)
         members.append((name.encode("ascii"), data))
     body = bytearray()
     central = bytearray()
@@ -249,7 +272,7 @@ def build_update_zip(executable: Path, account: Path, output: Path) -> None:
         central += struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, VERSION_MADE_BY, VERSION_NEEDED, 0, 0,
                                DOS_TIME, DOS_DATE, crc, len(data), len(data), len(name), 0, 0, 0, 0,
                                EXTERNAL_ATTRIBUTES, offset) + name
-    end = struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 2, 2, len(central), len(body), 0)
+    end = struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(members), len(members), len(central), len(body), 0)
     package = bytes(body + central + end)
     if len(package) > PACKAGE_MAXIMUM_BYTES:
         raise ReleaseError("The update package exceeds the 4 GiB ZIP limit accepted by the client.")
@@ -258,20 +281,29 @@ def build_update_zip(executable: Path, account: Path, output: Path) -> None:
     output.write_bytes(package)
 
 
-def validate_update_zip(package: bytes) -> None:
-    """Mirror of update_pair_package.cpp's structural ZIP checks (not PE/ordinal)."""
+def validate_update_zip(package: bytes) -> list[str]:
+    """Mirror of update_package.cpp's structural ZIP and name checks (not PE);
+    returns the member names."""
     def fail(reason: str):
         raise ReleaseError(f"Update ZIP rejected: {reason}.")
     if len(package) < 22 or len(package) > PACKAGE_MAXIMUM_BYTES:
         fail("size")
     signature, disk, disk_cd, count_disk, count, cd_bytes, cd_offset, comment = struct.unpack_from(
         "<IHHHHIIH", package, len(package) - 22)
-    if (signature != 0x06054B50 or disk or disk_cd or count_disk != 2 or count != 2 or comment or
-            cd_offset > len(package) - 22 or cd_bytes != len(package) - 22 - cd_offset):
+    if (signature != 0x06054B50 or disk or disk_cd or not 1 <= count <= PACKAGE_MAXIMUM_MEMBERS or
+            count_disk != count or comment or cd_offset > len(package) - 22 or cd_bytes != len(package) - 22 - cd_offset):
         fail("end of central directory")
     next_local, next_central = 0, cd_offset
-    for name in MEMBER_NAMES:
-        raw_name = name.encode("ascii")
+    names = []
+    for index in range(count):
+        if next_local + 30 > cd_offset or next_central + 46 > len(package) - 22:
+            fail("member bounds")
+        name_bytes = struct.unpack_from("<H", package, next_local + 26)[0]
+        raw_name = package[next_local + 30:next_local + 30 + name_bytes]
+        name = raw_name.decode("ascii", "replace")
+        if (not member_name_valid(name) or (index == 0 and name != MEMBER_NAMES[0]) or
+                name.lower() in (other.lower() for other in names)):
+            fail(f"member name {name!r}")
         local = struct.unpack_from("<IHHHHHIIIHH", package, next_local)
         record = struct.unpack_from("<IHHHHHHIIIHHHHHII", package, next_central)
         (l_sig, l_version, l_flags, l_method, l_time, l_date, l_crc, l_packed, l_bytes, l_name, l_extra) = local
@@ -295,26 +327,28 @@ def validate_update_zip(package: bytes) -> None:
             fail(f"{name} CRC")
         next_local = data + l_bytes
         next_central += 46 + len(raw_name)
+        names.append(name)
     if next_local != cd_offset or next_central != len(package) - 22:
         fail("trailing or overlapping data")
+    return names
 
 
 # --------------------------------------------------------------------------- manifest
 
 def render_manifest(version: int, channel: str, issued: int, expires: int, artifact_bytes: int,
-                    artifact_sha256: str, artifact_name: str) -> bytes:
+                    artifact_sha256: str, name: str) -> bytes:
     if channel not in CHANNELS:
         raise ReleaseError(f"Unknown channel {channel!r}.")
     if not re.fullmatch(r"[0-9a-f]{64}", artifact_sha256):
         raise ReleaseError("The artifact digest must be 64 lowercase hex digits.")
     if not (0 < issued < expires) or not (0 < version < 2 ** 64) or not (0 < artifact_bytes <= PACKAGE_MAXIMUM_BYTES):
         raise ReleaseError("Manifest numbers are out of range.")
-    if artifact_name != f"MaiCord-x64-{version}.zip":
-        raise ReleaseError("The artifact name must be MaiCord-x64-<version>.zip.")
+    if name != artifact_name(version):
+        raise ReleaseError(f"The artifact name must be {ARTIFACT_PREFIX}<version>.zip.")
     # Field order and compact separators are fixed; strings never need escapes.
-    document = (f'{{"format":1,"product":"MaiCord","arch":"x64","channel":"{channel}","version":{version},'
+    document = (f'{{"format":{PROTOCOL},"product":"MaiCord","arch":"x64","channel":"{channel}","version":{version},'
                 f'"issued":{issued},"expires":{expires},"bytes":{artifact_bytes},"sha256":"{artifact_sha256}",'
-                f'"artifact":"{artifact_name}"}}').encode("ascii")
+                f'"artifact":"{name}"}}').encode("ascii")
     if len(document) > MANIFEST_MAXIMUM_BYTES:
         raise ReleaseError("The manifest exceeds 4096 bytes.")
     return document
@@ -341,11 +375,11 @@ def parse_manifest(document: bytes) -> dict:
     integers = ("format", "version", "issued", "expires", "bytes")
     if any(type(fields[name]) is not int or not 0 <= fields[name] < 2 ** 64 for name in integers):
         raise ReleaseError("Manifest numeric fields must be unsigned 64-bit integers.")
-    if (fields["format"] != 1 or fields["product"] != "MaiCord" or fields["arch"] != "x64" or
+    if (fields["format"] != PROTOCOL or fields["product"] != "MaiCord" or fields["arch"] != "x64" or
             fields["channel"] not in CHANNELS or not isinstance(fields["sha256"], str) or
             not re.fullmatch(r"[0-9a-f]{64}", fields["sha256"]) or not fields["version"] or
             not fields["issued"] or fields["expires"] <= fields["issued"] or not fields["bytes"] or
-            fields["artifact"] != f"MaiCord-x64-{fields['version']}.zip"):
+            fields["artifact"] != artifact_name(fields["version"])):
         raise ReleaseError("Manifest field values are invalid.")
     return fields
 
@@ -616,8 +650,7 @@ def command_build_identity(arguments) -> None:
 def signed_manifest(arguments, key, expected, version: int, channel: str, artifact_bytes: int, digest: str,
                     output_dir: Path, issued: int) -> None:
     expires = issued + arguments.validity_days * 86400
-    document = render_manifest(version, channel, issued, expires, artifact_bytes, digest,
-                               f"MaiCord-x64-{version}.zip")
+    document = render_manifest(version, channel, issued, expires, artifact_bytes, digest, artifact_name(version))
     signature = sign_document(key, document, expected)
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / f"maicord-{channel}.manifest.json").write_bytes(document)
@@ -634,13 +667,13 @@ def write_changelog(key, expected, document: bytes, output_dir: Path) -> None:
     print(f"{name}: {len(fields['entries'])} entries, {len(document)} bytes")
 
 
-def package_binaries(binaries: Path, output_dir: Path, artifact_name: str) -> tuple[bytes, str]:
+def package_binaries(binaries: Path, output_dir: Path, name: str) -> tuple[bytes, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = output_dir / artifact_name
-    build_update_zip(binaries / MEMBER_NAMES[0], binaries / MEMBER_NAMES[1], artifact_path)
+    artifact_path = output_dir / name
+    build_update_zip(binaries, MEMBER_NAMES, artifact_path)
     artifact = artifact_path.read_bytes()
     if len(artifact) > PACKAGE_CLIENT_MAXIMUM_BYTES:
-        raise ReleaseError(f"{artifact_name} exceeds the client's {PACKAGE_CLIENT_MAXIMUM_BYTES} byte limit.")
+        raise ReleaseError(f"{name} exceeds the client's {PACKAGE_CLIENT_MAXIMUM_BYTES} byte limit.")
     return artifact, hashlib.sha256(artifact).hexdigest()
 
 
@@ -712,18 +745,17 @@ class Slot:
     changelog: str | None
 
 
-# The Pages site. Clients up to 0.3.3 read the legacy preview manifest and
-# download packages only from releases, so it mirrors stable; later clients
-# read the preview feed under updates/preview/, whose master builds are served
-# from Pages beside it.
+# The Pages site: this protocol's files under updates/p<protocol>/, with the
+# preview feed's master builds served beside its manifest. Other directories
+# are left as published, so clients of an earlier protocol keep the newest
+# release published for them.
 SLOTS = (
-    Slot("stable", "stable", f"{UPDATES_DIRECTORY}/maicord-stable.manifest.json",
-         f"{UPDATES_DIRECTORY}/maicord-stable.changelog.json"),
-    Slot("legacy preview", "preview", f"{UPDATES_DIRECTORY}/maicord-preview.manifest.json", None),
-    Slot("preview", "preview", f"{UPDATES_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json",
-         f"{UPDATES_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.changelog.json"),
+    Slot("stable", "stable", f"{SITE_DIRECTORY}/maicord-stable.manifest.json",
+         f"{SITE_DIRECTORY}/maicord-stable.changelog.json"),
+    Slot("preview", "preview", f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.manifest.json",
+         f"{SITE_DIRECTORY}/{PREVIEW_DIRECTORY}/maicord-preview.changelog.json"),
 )
-PREVIEW_SLOT = SLOTS[2]
+PREVIEW_SLOT = SLOTS[1]
 
 
 def read_offer(site: Path, slot: Slot, public: bytes, now: int | None = None) -> dict:
@@ -737,7 +769,7 @@ def read_offer(site: Path, slot: Slot, public: bytes, now: int | None = None) ->
 
 
 def preview_package(site: Path, number: int) -> Path:
-    return site / UPDATES_DIRECTORY / PREVIEW_DIRECTORY / f"MaiCord-x64-{number}.zip"
+    return site / SITE_DIRECTORY / PREVIEW_DIRECTORY / artifact_name(number)
 
 
 def command_channels(arguments) -> None:
@@ -843,8 +875,8 @@ def command_channels(arguments) -> None:
             raise ReleaseError(f"The preview package {package.name} is missing from the site.")
         keep.append(package)
     packages = sorted(((int(path.stem.rsplit("-", 1)[1]), path) for path in
-                       (site / UPDATES_DIRECTORY / PREVIEW_DIRECTORY).glob("MaiCord-x64-*.zip")
-                       if re.fullmatch(r"MaiCord-x64-\d+", path.stem)), reverse=True)
+                       (site / SITE_DIRECTORY / PREVIEW_DIRECTORY).glob(f"{ARTIFACT_PREFIX}*.zip")
+                       if re.fullmatch(re.escape(ARTIFACT_PREFIX) + r"\d+", path.stem)), reverse=True)
     for number, path in packages:
         if path in keep:
             continue
@@ -880,7 +912,7 @@ def command_verify(arguments) -> None:
 
 
 def command_portable(arguments) -> None:
-    """Full portable ZIP for first installs: EXE/DLL pair plus fonts/ and licenses/."""
+    """Full portable ZIP for first installs: the package members plus fonts/ and licenses/."""
     binaries = Path(arguments.binaries)
     output = Path(arguments.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1008,7 +1040,7 @@ def main(argv: list[str] | None = None) -> int:
 
     command = sub.add_parser("release", help="build the update ZIP and signed channel manifests")
     command.add_argument("--tag", required=True)
-    command.add_argument("--binaries", required=True, help="directory containing MaiCord.exe and MaiCordAccount.dll")
+    command.add_argument("--binaries", required=True, help="directory containing MaiCord.exe")
     command.add_argument("--output-dir", required=True)
     command.add_argument("--public-key", help="expected public point (hex); signing fails on mismatch")
     command.add_argument("--issued", type=int, help=argparse.SUPPRESS)

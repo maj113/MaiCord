@@ -89,7 +89,6 @@ if (Test-Path -LiteralPath $manifest) {
         [void]$productionTargets.Add($match.Groups[1].Value)
     }
     [void]$productionTargets.Add('MaiCord')
-    [void]$productionTargets.Add('MaiCordAccount')
     foreach ($line in Get-Content -LiteralPath $manifest) {
         $target = $line.Trim()
         if (!$target) { continue }
@@ -205,7 +204,7 @@ if ($RuntimeOnly) {
         $kind = $Matches[1]
         $path = Assert-ReleasePath $Matches[2]
         if ($kind -eq 'file') {
-            if ($path -in @((Join-Path $releaseRoot 'MaiCord.exe'), (Join-Path $releaseRoot 'MaiCordAccount.dll'))) { continue }
+            if ($path -eq (Join-Path $releaseRoot 'MaiCord.exe')) { continue }
             # Runtime directories can never become disposable through a manifest.
             if ($path.StartsWith((Join-Path $releaseRoot 'fonts') + '\', [StringComparison]::OrdinalIgnoreCase) -or
                 $path.StartsWith((Join-Path $releaseRoot 'licenses') + '\', [StringComparison]::OrdinalIgnoreCase)) {

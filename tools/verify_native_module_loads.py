@@ -2,7 +2,7 @@
 
 This checks DLL loads, including modules unloaded before a later snapshot.
 Debugger runs are correctness evidence, not latency or memory measurements.
-Offline-main mode requires an isolated executable copy without the account DLL.
+Each run uses a fresh app-data directory, so no account is signed in.
 """
 import argparse
 import ctypes as c
@@ -54,8 +54,6 @@ def image_path(process,file,base):
 
 def trace(exe,out,mode,expect_dwrite,close_delay_ms=0):
     out.mkdir(parents=True,exist_ok=False);data=out/'data';data.mkdir()
-    if mode=='offline-main' and (exe.parent/'MaiCordAccount.dll').exists():
-        raise ValueError('Offline main requires a copy without MaiCordAccount.dll')
     env={key:value for key,value in os.environ.items() if not key.startswith('MAICORD_')}
     env['LOCALAPPDATA']=str(data)
     if mode.startswith('glyph-'):
@@ -100,7 +98,7 @@ def trace(exe,out,mode,expect_dwrite,close_delay_ms=0):
                 finally:
                     if not k.ContinueDebugEvent(event.pid,event.tid,disposition):
                         raise OSError(c.get_last_error(),'ContinueDebugEvent')
-            if mode in ('offline-main','fresh-main') and not closing and log.exists() and 'first_present_us=' in log.read_text(encoding='utf-8'):
+            if mode=='fresh-main' and not closing and log.exists() and 'first_present_us=' in log.read_text(encoding='utf-8'):
                 if present_at is None:present_at=time.monotonic()
                 if (time.monotonic()-present_at)*1000<close_delay_ms:continue
                 hwnd=window(proc.pid)
@@ -110,10 +108,9 @@ def trace(exe,out,mode,expect_dwrite,close_delay_ms=0):
         proc.wait(timeout=2)
         if not created or not initial_break or report['exit_code'] or proc.returncode:
             raise ValueError('Incomplete debug lifecycle or failed fixture')
-        if mode in ('offline-main','fresh-main'):
+        if mode=='fresh-main':
             raw=log.read_text(encoding='utf-8')
             markers=['normal_user_profile_absent','normal_exit']
-            if mode=='offline-main':markers.append('host_load_native_error=126')
             if not closing or any(marker not in raw for marker in markers):
                 raise ValueError('Unexpected account state or incomplete offline fixture')
             report['app_log']=identity(log)
@@ -152,7 +149,7 @@ def trace(exe,out,mode,expect_dwrite,close_delay_ms=0):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--exe',type=Path,required=True);parser.add_argument('--output-dir',type=Path,required=True)
-    parser.add_argument('--mode',choices=('exit','offline-main','fresh-main','glyph-mixed','glyph-mono','glyph-color','cjk'),default='exit')
+    parser.add_argument('--mode',choices=('exit','fresh-main','glyph-mixed','glyph-mono','glyph-color','cjk'),default='exit')
     parser.add_argument('--expect-dwrite',action='store_true')
     parser.add_argument('--close-delay-ms',type=int,default=0)
     args=parser.parse_args()

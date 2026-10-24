@@ -239,7 +239,7 @@ MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePin
     Slice<u32> page_structurals, Slice<u32> message_structurals, u32 maximum_depth,
     Slice<char> text_output, Slice<MessagePin> items, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch) noexcept {
-    u8 target[kMessagePinsMaximumTargetBytes]{};
+    u8 target[kMessagePinsMaximumTargetBytes];
     if (!write_message_pins_target(query, {target, sizeof(target)}).ok() || !body.data || !body.bytes ||
         !page_structurals.data || !page_structurals.count || !message_structurals.data || !message_structurals.count ||
         !maximum_depth || !valid_slice(text_output) || !valid_slice(items) || !valid_slice(mention_users) ||

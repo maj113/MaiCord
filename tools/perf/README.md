@@ -89,7 +89,7 @@ The other memory values remain valid. The runner does not print arbitrary child 
 
 Use the same machine, display state, DPI and compiler options for each comparison.
 Record the requested and actual compiler-worker counts with the build duration.
-Measure the sum of all required client EXE/DLL bytes for each layout.
+Measure the client EXE bytes for each layout.
 Keep production-startup results separate from the offline workload results.
 The offline workload always uses its synthetic account module and does not measure the production account implementation.
 

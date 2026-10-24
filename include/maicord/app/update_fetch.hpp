@@ -73,14 +73,13 @@ bool update_provider_location(Utf8View host, ConstSlice<char> target, UpdateLoca
 enum class UpdateAsset : u8 { manifest, signature, package, changelog, changelog_signature };
 // Channel manifests, changelogs and their signatures come from the
 // repository's GitHub Pages site, outside any release:
-//   https://<owner>.github.io/<repo>/updates/maicord-stable.{manifest,changelog}.json[.sig]
-//   https://<owner>.github.io/<repo>/updates/preview/maicord-preview.{manifest,changelog}.json[.sig]
-// (updates/maicord-preview.manifest.json mirrors stable for clients up to
-// 0.3.3). A stable package comes from the immutable release of its version,
-// whose tag is derived from the signed version number; a preview package
-// sits beside the preview manifest:
-//   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-<version>.zip
-//   https://<owner>.github.io/<repo>/updates/preview/MaiCord-x64-<version>.zip
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/maicord-stable.{manifest,changelog}.json[.sig]
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/preview/maicord-preview.{manifest,changelog}.json[.sig]
+// A stable package comes from the immutable release of its version, whose
+// tag is derived from the signed version number; a preview package sits
+// beside the preview manifest:
+//   https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-p<protocol>-<version>.zip
+//   https://<owner>.github.io/<repo>/updates/p<protocol>/preview/MaiCord-x64-p<protocol>-<version>.zip
 // A package version needs a sequence of 1..999 and major < 1000.
 bool update_asset_location(Utf8View repository, UpdateChannel, UpdateAsset, u64 version, UpdateLocation*) noexcept;
 // Location header: absolute https on an allowed host, or origin-relative on

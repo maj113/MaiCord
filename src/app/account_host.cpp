@@ -5,23 +5,10 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/app/account_module_version.hpp"
-#include "maicord/app/account_profile.hpp"
-
-#if defined(MAICORD_PERF_PROBE)
-#include "../../tools/perf/perf_shared.hpp"
-#endif
+#include "maicord/platform/secure_buffer.hpp"
 
 namespace maicord {
 namespace {
-
-// MaiCordPerfProbe loads the synthetic account module beside it instead.
-#if defined(MAICORD_PERF_PROBE)
-constexpr const wchar_t (&kHostModuleFileName)[sizeof(perf::kPerfAccountModuleFileName) / sizeof(wchar_t)] =
-    perf::kPerfAccountModuleFileName;
-#else
-constexpr const wchar_t (&kHostModuleFileName)[sizeof(kAccountModuleFileNameWide) / sizeof(wchar_t)] =
-    kAccountModuleFileNameWide;
-#endif
 
 AccountHostResult failure(AccountHostError error, u32 native_error = 0) noexcept {
     return AccountHostResult{native_error, error};
@@ -48,85 +35,22 @@ bool host_empty(const AccountHost& host) noexcept {
 } // namespace
 
 bool account_host_api_valid(const AccountModuleApi& api) noexcept {
-    return api.version == kAccountModuleApiVersion && api.bytes == sizeof(AccountModuleApi) && api.start &&
-           api.pump && api.notification_handles && api.gateway_source && api.gateway_pop &&
-           api.guild_subscribe && api.gateway_refresh && api.private_conversation &&
-           api.attachment_upload && api.upload && api.history_submit && api.message_submit &&
-           api.message_delete && api.message_edit && api.message_reaction && api.reaction_users &&
-           api.message_typing && api.media_url_refresh && api.rest_take && api.media_request &&
-           api.media_guild_icon_request && api.media_attachment_request && api.media_advance &&
-           api.media_take && api.runtime_bytes && api.video_select && api.video_control &&
-           api.video_status && api.video_take && api.video_acknowledge && api.message_search && api.stop &&
-           api.login_start && api.login_submit_password && api.login_submit_mfa && api.login_send_sms &&
-           api.login_pump && api.login_copy_captcha_secret && api.login_submit_captcha &&
-           api.login_start_remote_auth && api.login_copy_remote_auth_qr &&
-           api.login_copy_remote_auth_user && api.login_cancel_remote_auth &&
-           api.login_copy_webauthn_challenge && api.login_notification_handle && api.login_stop &&
-           api.application_command && api.set_rest_trace && api.login_submit_verification &&
-           api.relationships && api.message_ack && api.login_submit_recovery && api.login_start_reset &&
-           api.login_submit_reset && api.login_submit_phone_verify && api.login_submit_phone_resend &&
-           api.login_take_phone_reset_token && api.login_start_browser && api.login_copy_browser_url &&
-           api.self_status_snapshot && api.self_status_submit && api.self_status_complete &&
-           api.media_catalog && api.catalog_preview_request && api.gif_favorites && api.channel_overview &&
-           api.guild_members_request && api.pinned_messages && api.message_forward && api.download &&
-           api.thread_action && api.thread_browser && api.thread_creation && api.forum_post &&
-           api.media_local_preview && api.logout && api.bulk_message_ack && api.poll && api.guild_admin &&
-           api.voice_request && api.voice_snapshot && api.login_start_captcha_bridge &&
-           api.login_captcha_bridge_status && api.login_copy_captcha_bridge_url && api.login_cancel_captcha_bridge &&
-           api.voice_user_audio && api.voice_audio_configure && api.voice_audio_status && api.guild_invite &&
-           api.emoji_preferences && api.action_captcha && api.account_settings && api.poll_create &&
-           api.private_channel && api.custom_status_snapshot && api.custom_status_submit && api.guild_settings &&
-           api.mentions && api.guild_assets && api.voice_video_snapshot && api.voice_video_wanted &&
-           api.voice_video_device && api.voice_video_frame && api.stream_watch && api.stream_snapshot &&
-           api.stream_volume && api.stream_preview && api.stage && api.message_interaction && api.user_social &&
-           api.guild_community && api.local_presence && api.activity_sharing &&
-           api.soundboard && api.soundboard_audio && api.voice_message && api.profile_edit &&
-           api.profile_image && api.decoders.message_create && api.decoders.message_create_mentions &&
-           api.decoders.message_create_users && api.decoders.message_create_rich &&
-           api.decoders.message_snapshot_core && api.decoders.message_snapshot_extract &&
-           api.decoders.message_poll && api.decoders.channel_create && api.decoders.private_channel &&
-           api.cdn_urls.parse_signed_attachment_url && api.cdn_urls.parse_media_url &&
-           api.cdn_urls.catalog_provider_target_valid && api.cdn_urls.sticker_json_target_valid &&
-           api.cdn_urls.soundboard_target_valid && api.cdn_urls.parse_catalog_preview_url &&
-           api.cdn_urls.catalog_favorite_format && api.cdn_urls.media_url_log_fields &&
-           api.cdn_urls.write_media_proxy_target && api.cdn_urls.write_custom_emoji_cdn_target &&
-           api.cdn_urls.cdn_guild_icon_variant && api.cdn_urls.write_guild_icon_cdn_target &&
-           api.cdn_urls.write_user_avatar_cdn_target && api.cdn_urls.write_channel_icon_cdn_target &&
-           api.cdn_urls.write_sticker_cdn_target && api.cdn_urls.cdn_host_name && api.guild_moderation &&
-           api.guild_members_query_cancel && api.channel_info && api.collection_title;
+    if (api.version != kAccountModuleApiVersion || api.bytes != sizeof(AccountModuleApi))
+        return false;
+    // Every entry after the version and size header is a function pointer and
+    // mandatory, except the optional profile lookup.
+    static_assert((sizeof(AccountModuleApi) - 8) % sizeof(void*) == 0);
+    for (usize offset = 8; offset < sizeof(AccountModuleApi); offset += sizeof(void*)) {
+        void* entry;
+        copy_bytes(&entry, reinterpret_cast<const u8*>(&api) + offset, sizeof(entry));
+        if (!entry && offset != __builtin_offsetof(AccountModuleApi, profile_get))
+            return false;
+    }
+    return true;
 }
 
-AccountHostResult account_host_module_path(Slice<wchar_t> output) noexcept {
-    if (!output.data || output.count == 0) {
-        return failure(AccountHostError::invalid_input, ERROR_INVALID_PARAMETER);
-    }
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
-    const DWORD length = GetModuleFileNameW(nullptr, path, kAccountProfileMaximumPathCharacters);
-    if (length == 0 || length >= kAccountProfileMaximumPathCharacters) {
-        return failure(AccountHostError::module_path,
-                       length == 0 ? thread_last_error() : ERROR_INSUFFICIENT_BUFFER);
-    }
-    u32 separator = length;
-    while (separator != 0 && path[separator - 1] != L'\\' && path[separator - 1] != L'/') {
-        --separator;
-    }
-    constexpr u32 file_name_length =
-        static_cast<u32>(sizeof(kHostModuleFileName) / sizeof(kHostModuleFileName[0]) - 1);
-    const u32 required = separator + file_name_length + 1;
-    if (required > output.count) {
-        SecureZeroMemory(path, sizeof(path));
-        return failure(AccountHostError::module_path, ERROR_INSUFFICIENT_BUFFER);
-    }
-    copy_bytes(path + separator, kHostModuleFileName,
-               file_name_length * static_cast<u32>(sizeof(wchar_t)));
-    path[separator + file_name_length] = 0;
-    copy_bytes(output.data, path, required * static_cast<u32>(sizeof(wchar_t)));
-    SecureZeroMemory(path, sizeof(path));
-    return AccountHostResult{};
-}
-
-AccountHostResult account_host_load(AccountHost* host) noexcept {
-    if (!host) {
+AccountHostResult account_host_attach(AccountHost* host, HMODULE module, AccountModuleGetApiFunction get_api) noexcept {
+    if (!host || !module || !get_api) {
         return failure(AccountHostError::invalid_input, ERROR_INVALID_PARAMETER);
     }
     if (host->module) {
@@ -137,36 +61,20 @@ AccountHostResult account_host_load(AccountHost* host) noexcept {
     if (!host_empty(*host)) {
         return failure(AccountHostError::invalid_input, ERROR_INVALID_STATE);
     }
-    wchar_t module_path[kAccountProfileMaximumPathCharacters]{};
-    const AccountHostResult path =
-        account_host_module_path(Slice<wchar_t>{module_path, kAccountProfileMaximumPathCharacters});
-    if (!path.ok()) {
-        return path;
-    }
-    HMODULE module = LoadLibraryExW(module_path, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    SecureZeroMemory(module_path, sizeof(module_path));
-    if (!module) {
-        return failure(AccountHostError::module_load, thread_last_error());
-    }
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    if (!get_api) {
-        const u32 native_error = thread_last_error();
-        FreeLibrary(module);
-        return failure(AccountHostError::module_symbol, native_error);
-    }
-    AccountModuleApi api{};
-    if (!get_api(kAccountModuleApiVersion, &api) || !account_host_api_valid(api)) {
-        FreeLibrary(module);
+    clear_bytes(host, sizeof(*host));
+    if (!get_api(kAccountModuleApiVersion, &host->api) || !account_host_api_valid(host->api)) {
+        clear_bytes(host, sizeof(*host));
         return failure(AccountHostError::api_mismatch, ERROR_REVISION_MISMATCH);
     }
-    AccountHost loaded{};
-    loaded.module = module;
-    loaded.api = api;
-    loaded.last_phase = 0xff;
-    loaded.last_ready = ~0u;
-    *host = loaded;
+    host->module = module;
+    host->last_phase = 0xff;
+    host->last_ready = ~0u;
     return AccountHostResult{};
+}
+
+void account_host_move(AccountHost* destination, AccountHost* source) noexcept {
+    copy_bytes(destination, source, sizeof(*source));
+    clear_bytes(source, sizeof(*source));
 }
 
 AccountHostResult account_host_release(AccountHost* host) noexcept {
@@ -176,10 +84,7 @@ AccountHostResult account_host_release(AccountHost* host) noexcept {
     if (host->instance || host->login_instance) {
         return failure(AccountHostError::active, ERROR_BUSY);
     }
-    if (host->module && !FreeLibrary(host->module)) {
-        return failure(AccountHostError::module_release, thread_last_error());
-    }
-    *host = AccountHost{};
+    clear_bytes(host, sizeof(*host));
     return AccountHostResult{};
 }
 

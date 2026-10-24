@@ -185,6 +185,8 @@ extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned 
 extern "C" void* __cdecl memset(void* destination, int value, unsigned long long count);
 extern "C" void* __cdecl memmove(void* destination, const void* source, unsigned long long count);
 
+extern "C" bool WINAPI maicord_account_get_api(maicord::u32, maicord::AccountModuleApi*) noexcept;
+
 namespace maicord {
 #define CORE_LOCAL_TEST(name)
 #define CORE_EXTERNAL_TEST(name) void name(void (*check)(bool, const char*) noexcept) noexcept;
@@ -25421,28 +25423,6 @@ void test_login_host_quarantine() noexcept {
 }
 void test_account_host_contract() noexcept {
     test_login_host_quarantine();
-    wchar_t small_path[4] = {L'Q', L'Q', L'Q', L'Q'};
-    const AccountHostResult small_path_result = account_host_module_path(
-        Slice<wchar_t>{small_path, static_cast<u32>(sizeof(small_path) / sizeof(small_path[0]))});
-    bool small_unchanged = true;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(small_path) / sizeof(small_path[0])); ++index) {
-        small_unchanged = small_unchanged && small_path[index] == L'Q';
-    }
-    wchar_t module_path[kAccountProfileMaximumPathCharacters]{};
-    const AccountHostResult path =
-        account_host_module_path(Slice<wchar_t>{module_path, kAccountProfileMaximumPathCharacters});
-    u32 path_length = 0;
-    while (path.ok() && path_length < kAccountProfileMaximumPathCharacters &&
-           module_path[path_length] != 0) {
-        ++path_length;
-    }
-    constexpr u32 module_name_length =
-        static_cast<u32>(sizeof(kAccountModuleFileNameWide) / sizeof(kAccountModuleFileNameWide[0]) - 1);
-    bool suffix = path_length >= module_name_length;
-    for (u32 index = 0; suffix && index < module_name_length; ++index) {
-        suffix = module_path[path_length - module_name_length + index] == kAccountModuleFileNameWide[index];
-    }
-
     AccountModuleApi empty_api{};
     AccountHost host{};
     const AccountHostResult loaded = account_host_load(&host);
@@ -25453,6 +25433,10 @@ void test_account_host_contract() noexcept {
     const bool incomplete_api_rejected = !account_host_api_valid(incomplete_api);
     const AccountHostResult reused = account_host_load(&host);
     const bool reused_same_module = host.module == first_module;
+    AccountHost unattached{};
+    const bool attach_refuses_missing =
+        account_host_attach(&unattached, GetModuleHandleW(nullptr), nullptr).error == AccountHostError::invalid_input &&
+        !unattached.module;
     HANDLE handles[kAccountHostNotificationHandleCapacity] = {
         reinterpret_cast<HANDLE>(1), reinterpret_cast<HANDLE>(2), reinterpret_cast<HANDLE>(3)};
     const u32 empty_handles =
@@ -25480,9 +25464,8 @@ void test_account_host_contract() noexcept {
     const AccountLoginStatus invalid_login_stop = account_host_login_stop(&host, 1'000);
     const AccountHostStopResult stopped = account_host_stop(&host, 1'000, 1, 1);
 
-    expect(!small_path_result.ok() && small_path_result.error == AccountHostError::module_path &&
-               small_unchanged && path.ok() && suffix && !account_host_api_valid(empty_api) &&
-               loaded.ok() && first_module && loaded_api_valid && incomplete_api_rejected && reused.ok() &&
+    expect(attach_refuses_missing && !account_host_api_valid(empty_api) &&
+               loaded.ok() && first_module == GetModuleHandleW(nullptr) && loaded_api_valid && incomplete_api_rejected && reused.ok() &&
                reused_same_module && host.module == nullptr && empty_handles == 0 &&
                handles[0] == reinterpret_cast<HANDLE>(1) &&
                first_observations == (account_host_observation_phase | account_host_observation_ready |
@@ -25501,33 +25484,7 @@ void test_account_host_contract() noexcept {
 }
 
 void test_account_module_contract() noexcept {
-    wchar_t module_path[kAccountProfileMaximumPathCharacters]{};
-    const DWORD executable_length =
-        GetModuleFileNameW(nullptr, module_path, kAccountProfileMaximumPathCharacters);
-    bool path_ok = executable_length != 0 && executable_length < kAccountProfileMaximumPathCharacters;
-    u32 separator = executable_length;
-    while (path_ok && separator != 0 && module_path[separator - 1] != L'\\' &&
-           module_path[separator - 1] != L'/') {
-        --separator;
-    }
-    constexpr u32 module_name_length =
-        static_cast<u32>(sizeof(kAccountModuleFileNameWide) / sizeof(kAccountModuleFileNameWide[0])) - 1;
-    path_ok = path_ok && separator + module_name_length + 1 <= kAccountProfileMaximumPathCharacters;
-    for (u32 index = 0; path_ok && index < module_name_length; ++index) {
-        module_path[separator + index] = kAccountModuleFileNameWide[index];
-    }
-    if (path_ok) {
-        module_path[separator + module_name_length] = 0;
-    }
-    HMODULE module = path_ok ? LoadLibraryExW(module_path, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32) : nullptr;
-    expect(module != nullptr, "account_module_load_contract");
-    if (!module) {
-        return;
-    }
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    expect(GetProcAddress(module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal - 1)) == nullptr,
-           "account_module_does_not_export_previous_ordinal");
+    const auto get_api = maicord_account_get_api;
     AccountModuleApi rejected{};
     rejected.bytes = 0x12345678u;
     expect(get_api && !get_api(kAccountModuleApiVersion + 1, &rejected) && rejected.bytes == 0x12345678u,
@@ -25711,7 +25668,6 @@ void test_account_module_contract() noexcept {
         expect(reset_instance && api.login_stop(&reset_instance, 5'000).phase == AccountLoginPhase::stopped && !reset_instance,
                "account_module_reset_dormant_owner_stops_without_credential_or_network");
     }
-    expect(FreeLibrary(module) != FALSE, "account_module_unload_contract");
 }
 
 void test_account_profile() noexcept {

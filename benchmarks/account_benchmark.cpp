@@ -1,4 +1,4 @@
-#include "maicord/app/account_module_api.hpp"
+#include "maicord/app/account_host.hpp"
 #include "maicord/app/account_module_version.hpp"
 #include "maicord/app/account_paths.hpp"
 #include "maicord/app/account_profile_promotion.hpp"
@@ -141,36 +141,9 @@ bool profile_benchmark_path(wchar_t* output, u32 capacity) noexcept {
 }
 
 u32 account_module_runtime_bytes() noexcept {
-    wchar_t path[kAccountProfileMaximumPathCharacters]{};
-    const DWORD length = GetModuleFileNameW(nullptr, path, kAccountProfileMaximumPathCharacters);
-    if (length == 0 || length >= kAccountProfileMaximumPathCharacters) {
-        return 0;
-    }
-    u32 separator = length;
-    while (separator != 0 && path[separator - 1] != L'\\' && path[separator - 1] != L'/') {
-        --separator;
-    }
-    constexpr u32 name_length =
-        static_cast<u32>(sizeof(kAccountModuleFileNameWide) / sizeof(kAccountModuleFileNameWide[0])) - 1;
-    if (separator + name_length + 1 > kAccountProfileMaximumPathCharacters) {
-        return 0;
-    }
-    for (u32 index = 0; index < name_length; ++index) {
-        path[separator + index] = kAccountModuleFileNameWide[index];
-    }
-    path[separator + name_length] = 0;
-    HMODULE module = LoadLibraryExW(path, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!module) {
-        return 0;
-    }
-    const auto get_api =
-        reinterpret_cast<AccountModuleGetApiFunction>(
-            GetProcAddress(module,
-                           MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi api{};
-    const u32 bytes =
-        get_api && get_api(kAccountModuleApiVersion, &api) && api.runtime_bytes ? api.runtime_bytes() : 0;
-    FreeLibrary(module);
+    AccountHost host{};
+    const u32 bytes = account_host_load(&host).ok() ? host.api.runtime_bytes() : 0;
+    account_host_release(&host);
     return bytes;
 }
 

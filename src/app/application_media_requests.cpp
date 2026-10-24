@@ -1626,7 +1626,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     if (!message_media_controller_preview_ready(&application.message_media, now_ms))
         return true;
     Utf8View request_source = selected.source;
-    u8 validated_target[kCdnMaximumTargetBytes]{};
+    u8 validated_target[kCdnMaximumTargetBytes];
     if (!parse_media_url(request_source, Slice<u8>{validated_target, sizeof(validated_target)})
              .ok() &&
         selected.fallback_source.bytes != 0 &&

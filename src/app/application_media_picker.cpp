@@ -331,7 +331,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
         if (mask_bytes && !mask)
             return false;
         u32 first_preview = ~u32{0};
-        u8 target[kCdnMaximumTargetBytes]{};
+        u8 target[kCdnMaximumTargetBytes];
         for (u32 i = 0; i < view.records.count; ++i) {
             const auto& record = view.records[i];
             // Tenor/Giphy favourites preview as the provider's animated WebP,
@@ -539,7 +539,7 @@ const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
 // Writes each sticker's CDN preview URL into `urls` and admits it.
 bool sticker_previews(CatalogBank* bank, char* urls, u32 capacity) noexcept {
     ProtocolWriter writer{{reinterpret_cast<u8*>(urls), capacity}, 0};
-    u8 target[kCdnMaximumTargetBytes]{};
+    u8 target[kCdnMaximumTargetBytes];
     for (u32 i = 0; i < bank->count; ++i) {
         auto& item = bank->items[i];
         const u32 first = writer.used;
@@ -1579,7 +1579,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                         candidate->count = decoded.item_count;
                         // URL policy is checked once per accepted bank. Visibility and
                         // animation paths use one bit; the account worker revalidates.
-                        u8 target[kCdnMaximumTargetBytes]{};
+                        u8 target[kCdnMaximumTargetBytes];
                         for (u32 i = 0; !stickers && i < decoded.item_count; ++i)
                             if (candidate->items[i].available &&
                                 parse_catalog_preview_url(candidate->items[i].preview_url, {target, sizeof(target)},

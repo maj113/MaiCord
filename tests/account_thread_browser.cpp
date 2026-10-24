@@ -135,20 +135,6 @@ void transport() noexcept {
           "thread browser account: late cancellation preserves published receipt and invalid cancellation "
           "emits no work");
 }
-void dormant_abi() noexcept {
-    AccountHost host{};
-    const auto loaded = account_host_load(&host);
-    check(loaded.ok(), "thread browser account: DLL loads without profile or credential");
-    if (!loaded.ok())
-        return;
-    ThreadBrowserRequest request{20, 10, {}, 0, ThreadBrowserMode::archived, {}};
-    check(host.api.thread_browser(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.thread_browser(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "thread browser account: appended callback rejects absent owner for submit/cancel without "
-          "creating workers");
-    account_host_release(&host);
-}
 } // namespace thread_browser_account_test
 
 // Intercept the same submit/cancel boundary used by all existing DETAILS
@@ -182,7 +168,6 @@ bool rest_client_cancel(RestClient* rest, u64 request_id) noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_browser_test_entry() noexcept {
     maicord::thread_browser_account_test::transport();
-    maicord::thread_browser_account_test::dormant_abi();
     constexpr auto pass = maicord::utf8_literal("PASS thread browser account transport\n");
     constexpr auto fail = maicord::utf8_literal("FAIL thread browser account transport\n");
     const bool failed = maicord::thread_browser_account_test::failures != 0;

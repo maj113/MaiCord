@@ -6,7 +6,7 @@
 #include "test_output.hpp"
 
 // QA-only peer: the production implementation is separately linked into this
-// image, just as it is in MaiCordAccount. No shipping test seam is introduced.
+// image, just as it is in MaiCord. No shipping test seam is introduced.
 #if defined(MAICORD_LOCK_BUDGET_PEER_BUILD)
 #include "../src/platform/secure_buffer.cpp"
 extern "C" __declspec(dllexport) maicord::SecureBufferResult WINAPI

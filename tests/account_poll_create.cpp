@@ -105,18 +105,6 @@ void transport() noexcept {
               account_poll_create_cancel(nullptr, 200).error == RestClientSubmitError::invalid_input,
           "poll create: exact cancellation only");
 }
-void dormant_abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "poll create: current DLL loads without credentials");
-    if (!host.module)
-        return;
-    const auto poll = lunch();
-    check(host.api.poll_create(nullptr, 20, 77, &poll, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.poll_create(nullptr, 20, 77, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "poll create: dormant callback creates no account or worker");
-    account_host_release(&host);
-}
 } // namespace poll_create_account_test
 RestClientSubmitResult rest_client_submit(RestClient* rest,
                                           const RestClientRequest& request) noexcept {
@@ -149,6 +137,5 @@ bool rest_client_cancel(RestClient* rest, u64 id) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_poll_create_test_entry() noexcept {
     maicord::poll_create_account_test::transport();
-    maicord::poll_create_account_test::dormant_abi();
     ExitProcess(maicord::poll_create_account_test::failures ? 1 : 0);
 }

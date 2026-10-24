@@ -29,12 +29,12 @@ concurrency:
 # temporary test build (non-/GL copies of the same libraries plus about 200
 # test executables, about 11 minutes, then about 3 minutes of tests) are
 # independent, so three jobs run side by side for about 10 minutes each:
-#   client     MaiCord.exe + MaiCordAccount.dll, PE audits and the artifact;
+#   client     MaiCord.exe, PE audits and the artifact;
 #   tests/app  tests whose executables link the application core or exercise
-#              the shipping pair itself (update staging, the account DLL);
-#              they use the client job's artifact, which arrives while the
-#              tests build (build.ps1 -PrebuiltClient), instead of building
-#              the pair a second time;
+#              the shipping client itself (update staging and handoff); they
+#              use the client job's artifact, which arrives while the tests
+#              build (build.ps1 -PrebuiltClient), instead of building the
+#              client a second time;
 #   tests/core every other test (text, fonts, media, protocol, platform).
 # build.ps1 -TestShard picks each test's shard from its executable
 # (maicord-tests.txt, written by CMake), builds only that shard's
@@ -93,7 +93,7 @@ jobs:
         run: python -B tools/release/test_plugin_index_tools.py
 
       # build.ps1 configures the x64-release preset in ../MaiCord-build/Release,
-      # builds MaiCord.exe + MaiCordAccount.dll and runs the PE audits
+      # builds MaiCord.exe and runs the PE audits
       # (D3D11-only imports, no Media Foundation/DirectWrite, no debug info).
       # Every test links the non-/GL test copies of the libraries, so the
       # test jobs cover them all.
@@ -113,11 +113,11 @@ jobs:
           $short = $env:GITHUB_SHA.Substring(0, 8)
           $target = Join-Path $env:RUNNER_TEMP "MaiCord-x64-$short"
           New-Item -ItemType Directory -Path $target | Out-Null
-          foreach ($item in 'MaiCord.exe', 'MaiCordAccount.dll', 'fonts', 'licenses') {
+          foreach ($item in 'MaiCord.exe', 'fonts', 'licenses') {
             Copy-Item -LiteralPath (Join-Path $build $item) -Destination $target -Recurse
           }
-          $pair = (Get-Item (Join-Path $target 'MaiCord.exe')).Length + (Get-Item (Join-Path $target 'MaiCordAccount.dll')).Length
-          "### MaiCord build`n`n- MSVC $env:MAICORD_MSVC_VERSION`n- EXE/DLL pair: $pair bytes ($([math]::Round($pair / 1MB, 2)) MiB)" |
+          $client = (Get-Item (Join-Path $target 'MaiCord.exe')).Length
+          "### MaiCord build`n`n- MSVC $env:MAICORD_MSVC_VERSION`n- MaiCord.exe: $client bytes ($([math]::Round($client / 1MB, 2)) MiB)" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding ascii
           [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "path=$target`nname=MaiCord-x64-$short`n")
 
@@ -176,11 +176,9 @@ jobs:
                 Start-Sleep -Seconds 15
               }
               while (!(Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) { Start-Sleep -Seconds 5 }
-              # build.ps1 waits for both binaries; each appears complete.
-              foreach ($file in 'MaiCordAccount.dll', 'MaiCord.exe') {
-                Copy-Item -LiteralPath (Join-Path $download $file) -Destination (Join-Path $build "$file.partial") -ErrorAction Stop
-                Move-Item -LiteralPath (Join-Path $build "$file.partial") -Destination (Join-Path $build $file) -Force -ErrorAction Stop
-              }
+              # build.ps1 waits for the client; it appears complete.
+              Copy-Item -LiteralPath (Join-Path $download 'MaiCord.exe') -Destination (Join-Path $build 'MaiCord.exe.partial') -ErrorAction Stop
+              Move-Item -LiteralPath (Join-Path $build 'MaiCord.exe.partial') -Destination (Join-Path $build 'MaiCord.exe') -Force -ErrorAction Stop
               "Client binaries from $name are in place."
             }
             try {

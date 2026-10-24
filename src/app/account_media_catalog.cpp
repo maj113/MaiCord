@@ -14,7 +14,7 @@ RestClientSubmitResult account_media_catalog(RestClient* rest,
     }
     if (operation != AccountMediaCatalogOperation::submit || !query)
         return {RestClientSubmitError::invalid_input};
-    u8 target[kMediaCatalogMaximumTargetBytes]{};
+    u8 target[kMediaCatalogMaximumTargetBytes];
     const auto written = media_catalog_write_target(*query, {target, sizeof(target)});
     if (!written.ok())
         return {written.error == MediaCatalogError::capacity ? RestClientSubmitError::target_capacity

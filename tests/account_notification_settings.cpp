@@ -80,23 +80,6 @@ void transport() noexcept {
               account_notification_request_cancel(&details, 77).ok() && !capture.active_id,
           "notification requests: cancellation is exact");
 }
-void dormant_abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "notification settings: current DLL loads without credentials");
-    if (!host.module)
-        return;
-    SelfCustomStatus status{};
-    const UserGuildSettingsPatch patch{10, 0, 0, 0, user_guild_settings_suppress_roles};
-    const MentionsQuery query{0, 0, kMentionsPageLimit, true, true};
-    check(!host.api.custom_status_snapshot(nullptr, &status) &&
-              host.api.custom_status_submit(nullptr, 1, 2, &status, 3).error ==
-                  RestClientSubmitError::invalid_input &&
-              host.api.guild_settings(nullptr, &patch, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.mentions(nullptr, &query, 1).error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "notification settings: dormant callbacks create no account or worker");
-    account_host_release(&host);
-}
 } // namespace notification_settings_account_test
 RestClientSubmitResult rest_client_submit(RestClient* rest,
                                           const RestClientRequest& request) noexcept {
@@ -127,6 +110,5 @@ bool rest_client_cancel(RestClient*, u64 id) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_notification_settings_test_entry() noexcept {
     maicord::notification_settings_account_test::transport();
-    maicord::notification_settings_account_test::dormant_abi();
     ExitProcess(maicord::notification_settings_account_test::failures ? 1 : 0);
 }

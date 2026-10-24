@@ -587,7 +587,7 @@ bool initialize_auth_user_configuration(RestClientRuntime* runtime) noexcept {
     UserClientConfigurationStorage storage{};
     if (!user_client_configuration_initialize(&storage).ok())
         return false;
-    u8 scratch[kRestUserSuperPropertiesMaximumBytes]{};
+    u8 scratch[kRestUserSuperPropertiesMaximumBytes];
     const auto properties = write_rest_user_super_properties(
         storage.configuration.properties, {scratch, sizeof(scratch)},
         {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes});

@@ -173,8 +173,8 @@ void log_install(const char* event, const UpdateInstallResult& i) noexcept {
     line.field("error", static_cast<u8>(i.error));
     if (!i.ok()) line.field("native", i.native_error).field("manifest", static_cast<u8>(i.manifest_error))
         .field("generation", static_cast<u8>(i.generation.error)).field("generation_native", i.generation.native_error)
-        .field("pair", static_cast<u8>(i.pair.error)).field("pair_native", i.pair.native_error)
-        .field("pair_crypto", static_cast<u32>(i.pair.crypto_status)).field("pair_manifest", static_cast<u8>(i.pair.manifest_error));
+        .field("package", static_cast<u8>(i.package.error)).field("package_native", i.package.native_error)
+        .field("package_crypto", static_cast<u32>(i.package.crypto_status)).field("package_manifest", static_cast<u8>(i.package.manifest_error));
     line.write(i.ok() ? LogLevel::info : LogLevel::warning);
 }
 void log_handoff(const char* event, const UpdateHandoffResult& h) noexcept {
@@ -249,7 +249,7 @@ bool update_service_config(Utf8View repository, Utf8View key_hex, u64 own_versio
 }
 
 bool update_paths_build(ConstSlice<wchar_t> base, UpdatePaths* out) noexcept {
-    // Generation paths add "\g-<64>\MaiCordAccount.dll" below a root of at most 511.
+    // Generation paths add "\g-<64>\<member name of at most 32>" below a root of at most 511.
     if (!out || !base.data || base.count < 4 || base.count > 400 || base[1] != L':' || base[2] != L'\\' ||
         base[base.count - 1] == L'\\' || !((base[0] >= L'A' && base[0] <= L'Z') || (base[0] >= L'a' && base[0] <= L'z')))
         return false;
@@ -347,7 +347,7 @@ UpdateServiceError update_service_open(UpdateService* s, bool provision) noexcep
 }
 void update_service_close(UpdateService* s) noexcept {
     if (!s || !s->open) return;
-    update_pair_release(&s->pair, false); clear_bytes(&s->pair, sizeof(s->pair));
+    update_package_release(&s->package, false); clear_bytes(&s->package, sizeof(s->package));
     update_install_release(&s->install);
     update_generation_release(&s->transaction);
     // A failed release leaks its handles; never keep a half-released owner.
@@ -361,9 +361,9 @@ UpdateServiceError update_service_inspect(UpdateService* s, UpdateInstalledState
     if (!exists(s->paths.journal)) return SE::none;
     const SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
     const auto& st = s->transaction.state;
-    out->journal = true; out->phase = st.phase; out->active_version = st.active.pair.version;
-    out->previous_version = st.previous.present ? st.previous.pair.version : 0;
-    out->candidate_version = st.candidate.present ? st.candidate.pair.version : 0;
+    out->journal = true; out->phase = st.phase; out->active_version = st.active.package.version;
+    out->previous_version = st.previous.present ? st.previous.package.version : 0;
+    out->candidate_version = st.candidate.present ? st.candidate.package.version : 0;
     update_service_close(s);
     return SE::none;
 }
@@ -492,7 +492,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     if (opened != SE::none) { release_work(s); return report(failed(opened), "open"); }
     UpdateInstallResult installed_result{};
     const HANDLE retained[]{s->preparation.artifact.file, s->preparation.acceptance.lock};
-    const UpdatePairOffer offer{{s->document, s->document_bytes}, {s->signature, 64}};
+    const UpdatePackageOffer offer{{s->document, s->document_bytes}, {s->signature, 64}};
     if (journal) {
         installed_result = update_install_recover(&s->install);
         auto& st = s->transaction.state;
@@ -523,8 +523,8 @@ UpdateServiceError update_service_restart(UpdateService* s) noexcept {
     if (!exists(s->paths.journal)) return SE::state;
     SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
     auto& st = s->transaction.state;
-    UpdateLog("restart").field("phase", static_cast<u8>(st.phase)).field("active", st.active.pair.version)
-        .field("candidate", st.candidate.present ? st.candidate.pair.version : 0).write();
+    UpdateLog("restart").field("phase", static_cast<u8>(st.phase)).field("active", st.active.package.version)
+        .field("candidate", st.candidate.present ? st.candidate.package.version : 0).write();
     if (st.phase == UpdateGenerationPhase::pending || st.phase == UpdateGenerationPhase::acknowledged ||
         st.phase == UpdateGenerationPhase::rollback) {
         const auto recovered = update_install_recover(&s->install);
@@ -536,17 +536,17 @@ UpdateServiceError update_service_restart(UpdateService* s) noexcept {
     if (st.phase == UpdateGenerationPhase::prepared) {
         selected = update_install_activate(&s->install);
         if (selected.ok()) selected = update_install_activation_admission(&s->install, &admission);
-        if (selected.ok()) selected = update_install_select_activation_pair(&s->install, &s->pair);
+        if (selected.ok()) selected = update_install_select_activation_package(&s->install, &s->package);
         pending = st.phase == UpdateGenerationPhase::pending;
-    } else if (st.phase == UpdateGenerationPhase::stable && st.active.pair.version != s->config.own_version) {
-        selected = update_install_select_pair(&s->install, &s->pair);
+    } else if (st.phase == UpdateGenerationPhase::stable && st.active.package.version != s->config.own_version) {
+        selected = update_install_select_package(&s->install, &s->package);
     } else { update_service_close(s); return SE::state; }
     if (!selected.ok()) log_install("restart_select", selected);
     bool acknowledged = false;
     SE error = SE::launch;
     if (selected.ok()) {
         clear_bytes(&s->handoff, sizeof(s->handoff));
-        const auto launched = update_handoff_launch(&s->transaction, &s->install.authentication, s->pair, true,
+        const auto launched = update_handoff_launch(&s->transaction, &s->install.authentication, s->package, true,
             pending ? &admission : nullptr, &s->handoff);
         log_handoff("handoff_launch", launched);
         if (launched.ok()) {
@@ -567,7 +567,7 @@ UpdateServiceError update_service_restart(UpdateService* s) noexcept {
         }
         update_handoff_release(&s->handoff); clear_bytes(&s->handoff, sizeof(s->handoff));
     }
-    update_pair_release(&s->pair, false); clear_bytes(&s->pair, sizeof(s->pair));
+    update_package_release(&s->package, false); clear_bytes(&s->package, sizeof(s->package));
     // Pending without confirmation rolls back and discards the candidate.
     if (!acknowledged && st.phase == UpdateGenerationPhase::pending) update_install_recover(&s->install);
     update_service_close(s);
@@ -581,7 +581,7 @@ UpdateServiceError update_service_revert(UpdateService* s) noexcept {
     SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
     const auto& st = s->transaction.state;
     const bool allowed = st.phase == UpdateGenerationPhase::stable && st.previous.present &&
-        st.previous.pair.version < st.active.pair.version && st.disposal.target == UpdateGenerationDisposalTarget::none;
+        st.previous.package.version < st.active.package.version && st.disposal.target == UpdateGenerationDisposalTarget::none;
     const auto reverted_result = allowed ? update_install_revert(&s->install) : UpdateInstallResult{UpdateInstallError::state};
     const bool ok = allowed && reverted_result.ok();
     log_install("revert", reverted_result);
@@ -596,16 +596,16 @@ bool update_service_dispatch(UpdateService* s) noexcept {
     if (!recovered.ok()) log_install("dispatch_recover", recovered);
     const auto& st = s->transaction.state;
     bool launched = false;
-    UpdateLog("dispatch").field("phase", static_cast<u8>(st.phase)).field("active", st.active.pair.version)
+    UpdateLog("dispatch").field("phase", static_cast<u8>(st.phase)).field("active", st.active.package.version)
         .field("own", s->config.own_version).write();
     UpdateInstallResult selected{UpdateInstallError::state};
-    if (st.phase == UpdateGenerationPhase::stable && st.active.pair.version > s->config.own_version) {
-        selected = update_install_select_pair(&s->install, &s->pair);
+    if (st.phase == UpdateGenerationPhase::stable && st.active.package.version > s->config.own_version) {
+        selected = update_install_select_package(&s->install, &s->package);
         if (!selected.ok()) log_install("dispatch_select", selected);
     }
     if (selected.ok()) {
         clear_bytes(&s->handoff, sizeof(s->handoff));
-        const auto started = update_handoff_launch(&s->transaction, &s->install.authentication, s->pair, true, nullptr, &s->handoff);
+        const auto started = update_handoff_launch(&s->transaction, &s->install.authentication, s->package, true, nullptr, &s->handoff);
         log_handoff("dispatch_launch", started);
         if (started.ok()) {
             AllowSetForegroundWindow(GetProcessId(s->handoff.process));
@@ -635,40 +635,50 @@ UpdateServiceError update_service_child_open(const UpdateServiceConfig& config, 
         !same_path(module.data + paths.root_count + 67, exe_count, exe, exe_count)) return SE::state;
     KdfSha256Workspace workspace{}; P256Key key{}; u8 inventory[32]{};
     struct Owners {
-        KdfSha256Workspace& w; P256Key& k; HANDLE files[6]{}; UpdatePairResult verification{};
-        ~Owners() noexcept { update_pair_cleanup_release(&verification); for (auto& h : files) close(&h); p256_release(&k); kdf_sha256_release(&w); }
+        KdfSha256Workspace& w; P256Key& k; HANDLE journal{}; HANDLE files[kUpdateGenerationMaximumFiles]{}; UpdatePackageResult verification{};
+        ~Owners() noexcept {
+            update_package_cleanup_release(&verification); close(&journal);
+            for (auto& h : files) close(&h); p256_release(&k); kdf_sha256_release(&w);
+        }
     } owners{workspace, key};
     if (!kdf_sha256_initialize(&workspace).ok() || !p256_import_public(&key, P256Kind::ecdsa, {config.public_key, 65}).ok() ||
         !update_generation_inventory_fingerprint(key, workspace, {inventory, 32}).ok()) return SE::configuration;
     UpdateGenerationIdentity installation{};
     if (!read_enrollment(paths, inventory, &installation)) return SE::enrollment;
     u64 bytes = 0; u8 record[kUpdateGenerationRecordBytes]{}; UpdateGenerationState state{};
-    owners.files[0] = open_read(paths.journal);
-    if (!regular_size(owners.files[0], &bytes) || bytes != sizeof(record) || !read_exact(owners.files[0], record, sizeof(record)) ||
+    owners.journal = open_read(paths.journal);
+    if (!regular_size(owners.journal, &bytes) || bytes != sizeof(record) || !read_exact(owners.journal, record, sizeof(record)) ||
         !update_generation_decode({record, sizeof(record)}, &state).ok() || !state.active.present ||
         (state.phase != UpdateGenerationPhase::stable && state.phase != UpdateGenerationPhase::pending) ||
         !bytes_equal(state.installation.bytes, installation.bytes, 16)) return SE::state;
-    if (!hex_name(module.data + paths.root_count + 1, state.active.pair.document_sha256)) return SE::state;
-    wchar_t generation[kUpdatePathCapacity]{}, path[kUpdatePathCapacity]{};
+    const auto& active = state.active.package;
+    if (!hex_name(module.data + paths.root_count + 1, active.document_sha256)) return SE::state;
+    wchar_t generation[kUpdatePathCapacity]{}, path[kUpdatePathCapacity]{}, name[kUpdatePackageMaximumNameBytes + 1]{};
     copy_bytes(generation, module.data, (paths.root_count + 67) * sizeof(wchar_t));
-    constexpr const wchar_t* names[]{L"MaiCord.exe", L"MaiCordAccount.dll", L"offer.json", L"offer.sig", L"package.zip"};
-    u64 sizes[5]{};
-    for (u32 i = 0; i < 5; ++i) {
-        if (!join(path, generation, paths.root_count + 67, names[i])) return SE::state;
-        owners.files[i + 1] = open_read(path);
-        if (!regular_size(owners.files[i + 1], &sizes[i])) return SE::state;
+    const u32 count = update_generation_file_count(active);
+    u64 sizes[kUpdateGenerationMaximumFiles]{};
+    for (u32 i = 0; i < count; ++i) {
+        const Utf8View file = update_generation_file_name(active, i);
+        for (u32 c = 0; c < file.bytes; ++c) name[c] = static_cast<wchar_t>(file.data[c]);
+        name[file.bytes] = 0;
+        if (!join(path, generation, paths.root_count + 67, name)) return SE::state;
+        owners.files[i] = open_read(path);
+        if (!regular_size(owners.files[i], &sizes[i])) return SE::state;
     }
-    if (!sizes[2] || sizes[2] > kUpdateManifestMaximumBytes || sizes[3] != 64 || sizes[4] != state.active.pair.package_bytes ||
-        sizes[4] > config.maximum_artifact_bytes) return SE::state;
+    const u64 document_bytes = sizes[kUpdateGenerationOfferSlot], package_bytes = sizes[kUpdateGenerationPackageSlot];
+    if (!document_bytes || document_bytes > kUpdateManifestMaximumBytes || sizes[kUpdateGenerationSignatureSlot] != 64 ||
+        package_bytes != active.package_bytes || package_bytes > config.maximum_artifact_bytes) return SE::state;
     char document[kUpdateManifestMaximumBytes]{}; u8 signature[64]{}; u32 scratch[256]{};
-    if (!read_exact(owners.files[3], document, static_cast<u32>(sizes[2])) || !read_exact(owners.files[4], signature, 64)) return SE::state;
-    UpdateStage stage{}; stage.file = owners.files[5]; stage.bytes = sizes[4];
-    UpdatePairDescriptor derived{};
-    owners.verification = update_pair_package_verify_installed(&stage, {{document, static_cast<u32>(sizes[2])}, {signature, 64}},
-        key, workspace, kUpdateMaximumValiditySeconds, {scratch, 256}, owners.files[1], owners.files[2], &derived);
-    if (!owners.verification.ok() || !update_generation_pair_equal(derived, state.active.pair)) return SE::signature;
+    if (!read_exact(owners.files[kUpdateGenerationOfferSlot], document, static_cast<u32>(document_bytes)) ||
+        !read_exact(owners.files[kUpdateGenerationSignatureSlot], signature, 64)) return SE::state;
+    UpdateStage stage{}; stage.file = owners.files[kUpdateGenerationPackageSlot]; stage.bytes = package_bytes;
+    UpdatePackageDescriptor derived{};
+    owners.verification = update_package_verify_installed(&stage, {{document, static_cast<u32>(document_bytes)}, {signature, 64}},
+        key, workspace, kUpdateMaximumValiditySeconds, {scratch, 256},
+        {owners.files + kUpdateGenerationFirstMemberSlot, active.member_count}, &derived);
+    if (!owners.verification.ok() || !update_package_descriptor_equal(derived, active)) return SE::signature;
     // The parent replaces the journal when it records acknowledgement.
-    close(&owners.files[0]);
+    close(&owners.journal);
     UpdateHandoffIdentity identity{installation, state.transaction, {}};
     copy_bytes(identity.document_sha256, derived.document_sha256, 32);
     return update_handoff_child_open(command_line, identity, true, child).ok() ? SE::none : SE::launch;

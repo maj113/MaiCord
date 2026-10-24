@@ -33,10 +33,10 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
         return update_manifest_verify(document, {signature, 64}, trusted, workspace, policy,
             {scratch, 256}, &result);
     };
-    const auto good = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-6.zip"})");
+    const auto good = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-p2-6.zip"})");
     check(sign(good) && verify(good).ok() && result.version == 6 && result.artifact_bytes == 4096 &&
         result.artifact_sha256[0] == 1 && result.artifact_sha256[31] == 0xef &&
-        utf8_equal({result.artifact_name, result.artifact_name_bytes}, utf8_literal("MaiCord-x64-6.zip")),
+        utf8_equal({result.artifact_name, result.artifact_name_bytes}, utf8_literal("MaiCord-x64-p2-6.zip")),
         "update: trusted detached signature admits owned bounded manifest snapshot");
     const UpdateManifest accepted = result;
     auto reject = [&](Utf8View document, UpdateManifestError expected) noexcept {
@@ -51,17 +51,17 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
     check(sign(good, false) && verify(good).error == UpdateManifestError::signature,
         "update: signatures without the update domain are rejected");
     const Utf8View bad_fields[]{
-        utf8_literal(R"({"format":1,"format":1})"),
-        utf8_literal(R"({"format":1,"for\u006dat":1})"),
-        utf8_literal(R"({"format":2})"), utf8_literal(R"({"format":1,"unknown":0})"),
-        utf8_literal(R"({"format":1,"sha256":"gg"})"),
-        utf8_literal(R"({"format":1,"version":18446744073709551616})"),
-        utf8_literal(R"({"format":1,"arch":"arm64"})"),
-        utf8_literal(R"({"format":1,"product":"M\u0061iCord"})")};
+        utf8_literal(R"({"format":2,"format":2})"),
+        utf8_literal(R"({"format":2,"for\u006dat":1})"),
+        utf8_literal(R"({"format":1})"), utf8_literal(R"({"format":3})"), utf8_literal(R"({"format":2,"unknown":0})"),
+        utf8_literal(R"({"format":2,"sha256":"gg"})"),
+        utf8_literal(R"({"format":2,"version":18446744073709551616})"),
+        utf8_literal(R"({"format":2,"arch":"arm64"})"),
+        utf8_literal(R"({"format":2,"product":"M\u0061iCord"})")};
     for (u32 i = 0; i < sizeof(bad_fields) / sizeof(bad_fields[0]); ++i)
         reject(bad_fields[i], i < 2 ? UpdateManifestError::duplicate_field : UpdateManifestError::field);
-    reject(utf8_literal(R"({"format":1})"), UpdateManifestError::missing_field);
-    reject(utf8_literal(R"({"format":1,})"), UpdateManifestError::json);
+    reject(utf8_literal(R"({"format":2})"), UpdateManifestError::missing_field);
+    reject(utf8_literal(R"({"format":2,})"), UpdateManifestError::json);
     // Exercise policy separately from signature/JSON rejection.
     policy.installed_version = 6;
     reject(good, UpdateManifestError::rollback);
@@ -87,9 +87,11 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
     policy.maximum_validity_seconds = 1000; policy.maximum_artifact_bytes = 4095;
     reject(good, UpdateManifestError::artifact_size);
     policy.maximum_artifact_bytes = 64 * 1024 * 1024;
-    const auto traversal = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"../MaiCord-x64-6.zip"})");
+    const auto traversal = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"../MaiCord-x64-p2-6.zip"})");
     policy.highest_accepted_version = 5;
     reject(traversal, UpdateManifestError::artifact_name);
+    const auto previous_protocol = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-6.zip"})");
+    reject(previous_protocol, UpdateManifestError::artifact_name);
     policy.highest_accepted_version = 6;
     check(sign(good), "update: valid signature restored for capacity checks");
     check(update_manifest_verify(good, {signature, 64}, trusted, workspace, policy, {scratch, 1}, &result).error ==
@@ -115,7 +117,7 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
         installed(good, 64 * 1024 * 1024, 100).error == UpdateManifestError::time &&
         bytes_equal(&accepted, &result, sizeof(result)),
         "update: installed authentication still enforces trusted package and validity bounds");
-    const auto invalid_interval = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":200,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-6.zip"})");
+    const auto invalid_interval = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":200,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-p2-6.zip"})");
     check(sign(invalid_interval) && installed(invalid_interval).error == UpdateManifestError::time &&
         bytes_equal(&accepted, &result, sizeof(result)),
         "update: installed authentication rejects a signed invalid interval atomically");

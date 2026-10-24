@@ -463,7 +463,7 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
         locale{reinterpret_cast<const u8*>(query.locale.data), query.locale.bytes};
     if (!byte_range_valid(target) || byte_ranges_overlap(target, q) || byte_ranges_overlap(target, locale))
         return {0, E::invalid_input};
-    u8 temporary[kMediaCatalogMaximumTargetBytes]{};
+    u8 temporary[kMediaCatalogMaximumTargetBytes];
     RouteWriter w{};
     route_writer_initialize(&w, {temporary, sizeof(temporary)});
     // The target is a complete origin-form path; the REST transport adds no API prefix.

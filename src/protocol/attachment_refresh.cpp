@@ -74,7 +74,7 @@ bool visit_root(void* context, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 bool attachment_refresh_needed(Utf8View url, u64 now_seconds) noexcept {
-    u8 target[kCdnMaximumTargetBytes]{};
+    u8 target[kCdnMaximumTargetBytes];
     AttachmentUrlResult parsed{};
     u32 path = 0;
     return reference(url, {target, sizeof(target)}, &parsed, &path) &&
@@ -83,7 +83,7 @@ bool attachment_refresh_needed(Utf8View url, u64 now_seconds) noexcept {
 }
 
 u32 attachment_refresh_body(Utf8View url, Slice<u8> output) noexcept {
-    u8 target[kCdnMaximumTargetBytes]{};
+    u8 target[kCdnMaximumTargetBytes];
     AttachmentUrlResult parsed{};
     u32 path = 0;
     if (!reference(url, {target, sizeof(target)}, &parsed, &path)) return 0;

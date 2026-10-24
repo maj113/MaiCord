@@ -1,5 +1,5 @@
 // Test/tool-only DirectWrite reference editor; see dwrite_text_system.hpp.
-// Never linked into MaiCord.exe or MaiCordAccount.dll.
+// Never linked into MaiCord.exe.
 #include "dwrite_text_system.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/hash.hpp"

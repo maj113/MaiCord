@@ -200,16 +200,14 @@ bool io_stop_begin(void*) noexcept {
     }
     // Quiesce owners while the host still exists; drafts are persisted here.
     application_prepare_account_stop();
-    g_switch.stop_host = host;
-    g_app.account = {};
+    account_host_move(&g_switch.stop_host, &host);
     g_switch.host_transferred = true;
     const auto started =
         account_logout_stop_start(&g_switch.stop, &g_switch.stop_host, kAccountStopTimeoutMs,
                                   clock_monotonic_milliseconds(), clock_unix_milliseconds(), account_host_stop);
     if (started.ok())
         return true;
-    g_app.account = g_switch.stop_host;
-    g_switch.stop_host = {};
+    account_host_move(&host, &g_switch.stop_host);
     g_switch.host_transferred = false;
     log_u64(LogLevel::warning, "account", "switch_stop_start_error", static_cast<u64>(started.error));
     return false;
@@ -219,8 +217,9 @@ void restore_transferred_host(const AccountHostStopResult& result) noexcept {
     if (!g_switch.host_transferred)
         return;
     if (!result.ok())
-        g_app.account = g_switch.stop_host;
-    g_switch.stop_host = {};
+        account_host_move(&g_app.account, &g_switch.stop_host);
+    else
+        clear_bytes(&g_switch.stop_host, sizeof(g_switch.stop_host));
     g_switch.host_transferred = false;
 }
 

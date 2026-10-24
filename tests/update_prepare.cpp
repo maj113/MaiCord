@@ -8,7 +8,7 @@ constexpr u8 kPreparedAbcDigest[32]{
     0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
     0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad};
 constexpr wchar_t kExpectedStableName[] =
-    L"maicord-bf140c6d10e6637ae1e3a028021f159f2be9f2868d57178c1bf17b76aa935f6e.stage";
+    L"maicord-6ea655ca305e23a3540ce3b1cc2758d49cdaf55193efb73b3546c01cbae139f5.stage";
 u32 characters(const wchar_t* text) noexcept { u32 count = 0; while (text[count]) ++count; return count; }
 void append(const wchar_t* base, const wchar_t* suffix, wchar_t* output) noexcept {
     u32 i = 0, j = 0;
@@ -77,9 +77,9 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
         p256_export_public(signer, {point, 65}).ok() && p256_import_public(&trusted, P256Kind::ecdsa, {point, 65}).ok();
     check(initialized, "prepare: test-only signer and independent trusted publisher key initialize");
     if (!initialized) return;
-    const auto six = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","artifact":"MaiCord-x64-6.zip"})");
-    const auto seven = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":7,"issued":90,"expires":200,"bytes":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","artifact":"MaiCord-x64-7.zip"})");
-    const auto preview = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"preview","version":9,"issued":90,"expires":200,"bytes":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","artifact":"MaiCord-x64-9.zip"})");
+    const auto six = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","artifact":"MaiCord-x64-p2-6.zip"})");
+    const auto seven = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":7,"issued":90,"expires":200,"bytes":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","artifact":"MaiCord-x64-p2-7.zip"})");
+    const auto preview = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"preview","version":9,"issued":90,"expires":200,"bytes":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","artifact":"MaiCord-x64-p2-9.zip"})");
     auto sign = [&](Utf8View document) noexcept {
         const ConstSlice<u8> parts[]{
             {reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},

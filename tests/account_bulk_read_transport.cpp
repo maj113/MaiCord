@@ -163,25 +163,10 @@ void maximum() noexcept {
           "bulk transport: maximum pending batch cancels without a new worker");
     publish_request_error(&p.client, p.runtime, RestClientError::cancelled, 0);
 }
-void abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "bulk transport: dormant module loads without account startup");
-    if (!host.module)
-        return;
-    const BulkMessageAckEntry entry{1, 2, 0};
-    check(host.api.bulk_message_ack(nullptr, &entry, 1, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              host.api.bulk_message_ack(nullptr, nullptr, 0, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "bulk transport: dormant callback cannot allocate account or acquire credentials");
-    account_host_release(&host);
-}
 u32 run() noexcept {
     admission();
     receipts();
     maximum();
-    abi();
     return failures;
 }
 } // namespace bulk_read_transport

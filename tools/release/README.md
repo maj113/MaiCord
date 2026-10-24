@@ -15,14 +15,18 @@ any Windows machine with Python 3.10 or newer will do.
 
 ## Formats (they match the client's verifiers)
 
-- **Update package**: `MaiCord-x64-<version>.zip`. Exactly two *stored* members,
-  `MaiCord.exe` then `MaiCordAccount.dll`, with no flags, extra fields or comments.
-  Timestamps are fixed, so the same binaries always give the same bytes. At most
-  64 MiB. Checked by `src/app/update_pair_package.cpp`.
+- **Update package**: `MaiCord-x64-p2-<version>.zip`. One to four *stored*
+  members, `MaiCord.exe` first, with no flags, extra fields or comments. Member
+  names are 1–32 ASCII letters, digits, `.`, `-` or `_`, start with a letter or
+  digit, differ ignoring case and are never device names or `offer.json`,
+  `offer.sig` or `package.zip`; `.exe` and `.dll` members must be AMD64 images
+  of that kind. `MEMBER_NAMES` lists what a release ships (today only
+  `MaiCord.exe`). Timestamps are fixed, so the same binaries always give the same
+  bytes. At most 64 MiB. Checked by `src/app/update_package.cpp`.
 - **Manifest**: `maicord-<channel>.manifest.json`. Compact JSON with exactly the
-  fields `format`, `product`, `arch`, `channel`, `version`, `issued`, `expires`,
-  `bytes`, `sha256` and `artifact`; at most 4096 bytes; no string uses escapes.
-  Checked by `src/app/update_manifest.cpp`.
+  fields `format` (the update protocol, 2), `product`, `arch`, `channel`,
+  `version`, `issued`, `expires`, `bytes`, `sha256` and `artifact`; at most 4096
+  bytes; no string uses escapes. Checked by `src/app/update_manifest.cpp`.
 - **Changelog**: `maicord-<channel>.changelog.json`, beside its manifest:
   `{"format":1,"product":"MaiCord","channel":…,"version":V,"base":B,"entries":[{"version":v,"date":unix,"commit":"<40 hex>"|"","text":…}]}`.
   It lists every change in (B, V], newest first: up to 10 stable releases with
@@ -52,28 +56,23 @@ release. GitHub Pages serves the site of the `update-channels` branch:
 
 | Path under `https://<owner>.github.io/<repo>/` | Contents |
 | --- | --- |
-| `updates/maicord-stable.{manifest,changelog}.json[.sig]` | the stable channel |
-| `updates/preview/maicord-preview.{manifest,changelog}.json[.sig]` | the preview feed |
-| `updates/preview/MaiCord-x64-<number>.zip` | the current master build and the one before it |
-| `updates/maicord-preview.manifest.json[.sig]` | stable again, for clients up to 0.3.3 |
+| `updates/p2/maicord-stable.{manifest,changelog}.json[.sig]` | the stable channel |
+| `updates/p2/preview/maicord-preview.{manifest,changelog}.json[.sig]` | the preview feed |
+| `updates/p2/preview/MaiCord-x64-p2-<number>.zip` | the current master build and the one before it |
 
 A stable package downloads from its release,
-`https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-<number>.zip`;
+`https://github.com/<owner>/<repo>/releases/download/v<X.Y.Z>/MaiCord-x64-p2-<number>.zip`;
 a dev build's package from the preview feed beside its manifest. These are plain
 static files and download redirects, so the GitHub API and its rate limits are
 not involved.
-
-Clients up to 0.3.3 read `updates/maicord-preview.manifest.json` for the preview
-channel and can only download packages from releases, so that file keeps
-mirroring stable. They move to the preview feed once they update.
 
 - **Stable** (`release.yml`, on a `vX.Y.Z` tag): the release is created as a
   draft, every asset is uploaded, and then it is published as latest. Then
   `changelogs` writes the stable changelog from the published release notes and
   the preview changelog from the commits since the previous release, and
   `update_channels.ps1` installs them with the manifests attached to the
-  *published* release. A release advances stable, the legacy preview file and
-  the preview feed when it is newer there. A rerun after publishing leaves the
+  *published* release. A release advances stable and the preview feed when it
+  is newer there. A rerun after publishing leaves the
   release alone and only updates the channels.
 - **Preview** (the `preview` job of `ci.yml`): every push to master of
   `maj113/MaiCord` whose client and test jobs pass is packaged from the CI
@@ -92,22 +91,29 @@ mirroring stable. They move to the preview feed once they update.
   groups lease the push on the commit they read and retry from the new tip.
   `deploy-pages.yml` deploys the branch as it is when it runs.
 
-### Clients from 0.1.x
+## Update protocol
 
-Clients up to 0.1.1 read
-`https://github.com/<repo>/releases/latest/download/maicord-stable.manifest.json`
-and download the package from `releases/latest/download/`, so every release also
-attaches its freshly signed manifests. Those copies are immutable and valid for
-90 days after publishing; after that a 0.1.x client reports an expired update
-until a newer stable release is published.
+The package layout and manifest schema form the update protocol, `PROTOCOL` in
+`maicord_release.py` and `kUpdateProtocol` in `update_manifest.hpp`. A client
+reads only `updates/p<protocol>/` and accepts only manifests whose `format` is
+its protocol, so a release a client cannot install is never offered to it.
+`channels` maintains only the current protocol's directory and leaves every
+other one as published.
 
-0.1.0 and 0.1.1 cannot install any later package: their installer requires the
-package's `MaiCordAccount.dll` to export the installer's own account API ordinal
-(114 or 115), and later releases export a newer one. The download succeeds and
-the install fails with "Couldn't install the update." Replace such an install once
-by hand with the portable zip of a newer release. Later installers accept the
-package's own API ordinal, and the new `MaiCord.exe` checks its DLL when it
-confirms startup.
+A release that changes the protocol bumps both constants, and with them the
+artifact prefix and the site directory. Clients of the previous protocol keep
+the newest release in their directory. To move them on, also publish a bridge
+there: a build of the new protocol, packaged and signed in the old format. Old
+clients install it like any update, and from then on it reads the new
+directory, so a 0.5 client reaches 1.0 through a 0.9 bridge without ever being
+offered a package it cannot install. `MaiCord.exe` in the original folder stays
+the dispatcher across updates (see Client behaviour), so a bridge must keep the
+generation record and handoff that dispatcher reads.
+
+Releases up to 0.4.0 use protocol 1: they read `updates/maicord-*.json` and
+install only the two-file `MaiCord.exe` and `MaiCordAccount.dll` package, which
+no later release has. Replace such an install once by hand with the portable
+zip of a newer release.
 
 ## Provenance
 
@@ -218,16 +224,15 @@ Client behaviour:
   the generation root and provisions a stable generation. Later updates are
   prepared beside it and activated by **Restart**. The new process must confirm
   that it started, or the client rolls back. **Roll back to previous version**
-  swaps back to the retained pair. The version you left is not reinstalled until
+  swaps back to the retained generation. The version you left is not reinstalled until
   a newer release appears.
 - `MaiCord.exe` in the original folder acts as the dispatcher. On start, it
   launches the newest authenticated generation and exits once that generation
   confirms startup. That dispatcher is never replaced, so the package checks,
   the generation record and the handoff must stay acceptable to every
-  released version: they may not depend on version-specific values such as
-  the account API ordinal.
-- A package carries only `MaiCord.exe` and `MaiCordAccount.dll`. New fonts or
-  licenses need a fresh download of the portable zip.
+  released version of its protocol.
+- A package carries the members in `MEMBER_NAMES`, today only `MaiCord.exe`.
+  New fonts or licenses need a fresh download of the portable zip.
 
 ## Local dry run
 

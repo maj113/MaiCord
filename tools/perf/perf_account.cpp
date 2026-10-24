@@ -37,8 +37,13 @@
 #include "maicord/app/user_auth_coordinator.hpp"
 #include "maicord/app/video_stream_decoders.hpp"
 #include "maicord/app/voice_message.hpp"
+#include "maicord/model/user_profile.hpp"
 #include "maicord/protocol/account_settings.hpp"
 #include "maicord/protocol/cdn_url.hpp"
+#include "maicord/protocol/embed_provider.hpp"
+#include "maicord/protocol/emoji_preferences.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/gif_favorites.hpp"
 #include "maicord/protocol/guild_community.hpp"
 #include "maicord/protocol/guild_invite.hpp"
 #include "maicord/protocol/guild_moderation.hpp"
@@ -1567,22 +1572,6 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(105, channel_info);
     MC_STUB(106, collection_title);
 #undef MC_STUB
-    api->decoders = {
-        gateway_decode_message_create,      gateway_decode_message_create, gateway_decode_message_create,
-        gateway_decode_message_create,      gateway_decode_message_snapshot_core,
-        gateway_extract_message_snapshot,   gateway_decode_message_poll,
-        gateway_client_route_channel_create, gateway_client_route_private_channel,
-    };
-    api->cdn_urls = {
-        parse_signed_attachment_url,   parse_media_url,
-        catalog_provider_target_valid, sticker_json_target_valid,
-        soundboard_target_valid,       parse_catalog_preview_url,
-        catalog_favorite_format,       media_url_log_fields,
-        write_media_proxy_target,      write_custom_emoji_cdn_target,
-        cdn_guild_icon_variant,        write_guild_icon_cdn_target,
-        write_user_avatar_cdn_target,  write_channel_icon_cdn_target,
-        write_sticker_cdn_target,      cdn_host_name,
-    };
     return true;
 }
 

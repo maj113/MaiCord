@@ -27,14 +27,14 @@ bool read_exact(HANDLE file, void* output, u32 bytes, DWORD* native) noexcept {
     }
     return true;
 }
-UpdateGenerationResult release(UpdateGenerationAuthenticationContext*, bool retain_pair) noexcept;
+UpdateGenerationResult release(UpdateGenerationAuthenticationContext*, bool retain_members) noexcept;
 bool verify(void* opaque, UpdateGenerationTransaction* transaction,
-    const UpdatePairDescriptor& expected, DWORD* native) noexcept {
+    const UpdatePackageDescriptor& expected, DWORD* native) noexcept {
     auto* context = static_cast<UpdateGenerationAuthenticationContext*>(opaque);
     if (!context || !native) return false;
     *native = ERROR_INVALID_PARAMETER;
     if (!transaction || !context->key || !context->workspace || !context->maximum_artifact_bytes ||
-        context->maximum_artifact_bytes > kUpdatePairMaximumPackageBytes || !context->maximum_validity_seconds || owned(*context)) {
+        context->maximum_artifact_bytes > kUpdatePackageMaximumBytes || !context->maximum_validity_seconds || owned(*context)) {
         context->last_result = fail(UpdateGenerationError::invalid_input); return false;
     }
     // Refuse caller aliasing before manifest reads/scratch writes or ownership
@@ -69,37 +69,44 @@ bool verify(void* opaque, UpdateGenerationTransaction* transaction,
     } else {
         context->last_result = update_generation_directory_open(transaction, {expected.document_sha256, 32}, false, directory);
     }
+    const u32 files = update_generation_file_count(expected);
+    if (context->last_result.ok() && (!expected.member_count || expected.member_count > kUpdatePackageMaximumMembers))
+        context->last_result = fail(UpdateGenerationError::state, ERROR_INVALID_DATA);
     if (context->last_result.ok()) {
-        for (u32 i = 0; i < 5; ++i) {
-            context->last_result = update_generation_file_open(directory, static_cast<UpdateGenerationFile>(i), false, &context->files[i]);
+        for (u32 i = 0; i < files; ++i) {
+            context->last_result = update_generation_file_open(directory, update_generation_file_name(expected, i), false, &context->files[i]);
             if (!context->last_result.ok()) break;
         }
     }
     u64 document_bytes = 0, signature_bytes = 0, package_bytes = 0;
     if (context->last_result.ok()) {
-        if (!file_size(context->files[2], &document_bytes) || !file_size(context->files[3], &signature_bytes) ||
-            !file_size(context->files[4], &package_bytes)) context->last_result = fail(UpdateGenerationError::read, GetLastError());
+        if (!file_size(context->files[kUpdateGenerationOfferSlot], &document_bytes) ||
+            !file_size(context->files[kUpdateGenerationSignatureSlot], &signature_bytes) ||
+            !file_size(context->files[kUpdateGenerationPackageSlot], &package_bytes))
+            context->last_result = fail(UpdateGenerationError::read, GetLastError());
         else if (!document_bytes || document_bytes > kUpdateManifestMaximumBytes || signature_bytes != 64 ||
             !package_bytes || package_bytes > context->maximum_artifact_bytes || package_bytes != expected.package_bytes)
             context->last_result = fail(UpdateGenerationError::size, ERROR_INVALID_DATA);
     }
     DWORD read_error = 0;
     if (context->last_result.ok() &&
-        (!read_exact(context->files[2], context->document, static_cast<u32>(document_bytes), &read_error) ||
-         !read_exact(context->files[3], context->signature, 64, &read_error))) context->last_result = fail(UpdateGenerationError::read, read_error);
+        (!read_exact(context->files[kUpdateGenerationOfferSlot], context->document, static_cast<u32>(document_bytes), &read_error) ||
+         !read_exact(context->files[kUpdateGenerationSignatureSlot], context->signature, 64, &read_error)))
+        context->last_result = fail(UpdateGenerationError::read, read_error);
     if (context->last_result.ok()) {
-        UpdateStage stage{}; stage.file = context->files[4]; stage.bytes = package_bytes;
-        const UpdatePairOffer offer{{context->document, static_cast<u32>(document_bytes)}, {context->signature, 64}};
-        UpdatePairDescriptor derived{};
-        context->package_result = update_pair_package_verify_installed(&stage, offer, *context->key, *context->workspace,
-            context->maximum_validity_seconds, {context->structural_scratch, 256}, context->files[0], context->files[1], &derived);
-        if (!context->package_result.ok() || !update_generation_pair_equal(derived, expected))
+        UpdateStage stage{}; stage.file = context->files[kUpdateGenerationPackageSlot]; stage.bytes = package_bytes;
+        const UpdatePackageOffer offer{{context->document, static_cast<u32>(document_bytes)}, {context->signature, 64}};
+        UpdatePackageDescriptor derived{};
+        context->package_result = update_package_verify_installed(&stage, offer, *context->key, *context->workspace,
+            context->maximum_validity_seconds, {context->structural_scratch, 256},
+            {context->files + kUpdateGenerationFirstMemberSlot, expected.member_count}, &derived);
+        if (!context->package_result.ok() || !update_package_descriptor_equal(derived, expected))
             context->last_result = fail(UpdateGenerationError::authenticity,
                 context->package_result.native_error ? context->package_result.native_error : ERROR_INVALID_DATA);
         else context->last_result = update_generation_directory_validate(directory);
     }
     const auto primary = context->last_result;
-    const auto released = release(context, primary.ok() && context->retain_selected_pair);
+    const auto released = release(context, primary.ok() && context->retain_selected_package);
     context->last_result = primary.ok() ? released : primary;
     *native = context->last_result.native_error;
     return context->last_result.ok();
@@ -120,11 +127,12 @@ UpdateGenerationResult update_generation_inventory_fingerprint(const P256Key& ke
 }
 UpdateGenerationAuthenticator update_generation_authenticator(UpdateGenerationAuthenticationContext* context) noexcept { return {context, verify}; }
 namespace {
-UpdateGenerationResult release(UpdateGenerationAuthenticationContext* context, bool retain_pair) noexcept {
+UpdateGenerationResult release(UpdateGenerationAuthenticationContext* context, bool retain_members) noexcept {
     if (!context) return fail(UpdateGenerationError::invalid_input);
-    const auto crypto = update_pair_cleanup_release(&context->package_result);
+    const auto crypto = update_package_cleanup_release(&context->package_result);
     if (!crypto.ok()) return fail(UpdateGenerationError::release, crypto.native_error ? crypto.native_error : ERROR_INVALID_DATA);
-    for (u32 i = retain_pair ? 2 : 0; i < 5; ++i) if (context->files[i]) {
+    // Selection keeps the member pins and closes the provenance files.
+    for (u32 i = 0; i < kUpdateGenerationMaximumFiles; ++i) if (context->files[i] && !(retain_members && i >= kUpdateGenerationFirstMemberSlot)) {
         auto& file = context->files[i];
         if (!CloseHandle(file)) return fail(UpdateGenerationError::release, GetLastError());
         file = nullptr;
@@ -144,11 +152,12 @@ UpdateGenerationResult update_generation_authentication_release(UpdateGeneration
     return release(context, false);
 }
 namespace {
-UpdateGenerationResult select_pair(UpdateGenerationTransaction* transaction,
+UpdateGenerationResult select_package(UpdateGenerationTransaction* transaction,
     UpdateGenerationAuthenticationContext* context, const UpdateGenerationLaunchAdmission* admission,
-    UpdatePair* output) noexcept {
-    if (!transaction || !context || !output || output->files[0] || output->files[1] || owned(*context) || context->retain_selected_pair)
+    UpdatePackage* output) noexcept {
+    if (!transaction || !context || !output || owned(*context) || context->retain_selected_package)
         return fail(UpdateGenerationError::invalid_input);
+    for (auto file : output->files) if (file) return fail(UpdateGenerationError::invalid_input);
     if (admission) {
         const ConstSlice<u8> input{reinterpret_cast<const u8*>(admission), sizeof(*admission)};
         const ConstSlice<u8> mutable_ranges[]{
@@ -185,43 +194,48 @@ UpdateGenerationResult select_pair(UpdateGenerationTransaction* transaction,
             return fail(UpdateGenerationError::state);
         if (!admission->sequence || admission->sequence != transaction->state.sequence ||
             !bytes_equal(admission->transaction.bytes, transaction->state.transaction.bytes, 16) ||
-            !bytes_equal(admission->document_sha256, transaction->state.active.pair.document_sha256, 32))
+            !bytes_equal(admission->document_sha256, transaction->state.active.package.document_sha256, 32))
             return fail(UpdateGenerationError::identity);
         u8 record[kUpdateGenerationRecordBytes]{};
         const auto valid = update_generation_encode(transaction->state, {record, sizeof(record)});
         if (!valid.ok()) return valid;
     }
-    context->retain_selected_pair = true;
-    UpdatePairDescriptor descriptor{};
+    context->retain_selected_package = true;
+    UpdatePackageDescriptor descriptor{};
     UpdateGenerationResult selected{};
     if (admission) {
         selected = update_generation_validate(transaction);
         DWORD native = 0;
-        if (selected.ok() && !verify(context, transaction, transaction->state.active.pair, &native))
+        if (selected.ok() && !verify(context, transaction, transaction->state.active.package, &native))
             selected = fail(UpdateGenerationError::authenticity, native);
         if (selected.ok()) selected = update_generation_validate(transaction);
-        if (selected.ok()) descriptor = transaction->state.active.pair;
+        if (selected.ok()) descriptor = transaction->state.active.package;
     } else {
         selected = update_generation_select(transaction, update_generation_authenticator(context), &descriptor);
     }
-    context->retain_selected_pair = false;
-    if (!selected.ok() || !context->files[0] || !context->files[1]) {
+    context->retain_selected_package = false;
+    const u32 members = descriptor.member_count <= kUpdatePackageMaximumMembers ? descriptor.member_count : 0;
+    bool pinned = selected.ok() && members;
+    for (u32 i = 0; pinned && i < members; ++i) pinned = context->files[kUpdateGenerationFirstMemberSlot + i] != nullptr;
+    if (!pinned) {
         const auto cleanup = release(context, false);
         if (!selected.ok()) return selected;
         return cleanup.ok() ? fail(UpdateGenerationError::authenticity, ERROR_INVALID_DATA) : cleanup;
     }
-    UpdatePair pair{}; pair.descriptor = descriptor; pair.files[0] = context->files[0]; pair.files[1] = context->files[1];
-    context->files[0] = context->files[1] = nullptr;
-    *output = pair; return {};
+    UpdatePackage package{}; package.descriptor = descriptor;
+    for (u32 i = 0; i < members; ++i) {
+        package.files[i] = context->files[kUpdateGenerationFirstMemberSlot + i]; context->files[kUpdateGenerationFirstMemberSlot + i] = nullptr;
+    }
+    *output = package; return {};
 }
 } // namespace
-UpdateGenerationResult update_generation_select_pair(UpdateGenerationTransaction* transaction,
-    UpdateGenerationAuthenticationContext* context, UpdatePair* output) noexcept {
-    return select_pair(transaction, context, nullptr, output);
+UpdateGenerationResult update_generation_select_package(UpdateGenerationTransaction* transaction,
+    UpdateGenerationAuthenticationContext* context, UpdatePackage* output) noexcept {
+    return select_package(transaction, context, nullptr, output);
 }
-UpdateGenerationResult update_generation_select_pending_pair_for_launch(UpdateGenerationTransaction* transaction,
+UpdateGenerationResult update_generation_select_pending_package_for_launch(UpdateGenerationTransaction* transaction,
     UpdateGenerationAuthenticationContext* context, const UpdateGenerationLaunchAdmission& admission,
-    UpdatePair* output) noexcept {
-    return select_pair(transaction, context, &admission, output);
+    UpdatePackage* output) noexcept {
+    return select_package(transaction, context, &admission, output);
 }
 } // namespace maicord

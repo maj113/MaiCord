@@ -70,7 +70,7 @@ u32 prefix_bytes(Utf8View text, u32 maximum_units, u32 maximum_bytes) noexcept {
 // The credential-free GET for an origin-form target on a Discord host.
 AttachmentDownloadRequestResult write_get(ConstSlice<u8> target, CdnHost cdn_host,
                                           Slice<u8> output) noexcept {
-    u8 request[kCdnMaximumTargetBytes + 192]{};
+    u8 request[kCdnMaximumTargetBytes + 192];
     ProtocolWriter writer{{request, sizeof(request)}, 0};
     const auto host = cdn_host_name(cdn_host);
     if (!protocol_writer_append_literal(&writer, "GET ") ||
@@ -111,7 +111,7 @@ AttachmentDownloadRequestResult attachment_download_write_media_request(Utf8View
                                                                         Slice<u8> output) noexcept {
     if (!url.data || !url.bytes || !output.data)
         return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
-    u8 target[kCdnMaximumTargetBytes]{};
+    u8 target[kCdnMaximumTargetBytes];
     const auto parsed = parse_media_url(url, {target, sizeof(target)});
     if (!parsed.ok() || (parsed.host != CdnHost::cdn && parsed.host != CdnHost::media &&
                          parsed.host != CdnHost::images_ext_1 && parsed.host != CdnHost::images_ext_2))

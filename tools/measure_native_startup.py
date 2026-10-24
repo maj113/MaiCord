@@ -1,7 +1,7 @@
 """Hidden offline main-process startup; first submitted Present, not visible latency.
 
-Use isolated executable/font copies without the account DLL. Each worker gets a
-fresh app-data directory, optionally seeded with a catalog from an untimed primer.
+Use isolated executable/font copies. Each worker gets a fresh app-data
+directory (no signed-in account), optionally seeded with a catalog from an untimed primer.
 Memory/cycles are sampled 100 ms after observing the first Present log. Module
 sampling can miss transient loads and affect residency; Windows caches are uncontrolled.
 """
@@ -48,7 +48,6 @@ def modules(handle):
 
 def run(exe,out,side,seed=None):
     out.mkdir();data=out/'data';data.mkdir();log=data/'MaiCord/logs/maicord.log'
-    if (exe.parent/'MaiCordAccount.dll').exists():raise ValueError('Use an isolated offline executable copy without MaiCordAccount.dll')
     if seed:
         (data/'MaiCord').mkdir();shutil.copy2(seed,data/'MaiCord/native-fonts-v1.bin')
     env={key:value for key,value in os.environ.items() if not key.startswith('MAICORD_')};env['LOCALAPPDATA']=str(data)

@@ -15,7 +15,7 @@ RestClientSubmitResult account_settings_submit(RestClient* rest, const AccountSe
     u8* body = static_cast<u8*>(VirtualAlloc(nullptr, body_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!body)
         return {RestClientSubmitError::busy};
-    u8 target[kAccountSettingsMaximumTargetBytes]{};
+    u8 target[kAccountSettingsMaximumTargetBytes];
     const auto written = account_settings_write_request(request, {target, sizeof(target)}, {body, body_bytes});
     RestClientSubmitResult result{written.error == AccountSettingsWriteError::output_capacity
                                              ? RestClientSubmitError::target_capacity

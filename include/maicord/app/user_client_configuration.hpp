@@ -33,8 +33,8 @@ struct UserClientConfigurationResult {
     }
 };
 
-// Builds the Windows compatibility profile with one RFC 4122 UUID per loaded
-// client image, shared by auth, REST and Gateway owners. Views
+// Builds the Windows compatibility profile with one RFC 4122 UUID per
+// process, shared by auth, REST and Gateway owners. Views
 // in configuration point into storage and are valid only while that storage
 // object stays in place.
 UserClientConfigurationResult user_client_configuration_initialize(

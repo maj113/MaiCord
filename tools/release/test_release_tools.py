@@ -27,10 +27,10 @@ import cng_p256  # noqa: E402
 import maicord_release as release  # noqa: E402
 
 # Byte-for-byte copy of the accepted document in tests/update_manifest.cpp.
-CLIENT_FIXTURE_DOCUMENT = (b'{"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":6,'
+CLIENT_FIXTURE_DOCUMENT = (b'{"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,'
                            b'"issued":90,"expires":200,"bytes":4096,"sha256":'
                            b'"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",'
-                           b'"artifact":"MaiCord-x64-6.zip"}')
+                           b'"artifact":"MaiCord-x64-p2-6.zip"}')
 # Byte-for-byte copy of the accepted document in tests/update_changelog.cpp.
 CLIENT_CHANGELOG_DOCUMENT = ('{"format":1,"product":"MaiCord","channel":"preview","version":3004002,"base":3003999,'
                              '"entries":[{"version":3004002,"date":1760000100,"commit":"' + "a" * 40 + '",'
@@ -62,7 +62,6 @@ class ReleaseToolTests(unittest.TestCase):
         self.binaries = self.root / "bin"
         self.binaries.mkdir()
         (self.binaries / "MaiCord.exe").write_bytes(fake_pe(False, b"executable" * 100))
-        (self.binaries / "MaiCordAccount.dll").write_bytes(fake_pe(True, b"account" * 77))
         self.key_file = self.root / "key.jwk"
         self.key_file.write_text(self.key.to_jwk(), encoding="utf-8")
 
@@ -203,39 +202,51 @@ class ReleaseToolTests(unittest.TestCase):
     def test_manifest_layout_matches_client_fixture(self):
         document = release.render_manifest(6, "stable", 90, 200, 4096,
                                            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-                                           "MaiCord-x64-6.zip")
+                                           "MaiCord-x64-p2-6.zip")
         self.assertEqual(document, CLIENT_FIXTURE_DOCUMENT)
         self.assertEqual(release.parse_manifest(document)["version"], 6)
-        for bad in (document.replace(b'"format":1', b'"format":1,"format":1'),
+        for bad in (document.replace(b'"format":2', b'"format":2,"format":2'),
+                    document.replace(b'"format":2', b'"format":1'),
                     document.replace(b'"arch":"x64"', b'"arch":"arm64"'),
-                    document.replace(b'MaiCord-x64-6.zip', b'MaiCord-x64-7.zip'),
+                    document.replace(b'MaiCord-x64-p2-6.zip', b'MaiCord-x64-p2-7.zip'),
+                    document.replace(b'MaiCord-x64-p2-6.zip', b'MaiCord-x64-6.zip'),
                     document.replace(b'"product":"MaiCord"', b'"product":"M\\u0061iCord"'),
                     document[:-1] + b',"extra":0}'):
             with self.assertRaises(release.ReleaseError):
                 release.parse_manifest(bad)
 
     def test_update_zip_matches_client_subset(self):
-        output = self.root / "MaiCord-x64-1.zip"
-        release.build_update_zip(self.binaries / "MaiCord.exe", self.binaries / "MaiCordAccount.dll", output)
+        output = self.root / "MaiCord-x64-p2-1.zip"
+        release.build_update_zip(self.binaries, release.MEMBER_NAMES, output)
         package = output.read_bytes()
-        release.validate_update_zip(package)
-        with zipfile.ZipFile(output) as archive:
-            self.assertEqual(archive.namelist(), list(release.MEMBER_NAMES))
-            self.assertEqual(archive.read("MaiCordAccount.dll"), (self.binaries / "MaiCordAccount.dll").read_bytes())
-            self.assertTrue(all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist()))
-        release.build_update_zip(self.binaries / "MaiCord.exe", self.binaries / "MaiCordAccount.dll",
-                                 self.root / "again.zip")
+        self.assertEqual(release.validate_update_zip(package), list(release.MEMBER_NAMES))
+        release.build_update_zip(self.binaries, release.MEMBER_NAMES, self.root / "again.zip")
         self.assertEqual((self.root / "again.zip").read_bytes(), package, "packages must be reproducible")
         corrupted = bytearray(package)
         corrupted[-2] = 1  # ZIP comment length
         with self.assertRaises(release.ReleaseError):
             release.validate_update_zip(bytes(corrupted))
-        swapped = self.root / "swapped"
-        swapped.mkdir()
-        (swapped / "MaiCord.exe").write_bytes((self.binaries / "MaiCordAccount.dll").read_bytes())
-        (swapped / "MaiCordAccount.dll").write_bytes((self.binaries / "MaiCord.exe").read_bytes())
-        with self.assertRaises(release.ReleaseError):
-            release.build_update_zip(swapped / "MaiCord.exe", swapped / "MaiCordAccount.dll", self.root / "bad.zip")
+        # Further members follow the executable: images are checked by kind, data is not.
+        (self.binaries / "codec.dll").write_bytes(fake_pe(True, b"codec" * 77))
+        (self.binaries / "notes.txt").write_bytes(b"release notes")
+        names = ("MaiCord.exe", "codec.dll", "notes.txt")
+        release.build_update_zip(self.binaries, names, output)
+        self.assertEqual(release.validate_update_zip(output.read_bytes()), list(names))
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(archive.namelist(), list(names))
+            self.assertEqual(archive.read("codec.dll"), (self.binaries / "codec.dll").read_bytes())
+            self.assertTrue(all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist()))
+        (self.binaries / "dll.exe").write_bytes(fake_pe(True, b"x"))
+        for extra in "abcd":
+            (self.binaries / extra).write_bytes(b"x")
+        for bad in (("codec.dll", "MaiCord.exe"), ("MaiCord.exe", "dll.exe"), ("MaiCord.exe", "notes.txt", "NOTES.txt"),
+                    ("MaiCord.exe", "a", "b", "c", "d")):
+            with self.assertRaises(release.ReleaseError):
+                release.build_update_zip(self.binaries, bad, self.root / "bad.zip")
+        for name, valid in (("codec.dll", True), ("x-1_2.bin", True), ("offer.json", False), ("Package.zip", False),
+                            ("con.txt", False), ("COM1", False), ("lpt9.dll", False), ("a.", False), (".a", False),
+                            ("dir/a", False), ("a" * 33, False), ("a" * 32, True)):
+            self.assertEqual(release.member_name_valid(name), valid, name)
 
     def test_release_signs_and_verifies_each_channel(self):
         out = self.root / "dist"
@@ -243,7 +254,7 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(self.run_cli("release", "--tag", "v1.2.3", "--binaries", str(self.binaries),
                                       "--output-dir", str(out), "--key-file", str(self.key_file),
                                       "--public-key", public), 0)
-        artifact = (out / "MaiCord-x64-1002003999.zip").read_bytes()
+        artifact = (out / "MaiCord-x64-p2-1002003999.zip").read_bytes()
         for channel in ("stable", "preview"):
             document = (out / f"maicord-{channel}.manifest.json").read_bytes()
             signature = (out / f"maicord-{channel}.manifest.json.sig").read_bytes()
@@ -271,7 +282,7 @@ class ReleaseToolTests(unittest.TestCase):
                      str(repository), "--key-file", str(self.key_file), "--public-key", public)
         self.assertEqual(self.run_cli(*arguments, "--expect-version", "1.2.1-dev.2"), 1)
         self.assertEqual(self.run_cli(*arguments, "--expect-version", "1.2.1-dev.3"), 0)
-        artifact = (out / "MaiCord-x64-1002001003.zip").read_bytes()
+        artifact = (out / "MaiCord-x64-p2-1002001003.zip").read_bytes()
         document = (out / "maicord-preview.manifest.json").read_bytes()
         fields = release.verify_offer(document, (out / "maicord-preview.manifest.json.sig").read_bytes(),
                                       self.key.public_point, artifact)
@@ -327,8 +338,8 @@ class ReleaseToolTests(unittest.TestCase):
         self.release_to("v1.1.0", older)
         site = self.root / "site"
         self.assertEqual(self.channels(site, "--publish", str(stable)), 0)
-        self.assertEqual(self.site_versions(site), {"stable": 1002000999, "legacy preview": 1002000999,
-                                                    "preview": 1002000999})
+        self.assertEqual(self.site_versions(site), {"stable": 1002000999, "preview": 1002000999})
+        self.assertTrue((site / "updates" / "p2" / "maicord-stable.manifest.json").exists())
         # An older stable release (a hotfix branch) never lowers a channel.
         self.assertEqual(self.channels(site, "--publish", str(older)), 0)
         self.assertEqual(set(self.site_versions(site).values()), {1002000999})
@@ -344,7 +355,11 @@ class ReleaseToolTests(unittest.TestCase):
     def test_channels_serve_master_builds_on_the_preview_feed_only(self):
         repository = self.git_repository()
         site = self.root / "site"
-        feed = site / "updates" / "preview"
+        feed = site / "updates" / "p2" / "preview"
+        # Files another protocol's clients read are left as published.
+        other = site / "updates" / "maicord-stable.manifest.json"
+        other.parent.mkdir(parents=True)
+        other.write_bytes(b"{}")
         self.release_to("v1.2.0", self.root / "stable")
         self.assertEqual(self.channels(site, "--publish", str(self.root / "stable")), 0)
         builds = []
@@ -354,11 +369,10 @@ class ReleaseToolTests(unittest.TestCase):
             builds.append(out)
             self.assertEqual(self.channels(site, "--publish", str(out)), 0)
             self.commit(repository, f"Change number {index}")
-        self.assertEqual(self.site_versions(site), {"stable": 1002000999, "legacy preview": 1002000999,
-                                                    "preview": 1002001005})
+        self.assertEqual(self.site_versions(site), {"stable": 1002000999, "preview": 1002001005})
         # The current package and the one before it stay; older ones go.
         self.assertEqual(sorted(path.name for path in feed.glob("*.zip")),
-                         ["MaiCord-x64-1002001004.zip", "MaiCord-x64-1002001005.zip"])
+                         ["MaiCord-x64-p2-1002001004.zip", "MaiCord-x64-p2-1002001005.zip"])
         log = json.loads((feed / "maicord-preview.changelog.json").read_bytes())
         self.assertEqual((log["version"], log["entries"][0]["text"]), (1002001005, "Change number 1"))
         # Replaying an older build never moves the feed back.
@@ -379,7 +393,7 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(self.channels(site, "--publish", str(released)), 0)
         self.assertEqual(set(self.site_versions(site).values()), {1002001999})
         self.assertEqual(list(feed.glob("*.zip")), [])
-        stable_log = json.loads((site / "updates" / "maicord-stable.changelog.json").read_bytes())
+        stable_log = json.loads((site / "updates" / "p2" / "maicord-stable.changelog.json").read_bytes())
         self.assertEqual((stable_log["version"], stable_log["entries"][0]["text"]), (1002001999, "### Fixes\n\n- Fix it"))
         preview_log = json.loads((feed / "maicord-preview.changelog.json").read_bytes())
         self.assertEqual((preview_log["version"], preview_log["base"]), (1002001999, 1002000999))
@@ -392,8 +406,9 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(self.channels(site, "--publish", str(dev)), 0)
         self.assertFalse((feed / "maicord-preview.changelog.json").exists())
         # A missing package for the served build is refused.
-        (feed / "MaiCord-x64-1002002001.zip").unlink()
+        (feed / "MaiCord-x64-p2-1002002001.zip").unlink()
         self.assertEqual(self.channels(site), 1)
+        self.assertEqual(other.read_bytes(), b"{}")
 
     def test_channels_refresh_only_when_expiring(self):
         out = self.root / "dist"
@@ -410,7 +425,7 @@ class ReleaseToolTests(unittest.TestCase):
                              {k: old[k] for k in ("version", "bytes", "sha256")} | {"channel": slot.channel})
             self.assertGreater(new["expires"], old["expires"])
         # Damaged site state is refused instead of being deployed.
-        (site / "updates" / "maicord-preview.manifest.json.sig").write_bytes(b"\0" * 64)
+        (site / "updates" / "p2" / "preview" / "maicord-preview.manifest.json.sig").write_bytes(b"\0" * 64)
         self.assertEqual(self.channels(site, "--refresh-within-days", "30"), 1)
 
     def test_release_notes_group_commits(self):

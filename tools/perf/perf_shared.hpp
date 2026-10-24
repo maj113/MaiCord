@@ -1,7 +1,7 @@
 #pragma once
 // Control surface between MaiCordPerfProbe (the client built with
 // MAICORD_PERF_PROBE) and MaiCordPerfAccount.dll (the synthetic account
-// module it loads instead of MaiCordAccount.dll). Nothing here ships.
+// module it loads instead of the linked one). Nothing here ships.
 #include "maicord/core/base.hpp"
 
 #include "maicord/core/win32_types.hpp"

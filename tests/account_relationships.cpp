@@ -190,7 +190,7 @@ void test_transport() noexcept {
                         "propagate without hidden retry or alternate owner");
     submitted.result = RestClientSubmitError::none;
 }
-void test_dormant_abi() noexcept {
+void test_login_quarantine() noexcept {
     AccountHost retry{};
     retry.module = reinterpret_cast<HMODULE>(1);
     retry.login_instance = reinterpret_cast<void*>(1);
@@ -209,50 +209,6 @@ void test_dormant_abi() noexcept {
     account_host_login_stop(&retry, 1);
     check(retry.stop_failed && !retry.login_instance && retry.instance,
           "login host: login release preserves quarantine while account owner still survives");
-    AccountHost host{};
-    const auto loaded = account_host_load(&host);
-    check(loaded.ok(),
-          "relationships: shipping account DLL loads without profile or credential");
-    if (!loaded.ok())
-        return;
-    // Entry-by-entry API validation is covered by MaiCordTests' account module contract.
-    const AccountModuleApi complete = host.api;
-    host.api.thread_browser = nullptr;
-    const auto invalid_start = account_host_start(&host, L"unused-profile", L"unused-session", 1, 1);
-    check(invalid_start.error == AccountModuleError::invalid_input && !host.instance,
-          "thread browser: host refuses incomplete API before creating an account owner");
-    host.api = complete;
-    host.api.version = 88;
-    check(account_host_start(&host, L"unused-profile", L"unused-session", 1, 1).error ==
-                  AccountModuleError::invalid_input &&
-              !host.instance,
-          "thread browser: host refuses previous ABI version before creating an account owner");
-    host.api = complete;
-    check(host.api.download(nullptr, AccountDownloadOperation::start, 1, nullptr).submit_error ==
-              HttpsFileDownloadError::invalid_input,
-          "attachment save: dormant module rejects missing account without creating a download worker");
-    bool rejected_owners = host.api.relationships != nullptr;
-    if (host.api.relationships)
-        for (u32 op = 0; op <= static_cast<u32>(RelationshipOperation::clear_hidden); ++op)
-            rejected_owners =
-                rejected_owners &&
-                host.api.relationships(nullptr, static_cast<RelationshipOperation>(op),
-                                       op > 1 && op < 8 ? 42 : 0,
-                                       op == 1 ? utf8_literal("friend.name") : Utf8View{}, 108)
-                        .error == RestClientSubmitError::invalid_input;
-    check(rejected_owners && !host.instance && !host.login_instance,
-          "relationships: every shipping relationship operation rejects missing account owner without "
-          "starting transport");
-    constexpr auto ack_body = utf8_literal("{\"token\":null}");
-    check(host.api.message_ack &&
-              host.api.message_ack(nullptr, 7, 99,
-                                   {reinterpret_cast<const u8*>(ack_body.data), ack_body.bytes}, 201)
-                      .error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "message ACK: dormant shipping adapter rejects missing owner without profile, credential or "
-          "transport");
-    check(account_host_release(&host).ok() && !host.module,
-          "relationships: dormant DLL verification releases module ownership");
 }
 static void test_message_ack_transport() noexcept {
     RestClient client{};
@@ -400,7 +356,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_friends_account_entry() noex
     using namespace maicord::relationship_account_test;
     test_transport();
     test_message_ack_transport();
-    test_dormant_abi();
+    test_login_quarantine();
     constexpr char pass[] = "PASS Friends account transport\n";
     constexpr char fail[] = "FAIL Friends account transport\n";
     DWORD written = 0;

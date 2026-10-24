@@ -2,7 +2,6 @@
 // imports and renamed exports. No production fault switches or worker exist.
 #define update_generation_encode fault_generation_encode
 #define update_generation_decode fault_generation_decode
-#define update_generation_pair_equal fault_generation_pair_equal
 #define update_generation_prepare fault_generation_prepare
 #define update_generation_activate fault_generation_activate
 #define update_generation_acknowledge fault_generation_acknowledge
@@ -26,11 +25,12 @@
 #define update_generation_disposal_inventory fault_generation_disposal_inventory
 #define update_generation_file_open fault_generation_file_open
 #define update_generation_file_seal fault_generation_file_seal
-#define update_generation_pair_target fault_generation_pair_target
+#define update_generation_package_target fault_generation_package_target
+#define update_generation_file_count fault_generation_file_count
+#define update_generation_file_name fault_generation_file_name
 #define update_generation_path fault_generation_path
 #define update_generation_directory_release fault_generation_directory_release
 #include "maicord/app/update_generation.hpp"
-#include "maicord/app/account_module_version.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -102,7 +102,6 @@ BOOL WINAPI information(HANDLE h, FILE_INFO_BY_HANDLE_CLASS kind, void* data, DW
 #undef SetFileInformationByHandle
 #undef update_generation_encode
 #undef update_generation_decode
-#undef update_generation_pair_equal
 #undef update_generation_prepare
 #undef update_generation_activate
 #undef update_generation_acknowledge
@@ -125,7 +124,9 @@ BOOL WINAPI information(HANDLE h, FILE_INFO_BY_HANDLE_CLASS kind, void* data, DW
 #undef update_generation_disposal_inventory
 #undef update_generation_file_open
 #undef update_generation_file_seal
-#undef update_generation_pair_target
+#undef update_generation_package_target
+#undef update_generation_file_count
+#undef update_generation_file_name
 #undef update_generation_path
 #undef update_generation_directory_release
 
@@ -149,16 +150,18 @@ bool failure_ancestry(const wchar_t* root, UpdateGenerationDirectoryIdentity* id
     }
     return true;
 }
-UpdatePairDescriptor failure_pair(u8 digest) noexcept {
-    UpdatePairDescriptor p{}; p.version = digest; p.package_bytes = 1000; p.account_ordinal = kAccountModuleApiOrdinal;
+UpdatePackageDescriptor failure_package(u8 digest) noexcept {
+    UpdatePackageDescriptor p{}; p.version = digest; p.package_bytes = 1000; p.member_count = 2;
     p.members[0].bytes = 100; p.members[1].bytes = 100;
+    copy_bytes(p.members[0].name, "MaiCord.exe", 11); p.members[0].name_bytes = 11;
+    copy_bytes(p.members[1].name, "codec.dll", 9); p.members[1].name_bytes = 9;
     for (u32 i = 0; i < 32; ++i) {
         p.document_sha256[i] = digest; p.package_sha256[i] = static_cast<u8>(digest + 1);
         p.members[0].sha256[i] = static_cast<u8>(digest + 2); p.members[1].sha256[i] = static_cast<u8>(digest + 3);
     }
     return p;
 }
-bool failure_authority(void*, UpdateGenerationTransaction*, const UpdatePairDescriptor&, DWORD* native) noexcept {
+bool failure_authority(void*, UpdateGenerationTransaction*, const UpdatePackageDescriptor&, DWORD* native) noexcept {
     if (native) *native = 0; return true; // synthetic journal policy, not publisher proof
 }
 bool failure_read(const wchar_t* path, u8* record) noexcept {
@@ -177,12 +180,13 @@ bool failure_unchanged(const UpdateGenerationTransaction& owner, const wchar_t* 
 bool failure_dispose_candidate(UpdateGenerationTransaction& owner, UpdateGenerationDirectory& directory,
     const UpdateGenerationAuthenticator& auth, generation_fault_test::Fault intent_fault, UpdateGenerationError expected,
     const wchar_t* state_path, void (*check)(bool, const char*) noexcept) noexcept {
-    const auto& pair = owner.state.candidate.pair;
-    if (!fault_generation_directory_open(&owner, {pair.document_sha256, 32}, true, &directory).ok()) return false;
+    const auto& candidate = owner.state.candidate.package;
+    if (!fault_generation_directory_open(&owner, {candidate.document_sha256, 32}, true, &directory).ok()) return false;
     UpdateGenerationDisposalIntent intent{}; intent.target = UpdateGenerationDisposalTarget::candidate; intent.directory = directory.identity;
-    for (u32 i = 0; i < 5; ++i) {
+    const u32 files = intent.file_count = fault_generation_file_count(candidate);
+    for (u32 i = 0; i < files; ++i) {
         HANDLE file = nullptr;
-        if (!fault_generation_file_open(&directory, static_cast<UpdateGenerationFile>(i), true, &file).ok()) return false;
+        if (!fault_generation_file_open(&directory, fault_generation_file_name(candidate, i), true, &file).ok()) return false;
         BY_HANDLE_FILE_INFORMATION info{}; const u8 payload = static_cast<u8>(i + 1); DWORD written = 0;
         const bool captured = WriteFile(file, &payload, 1, &written, nullptr) && written == 1 && FlushFileBuffers(file) && GetFileInformationByHandle(file, &info);
         if (!CloseHandle(file) || !captured) return false;
@@ -193,9 +197,9 @@ bool failure_dispose_candidate(UpdateGenerationTransaction& owner, UpdateGenerat
     generation_fault_test::fault = intent_fault;
     const auto rejected = fault_generation_commit(&owner, proposed, auth);
     bool all_retained = true;
-    for (u32 i = 0; i < 5; ++i) {
+    for (u32 i = 0; i < files; ++i) {
         wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 count = 0;
-        all_retained &= fault_generation_path(owner, {pair.document_sha256, 32}, static_cast<UpdateGenerationFile>(i),
+        all_retained &= fault_generation_path(owner, {candidate.document_sha256, 32}, fault_generation_file_name(candidate, i),
             {path, sizeof(path) / sizeof(path[0])}, &count).ok() && GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
     }
     check(rejected.error == expected && failure_unchanged(owner, state_path, before) && all_retained &&
@@ -203,9 +207,9 @@ bool failure_dispose_candidate(UpdateGenerationTransaction& owner, UpdateGenerat
         "generation failures: failed disposal-intent write/short-write/flush/close/replace preserves all captured files and prior journal before deletion");
     if (!fault_generation_cleanup_record(&owner).ok() || !fault_generation_commit(&owner, proposed, auth).ok() ||
         !fault_generation_directory_authorize_disposal(&directory, auth).ok() || !fault_generation_disposal_inventory(&directory).ok()) return false;
-    for (u32 i = 0; i < 5; ++i) {
+    for (u32 i = 0; i < files; ++i) {
         wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 count = 0;
-        if (!fault_generation_path(owner, {pair.document_sha256, 32}, static_cast<UpdateGenerationFile>(i),
+        if (!fault_generation_path(owner, {candidate.document_sha256, 32}, fault_generation_file_name(candidate, i),
             {path, sizeof(path) / sizeof(path[0])}, &count).ok()) return false;
         HANDLE file = CreateFileW(path, GENERIC_READ | DELETE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         FILE_DISPOSITION_INFO disposed{TRUE};
@@ -239,7 +243,7 @@ void test_update_generation_failures(void (*check)(bool, const char*) noexcept) 
     if (!failure_ancestry(root, ids, &count)) { check(false, "generation failures: explicit ancestor identity enrollment"); return; }
     UpdateGenerationEnrollment e{}; e.root = {root, failure_length(root)}; e.ancestors = {ids, count};
     e.installation.bytes[0] = 0x81; e.publisher_inventory_sha256[0] = 0x55; e.explicitly_enrolled = true;
-    UpdateGenerationState initial{}; initial.installation = e.installation; initial.sequence = 1; initial.active = {failure_pair(5), true};
+    UpdateGenerationState initial{}; initial.installation = e.installation; initial.sequence = 1; initial.active = {failure_package(5), true};
     UpdateGenerationIdentity transaction{}; transaction.bytes[0] = 0x42;
     UpdateGenerationAuthenticator auth{nullptr, failure_authority};
     check(fault_generation_begin(e, &owner, true).ok() && fault_generation_commit(&owner, initial, auth).ok(),
@@ -250,7 +254,7 @@ void test_update_generation_failures(void (*check)(bool, const char*) noexcept) 
         UpdateGenerationError::release, UpdateGenerationError::commit};
     for (u32 i = 0; i < sizeof(failures) / sizeof(failures[0]); ++i) {
         u8 before[kUpdateGenerationRecordBytes]{}; fault_generation_encode(owner.state, {before, sizeof(before)});
-        UpdateGenerationState proposed{}; fault_generation_prepare(owner.state, transaction, failure_pair(6), &proposed);
+        UpdateGenerationState proposed{}; fault_generation_prepare(owner.state, transaction, failure_package(6), &proposed);
         fault = failures[i]; const auto result = fault_generation_commit(&owner, proposed, auth);
         check(result.error == errors[i] && failure_unchanged(owner, state_path, before) && owner.record_temporary &&
             (failures[i] == Fault::move ? !owner.record_owner : owner.record_owner != nullptr),
@@ -270,11 +274,11 @@ void test_update_generation_failures(void (*check)(bool, const char*) noexcept) 
         fault_generation_rollback(owner.state, &abandoned); fault_generation_commit(&owner, abandoned, auth);
         check(!fault_generation_finish(owner.state, true, &finished).ok() &&
             failure_dispose_candidate(owner, directory, auth, failures[i], errors[i], state_path, check),
-            "generation failures: retry fixture publishes real captured disposal intent before returning through legal rollback to old whole pair");
+            "generation failures: retry fixture publishes real captured disposal intent before returning through legal rollback to old whole package");
     }
     // A completed temporary followed by process loss is exercised by releasing
     // only the returned process-local gate/ancestry owners; the valid .new is left.
-    UpdateGenerationState proposed{}; fault_generation_prepare(owner.state, transaction, failure_pair(6), &proposed);
+    UpdateGenerationState proposed{}; fault_generation_prepare(owner.state, transaction, failure_package(6), &proposed);
     u8 before[kUpdateGenerationRecordBytes]{}; fault_generation_encode(owner.state, {before, sizeof(before)});
     fault = Fault::move;
     check(fault_generation_commit(&owner, proposed, auth).error == UpdateGenerationError::commit && owner.record_temporary && !owner.record_owner,
@@ -294,7 +298,7 @@ void test_update_generation_failures(void (*check)(bool, const char*) noexcept) 
         "generation failures: failed transient directory close retains distinct validation owner and blocks reuse");
     check(fault_generation_release(&owner).ok() && !owner.validation_owner && fault_generation_begin(e, &owner).ok(),
         "generation failures: release retry drains validation owner and cold reopen preserves the journal");
-    const auto candidate = failure_pair(7);
+    const auto candidate = failure_package(7);
     fault = Fault::find_close;
     check(fault_generation_directory_open(&owner, {candidate.document_sha256, 32}, true, &directory).error == UpdateGenerationError::release &&
         owner.inventory_owner && !directory.created && !directory.directory &&

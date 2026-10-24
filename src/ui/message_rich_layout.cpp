@@ -206,51 +206,29 @@ bool message_rich_layout_equal(const MessageRichLayout& left, const MessageRichL
            left.invites == right.invites;
 }
 
+// Every MessageRichItemLayout member is a float extent.
+constexpr u32 kItemLayoutFloats = sizeof(MessageRichItemLayout) / sizeof(float);
+static_assert(sizeof(MessageRichItemLayout) == kItemLayoutFloats * sizeof(float));
+
 bool message_rich_item_layout_valid(const MessageRichItemLayout& layout) noexcept {
-    for (float width : layout.component_widths)
-        if (!ui_extent_valid(width))
+    const auto* values = reinterpret_cast<const float*>(&layout);
+    for (u32 index = 0; index < kItemLayoutFloats; ++index)
+        if (!ui_extent_valid(values[index]))
             return false;
     float total = 0.0f;
-    for (u32 index = 0; index < kMessageRichItemMaximum; ++index) {
-        if (!ui_extent_valid(layout.heights[index])) {
-            return false;
-        }
-        total += layout.heights[index];
-    }
-    for (u32 index = 0; index < kGatewayMessageEmbedMaximum; ++index) {
-        if (!ui_extent_valid(layout.embed_widths[index]) ||
-            !ui_extent_valid(layout.embed_media_tops[index]) ||
-            !ui_extent_valid(layout.embed_media_widths[index]) ||
-            !ui_extent_valid(layout.embed_media_heights[index]) ||
-            !ui_extent_valid(layout.embed_author_tops[index]) ||
-            !ui_extent_valid(layout.embed_footer_tops[index])) {
-            return false;
-        }
-    }
-    return ui_extent_valid(total) && ui_extent_valid(layout.reply_width);
+    for (float height : layout.heights)
+        total += height;
+    return ui_extent_valid(total);
 }
 
 bool message_rich_item_layout_equal(const MessageRichItemLayout& left,
                                     const MessageRichItemLayout& right) noexcept {
-    for (u32 i = 0; i < kGatewayMessageComponentMaximum; ++i)
-        if (left.component_widths[i] != right.component_widths[i])
+    const auto* a = reinterpret_cast<const float*>(&left);
+    const auto* b = reinterpret_cast<const float*>(&right);
+    for (u32 index = 0; index < kItemLayoutFloats; ++index)
+        if (a[index] != b[index])
             return false;
-    for (u32 index = 0; index < kMessageRichItemMaximum; ++index) {
-        if (left.heights[index] != right.heights[index]) {
-            return false;
-        }
-    }
-    for (u32 index = 0; index < kGatewayMessageEmbedMaximum; ++index) {
-        if (left.embed_widths[index] != right.embed_widths[index] ||
-            left.embed_media_tops[index] != right.embed_media_tops[index] ||
-            left.embed_media_widths[index] != right.embed_media_widths[index] ||
-            left.embed_media_heights[index] != right.embed_media_heights[index] ||
-            left.embed_author_tops[index] != right.embed_author_tops[index] ||
-            left.embed_footer_tops[index] != right.embed_footer_tops[index]) {
-            return false;
-        }
-    }
-    return left.reply_width == right.reply_width;
+    return true;
 }
 
 bool message_rich_item_slot(MessageRichItemKind kind, u32 index, u32* slot) noexcept {

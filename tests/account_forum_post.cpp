@@ -199,21 +199,6 @@ void transport() noexcept {
               capture.active_id == 201,
           "forum account: published receipt remains available for exact drain");
 }
-void dormant_abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "forum account: cold DLL loads without credentials");
-    if (!host.module)
-        return;
-    ForumPostRequest request{};
-    request.parent_id = 20;
-    request.guild_id = 10;
-    request.operation = ForumPostOperation::parent_metadata;
-    check(host.api.forum_post(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.forum_post(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "forum account: dormant callback allocates no account or worker");
-    account_host_release(&host);
-}
 } // namespace forum_account_test
 RestClientSubmitResult rest_client_submit(RestClient* rest,
                                           const RestClientRequest& request) noexcept {
@@ -248,6 +233,5 @@ bool rest_client_cancel(RestClient* rest, u64 id) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_forum_post_test_entry() noexcept {
     maicord::forum_account_test::transport();
-    maicord::forum_account_test::dormant_abi();
     ExitProcess(maicord::forum_account_test::failures ? 1 : 0);
 }

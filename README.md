@@ -132,9 +132,9 @@ cd MaiCord
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-The script finds Visual Studio, builds `MaiCord.exe` and `MaiCordAccount.dll`
-into the sibling directory `..\MaiCord-build\Release`, and audits both
-binaries. Close MaiCord before rebuilding.
+The script finds Visual Studio, builds `MaiCord.exe` into the sibling
+directory `..\MaiCord-build\Release`, and audits it. Close MaiCord before
+rebuilding.
 
 Run the test suite with `tools\build.ps1 -Test` (add `-TestNames <name>` for a
 single test). It finishes in under 20 seconds and removes its output

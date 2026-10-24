@@ -943,77 +943,11 @@ void test_decoders() noexcept {
 
 // v122: every CDN URL entry is the module's copy of the protocol function, so
 // it returns exactly what this test's own (protocol library) copy returns.
-bool same_media(MediaUrlResult left, MediaUrlResult right, const u8* a, const u8* b) noexcept {
-    return left.target_bytes == right.target_bytes && left.host == right.host &&
-           left.error == right.error && bytes_equal(a, b, left.target_bytes);
-}
 bool same_target(CdnTargetResult left, CdnTargetResult right, const u8* a, const u8* b) noexcept {
     return left.bytes == right.bytes && left.host == right.host && left.error == right.error &&
            bytes_equal(a, b, left.bytes);
 }
 
-void test_cdn_urls(const AccountHost& host) noexcept {
-    const AccountModuleCdnUrls& m = host.api.cdn_urls;
-    u8 a[kCdnMaximumTargetBytes]{}, b[kCdnMaximumTargetBytes]{};
-    const Slice<u8> sa{a, sizeof(a)}, sb{b, sizeof(b)};
-    const Utf8View hash = utf8_literal("a_0123456789abcdef0123456789abcdef");
-    const Utf8View signed_url =
-        utf8_literal("https://cdn.discordapp.com/attachments/7/200/a.gif?ex=2&is=1&hm="
-                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&animated=true");
-    const auto attachment = m.parse_signed_attachment_url(signed_url, 200, sa);
-    const auto attachment_local = parse_signed_attachment_url(signed_url, 200, sb);
-    const auto mismatch = m.parse_signed_attachment_url(signed_url, 201, sa);
-    bool same = bytes_equal(&attachment, &attachment_local, sizeof(attachment)) &&
-                bytes_equal(a, b, attachment.target_bytes) &&
-                mismatch.error == parse_signed_attachment_url(signed_url, 201, sb).error;
-    const Utf8View urls[]{utf8_literal("https://media.discordapp.net/stickers/7.png?size=160"),
-                          utf8_literal("https://example.com/x.png"), signed_url, Utf8View{}};
-    for (const Utf8View url : urls) {
-        same = same && same_media(m.parse_media_url(url, sa), parse_media_url(url, sb), a, b);
-        char la[96]{}, lb[96]{};
-        const u32 log_a = m.media_url_log_fields(url, {la, sizeof(la)});
-        same = same && log_a == media_url_log_fields(url, {lb, sizeof(lb)}) && bytes_equal(la, lb, log_a);
-    }
-    const Utf8View sources[]{utf8_literal("https://static.klipy.com/ii/abc/de/fg/hi.gif"),
-                             utf8_literal("https://media.tenor.com/AbCdEfGhIjKAAAAC/cat.gif"),
-                             utf8_literal("https://example.com/v.mp4")};
-    for (const Utf8View src : sources) {
-        const auto format = catalog_favorite_format(src);
-        same = same && m.catalog_favorite_format(src) == format &&
-               same_media(m.parse_catalog_preview_url(src, sa, format, 120, 80),
-                          parse_catalog_preview_url(src, sb, format, 120, 80), a, b);
-    }
-    const ConstSlice<u8> sound{reinterpret_cast<const u8*>("/soundboard-sounds/42"), 21};
-    const ConstSlice<u8> sticker{reinterpret_cast<const u8*>("/stickers/42.json"), 17};
-    same = same && m.soundboard_target_valid(sound) == soundboard_target_valid(sound) &&
-           m.soundboard_target_valid(sound) && m.sticker_json_target_valid(sticker) &&
-           m.sticker_json_target_valid(sound) == sticker_json_target_valid(sound) &&
-           m.catalog_provider_target_valid(CdnHost::catalog_klipy, sticker) ==
-               catalog_provider_target_valid(CdnHost::catalog_klipy, sticker) &&
-           m.cdn_guild_icon_variant(hash) == cdn_guild_icon_variant(hash) &&
-           m.cdn_guild_icon_variant(hash) &&
-           m.cdn_host_name(CdnHost::media).bytes == cdn_host_name(CdnHost::media).bytes &&
-           bytes_equal(m.cdn_host_name(CdnHost::media).data, "media.discordapp.net", 20) &&
-           same_target(m.write_custom_emoji_cdn_target(7, true, 64, sa),
-                       write_custom_emoji_cdn_target(7, true, 64, sb), a, b) &&
-           same_target(m.write_guild_icon_cdn_target(9, hash, 128, sa, false),
-                       write_guild_icon_cdn_target(9, hash, 128, sb, false), a, b) &&
-           same_target(m.write_user_avatar_cdn_target(9, hash, 64, sa),
-                       write_user_avatar_cdn_target(9, hash, 64, sb), a, b) &&
-           same_target(m.write_channel_icon_cdn_target(9, hash, 32, sa),
-                       write_channel_icon_cdn_target(9, hash, 32, sb), a, b) &&
-           same_target(m.write_sticker_cdn_target(5, 4, sa), write_sticker_cdn_target(5, 4, sb), a, b) &&
-           same_target(m.write_sticker_cdn_target(5, 9, sa), write_sticker_cdn_target(5, 9, sb), a, b);
-    const ConstSlice<u8> avatar{
-        reinterpret_cast<const u8*>("/avatars/9/0123456789abcdef0123456789abcdef.webp"), 48};
-    same =
-        same &&
-        same_target(
-            m.write_media_proxy_target(avatar, CdnHost::cdn, 64, 64, CdnMediaFormat::webp, sa, true),
-            write_media_proxy_target(avatar, CdnHost::cdn, 64, 64, CdnMediaFormat::webp, sb, true), a, b);
-    check(same && attachment.ok() && !mismatch.ok(),
-          "cdn urls account: the entries return exactly the protocol functions' results");
-}
 
 // Server Profile, Boost Perks and the custom invite link at the transport.
 void test_profile_and_boost() noexcept {
@@ -1096,38 +1030,6 @@ void test_profile_and_boost() noexcept {
           "guild admin account: without new images there is no MD5 header");
 }
 
-void test_abi() noexcept {
-    AccountHost host{};
-    const auto loaded = account_host_load(&host);
-    check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
-    if (!loaded.ok())
-        return;
-    check(host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
-          "guild admin account: appended entry rejects an absent owner without creating runtime");
-    check(host.api.guild_moderation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
-          "guild moderation account: the appended entry rejects an absent owner without creating runtime");
-    GuildAssetRequest probe{};
-    probe.operation = GuildAssetOperation::image_probe;
-    probe.image = {reinterpret_cast<const u8*>("x"), 1};
-    check(host.api.guild_assets(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.guild_assets(nullptr, &probe, 0).error == RestClientSubmitError::invalid_input,
-          "guild assets account: the appended entry rejects an absent owner without creating runtime");
-    StageRequest stage{};
-    stage.operation = StageOperation::lower_hand;
-    stage.guild_id = 10;
-    stage.channel_id = 20;
-    check(host.api.stage(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.stage(nullptr, &stage, 0).error == RestClientSubmitError::invalid_input,
-          "stage account: the appended entry rejects an absent owner without creating runtime");
-    GatewayClientVoiceVideoSnapshot video{};
-    video.count = 7;
-    check(!host.api.voice_video_snapshot(nullptr, &video) && video.count == 7 &&
-              !host.api.voice_video_wanted(nullptr, 42, false),
-          "voice video account: the appended entries reject an absent owner without creating runtime");
-    test_cdn_urls(host);
-    check(!host.instance && !host.login_instance, "guild admin account: inspection creates no account actors");
-    account_host_release(&host);
-}
 
 } // namespace guild_admin_test
 
@@ -1190,7 +1092,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() 
     test_role_toggle();
     test_decoders();
     test_profile_and_boost();
-    test_abi();
     constexpr char pass[] = "PASS guild admin protocol and transport\n";
     constexpr char fail[] = "FAIL guild admin protocol and transport\n";
     DWORD written = 0;

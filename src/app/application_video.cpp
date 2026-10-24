@@ -516,7 +516,7 @@ bool request_video_source(const InlineMediaSource& source, bool* refresh = nullp
         // message (or forwarded snapshot), never from another visible row.
         if (source.snapshot) content = message_rich_store_string(*store, rich->snapshot.content);
         url = youtube_collection_source(media.source, content);
-        u8 target[kCdnMaximumTargetBytes]{};
+        u8 target[kCdnMaximumTargetBytes];
         if (!parse_media_url(url, {target, sizeof(target)}).ok() && media.fallback_source.bytes &&
             parse_media_url(media.fallback_source, {target, sizeof(target)}).ok())
             url = media.fallback_source;

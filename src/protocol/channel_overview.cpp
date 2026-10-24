@@ -170,7 +170,7 @@ ChannelOverviewResult channel_overview_decode(Utf8View input, bool partial,
 ChannelOverviewResult channel_overview_write_target(u64 channel_id, Slice<u8> output) noexcept {
     if (!channel_id || !byte_range_valid({output.data, output.count}))
         return {0, ChannelOverviewError::input};
-    u8 target[64]{};
+    u8 target[64];
     ProtocolWriter writer{{target, sizeof(target)}, 0};
     if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
         !protocol_writer_append_u64(&writer, channel_id))
@@ -184,7 +184,7 @@ ChannelOverviewResult channel_overview_write_patch(const ChannelOverviewPatch& p
                                                    Slice<u8> output) noexcept {
     if (!channel_overview_patch_valid(patch) || !byte_range_valid({output.data, output.count}))
         return {0, ChannelOverviewError::input};
-    u8 temporary[kChannelOverviewMaximumBodyBytes]{};
+    u8 temporary[kChannelOverviewMaximumBodyBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
     if (!write(patch, &writer))
         return {0, ChannelOverviewError::capacity};

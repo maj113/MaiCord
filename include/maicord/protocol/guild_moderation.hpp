@@ -127,9 +127,18 @@ GuildModerationResult guild_moderation_write_reason(const GuildModerationRequest
 // A bulk ban carries the header, possibly with an empty value.
 bool guild_moderation_reason_header(const GuildModerationRequest&) noexcept;
 // The chunk size of a members table page size: max(5 x page size, 250).
-u32 guild_member_search_limit(u32 page_size) noexcept;
+constexpr u32 guild_member_search_limit(u32 page_size) noexcept {
+    return page_size * 5 > kGuildMemberSearchChunkMinimum ? page_size * 5 : kGuildMemberSearchChunkMinimum;
+}
 // The service's snowflake test for search pieces (17 to 19 digits).
-bool guild_member_search_snowflake(Utf8View text) noexcept;
+constexpr bool guild_member_search_snowflake(Utf8View text) noexcept {
+    if (text.bytes < 17 || text.bytes > 19)
+        return false;
+    for (u32 i = 0; i < text.bytes; ++i)
+        if (text.data[i] < '0' || text.data[i] > '9')
+            return false;
+    return true;
+}
 // The decimal snowflake of a Unix millisecond time ((ms - epoch) << 22, "0"
 // at or before the epoch). Returns the digits written.
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept;

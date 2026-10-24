@@ -65,7 +65,7 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_stage(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_pair_package(void (*check)(bool, const char*) noexcept) noexcept;
+void test_update_package(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_generation(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_generation_authentication(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_generation_failures(void (*check)(bool, const char*) noexcept) noexcept;
@@ -197,7 +197,7 @@ constexpr ExtensionFixture extension_fixtures[]{
     test_update_acceptance,
     test_update_stage,
     test_update_prepare,
-    test_update_pair_package,
+    test_update_package,
     test_update_generation,
     test_update_generation_authentication,
     test_update_generation_failures,

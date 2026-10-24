@@ -1,9 +1,8 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 
-// Readers for the notification records the account module publishes. The
-// client drains these from the mailbox; keeping them apart from the Gateway
-// JSON router keeps that router (and its decoders) out of the client image.
+// Readers for the notification records the account module publishes; the
+// client drains these from the mailbox.
 namespace maicord {
 
 bool gateway_client_notification_entry(const GatewayClientEvent& e, ConstSlice<u8> p,

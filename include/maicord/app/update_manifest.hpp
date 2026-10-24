@@ -6,6 +6,13 @@
 
 namespace maicord {
 
+// The update protocol: package layout and manifest schema. A client reads only
+// updates/p<protocol>/ and accepts manifests whose format is its protocol. A
+// release that changes it is also published under the previous protocol, so
+// older clients reach it through the newest release they can still install.
+inline constexpr u32 kUpdateProtocol = 2;
+inline constexpr Utf8View kUpdateProtocolDirectory = utf8_literal("/updates/p2/");
+inline constexpr Utf8View kUpdateArtifactPrefix = utf8_literal("MaiCord-x64-p2-");
 inline constexpr u32 kUpdateManifestMaximumBytes = 4096;
 inline constexpr u32 kUpdateArtifactNameCapacity = 64;
 // Sign this prefix followed by the UTF-8 document bytes, with SHA-256

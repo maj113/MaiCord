@@ -191,9 +191,8 @@ maicord_program(MaiCordRestBenchmark ENTRY maicord_rest_benchmark_entry
     LIBS maicord_core maicord_protocol kernel32)
 maicord_program(MaiCordAccountBenchmark ENTRY maicord_account_benchmark_entry
     SOURCES src/model/user_profile.cpp benchmarks/account_benchmark.cpp
-    LIBS maicord_account_paths maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model
-        kernel32 ws2_32 secur32 bcrypt crypt32
-    DEPENDS MaiCordAccount)
+    LIBS maicord_account_host maicord_account_paths maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model
+        kernel32 ws2_32 secur32 bcrypt crypt32)
 # Fresh-process glyph atlas and repeated-render observations
 # (tools/measure_glyph_cache.py --side native|reference).
 maicord_program(MaiCordGlyphCacheProbe WIN32 ENTRY maicord_glyph_cache_probe_entry

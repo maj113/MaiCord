@@ -28,7 +28,7 @@ struct UpdateHandoffResult {
 
 // Zero initialized, noncopyable by contract. No heap, permanent worker or named
 // IPC. Failed close/unmap leaves the handle for a release retry. A launch
-// does not acknowledge startup. Caller keeps generation gate and pair pins live
+// does not acknowledge startup. Caller keeps generation gate and member pins live
 // through launch, then coordinates journal acknowledgement/recovery separately.
 struct UpdateHandoff {
     HANDLE process, thread;
@@ -43,15 +43,15 @@ struct UpdateHandoff {
 
 // Gate is supplied only by the trusted installation enrollment caller. This API
 // reauthenticates the active descriptor under the concrete enrolled public-key
-// inventory and binds both borrowed pins to fixed generation file identities.
+// inventory and binds every borrowed member pin to its generation file identity.
 // No executable/source/destination path is accepted from an offer or command line.
-// Pending may launch its authenticated active pair; that never advances journal.
+// Pending may launch its authenticated active package; that never advances journal.
 // The permission comes only from a live coordinator activation, never a parsed
 // pending journal. Stable dispatcher launches use nullptr and preserve the
 // stable journal's zero transaction identity; their startup acknowledgement cannot
 // acknowledge a pending installation transaction.
 UpdateHandoffResult update_handoff_launch(UpdateGenerationTransaction*,
-    UpdateGenerationAuthenticationContext*, const UpdatePair&, bool trusted_caller_enrolled,
+    UpdateGenerationAuthenticationContext*, const UpdatePackage&, bool trusted_caller_enrolled,
     const UpdateGenerationLaunchAdmission* live_pending_admission, UpdateHandoff*) noexcept;
 // One native wait. Cancel is borrowed and optional; cancellation and
 // process death take precedence when already signalled. A malformed/stale ack

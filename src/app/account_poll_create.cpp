@@ -7,9 +7,9 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
                                                   const PollCreate* poll, u64 request_id) noexcept {
     if (!rest || !channel_id || !nonce || !poll || !request_id || !poll_create_valid(*poll))
         return {RestClientSubmitError::invalid_input};
-    u8 target[96]{};
+    u8 target[96];
     // Fully escaped question, ten answers and their emoji stay below this.
-    u8 body[16 * 1024]{};
+    u8 body[16 * 1024];
     const auto path = write_message_create_target(channel_id, {target, sizeof(target)});
     if (!path.ok()) return {RestClientSubmitError::target_capacity};
     const auto written = write_message_poll_body(*poll, nonce, {body, sizeof(body)});
@@ -22,7 +22,7 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
                kRestClientDefaultTimeoutMs,
                true,
                false});
-    secure_clear_bytes(body, sizeof(body));
+    secure_clear_bytes(body, written.bytes);
     return submitted;
 }
 RestClientSubmitResult account_poll_create_cancel(RestClient* rest, u64 request_id) noexcept {

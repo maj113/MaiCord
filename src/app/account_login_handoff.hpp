@@ -11,8 +11,8 @@
 #include "maicord/platform/random.hpp"
 #include <stddef.h>
 
-// Shared login orchestration, kept local to this translation unit for the account DLL and
-// native handoff tests. This adds no worker or other resource.
+// Shared login orchestration, kept local to this translation unit for the account module
+// and native handoff tests. This adds no worker or other resource.
 namespace maicord {
 namespace {
 

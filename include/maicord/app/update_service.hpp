@@ -91,7 +91,7 @@ struct UpdateService {
     UpdatePreparationContext preparation;
     UpdatePreparationResult preparation_result;
     UpdateStage stage;
-    UpdatePair pair;
+    UpdatePackage package;
     UpdateHandoff handoff;
     UpdateProgress progress;
     // Optional: a changelog buffer (null skips the changelog) and an observer.
@@ -112,10 +112,10 @@ UpdateServiceError update_service_open(UpdateService*, bool provision) noexcept;
 void update_service_close(UpdateService*) noexcept;
 UpdateServiceError update_service_inspect(UpdateService*, UpdateInstalledState*) noexcept;
 UpdateCheckResult update_service_check(UpdateService*, const UpdateTransport&, UpdateChannel, u64 now_unix) noexcept;
-// Launches the prepared (live activation) or newer/reverted stable pair and
+// Launches the prepared (live activation) or newer/reverted stable package and
 // waits for its startup confirmation. none means the caller should exit.
 UpdateServiceError update_service_restart(UpdateService*) noexcept;
-// Stable with a retained older previous pair: make it active again.
+// Stable with a retained older previous package: make it active again.
 UpdateServiceError update_service_revert(UpdateService*) noexcept;
 // Startup: launch an authenticated newer active generation. true when it
 // confirmed startup and this process should exit.

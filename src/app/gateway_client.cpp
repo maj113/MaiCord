@@ -820,7 +820,7 @@ bool self_settings_json(Utf8View source, SelfSettingsJson* parsed) noexcept {
 bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value, bool partial) noexcept {
     auto& owner = runtime->self_status;
     JsonString encoded{};
-    u8 group[kSelfStatusSettingsMaximumGroupBytes]{};
+    u8 group[kSelfStatusSettingsMaximumGroupBytes];
     SelfStatusSettingsProjection projection{};
     const bool decoded = json_value_as_string(value, &encoded) && !encoded.has_escapes &&
                          self_status_settings_decode_base64(encoded.encoded, {group, sizeof(group)},
@@ -3208,8 +3208,8 @@ RestClientSubmitResult submit_status_group_patch(GatewayClient* client, RestClie
     if (!runtime || !rest || !request_id || !profile || !self ||
         load_phase(client) != GatewayClientPhase::ready)
         return invalid;
-    u8 scratch[kSelfStatusSettingsMaximumGroupBytes + 704]{};
-    u8 body[kSelfStatusSettingsMaximumPatchBytes + 1024]{};
+    u8 scratch[kSelfStatusSettingsMaximumGroupBytes + 704];
+    u8 body[kSelfStatusSettingsMaximumPatchBytes + 1024];
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     const auto& owner = runtime->self_status;
     if (load_phase(client) != GatewayClientPhase::ready || owner.profile_id != profile ||
@@ -3246,8 +3246,8 @@ RestClientSubmitResult gateway_client_self_status_submit(GatewayClient* client,
         return invalid;
     // Submit copies synchronously; hold one existing lock through validation,
     // body construction and enqueueing so a remote update cannot race the patch.
-    u8 scratch[kSelfStatusSettingsMaximumGroupBytes + 64]{};
-    u8 body[kSelfStatusSettingsMaximumPatchBytes]{};
+    u8 scratch[kSelfStatusSettingsMaximumGroupBytes + 64];
+    u8 body[kSelfStatusSettingsMaximumPatchBytes];
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     auto& owner = runtime->self_status;
     if (load_phase(client) != GatewayClientPhase::ready || owner.profile_id != profile ||

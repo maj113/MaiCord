@@ -56,7 +56,7 @@ ThreadActionResult thread_action_write_target(
     const ThreadActionRequest& request, Slice<u8> output) noexcept {
     if (!thread_action_request_valid(request) || !byte_range_valid({output.data, output.count}))
         return {0, ThreadActionError::input};
-    u8 temporary[kThreadActionMaximumTargetBytes]{};
+    u8 temporary[kThreadActionMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
     if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
         !protocol_writer_append_u64(&writer, request.thread_id) ||

@@ -1126,7 +1126,7 @@ CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 s
     if (emoji_id == 0 || !image_size_valid(size) || (!output.data && output.count != 0)) {
         return failure(CdnTargetError::invalid_input);
     }
-    u8 target[96]{};
+    u8 target[96];
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
     const bool written = protocol_writer_append_literal(&writer, "/emojis/") &&
                          protocol_writer_append_u64(&writer, emoji_id) &&
@@ -1158,7 +1158,7 @@ CdnTargetResult write_hashed_asset_target(const char (&prefix)[N], u64 id, Utf8V
         (!output.data && output.count != 0)) {
         return failure(CdnTargetError::invalid_input);
     }
-    u8 target[128]{};
+    u8 target[128];
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
     const bool animated = animate && asset_hash_animated(hash);
     const bool written =
@@ -1210,7 +1210,7 @@ CdnTargetResult write_sticker_cdn_target(u64 sticker_id, u32 format_type,
     default:
         return failure(CdnTargetError::unsupported_format);
     }
-    u8 target[64]{};
+    u8 target[64];
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
     const bool written = protocol_writer_append_literal(&writer, "/stickers/") &&
                          protocol_writer_append_u64(&writer, sticker_id) &&

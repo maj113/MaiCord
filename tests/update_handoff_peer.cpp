@@ -34,12 +34,13 @@ bool fixture_ids(maicord::ConstSlice<wchar_t> line, maicord::UpdateHandoffIdenti
     return true;
 }
 struct SignedPeerValidation {
-    HANDLE files[6]{}; // bounded journal, EXE, DLL, offer, signature, outer package
+    HANDLE journal{}, files[maicord::kUpdateGenerationMaximumFiles]{}; // generation files by slot
     maicord::KdfSha256Workspace workspace{};
     maicord::P256Key key{};
-    maicord::UpdatePairResult verification{};
+    maicord::UpdatePackageResult verification{};
     bool release() noexcept {
-        bool ok = maicord::update_pair_cleanup_release(&verification).ok();
+        bool ok = maicord::update_package_cleanup_release(&verification).ok();
+        if (journal) { if (!CloseHandle(journal)) ok = false; else journal = nullptr; }
         for (auto& h : files) if (h) { if (!CloseHandle(h)) ok = false; else h = nullptr; }
         maicord::p256_release(&key); maicord::kdf_sha256_release(&workspace); return ok;
     }
@@ -75,29 +76,36 @@ bool independently_validate_signed_fixture(SignedPeerValidation& owner, maicord:
     copy_bytes(generation, module, (exe_separator - 1) * sizeof(wchar_t));
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; signed_update_fixture::child(root, L"install.state", path);
     u64 bytes = 0; u8 record[kUpdateGenerationRecordBytes]{}; UpdateGenerationState state{};
-    if (!signed_file(path, &owner.files[0], &bytes) || bytes != sizeof(record) || !signed_read(owner.files[0], record, sizeof(record)) ||
+    if (!signed_file(path, &owner.journal, &bytes) || bytes != sizeof(record) || !signed_read(owner.journal, record, sizeof(record)) ||
         !update_generation_decode({record,sizeof(record)}, &state).ok() || state.phase != UpdateGenerationPhase::pending || !state.active.present) return false;
     UpdateGenerationIdentity enrolled_fixture{}; enrolled_fixture.bytes[0] = 0x53;
     UpdateGenerationIdentity expected_transaction{}; expected_transaction.bytes[0] = 0xe1;
     if (!bytes_equal(state.installation.bytes, enrolled_fixture.bytes, 16) || !bytes_equal(state.transaction.bytes, expected_transaction.bytes, 16)) return false;
     constexpr wchar_t digits[] = L"0123456789abcdef";
-    for (u32 i = 0; i < 32; ++i) if (module[root_separator + 2 + i * 2] != digits[state.active.pair.document_sha256[i] >> 4] ||
-        module[root_separator + 3 + i * 2] != digits[state.active.pair.document_sha256[i] & 15]) return false;
-    constexpr const wchar_t* names[]{L"MaiCord.exe",L"MaiCordAccount.dll",L"offer.json",L"offer.sig",L"package.zip"};
-    u64 sizes[5]{};
-    for (u32 i = 0; i < 5; ++i) { signed_update_fixture::child(generation, names[i], path);
-        if (!signed_file(path, &owner.files[i + 1], &sizes[i])) return false; }
-    if (!sizes[2] || sizes[2] > kUpdateManifestMaximumBytes || sizes[3] != 64 || sizes[4] != state.active.pair.package_bytes || sizes[4] > 64 * 1024 * 1024) return false;
+    for (u32 i = 0; i < 32; ++i) if (module[root_separator + 2 + i * 2] != digits[state.active.package.document_sha256[i] >> 4] ||
+        module[root_separator + 3 + i * 2] != digits[state.active.package.document_sha256[i] & 15]) return false;
+    const auto& active = state.active.package;
+    u64 sizes[kUpdateGenerationMaximumFiles]{};
+    for (u32 i = 0; i < update_generation_file_count(active); ++i) {
+        const Utf8View file = update_generation_file_name(active, i); wchar_t name[kUpdatePackageMaximumNameBytes + 1]{};
+        for (u32 c = 0; c < file.bytes; ++c) name[c] = static_cast<wchar_t>(file.data[c]);
+        signed_update_fixture::child(generation, name, path);
+        if (!signed_file(path, &owner.files[i], &sizes[i])) return false;
+    }
+    const u64 document_bytes = sizes[kUpdateGenerationOfferSlot], package_bytes = sizes[kUpdateGenerationPackageSlot];
+    if (!document_bytes || document_bytes > kUpdateManifestMaximumBytes || sizes[kUpdateGenerationSignatureSlot] != 64 ||
+        package_bytes != active.package_bytes || package_bytes > 64 * 1024 * 1024) return false;
     char document[kUpdateManifestMaximumBytes]{}; u8 signature[64]{}; u32 scratch[256]{};
-    if (!signed_read(owner.files[3], document, static_cast<u32>(sizes[2])) || !signed_read(owner.files[4], signature, sizeof(signature)) ||
+    if (!signed_read(owner.files[kUpdateGenerationOfferSlot], document, static_cast<u32>(document_bytes)) ||
+        !signed_read(owner.files[kUpdateGenerationSignatureSlot], signature, sizeof(signature)) ||
         !kdf_sha256_initialize(&owner.workspace).ok() || !p256_import_public(&owner.key, P256Kind::ecdsa, {signed_update_fixture::public_point,65}).ok()) return false;
-    UpdateStage stage{}; stage.file = owner.files[5]; stage.bytes = sizes[4]; UpdatePairDescriptor derived{};
-    owner.verification = update_pair_package_verify_installed(&stage, {{document,static_cast<u32>(sizes[2])},{signature,64}}, owner.key, owner.workspace,
-        1000, {scratch,256}, owner.files[1], owner.files[2], &derived);
-    if (!owner.verification.ok() || !update_generation_pair_equal(derived, state.active.pair)) return false;
+    UpdateStage stage{}; stage.file = owner.files[kUpdateGenerationPackageSlot]; stage.bytes = package_bytes; UpdatePackageDescriptor derived{};
+    owner.verification = update_package_verify_installed(&stage, {{document,static_cast<u32>(document_bytes)},{signature,64}}, owner.key, owner.workspace,
+        1000, {scratch,256}, {owner.files + kUpdateGenerationFirstMemberSlot, active.member_count}, &derived);
+    if (!owner.verification.ok() || !update_package_descriptor_equal(derived, state.active.package)) return false;
     // The parent still holds the install gate. Drop the child's bounded journal
     // reader before acknowledgement so the parent can replace that record.
-    if (!maicord::signed_update_fixture::close(&owner.files[0])) return false;
+    if (!maicord::signed_update_fixture::close(&owner.journal)) return false;
     identity->installation = state.installation; identity->transaction = state.transaction; copy_bytes(identity->document_sha256, derived.document_sha256, 32);
     return true;
 }
@@ -160,8 +168,8 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_handoff_peer_entry() 
         const auto admitted = account_host_load(&account);
         const bool locally_admitted = admitted.ok() && account_host_api_valid(account.api) && !account.instance && !account.login_instance;
         if (!locally_admitted) code = 35;
-        // No API start/login/pump/REST function is invoked. The actual sibling
-        // DLL is hashed/PE-verified above, then exact native API admission occurs.
+        // No API start/login/pump/REST function is invoked. The members are
+        // verified above, then the linked module's API admission occurs.
         if (locally_admitted && !update_handoff_child_acknowledge(&child, true).ok()) code = 36;
         if (!account_host_release(&account).ok()) code = 37;
         // The test parent stays alive while it awaits this peer's exit, so

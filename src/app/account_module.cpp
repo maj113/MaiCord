@@ -1,4 +1,10 @@
 #include "maicord/app/account_user_social.hpp"
+#include "maicord/protocol/embed_provider.hpp"
+#include "maicord/protocol/emoji_preferences.hpp"
+#include "maicord/protocol/gif_favorites.hpp"
+#include "maicord/protocol/guild_moderation.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/model/user_profile.hpp"
 #include "maicord/app/account_guild_community.hpp"
 #include "maicord/app/account_guild_moderation.hpp"
 #include "maicord/app/account_soundboard.hpp"
@@ -732,7 +738,7 @@ RestClientSubmitResult WINAPI module_history_submit(void* instance, u64 channel_
     if (!rest || !query || request_id == 0) {
         return invalid;
     }
-    u8 target[128]{};
+    u8 target[128];
     const MessageHistoryTargetResult written =
         write_message_history_target(channel_id, *query, Slice<u8>{target, sizeof(target)});
     if (!written.ok()) {
@@ -892,8 +898,8 @@ module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonc
     if (!rest || channel_id == 0 || nonce == 0 || request_id == 0) {
         return invalid;
     }
-    u8 target[96]{};
-    u8 body[kMessageCreateMaximumBodyBytes]{};
+    u8 target[96];
+    u8 body[kMessageCreateMaximumBodyBytes];
     const MessageCreateWriteResult target_written =
         write_message_create_target(channel_id, Slice<u8>{target, sizeof(target)});
     const MessageCreateWriteResult body_written = write_message_create_body(
@@ -908,7 +914,7 @@ module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonc
         RestRouteKey{kMessageCreateRouteId, channel_id, RestMethod::post,
                      RestMajorParameter::channel},
         request_id, true);
-    SecureZeroMemory(body, sizeof(body));
+    SecureZeroMemory(body, body_written.bytes);
     return submitted;
 }
 
@@ -919,8 +925,8 @@ RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destina
     RestClient* rest = module_rest(instance);
     if (!rest || !destination_channel_id || !nonce || !request_id)
         return {RestClientSubmitError::invalid_input};
-    u8 target[96]{};
-    u8 body[kMessageCreateMaximumBodyBytes]{};
+    u8 target[96];
+    u8 body[kMessageCreateMaximumBodyBytes];
     const auto target_written =
         write_message_create_target(destination_channel_id, {target, sizeof(target)});
     const auto body_written =
@@ -936,7 +942,7 @@ RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destina
          RestMajorParameter::channel},
         request_id,
         true);
-    SecureZeroMemory(body, sizeof(body));
+    SecureZeroMemory(body, body_written.bytes);
     return submitted;
 }
 
@@ -947,7 +953,7 @@ RestClientSubmitResult WINAPI module_message_delete(void* instance, u64 channel_
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return invalid;
     }
-    u8 target[128]{};
+    u8 target[128];
     const MessageDeleteWriteResult written =
         write_message_delete_target(channel_id, message_id, Slice<u8>{target, sizeof(target)});
     if (!written.ok()) {
@@ -970,8 +976,8 @@ RestClientSubmitResult WINAPI module_message_edit(void* instance, u64 channel_id
         request_id == 0) {
         return invalid;
     }
-    u8 target[128]{};
-    u8 body[kMessageEditMaximumBodyBytes]{};
+    u8 target[128];
+    u8 body[kMessageEditMaximumBodyBytes];
     const MessageEditWriteResult target_written =
         write_message_edit_target(channel_id, message_id, Slice<u8>{target, sizeof(target)});
     const MessageEditWriteResult body_written =
@@ -985,7 +991,7 @@ RestClientSubmitResult WINAPI module_message_edit(void* instance, u64 channel_id
         RestRouteKey{kMessageEditRouteId, channel_id, RestMethod::patch,
                      RestMajorParameter::channel},
         request_id, true);
-    SecureZeroMemory(body, sizeof(body));
+    SecureZeroMemory(body, body_written.bytes);
     return submitted;
 }
 
@@ -998,7 +1004,7 @@ RestClientSubmitResult WINAPI module_message_reaction(void* instance, u64 channe
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return invalid;
     }
-    u8 target[kMessageReactionMaximumTargetBytes]{};
+    u8 target[kMessageReactionMaximumTargetBytes];
     const MessageReactionWriteResult written = write_message_reaction_target(
         channel_id, message_id, emoji_id, emoji_name, type, add, Slice<u8>{target, sizeof(target)});
     if (!written.ok()) {
@@ -1022,7 +1028,7 @@ RestClientSubmitResult WINAPI module_application_command(void* instance, u64 cha
     auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
     if (!rest || !request_id || operation > 3)
         return invalid;
-    u8 target[160]{};
+    u8 target[160];
     ProtocolWriter path{{target, sizeof(target)}, 0};
     if (operation <= 1) {
         if (operation == 1) {
@@ -1172,7 +1178,7 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             request_id,
             false);
     }
-    u8 target[256]{};
+    u8 target[256];
     ProtocolWriter writer{{target, sizeof(target)}, 0};
     if (!protocol_writer_append_literal(&writer, "/api/v10/users/") ||
         !protocol_writer_append_u64(&writer, user) ||
@@ -1200,7 +1206,7 @@ RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_
     if (!rest || channel_id == 0 || message_id == 0 || request_id == 0) {
         return invalid;
     }
-    u8 target[kReactionUsersMaximumTargetBytes]{};
+    u8 target[kReactionUsersMaximumTargetBytes];
     const ReactionUsersWriteResult written =
         write_reaction_users_target(channel_id, message_id, emoji_id, emoji_name, type,
                                     after_user_id, limit, Slice<u8>{target, sizeof(target)});
@@ -1223,7 +1229,7 @@ RestClientSubmitResult WINAPI module_message_typing(void* instance, u64 channel_
     if (!rest || channel_id == 0 || request_id == 0) {
         return invalid;
     }
-    u8 target[kMessageTypingMaximumTargetBytes]{};
+    u8 target[kMessageTypingMaximumTargetBytes];
     const MessageTypingWriteResult written =
         write_message_typing_target(channel_id, Slice<u8>{target, sizeof(target)});
     if (!written.ok()) {
@@ -1743,7 +1749,7 @@ RestClientSubmitResult WINAPI module_message_search(void* instance,
 RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View source,
                                                        u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
-    u8 body[kCdnMaximumTargetBytes * 2]{};
+    u8 body[kCdnMaximumTargetBytes * 2];
     const u32 bytes = attachment_refresh_body(source, {body, sizeof(body)});
     if (!rest || request_id == 0 || bytes == 0)
         return {RestClientSubmitError::invalid_input};
@@ -1969,7 +1975,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
     if (!api || requested_version != maicord::kAccountModuleApiVersion) {
         return false;
     }
-    *api = maicord::AccountModuleApi{
+    static constexpr maicord::AccountModuleApi table{
         maicord::kAccountModuleApiVersion,
         sizeof(maicord::AccountModuleApi),
         maicord::module_start,
@@ -2091,46 +2097,11 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_voice_message,
         maicord::module_profile_edit,
         maicord::module_profile_image,
-        {
-            maicord::gateway_decode_message_create,
-            maicord::gateway_decode_message_create,
-            maicord::gateway_decode_message_create,
-            maicord::gateway_decode_message_create,
-            maicord::gateway_decode_message_snapshot_core,
-            maicord::gateway_extract_message_snapshot,
-            maicord::gateway_decode_message_poll,
-            maicord::gateway_client_route_channel_create,
-            maicord::gateway_client_route_private_channel,
-        },
-        {
-            maicord::parse_signed_attachment_url,
-            maicord::parse_media_url,
-            maicord::catalog_provider_target_valid,
-            maicord::sticker_json_target_valid,
-            maicord::soundboard_target_valid,
-            maicord::parse_catalog_preview_url,
-            maicord::catalog_favorite_format,
-            maicord::media_url_log_fields,
-            maicord::write_media_proxy_target,
-            maicord::write_custom_emoji_cdn_target,
-            maicord::cdn_guild_icon_variant,
-            maicord::write_guild_icon_cdn_target,
-            maicord::write_user_avatar_cdn_target,
-            maicord::write_channel_icon_cdn_target,
-            maicord::write_sticker_cdn_target,
-            maicord::cdn_host_name,
-        },
         maicord::module_guild_moderation,
         maicord::module_guild_members_query_cancel,
         maicord::module_channel_info,
         maicord::module_collection_title,
     };
+    maicord::copy_bytes(api, &table, sizeof(table));
     return true;
-}
-
-extern "C" BOOL WINAPI maicord_account_module_entry(HINSTANCE instance, DWORD reason, void*) noexcept {
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(instance);
-    }
-    return TRUE;
 }

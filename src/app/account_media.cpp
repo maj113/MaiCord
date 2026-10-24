@@ -1276,7 +1276,7 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     if (!supported_key(key)) {
         return result(AccountMediaRequestState::unsupported);
     }
-    u8 guild_target[kCdnMaximumTargetBytes]{};
+    u8 guild_target[kCdnMaximumTargetBytes];
     CdnTargetResult guild_target_result{};
     const bool hashed_identity = key.kind == MediaAssetKind::guild_icon ||
                                  key.kind == MediaAssetKind::user_avatar ||
@@ -1798,7 +1798,7 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
           apple_music_track_locator(request.url).id.bytes)))
         return request_provider_media(media, request, monotonic_now_ms, unix_now_seconds);
     u8 target[kCdnMaximumTargetBytes]{};
-    u8 proxy_target[kCdnMaximumTargetBytes]{};
+    u8 proxy_target[kCdnMaximumTargetBytes];
     u32 target_bytes = 0;
     CdnHost target_host = CdnHost::none;
     u64 expires_at_seconds = ~0ull;

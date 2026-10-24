@@ -8,7 +8,7 @@
 //
 // Offline replay of published files: set MAICORD_UPDATE_REPLAY_DIR to a
 // directory holding maicord-<channel>.manifest.json, its .sig, optionally
-// maicord-<channel>.changelog.json and its .sig, MaiCord-x64-<version>.zip and
+// maicord-<channel>.changelog.json and its .sig, MaiCord-x64-p2-<version>.zip and
 // public-key.txt (the 130-digit hex point), and optionally
 // MAICORD_UPDATE_REPLAY_OWN to the installed version number (default 1000999,
 // v0.1.0). The pipeline then runs against those exact bytes and prints every
@@ -200,22 +200,22 @@ void test_versions() noexcept {
 void test_locations() noexcept {
     UpdateLocation l{};
     check(update_asset_location(utf8_literal("Maj113/MaiCord"), UpdateChannel::stable, UpdateAsset::manifest, 0, &l) &&
-            same_location(l, UpdateHost::pages, "maj113.github.io", "/MaiCord/updates/maicord-stable.manifest.json") &&
+            same_location(l, UpdateHost::pages, "maj113.github.io", "/MaiCord/updates/p2/maicord-stable.manifest.json") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::signature, 0, &l) &&
-            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/preview/maicord-preview.manifest.json.sig") &&
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/p2/preview/maicord-preview.manifest.json.sig") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::changelog, 0, &l) &&
-            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/maicord-stable.changelog.json") &&
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/p2/maicord-stable.changelog.json") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::changelog_signature, 0, &l) &&
-            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/preview/maicord-preview.changelog.json.sig"),
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/p2/preview/maicord-preview.changelog.json.sig"),
         "update locations: manifests, changelogs and signatures come from the Pages site; preview has its own feed");
     check(update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1002003999, &l) &&
-            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3/MaiCord-x64-1002003999.zip") &&
+            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3/MaiCord-x64-p2-1002003999.zip") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::package, 1002003004, &l) &&
-            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/preview/MaiCord-x64-1002003004.zip") &&
+            same_location(l, UpdateHost::pages, "o.github.io", "/r/updates/p2/preview/MaiCord-x64-p2-1002003004.zip") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::preview, UpdateAsset::package, 1002003999, &l) &&
-            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3/MaiCord-x64-1002003999.zip") &&
+            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v1.2.3/MaiCord-x64-p2-1002003999.zip") &&
           update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1001999, &l) &&
-            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v0.1.1/MaiCord-x64-1001999.zip"),
+            same_location(l, UpdateHost::github, "github.com", "/o/r/releases/download/v0.1.1/MaiCord-x64-p2-1001999.zip"),
         "update locations: stable packages come from their release, master builds from the preview feed on Pages");
     check(!update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 1002003000, &l) &&
           !update_asset_location(utf8_literal("o/r"), UpdateChannel::stable, UpdateAsset::package, 0, &l) &&
@@ -743,9 +743,9 @@ bool temporary_root(Temp* t) noexcept {
 }
 void remove_root(const Temp& t) noexcept { wchar_t path[MAX_PATH]{}; const u32 n = length(t.root); copy_bytes(path, t.root, (n + 1) * sizeof(wchar_t)); remove_tree(path, n); }
 constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999;
-constexpr char pages_manifest[] = "/repo/updates/maicord-stable.manifest.json";
+constexpr char pages_manifest[] = "/repo/updates/p2/maicord-stable.manifest.json";
 constexpr char pages_current[] = "/repo/updates/current.json";
-constexpr char pages_signature[] = "/repo/updates/maicord-stable.manifest.json.sig";
+constexpr char pages_signature[] = "/repo/updates/p2/maicord-stable.manifest.json.sig";
 
 // The interval persists beside the channel; missing, old or invalid files give the default.
 void test_interval_store() noexcept {
@@ -781,7 +781,7 @@ void test_interval_store() noexcept {
 }
 
 void test_service() noexcept {
-#if defined(MAICORD_UPDATE_PAIR_TEST_EXECUTABLE) && defined(MAICORD_UPDATE_PAIR_TEST_ACCOUNT)
+#if defined(MAICORD_UPDATE_TEST_EXECUTABLE)
     KdfSha256Workspace workspace{}; P256Key signer{}, stranger{};
     char key_hex[130]{};
     const bool keys = kdf_sha256_initialize(&workspace).ok() && p256_generate(&signer, P256Kind::ecdsa).ok() &&
@@ -794,11 +794,11 @@ void test_service() noexcept {
     check(dirs, "update service: isolated temporary storage"); if (!dirs) return;
     struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
     HANDLE package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
-    const wchar_t* members[]{MAICORD_UPDATE_PAIR_TEST_EXECUTABLE, MAICORD_UPDATE_PAIR_TEST_ACCOUNT};
-    const bool packaged = package(t.package, members, &package_file, sources, &package_bytes, digest, &hash);
+    const wchar_t* members[]{MAICORD_UPDATE_TEST_EXECUTABLE}; const char* names[]{"MaiCord.exe"};
+    const bool packaged = package(t.package, members, names, 1, &package_file, sources, &package_bytes, digest, &hash);
     for (auto& h : sources) close(&h);
     struct File { HANDLE& h; ~File() noexcept { close(&h); } } package_owner{package_file};
-    check(packaged, "update service: signed fixture package holds the built EXE and account DLL"); if (!packaged) return;
+    check(packaged, "update service: signed fixture package holds the built EXE"); if (!packaged) return;
 
     char documents[5][512]{}; u8 signatures[5][64]{};
     const Utf8View v6 = manifest(documents[0], package_bytes, digest, kV6), v7 = manifest(documents[1], package_bytes, digest, kV7),
@@ -812,7 +812,7 @@ void test_service() noexcept {
     static char package_target[96]{}, package_target7[96]{};
     const bool located = update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV6, &package6) &&
         update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV7, &package7) &&
-        same_location(package6, UpdateHost::github, "github.com", "/owner/repo/releases/download/v0.0.2/MaiCord-x64-2999.zip");
+        same_location(package6, UpdateHost::github, "github.com", "/owner/repo/releases/download/v0.0.2/MaiCord-x64-p2-2999.zip");
     check(located, "update service: package locations name the version's release"); if (!located) return;
     copy_bytes(package_target, package6.target, package6.target_bytes); copy_bytes(package_target7, package7.target, package7.target_bytes);
 
@@ -907,7 +907,7 @@ void test_service() noexcept {
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
         installed.phase == UpdateGenerationPhase::prepared && installed.candidate_version == kV7 && installed.active_version == kV6,
-        "update service: the next release downloads, stages and prepares a candidate beside the active pair");
+        "update service: the next release downloads, stages and prepares a candidate beside the active package");
     const u32 package_hits = fake.routes[4].hits;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && fake.routes[4].hits == package_hits,
@@ -918,16 +918,16 @@ void test_service() noexcept {
         update_install_activate(&service.install).ok() && update_install_activation_admission(&service.install, &admission).ok();
     if (acknowledged) {
         const auto id = service.transaction.state.transaction;
-        u8 doc[32]{}; copy_bytes(doc, service.transaction.state.active.pair.document_sha256, 32);
+        u8 doc[32]{}; copy_bytes(doc, service.transaction.state.active.package.document_sha256, 32);
         acknowledged = update_install_acknowledge(&service.install, id, {doc, 32}).ok() && update_install_recover(&service.install).ok();
     }
     update_service_close(&service);
     check(acknowledged && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
         installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV7 && installed.previous_version == kV6,
-        "update service: a confirmed activation keeps the previous pair for rollback");
+        "update service: a confirmed activation keeps the previous package for rollback");
     check(update_service_revert(&service) == UpdateServiceError::none && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
         installed.active_version == kV6 && installed.previous_version == kV7 && update_service_revert(&service) == UpdateServiceError::state,
-        "update service: roll back makes the previous pair active once");
+        "update service: roll back makes the previous package active once");
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
     check(r.outcome == UpdateCheckOutcome::up_to_date && !fake.routes[3].hits,
@@ -941,7 +941,7 @@ void test_service() noexcept {
         update_channel_load(paths, UpdateChannel::stable) == UpdateChannel::preview,
         "update service: channel choice persists beside the generation root");
 #else
-    check(false, "update service: build must supply the built EXE and account DLL fixture paths");
+    check(false, "update service: build must supply the built EXE fixture path");
 #endif
 }
 
@@ -989,7 +989,7 @@ UpdateCheckResult replay(const wchar_t* dir, u64 own, ReplayOffer* offer) noexce
             sizeof(changelog_signature), &changelog_signature_bytes) && changelog_signature_bytes == 64;
     const Utf8View text_view{reinterpret_cast<const char*>(document), document_bytes};
     const u64 version = json_number(text_view, "\"version\":");
-    wchar_t zip_name[48]{L"MaiCord-x64-"}; u32 zn = 12; char digits[20]; const u32 dcount = decimal(digits, version);
+    wchar_t zip_name[48]{L"MaiCord-x64-p2-"}; u32 zn = 15; char digits[20]; const u32 dcount = decimal(digits, version);
     for (u32 i = 0; i < dcount; ++i) zip_name[zn++] = static_cast<wchar_t>(digits[i]);
     copy_bytes(zip_name + zn, L".zip", 5 * sizeof(wchar_t));
     wchar_t zip_path[MAX_PATH]{}; child(dir, zip_name, zip_path);
@@ -1082,20 +1082,20 @@ bool write_file(const wchar_t* dir, const wchar_t* name, const void* data, u32 b
 // Publisher layout of a preview feed manifest (maicord_release.py preview).
 Utf8View preview_manifest(char* out, u64 bytes, const u8* digest, u64 version, u64 issued) noexcept {
     u32 n = 0; auto add = [&](Utf8View text) noexcept { copy_bytes(out + n, text.data, text.bytes); n += text.bytes; };
-    add(utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"preview","version":)")); n += decimal(out + n, version);
+    add(utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"preview","version":)")); n += decimal(out + n, version);
     add(utf8_literal(R"(,"issued":)")); n += decimal(out + n, issued);
     add(utf8_literal(R"(,"expires":)")); n += decimal(out + n, issued + 90 * 86400);
     add(utf8_literal(R"(,"bytes":)")); n += decimal(out + n, bytes); add(utf8_literal(R"(,"sha256":")"));
     constexpr char hex[] = "0123456789abcdef";
     for (u32 i = 0; i < 32; ++i) { out[n++] = hex[digest[i] >> 4]; out[n++] = hex[digest[i] & 15]; }
-    add(utf8_literal(R"(","artifact":"MaiCord-x64-)")); n += decimal(out + n, version); add(utf8_literal(R"(.zip"})"));
+    add(utf8_literal(R"(","artifact":"MaiCord-x64-p2-)")); n += decimal(out + n, version); add(utf8_literal(R"(.zip"})"));
     return {out, n};
 }
 // A synthetic master build replayed end to end from a temporary directory:
 // the installed stable 0.0.1 on the preview channel takes 0.0.2-dev.3 from
 // the preview feed, with its signed changelog.
 void test_preview_replay() noexcept {
-#if defined(MAICORD_UPDATE_PAIR_TEST_EXECUTABLE) && defined(MAICORD_UPDATE_PAIR_TEST_ACCOUNT)
+#if defined(MAICORD_UPDATE_TEST_EXECUTABLE)
     KdfSha256Workspace workspace{}; P256Key signer{};
     char key_hex[131]{};
     const bool keys = kdf_sha256_initialize(&workspace).ok() && p256_generate(&signer, P256Kind::ecdsa).ok() && hex_key(signer, key_hex);
@@ -1106,10 +1106,10 @@ void test_preview_replay() noexcept {
     struct Cleanup { ~Cleanup() noexcept { remove_root(files); } } cleanup;
     check(dirs, "preview replay: temporary publish directory"); if (!dirs) return;
     constexpr u64 version = update_version_number(0, 0, 2, 3);
-    wchar_t zip[MAX_PATH]{}; child(files.root, L"MaiCord-x64-2003.zip", zip);
+    wchar_t zip[MAX_PATH]{}; child(files.root, L"MaiCord-x64-p2-2003.zip", zip);
     HANDLE package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr; u64 package_bytes = 0; u8 digest[32]{};
-    const wchar_t* members[]{MAICORD_UPDATE_PAIR_TEST_EXECUTABLE, MAICORD_UPDATE_PAIR_TEST_ACCOUNT};
-    const bool packaged = package(zip, members, &package_file, sources, &package_bytes, digest, &hash);
+    const wchar_t* members[]{MAICORD_UPDATE_TEST_EXECUTABLE}; const char* names[]{"MaiCord.exe"};
+    const bool packaged = package(zip, members, names, 1, &package_file, sources, &package_bytes, digest, &hash);
     for (auto& h : sources) close(&h);
     close(&package_file);
     char document[512]{}; u8 signature[64]{}, changelog_signature[64]{};
@@ -1144,7 +1144,7 @@ void test_preview_replay() noexcept {
     check(newer.outcome == UpdateCheckOutcome::up_to_date && !offer.version,
         "preview replay: a release newer than the dev build ignores it");
 #else
-    check(false, "preview replay: build must supply the built EXE and account DLL fixture paths");
+    check(false, "preview replay: build must supply the built EXE fixture path");
 #endif
 }
 // The caption's update badge: when it shows, what a click does, its progress.

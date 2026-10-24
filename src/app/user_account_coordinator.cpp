@@ -60,8 +60,8 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         return invalid_result();
     }
 
-    u8 json_scratch[kRestUserSuperPropertiesMaximumBytes]{};
-    u8 super_properties[kRestUserSuperPropertiesMaximumBytes]{};
+    u8 json_scratch[kRestUserSuperPropertiesMaximumBytes];
+    u8 super_properties[kRestUserSuperPropertiesMaximumBytes];
     const RestUserPropertiesResult properties = write_rest_user_super_properties(
         configuration->properties, Slice<u8>{json_scratch, sizeof(json_scratch)},
         Slice<u8>{super_properties, sizeof(super_properties)});

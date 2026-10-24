@@ -661,19 +661,6 @@ bool guild_moderation_reason_header(const GuildModerationRequest& r) noexcept {
     return guild_moderation_request_valid(r) && r.operation == Op::bulk_ban && r.reason.data;
 }
 
-u32 guild_member_search_limit(u32 page_size) noexcept {
-    return maximum(page_size * 5, kGuildMemberSearchChunkMinimum);
-}
-
-bool guild_member_search_snowflake(Utf8View text) noexcept {
-    if (text.bytes < 17 || text.bytes > 19)
-        return false;
-    for (u32 i = 0; i < text.bytes; ++i)
-        if (text.data[i] < '0' || text.data[i] > '9')
-            return false;
-    return true;
-}
-
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept {
     const u64 value = unix_ms > kSnowflakeEpochMilliseconds ? (unix_ms - kSnowflakeEpochMilliseconds) << 22 : 0;
     if (!output.data || decimal_digits(value) > output.count)

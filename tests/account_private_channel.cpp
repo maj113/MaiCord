@@ -130,18 +130,6 @@ void transport() noexcept {
               capture.active_id == 200 && account_private_channel_cancel(&details, 200).ok() && !capture.active_id,
           "private channel: exact cancellation only");
 }
-void dormant_abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "private channel: current DLL loads without credentials");
-    if (!host.module)
-        return;
-    const auto leave = action(PrivateChannelActionKind::leave);
-    check(host.api.private_channel(nullptr, &leave, 1).error == RestClientSubmitError::invalid_input &&
-              host.api.private_channel(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
-              !host.instance && !host.login_instance,
-          "private channel: dormant callback creates no account or worker");
-    account_host_release(&host);
-}
 } // namespace private_channel_account_test
 RestClientSubmitResult rest_client_submit(RestClient* rest,
                                           const RestClientRequest& request) noexcept {
@@ -175,6 +163,5 @@ bool rest_client_cancel(RestClient* rest, u64 id) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_private_channel_test_entry() noexcept {
     maicord::private_channel_account_test::transport();
-    maicord::private_channel_account_test::dormant_abi();
     ExitProcess(maicord::private_channel_account_test::failures ? 1 : 0);
 }

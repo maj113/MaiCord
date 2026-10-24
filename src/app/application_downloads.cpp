@@ -1091,7 +1091,7 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
                 if (!hit)
                     continue;
                 const auto& sticker = rich->stickers[i];
-                u8 target[64]{};
+                u8 target[64];
                 const auto written =
                     sticker.format_type == 3
                         ? CdnTargetResult{0, {}, CdnTargetError::unsupported_format}

@@ -142,7 +142,7 @@ void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime&
     fetch->offered_bytes = 0;
     ReleaseSRWLockExclusive(&v.lock);
     if (offered_bytes) {
-        u8 target[kCdnMaximumTargetBytes]{};
+        u8 target[kCdnMaximumTargetBytes];
         const auto parsed = parse_signed_attachment_url({offered, offered_bytes}, v.selection.key.id,
                                                         Slice<u8>{target, sizeof(target)});
         if (parsed.ok())
@@ -628,7 +628,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     if (retained) {
         InterlockedExchange(&lane->phase, static_cast<LONG>(AccountMediaWorkerPhase::failed));
         // The lane terminates without freeing retained audio/source state.
-        // Joined account stop still rejects destroy and quarantines the DLL.
+        // Joined account stop still rejects destroy and quarantines the module.
         *stopped = true;
         SetEvent(lane->owner->output_event);
     }

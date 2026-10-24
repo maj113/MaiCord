@@ -20,7 +20,7 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
         // Validate the same strict attachment rules used by the POST
         // encoder before accepting a far-future source into this cache.
         if (!resolver || !source.data || !source.bytes || source.bytes > kCdnMaximumTargetBytes) return {};
-        u8 admission[kCdnMaximumTargetBytes + 64]{};
+        u8 admission[kCdnMaximumTargetBytes + 64];
         if (!attachment_refresh_body(source, {admission, sizeof(admission)})) return {};
     } else if (!resolver || !attachment_refresh_needed(source, now_seconds))
         return source;

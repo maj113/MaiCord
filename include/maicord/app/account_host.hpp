@@ -59,10 +59,15 @@ struct AccountHost {
     bool stop_failed;
 };
 
-static_assert(sizeof(AccountHost) == 1440);
+static_assert(sizeof(AccountHost) == 1240);
 
 bool account_host_api_valid(const AccountModuleApi& api) noexcept;
-AccountHostResult account_host_module_path(Slice<wchar_t> output) noexcept;
+// Admits module's API into an empty host; a loaded host keeps its API. A
+// refused API leaves the host empty.
+AccountHostResult account_host_attach(AccountHost* host, HMODULE module, AccountModuleGetApiFunction get_api) noexcept;
+// Moves source's ownership to destination and leaves source empty.
+void account_host_move(AccountHost* destination, AccountHost* source) noexcept;
+// Attaches the account module linked into this image.
 AccountHostResult account_host_load(AccountHost* host) noexcept;
 AccountHostResult account_host_release(AccountHost* host) noexcept;
 u32 account_host_observe(AccountHost* host, const AccountModuleStatus& status) noexcept;

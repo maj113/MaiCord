@@ -120,30 +120,19 @@ u32 advance(u32 value) noexcept {
 ConstSlice<UiThemeColorDescriptor> ui_theme_color_descriptors() noexcept {
     return {colors, static_cast<u32>(UiThemeColor::count)};
 }
+// The core palette, the semantic tokens, the scales and the metrics are each
+// stored as one field per ID, in ID order; the accessors index them.
+#define COLOR_SLOT(name)                                                                                       static_assert(offsetof(Theme, name) == static_cast<u32>(UiThemeColor::name) * sizeof(Color));
+THEME_COLORS(COLOR_SLOT)
+#undef COLOR_SLOT
 const Color* ui_theme_color_get(const Theme& theme, UiThemeColor id) noexcept {
-    switch (id) {
-#define COLOR_GET(name)                                                                                    \
-    case UiThemeColor::name:                                                                               \
-        return &theme.name;
-        THEME_COLORS(COLOR_GET)
-#undef COLOR_GET
-    default:
-        return nullptr;
-    }
+    return id < UiThemeColor::count ? &theme.base_lowest + static_cast<u32>(id) : nullptr;
 }
 bool ui_theme_color_set(Theme* theme, UiThemeColor id, const Color& color) noexcept {
-    if (!theme || !color_valid(color))
+    if (!theme || !color_valid(color) || id >= UiThemeColor::count)
         return false;
-    switch (id) {
-#define COLOR_SET(name)                                                                                    \
-    case UiThemeColor::name:                                                                               \
-        theme->name = color;                                                                               \
-        return true;
-        THEME_COLORS(COLOR_SET)
-#undef COLOR_SET
-    default:
-        return false;
-    }
+    (&theme->base_lowest)[static_cast<u32>(id)] = color;
+    return true;
 }
 // Palette validity/equality cover every paint tier: core colours, semantic
 // tokens, scales and motion.
@@ -194,15 +183,11 @@ bool ui_theme_palette_equal(const Theme& a, const Theme& b) noexcept {
 ConstSlice<UiThemeTokenDescriptor> ui_theme_token_descriptors() noexcept {
     return {tokens, static_cast<u32>(UiThemeToken::count)};
 }
-const Color* ui_theme_token_get(const Theme& theme, UiThemeToken id) noexcept {
-    switch (id) {
-#define MAICORD_THEME_TOKEN(group, name, dark, light)                                                      \
-    case UiThemeToken::group##_##name:                                                                     \
-        return &theme.tokens.group.name;
+#define MAICORD_THEME_TOKEN(group, name, dark, light)                                                          static_assert(offsetof(UiThemeTokens, group) + offsetof(UiTheme_##group##_tokens, name) ==                                static_cast<u32>(UiThemeToken::group##_##name) * sizeof(Color));
 #include "maicord/ui/theme_tokens.inc"
-    default:
-        return nullptr;
-    }
+const Color* ui_theme_token_get(const Theme& theme, UiThemeToken id) noexcept {
+    return id < UiThemeToken::count ? reinterpret_cast<const Color*>(&theme.tokens) + static_cast<u32>(id)
+                                    : nullptr;
 }
 namespace {
 struct TokenResolution {
@@ -274,18 +259,13 @@ UiThemeTokenResult ui_theme_tokens_resolve(Theme* theme, const UiThemeTokenSourc
 ConstSlice<UiThemeScaleDescriptor> ui_theme_scale_descriptors() noexcept {
     return {scales, static_cast<u32>(UiThemeScaleToken::count)};
 }
-bool ui_theme_scale_get(const UiThemeScale& scale, UiThemeScaleToken id, float* output) noexcept {
-    if (!output)
-        return false;
-    switch (id) {
-#define MAICORD_THEME_SCALE(name, value, minimum, maximum)                                                 \
-    case UiThemeScaleToken::name:                                                                          \
-        *output = scale.name;                                                                              \
-        return true;
+#define MAICORD_THEME_SCALE(name, value, minimum, maximum)                                                     static_assert(offsetof(UiThemeScale, name) == static_cast<u32>(UiThemeScaleToken::name) * sizeof(float));
 #include "maicord/ui/theme_tokens.inc"
-    default:
+bool ui_theme_scale_get(const UiThemeScale& scale, UiThemeScaleToken id, float* output) noexcept {
+    if (!output || id >= UiThemeScaleToken::count)
         return false;
-    }
+    *output = reinterpret_cast<const float*>(&scale)[static_cast<u8>(id)];
+    return true;
 }
 bool ui_theme_scale_set(UiThemeScale* scale, UiThemeScaleToken id, float input) noexcept {
     if (!scale || id >= UiThemeScaleToken::count)
@@ -293,15 +273,8 @@ bool ui_theme_scale_set(UiThemeScale* scale, UiThemeScaleToken id, float input) 
     const auto& descriptor = scales[static_cast<u8>(id)];
     if (!between(input, descriptor.minimum, descriptor.maximum))
         return false;
-    switch (id) {
-#define MAICORD_THEME_SCALE(name, value, minimum, maximum)                                                 \
-    case UiThemeScaleToken::name:                                                                          \
-        scale->name = input;                                                                               \
-        return true;
-#include "maicord/ui/theme_tokens.inc"
-    default:
-        return false;
-    }
+    reinterpret_cast<float*>(scale)[static_cast<u8>(id)] = input;
+    return true;
 }
 ConstSlice<UiThemeMotionDescriptor> ui_theme_motion_descriptors() noexcept {
     return {motions, static_cast<u32>(UiThemeMotionToken::count)};
@@ -464,19 +437,14 @@ bool ui_theme_resolve_emphasis(Theme* theme) noexcept {
 ConstSlice<UiThemeMetricDescriptor> ui_theme_metric_descriptors() noexcept {
     return {metrics, static_cast<u32>(UiThemeMetric::count)};
 }
+#define METRIC_SLOT(name, low, high, domain)                                                                   static_assert(offsetof(UiThemeMetrics, name) == static_cast<u32>(UiThemeMetric::name) * sizeof(float));
+THEME_METRICS(METRIC_SLOT)
+#undef METRIC_SLOT
 bool ui_theme_metric_get(const UiThemeMetrics& value, UiThemeMetric id, float* output) noexcept {
-    if (!output)
+    if (!output || id >= UiThemeMetric::count)
         return false;
-    switch (id) {
-#define METRIC_GET(name, low, high, domain)                                                                \
-    case UiThemeMetric::name:                                                                              \
-        *output = value.name;                                                                              \
-        return true;
-        THEME_METRICS(METRIC_GET)
-#undef METRIC_GET
-    default:
-        return false;
-    }
+    *output = reinterpret_cast<const float*>(&value)[static_cast<u8>(id)];
+    return true;
 }
 bool ui_theme_metric_set(UiThemeMetrics* output, UiThemeMetric id, float value) noexcept {
     if (!output || id >= UiThemeMetric::count)
@@ -484,16 +452,8 @@ bool ui_theme_metric_set(UiThemeMetrics* output, UiThemeMetric id, float value) 
     const auto& descriptor = metrics[static_cast<u8>(id)];
     if (!between(value, descriptor.minimum, descriptor.maximum))
         return false;
-    switch (id) {
-#define METRIC_SET(name, low, high, domain)                                                                \
-    case UiThemeMetric::name:                                                                              \
-        output->name = value;                                                                              \
-        return true;
-        THEME_METRICS(METRIC_SET)
-#undef METRIC_SET
-    default:
-        return false;
-    }
+    reinterpret_cast<float*>(output)[static_cast<u8>(id)] = value;
+    return true;
 }
 bool ui_theme_typography_valid(const UiThemeTypography& value) noexcept {
     return between(value.body_size, 12, 24) && between(value.heading_1_ratio, 1, 2.5f) &&

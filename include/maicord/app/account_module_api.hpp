@@ -49,6 +49,29 @@ enum class CaptchaProvider : u8;
 enum class CdnHost : u8;
 enum class CdnMediaFormat : u8;
 struct CdnTargetResult;
+struct AmazonMusicTrackLocator;
+struct AppleMusicCollectionLocator;
+struct AppleMusicTrackLocator;
+enum class EmbedProvider : u8;
+struct EmbedVideoLocator;
+struct YoutubeCollectionLocator;
+struct EmojiFrecencyItem;
+enum class EmojiPreferencesError : u8;
+struct EmojiPreferencesPatch;
+struct EmojiPreferencesResult;
+struct EmojiPreferencesSnapshot;
+struct EmojiPreferencesWriteResult;
+struct GifFavoriteMutation;
+struct GifFavoriteRecord;
+struct GifFavoritesResult;
+struct GifFavoritesWriteResult;
+struct GuildBulkBanUpdate;
+struct GuildMemberSearchPage;
+struct GuildModerationResult;
+struct JsonString;
+struct ProfileEffect;
+struct UserAppearance;
+struct UserProfile;
 enum class ChannelOverviewOperation : u8;
 struct ChannelOverviewPatch;
 struct ForumPostRequest;
@@ -144,7 +167,6 @@ struct VoiceMessageStatus;
 namespace maicord {
 
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
-inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 
 enum class AccountModuleError : u8 {
     none,
@@ -421,65 +443,6 @@ using AccountModuleRelationshipsFunction =
     RestClientSubmitResult(WINAPI*)(void* instance, RelationshipOperation operation,
                                     u64 user_id, Utf8View username, u64 request_id) noexcept;
 
-// v121: stateless decoders the client uses on REST bodies it already took.
-// Each entry is exactly the protocol function of the same name; the client
-// links forwarders (account_module_decoders.cpp) instead of a second copy of
-// the Gateway message JSON decoder and channel router. Inputs, scratch and
-// outputs are caller owned; nothing is retained across the call.
-struct AccountModuleDecoders {
-    GatewayEventDecodeResult(WINAPI* message_create)(JsonValue, Slice<u32>, u32, Slice<char>,
-                                                     GatewayMessageEvent*) noexcept;
-    GatewayEventDecodeResult(WINAPI* message_create_mentions)(JsonValue, Slice<u32>, u32, Slice<char>, Slice<u64>,
-                                                              u64, GatewayMessageEvent*) noexcept;
-    GatewayEventDecodeResult(WINAPI* message_create_users)(JsonValue, Slice<u32>, u32, Slice<char>, Slice<u64>,
-                                                           Slice<GatewayMessageNamedUser>, u64,
-                                                           GatewayMessageEvent*) noexcept;
-    GatewayEventDecodeResult(WINAPI* message_create_rich)(JsonValue, Slice<u32>, u32, Slice<char>, Slice<u64>,
-                                                          Slice<u64>, Slice<GatewayMessageNamedUser>,
-                                                          const GatewayMessageRichScratch&, u64,
-                                                          GatewayMessageEvent*) noexcept;
-    GatewayEventDecodeResult(WINAPI* message_snapshot_core)(JsonValue, Slice<u32>, u32, Slice<char>,
-                                                            Slice<GatewayMessageNamedUser>,
-                                                            GatewayMessageEvent*) noexcept;
-    GatewayEventDecodeResult(WINAPI* message_snapshot_extract)(JsonValue, Slice<u32>, u32, JsonValue*,
-                                                               bool*) noexcept;
-    GatewayEventDecodeResult(WINAPI* message_poll)(JsonValue, const JsonIndexedDocument&, u32, Slice<char>, u32*,
-                                                   const GatewayMessagePollScratch&, GatewayMessagePoll*,
-                                                   bool) noexcept;
-    GatewayClientDispatchRouteResult(WINAPI* channel_create)(JsonValue, Slice<u32>, u32, Slice<char>, u64,
-                                                             GatewayClientEvent*, ConstSlice<u8>*) noexcept;
-    GatewayClientDispatchRouteResult(WINAPI* private_channel)(JsonValue, Slice<u32>, u32, Slice<char>,
-                                                              GatewayClientEvent*, ConstSlice<u8>*) noexcept;
-};
-static_assert(sizeof(AccountModuleDecoders) == 72);
-
-// v122: the CDN URL functions of protocol/cdn_url.hpp, entry for entry. The
-// client links forwarders (account_module_cdn_urls.cpp) instead of a second
-// copy of the URL parsers; guild_icon_hash_valid stays in both images because
-// the client's Gateway user records check it per record. Stateless and caller
-// owned like AccountModuleDecoders.
-struct AccountModuleCdnUrls {
-    AttachmentUrlResult (*parse_signed_attachment_url)(Utf8View, u64, Slice<u8>) noexcept;
-    MediaUrlResult (*parse_media_url)(Utf8View, Slice<u8>) noexcept;
-    bool (*catalog_provider_target_valid)(CdnHost, ConstSlice<u8>) noexcept;
-    bool (*sticker_json_target_valid)(ConstSlice<u8>) noexcept;
-    bool (*soundboard_target_valid)(ConstSlice<u8>) noexcept;
-    MediaUrlResult (*parse_catalog_preview_url)(Utf8View, Slice<u8>, MediaAttachmentFormat, u32,
-                                                u32) noexcept;
-    MediaAttachmentFormat (*catalog_favorite_format)(Utf8View) noexcept;
-    u32 (*media_url_log_fields)(Utf8View, Slice<char>) noexcept;
-    CdnTargetResult (*write_media_proxy_target)(ConstSlice<u8>, CdnHost, u32, u32, CdnMediaFormat,
-                                                Slice<u8>, bool) noexcept;
-    CdnTargetResult (*write_custom_emoji_cdn_target)(u64, bool, u32, Slice<u8>) noexcept;
-    u32 (*cdn_guild_icon_variant)(Utf8View) noexcept;
-    CdnTargetResult (*write_guild_icon_cdn_target)(u64, Utf8View, u32, Slice<u8>, bool) noexcept;
-    CdnTargetResult (*write_user_avatar_cdn_target)(u64, Utf8View, u32, Slice<u8>) noexcept;
-    CdnTargetResult (*write_channel_icon_cdn_target)(u64, Utf8View, u32, Slice<u8>) noexcept;
-    CdnTargetResult (*write_sticker_cdn_target)(u64, u32, Slice<u8>) noexcept;
-    Utf8View (*cdn_host_name)(CdnHost) noexcept;
-};
-static_assert(sizeof(AccountModuleCdnUrls) == 128);
-
 struct AccountModuleApi {
     u32 version;
     u32 bytes;
@@ -724,10 +687,6 @@ struct AccountModuleApi {
     // v120: probes a picked avatar/banner or crops it into a data URI exactly
     // as the official client's cropper does (local, no transport).
     bool(WINAPI* profile_image)(void*, ProfileImageRequest*) noexcept;
-    // v121: stateless REST body decoders (no instance; see AccountModuleDecoders).
-    AccountModuleDecoders decoders;
-    // v122: stateless CDN URL functions (no instance; see AccountModuleCdnUrls).
-    AccountModuleCdnUrls cdn_urls;
     // v125: members search, bulk ban and ban search on DETAILS. A null
     // request cancels only this ID (a superseded search).
     RestClientSubmitResult(WINAPI* guild_moderation)(void*, const GuildModerationRequest*,
@@ -743,23 +702,22 @@ struct AccountModuleApi {
                                                        MediaTrackTitle*) noexcept;
 };
 
-// This is the only executable/DLL boundary. The module loads the DPAPI profile
-// itself and returns an opaque handle. Login copies caller-owned locked input
-// into the DLL's locked arena; neither plaintext nor internal worker pointers
-// are retained across the ABI. Gateway sources are borrowed only for immediate
+// The account module's boundary, linked into MaiCord.exe (and a DLL only for
+// the perf probe's synthetic module). The module loads the DPAPI profile itself
+// and returns an opaque handle. Login copies caller-owned locked input into the
+// module's locked arena; neither plaintext nor internal worker pointers are
+// retained across the boundary. Gateway sources are borrowed only for immediate
 // UI-thread mailbox drains. Completed REST bodies are copied into caller-owned
-// output before stop/unload. Decoded media frames are borrowed until the next
-// media request/pump and must be uploaded during the media_take call sequence
-// before the DLL can be stopped or unloaded.
+// output before stop. Decoded media frames are borrowed until the next media
+// request/pump and must be uploaded during the media_take call sequence before
+// the module is stopped.
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 136);
-static_assert(sizeof(AccountModuleApi) == 1192);
-static_assert(offsetof(AccountModuleApi, channel_info) == 1176);
-static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 1168);
-static_assert(offsetof(AccountModuleApi, guild_moderation) == 1160);
-static_assert(offsetof(AccountModuleApi, decoders) == 960);
-static_assert(offsetof(AccountModuleApi, cdn_urls) == 1032);
+static_assert(sizeof(AccountModuleApi) == 992);
+static_assert(offsetof(AccountModuleApi, channel_info) == 976);
+static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 968);
+static_assert(offsetof(AccountModuleApi, guild_moderation) == 960);
 static_assert(offsetof(AccountModuleApi, poll) == 632);
 static_assert(offsetof(AccountModuleApi, guild_admin) == 640);
 static_assert(offsetof(AccountModuleApi, voice_snapshot) == 656);

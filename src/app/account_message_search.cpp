@@ -18,9 +18,9 @@ RestClientSubmitResult account_message_search(RestClient* rest,
     if (operation != AccountMessageSearchOperation::submit || !query) {
         return {RestClientSubmitError::invalid_input};
     }
-    u8 target[kMessageSearchMaximumTargetBytes]{};
+    u8 target[kMessageSearchMaximumTargetBytes];
     if (query->endpoint == MessageSearchEndpoint::tabs) {
-        u8 body[kMessageSearchMaximumBodyBytes]{};
+        u8 body[kMessageSearchMaximumBodyBytes];
         const auto request = write_message_search_tabs_request(*query, {target, sizeof(target)},
                                                                {body, sizeof(body)});
         if (!request.ok())

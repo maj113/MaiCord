@@ -48,9 +48,11 @@ namespace maicord {
 // v137: media completion carries collection count/index even for an unavailable
 // track, so native navigation can continue after a track-specific failure.
 // v138: bounded collection title lookup and continuation-aware queue status.
-inline constexpr u32 kAccountModuleApiVersion = 138;
-inline constexpr u16 kAccountModuleApiOrdinal = 138;
-
-static_assert(kAccountModuleApiOrdinal == kAccountModuleApiVersion);
+// v139: embed_urls (embed provider and locator classifiers) live only in the module.
+// v140: rest_codecs (guild moderation, GIF favorites, emoji preference and
+// profile codecs, Gateway message validators) live only in the module.
+// v141: the module is linked into the client, which calls the decoder, CDN URL,
+// embed URL and REST codec functions directly; their tables are gone.
+inline constexpr u32 kAccountModuleApiVersion = 141;
 
 } // namespace maicord

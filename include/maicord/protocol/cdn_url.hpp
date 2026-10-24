@@ -4,10 +4,6 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/media/asset.hpp"
 
-// The account module carries the only copy of these functions. MaiCord.exe
-// links forwarders to its AccountModuleCdnUrls entries, which fail like
-// invalid input (empty host name, zero bytes, WebP format) while no module is
-// loaded. guild_icon_hash_valid is its own object and stays in both images.
 namespace maicord {
 
 inline constexpr char kCdnHost[] = "cdn.discordapp.com";

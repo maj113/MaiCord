@@ -13,7 +13,7 @@ RestClientSubmitResult account_pinned_messages_submit(
         (!fetch && (!request->message_id || request->query.before.bytes ||
                     (request->query.limit && request->query.limit != kMessagePinsMaximumItems))))
         return {RestClientSubmitError::invalid_input};
-    u8 target[kMessagePinsMaximumTargetBytes]{};
+    u8 target[kMessagePinsMaximumTargetBytes];
     const auto written = fetch
         ? write_message_pins_target(request->query, {target, sizeof(target)})
         : write_message_pin_target(request->query.channel_id, request->message_id,

@@ -159,18 +159,18 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         if (!tag_bytes) return false;
         out->host = UpdateHost::github;
         w.add("/", 1); w.add(repository); w.add(utf8_literal("/releases/download/v")); w.add(tag, tag_bytes);
-        w.add(utf8_literal("/MaiCord-x64-")); w.number(version); w.add(utf8_literal(".zip"));
+        w.add("/", 1); w.add(kUpdateArtifactPrefix); w.number(version); w.add(utf8_literal(".zip"));
     } else {
         out->host = UpdateHost::pages;
         for (u32 i = 0; i < slash; ++i) out->origin[i] = ascii_lower(repository.data[i]);
         copy_bytes(out->origin + slash, kPagesSuffix.data, kPagesSuffix.bytes);
         out->origin_bytes = slash + kPagesSuffix.bytes;
         w.add("/", 1); w.add({repository.data + slash + 1, repository.bytes - slash - 1});
+        w.add(kUpdateProtocolDirectory);
         if (asset == UpdateAsset::package) {
-            w.add(utf8_literal("/updates/preview/MaiCord-x64-")); w.number(version); w.add(utf8_literal(".zip"));
+            w.add(utf8_literal("preview/")); w.add(kUpdateArtifactPrefix); w.number(version); w.add(utf8_literal(".zip"));
         } else {
-            w.add(channel == UpdateChannel::stable ? utf8_literal("/updates/maicord-stable.")
-                                                   : utf8_literal("/updates/preview/maicord-preview."));
+            w.add(channel == UpdateChannel::stable ? utf8_literal("maicord-stable.") : utf8_literal("preview/maicord-preview."));
             const bool changelog = asset == UpdateAsset::changelog || asset == UpdateAsset::changelog_signature;
             w.add(changelog ? utf8_literal("changelog.json") : utf8_literal("manifest.json"));
             if (asset == UpdateAsset::signature || asset == UpdateAsset::changelog_signature) w.add(utf8_literal(".sig"));

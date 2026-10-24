@@ -257,26 +257,10 @@ void preemption() noexcept {
           "logout: cancellation during quiescence prevents later POST until worker join");
 }
 
-void abi() noexcept {
-    AccountHost host{};
-    check(account_host_load(&host).ok(), "logout: dormant module loads without account startup");
-    if (!host.module)
-        return;
-    AccountLogoutResponse response{777};
-    constexpr AccountLogoutOperation operations[]{
-        AccountLogoutOperation::begin, AccountLogoutOperation::cancel, AccountLogoutOperation::take};
-    for (const auto operation : operations)
-        check(host.api.logout(nullptr, operation, 1, &response).submit_error ==
-                      RestClientSubmitError::invalid_input &&
-                  response.request_id == 777,
-              "logout: dormant callback cannot allocate owner or overwrite response");
-    account_host_release(&host);
-}
 u32 run() noexcept {
     admission();
     receipts();
     preemption();
-    abi();
     return failures;
 }
 } // namespace logout_transport

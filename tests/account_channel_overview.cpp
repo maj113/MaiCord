@@ -120,19 +120,6 @@ void test_transport() noexcept {
                       "exactly without hidden retry");
     submission.result = RestClientSubmitError::none;
 }
-void test_dormant_abi() noexcept {
-    AccountHost host{};
-    const auto loaded = account_host_load(&host);
-    check(loaded.ok(), "channel overview account: shipping DLL loads without profile or credential");
-    if (!loaded.ok())
-        return;
-    check(host.api.channel_overview(nullptr, ChannelOverviewOperation::fetch, 20, nullptr, 1).error ==
-              RestClientSubmitError::invalid_input,
-          "channel overview account: appended typed service rejects absent owner without creating runtime");
-    check(!host.instance && !host.login_instance,
-          "channel overview account: dormant DLL inspection never creates account or login actors");
-    account_host_release(&host);
-}
 } // namespace channel_overview_account_test
 
 // This executable intercepts only the ordinary submit boundary. The real
@@ -162,7 +149,6 @@ RestClientSubmitResult rest_client_submit(RestClient* client, const RestClientRe
 extern "C" __declspec(noreturn) void WINAPI maicord_channel_overview_account_entry() noexcept {
     using namespace maicord::channel_overview_account_test;
     test_transport();
-    test_dormant_abi();
     constexpr char pass[] = "PASS Channel Overview account transport\n";
     constexpr char fail[] = "FAIL Channel Overview account transport\n";
     DWORD written = 0;

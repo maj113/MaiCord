@@ -5,7 +5,7 @@ option(MAICORD_BUILD_TESTS "Enable temporary deterministic test targets" OFF)
 set(MAICORD_TEST_PROFILE_NAMES "" CACHE STRING "Selected tests needing isolated profile directories; empty means all tests")
 option(MAICORD_TEST_AUDIO_PLAYBACK "Include the native WASAPI Opus playback contract" OFF)
 option(MAICORD_TEST_PREBUILT_CLIENT
-    "Tests use the MaiCord.exe and MaiCordAccount.dll already in the build directory instead of building them" OFF)
+    "Tests use the MaiCord.exe already in the build directory instead of building it" OFF)
 # tools/build.ps1 gives every selected test a private TEMP/TMP/LOCALAPPDATA in
 # a profile directory it owns inside the build directory.
 if(MAICORD_BUILD_TESTS AND MAICORD_TEST_PROFILE_DIRECTORY)

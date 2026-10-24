@@ -12,26 +12,28 @@ void metric(const char* label, u64 value) noexcept {
 bool no_launch(const UpdateHandoff& h) noexcept {
     return !h.launched && !h.process && !h.thread && !h.parent && !h.mapping && !h.event && !h.child_mapping && !h.child_event && !h.view && !h.validation;
 }
-void remove_fixture_pair(UpdateGenerationTransaction& t, const UpdatePairDescriptor& p) noexcept {
+void remove_fixture_generation(UpdateGenerationTransaction& t, const UpdatePackageDescriptor& p) noexcept {
     if (!p.version) return; wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 n = 0;
-    for (u32 i = 0; i < 5; ++i) if (update_generation_path(t, {p.document_sha256,32}, static_cast<UpdateGenerationFile>(i), {path,sizeof(path)/sizeof(wchar_t)}, &n).ok()) {
+    for (u32 i = 0; i < update_generation_file_count(p); ++i)
+        if (update_generation_path(t, {p.document_sha256,32}, update_generation_file_name(p, i), {path,sizeof(path)/sizeof(wchar_t)}, &n).ok()) {
         HANDLE h = CreateFileW(path, DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (h != INVALID_HANDLE_VALUE) dispose(&h);
     }
-    if (update_generation_path(t, {p.document_sha256,32}, UpdateGenerationFile::executable, {path,sizeof(path)/sizeof(wchar_t)}, &n).ok()) {
+    if (update_generation_path(t, {p.document_sha256,32}, kUpdatePackageExecutable, {path,sizeof(path)/sizeof(wchar_t)}, &n).ok()) {
         while (n && path[n - 1] != L'\\') --n; if (n) path[n - 1] = 0; RemoveDirectoryW(path);
     }
 }
-bool write_signature(UpdateGenerationTransaction& t, const UpdatePairDescriptor& p, const u8* signature, HANDLE* owner) noexcept {
+bool write_signature(UpdateGenerationTransaction& t, const UpdatePackageDescriptor& p, const u8* signature, HANDLE* owner) noexcept {
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 n = 0;
-    if (!update_generation_path(t, {p.document_sha256,32}, UpdateGenerationFile::signature, {path,sizeof(path)/sizeof(wchar_t)}, &n).ok()) return false;
+    if (!update_generation_path(t, {p.document_sha256,32}, update_generation_file_name(p, kUpdateGenerationSignatureSlot),
+        {path,sizeof(path)/sizeof(wchar_t)}, &n).ok()) return false;
     *owner = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (*owner == INVALID_HANDLE_VALUE) { *owner = nullptr; return false; }
     return write(*owner, signature, 64) && FlushFileBuffers(*owner) && close(owner);
 }
 }
 void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexcept {
-#if defined(MAICORD_UPDATE_HANDOFF_TEST_PEER) && defined(MAICORD_UPDATE_PAIR_TEST_ACCOUNT)
+#if defined(MAICORD_UPDATE_HANDOFF_TEST_PEER)
     KdfSha256Workspace workspace{}; P256Key signer{}, key{}; u8 scalar[32]{}, point[65]{}, inventory[32]{}, package_digest[32]{}; scalar[31] = 1;
     const bool crypto = kdf_sha256_initialize(&workspace).ok() && p256_import_private(&signer, P256Kind::ecdsa, {scalar,32}).ok() &&
         p256_export_public(signer, {point,65}).ok() && bytes_equal(point, public_point, sizeof(point)) &&
@@ -45,6 +47,7 @@ void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexc
     const bool roots = temp_n && temp_n < MAX_PATH && GetTempFileNameW(temp, L"MSH", 0, root) && DeleteFileW(root) && CreateDirectoryW(root, nullptr) &&
         GetTempFileNameW(temp, L"MSW", 0, work) && DeleteFileW(work) && CreateDirectoryW(work, nullptr);
     check(roots, "signed handoff: owned synthetic generation and separate work roots created"); if (!roots) return;
+    wchar_t notes[MAX_PATH]{}; child(work, L"notes.txt", notes);
     child(work, L"signed-peer.zip", artifact); child(work, L"acceptance.bin", acceptance); child(root, L"install.state", state); child(root, L"install.lock", gate);
     const u32 acceptance_n = length(acceptance); copy_bytes(acceptance_lock, acceptance, acceptance_n * sizeof(wchar_t)); copy_bytes(acceptance_lock + acceptance_n, L".lock", 6 * sizeof(wchar_t));
     UpdateGenerationDirectoryIdentity ancestors[kUpdateGenerationMaximumAncestors]{}; u32 ancestor_count = 0;
@@ -52,27 +55,29 @@ void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexc
     enrollment.explicitly_enrolled = true; copy_bytes(enrollment.publisher_inventory_sha256, inventory, 32);
     const bool enrolled_ancestors = ancestry(root, ancestors, &ancestor_count); enrollment.ancestors = {ancestors,ancestor_count};
     UpdateGenerationTransaction transaction{}; UpdateInstallContext install{}; UpdatePreparationContext preparation{};
-    UpdatePreparationResult prepared{}; UpdateStage stage{}; UpdatePair selected{}; UpdateHandoff handoff{};
-    UpdatePairDescriptor owned_generations[2]{}; HANDLE package_owner = nullptr, source_owners[2]{}, signature_owner = nullptr, unrelated_owner = nullptr; BCRYPT_HASH_HANDLE hash_owner = nullptr;
+    UpdatePreparationResult prepared{}; UpdateStage stage{}; UpdatePackage selected{}; UpdateHandoff handoff{};
+    UpdatePackageDescriptor owned_generations[2]{}; HANDLE package_owner = nullptr, source_owners[2]{}, signature_owner = nullptr, unrelated_owner = nullptr; BCRYPT_HASH_HANDLE hash_owner = nullptr;
     struct Cleanup {
-        UpdateGenerationTransaction& t; UpdateInstallContext& i; UpdatePreparationContext& p; UpdatePreparationResult& r; UpdateStage& stage; UpdatePair& pair; UpdateHandoff& handoff;
-        UpdatePairDescriptor* generations; HANDLE& package; HANDLE* sources; HANDLE& signature; HANDLE& unrelated; BCRYPT_HASH_HANDLE& hash;
-        const wchar_t* root; const wchar_t* work; const wchar_t* artifact; const wchar_t* acceptance; const wchar_t* lock; const wchar_t* state; const wchar_t* gate;
+        UpdateGenerationTransaction& t; UpdateInstallContext& i; UpdatePreparationContext& p; UpdatePreparationResult& r; UpdateStage& stage; UpdatePackage& selected; UpdateHandoff& handoff;
+        UpdatePackageDescriptor* generations; HANDLE& package; HANDLE* sources; HANDLE& signature; HANDLE& unrelated; BCRYPT_HASH_HANDLE& hash;
+        const wchar_t* root; const wchar_t* work; const wchar_t* notes; const wchar_t* artifact; const wchar_t* acceptance; const wchar_t* lock; const wchar_t* state; const wchar_t* gate;
         ~Cleanup() noexcept {
             if (handoff.process) WaitForSingleObject(handoff.process, 5000);
-            update_handoff_release(&handoff); close(&signature); close(&unrelated); update_pair_release(&pair, false); update_install_release(&i);
+            update_handoff_release(&handoff); close(&signature); close(&unrelated); update_package_release(&selected, false); update_install_release(&i);
             update_stage_cleanup_release(&r.stage); update_stage_release(&stage, true); update_preparation_release(&p);
             if (hash && BCryptDestroyHash(hash) >= 0) hash = nullptr;
             for (u32 n = 0; n < 2; ++n) close(&sources[n]); dispose(&package);
-            for (u32 n = 0; n < 2; ++n) remove_fixture_pair(t, generations[n]);
+            for (u32 n = 0; n < 2; ++n) remove_fixture_generation(t, generations[n]); DeleteFileW(notes);
             update_generation_release(&t); DeleteFileW(artifact); DeleteFileW(acceptance); DeleteFileW(lock); DeleteFileW(state); DeleteFileW(gate); RemoveDirectoryW(root); RemoveDirectoryW(work);
         }
     } cleanup{transaction,install,preparation,prepared,stage,selected,handoff,owned_generations,package_owner,source_owners,signature_owner,unrelated_owner,hash_owner,
-        root,work,artifact,acceptance,acceptance_lock,state,gate};
-    const wchar_t* sources[]{MAICORD_UPDATE_HANDOFF_TEST_PEER, MAICORD_UPDATE_PAIR_TEST_ACCOUNT}; u64 package_bytes = 0;
-    const bool packaged = package(artifact, sources, &package_owner, source_owners, &package_bytes, package_digest, &hash_owner);
+        root,work,notes,artifact,acceptance,acceptance_lock,state,gate};
+    HANDLE notes_owner = CreateFileW(notes, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    const bool noted = notes_owner != INVALID_HANDLE_VALUE && write(notes_owner, "release notes", 13) && close(&notes_owner);
+    const wchar_t* sources[]{MAICORD_UPDATE_HANDOFF_TEST_PEER, notes}; const char* names[]{"MaiCord.exe", "notes.txt"}; u64 package_bytes = 0;
+    const bool packaged = noted && package(artifact, sources, names, 2, &package_owner, source_owners, &package_bytes, package_digest, &hash_owner);
     check(packaged && close(&package_owner) && close(&source_owners[0]) && close(&source_owners[1]),
-        "signed handoff: stored ZIP binds controlled peer as MaiCord.exe plus actual paired account DLL"); if (!packaged || package_owner || source_owners[0] || source_owners[1]) return;
+        "signed handoff: stored ZIP binds controlled peer as MaiCord.exe plus a data member"); if (!packaged || package_owner || source_owners[0] || source_owners[1]) return;
     const UpdateInstallLimits limits{64 * 1024 * 1024, 1000, kUpdateInstallMaximumRetainedBytes, 0};
     check(enrolled_ancestors && update_generation_begin(enrollment, &transaction, true).ok() && update_install_initialize(&install, &transaction, key, workspace, limits).ok(),
         "signed handoff: explicit synthetic provisioning gate binds public publisher inventory"); if (!install.initialized) return;
@@ -85,12 +90,12 @@ void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexc
     check(prepared.ok(), "signed handoff: seed receives durable acceptance and retained authenticated stage"); if (!prepared.ok()) return;
     HANDLE retained_files[]{preparation.artifact.file, preparation.acceptance.lock};
     check(update_install_provision_current(&install, &stage, {seed,{signatures[0],64}}, policy, preparation.acceptance, {retained_files,2}).ok(),
-        "signed handoff: authenticated seed commits entire paired generation"); if (!transaction.record_present) return;
-    owned_generations[0] = transaction.state.active.pair;
+        "signed handoff: authenticated seed commits entire generation"); if (!transaction.record_present) return;
+    owned_generations[0] = transaction.state.active.package;
     check(update_stage_release(&stage, true).ok() && update_preparation_release(&preparation).ok(), "signed handoff: seed preparation owners released");
     // The newly provisioned seed is now the trusted installed-version floor.
     // A policy retained from before provisioning cannot admit the next install.
-    policy.installed_version = transaction.state.active.pair.version;
+    policy.installed_version = transaction.state.active.package.version;
     request.document = next; request.signature = {signatures[1],64}; request.allow_first_use = false;
     prepared = update_prepare_stage(&preparation, request, key, workspace, &policy, {scratch,256}, &stage);
     check(prepared.ok(), "signed handoff: update advances high-water while retaining exact source/stage"); if (!prepared.ok()) return;
@@ -98,34 +103,34 @@ void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexc
     retained_files[0] = preparation.artifact.file; retained_files[1] = preparation.acceptance.lock;
     const auto installation = update_install_prepare(&install, &stage, {next,{signatures[1],64}}, policy, preparation.acceptance, transaction_id, {retained_files,2});
     check(installation.ok() &&
-        transaction.state.phase == UpdateGenerationPhase::prepared, "signed handoff: complete package/current acceptance commits prepared pair");
+        transaction.state.phase == UpdateGenerationPhase::prepared, "signed handoff: complete package/current acceptance commits prepared package");
     if (!installation.ok()) {
         metric("DIAG signed_handoff_prepare_error=", static_cast<u8>(installation.error));
         metric("DIAG signed_handoff_prepare_native=", installation.native_error);
         metric("DIAG signed_handoff_prepare_manifest=", static_cast<u8>(installation.manifest_error));
         metric("DIAG signed_handoff_prepare_generation=", static_cast<u8>(installation.generation.error));
         metric("DIAG signed_handoff_prepare_generation_native=", installation.generation.native_error);
-        metric("DIAG signed_handoff_prepare_pair=", static_cast<u8>(installation.pair.error));
-        metric("DIAG signed_handoff_prepare_pair_native=", installation.pair.native_error);
-        metric("DIAG signed_handoff_prepare_pair_cleanup=", installation.pair.cleanup_error);
+        metric("DIAG signed_handoff_prepare_package=", static_cast<u8>(installation.package.error));
+        metric("DIAG signed_handoff_prepare_package_native=", installation.package.native_error);
+        metric("DIAG signed_handoff_prepare_package_cleanup=", installation.package.cleanup_error);
         metric("DIAG signed_handoff_prepare_phase=", static_cast<u8>(transaction.state.phase));
         return;
     }
     if (installation.ok()) metric("MEASURE signed_handoff_retained_bytes_bound=", installation.retained_bytes_bound);
-    if (transaction.state.phase != UpdateGenerationPhase::prepared) return; owned_generations[1] = transaction.state.candidate.pair;
+    if (transaction.state.phase != UpdateGenerationPhase::prepared) return; owned_generations[1] = transaction.state.candidate.package;
     check(update_install_activate(&install).ok() && transaction.state.phase == UpdateGenerationPhase::pending, "signed handoff: live activation records pending generation");
     UpdateGenerationLaunchAdmission admission{};
-    check(update_install_activation_admission(&install, &admission).ok() && update_install_select_activation_pair(&install, &selected).ok(),
-        "signed handoff: one live admission selects actual verified immutable EXE/DLL pins"); if (!selected.files[0] || !selected.files[1]) return;
+    check(update_install_activation_admission(&install, &admission).ok() && update_install_select_activation_package(&install, &selected).ok(),
+        "signed handoff: one live admission selects actual verified immutable member pins"); if (!selected.files[0] || !selected.files[1]) return;
     check(update_handoff_launch(&transaction, &install.authentication, selected, false, &admission, &handoff).error == UpdateHandoffError::enrollment && no_launch(handoff),
-        "signed handoff: valid signed pair still requires explicit trusted caller enrollment");
+        "signed handoff: valid signed package still requires explicit trusted caller enrollment");
     check(update_handoff_launch(&transaction, &install.authentication, selected, true, nullptr, &handoff).error == UpdateHandoffError::generation && no_launch(handoff),
         "signed handoff: pending journal alone cannot manufacture live launch admission");
     for (u32 bad = 0; bad < 3; ++bad) { auto wrong = admission;
         if (!bad) wrong.transaction.bytes[0] ^= 1; else if (bad == 1) ++wrong.sequence; else wrong.document_sha256[0] ^= 1;
         const auto result = update_handoff_launch(&transaction, &install.authentication, selected, true, &wrong, &handoff);
         check(result.error == UpdateHandoffError::generation && no_launch(handoff), "signed handoff: stale transaction/sequence/digest admission refuses before process or IPC allocation"); }
-    UpdatePair forged = selected; forged.descriptor.document_sha256[0] ^= 1;
+    UpdatePackage forged = selected; forged.descriptor.document_sha256[0] ^= 1;
     check(update_handoff_launch(&transaction, &install.authentication, forged, true, &admission, &handoff).error == UpdateHandoffError::generation && no_launch(handoff),
         "signed handoff: unsigned caller descriptor cannot select another target");
     unrelated_owner = CreateFileW(MAICORD_UPDATE_HANDOFF_TEST_PEER, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -138,7 +143,7 @@ void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexc
     const bool corrupted = write_signature(transaction, selected.descriptor, unsigned_signature, &signature_owner);
     check(corrupted, "signed handoff: owned fixture provenance signature changed after selection for fresh-authentication refusal"); if (!corrupted) return;
     const auto unsigned_result = update_handoff_launch(&transaction, &install.authentication, selected, true, &admission, &handoff);
-    check(unsigned_result.error == UpdateHandoffError::authenticity && no_launch(handoff), "signed handoff: production launch reauthenticates signed provenance despite valid descriptor and retained pair pins");
+    check(unsigned_result.error == UpdateHandoffError::authenticity && no_launch(handoff), "signed handoff: production launch reauthenticates signed provenance despite valid descriptor and retained member pins");
     const bool restored = write_signature(transaction, selected.descriptor, signatures[1], &signature_owner);
     check(restored, "signed handoff: exact fixture signature restored before authorized launch"); if (!restored) return;
     const auto launched = update_handoff_launch(&transaction, &install.authentication, selected, true, &admission, &handoff);
@@ -147,19 +152,19 @@ void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexc
     if (!launched.ok()) { metric("DIAG signed_handoff_launch_error=", static_cast<u8>(launched.error)); metric("DIAG signed_handoff_launch_native=", launched.native_error); return; }
     const auto receipt = update_handoff_wait(&handoff, 10000);
     check(receipt.ok() && receipt.outcome == UpdateHandoffOutcome::acknowledged && transaction.state.phase == UpdateGenerationPhase::pending,
-        "signed handoff: independently reverified peer admits actual sibling account API before exact transaction/generation acknowledgement");
+        "signed handoff: independently reverified peer admits its linked account API before exact transaction/generation acknowledgement");
     if (!receipt.ok() || receipt.outcome != UpdateHandoffOutcome::acknowledged) { metric("DIAG signed_handoff_wait_error=", static_cast<u8>(receipt.error)); metric("DIAG signed_handoff_wait_outcome=", static_cast<u8>(receipt.outcome)); return; }
     check(update_install_acknowledge(&install, handoff.expected.transaction, {handoff.expected.document_sha256,32}).ok() &&
-        update_install_recover(&install).ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.pair.version == 7 &&
-        preparation.acceptance.state.channels[0].highest_version == 7, "signed handoff: only exact native receipt commits acknowledgement/stable active pair and preserves network high-water");
+        update_install_recover(&install).ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.package.version == 7 &&
+        preparation.acceptance.state.channels[0].highest_version == 7, "signed handoff: only exact native receipt commits acknowledgement/stable active package and preserves network high-water");
     DWORD exit_code = ~DWORD{0}; const DWORD exited = WaitForSingleObject(handoff.process, 5000);
     check(exited == WAIT_OBJECT_0 && GetExitCodeProcess(handoff.process, &exit_code) && !exit_code, "signed handoff: controlled peer releases account/validation/IPC owners and exits cleanly");
     if (exit_code) metric("DIAG signed_handoff_peer_exit=", exit_code);
-    check(update_handoff_release(&handoff).ok() && update_pair_release(&selected, false).ok() && update_stage_release(&stage, true).ok() &&
-        update_preparation_release(&preparation).ok() && update_install_release(&install).ok(), "signed handoff: production launch and all borrowed/owned preparation/pair/coordinator resources explicitly released");
+    check(update_handoff_release(&handoff).ok() && update_package_release(&selected, false).ok() && update_stage_release(&stage, true).ok() &&
+        update_preparation_release(&preparation).ok() && update_install_release(&install).ok(), "signed handoff: production launch and all borrowed/owned preparation/package/coordinator resources explicitly released");
     metric("MEASURE signed_handoff_authenticated_launches=", 1); metric("MEASURE signed_handoff_account_api_admission_receipts=", 1);
 #else
-    check(false, "signed handoff: root must supply controlled peer and actual paired account DLL absolute paths");
+    check(false, "signed handoff: root must supply the controlled peer's absolute path");
 #endif
 }
 } // namespace maicord

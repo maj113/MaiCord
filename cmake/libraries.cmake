@@ -1,4 +1,4 @@
-# Shipping static libraries linked into MaiCord.exe and MaiCordAccount.dll.
+# Shipping static libraries linked into MaiCord.exe.
 # Each source list is the archive's member order (and so the link order);
 # keep it stable when adding files. Headers are found through the include
 # paths and are not listed.
@@ -82,7 +82,7 @@ maicord_library(maicord_media_codec
     INCLUDES third_party/minimp3)
 set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
 
-# Voice send encoder; linked only into MaiCordAccount, never the client EXE.
+# Voice send encoder; linked only through the account module.
 maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
 
 maicord_library(maicord_cdn_media src/app/cdn_media_pipeline.cpp
@@ -130,7 +130,8 @@ maicord_library(maicord_account_paths
     src/app/account_paths.cpp src/app/account_inventory.cpp src/app/account_switch.cpp
     src/app/account_reconnect.cpp
     LIBS maicord_core kernel32)
-maicord_library(maicord_account_host src/app/account_logout_stop.cpp src/app/account_host.cpp LIBS kernel32)
+maicord_library(maicord_account_host src/app/account_logout_stop.cpp src/app/account_host.cpp src/app/account_host_load.cpp
+    LIBS kernel32 maicord_account_module)
 
 maicord_library(maicord_client_preferences
     src/app/client_theme_document.cpp src/app/client_theme_storage.cpp src/app/client_preferences.cpp
@@ -223,7 +224,7 @@ maicord_library(maicord_app_core
     src/app/remote_auth_ticket_exchange.cpp src/app/user_client_configuration.cpp
     src/app/user_account_coordinator.cpp src/app/user_auth_coordinator.cpp src/app/update_manifest.cpp
     src/app/update_artifact.cpp src/app/update_acceptance.cpp src/app/update_stage.cpp
-    src/app/update_prepare.cpp src/app/update_pair_package.cpp src/app/update_generation.cpp
+    src/app/update_prepare.cpp src/app/update_package.cpp src/app/update_generation.cpp
     src/app/update_generation_authentication.cpp src/app/update_handoff.cpp src/app/update_install.cpp
     src/app/update_fetch.cpp src/app/update_https.cpp src/app/update_service.cpp src/app/search_recent.cpp
     src/app/channel_memory.cpp
@@ -385,7 +386,7 @@ maicord_library(maicord_ui
 maicord_library(maicord_uia src/platform/uia_provider.cpp LIBS maicord_core maicord_ui)
 
 # Native extension ownership stays in independent archives. The shell links
-# settings pages and manual session loading; the account DLL owns no plugin UI.
+# settings pages and manual session loading; the account module owns no plugin UI.
 maicord_library(maicord_plugin_host
     src/app/plugin_host.cpp src/app/plugin_settings_projection.cpp src/app/plugin_call_ledger.cpp
     src/app/plugin_sdk.cpp src/app/plugin_sdk_surfaces.cpp src/app/plugin_sdk_data.cpp

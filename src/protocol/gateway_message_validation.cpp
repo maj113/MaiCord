@@ -1,10 +1,8 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/base64.hpp"
 
-// Message validators shared by the client and the account module. The JSON
-// message decoders live only in the account module (account_module_decoders.cpp);
-// these are in both images because the client's mailbox readers and stores call
-// them on every record.
+// Message validators the client's mailbox readers and stores call on every
+// record, and the account module's decoders call before publishing one.
 namespace maicord {
 namespace {
 

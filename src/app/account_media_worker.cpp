@@ -1141,7 +1141,7 @@ AccountMediaRequestResult account_media_worker_request_catalog_preview(
         request.width > 512 || request.height > 512 || !request.url.data || !request.url.bytes ||
         request.url.bytes > kAccountMediaWorkerTextCapacity || !monotonic_now_ms || !unix_now_seconds)
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    u8 target[kCdnMaximumTargetBytes]{};
+    u8 target[kCdnMaximumTargetBytes];
     if (!parse_catalog_preview_url(request.url, {target, sizeof(target)}, request.format, request.width,
                                    request.height).ok())
         return request_result(AccountMediaRequestState::failed, AccountMediaError::target);

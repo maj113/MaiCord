@@ -38,7 +38,7 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     bool valid = true;
     switch (field) {
     case format:
-        valid = json_value_to_u64(value, &number) && number == 1;
+        valid = json_value_to_u64(value, &number) && number == kUpdateProtocol;
         break;
     case product: valid = string(value, &text) && utf8_equal(text, utf8_literal("MaiCord")); break;
     case arch: valid = string(value, &text) && utf8_equal(text, utf8_literal("x64")); break;
@@ -74,9 +74,8 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
     char name[kUpdateArtifactNameCapacity]{};
-    constexpr Utf8View prefix = utf8_literal("MaiCord-x64-");
-    copy_bytes(name, prefix.data, prefix.bytes);
-    u32 used = prefix.bytes + decimal_write(name + prefix.bytes, manifest.version);
+    copy_bytes(name, kUpdateArtifactPrefix.data, kUpdateArtifactPrefix.bytes);
+    u32 used = kUpdateArtifactPrefix.bytes + decimal_write(name + kUpdateArtifactPrefix.bytes, manifest.version);
     constexpr Utf8View suffix = utf8_literal(".zip");
     copy_bytes(name + used, suffix.data, suffix.bytes);
     used += suffix.bytes;

@@ -1,23 +1,22 @@
 #requires -Version 5.1
-# Builds MaiCord.exe and MaiCordAccount.dll in ..\MaiCord-build\Release, audits
-# them and, with -Test, builds and runs the temporary test suite. Every run
+# Builds MaiCord.exe in ..\MaiCord-build\Release, audits it and, with -Test, builds and runs the temporary test suite. Every run
 # ends with the build directory holding only the client and its runtime assets.
 [CmdletBinding()]
 param(
     [switch]$Test,
     # Run this checkout directly instead of handing off to an installed update.
     [switch]$NoUpdater,
-    # Tests use the MaiCord.exe and MaiCordAccount.dll already in the build
-    # directory (e.g. a running client) instead of building and auditing them.
+    # Tests use the MaiCord.exe already in the build
+    # directory (e.g. a running client) instead of building and auditing it.
     [switch]$SkipClient,
-    # -SkipClient, waiting up to -ClientWaitSeconds for both files before the
-    # tests run (CI copies them in while the tests build).
+    # -SkipClient, waiting up to -ClientWaitSeconds for MaiCord.exe before the
+    # tests run (CI copies it in while the tests build).
     [switch]$PrebuiltClient,
     [ValidateRange(0, 3600)][int]$ClientWaitSeconds = 0,
     [string[]]$TestNames = @(),
     # CI shards (maicord-tests.txt, written by CMake): app = tests whose
     # executable links the application core or a shipping library or runs the
-    # shipping pair; core = the rest.
+    # shipping client; core = the rest.
     [string[]]$TestShard = @(),
     # CTest labels to skip, e.g. tests that need a hardware GPU or a display.
     [string[]]$ExcludeTestLabels = @(),
@@ -58,7 +57,6 @@ if ($AudioPlaybackProbe -and $TestNames) { $TestNames += 'maicord_account_audio_
 $repository = Split-Path -Parent $PSScriptRoot
 $build = [IO.Path]::GetFullPath("$repository\..\MaiCord-build\Release")
 $client = Join-Path $build 'MaiCord.exe'
-$account = Join-Path $build 'MaiCordAccount.dll'
 $cleanup = Join-Path $PSScriptRoot 'maintain_build_outputs.ps1'
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
@@ -78,11 +76,10 @@ function Invoke-Build([string[]]$Targets) {
     Invoke-Native cmake (@('--build', $build, '--parallel', $jobs, '--target') + $Targets)
     Write-Host ('Build: {0:F2} seconds ({1} workers).' -f $timer.Elapsed.TotalSeconds, $jobs)
     if ($Targets -contains 'MaiCord') {
-        # Both images keep large zero-filled globals in .bss; 16 KiB of initialized
+        # The image keeps large zero-filled globals in .bss; 16 KiB of initialized
         # .data leaves room for small tables but not for a serialized aggregate.
-        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, secur32.dll, ole32.dll, advapi32.dll, combase.dll
-        & "$PSScriptRoot\audit_pe.ps1" -Executable $account -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384
-        foreach ($image in Get-Item -LiteralPath $client, $account) { Write-Host "Client image: $($image.Name) bytes=$($image.Length)" }
+        & "$PSScriptRoot\audit_pe.ps1" -Executable $client -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, secur32.dll, ole32.dll, advapi32.dll, combase.dll, d2d1.dll
+        Write-Host "Client image: MaiCord.exe bytes=$((Get-Item -LiteralPath $client).Length)"
     }
 }
 function Get-Regex([string[]]$Values) { '^(' + (($Values | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$' }
@@ -114,7 +111,7 @@ try {
     Import-Module "$installation\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
     Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
 
-    $targets = @(if (!$SkipClient) { 'MaiCord', 'MaiCordAccount' })
+    $targets = @(if (!$SkipClient) { 'MaiCord' })
     if ($Test -or $PerfProbe -or $StartupProbe) {
         # A private LOCALAPPDATA/TEMP for the run, owned by this repository.
         $testProfile = Join-Path $build ('test-profile-' + [guid]::NewGuid().ToString('N'))
@@ -148,7 +145,7 @@ try {
     if ($PerfProbe) { $targets += 'MaiCordPerfProbe' }
     if ($targets) { Invoke-Build $targets }
     if ($SizeReport -and !$SkipClient) {
-        Invoke-Native python @("$PSScriptRoot\report_binary_size.py", $client, $account)
+        Invoke-Native python @("$PSScriptRoot\report_binary_size.py", $client)
     }
 
     if ($StartupProbe) {
@@ -160,8 +157,8 @@ try {
     if ($Test) {
         if ($PrebuiltClient) {
             $wait = [Diagnostics.Stopwatch]::StartNew()
-            while (@(Test-Path -LiteralPath $client, $account -PathType Leaf) -contains $false) {
-                if ($wait.Elapsed.TotalSeconds -ge $ClientWaitSeconds) { throw "-PrebuiltClient needs MaiCord.exe and MaiCordAccount.dll in $build." }
+            while (!(Test-Path -LiteralPath $client -PathType Leaf)) {
+                if ($wait.Elapsed.TotalSeconds -ge $ClientWaitSeconds) { throw "-PrebuiltClient needs MaiCord.exe in $build." }
                 Start-Sleep -Seconds 1
             }
         }
@@ -206,7 +203,7 @@ try {
     # executables' dumps under the real profile; MaiCord.exe dumps are kept.
     $late = $null
     foreach ($step in {
-        if ($restoreClient) { Invoke-Configure @('-DMAICORD_STARTUP_PROBE=OFF'); Invoke-Build @('MaiCord', 'MaiCordAccount') }
+        if ($restoreClient) { Invoke-Configure @('-DMAICORD_STARTUP_PROBE=OFF'); Invoke-Build @('MaiCord') }
     }, {
         if ($locked) { & $cleanup -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt") }
     }, {

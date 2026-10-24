@@ -1,6 +1,6 @@
 // Test/tool-only DirectWrite COLRv1 paint-program builder: the reference the
 // native COLR compiler (src/render/colr_source.cpp) is compared against.
-// Never linked into MaiCord.exe or MaiCordAccount.dll.
+// Never linked into MaiCord.exe.
 #include "dwrite_paint_builder.hpp"
 #include "maicord/render/colr_paint.hpp"
 #include "../font_reference/dwrite_text_system.hpp"

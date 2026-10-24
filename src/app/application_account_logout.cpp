@@ -106,15 +106,13 @@ void start_stop(ApplicationAccountLogout& owner) noexcept {
     owner.admission_due = owner.deadline = 0;
     // Move the entire host out on the UI thread. Any remaining UI reads
     // see a stable empty host; only the worker touches the private copy.
-    owner.stop_host = g_app.account;
-    g_app.account = {};
+    account_host_move(&owner.stop_host, &g_app.account);
     owner.host_transferred = true;
     const auto started = account_logout_stop_start(&owner.stop, &owner.stop_host, kAccountStopTimeoutMs,
                                                    clock_monotonic_milliseconds(),
                                                    clock_unix_milliseconds(), account_host_stop);
     if (!started.ok()) {
-        g_app.account = owner.stop_host;
-        owner.stop_host = {};
+        account_host_move(&g_app.account, &owner.stop_host);
         owner.host_transferred = false;
         publish(owner, LogoutPhase::stop_start_failed,
                 utf8_literal("Couldn't finish logging out. Try again."));
@@ -167,8 +165,9 @@ void stopped(ApplicationAccountLogout& owner, const AccountHostStopResult& resul
     // This function is called only after the kernel join has completed.
     if (owner.host_transferred) {
         if (!result.ok())
-            g_app.account = owner.stop_host;
-        owner.stop_host = {};
+            account_host_move(&g_app.account, &owner.stop_host);
+        else
+            clear_bytes(&owner.stop_host, sizeof(owner.stop_host));
         owner.host_transferred = false;
     }
     application_account_stop_observed(result, owner.had_account);

@@ -102,11 +102,11 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
     measure("MEASURE update_handoff_owner_bytes=", sizeof(UpdateHandoff));
     measure("MEASURE update_handoff_child_bytes=", sizeof(UpdateHandoffChild));
     measure("MEASURE update_handoff_ack_mapping_logical_bytes=", kUpdateHandoffAcknowledgementBytes);
-    UpdateHandoff empty_owner{}; UpdateGenerationTransaction transaction{}; UpdateGenerationAuthenticationContext authentication{}; UpdatePair pair{};
-    check(fixture_handoff_launch(nullptr, &authentication, pair, false, nullptr, &empty_owner).error == UpdateHandoffError::invalid_input &&
+    UpdateHandoff empty_owner{}; UpdateGenerationTransaction transaction{}; UpdateGenerationAuthenticationContext authentication{}; UpdatePackage package{};
+    check(fixture_handoff_launch(nullptr, &authentication, package, false, nullptr, &empty_owner).error == UpdateHandoffError::invalid_input &&
         empty(empty_owner), "handoff: null production transaction cannot launch");
-    pair.files[0] = reinterpret_cast<HANDLE>(4); pair.files[1] = reinterpret_cast<HANDLE>(8);
-    check(fixture_handoff_launch(&transaction, &authentication, pair, false, nullptr, &empty_owner).error == UpdateHandoffError::enrollment &&
+    package.files[0] = reinterpret_cast<HANDLE>(4); package.files[1] = reinterpret_cast<HANDLE>(8); package.descriptor.member_count = 2;
+    check(fixture_handoff_launch(&transaction, &authentication, package, false, nullptr, &empty_owner).error == UpdateHandoffError::enrollment &&
         empty(empty_owner), "handoff: trusted caller enrollment is required before process/channel creation");
     check(fixture_handoff_wait(&empty_owner, 1).error == UpdateHandoffError::invalid_input &&
         fixture_handoff_release(&empty_owner).ok(), "handoff: launch success is required before native wait; empty cleanup is safe");

@@ -22,7 +22,6 @@ $firstOutput = Join-Path $firstRoot $Configuration
 $secondOutput = Join-Path $secondRoot $Configuration
 $artifacts = @(
     'MaiCord.exe',
-    'MaiCordAccount.dll',
     'MaiCordTests.exe',
     'MaiCordUiProbe.exe'
 )

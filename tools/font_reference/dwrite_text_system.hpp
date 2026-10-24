@@ -1,8 +1,8 @@
 #pragma once
 // Test/tool-only DirectWrite reference text system. The shipping text stack
 // is native; this reference is compiled only into test and font-reference
-// executables (which link dwrite.lib) and never into MaiCord.exe or
-// MaiCordAccount.dll. Native output is compared against its DirectWrite layouts.
+// executables (which link dwrite.lib) and never into MaiCord.exe. Native
+// output is compared against its DirectWrite layouts.
 #include "maicord/ui/text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/render/text_edit_layout.hpp"

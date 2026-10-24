@@ -806,7 +806,9 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
         !scratch.data || scratch.count == 0 || maximum_depth == 0) {
         return decode_error(GatewayEventDecodeError::invalid_input, value.source_offset);
     }
-    StateObjectContext context{};
+    // Decoded in place: callers read the object only after success.
+    StateObjectContext& context = *output;
+    context = {};
     JsonReadResult read{};
     if (document) {
         // The array's immutable index already covers this complete child,
@@ -993,7 +995,6 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
             return decode_error(GatewayEventDecodeError::invalid_data);
         context.mutation.upload_features_known = true;
     }
-    *output = context;
     return decode_error(GatewayEventDecodeError::none);
 }
 
@@ -1148,7 +1149,7 @@ u8 role_flags(const StateObjectContext& object) noexcept {
 
 bool visit_role(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<RoleArrayContext*>(opaque);
-    StateObjectContext object{};
+    StateObjectContext object;
     const GatewayEventDecodeResult decoded =
         decode_state_object(value, context->object_scratch, context->maximum_depth, &object);
     constexpr u16 required = gateway_client_state_field_id | gateway_client_state_field_permissions;
@@ -1279,7 +1280,7 @@ struct EmojiArrayContext {
 
 bool visit_emoji(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<EmojiArrayContext*>(opaque);
-    StateObjectContext object{};
+    StateObjectContext object;
     const GatewayEventDecodeResult decoded =
         decode_state_object(value, context->object_scratch, context->maximum_depth, &object);
     constexpr u16 required = gateway_client_state_field_id | gateway_client_state_field_name;
@@ -1372,7 +1373,7 @@ struct OverwriteArrayContext {
 
 bool visit_overwrite(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<OverwriteArrayContext*>(opaque);
-    StateObjectContext object{};
+    StateObjectContext object;
     const GatewayEventDecodeResult decoded = decode_state_object(
         value, context->object_scratch, context->maximum_depth, &object, false, context->document);
     constexpr u16 required = gateway_client_state_field_id | gateway_client_state_field_type;
@@ -1517,7 +1518,7 @@ bool visit_member(void* opaque, u32, JsonValue value) noexcept {
         context->error = GatewayEventDecodeError::invalid_data;
         return false;
     }
-    StateObjectContext member{};
+    StateObjectContext member;
     const GatewayEventDecodeResult decoded =
         decode_state_object(value, context->object_scratch, context->maximum_depth, &member);
     if (!decoded.ok()) {
@@ -1661,7 +1662,7 @@ bool visit_channel(void* opaque, u32, JsonValue value) noexcept {
         ++context->skipped;
         return true;
     };
-    StateObjectContext object{};
+    StateObjectContext object;
     const GatewayEventDecodeResult decoded = decode_state_object(
         value, context->object_scratch, context->maximum_depth, &object, false, &context->document);
     if (!decoded.ok())
@@ -1737,7 +1738,7 @@ struct ReadyContext {
 
 bool visit_ready_guild(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<ReadyContext*>(opaque);
-    StateObjectContext object{};
+    StateObjectContext object;
     const GatewayEventDecodeResult decoded =
         decode_state_object(value, context->object_scratch, context->maximum_depth, &object);
     if (!decoded.ok() && decoded.error == GatewayEventDecodeError::scan_failed &&
@@ -1797,7 +1798,7 @@ struct ThreadSyncMembers {
 };
 bool thread_sync_member(void* opaque, u32, JsonValue value) noexcept {
     auto& members = *static_cast<ThreadSyncMembers*>(opaque);
-    StateObjectContext object{};
+    StateObjectContext object;
     const auto decoded = decode_state_object(value, members.scratch, members.depth, &object);
     ThreadMemberSnapshot snapshot{};
     if (!decoded.ok() || !(object.mutation.fields & gateway_client_state_field_id) ||
@@ -1966,7 +1967,7 @@ GatewayClientDispatchRouteResult gateway_client_route_channel_create(
     u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
     if (!event || !payload)
         return route_error(GatewayClientDispatchRouteError::invalid_input);
-    StateObjectContext object{};
+    StateObjectContext object;
     const auto decoded = decode_state_object(data, structural_scratch, maximum_depth, &object, true);
     if (!decoded.ok())
         return route_error(GatewayClientDispatchRouteError::decode, decoded.error);
@@ -1987,7 +1988,7 @@ GatewayClientDispatchRouteResult gateway_client_route_private_channel(
     GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
     if (!event || !payload)
         return route_error(GatewayClientDispatchRouteError::invalid_input);
-    StateObjectContext object{};
+    StateObjectContext object;
     const auto decoded = decode_state_object(data, structural_scratch, maximum_depth, &object, true);
     if (!decoded.ok())
         return route_error(GatewayClientDispatchRouteError::decode, decoded.error);
@@ -2023,7 +2024,7 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
     }
     if (json_name_is(envelope.event_name, utf8_literal("THREAD_MEMBER_UPDATE"))) {
         *handled = true;
-        StateObjectContext member{};
+        StateObjectContext member;
         const auto decoded = decode_state_object(envelope.data, structural_scratch, maximum_depth, &member);
         ThreadMemberSnapshot receipt{};
         if (!decoded.ok() || !member.mutation.id || !member.mutation.guild_id ||
@@ -2059,7 +2060,7 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
         return route_error(GatewayClientDispatchRouteError::none);
     }
 
-    StateObjectContext object{};
+    StateObjectContext object;
     const GatewayEventDecodeResult decoded =
         decode_state_object(envelope.data, structural_scratch, maximum_depth, &object,
                             channel_create || channel_update || channel_delete);
@@ -2077,7 +2078,7 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
     if ((channel_create || channel_update) && !hydrate_self_member(&object, self_user_id))
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
     if ((guild_create || guild_update) && object.properties_seen) {
-        StateObjectContext properties{};
+        StateObjectContext properties;
         const GatewayEventDecodeResult property_decoded =
             decode_state_object(object.properties, structural_scratch, maximum_depth, &properties);
         if (!property_decoded.ok() || !merge_guild_properties(&object, properties)) {
@@ -2137,7 +2138,7 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
                 return route_error(GatewayClientDispatchRouteError::decode,
                                    GatewayEventDecodeError::missing_required_field);
             }
-            StateObjectContext role{};
+            StateObjectContext role;
             const GatewayEventDecodeResult role_decoded =
                 decode_state_object(object.role, Slice<u32>{object_scratch, 512}, maximum_depth, &role);
             constexpr u16 required = gateway_client_state_field_id | gateway_client_state_field_permissions;

@@ -31,9 +31,9 @@ struct LockBudgetGuard {
 
 u32 acquire_lock_budget(HANDLE* acquired) noexcept {
     *acquired = nullptr;
-    // Both the executable and account DLL statically link this implementation.
-    // A PID-qualified kernel object serializes them without per-image counters
-    // or a persistent heap allocation. Every handle is noninheritable and closed.
+    // A PID-qualified named mutex serializes recovery without static state or a
+    // persistent heap allocation. It is recursive, so unprotect can hold it
+    // while lock_pages takes it again. Every handle is noninheritable and closed.
     wchar_t name[64] = L"Local\\MaiCord.SecureLockBudget.";
     u32 used = 0;
     while (name[used]) ++used;
@@ -213,7 +213,7 @@ SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_i
     // DPAPI returns LocalAlloc storage, so concurrent plaintext outputs can
     // share a page. VirtualLock is not reference-counted: one temporary's
     // unlock could otherwise unlock another live temporary. Serialize BEFORE
-    // decryption until after wipe/unlock/free, across both linked images.
+    // decryption until after wipe/unlock/free.
     HANDLE mutex = nullptr;
     const u32 acquired = acquire_lock_budget(&mutex);
     if (acquired) return failure(SecureBufferError::lock_failed, acquired);

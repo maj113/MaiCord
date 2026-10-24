@@ -543,7 +543,7 @@ bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds* keybinds) no
     return read && custom_keybinds_decode({record, static_cast<u32>(size.QuadPart)}, keybinds);
 }
 bool custom_keybinds_save_file(const wchar_t* path, const CustomKeybinds& keybinds) noexcept {
-    u8 record[kCustomKeybindsMaximumBytes]{};
+    u8 record[kCustomKeybindsMaximumBytes];
     const u32 bytes = custom_keybinds_encode(keybinds, {record, sizeof(record)});
     const u32 length = path ? wide_length(path, kAccountProfileMaximumPathCharacters) : 0;
     return bytes && length && file_persistence_write_atomic(path, length, {record, bytes}).ok();

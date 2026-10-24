@@ -95,7 +95,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/message_forward_controller.cpp tests/bounded_edit.cpp tests/gif_favorites.cpp
         tests/emoji_preferences.cpp tests/thread_starter.cpp tests/update_manifest.cpp tests/update_artifact.cpp
         tests/page_registry.cpp tests/plugin_host.cpp tests/update_acceptance.cpp tests/update_stage.cpp
-        tests/update_prepare.cpp tests/update_pair_package.cpp tests/update_generation.cpp
+        tests/update_prepare.cpp tests/update_package.cpp tests/update_generation.cpp
         tests/update_generation_authentication.cpp tests/update_generation_failures.cpp tests/update_install.cpp
         tests/update_signed_handoff.cpp tests/reaction_sections.cpp tests/message_reaction_controller.cpp
         tests/thread_authority_model.cpp tests/thread_header.cpp tests/application_thread_header_activation.cpp
@@ -149,12 +149,11 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         maicord_model kernel32 user32 bcrypt crypt32 ws2_32 secur32 ole32 ntdll
     INCLUDES src/app third_party/opus/include
     DEFINES MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE=1
-        "MAICORD_UPDATE_PAIR_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
-        "MAICORD_UPDATE_PAIR_TEST_ACCOUNT=L\"$<TARGET_FILE:MaiCordAccount>\""
+        "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
         "MAICORD_UPDATE_HANDOFF_TEST_PEER=L\"$<TARGET_FILE:MaiCordUpdateHandoffPeer>\""
         "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     DEPENDS MaiCordPluginFixture MaiCordUpdateHandoffPeer
-    USES_CLIENT MaiCordAccount MaiCord)
+    USES_CLIENT MaiCord)
 # The same 172 fixtures run once across four private process/profile owners.
 # Shard 0 keeps all 12 durable update fixtures serial and runs 40 other fixtures;
 # the remaining shards each run 40. Every shard checks its exact function count.
@@ -210,9 +209,8 @@ maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_client_preferences kernel32 bcrypt
         ws2_32 secur32
     INCLUDES src/app
-    DEFINES "MAICORD_UPDATE_PAIR_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
-        "MAICORD_UPDATE_PAIR_TEST_ACCOUNT=L\"$<TARGET_FILE:MaiCordAccount>\""
-    USES_CLIENT MaiCord MaiCordAccount
+    DEFINES "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
+    USES_CLIENT MaiCord
     TIMEOUT 15
     TEST maicord_update_client)
 maicord_test(MaiCordUpdateChangelogTests ENTRY maicord_update_changelog_tests_entry
@@ -440,7 +438,6 @@ maicord_test(MaiCordTextFormConfirmationTests ENTRY maicord_text_form_confirmati
 maicord_test(MaiCordFriendsAccountTests ENTRY maicord_friends_account_entry
     SOURCES tests/account_relationships.cpp src/app/account_relationships.cpp src/app/account_message_ack.cpp
     LIBS maicord_core maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TEST maicord_friends_account)
 maicord_test(MaiCordFriendsStorageTests ENTRY maicord_friends_storage_entry
     SOURCES tests/application_friends_storage.cpp src/app/application_friends_storage.cpp
@@ -480,7 +477,7 @@ maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
     TEST maicord_voice_setup)
 maicord_test(MaiCordTests ENTRY maicord_tests_entry
     SOURCES tests/test_main.cpp tools/font_reference/dwrite_text_system.cpp tests/account_credential_forget.cpp
-        tests/account_logout_stop.cpp tests/account_inventory.cpp tests/media_parity.cpp
+        tests/account_logout_stop.cpp tests/account_module_dormant.cpp tests/account_inventory.cpp tests/media_parity.cpp
         tests/catalog_media.cpp tests/message_preparation.cpp tests/atlas_pressure.cpp
         tests/composer_geometry.cpp tests/reply_grouping.cpp tests/message_markdown_cache.cpp
         tests/message_interaction_rules.cpp tests/timeline_overlay_regressions.cpp tests/chat_display.cpp
@@ -522,7 +519,6 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         maicord_account_host maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime
         maicord_message_media maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
         maicord_account_media kernel32 user32 ws2_32 secur32 bcrypt crypt32 dwrite
-    USES_CLIENT MaiCordAccount
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     SOURCES tests/application_commands_ui.cpp src/app/application_commands.cpp src/app/application_state.cpp
@@ -572,7 +568,6 @@ maicord_test(MaiCordChannelOverviewRuntimeTests ENTRY maicord_application_channe
 maicord_test(MaiCordChannelOverviewAccountTests ENTRY maicord_channel_overview_account_entry
     SOURCES tests/account_channel_overview.cpp src/app/account_channel_overview.cpp
     LIBS maicord_core maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_channel_overview_account)
 maicord_test(MaiCordPermissionComputeTests ENTRY maicord_permission_compute_entry
@@ -607,7 +602,6 @@ maicord_test(MaiCordGuildModerationTests ENTRY maicord_guild_moderation_entry
 maicord_test(MaiCordGuildAdminAccountTests ENTRY maicord_account_guild_admin_entry
     SOURCES tests/account_guild_admin.cpp src/app/account_guild_admin.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_guild_admin_account)
 # Stage requests: exact targets, methods, buckets and bodies at the transport.
@@ -735,7 +729,6 @@ maicord_test(MaiCordThreadBrowserProtocolTests ENTRY maicord_thread_browser_prot
 maicord_test(MaiCordAccountThreadBrowserTests ENTRY maicord_account_thread_browser_test_entry
     SOURCES tests/account_thread_browser.cpp src/app/account_thread_browser.cpp
     LIBS maicord_core maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_thread_browser)
 maicord_test(MaiCordApplicationThreadBrowserTests ENTRY maicord_application_thread_browser_entry
@@ -758,25 +751,21 @@ maicord_test(MaiCordThreadCreationProtocolTests ENTRY maicord_thread_creation_pr
 maicord_test(MaiCordAccountThreadCreationTests ENTRY maicord_account_thread_creation_test_entry
     SOURCES tests/account_thread_creation.cpp src/app/account_thread_creation.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_thread_creation)
 maicord_test(MaiCordAccountPollCreateTests ENTRY maicord_account_poll_create_test_entry
     SOURCES tests/account_poll_create.cpp src/app/account_poll_create.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_poll_create)
 maicord_test(MaiCordAccountNotificationSettingsTests ENTRY maicord_account_notification_settings_test_entry
     SOURCES tests/account_notification_settings.cpp src/app/account_notification_settings.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_notification_settings)
 maicord_test(MaiCordAccountPrivateChannelTests ENTRY maicord_account_private_channel_test_entry
     SOURCES tests/account_private_channel.cpp src/app/account_private_channel.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_private_channel)
 maicord_test(MaiCordApplicationThreadCreationTests ENTRY maicord_application_thread_creation_entry
@@ -797,7 +786,6 @@ maicord_test(MaiCordForumPostProtocolTests ENTRY maicord_forum_post_protocol_tes
 maicord_test(MaiCordAccountForumPostTests ENTRY maicord_account_forum_post_test_entry
     SOURCES tests/account_forum_post.cpp src/app/account_forum_post.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_forum_post)
 maicord_test(MaiCordApplicationForumAttachmentsTests ENTRY maicord_application_forum_attachments_entry
@@ -1036,7 +1024,6 @@ maicord_test(MaiCordRestClientFixtureTests ENTRY maicord_rest_client_fixtures_en
         src/app/account_host.cpp src/media/png_common.cpp src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
-    USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_reset_rest_storage reset-storage
     TEST maicord_user_settings_rest_storage user-settings-storage

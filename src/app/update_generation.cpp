@@ -11,42 +11,43 @@
 
 namespace maicord {
 namespace {
-constexpr u8 magic[8]{'M','A','I','G','E','N','0','2'};
-constexpr u32 reference_bytes = 176, checksum_offset = kUpdateGenerationRecordBytes - 8;
-constexpr const wchar_t* filenames[]{L"MaiCord.exe", L"MaiCordAccount.dll", L"offer.json", L"offer.sig", L"package.zip"};
+constexpr u8 magic[8]{'M','A','I','G','E','N','0','3'};
+// Record: 64-byte header, three 408-byte references, the disposal intent at
+// 1288, zero padding and the checksum in the last 8 bytes.
+constexpr u32 reference_bytes = 408, member_bytes = 80, disposal_offset = 64 + reference_bytes * 3,
+    disposal_bytes = 24 + kUpdateGenerationMaximumFiles * 16, checksum_offset = kUpdateGenerationRecordBytes - 8;
+static_assert(disposal_offset + disposal_bytes <= checksum_offset);
+static_assert(88 + kUpdatePackageMaximumMembers * member_bytes == reference_bytes);
+constexpr Utf8View provenance[]{utf8_literal("offer.json"), utf8_literal("offer.sig"), utf8_literal("package.zip")};
 UpdateGenerationResult fail(UpdateGenerationError e, DWORD native = 0) noexcept { return {e, native}; }
 bool identity(const UpdateGenerationIdentity& a, const UpdateGenerationIdentity& b) noexcept { return bytes_equal(a.bytes, b.bytes, 16); }
-bool valid_pair(const UpdatePairDescriptor& p) noexcept {
-    return p.version && p.package_bytes && p.package_bytes <= kUpdatePairMaximumPackageBytes &&
-        p.channel <= UpdateChannel::preview && p.account_ordinal && // the package DLL's own API ordinal
-        !bytes_zero(p.document_sha256, 32) && !bytes_zero(p.package_sha256, 32) &&
-        p.members[0].bytes && p.members[1].bytes && p.members[0].bytes <= p.package_bytes &&
-        p.members[1].bytes <= p.package_bytes - p.members[0].bytes &&
-        !bytes_zero(p.members[0].sha256, 32) && !bytes_zero(p.members[1].sha256, 32);
+bool empty_package(const UpdatePackageDescriptor& p) noexcept {
+    if (p.version || p.package_bytes || p.member_count || p.channel != UpdateChannel::stable ||
+        !bytes_zero(p.document_sha256, 32) || !bytes_zero(p.package_sha256, 32)) return false;
+    for (const auto& m : p.members)
+        if (m.bytes || m.name_bytes || !bytes_zero(m.sha256, 32) || !bytes_zero(reinterpret_cast<const u8*>(m.name), sizeof(m.name))) return false;
+    return true;
 }
-bool empty_pair(const UpdatePairDescriptor& p) noexcept {
-    return !p.version && !p.package_bytes && bytes_zero(p.document_sha256, 32) && bytes_zero(p.package_sha256, 32) &&
-        !p.members[0].bytes && !p.members[1].bytes && bytes_zero(p.members[0].sha256, 32) &&
-        bytes_zero(p.members[1].sha256, 32) && p.channel == UpdateChannel::stable && !p.account_ordinal;
-}
-bool valid_reference(const UpdateGenerationReference& r) noexcept { return r.present ? valid_pair(r.pair) : empty_pair(r.pair); }
+bool valid_reference(const UpdateGenerationReference& r) noexcept { return r.present ? update_package_descriptor_valid(r.package) : empty_package(r.package); }
 bool empty_disposal(const UpdateGenerationDisposalIntent& d) noexcept {
-    if (d.target != UpdateGenerationDisposalTarget::none || d.directory.volume || d.directory.file) return false;
+    if (d.target != UpdateGenerationDisposalTarget::none || d.file_count || d.directory.volume || d.directory.file) return false;
     for (auto id : d.files) if (id.volume || id.file) return false;
     return true;
 }
 bool valid_disposal(const UpdateGenerationDisposalIntent& d) noexcept {
     if (d.target == UpdateGenerationDisposalTarget::none) return empty_disposal(d);
-    if (d.target > UpdateGenerationDisposalTarget::candidate || !d.directory.file) return false;
-    for (u32 i = 0; i < 5; ++i) {
+    if (d.target > UpdateGenerationDisposalTarget::candidate || !d.directory.file ||
+        d.file_count <= kUpdateGenerationFirstMemberSlot || d.file_count > kUpdateGenerationMaximumFiles) return false;
+    for (u32 i = 0; i < kUpdateGenerationMaximumFiles; ++i) {
+        if (i >= d.file_count) { if (d.files[i].volume || d.files[i].file) return false; continue; }
         if (!d.files[i].file || d.files[i].volume != d.directory.volume || d.files[i] == d.directory) return false;
         for (u32 j = 0; j < i; ++j) if (d.files[i] == d.files[j]) return false;
     }
     return true;
 }
 bool disposal_equal(const UpdateGenerationDisposalIntent& a, const UpdateGenerationDisposalIntent& b) noexcept {
-    if (a.target != b.target || a.directory != b.directory) return false;
-    for (u32 i = 0; i < 5; ++i) if (a.files[i] != b.files[i]) return false;
+    if (a.target != b.target || a.file_count != b.file_count || a.directory != b.directory) return false;
+    for (u32 i = 0; i < kUpdateGenerationMaximumFiles; ++i) if (a.files[i] != b.files[i]) return false;
     return true;
 }
 const UpdateGenerationReference* disposal_reference(const UpdateGenerationState& s) noexcept {
@@ -57,12 +58,14 @@ bool valid_state(const UpdateGenerationState& s) noexcept {
     if (bytes_zero(s.installation.bytes, 16) || !s.sequence || s.phase > UpdateGenerationPhase::rollback ||
         !s.active.present || !valid_reference(s.active) || !valid_reference(s.previous) || !valid_reference(s.candidate) || !valid_disposal(s.disposal)) return false;
     if (s.disposal.target != UpdateGenerationDisposalTarget::none) {
+        const auto* target = s.disposal.target == UpdateGenerationDisposalTarget::previous ? &s.previous : &s.candidate;
+        if (s.disposal.file_count != update_generation_file_count(target->package)) return false;
         const bool previous = s.phase == UpdateGenerationPhase::stable && s.previous.present && s.disposal.target == UpdateGenerationDisposalTarget::previous;
         const bool candidate = s.phase == UpdateGenerationPhase::rollback && s.candidate.present && s.disposal.target == UpdateGenerationDisposalTarget::candidate;
         if (s.sequence == ~u64{0} || (!previous && !candidate)) return false;
     }
-    if ((s.previous.present && bytes_equal(s.active.pair.document_sha256, s.previous.pair.document_sha256, 32)) ||
-        (s.candidate.present && bytes_equal(s.active.pair.document_sha256, s.candidate.pair.document_sha256, 32)) ||
+    if ((s.previous.present && bytes_equal(s.active.package.document_sha256, s.previous.package.document_sha256, 32)) ||
+        (s.candidate.present && bytes_equal(s.active.package.document_sha256, s.candidate.package.document_sha256, 32)) ||
         (s.previous.present && s.candidate.present)) return false;
     switch (s.phase) {
     case UpdateGenerationPhase::stable: return bytes_zero(s.transaction.bytes, 16) && !s.candidate.present;
@@ -74,7 +77,7 @@ bool valid_state(const UpdateGenerationState& s) noexcept {
     return false;
 }
 bool reference_equal(const UpdateGenerationReference& a, const UpdateGenerationReference& b) noexcept {
-    return a.present == b.present && update_generation_pair_equal(a.pair, b.pair);
+    return a.present == b.present && update_package_descriptor_equal(a.package, b.package);
 }
 bool state_equal(const UpdateGenerationState& a, const UpdateGenerationState& b) noexcept {
     return identity(a.installation, b.installation) && identity(a.transaction, b.transaction) &&
@@ -85,41 +88,43 @@ bool next(const UpdateGenerationState& s, UpdateGenerationState* output) noexcep
     return output && valid_state(s) && s.sequence != ~u64{0};
 }
 void put_reference(u8* b, const UpdateGenerationReference& r) noexcept {
-    const auto& p = r.pair;
+    const auto& p = r.package;
     byte_store_le64(b, p.version); byte_store_le64(b + 8, p.package_bytes);
     copy_bytes(b + 16, p.document_sha256, 32); copy_bytes(b + 48, p.package_sha256, 32);
-    for (u32 i = 0; i < 2; ++i) {
-        byte_store_le64(b + 80 + i * 40, p.members[i].bytes);
-        copy_bytes(b + 88 + i * 40, p.members[i].sha256, 32);
+    b[80] = static_cast<u8>(p.channel); b[81] = static_cast<u8>(p.member_count); b[82] = r.present ? 1 : 0;
+    for (u32 i = 0; i < kUpdatePackageMaximumMembers; ++i) {
+        u8* m = b + 88 + i * member_bytes;
+        byte_store_le64(m, p.members[i].bytes); copy_bytes(m + 8, p.members[i].sha256, 32);
+        m[40] = p.members[i].name_bytes; copy_bytes(m + 41, p.members[i].name, kUpdatePackageMaximumNameBytes);
     }
-    b[160] = static_cast<u8>(p.channel); b[161] = static_cast<u8>(p.account_ordinal);
-    b[162] = static_cast<u8>(p.account_ordinal >> 8); b[163] = r.present ? 1 : 0;
 }
 bool get_reference(const u8* b, UpdateGenerationReference* r) noexcept {
-    if (b[163] > 1 || !bytes_zero(b + 164, 12)) return false;
-    auto& p = r->pair;
+    if (b[81] > kUpdatePackageMaximumMembers || b[82] > 1 || !bytes_zero(b + 83, 5)) return false;
+    auto& p = r->package;
     p.version = byte_load_le64(b); p.package_bytes = byte_load_le64(b + 8);
     copy_bytes(p.document_sha256, b + 16, 32); copy_bytes(p.package_sha256, b + 48, 32);
-    for (u32 i = 0; i < 2; ++i) {
-        p.members[i].bytes = byte_load_le64(b + 80 + i * 40);
-        copy_bytes(p.members[i].sha256, b + 88 + i * 40, 32);
+    p.channel = static_cast<UpdateChannel>(b[80]); p.member_count = b[81];
+    for (u32 i = 0; i < kUpdatePackageMaximumMembers; ++i) {
+        const u8* m = b + 88 + i * member_bytes;
+        if (m[40] > kUpdatePackageMaximumNameBytes || !bytes_zero(m + 73, member_bytes - 73)) return false;
+        p.members[i].bytes = byte_load_le64(m); copy_bytes(p.members[i].sha256, m + 8, 32);
+        p.members[i].name_bytes = m[40]; copy_bytes(p.members[i].name, m + 41, kUpdatePackageMaximumNameBytes);
     }
-    p.channel = static_cast<UpdateChannel>(b[160]); p.account_ordinal = static_cast<u16>(b[161] | b[162] << 8);
-    r->present = b[163] == 1;
+    r->present = b[82] == 1;
     return valid_reference(*r);
 }
 void put_disposal(u8* b, const UpdateGenerationDisposalIntent& d) noexcept {
-    b[0] = static_cast<u8>(d.target);
+    b[0] = static_cast<u8>(d.target); b[1] = static_cast<u8>(d.file_count);
     byte_store_le32(b + 8, d.directory.volume); byte_store_le64(b + 16, d.directory.file);
-    for (u32 i = 0; i < 5; ++i) {
+    for (u32 i = 0; i < kUpdateGenerationMaximumFiles; ++i) {
         byte_store_le32(b + 24 + i * 16, d.files[i].volume); byte_store_le64(b + 32 + i * 16, d.files[i].file);
     }
 }
 bool get_disposal(const u8* b, UpdateGenerationDisposalIntent* d) noexcept {
-    if (!bytes_zero(b + 1, 7) || !bytes_zero(b + 12, 4) || !bytes_zero(b + 104, 64)) return false;
-    d->target = static_cast<UpdateGenerationDisposalTarget>(b[0]);
+    if (!bytes_zero(b + 2, 6) || !bytes_zero(b + 12, 4)) return false;
+    d->target = static_cast<UpdateGenerationDisposalTarget>(b[0]); d->file_count = b[1];
     d->directory = {byte_load_le32(b + 8), byte_load_le64(b + 16)};
-    for (u32 i = 0; i < 5; ++i) {
+    for (u32 i = 0; i < kUpdateGenerationMaximumFiles; ++i) {
         if (!bytes_zero(b + 28 + i * 16, 4)) return false;
         d->files[i] = {byte_load_le32(b + 24 + i * 16), byte_load_le64(b + 32 + i * 16)};
     }
@@ -197,7 +202,7 @@ UpdateGenerationResult bounded_inventory(UpdateGenerationTransaction* t) noexcep
                 if (t->record_present) {
                     const UpdateGenerationReference* refs[]{&t->state.active, &t->state.previous, &t->state.candidate};
                     for (auto* ref : refs) if (ref->present) {
-                        wchar_t name[67]{}; generation_name(ref->pair.document_sha256, name);
+                        wchar_t name[67]{}; generation_name(ref->package.document_sha256, name);
                         if (name_equal(data.cFileName, name)) { recognized = true; break; }
                     }
                 }
@@ -223,11 +228,11 @@ UpdateGenerationResult authenticate(UpdateGenerationTransaction* t, const Update
     for (u32 i = 0; i < 3; ++i) {
         const auto* r = references[i];
         // A failed candidate must never veto returning to the independently
-        // authenticated old pair. It remains recorded for explicit cleanup.
-        if (!r->present || (disposing && bytes_equal(r->pair.document_sha256, disposing->pair.document_sha256, 32)) ||
+        // authenticated old package. It remains recorded for explicit cleanup.
+        if (!r->present || (disposing && bytes_equal(r->package.document_sha256, disposing->package.document_sha256, 32)) ||
             (i == 2 && state.phase == UpdateGenerationPhase::rollback && !minting)) continue;
         DWORD native = 0;
-        if (!a.verify_installed(a.context, t, r->pair, &native)) return fail(UpdateGenerationError::authenticity, native);
+        if (!a.verify_installed(a.context, t, r->package, &native)) return fail(UpdateGenerationError::authenticity, native);
         auto result = update_generation_validate(t); if (!result.ok()) return result;
     }
     return {};
@@ -240,7 +245,7 @@ bool legal_transition(const UpdateGenerationState& old, const UpdateGenerationSt
     switch (old.phase) {
     case UpdateGenerationPhase::stable:
         if (proposed.phase == UpdateGenerationPhase::prepared)
-            return is(update_generation_prepare(old, proposed.transaction, proposed.candidate.pair, &expected));
+            return is(update_generation_prepare(old, proposed.transaction, proposed.candidate.package, &expected));
         if (old.disposal.target == UpdateGenerationDisposalTarget::none && proposed.previous.present)
             return is(update_generation_revert(old, &expected));
         return old.disposal.target == UpdateGenerationDisposalTarget::previous &&
@@ -250,7 +255,7 @@ bool legal_transition(const UpdateGenerationState& old, const UpdateGenerationSt
         return is(update_generation_rollback(old, &expected));
     case UpdateGenerationPhase::pending:
         if (proposed.phase == UpdateGenerationPhase::acknowledged) return is(update_generation_acknowledge(old,
-            proposed.transaction, {proposed.active.pair.document_sha256, 32}, &expected));
+            proposed.transaction, {proposed.active.package.document_sha256, 32}, &expected));
         return is(update_generation_rollback(old, &expected));
     case UpdateGenerationPhase::rollback:
         if (old.disposal.target != UpdateGenerationDisposalTarget::candidate) return false;
@@ -269,7 +274,7 @@ UpdateGenerationResult validate_disposal_io(UpdateGenerationTransaction* t, cons
     if (!ref || !ref->present || !valid_state(state) || state.disposal.directory.volume != t->identities[t->ancestor_count - 1].volume)
         return fail(UpdateGenerationError::state);
     UpdateGenerationDirectory directory{}; directory.transaction = t;
-    copy_bytes(directory.document_sha256, ref->pair.document_sha256, 32);
+    copy_bytes(directory.document_sha256, ref->package.document_sha256, 32);
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; directory_path(directory, path);
     HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -282,9 +287,9 @@ UpdateGenerationResult validate_disposal_io(UpdateGenerationTransaction* t, cons
     auto result = directory_identity(h, &id) && id == state.disposal.directory ? UpdateGenerationResult{} : fail(UpdateGenerationError::identity);
     result = close_validation(t, h, result); if (!result.ok()) return result;
     if (complete) return fail(UpdateGenerationError::cleanup, ERROR_DIR_NOT_EMPTY);
-    for (u32 i = 0; i < 5; ++i) {
+    for (u32 i = 0; i < state.disposal.file_count; ++i) {
         u32 count = 0;
-        result = update_generation_path(*t, {ref->pair.document_sha256, 32}, static_cast<UpdateGenerationFile>(i),
+        result = update_generation_path(*t, {ref->package.document_sha256, 32}, update_generation_file_name(ref->package, i),
             {path, sizeof(path) / sizeof(path[0])}, &count); if (!result.ok()) return result;
         h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (h == INVALID_HANDLE_VALUE) return fail(UpdateGenerationError::open, GetLastError());
@@ -303,7 +308,7 @@ UpdateGenerationResult read_state(HANDLE file, UpdateGenerationState* state) noe
     if (!file_persistence_read_complete(file, {record, sizeof(record)}, &native)) return fail(UpdateGenerationError::read, native);
     return update_generation_decode({record, sizeof(record)}, state);
 }
-// Authenticates the launchable pairs of a proposed journal and the disposal target it begins or finishes.
+// Authenticates the launchable packages of a proposed journal and the disposal target it begins or finishes.
 UpdateGenerationResult authenticate_transition(UpdateGenerationTransaction* t, const UpdateGenerationState& proposed,
     const UpdateGenerationAuthenticator& a) noexcept {
     const auto result = authenticate(t, proposed, a); if (!result.ok()) return result;
@@ -316,23 +321,31 @@ bool target_validate(void* opaque, DWORD* native) noexcept {
     const auto r = update_generation_directory_validate(static_cast<UpdateGenerationDirectory*>(opaque));
     if (native) *native = r.native_error; return r.ok();
 }
-bool target_create(void* opaque, u32 member, HANDLE* owner, DWORD* native) noexcept {
-    const auto r = member < 2 ? update_generation_file_open(static_cast<UpdateGenerationDirectory*>(opaque),
-        static_cast<UpdateGenerationFile>(member), true, owner) : fail(UpdateGenerationError::invalid_input);
+bool target_create(void* opaque, Utf8View name, HANDLE* owner, DWORD* native) noexcept {
+    const auto r = update_generation_file_open(static_cast<UpdateGenerationDirectory*>(opaque), name, true, owner);
     if (native) *native = r.native_error; return r.ok();
 }
-bool target_seal(void* opaque, u32 member, HANDLE* writable, HANDLE* readonly, DWORD* native) noexcept {
-    const auto r = member < 2 ? update_generation_file_seal(static_cast<UpdateGenerationDirectory*>(opaque), writable, readonly) :
-        fail(UpdateGenerationError::invalid_input);
+bool target_seal(void* opaque, HANDLE* writable, HANDLE* readonly, DWORD* native) noexcept {
+    const auto r = update_generation_file_seal(static_cast<UpdateGenerationDirectory*>(opaque), writable, readonly);
     if (native) *native = r.native_error; return r.ok();
+}
+// A file name is one of the provenance names or a valid package member name.
+bool file_name_valid(Utf8View name) noexcept {
+    for (const auto fixed : provenance) if (name.bytes == fixed.bytes && bytes_equal(name.data, fixed.data, name.bytes)) return true;
+    return update_package_member_name_valid(name);
+}
+bool file_name_equal(const wchar_t* found, Utf8View name) noexcept {
+    for (u32 i = 0; i < name.bytes; ++i) if (found[i] != static_cast<wchar_t>(name.data[i])) return false;
+    return !found[name.bytes];
 }
 } // namespace
 
-bool update_generation_pair_equal(const UpdatePairDescriptor& a, const UpdatePairDescriptor& b) noexcept {
-    if (a.version != b.version || a.package_bytes != b.package_bytes || a.channel != b.channel || a.account_ordinal != b.account_ordinal ||
-        !bytes_equal(a.document_sha256, b.document_sha256, 32) || !bytes_equal(a.package_sha256, b.package_sha256, 32)) return false;
-    for (u32 i = 0; i < 2; ++i) if (a.members[i].bytes != b.members[i].bytes || !bytes_equal(a.members[i].sha256, b.members[i].sha256, 32)) return false;
-    return true;
+u32 update_generation_file_count(const UpdatePackageDescriptor& p) noexcept {
+    return kUpdateGenerationFirstMemberSlot + (p.member_count <= kUpdatePackageMaximumMembers ? p.member_count : 0);
+}
+Utf8View update_generation_file_name(const UpdatePackageDescriptor& p, u32 slot) noexcept {
+    if (slot < kUpdateGenerationFirstMemberSlot) return provenance[slot];
+    return slot < update_generation_file_count(p) ? update_package_member_name(p.members[slot - kUpdateGenerationFirstMemberSlot]) : Utf8View{};
 }
 UpdateGenerationResult update_generation_encode(const UpdateGenerationState& s, Slice<u8> record) noexcept {
     if (!record.data || record.count != kUpdateGenerationRecordBytes || !valid_state(s) ||
@@ -342,26 +355,29 @@ UpdateGenerationResult update_generation_encode(const UpdateGenerationState& s, 
     copy_bytes(b + 16, s.installation.bytes, 16); copy_bytes(b + 32, s.transaction.bytes, 16);
     byte_store_le64(b + 48, s.sequence); b[56] = static_cast<u8>(s.phase);
     put_reference(b + 64, s.active); put_reference(b + 64 + reference_bytes, s.previous); put_reference(b + 64 + reference_bytes * 2, s.candidate);
-    put_disposal(b + 592, s.disposal);
+    put_disposal(b + disposal_offset, s.disposal);
     byte_store_le64(b + checksum_offset, hash64_bytes(kHash64Seed, b, checksum_offset)); copy_bytes(record.data, b, sizeof(b)); return {};
 }
 UpdateGenerationResult update_generation_decode(ConstSlice<u8> b, UpdateGenerationState* output) noexcept {
     if (!output || !b.data || byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)}, b)) return fail(UpdateGenerationError::invalid_input);
     if (b.count != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size);
     if (!bytes_equal(b.data, magic, 8) || byte_load_le32(b.data + 8) != kUpdateGenerationRecordVersion || byte_load_le32(b.data + 12) != b.count ||
-        !bytes_zero(b.data + 57, 7)) return fail(UpdateGenerationError::format);
+        !bytes_zero(b.data + 57, 7) || !bytes_zero(b.data + disposal_offset + disposal_bytes, checksum_offset - disposal_offset - disposal_bytes))
+        return fail(UpdateGenerationError::format);
     if (byte_load_le64(b.data + checksum_offset) != hash64_bytes(kHash64Seed, b.data, checksum_offset)) return fail(UpdateGenerationError::checksum);
     UpdateGenerationState s{}; copy_bytes(s.installation.bytes, b.data + 16, 16); copy_bytes(s.transaction.bytes, b.data + 32, 16);
     s.sequence = byte_load_le64(b.data + 48); s.phase = static_cast<UpdateGenerationPhase>(b[56]);
     if (!get_reference(b.data + 64, &s.active) || !get_reference(b.data + 64 + reference_bytes, &s.previous) ||
-        !get_reference(b.data + 64 + reference_bytes * 2, &s.candidate) || !get_disposal(b.data + 592, &s.disposal) || !valid_state(s)) return fail(UpdateGenerationError::format);
+        !get_reference(b.data + 64 + reference_bytes * 2, &s.candidate) || !get_disposal(b.data + disposal_offset, &s.disposal) || !valid_state(s))
+        return fail(UpdateGenerationError::format);
     *output = s; return {};
 }
 UpdateGenerationResult update_generation_prepare(const UpdateGenerationState& s, const UpdateGenerationIdentity& transaction,
-    const UpdatePairDescriptor& pair, UpdateGenerationState* out) noexcept {
+    const UpdatePackageDescriptor& package, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || s.previous.present || bytes_zero(transaction.bytes, 16) ||
-        !valid_pair(pair) || bytes_equal(pair.document_sha256, s.active.pair.document_sha256, 32)) return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::prepared; n.transaction = transaction; n.candidate = {pair, true}; *out = n; return {};
+        !update_package_descriptor_valid(package) || bytes_equal(package.document_sha256, s.active.package.document_sha256, 32))
+        return fail(UpdateGenerationError::state);
+    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::prepared; n.transaction = transaction; n.candidate = {package, true}; *out = n; return {};
 }
 UpdateGenerationResult update_generation_activate(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::prepared) return fail(UpdateGenerationError::state);
@@ -370,7 +386,7 @@ UpdateGenerationResult update_generation_activate(const UpdateGenerationState& s
 UpdateGenerationResult update_generation_acknowledge(const UpdateGenerationState& s, const UpdateGenerationIdentity& transaction,
     ConstSlice<u8> digest, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::pending || !identity(s.transaction, transaction) ||
-        !digest.data || digest.count != 32 || !bytes_equal(digest.data, s.active.pair.document_sha256, 32)) return fail(UpdateGenerationError::identity);
+        !digest.data || digest.count != 32 || !bytes_equal(digest.data, s.active.package.document_sha256, 32)) return fail(UpdateGenerationError::identity);
     *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::acknowledged; return {};
 }
 UpdateGenerationResult update_generation_rollback(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
@@ -398,11 +414,12 @@ UpdateGenerationResult update_generation_revert(const UpdateGenerationState& s, 
 }
 UpdateGenerationResult update_generation_disposal_begin(const UpdateGenerationState& s,
     const UpdateGenerationDisposalIntent& intent, UpdateGenerationState* out) noexcept {
-    if (!next(s, out) || s.sequence >= ~u64{0} - 1 || s.disposal.target != UpdateGenerationDisposalTarget::none || !valid_disposal(intent) ||
-        !((s.phase == UpdateGenerationPhase::stable && s.previous.present && intent.target == UpdateGenerationDisposalTarget::previous) ||
-          (s.phase == UpdateGenerationPhase::rollback && s.candidate.present && intent.target == UpdateGenerationDisposalTarget::candidate)))
+    if (!next(s, out) || s.sequence >= ~u64{0} - 1 || s.disposal.target != UpdateGenerationDisposalTarget::none)
         return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.disposal = intent; *out = n; return {};
+    // The resulting state checks the target, its phase and its file count.
+    auto n = s; ++n.sequence; n.disposal = intent;
+    if (!valid_state(n)) return fail(UpdateGenerationError::state);
+    *out = n; return {};
 }
 UpdateGenerationResult update_generation_recovery(const UpdateGenerationState& s, UpdateGenerationRecovery* out) noexcept {
     if (!out || !valid_state(s)) return fail(UpdateGenerationError::state);
@@ -537,17 +554,17 @@ UpdateGenerationResult update_generation_commit(UpdateGenerationTransaction* t, 
     if (!MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return fail(UpdateGenerationError::commit, GetLastError());
     t->record_temporary = false; t->state = proposed; t->record_present = true; t->provisioning_admitted = false; return {};
 }
-UpdateGenerationResult update_generation_select(UpdateGenerationTransaction* t, const UpdateGenerationAuthenticator& a, UpdatePairDescriptor* out) noexcept {
+UpdateGenerationResult update_generation_select(UpdateGenerationTransaction* t, const UpdateGenerationAuthenticator& a, UpdatePackageDescriptor* out) noexcept {
     auto result = update_generation_validate(t); if (!result.ok()) return result;
     if (!out || !t->record_present || !valid_state(t->state) || t->record_owner || t->record_temporary ||
         t->state.phase == UpdateGenerationPhase::pending || t->state.phase == UpdateGenerationPhase::acknowledged) return fail(UpdateGenerationError::state);
     // Prepared and failed candidates are never launch targets. Verify only the
-    // selected pair; bad uncommitted bytes cannot suppress the valid old pair.
+    // selected package; bad uncommitted bytes cannot suppress the valid old one.
     if (!a.verify_installed) return fail(UpdateGenerationError::invalid_input);
     DWORD native = 0;
-    if (!a.verify_installed(a.context, t, t->state.active.pair, &native)) return fail(UpdateGenerationError::authenticity, native);
+    if (!a.verify_installed(a.context, t, t->state.active.package, &native)) return fail(UpdateGenerationError::authenticity, native);
     result = update_generation_validate(t); if (!result.ok()) return result;
-    *out = t->state.active.pair; return {};
+    *out = t->state.active.package; return {};
 }
 UpdateGenerationResult update_generation_release(UpdateGenerationTransaction* t) noexcept {
     if (!t) return fail(UpdateGenerationError::invalid_input);
@@ -599,9 +616,9 @@ UpdateGenerationResult update_generation_directory_authorize_disposal(UpdateGene
     auto* t = d->transaction;
     if (!t->record_present || !valid_state(t->state) || !a.verify_installed) return fail(UpdateGenerationError::state);
     const auto* ref = disposal_reference(t->state);
-    if (ref && ref->present && bytes_equal(ref->pair.document_sha256, d->document_sha256, 32) && d->identity == t->state.disposal.directory) {
+    if (ref && ref->present && bytes_equal(ref->package.document_sha256, d->document_sha256, 32) && d->identity == t->state.disposal.directory) {
         DWORD native = 0;
-        if (!a.verify_installed(a.context, t, t->state.active.pair, &native)) return fail(UpdateGenerationError::authenticity, native);
+        if (!a.verify_installed(a.context, t, t->state.active.package, &native)) return fail(UpdateGenerationError::authenticity, native);
         result = update_generation_directory_validate(d); if (!result.ok()) return result;
         if (!d->created && !d->disposal_authorized) {
             // ACL-protected enrolled root and the retained exclusive gate forbid
@@ -629,7 +646,7 @@ UpdateGenerationResult update_generation_disposal_directory_open(UpdateGeneratio
         return fail(UpdateGenerationError::invalid_input);
     const auto* ref = disposal_reference(t->state);
     if (!ref || !ref->present) return fail(UpdateGenerationError::state);
-    result = update_generation_directory_open(t, {ref->pair.document_sha256, 32}, false, out);
+    result = update_generation_directory_open(t, {ref->package.document_sha256, 32}, false, out);
     if (!result.ok()) {
         if (result.error == UpdateGenerationError::open && (result.native_error == ERROR_FILE_NOT_FOUND || result.native_error == ERROR_PATH_NOT_FOUND)) {
             result = update_generation_validate(t); if (!result.ok()) return result;
@@ -644,7 +661,7 @@ UpdateGenerationResult update_generation_disposal_inventory(UpdateGenerationDire
     auto result = update_generation_directory_validate(d); if (!result.ok()) return result;
     auto* t = d->transaction; const auto* ref = disposal_reference(t->state);
     if (!ref || !ref->present || !d->disposal_authorized || d->identity != t->state.disposal.directory ||
-        !bytes_equal(d->document_sha256, ref->pair.document_sha256, 32) || t->inventory_owner) return fail(UpdateGenerationError::state);
+        !bytes_equal(d->document_sha256, ref->package.document_sha256, 32) || t->inventory_owner) return fail(UpdateGenerationError::state);
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; directory_path(*d, path);
     u32 n = 0; while (path[n]) ++n; path[n++] = L'\\'; path[n++] = L'*'; path[n] = 0;
     WIN32_FIND_DATAW data{}; t->inventory_owner = FindFirstFileW(path, &data);
@@ -655,13 +672,14 @@ UpdateGenerationResult update_generation_disposal_inventory(UpdateGenerationDire
     u32 entries = 0;
     for (;;) {
         if (!name_equal(data.cFileName, L".") && !name_equal(data.cFileName, L"..")) {
-            u32 index = 5;
-            for (u32 i = 0; i < 5; ++i) if (name_equal(data.cFileName, filenames[i])) index = i;
-            if (++entries > 5 || index == 5 || data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+            const u32 files = t->state.disposal.file_count;
+            u32 index = files;
+            for (u32 i = 0; i < files; ++i) if (file_name_equal(data.cFileName, update_generation_file_name(ref->package, i))) index = i;
+            if (++entries > files || index == files || data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
                 result = fail(UpdateGenerationError::cleanup, ERROR_INVALID_DATA); break;
             }
             u32 count = 0;
-            result = update_generation_path(*t, {d->document_sha256, 32}, static_cast<UpdateGenerationFile>(index),
+            result = update_generation_path(*t, {d->document_sha256, 32}, update_generation_file_name(ref->package, index),
                 {path, sizeof(path) / sizeof(path[0])}, &count); if (!result.ok()) break;
             HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
             if (h == INVALID_HANDLE_VALUE) { result = fail(UpdateGenerationError::open, GetLastError()); break; }
@@ -680,21 +698,21 @@ UpdateGenerationResult update_generation_disposal_inventory(UpdateGenerationDire
     return result.ok() ? update_generation_directory_validate(d) : result;
 }
 UpdateGenerationResult update_generation_path(const UpdateGenerationTransaction& t, ConstSlice<u8> digest,
-    UpdateGenerationFile file, Slice<wchar_t> output, u32* characters) noexcept {
+    Utf8View name, Slice<wchar_t> output, u32* characters) noexcept {
     if (!path_valid({t.root, t.root_characters}, nullptr) || !digest.data || digest.count != 32 || bytes_zero(digest.data, 32) ||
-        file > UpdateGenerationFile::package || !output.data || !characters) return fail(UpdateGenerationError::invalid_input);
-    const auto* name = filenames[static_cast<u32>(file)]; u32 n = 0; while (name[n]) ++n;
-    const u32 required = t.root_characters + 1 + 66 + 1 + n;
+        !file_name_valid(name) || !output.data || !characters) return fail(UpdateGenerationError::invalid_input);
+    const u32 required = t.root_characters + 1 + 66 + 1 + name.bytes;
     if (output.count <= required) return fail(UpdateGenerationError::size);
     wchar_t generation[67]{}; generation_name(digest.data, generation); root_suffix(t, generation, output.data);
     u32 used = t.root_characters + 67; output[used++] = L'\\';
-    for (u32 i = 0; i <= n; ++i) output[used + i] = name[i]; *characters = required; return {};
+    for (u32 i = 0; i < name.bytes; ++i) output[used + i] = static_cast<wchar_t>(name.data[i]);
+    output[used + name.bytes] = 0; *characters = required; return {};
 }
-UpdateGenerationResult update_generation_file_open(UpdateGenerationDirectory* d, UpdateGenerationFile file, bool create, HANDLE* output) noexcept {
+UpdateGenerationResult update_generation_file_open(UpdateGenerationDirectory* d, Utf8View name, bool create, HANDLE* output) noexcept {
     auto result = update_generation_directory_validate(d); if (!result.ok()) return result;
     if (!output || *output || (create && !d->created)) return fail(UpdateGenerationError::invalid_input);
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 100]{}; u32 count = 0;
-    result = update_generation_path(*d->transaction, {d->document_sha256, 32}, file, {path, sizeof(path) / sizeof(path[0])}, &count);
+    result = update_generation_path(*d->transaction, {d->document_sha256, 32}, name, {path, sizeof(path) / sizeof(path[0])}, &count);
     if (!result.ok()) return result;
     HANDLE h = CreateFileW(path, create ? GENERIC_READ | GENERIC_WRITE | DELETE : GENERIC_READ, FILE_SHARE_READ, nullptr,
         create ? CREATE_NEW : OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | (create ? FILE_FLAG_WRITE_THROUGH : 0), nullptr);
@@ -709,7 +727,7 @@ UpdateGenerationResult update_generation_file_seal(UpdateGenerationDirectory* d,
     if (!CloseHandle(*writable)) return fail(UpdateGenerationError::release, GetLastError());
     *writable = nullptr; return update_generation_directory_validate(d);
 }
-UpdatePairTarget update_generation_pair_target(UpdateGenerationDirectory* d) noexcept { return {d, target_validate, target_create, target_seal}; }
+UpdatePackageTarget update_generation_package_target(UpdateGenerationDirectory* d) noexcept { return {d, target_validate, target_create, target_seal}; }
 UpdateGenerationResult update_generation_directory_release(UpdateGenerationDirectory* d, bool discard) noexcept {
     if (!d) return fail(UpdateGenerationError::invalid_input);
     if (discard && (!d->disposal_authorized || !d->identity_captured)) return fail(UpdateGenerationError::cleanup);

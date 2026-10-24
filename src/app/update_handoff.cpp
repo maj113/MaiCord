@@ -143,14 +143,19 @@ bool parse(ConstSlice<wchar_t> line, UpdateHandoffChild& value) noexcept {
 } // namespace
 
 UpdateHandoffResult update_handoff_launch(UpdateGenerationTransaction* transaction,
-    UpdateGenerationAuthenticationContext* authentication, const UpdatePair& pair, bool enrolled,
+    UpdateGenerationAuthenticationContext* authentication, const UpdatePackage& package, bool enrolled,
     const UpdateGenerationLaunchAdmission* admission, UpdateHandoff* owner) noexcept {
-    if (!transaction || !authentication || authentication->retain_selected_pair || !owner || !empty(*owner) || !handle_ok(pair.files[0]) || !handle_ok(pair.files[1]) ||
-        pair.files[0] == pair.files[1]) return fail(UpdateHandoffError::invalid_input);
+    const u32 members = package.descriptor.member_count;
+    if (!transaction || !authentication || authentication->retain_selected_package || !owner || !empty(*owner) ||
+        !members || members > kUpdatePackageMaximumMembers) return fail(UpdateHandoffError::invalid_input);
+    for (u32 i = 0; i < members; ++i) {
+        if (!handle_ok(package.files[i])) return fail(UpdateHandoffError::invalid_input);
+        for (u32 j = 0; j < i; ++j) if (package.files[i] == package.files[j]) return fail(UpdateHandoffError::invalid_input);
+    }
     const ConstSlice<u8> destination{reinterpret_cast<const u8*>(owner), sizeof(*owner)};
     if (!byte_range_valid(destination) || byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(transaction), sizeof(*transaction)}) ||
         byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(authentication), sizeof(*authentication)}) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(&pair), sizeof(pair)}) ||
+        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(&package), sizeof(package)}) ||
         (admission && byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(admission), sizeof(*admission)})) ||
         (authentication->key && byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(authentication->key), sizeof(*authentication->key)})) ||
         (authentication->workspace && (byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(authentication->workspace), sizeof(*authentication->workspace)}) ||
@@ -160,34 +165,32 @@ UpdateHandoffResult update_handoff_launch(UpdateGenerationTransaction* transacti
     auto validated = update_generation_validate(transaction);
     if (!validated.ok() || !transaction->record_present || !transaction->state.active.present ||
         transaction->state.phase == UpdateGenerationPhase::rollback ||
-        !update_generation_pair_equal(pair.descriptor, transaction->state.active.pair))
+        !update_package_descriptor_equal(package.descriptor, transaction->state.active.package))
         return fail(UpdateHandoffError::generation, validated.ok() ? ERROR_INVALID_STATE : validated.native_error);
     if (transaction->state.phase == UpdateGenerationPhase::pending && (!admission ||
         admission->sequence != transaction->state.sequence ||
         !bytes_equal(admission->transaction.bytes, transaction->state.transaction.bytes, 16) ||
-        !bytes_equal(admission->document_sha256, pair.descriptor.document_sha256, 32)))
+        !bytes_equal(admission->document_sha256, package.descriptor.document_sha256, 32)))
         return fail(UpdateHandoffError::generation, ERROR_INVALID_STATE);
     const auto authenticator = update_generation_authenticator(authentication); DWORD native = 0;
-    if (!authenticator.verify_installed(authenticator.context, transaction, pair.descriptor, &native))
+    if (!authenticator.verify_installed(authenticator.context, transaction, package.descriptor, &native))
         return fail(UpdateHandoffError::authenticity, native);
     wchar_t path[kUpdateGenerationMaximumRootCharacters + 96]{}; u32 path_chars = 0;
-    for (u32 i = 0; i < 2; ++i) {
-        validated = update_generation_path(*transaction, {pair.descriptor.document_sha256, 32},
-            static_cast<UpdateGenerationFile>(i), {path, sizeof(path) / sizeof(wchar_t)}, &path_chars);
+    // Last the launch target, member 0, so path holds its path.
+    for (u32 i = members; i-- > 0;) {
+        validated = update_generation_path(*transaction, {package.descriptor.document_sha256, 32},
+            update_package_member_name(package.descriptor.members[i]), {path, sizeof(path) / sizeof(wchar_t)}, &path_chars);
         if (!validated.ok()) return fail(UpdateHandoffError::target, validated.native_error);
         owner->validation = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (owner->validation == INVALID_HANDLE_VALUE) { owner->validation = nullptr; return fail(UpdateHandoffError::target, GetLastError()); }
-        const bool same = same_file(owner->validation, pair.files[i], pair.descriptor.members[i].bytes);
+        const bool same = same_file(owner->validation, package.files[i], package.descriptor.members[i].bytes);
         if (!close(owner->validation)) return fail(UpdateHandoffError::release, GetLastError());
         if (!same) return fail(UpdateHandoffError::target, ERROR_INVALID_DATA);
     }
-    validated = update_generation_path(*transaction, {pair.descriptor.document_sha256, 32}, UpdateGenerationFile::executable,
-        {path, sizeof(path) / sizeof(wchar_t)}, &path_chars);
-    if (!validated.ok()) return fail(UpdateHandoffError::target, validated.native_error);
     validated = update_generation_validate(transaction);
     if (!validated.ok()) return fail(UpdateHandoffError::generation, validated.native_error);
     UpdateHandoffIdentity id{transaction->installation, transaction->state.transaction, {}};
-    copy_bytes(id.document_sha256, pair.descriptor.document_sha256, 32);
+    copy_bytes(id.document_sha256, package.descriptor.document_sha256, 32);
     return launch_native(path, path_chars, id, owner);
 }
 

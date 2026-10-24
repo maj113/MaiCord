@@ -1,21 +1,19 @@
-# The shipping pair: MaiCord.exe and the account module MaiCordAccount.dll,
-# their runtime assets and the cold-code size policy.
+# The shipping client: MaiCord.exe with the account module linked in, its
+# runtime assets and the cold-code size policy.
 
 option(MAICORD_STARTUP_PROBE "Measure isolated production-path startup" OFF)
 
-# No manifest: LINK's default one holds only an asInvoker trustInfo, which a
-# DLL ignores, and would cost the image a .rsrc section.
-maicord_program(MaiCordAccount SHARED ENTRY maicord_account_module_entry
-    SOURCES src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
+# The account module, linked into MaiCord.exe (and through the account host
+# into every test that drives it).
+maicord_library(maicord_account_module
+    src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
     src/app/account_module.cpp src/app/account_message_search.cpp
     src/app/account_media_catalog.cpp src/app/account_guild_assets.cpp src/app/guild_image.cpp
     src/app/profile_image.cpp src/app/account_profile_edit.cpp
-    LIBS maicord_compile_contract maicord_core maicord_platform maicord_protocol
+    LIBS maicord_core maicord_platform maicord_protocol
     maicord_app_core maicord_model maicord_account_media maicord_media_core
     maicord_media_codec maicord_cdn_media
-    kernel32 ws2_32 secur32 bcrypt crypt32 maicord_voice_encoder
-    LINK_OPTIONS /EXPORT:maicord_account_get_api,@138,NONAME /MANIFEST:NO
-    PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    kernel32 ws2_32 secur32 bcrypt crypt32 maicord_voice_encoder)
 
 maicord_program(MaiCord WIN32 ENTRY maicord_entry
     SOURCES src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
@@ -31,7 +29,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/application_window.cpp src/app/application_window_runtime.cpp src/app/application_input_routing.cpp
     src/app/application_caption.cpp src/app/app_icon.cpp
     src/app/application_keyboard_focus.cpp src/app/application_account_module.cpp
-    src/app/account_module_decoders.cpp src/app/account_module_cdn_urls.cpp src/app/application_account_logout.cpp
+    src/app/application_account_logout.cpp
     src/app/application_account_pump.cpp src/app/application_account_presentation.cpp
     src/app/application_account_reconnect.cpp
     src/app/application_thread_starter.cpp src/app/application_channel_session.cpp
@@ -122,7 +120,7 @@ if(MAICORD_STARTUP_PROBE)
 endif()
 option(MAICORD_SIZE_REPORT "Report shipping linker-map code extents" OFF)
 if(MAICORD_SIZE_REPORT)
-    foreach(image IN ITEMS MaiCord MaiCordAccount)
+    foreach(image IN ITEMS MaiCord)
         target_link_options(${image} PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/${image}.map")
     endforeach()
 endif()
@@ -133,11 +131,11 @@ endif()
 # dloadhelper resolves through kernel32's ResolveDelayLoadedAPI (no CRT).
 # tools/audit_pe.ps1 (-DelayLoad) and maicord_client_imports check the list.
 set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll secur32.dll ole32.dll advapi32.dll
-    combase.dll)
+    combase.dll d2d1.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 target_link_libraries(MaiCord PRIVATE dloadhelper)
-add_dependencies(MaiCord MaiCordAccount maicord_app_icon maicord_sys_conformance)
+add_dependencies(MaiCord maicord_app_icon maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,
 # as the release workflow does; setting both empty compiles the updater disabled.
@@ -404,6 +402,11 @@ maicord_compact_sources(
         src/app/account_soundboard.cpp src/app/account_voice_message.cpp
         src/app/https_file_upload.cpp src/app/https_file_download.cpp
         src/media/h264_parameters.cpp src/media/hevc_parameters.cpp src/media/h264_configuration.cpp
+        # Once per embed, stream segment, CDN request, voice connection or READY:
+        # embed stream resolution, segment and CDN request control, voice
+        # connection setup and READY projection (their byte paths stay /O2).
+        src/app/embed_resolver.cpp src/app/segmented_video_fetch.cpp src/app/cdn_client.cpp
+        src/app/voice_connection.cpp src/app/gateway_ready_projection.cpp
         # Run once per font file or face: name/family/property resolution,
         # catalog records, seac charsets and face preparation.
         src/text/font_names.cpp src/text/font_family.cpp src/text/font_candidates.cpp

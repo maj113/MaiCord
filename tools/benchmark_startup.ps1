@@ -87,7 +87,7 @@ try {
     }
     cmake --preset x64-release -DMAICORD_TEST_AUDIO_PLAYBACK=OFF -DMAICORD_TEST_PROFILE_DIRECTORY= -DMAICORD_TEST_PROFILE_NAMES= | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Release configuration failed.' }
-    cmake --build $cacheRoot --target MaiCord MaiCordAccount
+    cmake --build $cacheRoot --target MaiCord
     if ($LASTEXITCODE -ne 0) { throw 'MaiCord Release build failed.' }
 
     [void](New-Item -ItemType Directory -Path $profile)

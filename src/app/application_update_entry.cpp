@@ -59,8 +59,8 @@ Utf8View application_update_build_commit() noexcept {
 void application_updates_confirm_startup() noexcept {
     UpdateHandoffChild* child = application_update_startup_child();
     if (!child) return;
-    // Independent local admission of the sibling account module's API; no
-    // account start, login or network is involved.
+    // Local admission of the linked account module's API; no account start,
+    // login or network is involved.
     AccountHost host{};
     const bool admitted = account_host_load(&host).ok() && account_host_api_valid(host.api) && !host.instance && !host.login_instance;
     const bool confirmed = admitted && update_handoff_child_acknowledge(child, true).ok();

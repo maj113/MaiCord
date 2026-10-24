@@ -5,7 +5,7 @@
 #include "maicord/core/win32_kernel.hpp"
 
 // CAPTCHA continuation for the TU-local login owner: secret copy, replay and
-// the loopback browser bridge. Shared by the account DLL and native tests.
+// the loopback browser bridge. Shared by the account module and native tests.
 namespace maicord {
 namespace {
 
