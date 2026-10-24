@@ -5,6 +5,8 @@
 /.cache/
 /.idea/
 /.vscode/
+/.claude/
+/.codex-remote-attachments/
 
 # Compiler, linker, and profiler output.
 *.obj
