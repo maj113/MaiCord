@@ -123,16 +123,22 @@ Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
             if (found)
                 return Mp4DemuxError::malformed;
             found = true;
-            if (child.end - child.payload > 16 ||
-                !aac_configuration_decode(
-                    {source.data + child.payload, static_cast<u32>(child.end - child.payload)},
-                    &configuration))
+            const u64 declared_bytes = child.end - child.payload;
+            // Some muxers pad a short HE-AAC configuration to 25 bytes. Keep
+            // the native decoder's 16-byte bound; only discard zero padding.
+            if (declared_bytes > 64)
+                return Mp4DemuxError::unsupported;
+            const u32 configuration_bytes = static_cast<u32>(minimum<u64>(declared_bytes, 16));
+            for (u64 i = configuration_bytes; i < declared_bytes; ++i)
+                if (source[static_cast<u32>(child.payload + i)])
+                    return Mp4DemuxError::unsupported;
+            if (!aac_configuration_decode({source.data + child.payload, configuration_bytes}, &configuration))
                 return Mp4DemuxError::unsupported;
             d.sample_rate = configuration.sample_rate;
             d.channels = configuration.channels;
             d.frames_per_packet = configuration.frames_per_packet;
             d.asc_offset = static_cast<u32>(child.payload);
-            d.asc_bytes = static_cast<u32>(child.end - child.payload);
+            d.asc_bytes = configuration_bytes;
         }
     }
     if (!found)
@@ -169,6 +175,9 @@ Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
     return Mp4DemuxError::none;
 }
 } // namespace
+Mp4DemuxError mp4_demux_detail::parse_audio_description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
+    return description(d, stsd);
+}
 Mp4DemuxError mp4_audio_demux_initialize(Mp4AudioDemuxer* output, ConstSlice<u8> source,
                                          Mp4SourceAvailability availability) noexcept {
     if (!output || !byte_range_valid({reinterpret_cast<const u8*>(output), sizeof(*output)}) ||
@@ -311,21 +320,35 @@ bool frame_ceil(const Time& time, u32 rate, u64* out) noexcept {
     *out = base + fraction;
     return true;
 }
-bool timing(const Mp4AudioDemuxer& d, Time* start, Time* empty, Time* duration) noexcept {
+bool timeline(const Mp4AudioDemuxer& d, Mp4AudioTimeline* out) noexcept {
     const auto& s = d.samples;
-    return s.ready && (d.frames_per_packet == 1024 || d.frames_per_packet == 2048) &&
-           d.sample_rate >= 8000 && d.sample_rate <= 48000 && s.sample_count && s.media_start_ticks >= 0 &&
-           s.movie_duration_ticks >= s.empty_edit_ticks &&
-           positive_time(static_cast<u64>(s.media_start_ticks), s.timescale, start) &&
-           positive_time(s.empty_edit_ticks, s.movie_timescale, empty) &&
-           positive_time(s.movie_duration_ticks, s.movie_timescale, duration);
+    if (!s.ready || (d.frames_per_packet != 1024 && d.frames_per_packet != 2048) ||
+        !s.sample_count || s.media_start_ticks < 0 || s.movie_duration_ticks < s.empty_edit_ticks) return false;
+    *out = {u64{s.sample_count} * d.frames_per_packet, 0, static_cast<u64>(s.media_start_ticks),
+        s.empty_edit_ticks, s.movie_duration_ticks - s.empty_edit_ticks, d.sample_rate,
+        s.timescale, s.movie_timescale, s.movie_timescale};
+    return true;
 }
-bool frame_time(const Mp4AudioDemuxer& d, u64 frame, const Time& start, const Time& empty,
+bool timing(const Mp4AudioTimeline& d, Time* start, Time* empty, Time* span, Time* duration) noexcept {
+    return d.sample_rate >= 8000 && d.sample_rate <= 48000 && d.source_frames &&
+        positive_time(d.media_start_ticks, d.media_timescale, start) &&
+        positive_time(d.empty_edit_ticks, d.edit_timescale, empty) &&
+        positive_time(d.content_ticks, d.content_timescale, span) && add_time(*empty, *span, duration);
+}
+bool source_origin(const Mp4AudioTimeline& d, Time* out) noexcept {
+    return positive_time(d.source_start_ticks, d.media_timescale, out);
+}
+bool frame_time(const Mp4AudioTimeline& d, u64 frame, const Time& start, const Time& empty,
                 Time* out) noexcept {
-    Time source{}, relative{};
-    return frame <= u64{d.samples.sample_count} * d.frames_per_packet &&
-           positive_time(frame, d.sample_rate, &source) &&
-           add_time(source, negate_time(start), &relative) && add_time(relative, empty, out);
+    Time source{}, relative{}, origin{};
+    return frame <= d.source_frames && positive_time(frame, d.sample_rate, &source) &&
+        source_origin(d, &origin) && add_time(source, origin, &relative) &&
+        add_time(relative, negate_time(start), &source) && add_time(source, empty, out);
+}
+bool output_valid(const Mp4AudioTimeline& d, const void* output, u32 bytes) noexcept {
+    const ConstSlice<u8> range{static_cast<const u8*>(output), bytes};
+    return output && byte_range_valid(range) &&
+        !byte_ranges_overlap(range, {reinterpret_cast<const u8*>(&d), sizeof(d)});
 }
 bool output_valid(const Mp4AudioDemuxer& d, const void* output, u32 bytes) noexcept {
     const ConstSlice<u8> range{static_cast<const u8*>(output), bytes};
@@ -334,25 +357,25 @@ bool output_valid(const Mp4AudioDemuxer& d, const void* output, u32 bytes) noexc
            !byte_ranges_overlap(range, d.samples.encoded);
 }
 } // namespace
-bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer& d, u64 frame, i64* output) noexcept {
+bool mp4_audio_frame_time_100ns(const Mp4AudioTimeline& d, u64 frame, i64* output) noexcept {
     if (!output_valid(d, output, sizeof(*output)))
         return false;
-    Time start{}, empty{}, duration{}, mapped{};
+    Time start{}, empty{}, span{}, duration{}, mapped{};
     i64 value{};
-    if (!timing(d, &start, &empty, &duration) || !frame_time(d, frame, start, empty, &mapped) ||
+    if (!timing(d, &start, &empty, &span, &duration) || !frame_time(d, frame, start, empty, &mapped) ||
         !native_time(mapped, &value))
         return false;
     *output = value;
     return true;
 }
-bool mp4_audio_demux_frame_time_bounds_100ns(const Mp4AudioDemuxer& d, u64 frame,
+bool mp4_audio_frame_time_bounds_100ns(const Mp4AudioTimeline& d, u64 frame,
                                              Mp4AudioFrameTimeBounds* output) noexcept {
     if (!output_valid(d, output, sizeof(*output)))
         return false;
-    Time start{}, empty{}, duration{}, mapped{};
+    Time start{}, empty{}, span{}, duration{}, mapped{};
     Mp4AudioFrameTimeBounds bounds{};
     bool fractional{};
-    if (!timing(d, &start, &empty, &duration) || !frame_time(d, frame, start, empty, &mapped) ||
+    if (!timing(d, &start, &empty, &span, &duration) || !frame_time(d, frame, start, empty, &mapped) ||
         !native_time(mapped, &bounds.floor_100ns, &fractional) ||
         (fractional && bounds.floor_100ns == signed_limit))
         return false;
@@ -360,32 +383,25 @@ bool mp4_audio_demux_frame_time_bounds_100ns(const Mp4AudioDemuxer& d, u64 frame
     *output = bounds;
     return true;
 }
-bool mp4_audio_demux_sample_window(const Mp4AudioDemuxer& d, i64 target,
+bool mp4_audio_sample_window(const Mp4AudioTimeline& d, i64 target,
                                    Mp4AudioSampleWindow* output) noexcept {
     if (target < 0 || !output_valid(d, output, sizeof(*output)))
         return false;
-    Time start{}, empty{}, duration{};
+    Time start{}, empty{}, span{}, duration{};
     Mp4AudioSampleWindow window{};
-    if (!timing(d, &start, &empty, &duration) || !native_time(duration, &window.duration_100ns) ||
+    if (!timing(d, &start, &empty, &span, &duration) || !native_time(duration, &window.duration_100ns) ||
         target > window.duration_100ns)
         return false;
-    const u64 total = u64{d.samples.sample_count} * d.frames_per_packet;
-    Time requested{}, relative{}, inverse{}, span{}, source_end{};
+    const u64 total = d.source_frames;
+    Time requested{}, relative{}, inverse{}, origin{}, source_end{};
     if (!positive_time(static_cast<u64>(target), 10000000, &requested) ||
-        !add_time(requested, negate_time(empty), &relative) || !add_time(relative, start, &inverse))
+        !source_origin(d, &origin) || !add_time(requested, negate_time(empty), &relative) ||
+        !add_time(relative, start, &source_end) || !add_time(source_end, negate_time(origin), &inverse))
         return false;
-    u64 first{}, initial{}, end = total;
-    if (!frame_ceil(inverse, d.sample_rate, &first) || !frame_ceil(start, d.sample_rate, &initial))
-        return false;
-    if (d.samples.has_edit_list) {
-        if (!positive_time(d.samples.movie_duration_ticks - d.samples.empty_edit_ticks,
-                           d.samples.movie_timescale, &span) ||
-            !add_time(start, span, &source_end) || !frame_ceil(source_end, d.sample_rate, &end))
-            return false;
-    } else if (!frame_ceil(duration, d.sample_rate, &end)) {
-        // Without edits the track's length ends it, short final packet included.
-        return false;
-    }
+    u64 first{}, initial{}, end{};
+    if (!add_time(start, negate_time(origin), &relative) ||
+        !frame_ceil(inverse, d.sample_rate, &first) || !frame_ceil(relative, d.sample_rate, &initial) ||
+        !add_time(relative, span, &source_end) || !frame_ceil(source_end, d.sample_rate, &end)) return false;
     window.end_source_frame = minimum(end, total);
     window.first_source_frame = minimum(maximum(first, initial), window.end_source_frame);
     if (window.first_source_frame < window.end_source_frame) {
@@ -397,5 +413,24 @@ bool mp4_audio_demux_sample_window(const Mp4AudioDemuxer& d, i64 target,
     }
     *output = window;
     return true;
+}
+bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer& d, u64 frame, i64* output) noexcept {
+    Mp4AudioTimeline clock{};
+    return output_valid(d, output, sizeof(*output)) && timeline(d, &clock) &&
+        mp4_audio_frame_time_100ns(clock, frame, output);
+}
+bool mp4_audio_demux_timeline(const Mp4AudioDemuxer& d, Mp4AudioTimeline* output) noexcept {
+    return output_valid(d, output, sizeof(*output)) && timeline(d, output);
+}
+bool mp4_audio_demux_frame_time_bounds_100ns(const Mp4AudioDemuxer& d, u64 frame,
+                                           Mp4AudioFrameTimeBounds* output) noexcept {
+    Mp4AudioTimeline clock{};
+    return output_valid(d, output, sizeof(*output)) && timeline(d, &clock) &&
+        mp4_audio_frame_time_bounds_100ns(clock, frame, output);
+}
+bool mp4_audio_demux_sample_window(const Mp4AudioDemuxer& d, i64 target, Mp4AudioSampleWindow* output) noexcept {
+    Mp4AudioTimeline clock{};
+    return output_valid(d, output, sizeof(*output)) && timeline(d, &clock) &&
+        mp4_audio_sample_window(clock, target, output);
 }
 } // namespace maicord

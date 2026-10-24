@@ -15,6 +15,7 @@ enum class Mp4DemuxError : u8 {
     no_audio,
     // Progressive source: the sample payload has not arrived. Cursors are unchanged.
     data_pending,
+    out_of_memory,
 };
 
 // Progressive sources report whether [offset, offset + bytes) of the encoded

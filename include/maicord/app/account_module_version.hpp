@@ -43,8 +43,13 @@ namespace maicord {
 // arrives as batched message_poll_vote_add descriptors sharing one sequence.
 // GatewayClientThreadListSync takes a flags byte from reserved (members known).
 // Unknown-kind dispatch_route markers carry the event name.
-inline constexpr u32 kAccountModuleApiVersion = 135;
-inline constexpr u16 kAccountModuleApiOrdinal = 135;
+// v136: native collection requests / video selections carry a one-based track
+// index, and playback status publishes the collection count and selected track.
+// v137: media completion carries collection count/index even for an unavailable
+// track, so native navigation can continue after a track-specific failure.
+// v138: bounded collection title lookup and continuation-aware queue status.
+inline constexpr u32 kAccountModuleApiVersion = 138;
+inline constexpr u16 kAccountModuleApiOrdinal = 138;
 
 static_assert(kAccountModuleApiOrdinal == kAccountModuleApiVersion);
 

@@ -14,7 +14,7 @@ maicord_program(MaiCordAccount SHARED ENTRY maicord_account_module_entry
     maicord_app_core maicord_model maicord_account_media maicord_media_core
     maicord_media_codec maicord_cdn_media
     kernel32 ws2_32 secur32 bcrypt crypt32 maicord_voice_encoder
-    LINK_OPTIONS /EXPORT:maicord_account_get_api,@135,NONAME /MANIFEST:NO
+    LINK_OPTIONS /EXPORT:maicord_account_get_api,@138,NONAME /MANIFEST:NO
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
 maicord_program(MaiCord WIN32 ENTRY maicord_entry

@@ -25,6 +25,7 @@ inline constexpr u32 kProgressiveMaximumAheadBytes = 32u * 1024u * 1024u;
 inline constexpr u32 kProgressiveAheadSeconds = 20;
 inline constexpr u32 kProgressiveBehindBytes = 4u * 1024u * 1024u;
 inline constexpr u32 kProgressiveResidentBudgetBytes = kProgressiveMaximumAheadBytes + 2 * kProgressiveBehindBytes;
+inline constexpr u32 kProgressiveAudioResidentBytes = 4u * 1024u * 1024u;
 inline constexpr u32 kProgressiveMaximumMetadataBytes = 16u * 1024u * 1024u;
 inline constexpr u32 kProgressiveMaximumTopLevelBoxes = 64;
 
@@ -39,6 +40,12 @@ struct ProgressiveReader {
     u64 missing;
     bool pending;
     bool active;
+    // Temporary current-fragment metadata, independently retained when its
+    // media cursor moves far ahead. Unlike pinned init data, this is replaced.
+    u64 metadata_first;
+    u32 metadata_bytes;
+    u64 seek_metadata_first;
+    u32 seek_metadata_bytes;
 };
 
 struct ProgressiveSource {
@@ -48,6 +55,7 @@ struct ProgressiveSource {
     u32 resident_blocks;
     u32 pinned_blocks;
     u32 ahead_bytes;
+    bool audio_buffer;
     // Bumped by every write or eviction; consumers recompute derived views.
     u64 generation;
     u64 present[kProgressiveMaximumBlocks / 64];
@@ -61,7 +69,10 @@ struct ProgressiveRange {
 };
 
 // Reserves address space only. The source must not move while readers exist.
-bool progressive_source_initialize(ProgressiveSource*, u32 total_bytes) noexcept;
+bool progressive_source_initialize(ProgressiveSource*, u32 total_bytes, bool audio_buffer = false) noexcept;
+inline u32 progressive_source_budget(const ProgressiveSource& source) noexcept {
+    return source.audio_buffer ? kProgressiveAudioResidentBytes : kProgressiveResidentBudgetBytes;
+}
 void progressive_source_release(ProgressiveSource*) noexcept;
 ConstSlice<u8> progressive_source_bytes(const ProgressiveSource&) noexcept;
 // Commits and copies every block the range fully covers (a short final block
@@ -75,11 +86,15 @@ void progressive_source_pin(ProgressiveSource*, u64 offset, u64 bytes) noexcept;
 // Read-ahead becomes ~kProgressiveAheadSeconds at the average bitrate.
 void progressive_source_set_duration(ProgressiveSource*, u64 duration_us) noexcept;
 Mp4SourceAvailability progressive_source_reader(ProgressiveSource*, ProgressiveTrack) noexcept;
+// Current and optional pending-seek metadata leases per reader. New nonempty
+// ranges must be resident; zero bytes releases the selected lease. No copies.
+bool progressive_source_retain_metadata(ProgressiveSource*, ProgressiveTrack, u64 first, u32 bytes,
+                                        bool seeking = false) noexcept;
 void progressive_source_reset_readers(ProgressiveSource*) noexcept;
 // Decommits unpinned blocks outside every active reader window until the
 // payload plus one request fits budget_bytes: farthest behind first, then ahead.
 u32 progressive_source_evict(ProgressiveSource*, u32 budget_bytes) noexcept;
-// Drops every unpinned block.
+// Drops every unpinned block except an outstanding reader metadata lease.
 u32 progressive_source_trim(ProgressiveSource*) noexcept;
 
 enum class ProgressiveProbeState : u8 { need_data, ready, unsupported, malformed };

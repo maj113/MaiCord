@@ -5,6 +5,16 @@
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
+bool mp4_decoder_initialize_fragmented(Mp4Decoder* decoder, Mp4FragmentSource* source,
+                                       ID3D11Device* device) noexcept {
+    if (!decoder || decoder->ready || decoder->native.state || !source || !device) return false;
+    ID3D11DeviceContext* context{};
+    device->GetImmediateContext(&context);
+    const bool ready = context && h264_gpu_decoder_initialize_fragmented(&decoder->native, source, device, context);
+    com_release(context);
+    if (ready) { decoder->ready = decoder->fragmented = true; decoder->hevc = false; decoder->gpu = nullptr; }
+    return ready;
+}
 bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 requested_width,
                             u16 requested_height, ID3D11Device* video_device,
                             Mp4SourceAvailability availability) noexcept {
@@ -100,16 +110,19 @@ Mp4DecodedFrame mp4_decoder_read(Mp4Decoder* decoder, bool loop_at_end) noexcept
     frame.error = Mp4DecodeError::invalid_input;
     if (!decoder || !decoder->ready)
         return frame;
+    // Generic reads retain their existing implicit lease handoff. Selected
+    // playback uses read_selected and its explicit renderer acknowledgement.
+    if (decoder->fragmented && decoder->gpu && !mp4_decoder_acknowledge_frame(decoder)) return frame;
     const auto movie = mp4_decoder_movie(*decoder);
-    u32 remaining = movie.samples;
+    u32 remaining = decoder->fragmented ? 64u : movie.samples;
     bool rewound = false;
     for (;;) {
         if (!remaining) {
-            frame.error = Mp4DecodeError::end_of_stream;
+            frame.error = decoder->fragmented ? Mp4DecodeError::needs_service : Mp4DecodeError::end_of_stream;
         } else {
             for (u32 attempt = 0; attempt < 4; ++attempt) {
                 frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native, false)
-                                      : h264_gpu_decoder_read(&decoder->native, false);
+                                      : h264_gpu_decoder_read(&decoder->native, false, decoder->fragmented ? 4u : 0u);
                 if (frame.ok())
                     break;
                 if (!mp4_decoder_busy(*decoder) || attempt == 3 || !mp4_decoder_wait(decoder, 16))
@@ -121,8 +134,10 @@ Mp4DecodedFrame mp4_decoder_read(Mp4Decoder* decoder, bool loop_at_end) noexcept
             const u64 source = frame.source_duration_us ? frame.source_duration_us : frame.duration_us;
             const auto interval =
                 mp4_frame_interval(frame.presentation_time_us, source, movie.duration_us, movie.edited);
-            if (interval.visibility == Mp4FrameVisibility::before)
+            if (interval.visibility == Mp4FrameVisibility::before) {
+                if (decoder->fragmented) h264_gpu_decoder_acknowledge_frame(&decoder->native);
                 continue;
+            }
             if (interval.visibility == Mp4FrameVisibility::visible) {
                 frame.source_duration_us = source;
                 frame.duration_us = interval.visible_duration_us;
@@ -132,16 +147,21 @@ Mp4DecodedFrame mp4_decoder_read(Mp4Decoder* decoder, bool loop_at_end) noexcept
             frame.error = interval.visibility == Mp4FrameVisibility::after ? Mp4DecodeError::end_of_stream
                                                                            : Mp4DecodeError::stream;
         }
-        if (frame.error == Mp4DecodeError::end_of_stream && loop_at_end && !rewound && movie.samples &&
+        if (frame.error == Mp4DecodeError::end_of_stream && loop_at_end && !rewound && (movie.samples || decoder->fragmented) &&
             (decoder->hevc ? hevc_gpu_decoder_seek_start(&decoder->native)
                            : h264_gpu_decoder_rewind(&decoder->native))) {
             rewound = true;
-            remaining = movie.samples;
+            remaining = decoder->fragmented ? 64u : movie.samples;
             continue;
         }
+        if (decoder->fragmented && frame.error == Mp4DecodeError::end_of_stream && loop_at_end && !rewound &&
+            decoder->native.demux_error != Mp4DemuxError::none)
+            frame.error = decoder->native.demux_error == Mp4DemuxError::data_pending
+                ? Mp4DecodeError::data_pending : Mp4DecodeError::stream;
         break;
     }
-    if (frame.error != Mp4DecodeError::end_of_stream && frame.error != Mp4DecodeError::data_pending) {
+    if (frame.error != Mp4DecodeError::end_of_stream && frame.error != Mp4DecodeError::data_pending &&
+        frame.error != Mp4DecodeError::needs_service) {
         const i32 status = decoder->native.status;
         const H264Error parse_error = decoder->native.parse_error;
         const Mp4DemuxError demux_error = decoder->native.demux_error;

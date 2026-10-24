@@ -12,6 +12,7 @@
 namespace maicord {
 struct MediaAudioStatus;
 struct EncodedAudioMetadata;
+struct Mp4FragmentAudio;
 struct AccountVideoIdentity {
     u64 account_serial{}, message_id{}, content_identity{}, session_epoch{};
     u32 message_revision{};
@@ -67,6 +68,7 @@ struct AccountVideoStatus {
     bool has_audio{}, playing{}, paused{true}, seeking{}, buffering{}, ended{}, muted{}, volume_valid{},
         frame_pending{}, clock_valid{}, release_pending{};
     AccountPlaybackKind kind{};
+    bool live{}; // Uses tail padding; existing status fields keep their offsets.
 };
 static_assert(sizeof(AccountVideoStatus) == 136);
 struct AccountVideoService {
@@ -129,9 +131,10 @@ struct AccountVideoSession {
     AccountVideoCommand command_kind{};
     bool video_started{}, audio_epoch_ready{};
     const EncodedAudioMetadata* encoded_metadata{};
+    Mp4FragmentAudio* fragmented_audio{};
     // Progressive MP4: a track waits for bytes (the clock holds), or a seek
     // waits for its IDR payload before the decoder cursor moves.
-    bool video_pending{}, audio_pending{}, seek_pending{};
+    bool video_pending{}, audio_pending{}, seek_pending{}, seek_start_pending{};
     i64 pending_seek_us{};
     // Optional worker-stop check for demux seek scans. Context is
     // borrowed until joined release; command/service cancellation stays separate.
@@ -150,14 +153,25 @@ inline bool account_video_identity_equal(const AccountVideoIdentity& a,
 // Metadata-only: no PCM workspace/MF/device/thread. Present malformed or
 // unsupported AAC is an error, never silently classified as audio-less.
 // A progressive decoder source needs the audio track's own availability reader.
+// Optional separate fragmented audio is borrowed through joined release; it
+// shares the existing PCM transport and audio clock. Play/replay seeks the
+// borrowed source, so a cached source may retain a previous playback position.
+// A live fragment source extends the duration/sample window in service without
+// resetting the decoder or PCM epoch; temporary edges wait without draining.
 AccountVideoResult account_video_session_initialize(AccountVideoSession*, Mp4Decoder*,
                                                     const AccountVideoIdentity&, HANDLE lane_event,
-                                                    Mp4SourceAvailability audio_availability = {}) noexcept;
+                                                    Mp4SourceAvailability audio_availability = {},
+                                                    Mp4FragmentAudio* fragmented_audio = nullptr) noexcept;
 // Borrowed, validated source. Metadata only, no H.264, GPU or endpoint.
 // The encoded source/demux must outlive joined session release.
 AccountVideoResult account_video_session_initialize_audio(AccountVideoSession*, const EncodedAudioMetadata*,
                                                           const AccountVideoIdentity&,
                                                           HANDLE lane_event) noexcept;
+// Finite fragmented AAC without a picture track. Borrows the validated adapter
+// through joined release; missing packets use its existing asynchronous reader.
+// Metadata only: no GPU, PCM allocation or audio endpoint. Live audio is rejected.
+AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoSession*, Mp4FragmentAudio*,
+    const AccountVideoIdentity&, HANDLE lane_event) noexcept;
 // Commands are accepted separately from their completion. Seek requires
 // the prior GPU copy acknowledgement; no old-frame lease is revoked.
 AccountVideoResult account_video_session_control(AccountVideoSession*, const AccountVideoIdentity&,
@@ -172,6 +186,8 @@ AccountVideoService account_video_session_service(AccountVideoSession*,
 bool account_video_session_acknowledge(AccountVideoSession*, const AccountVideoIdentity&,
                                        u64 playback_epoch, u64 frame_serial) noexcept;
 AccountVideoStatus account_video_session_status(const AccountVideoSession*) noexcept;
+// Lane owner: stop requesting PCM/frames after a terminal source failure.
+void account_video_session_source_failed(AccountVideoSession*) noexcept;
 // Codec worker snapshot only, no borrowed renderer pointer. Counters are returned
 // only after the native transport observes this session's playback epoch.
 AccountVideoAudioProgress account_video_session_audio_progress(const AccountVideoSession*) noexcept;

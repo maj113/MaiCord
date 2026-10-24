@@ -3,6 +3,8 @@
 #include "maicord/platform/media_audio.hpp"
 #include "maicord/media/opus_decoder.hpp"
 #include "maicord/media/encoded_audio.hpp"
+#include "maicord/media/mp4_fragment_audio.hpp"
+#include "maicord/media/mp4_segment_store.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -13,11 +15,13 @@ struct Workspace {
     float ring[8192 * 2], pcm[kAacDecoderMaximumOutputBytes / 4];
     Mp4AudioDemuxer demux{};
     Mp4AudioSampleWindow window{};
+    Mp4AudioTimeline timeline{};
+    u32 packet_index{}, packet_count{}, channels{}, frames_per_packet{};
     AacDecoder decoder{};
     MediaAudio audio{};
     u64 source_frames{}, queued_frames{}, wanted_frames{}, silence_frames{};
     u32 pending_offset{}, pending_frames{}, input_retries{}, preceding_frames{};
-    bool reading{}, draining{}, decoded_end{}, sealed{}, requested_play{};
+    bool reading{}, draining{}, decoded_end{}, sealed{}, requested_play{}, seek_pending{};
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
     AccountVideoTimestampDiagnostic diagnostic{};
 #endif
@@ -133,7 +137,9 @@ void terminal(AccountVideoSession& s, AccountVideoError error, u32 native = 0) n
     s.status.error = error;
     s.status.native_error = native;
     s.desired_play = false;
-    s.status.buffering = false;
+    s.seeking = s.seek_pending = s.seek_start_pending = false;
+    s.video_pending = s.audio_pending = false;
+    s.status.seeking = s.status.buffering = false;
     if (auto* audio = audio_owner(s))
         media_audio_pause(audio);
 }
@@ -175,37 +181,77 @@ void set_pending(AccountVideoSession& s, bool* flag, bool value) noexcept {
         qpc(&s.qpc_anchor);
     }
 }
-// AAC needs a few packets of MDCT/SBR overlap before the first kept frame.
-constexpr u32 kAacSeekPrerollPackets = 4;
 bool audio_window(AccountVideoSession& s, Workspace& w) noexcept {
     w.demux = s.audio_metadata;
-    mp4_audio_demux_reset(&w.demux);
-    // A track can end before the video. Its absent tail is rendered as silence,
-    // preserving the native audio clock as master through the movie endpoint.
-    Mp4AudioSampleWindow entire{};
-    if (!mp4_audio_demux_sample_window(w.demux, 0, &entire))
-        return false;
-    const i64 audio_target = minimum(s.seek_target, entire.duration_100ns);
-    if (!mp4_audio_demux_sample_window(w.demux, audio_target, &w.window) ||
-        !frame_count(s.status.duration_100ns - s.seek_target, w.demux.sample_rate, &w.wanted_frames))
-        return false;
-    w.source_frames = w.queued_frames = 0;
-    w.pending_frames = w.pending_offset = w.input_retries = w.preceding_frames = 0;
-    // A progressive source starts near the target instead of decoding (and
-    // fetching) every packet from the start; the window still trims preroll.
-    if (w.demux.samples.availability.available && w.demux.frames_per_packet) {
-        const u64 packet = w.window.first_source_frame / w.demux.frames_per_packet;
-        if (packet > kAacSeekPrerollPackets && packet - kAacSeekPrerollPackets < w.demux.samples.sample_count) {
-            const u32 start = static_cast<u32>(packet - kAacSeekPrerollPackets);
-            if (mp4_demux_seek_sample(&w.demux.samples, start) != Mp4DemuxError::none)
-                return false;
-            w.source_frames = u64{start} * w.demux.frames_per_packet;
-        }
+    if (s.fragmented_audio) {
+        if (mp4_fragment_audio_refresh(s.fragmented_audio) != Mp4DemuxError::none) return false;
+        const auto& track = s.fragmented_audio->source->track;
+        w.timeline = s.fragmented_audio->timeline;
+        w.packet_count = s.fragmented_audio->packet_count;
+        w.channels = track.channels; w.frames_per_packet = track.frames_per_packet;
+    } else {
+        mp4_audio_demux_reset(&w.demux);
+        if (!mp4_audio_demux_timeline(w.demux, &w.timeline)) return false;
+        w.packet_count = w.demux.samples.sample_count;
+        w.channels = w.demux.channels; w.frames_per_packet = w.demux.frames_per_packet;
     }
+    // Keep the audio clock through an absent track tail using the existing
+    // silence path. Trim all decoder preroll on the original PCM sample grid.
+    Mp4AudioSampleWindow entire{};
+    if (!mp4_audio_sample_window(w.timeline, 0, &entire)) return false;
+    const i64 audio_target = minimum(s.seek_target, entire.duration_100ns);
+    if (!mp4_audio_sample_window(w.timeline, audio_target, &w.window) ||
+        !frame_count(s.status.duration_100ns - s.seek_target, w.timeline.sample_rate, &w.wanted_frames)) return false;
+    const u64 packet = w.window.first_source_frame / w.frames_per_packet;
+    const u32 preroll = aac_decoder_seek_preroll_packets(w.frames_per_packet);
+    w.packet_index = packet > preroll && packet - preroll < w.packet_count ? static_cast<u32>(packet - preroll) : 0;
+    w.seek_pending = false;
+    if (s.fragmented_audio) {
+        if (w.window.first_source_frame == w.window.end_source_frame) w.packet_index = w.packet_count;
+        const auto sought = mp4_fragment_audio_seek(s.fragmented_audio, w.packet_index);
+        if (sought != Mp4DemuxError::none && sought != Mp4DemuxError::data_pending) return false;
+        w.seek_pending = sought == Mp4DemuxError::data_pending;
+        set_pending(s, &s.audio_pending, w.seek_pending);
+    } else if (w.packet_index && mp4_demux_seek_sample(&w.demux.samples, w.packet_index) != Mp4DemuxError::none) return false;
+    w.source_frames = u64{w.packet_index} * w.frames_per_packet;
+    w.queued_frames = 0;
+    w.pending_frames = w.pending_offset = w.input_retries = w.preceding_frames = 0;
     w.silence_frames = minimum(w.window.leading_silence_frames, w.wanted_frames);
     w.reading = w.draining = w.sealed = false;
     w.decoded_end = !w.wanted_frames || w.window.first_source_frame == w.window.end_source_frame;
     s.audio_eof = false;
+    return true;
+}
+// Received live media extends the existing sample window. Never reset the
+// decoder, PCM cursor, leading silence or playback epoch at a playlist edge.
+bool live_window(AccountVideoSession& s) noexcept {
+    if (!s.status.live) return true;
+    const auto movie = mp4_decoder_movie(*s.video);
+    if (!movie.live || !movie.duration_us || movie.duration_us > static_cast<u64>(kLimit) / 10) return false;
+    i64 duration = static_cast<i64>(movie.duration_us * 10);
+    Mp4AudioSampleWindow entire{};
+    if (s.status.has_audio) {
+        if (s.fragmented_audio ? mp4_fragment_audio_refresh(s.fragmented_audio) != Mp4DemuxError::none ||
+                !mp4_audio_sample_window(s.fragmented_audio->timeline, 0, &entire)
+            : !mp4_audio_demux_sample_window(s.audio_metadata, 0, &entire)) return false;
+        duration = maximum(duration, entire.duration_100ns);
+    }
+    if (duration < s.status.duration_100ns) return false;
+    if (s.workspace) {
+        auto& w = *static_cast<Workspace*>(s.workspace);
+        const auto& timeline = s.fragmented_audio ? s.fragmented_audio->timeline : w.timeline;
+        Mp4AudioSampleWindow window{};
+        u64 wanted{};
+        if (!mp4_audio_sample_window(timeline, minimum(s.seek_target, entire.duration_100ns), &window) ||
+            !frame_count(duration - s.seek_target, timeline.sample_rate, &wanted) || wanted < w.wanted_frames ||
+            window.first_source_frame != w.window.first_source_frame || window.end_source_frame < w.window.end_source_frame ||
+            (w.sealed && wanted != w.wanted_frames)) return false;
+        const u32 packets = s.fragmented_audio ? s.fragmented_audio->packet_count : w.packet_count;
+        if (packets < w.packet_count || ((w.draining || w.decoded_end) && packets != w.packet_count)) return false;
+        w.timeline = timeline; w.window = window; w.packet_count = packets; w.wanted_frames = wanted;
+        if (w.decoded_end && (w.queued_frames < wanted || movie.duration_complete)) set_pending(s, &s.audio_pending, false);
+    }
+    s.status.duration_100ns = duration;
     return true;
 }
 bool opus_window(AccountVideoSession& s, OpusWorkspace& w) noexcept {
@@ -367,14 +413,16 @@ bool workspace(AccountVideoSession& s) noexcept {
         return false;
     }
     s.workspace = w;
-    const auto decoder = aac_decoder_initialize(&w->decoder, mp4_audio_demux_asc(s.audio_metadata),
-                                                s.audio_metadata.sample_rate, s.audio_metadata.channels);
+    const auto* track = s.fragmented_audio ? &s.fragmented_audio->source->track : nullptr;
+    const auto asc = track ? track->configuration : mp4_audio_demux_asc(s.audio_metadata);
+    const u32 rate = track ? track->sample_rate : s.audio_metadata.sample_rate;
+    const u32 channels = track ? track->channels : s.audio_metadata.channels;
+    const auto decoder = aac_decoder_initialize(&w->decoder, asc, rate, channels);
     if (!decoder.ok()) {
         terminal(s, AccountVideoError::decoder, static_cast<u32>(decoder.native_status));
         return false;
     }
-    if (!start_audio(s, &w->audio, w->ring, s.audio_metadata.channels, s.audio_metadata.sample_rate))
-        return false;
+    if (!start_audio(s, &w->audio, w->ring, channels, rate)) return false;
     if (!audio_window(s, *w)) {
         terminal(s, AccountVideoError::timestamp);
         return false;
@@ -425,15 +473,21 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
         Mp4SeekPoint point{};
         const auto movie = mp4_decoder_movie(*s.video);
         const i64 video_target = minimum(target / 10, static_cast<i64>(movie.duration_us));
-        const bool start = !video_target || (movie.first_presentation_time_us > 0 &&
-                                             video_target < movie.first_presentation_time_us);
+        // A shared live origin can trim whole video files when the audio
+        // playlist arrives later. Start at its preceding IDR, keeping only
+        // required decode preroll instead of replaying the retained history.
+        const bool start = (!video_target && !(movie.live && movie.first_presentation_valid &&
+                                               movie.first_presentation_time_us < 0)) ||
+                           (movie.first_presentation_time_us > 0 && video_target < movie.first_presentation_time_us);
         const auto sought = start ? (mp4_decoder_seek_start(s.video) ? Mp4DemuxError::none
-                                                                     : Mp4DemuxError::invalid_input)
+                                      : s.video->native.demux_error == Mp4DemuxError::data_pending ? Mp4DemuxError::data_pending
+                                                                                               : Mp4DemuxError::invalid_input)
                                   : mp4_decoder_seek(s.video, video_target, &point);
         if (sought != Mp4DemuxError::none && sought != Mp4DemuxError::data_pending)
             return false;
         // The IDR payload has not arrived: service retries once it has.
         s.seek_pending = sought == Mp4DemuxError::data_pending;
+        s.seek_start_pending = start;
         s.pending_seek_us = video_target;
     }
     s.video_pending = s.audio_pending = false;
@@ -583,16 +637,23 @@ void refresh(AccountVideoSession& s) noexcept {
         s.desired_play = s.status.playing = false;
         s.status.buffering = false;
     }
+    // Native pause acknowledgement can arrive later. It must not resurrect a
+    // spinner for a source that has already failed permanently.
+    if (s.status.error != AccountVideoError::none)
+        s.status.seeking = s.status.buffering = false;
 }
 bool write(AccountVideoSession& s, Workspace& w, u32 frames, u32 offset) noexcept {
     const auto value = media_audio_write(&w.audio, s.playback_epoch,
-                                         {w.pcm + offset * w.demux.channels, frames * w.demux.channels});
+                                         {w.pcm + offset * w.channels, frames * w.channels});
     if (!value.ok()) {
         if (value.error != MediaAudioError::capacity)
             terminal(s, AccountVideoError::audio, value.native_error);
         return false;
     }
     w.queued_frames += frames;
+    // Audio-only AAC has no GPU picture acknowledgement. The target becomes
+    // ready only after its trimmed PCM (or edit-list silence) reaches the ring.
+    if (!s.video) s.video_seek_ready = true;
     return true;
 }
 bool output(AccountVideoSession& s, Workspace& w) noexcept {
@@ -621,16 +682,16 @@ bool output(AccountVideoSession& s, Workspace& w) noexcept {
         return false;
     }
     Mp4AudioFrameTimeBounds bounds{};
-    const bool mapped = mp4_audio_demux_frame_time_bounds_100ns(w.demux, w.source_frames, &bounds);
+    const bool mapped = mp4_audio_frame_time_bounds_100ns(w.timeline, w.source_frames, &bounds);
     const i64 expected = bounds.floor_100ns;
     bool matches =
         mapped && account_video_audio_timestamp_within_bounds(block.presentation_time_100ns, bounds);
     if (mapped && !matches && w.preceding_frames && w.preceding_frames <= w.source_frames) {
         i64 preceding{};
-        if (mp4_audio_demux_frame_time_100ns(w.demux, w.source_frames - w.preceding_frames, &preceding))
+        if (mp4_audio_frame_time_100ns(w.timeline, w.source_frames - w.preceding_frames, &preceding))
             matches =
                 account_video_audio_timestamp_matches(block.presentation_time_100ns, expected, preceding,
-                                                      w.preceding_frames, w.demux.sample_rate);
+                                                      w.preceding_frames, w.timeline.sample_rate);
     }
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
     auto& d = w.diagnostic;
@@ -641,13 +702,13 @@ bool output(AccountVideoSession& s, Workspace& w) noexcept {
     d.native_timestamp = block.presentation_time_100ns;
     d.expected_timestamp = expected;
     d.block_frames = block.frames;
-    d.packet_index = w.demux.samples.sample_index;
-    d.packet_count = w.demux.samples.sample_count;
+    d.packet_index = w.packet_index;
+    d.packet_count = w.packet_count;
     d.stamped = block.timestamp_valid;
     d.mapped = mapped;
 #endif
     if (!block.timestamp_valid || !mapped || !matches ||
-        block.frames > u64{w.demux.samples.sample_count} * w.demux.frames_per_packet - w.source_frames) {
+        block.frames > u64{w.packet_count} * w.frames_per_packet - w.source_frames) {
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
         w.diagnostic.error_site = 2;
 #endif
@@ -670,6 +731,12 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
     if (!workspace(s))
         return false;
     auto& w = *static_cast<Workspace*>(s.workspace);
+    if (w.seek_pending) {
+        const auto sought = mp4_fragment_audio_seek(s.fragmented_audio, w.packet_index);
+        if (sought == Mp4DemuxError::data_pending) { set_pending(s, &s.audio_pending, true); return false; }
+        if (sought != Mp4DemuxError::none) { terminal(s, AccountVideoError::demux, static_cast<u32>(sought)); return false; }
+        w.seek_pending = false; set_pending(s, &s.audio_pending, false);
+    }
     u32 packets{}, calls{}, writes{};
     while (packets < 8 && calls < 24 && writes < 4 && s.status.error == AccountVideoError::none) {
         if (cancelled && cancelled(context)) {
@@ -704,7 +771,7 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
             const u64 remaining = w.silence_frames ? w.silence_frames : w.wanted_frames - w.queued_frames;
             const u32 frames = static_cast<u32>(
                 minimum<u64>(minimum(a.free_frames, kMediaAudioMaximumWriteFrames), remaining));
-            for (u32 i = 0; i < frames * w.demux.channels; ++i)
+            for (u32 i = 0; i < frames * w.channels; ++i)
                 w.pcm[i] = 0;
             if (!write(s, w, frames, 0))
                 return false;
@@ -714,6 +781,10 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
             continue;
         }
         if (w.decoded_end) {
+            if (s.status.live && !mp4_decoder_movie(*s.video).duration_complete) {
+                set_pending(s, &s.audio_pending, true);
+                return false;
+            }
             if (!w.sealed) {
                 const auto value = media_audio_end(&w.audio, s.playback_epoch);
                 if (!value.ok()) {
@@ -721,6 +792,7 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
                     break;
                 }
                 w.sealed = true;
+                if (!s.video) s.video_seek_ready = true;
             }
             return false;
         }
@@ -730,8 +802,18 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
                 break;
             continue;
         }
-        if (u64{w.demux.samples.sample_index} * w.demux.frames_per_packet >= w.window.end_source_frame ||
-            w.demux.samples.sample_index == w.demux.samples.sample_count) {
+        if (u64{w.packet_index} * w.frames_per_packet >= w.window.end_source_frame ||
+            w.packet_index == w.packet_count) {
+            if (s.status.live && s.fragmented_audio) {
+                Mp4FragmentAudioPacket packet{};
+                const auto edge = mp4_fragment_audio_peek(s.fragmented_audio, &packet);
+                if (edge == Mp4DemuxError::data_pending) { set_pending(s, &s.audio_pending, true); return false; }
+                if (edge != Mp4DemuxError::end_of_stream) { terminal(s, AccountVideoError::demux, static_cast<u32>(edge)); break; }
+                set_pending(s, &s.audio_pending, false);
+            }
+            if (s.fragmented_audio && mp4_fragment_audio_seek(s.fragmented_audio, w.packet_count) != Mp4DemuxError::none) {
+                terminal(s, AccountVideoError::demux); break;
+            }
             const auto value = aac_decoder_drain(&w.decoder);
             if (!value.ok()) {
                 terminal(s, AccountVideoError::decoder, static_cast<u32>(value.native_status));
@@ -742,28 +824,36 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
             continue;
         }
         const auto before = w.demux;
-        const auto unit = mp4_audio_demux_next(&w.demux);
-        if (unit.ok() && !mp4_demux_available(before.samples, unit.bytes)) {
-            w.demux = before;
-            set_pending(s, &s.audio_pending, true);
-            return false;
+        ConstSlice<u8> bytes{}; i64 start{}; u64 duration{};
+        Mp4DemuxError error{};
+        if (s.fragmented_audio) {
+            Mp4FragmentAudioPacket packet{};
+            error = mp4_fragment_audio_peek(s.fragmented_audio, &packet);
+            if (error == Mp4DemuxError::none && packet.first_source_frame != u64{w.packet_index} * w.frames_per_packet)
+                error = Mp4DemuxError::malformed;
+            bytes = packet.bytes; start = packet.presentation_time_100ns; duration = packet.duration_100ns;
+        } else {
+            const auto unit = mp4_audio_demux_next(&w.demux);
+            error = unit.error; bytes = unit.bytes;
+            if (unit.ok() && !mp4_demux_available(before.samples, unit.bytes)) error = Mp4DemuxError::data_pending;
+            i64 end{};
+            if (error == Mp4DemuxError::none && (unit.sample_index != w.packet_index ||
+                !mp4_audio_frame_time_100ns(w.timeline, u64{w.packet_index} * w.frames_per_packet, &start) ||
+                !mp4_audio_frame_time_100ns(w.timeline, (u64{w.packet_index} + 1) * w.frames_per_packet, &end) || end <= start))
+                error = Mp4DemuxError::unsupported;
+            if (error == Mp4DemuxError::none) duration = static_cast<u64>(end) - static_cast<u64>(start);
         }
-        if (s.audio_pending)
-            set_pending(s, &s.audio_pending, false);
-        i64 start{}, end{};
-        if (!unit.ok() ||
-            !mp4_audio_demux_frame_time_100ns(w.demux, u64{unit.sample_index} * w.demux.frames_per_packet,
-                                              &start) ||
-            !mp4_audio_demux_frame_time_100ns(
-                w.demux, (u64{unit.sample_index} + 1) * w.demux.frames_per_packet, &end) ||
-            end <= start) {
+        if (error == Mp4DemuxError::data_pending) {
+            w.demux = before; set_pending(s, &s.audio_pending, true); return false;
+        }
+        if (s.audio_pending) set_pending(s, &s.audio_pending, false);
+        if (error != Mp4DemuxError::none || !duration) {
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
             w.diagnostic.error_site = 3;
 #endif
-            terminal(s, AccountVideoError::timestamp);
-            break;
+            terminal(s, AccountVideoError::timestamp); break;
         }
-        const auto value = aac_decoder_submit(&w.decoder, unit.bytes, start, static_cast<u64>(end - start));
+        const auto value = aac_decoder_submit(&w.decoder, bytes, start, duration);
         if (value.error == AacDecodeError::need_output) {
             w.demux = before;
             w.reading = true;
@@ -778,6 +868,10 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
             terminal(s, AccountVideoError::decoder, static_cast<u32>(value.native_status));
             break;
         }
+        if (s.fragmented_audio && !mp4_fragment_audio_commit(s.fragmented_audio)) {
+            terminal(s, AccountVideoError::demux); break;
+        }
+        ++w.packet_index;
         w.input_retries = 0;
         w.reading = true;
         ++packets;
@@ -1043,7 +1137,7 @@ bool account_video_qpc_position(i64 origin, u64 anchor, u64 now, u64 frequency, 
 }
 AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4Decoder* video,
                                                     const AccountVideoIdentity& id, HANDLE event,
-                                                    Mp4SourceAvailability audio_availability) noexcept {
+                                                    Mp4SourceAvailability audio_availability, Mp4FragmentAudio* fragmented_audio) noexcept {
     if (!s || s->initialized || s->workspace || !video || !video->ready || !identity_valid(id) || !event)
         return result(AccountVideoError::invalid_input);
     const auto source = mp4_decoder_source(*video);
@@ -1052,7 +1146,11 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
         movie.duration_us > static_cast<u64>(kLimit) / 10)
         return result(AccountVideoError::invalid_input);
     Mp4AudioDemuxer audio{};
-    auto error = mp4_audio_demux_initialize(&audio, source, audio_availability);
+    if (fragmented_audio && (!fragmented_audio->source || !mp4_fragment_source_valid(*fragmented_audio->source) ||
+        !fragmented_audio->source->track.audio || !fragmented_audio->packet_count ||
+        fragmented_audio->packet_index > fragmented_audio->packet_count))
+        return result(AccountVideoError::invalid_input);
+    auto error = fragmented_audio ? Mp4DemuxError::none : mp4_audio_demux_initialize(&audio, source, audio_availability);
     // A codec without a decoder here (ALAC, AC-3, LPCM, spatial APAC) plays
     // the picture silently, as a browser does; a broken audio table still fails.
     if (error == Mp4DemuxError::unsupported)
@@ -1062,7 +1160,8 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
     i64 duration = static_cast<i64>(movie.duration_us * 10);
     if (error == Mp4DemuxError::none) {
         Mp4AudioSampleWindow window{};
-        if (!mp4_audio_demux_sample_window(audio, 0, &window))
+        if (!(fragmented_audio ? mp4_audio_sample_window(fragmented_audio->timeline, 0, &window)
+                               : mp4_audio_demux_sample_window(audio, 0, &window)))
             return result(AccountVideoError::timestamp);
         duration = maximum(duration, window.duration_100ns);
     }
@@ -1074,10 +1173,39 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
     s->video = video;
     s->lane_event = event;
     s->audio_metadata = audio;
+    s->fragmented_audio = fragmented_audio;
     s->status.identity = identity;
     s->status.duration_100ns = duration;
     s->status.has_audio = error == Mp4DemuxError::none;
+    s->status.live = movie.live;
     s->status.playback_epoch = s->playback_epoch = 1;
+    s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
+    s->thread_id = GetCurrentThreadId();
+    s->initialized = true;
+    return result(AccountVideoError::none, 0, true, true);
+}
+AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoSession* s, Mp4FragmentAudio* audio,
+    const AccountVideoIdentity& id, HANDLE event) noexcept {
+    if (!s || s->initialized || s->workspace || !audio || !audio->source || !identity_valid(id) || !event ||
+        !mp4_fragment_source_valid(*audio->source) || !audio->source->track.audio ||
+        (audio->source->segments && audio->source->segments->live) || !audio->packet_count ||
+        audio->packet_index > audio->packet_count)
+        return result(AccountVideoError::invalid_input);
+    Mp4AudioSampleWindow window{};
+    if (!mp4_audio_sample_window(audio->timeline, 0, &window) || window.duration_100ns <= 0)
+        return result(AccountVideoError::timestamp);
+    Win32LargeInteger frequency{};
+    if (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0)
+        return result(AccountVideoError::clock);
+    const auto identity = id;
+    *s = {};
+    s->fragmented_audio = audio;
+    s->lane_event = event;
+    s->status.identity = identity;
+    s->status.duration_100ns = window.duration_100ns;
+    s->status.has_audio = true;
+    s->status.playback_epoch = s->playback_epoch = 1;
+    s->video_eof = true;
     s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
     s->thread_id = GetCurrentThreadId();
     s->initialized = true;
@@ -1135,7 +1263,7 @@ AccountVideoResult account_video_session_control(AccountVideoSession* s, const A
     if (!account_video_identity_equal(s->status.identity, id) || serial <= s->status.desired_command)
         return refused(s, id, serial, AccountVideoError::stale);
     if ((command == AccountVideoCommand::volume && !media_audio_gain_valid(volume)) ||
-        (command == AccountVideoCommand::seek && (target < 0 || target > s->status.duration_100ns)))
+        (command == AccountVideoCommand::seek && (s->status.live || target < 0 || target > s->status.duration_100ns)))
         return refused(s, id, serial, AccountVideoError::invalid_input);
     if ((command == AccountVideoCommand::seek || command == AccountVideoCommand::stop) && s->published)
         return refused(s, id, serial, AccountVideoError::busy);
@@ -1187,11 +1315,18 @@ AccountVideoResult account_video_session_control(AccountVideoSession* s, const A
     refresh(*s);
     return result(AccountVideoError::none, 0, true, s->status.observed_command == serial);
 }
+void account_video_session_source_failed(AccountVideoSession* s) noexcept {
+    if (s && thread(*s) && s->status.error == AccountVideoError::none)
+        terminal(*s, AccountVideoError::demux);
+}
+
 AccountVideoService account_video_session_service(AccountVideoSession* s, bool (*cancelled)(void*) noexcept,
                                                   void* context) noexcept {
     AccountVideoService out{};
     if (!s || !thread(*s))
         return out;
+    if (s->status.error == AccountVideoError::none && !s->status.release_pending && !live_window(*s))
+        terminal(*s, AccountVideoError::timestamp);
     refresh(*s);
     out.playback_epoch = s->playback_epoch;
     if (s->status.error != AccountVideoError::none || s->status.release_pending)
@@ -1226,7 +1361,10 @@ AccountVideoService account_video_session_service(AccountVideoSession* s, bool (
     }
     if (s->seek_pending) {
         Mp4SeekPoint point{};
-        const auto sought = mp4_decoder_seek(s->video, s->pending_seek_us, &point);
+        const auto sought = s->seek_start_pending
+            ? (mp4_decoder_seek_start(s->video) ? Mp4DemuxError::none
+                : s->video->native.demux_error != Mp4DemuxError::none ? s->video->native.demux_error : Mp4DemuxError::invalid_input)
+            : mp4_decoder_seek(s->video, s->pending_seek_us, &point);
         if (sought != Mp4DemuxError::none && sought != Mp4DemuxError::data_pending) {
             terminal(*s, AccountVideoError::demux, static_cast<u32>(sought));
             return out;

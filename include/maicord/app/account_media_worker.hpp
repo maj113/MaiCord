@@ -24,6 +24,7 @@ enum class AccountMediaWorkKind : u8 {
     animation_advance,
     catalog_preview,
     local_draft_preview,
+    collection_title,
 };
 
 enum class AccountMediaWorkerPhase : u8 {
@@ -56,8 +57,12 @@ struct AccountMediaWorkItem {
     u16 text_bytes;
     CdnImageType image_type;
     AccountMediaWorkKind kind;
-    u8 reserved[2];
+    u8 progressive;
+    u8 collection;
+    bool title_batch;
+    u16 collection_track;
     u64 catalog_scope;
+    MediaTrackId title_track;
     u32 catalog_generation;
     u32 catalog_reserved;
     UploadSource local_content;
@@ -74,6 +79,10 @@ struct AccountMediaWorkerLane {
     AccountMediaWorkItem command;
     AccountMediaWorkItem completed;
     AccountMediaRequestResult completed_result;
+    // Transient packed batch names, owned by this lane until completion/stop.
+    char* collection_titles;
+    u32 collection_title_bytes;
+    u32 collection_title_committed;
     u64 completed_content_identity;
     AccountMediaWorker* owner;
     HANDLE thread;
@@ -152,6 +161,8 @@ AccountMediaRequestResult account_media_worker_request_guild_icon(
 AccountMediaRequestResult account_media_worker_request_attachment(
     AccountMediaWorker* worker, const AccountMediaAttachmentRequest& request, u64 monotonic_now_ms,
     u64 unix_now_seconds) noexcept;
+AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWorker*,
+    const AccountMediaCollectionTitleRequest&, MediaTrackTitle*) noexcept;
 AccountMediaRequestResult account_media_worker_request_catalog_preview(
     AccountMediaWorker* worker, const AccountMediaCatalogPreviewRequest& request, u64 monotonic_now_ms,
     u64 unix_now_seconds) noexcept;
@@ -185,6 +196,6 @@ AccountVideoPlaybackStatus account_media_worker_video_status(const AccountMediaW
 bool account_media_worker_video_take(AccountMediaWorker*, AccountVideoFrame*) noexcept;
 bool account_media_worker_video_acknowledge(AccountMediaWorker*, const AccountVideoFrame&) noexcept;
 
-static_assert(sizeof(AccountMediaWorkItem) == kAccountMediaWorkerTextCapacity + 152);
+static_assert(sizeof(AccountMediaWorkItem) == kAccountMediaWorkerTextCapacity + 176);
 
 } // namespace maicord

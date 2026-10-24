@@ -1517,6 +1517,7 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(103, guild_moderation);
     MC_STUB(104, guild_members_query_cancel);
     MC_STUB(105, channel_info);
+    MC_STUB(106, collection_title);
 #undef MC_STUB
     api->decoders = {
         gateway_decode_message_create,      gateway_decode_message_create, gateway_decode_message_create,

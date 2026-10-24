@@ -12,6 +12,7 @@ struct ID3D11DeviceContext;
 namespace maicord {
 
 struct Mp4DecodedFrame;
+struct Mp4FragmentSource;
 
 // Native GPU backend. No MFT or software decode fallback. Output
 // lease lasts until the next read, which must follow enqueueing presentation.
@@ -31,7 +32,11 @@ struct H264GpuMovie {
     bool edited;
     i64 first_presentation_time_us;
     bool first_presentation_valid;
+    // A live duration is the received horizon. ENDLIST alone is insufficient:
+    // the final advertised media body must have arrived before it is complete.
+    bool live{}, duration_complete{true};
 };
+static_assert(sizeof(H264GpuMovie) == 32);
 // Ready source only. First PTS comes from one packet on a reset cursor COPY;
 // first_presentation_valid distinguishes failure/unavailable from an actual PTS of 0.
 H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder&) noexcept;
@@ -65,6 +70,14 @@ bool h264_gpu_decoder_rewind(H264GpuDecoder*) noexcept;
 bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
                                  ID3D11DeviceContext* context, bool full_stream = true,
                                  Mp4SourceAvailability availability = {}) noexcept;
+// Empty decoder and borrowed indexed fragment source at its initial packet; never copies the
+// encoded entity. Source and metadata outlive decoder release. Sequential reads
+// share the same GPU path and acknowledgement fence; missing bytes return
+// data_pending. Movie sample count is unknown (zero); fragmented seek chooses a
+// validated preceding segment IDR, and sample indices are local to that segment.
+// The caller releases the source separately.
+bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder*, Mp4FragmentSource*, ID3D11Device*,
+                                            ID3D11DeviceContext*) noexcept;
 // Busy hardware returns sample error plus E_PENDING/D3DERR_WASSTILLDRAWING;
 // caller waits for queued GPU work, then retries without advancing stream state.
 // A zero submission budget means no limit. A nonzero budget accepts at most

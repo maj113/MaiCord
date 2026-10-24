@@ -54,6 +54,11 @@ bool intersects(ProgressiveRange r, u64 first, u64 end) noexcept {
 bool decommit(ProgressiveSource* s, u32 b) noexcept {
     if (!bit(s->present, b) || bit(s->pinned, b))
         return false;
+    for (const auto& reader : s->readers)
+        if ((reader.metadata_bytes && u64{b} * kBlock < reader.metadata_first + reader.metadata_bytes &&
+             block_end(*s, b) > reader.metadata_first) ||
+            (reader.seek_metadata_bytes && u64{b} * kBlock < reader.seek_metadata_first + reader.seek_metadata_bytes &&
+             block_end(*s, b) > reader.seek_metadata_first)) return false;
     VirtualFree(s->base + u64{b} * kBlock, kBlock, MEM_DECOMMIT);
     set_bit(s->present, b, false);
     --s->resident_blocks;
@@ -83,7 +88,7 @@ ProgressiveProbe need(const ProgressiveSource& s, u64 offset, u64 end) noexcept 
 }
 } // namespace
 
-bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes) noexcept {
+bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes, bool audio_buffer) noexcept {
     if (!s || !total_bytes || total_bytes > kMediaMaximumProgressiveVideoBytes)
         return false;
     *s = {};
@@ -93,7 +98,8 @@ bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes) noexce
         return false;
     s->total_bytes = total_bytes;
     s->block_count = blocks;
-    s->ahead_bytes = kProgressiveMinimumAheadBytes;
+    s->audio_buffer = audio_buffer;
+    s->ahead_bytes = audio_buffer ? 2 * kBlock : kProgressiveMinimumAheadBytes;
     progressive_source_reset_readers(s);
     return true;
 }
@@ -115,7 +121,9 @@ bool progressive_source_write(ProgressiveSource* s, u64 offset, ConstSlice<u8> b
         const u64 first = u64{b} * kBlock, last = block_end(*s, b);
         if (first < offset || last > end || bit(s->present, b))
             continue;
-        if (!VirtualAlloc(s->base + first, kBlock, MEM_COMMIT, PAGE_READWRITE))
+        // The final block may contain only a tiny clip or file tail. Windows
+        // rounds this extent to pages; keep the unused reservation uncommitted.
+        if (!VirtualAlloc(s->base + first, last - first, MEM_COMMIT, PAGE_READWRITE))
             return false;
         copy_bytes(s->base + first, bytes.data + (first - offset), static_cast<u32>(last - first));
         set_bit(s->present, b, true);
@@ -157,13 +165,20 @@ void progressive_source_set_duration(ProgressiveSource* s, u64 duration_us) noex
         return;
     const u64 ahead = duration_us ? u64{s->total_bytes} * kProgressiveAheadSeconds * 1'000'000ull / duration_us
                                   : kProgressiveMaximumAheadBytes;
-    s->ahead_bytes = static_cast<u32>(
-        minimum<u64>(kProgressiveMaximumAheadBytes, maximum<u64>(kProgressiveMinimumAheadBytes, ahead)));
+    s->ahead_bytes = static_cast<u32>(minimum<u64>(s->audio_buffer ? 8 * kBlock : kProgressiveMaximumAheadBytes,
+        maximum<u64>(s->audio_buffer ? 2 * kBlock : kProgressiveMinimumAheadBytes, ahead)));
 }
 Mp4SourceAvailability progressive_source_reader(ProgressiveSource* s, ProgressiveTrack track) noexcept {
     if (!s)
         return {};
     return {reader_available, &s->readers[track == ProgressiveTrack::audio ? 1 : 0]};
+}
+bool progressive_source_retain_metadata(ProgressiveSource* s, ProgressiveTrack track, u64 first, u32 bytes, bool seeking) noexcept {
+    if (!s || (bytes && !progressive_source_available(*s, first, bytes))) return false;
+    auto& reader = s->readers[track == ProgressiveTrack::audio ? 1 : 0];
+    if (seeking) { reader.seek_metadata_first = bytes ? first : 0; reader.seek_metadata_bytes = bytes; }
+    else { reader.metadata_first = bytes ? first : 0; reader.metadata_bytes = bytes; }
+    return true;
 }
 void progressive_source_reset_readers(ProgressiveSource* s) noexcept {
     if (!s)
@@ -175,7 +190,9 @@ u32 progressive_source_evict(ProgressiveSource* s, u32 budget_bytes) noexcept {
     if (!s || !s->base)
         return 0;
     // Leave room for one more request, or a full budget could never advance.
-    const u32 request = kProgressiveRequestBytes / kBlock;
+    const u32 request_bytes = s->audio_buffer ? kBlock : kProgressiveRequestBytes;
+    const u32 behind_bytes = s->audio_buffer ? kBlock : kProgressiveBehindBytes;
+    const u32 request = request_bytes / kBlock;
     const u32 budget = budget_bytes / kBlock > request ? budget_bytes / kBlock - request : 0;
     u32 payload = progressive_source_payload_blocks(*s), evicted = 0;
     if (payload <= budget)
@@ -188,8 +205,8 @@ u32 progressive_source_evict(ProgressiveSource* s, u32 budget_bytes) noexcept {
             continue;
         active[i] = true;
         const u64 at = r.pending ? minimum(r.cursor, r.missing) : r.cursor;
-        window_first[i] = at > kProgressiveBehindBytes ? at - kProgressiveBehindBytes : 0;
-        window_end[i] = at + s->ahead_bytes + kProgressiveRequestBytes;
+        window_first[i] = at > behind_bytes ? at - behind_bytes : 0;
+        window_end[i] = at + s->ahead_bytes + request_bytes;
         behind_all = minimum(behind_all, at);
     }
     const auto protected_block = [&](u32 b) noexcept {
@@ -270,6 +287,7 @@ ProgressivePlan progressive_schedule(const ProgressiveSource& s, ProgressiveRang
     ProgressivePlan plan{};
     if (!s.base)
         return plan;
+    const u32 request_bytes = s.audio_buffer ? kBlock : kProgressiveRequestBytes;
     ProgressiveRange best{};
     u64 windows_first[4]{}, windows_end[4]{};
     u32 windows = 0;
@@ -278,7 +296,7 @@ ProgressivePlan progressive_schedule(const ProgressiveSource& s, ProgressiveRang
             continue;
         windows_first[windows] = r.missing;
         windows_end[windows++] = r.missing + s.ahead_bytes;
-        const auto gap = gap_from(s, r.missing, r.missing + kProgressiveRequestBytes, kProgressiveRequestBytes);
+        const auto gap = gap_from(s, r.missing, r.missing + request_bytes, request_bytes);
         if (gap.bytes && (!best.bytes || gap.first < best.first))
             best = gap;
     }
@@ -291,7 +309,7 @@ ProgressivePlan progressive_schedule(const ProgressiveSource& s, ProgressiveRang
                 continue;
             windows_first[windows] = r.cursor;
             windows_end[windows++] = r.cursor + s.ahead_bytes;
-            const auto gap = gap_from(s, r.cursor, r.cursor + s.ahead_bytes, kProgressiveRequestBytes);
+            const auto gap = gap_from(s, r.cursor, r.cursor + s.ahead_bytes, request_bytes);
             if (gap.bytes && (!best.bytes || gap.first < best.first))
                 best = gap;
         }
@@ -306,7 +324,7 @@ ProgressivePlan progressive_schedule(const ProgressiveSource& s, ProgressiveRang
     if (!best.bytes)
         return plan;
     // The payload budget caps every request; eviction runs before scheduling.
-    const u32 payload = progressive_source_payload_blocks(s), budget = kProgressiveResidentBudgetBytes / kBlock;
+    const u32 payload = progressive_source_payload_blocks(s), budget = progressive_source_budget(s) / kBlock;
     if (payload >= budget)
         return plan;
     const u32 room = (budget - payload) * kBlock;

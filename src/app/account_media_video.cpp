@@ -1,6 +1,7 @@
 #include "account_media_video_internal.hpp"
 #include "maicord/app/account_video_commands.hpp"
 #include "maicord/app/progressive_video_fetch.hpp"
+#include "maicord/app/segmented_video_fetch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -36,19 +37,41 @@ bool source_cancelled(void* opaque) noexcept {
     const auto* worker = static_cast<const AccountMediaWorker*>(opaque);
     return !worker || WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0;
 }
+u32 progressive_refresh_delay(const ProgressiveVideoFetch* video, const ProgressiveVideoFetch* audio, u64 now) noexcept {
+    // Both tracks share one CDN request. Its completion event wakes this lane;
+    // an overdue companion playlist cannot make progress until it retires.
+    if ((video && video->inflight_id) || (audio && audio->inflight_id))
+        return kInfiniteWaitMilliseconds;
+    return minimum(segmented_video_refresh_delay(video, now), segmented_video_refresh_delay(audio, now));
+}
+DWORD wait_video_events(const HANDLE* events, DWORD count, HANDLE timer, DWORD delay_ms) noexcept {
+    if (timer && delay_ms && delay_ms != INFINITE) {
+        Win32LargeInteger due{};
+        due.QuadPart = -static_cast<i64>(delay_ms) * 10000;
+        if (SetWaitableTimer(timer, due.native(), 0, nullptr, nullptr, FALSE)) {
+            HANDLE handles[]{events[0], events[1], count == 3 ? events[2] : timer, timer};
+            const DWORD result = WaitForMultipleObjects(count + 1, handles, FALSE, INFINITE);
+            if (result != WAIT_OBJECT_0 + count)
+                CancelWaitableTimer(timer);
+            return result == WAIT_OBJECT_0 + count ? WAIT_TIMEOUT : result;
+        }
+    }
+    return WaitForMultipleObjects(count, events, FALSE, delay_ms);
+}
 bool changed(const AccountVideoStatus& a, const AccountVideoStatus& b) noexcept {
-    return a.kind != b.kind || a.duration_100ns != b.duration_100ns || a.has_audio != b.has_audio ||
+    return a.kind != b.kind || a.live != b.live || a.duration_100ns != b.duration_100ns || a.has_audio != b.has_audio ||
            a.desired_command != b.desired_command || a.observed_command != b.observed_command ||
-           a.playback_epoch != b.playback_epoch || a.frame_serial != b.frame_serial || a.error != b.error ||
+           a.playback_epoch != b.playback_epoch || a.error != b.error ||
            a.native_error != b.native_error || a.playing != b.playing || a.paused != b.paused ||
            a.seeking != b.seeking || a.buffering != b.buffering || a.ended != b.ended ||
            a.muted != b.muted || a.volume_valid != b.volume_valid ||
            a.rejected_command != b.rejected_command || a.rejected_error != b.rejected_error ||
            a.rejected_native_error != b.rejected_native_error || a.applied_volume != b.applied_volume ||
-           a.frame_pending != b.frame_pending || a.release_pending != b.release_pending ||
+           a.release_pending != b.release_pending ||
            a.position_100ns / 10000000 != b.position_100ns / 10000000;
 }
-void publish_status(AccountMediaVideoRuntime& v, const ProgressiveVideoFetch* fetch = nullptr) noexcept {
+void publish_status(AccountMediaVideoRuntime& v, const ProgressiveVideoFetch* fetch = nullptr,
+                    const AccountVideoFrame* frame = nullptr) noexcept {
     auto status = account_video_session_status(&v.session);
     // A failed progressive source can never deliver the bytes playback waits for.
     if (fetch && fetch->state == ProgressiveVideoFetchState::failed && status.error == AccountVideoError::none) {
@@ -59,7 +82,13 @@ void publish_status(AccountMediaVideoRuntime& v, const ProgressiveVideoFetch* fe
     // The public mailbox acknowledges admission immediately; completion is
     // still reported only by the lane owner after the native operation.
     status.desired_command = maximum(status.desired_command, v.last_command);
-    const bool notify = changed(v.snapshot.playback, status);
+    // Publish the frame and its status together before waking the consumer.
+    // Returning its lease updates the snapshot without another UI wake.
+    const bool notify = frame || changed(v.snapshot.playback, status);
+    if (frame) {
+        v.frame = *frame;
+        v.frame_taken = false;
+    }
     v.snapshot.playback = status;
     ReleaseSRWLockExclusive(&v.lock);
     if (notify)
@@ -74,7 +103,7 @@ void publish_error(AccountMediaVideoRuntime& v, const AccountVideoResult& result
 }
 bool selection_valid(const AccountVideoSelection& s) noexcept {
     return media_asset_key_valid(s.key) && s.identity.account_serial && s.identity.message_id &&
-           s.identity.session_epoch && !s.identity.reserved;
+           s.identity.session_epoch && !s.identity.reserved && s.collection_track <= 8192;
 }
 bool buffered_equal(const AccountVideoBuffered& a, const AccountVideoBuffered& b) noexcept {
     if (a.count != b.count)
@@ -93,8 +122,7 @@ void publish_buffered(AccountMediaVideoRuntime& v, const AccountVideoBuffered& b
         SetEvent(v.worker->output_event);
 }
 bool consume_range(void* context, const CdnClientResponse& response, ConstSlice<u8> body) noexcept {
-    progressive_video_fetch_accept(static_cast<ProgressiveVideoFetch*>(context), response.request_id,
-                                   response.transport_ok(), cdn_client_response_policy(response), body);
+    account_media_accept_progressive(static_cast<AccountMedia*>(context), response, body);
     return true;
 }
 // Lane thread, between session services: stores arrived ranges, keeps one
@@ -122,18 +150,23 @@ void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime&
                                             parsed.expires_at_seconds);
     }
     if (cdn_client_status(&media.client).phase == CdnClientPhase::response_ready) {
-        cdn_client_consume_response(&media.client, consume_range, fetch);
+        cdn_client_consume_response(&media.client, consume_range, &media);
         account_media_cache_progressive(&media, v.selection.key);
     }
-    progressive_source_evict(&fetch->source, kProgressiveResidentBudgetBytes);
-    const auto next = progressive_video_fetch_next(fetch, true, clock_unix_milliseconds() / 1'000);
+    ProgressiveVideoFetch* selected{};
+    const auto next = account_media_progressive_next(&media, v.session.desired_play, clock_unix_milliseconds() / 1'000, &selected);
     if (next.step == ProgressiveVideoStep::cancel) {
-        if (cdn_client_cancel(&media.client, fetch->inflight_id))
-            progressive_video_fetch_cancelling(fetch);
+        if (selected && cdn_client_cancel(&media.client, selected->inflight_id))
+            progressive_video_fetch_cancelling(selected);
     } else if (next.step == ProgressiveVideoStep::submit) {
-        account_media_submit_progressive(&media, next.range);
+        account_media_submit_progressive(&media, next.range, selected == media.progressive_audio);
     }
-    const bool refresh = next.step == ProgressiveVideoStep::refresh_required;
+    if (next.step == ProgressiveVideoStep::failed) {
+        fetch->state = ProgressiveVideoFetchState::failed;
+        account_video_session_source_failed(&v.session);
+    }
+    const bool live_restart = next.step == ProgressiveVideoStep::failed && fetch->segmented && fetch->segmented->manifest.bytes;
+    const bool refresh = next.step == ProgressiveVideoStep::refresh_required || live_restart;
     AcquireSRWLockExclusive(&v.lock);
     // The UI clears the flag when it offers a URL; ask once per expiry.
     const bool notify = refresh && !v.snapshot.source_refresh && !fetch->offered_bytes;
@@ -143,13 +176,26 @@ void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime&
     if (notify)
         SetEvent(v.worker->output_event);
     const u64 now = clock_monotonic_milliseconds();
-    if (fetch->source.generation != v.buffered_generation && now - v.buffered_at_ms >= kBufferedRefreshMs) {
-        v.buffered_generation = fetch->source.generation;
+    const u64 generation = progressive_video_fetch_generation(fetch) + progressive_video_fetch_generation(media.progressive_audio);
+    if (generation != v.buffered_generation && now - v.buffered_at_ms >= kBufferedRefreshMs) {
+        v.buffered_generation = generation;
         v.buffered_at_ms = now;
         AccountVideoBuffered buffered{};
         buffered.count = static_cast<u8>(progressive_video_fetch_buffered(
             fetch, static_cast<u64>(v.session.status.duration_100ns / 10), buffered.begin, buffered.end,
             kAccountVideoBufferedRanges));
+        if (media.progressive_audio) {
+            AccountVideoBuffered audio{}, both{};
+            audio.count = static_cast<u8>(progressive_video_fetch_buffered(media.progressive_audio,
+                static_cast<u64>(v.session.status.duration_100ns / 10), audio.begin, audio.end, kAccountVideoBufferedRanges));
+            for (u32 i = 0; i < buffered.count; ++i) for (u32 j = 0; j < audio.count; ++j) {
+                const u16 first = maximum(buffered.begin[i], audio.begin[j]), last = minimum(buffered.end[i], audio.end[j]);
+                if (last > first && both.count < kAccountVideoBufferedRanges) {
+                    both.begin[both.count] = first; both.end[both.count++] = last;
+                }
+            }
+            buffered = both;
+        }
         publish_buffered(v, buffered);
     }
 }
@@ -157,21 +203,24 @@ void progressive_service(AccountMediaWorkerLane* lane, AccountMediaVideoRuntime&
 // idle lane keeps only the pinned metadata of its progressive source.
 void progressive_retire(AccountMediaWorkerLane* lane) noexcept {
     auto& media = lane->media;
-    auto* fetch = media.progressive;
-    if (!fetch)
-        return;
-    if (media.client_started && fetch->inflight_id) {
-        cdn_client_cancel(&media.client, fetch->inflight_id);
-        progressive_video_fetch_cancelling(fetch);
-        for (u32 attempt = 0; attempt < 50 && fetch->inflight_id; ++attempt) {
-            if (cdn_client_status(&media.client).phase == CdnClientPhase::response_ready)
-                cdn_client_consume_response(&media.client, consume_range, fetch);
-            else
-                cdn_client_wait_response(&media.client, 100);
+    const bool live = media.progressive && media.progressive->segmented && media.progressive->segmented->manifest.bytes;
+    ProgressiveVideoFetch* sources[]{media.progressive, media.progressive_audio};
+    for (auto* fetch : sources) if (fetch) {
+        if (media.client_started && fetch->inflight_id) {
+            cdn_client_cancel(&media.client, fetch->inflight_id);
+            progressive_video_fetch_cancelling(fetch);
+            for (u32 attempt = 0; attempt < 50 && fetch->inflight_id; ++attempt) {
+                if (cdn_client_status(&media.client).phase == CdnClientPhase::response_ready)
+                    cdn_client_consume_response(&media.client, consume_range, &media);
+                else
+                    cdn_client_wait_response(&media.client, 100);
+            }
         }
+        if (!live) progressive_video_fetch_retire(fetch);
     }
-    progressive_source_trim(&fetch->source);
-    progressive_source_reset_readers(&fetch->source);
+    // Live ordinals and signed playlists expire. Reopening starts a fresh
+    // provider resolution after the old session and all frame leases retire.
+    if (live) account_media_release_video(&media);
 }
 } // namespace
 bool account_media_video_offer_url(AccountMediaWorker* worker, MediaAssetKey key, Utf8View url) noexcept {
@@ -235,7 +284,9 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
                                           : lane.media.mp4_source_message_revision;
         const u64 content_identity =
             audio ? lane.media.audio_source.content_identity : lane.media.mp4_content_identity;
-        if ((!audio && !video) || source_message != requested.identity.message_id ||
+        const auto collection = account_media_collection_state(&lane.media, requested.key);
+        if ((requested.collection_track && requested.collection_track != collection.track) ||
+            (!audio && !video) || source_message != requested.identity.message_id ||
             source_revision != requested.identity.message_revision ||
             (requested.identity.content_identity &&
              requested.identity.content_identity != content_identity))
@@ -257,7 +308,10 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
         v.snapshot.key = requested.key;
         v.snapshot.playback.identity = v.selection.identity;
         v.snapshot.selected = true;
-        const auto format = media_asset_attachment_format(requested.key);
+        v.snapshot.collection_count = collection.count;
+        v.snapshot.collection_track = collection.track;
+        v.snapshot.collection_more = collection.more;
+        const auto format = media_asset_audio_format(requested.key);
         v.snapshot.playback.kind = !audio                                 ? AccountPlaybackKind::mp4
                                    : format == MediaAttachmentFormat::mp3 ? AccountPlaybackKind::mp3
                                    : format == MediaAttachmentFormat::wav ? AccountPlaybackKind::wave_pcm
@@ -370,17 +424,28 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     if (owns_apartment) {
         if (account_media_audio_matches(&lane->media, v.selection.key,
                                         v.selection.identity.cache_generation)) {
-            fetch = nullptr;
-            initialized = account_video_session_initialize_audio(
-                &v.session, &lane->media.audio_source.metadata, v.selection.identity, lane->command_event);
+            if (fetch && fetch->kind == ProgressiveVideoKind::fragmented_audio) {
+                if (progressive_video_fetch_restore(fetch))
+                    initialized = account_video_session_initialize_fragment_audio(&v.session, &fetch->audio,
+                        v.selection.identity, lane->command_event);
+            } else {
+                fetch = nullptr;
+                initialized = account_video_session_initialize_audio(
+                    &v.session, &lane->media.audio_source.metadata, v.selection.identity, lane->command_event);
+            }
         } else if (mp4_decoder_acknowledge_frame(lane->media.mp4_decoder)) {
             Mp4SourceAvailability audio{};
+            bool restored = true;
             if (fetch) {
-                progressive_source_reset_readers(&fetch->source);
-                audio = progressive_source_reader(&fetch->source, ProgressiveTrack::audio);
+                if (fetch->kind == ProgressiveVideoKind::movie) {
+                    progressive_source_reset_readers(&fetch->source);
+                    audio = progressive_source_reader(&fetch->source, ProgressiveTrack::audio);
+                } else restored = progressive_video_fetch_restore(fetch);
             }
-            initialized = account_video_session_initialize(&v.session, lane->media.mp4_decoder,
-                                                           v.selection.identity, lane->command_event, audio);
+            auto* companion = lane->media.progressive_audio;
+            if (companion) restored = restored && progressive_video_fetch_restore(companion);
+            if (restored) initialized = account_video_session_initialize(&v.session, lane->media.mp4_decoder,
+                v.selection.identity, lane->command_event, audio, companion ? &companion->audio : nullptr);
         }
     }
     {
@@ -404,6 +469,10 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
         v.session.source_cancel_context = v.worker;
     }
     bool exit_selection = !initialized.ok();
+    // Only queued video frames need precise deadlines. This one-shot timer is
+    // never armed for paused playback, audio-only playback, or network waits.
+    const HANDLE frame_timer = initialized.ok() && v.session.video
+        ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS) : nullptr;
     bool stopping = false;
     for (;;) {
         stopping = WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
@@ -495,36 +564,40 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
             progressive_service(lane, v);
         if (!blocked && !exit_selection) {
             service = account_video_session_service(&v.session, cancelled, &v);
+            AccountVideoFrame frame{};
             if (service.frame_ready) {
-                AccountVideoFrame frame{v.selection.key,
-                                        v.selection.identity,
-                                        service.frame.gpu,
-                                        service.playback_epoch,
-                                        service.frame_serial,
-                                        service.frame.presentation_time_us,
-                                        service.frame.source_duration_us,
-                                        service.frame.display_width,
-                                        service.frame.display_height};
-                AcquireSRWLockExclusive(&v.lock);
-                v.frame = frame;
-                v.frame_taken = false;
-                ReleaseSRWLockExclusive(&v.lock);
-                SetEvent(lane->owner->output_event);
+                frame = {v.selection.key,
+                         v.selection.identity,
+                         service.frame.gpu,
+                         service.playback_epoch,
+                         service.frame_serial,
+                         service.frame.presentation_time_us,
+                         service.frame.source_duration_us,
+                         service.frame.display_width,
+                         service.frame.display_height};
             }
-            publish_status(v, fetch);
+            publish_status(v, fetch, service.frame_ready ? &frame : nullptr);
         }
         if (service.needs_service || service.interrupted)
             continue;
         // Range responses wake the lane too: they feed pending reads and read-ahead.
         HANDLE handles[]{lane->owner->stop_event, lane->command_event, range_event};
-        const DWORD delay = blocked ? INFINITE : service.next_service_delay_ms;
+        DWORD delay = blocked ? INFINITE : service.next_service_delay_ms;
+        if (!blocked && !exit_selection && v.session.desired_play && v.session.status.error == AccountVideoError::none) {
+            const u64 now = clock_unix_milliseconds() / 1000;
+            delay = minimum<DWORD>(delay, progressive_refresh_delay(lane->media.progressive, lane->media.progressive_audio, now));
+        }
         const DWORD waited = stopping ? WaitForSingleObject(lane->command_event, delay)
-                                      : WaitForMultipleObjects(range_event ? 3 : 2, handles, FALSE, delay);
+            : wait_video_events(handles, range_event ? 3 : 2,
+                v.session.held && !v.session.published && !v.session.status.buffering &&
+                    delay == service.next_service_delay_ms ? frame_timer : nullptr, delay);
         if (waited == WAIT_FAILED) {
             exit_selection = true;
             continue;
         }
     }
+    if (frame_timer)
+        CloseHandle(frame_timer);
     // Only successful release allows the borrowed decoder/lane/module to retire.
     const bool retained = v.session.initialized || v.session.workspace;
     if (!retained) {

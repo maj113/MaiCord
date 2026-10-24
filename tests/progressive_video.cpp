@@ -264,6 +264,12 @@ int http_tests() noexcept {
         found = found || bytes_equal(output + i, expected.data, expected.count);
     if (!found)
         return 101;
+    const auto audio_head = head("HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mp4\r\nContent-Length: 16\r\nContent-Range: bytes 0-15/1000\r\n\r\n");
+    if (!write_static_cdn_get_request(CdnImageType::m4a, CdnHost::cdn, target, {},
+                                      {output, sizeof(output)}, {0, 16}).ok() ||
+        !validate_cdn_range_response(CdnImageType::m4a, audio_head, 16, {0, 16}, kNow).ok() ||
+        validate_cdn_range_response(CdnImageType::mp4, audio_head, 16, {0, 16}, kNow).ok())
+        return 120;
     if (write_static_cdn_get_request(CdnImageType::mp4, CdnHost::cdn, target,
                                      head("\"e\""), {output, sizeof(output)}, {0, 16})
             .ok() ||
@@ -343,6 +349,10 @@ int sparse_tests() noexcept {
     if (!progressive_source_write(&s, 3 * kProgressiveBlockBytes, {data, 1000}) || s.resident_blocks != 2 ||
         !progressive_source_available(s, total - 1000, 1000) || progressive_source_available(s, total - 1, 2))
         return 203;
+    MEMORY_BASIC_INFORMATION tail{};
+    if(VirtualQuery(s.base+3*kProgressiveBlockBytes,&tail,sizeof(tail))!=sizeof(tail) ||
+        tail.State!=MEM_COMMIT || tail.RegionSize!=4096)
+        return 209;
     if (progressive_source_write(&s, total - 10, {data, 11}) || progressive_source_available(s, total, 1) ||
         !progressive_source_available(s, total, 0))
         return 204;
@@ -355,6 +365,12 @@ int sparse_tests() noexcept {
     if (s.pinned_blocks != 1 || progressive_source_payload_blocks(s) != 3 || progressive_source_trim(&s) != 3 ||
         !progressive_source_available(s, 0, kProgressiveBlockBytes) || progressive_source_available(s, total - 1, 1))
         return 206;
+    if(VirtualQuery(s.base+3*kProgressiveBlockBytes,&tail,sizeof(tail))!=sizeof(tail) || tail.State!=MEM_RESERVE ||
+        !progressive_source_write(&s,3*kProgressiveBlockBytes,{data,1000}) ||
+        !bytes_equal(s.base+3*kProgressiveBlockBytes,data,1000) ||
+        VirtualQuery(s.base+3*kProgressiveBlockBytes,&tail,sizeof(tail))!=sizeof(tail) ||
+        tail.State!=MEM_COMMIT || tail.RegionSize!=4096)
+        return 210;
     const u64 generation = s.generation;
     if (!progressive_source_write(&s, kProgressiveBlockBytes, {data, kProgressiveBlockBytes}) ||
         s.generation == generation)
@@ -520,28 +536,35 @@ int schedule_tests() noexcept {
     return failure;
 }
 
-int memory_tests() noexcept {
+int memory_profile(bool audio_buffer) noexcept {
     auto* s = new_source();
     int failure = 0;
     constexpr u32 total = 96u * 1024u * 1024u;
     static u8 zero[kProgressiveRequestBytes];
     const auto video = progressive_source_reader(s, ProgressiveTrack::video);
     const auto audio = progressive_source_reader(s, ProgressiveTrack::audio);
-    if (!progressive_source_initialize(s, total))
+    if (!progressive_source_initialize(s, total, audio_buffer))
         failure = 601;
     progressive_source_set_duration(s, 1'000'000); // Saturates the read-ahead at its maximum.
     progressive_source_pin(s, 0, 4096);
-    const u32 budget = kProgressiveResidentBudgetBytes / kProgressiveBlockBytes;
+    const u32 budget_bytes = audio_buffer ? kProgressiveAudioResidentBytes : kProgressiveResidentBudgetBytes;
+    const u32 budget = budget_bytes / kProgressiveBlockBytes;
+    if (!failure && audio_buffer && (s->ahead_bytes != 2u * 1024u * 1024u || budget_bytes != 4u * 1024u * 1024u))
+        failure = 606;
     u32 peak = 0, writes = 0;
     // Play straight through: video and audio cursors advance together.
     for (u64 playhead = 0; !failure && playhead < total; playhead += 1024u * 1024u) {
         video.available(video.context, playhead, 1000);
         audio.available(audio.context, playhead + 64 * 1024, 1000);
         for (u32 step = 0; step < 64; ++step) {
-            progressive_source_evict(s, kProgressiveResidentBudgetBytes);
+            progressive_source_evict(s, budget_bytes);
             const auto plan = progressive_schedule(*s, {}, true);
             if (!plan.submit)
                 break;
+            if (audio_buffer && plan.request.bytes > kProgressiveBlockBytes) {
+                failure = 607;
+                break;
+            }
             if (!progressive_source_write(s, plan.request.first, {zero, plan.request.bytes})) {
                 failure = 602;
                 break;
@@ -559,10 +582,15 @@ int memory_tests() noexcept {
         failure = 604;
     // Far-behind data was released; recent data behind the cursor was kept.
     if (!failure && (progressive_source_available(*s, 8u * 1024u * 1024u, 1) ||
-                     !progressive_source_available(*s, total - 2u * 1024u * 1024u, 1024u * 1024u)))
+                     !progressive_source_available(*s, total - 1024u * 1024u - kProgressiveBlockBytes, kProgressiveBlockBytes)))
         failure = 605;
     free_source(s);
     return failure;
+}
+
+int memory_tests() noexcept {
+    if (const int failure = memory_profile(false)) return failure;
+    return memory_profile(true);
 }
 
 int refresh_tests() noexcept {
@@ -626,6 +654,20 @@ int refresh_tests() noexcept {
     if (!failure && (!progressive_video_fetch_begin(fetch, head("/b"), CdnHost::cdn, kNow + 60) ||
                      pump(fetch, &server, false, &id, &step) != ProgressiveVideoAccept::whole_entity))
         failure = 710;
+    // An external embed has no signed-attachment refresh route. A denied
+    // range ends the source without an endless refresh/loading cycle.
+    server = {&f, {}, 0, 1, false, false};
+    if (!failure && !progressive_video_fetch_begin(fetch,
+            head("/external/test/https/media.example/video.mp4"), CdnHost::images_ext_1, ~u64{0}))
+        failure = 711;
+    fetch->refreshable = false;
+    const auto first = progressive_video_fetch_next(fetch, false, kNow);
+    if (!failure && (fetch->source.base || first.step != ProgressiveVideoStep::submit ||
+                     first.range.first || first.range.bytes != kProgressiveHeadProbeBytes ||
+                     pump(fetch, &server, false, &id, &step) != ProgressiveVideoAccept::failed ||
+                     server.requests != 1 ||
+                     progressive_video_fetch_next(fetch, false, kNow).step != ProgressiveVideoStep::failed))
+        failure = 712;
     progressive_video_fetch_release(fetch);
     VirtualFree(fetch, 0, MEM_RELEASE);
     release(&f);
@@ -643,8 +685,10 @@ int end_to_end_tests() noexcept {
     FakeServer server{&f, {}, 0, 0, false, true};
     u64 id = 0;
     ProgressiveVideoStep step{};
-    if (!progressive_video_fetch_begin(fetch, head("/attachments/1/2/v.mp4"), CdnHost::cdn, kNow + 600))
+    if (!progressive_video_fetch_begin(fetch, head("/external/test/https/media.example/v.mp4"),
+                                      CdnHost::images_ext_2, ~u64{0}))
         failure = 802;
+    fetch->refreshable = false;
     for (u32 i = 0; !failure && i < 16 && fetch->state == ProgressiveVideoFetchState::probing; ++i)
         if (pump(fetch, &server, false, &id, &step) == ProgressiveVideoAccept::failed)
             failure = 803;

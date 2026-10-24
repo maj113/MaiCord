@@ -4,6 +4,7 @@
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/app/cdn_client.hpp"
 #include "maicord/media/gpu_video_frame.hpp"
+#include "maicord/media/track_info.hpp"
 #include "maicord/app/local_draft_preview.hpp"
 #include "maicord/app/attachment_media_probe.hpp"
 #include "maicord/sys/d3d11.hpp"
@@ -14,6 +15,8 @@ namespace maicord {
 
 struct Mp4Decoder;
 struct ProgressiveVideoFetch;
+struct EmbedResolver;
+struct AccountMediaCollection;
 
 inline constexpr u32 kAccountMediaCacheEntryCapacity = 2'048;
 inline constexpr u32 kAccountMediaCachePageCapacity = 4'096;
@@ -84,10 +87,12 @@ struct AccountMediaRequestResult {
     CdnTargetError target_error;
     AccountMediaRequestState state;
     AccountMediaError error;
-    // These two bytes occupy existing padding, so field offsets and the
-    // 24-byte by-value account ABI are unchanged.
+    // Detailed transport/decode diagnostics retain their existing offsets.
     AttachmentQueryError attachment_query_error;
     AccountMediaVideoFailure video_failure;
+    // Metadata is available even if the selected collection track fails.
+    u16 collection_count{}, collection_track{};
+    bool collection_more{};
 
     constexpr bool ok() const noexcept {
         return error == AccountMediaError::none;
@@ -190,6 +195,14 @@ struct AccountMediaCatalogPreviewRequest {
     ID3D11Device* video_device;
 };
 
+struct AccountMediaRequestOptions {
+    // Opt-in bounded range fetching for a non-looping inline MP4 embed.
+    // Attachments already stream; GIFV/catalog animation retains whole files.
+    u8 progressive;
+    u8 reserved[2];
+    // Zero uses the widget's starting track; otherwise a one-based collection index.
+    u16 collection_track{};
+};
 struct AccountMediaAttachmentRequest {
     Utf8View signed_url;
     MediaAssetKey key;
@@ -198,7 +211,7 @@ struct AccountMediaAttachmentRequest {
     u16 proxy_width;
     u16 proxy_height;
     CdnImageType image_type;
-    u8 reserved[3];
+    AccountMediaRequestOptions options;
     // Borrowed from the host. It must outlive account stop; the decoder's
     // device manager takes its own COM reference while playback is active.
     ID3D11Device* video_device;
@@ -305,12 +318,15 @@ struct AccountMedia {
     AccountMediaFrameKind frame_kind;
     CdnImageType active_image_type;
     AccountMediaEncodedAudioSource audio_source;
+    AccountMediaCollection* collection;
     u16 audio_generation;
     OggOpusCancelled audio_cancelled;
     void* audio_cancel_context;
     // Attachment MP4s stream through HTTP Range into this lane-owned sparse
     // source, which the decoder borrows; released only after the decoder.
     ProgressiveVideoFetch* progressive;
+    ProgressiveVideoFetch* progressive_audio;
+    EmbedResolver* provider_resolver; // Published once; released only after the lane joins.
     bool progressive_active;
     bool progressive_continue;
 };
@@ -371,6 +387,22 @@ bool account_media_take_frame(AccountMedia* media, AccountMediaFrame* frame) noe
 bool account_media_trim_scanlines(AccountMedia* media) noexcept;
 bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
                                  u16 cache_generation = 0) noexcept;
+// Only a ready collection source publishes a count / one-based selected track.
+struct AccountMediaCollectionState { u16 count{}, track{}; bool more{}; };
+struct AccountMediaCollectionTitleRequest {
+    MediaAssetKey key{};
+    u32 source_revision{};
+    u16 track{};
+    bool fetch{};
+};
+// UI thread, only while the owning lane is idle, published or selected. The
+// queue and IDs are immutable in these phases; cache updates stay on UI.
+// The loading worker may seed its cache before publishing the queue.
+bool account_media_collection_title(AccountMedia*, const AccountMediaCollectionTitleRequest&, MediaTrackTitle*, MediaTrackId*, u64* retry_at_ms) noexcept;
+bool account_media_collection_title_batch(AccountMedia*, const AccountMediaCollectionTitleRequest&, SoundcloudTitleBatch*) noexcept;
+bool account_media_collection_title_store(AccountMedia*, const AccountMediaCollectionTitleRequest&, const MediaTrackId& track_id,
+    const MediaTrackTitle&, u64 retry_at_ms) noexcept;
+AccountMediaCollectionState account_media_collection_state(const AccountMedia*, MediaAssetKey, bool ready = true) noexcept;
 bool account_media_audio_matches(const AccountMedia*, MediaAssetKey, u16 cache_generation = 0) noexcept;
 // Worker only, after joined playback releases its borrowed demux/source.
 void account_media_release_audio_source(AccountMedia*) noexcept;
@@ -379,11 +411,17 @@ void account_media_release_video(AccountMedia*) noexcept;
 // Worker only: stores a complete, small progressive source once.
 void account_media_cache_progressive(AccountMedia*, MediaAssetKey) noexcept;
 // Worker only: submits one range of the lane's progressive source.
-bool account_media_submit_progressive(AccountMedia*, CdnByteRange) noexcept;
+bool account_media_submit_progressive(AccountMedia*, CdnByteRange, bool audio = false) noexcept;
+struct ProgressiveVideoNext;
+enum class ProgressiveVideoAccept : u8;
+ProgressiveVideoNext account_media_progressive_next(AccountMedia*, bool read_ahead, u64 now_seconds,
+                                                    ProgressiveVideoFetch** selected) noexcept;
+ProgressiveVideoAccept account_media_accept_progressive(AccountMedia*, const CdnClientResponse&, ConstSlice<u8>) noexcept;
+void account_media_cancel_provider(AccountMedia*) noexcept;
 HANDLE account_media_notification_handle(const AccountMedia* media) noexcept;
 bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept;
 
-static_assert(sizeof(AccountMediaRequestResult) == 24);
+static_assert(sizeof(AccountMediaRequestResult) == 32);
 static_assert(offsetof(AccountMediaRequestResult, state) == 20);
 static_assert(offsetof(AccountMediaRequestResult, error) == 21);
 static_assert(offsetof(AccountMediaRequestResult, attachment_query_error) == 22);

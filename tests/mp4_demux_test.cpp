@@ -1045,6 +1045,16 @@ int exact_audio_time_tests() noexcept {
     Mp4AudioDemuxer d{};
     i64 time = 77;
     Mp4AudioSampleWindow window{};
+    u8 padded_he[25]{0x2b, 0x92, 0x08};
+    if (!audio_fixture(w, 22050, 2, 0, false, 0, 0, 0, 1024, 0, {padded_he, 25}) ||
+        mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::none ||
+        d.sample_rate != 44100 || d.channels != 2 || d.frames_per_packet != 2048 ||
+        mp4_audio_demux_asc(d).count != 16)
+        return 92;
+    padded_he[24] = 1;
+    if (!audio_fixture(w, 22050, 2, 0, false, 0, 0, 0, 1024, 0, {padded_he, 25}) ||
+        mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::unsupported || d.samples.ready)
+        return 93;
     const u8 he44[]{0x2b, 0x92, 0x08, 0};
     if (!audio_fixture(w, 22050, 2, 0, false, 0, 0, 0, 1024, 0, {he44, 4}) ||
         mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::none ||

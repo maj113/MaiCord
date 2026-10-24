@@ -7,6 +7,8 @@
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/protocol/http1.hpp"
+#include "maicord/protocol/embed_player.hpp"
+#include "maicord/core/ascii.hpp"
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -47,6 +49,7 @@ struct CdnClientCommand {
 };
 
 struct CdnClientRuntime {
+    wchar_t provider_host[254]; // Stable TLS peer name; never mutated while connected.
     TlsStream transport;
     NetworkSignal request_signal;
     NetworkSignal cancel_signal;
@@ -431,7 +434,7 @@ void publish_transport_phase(CdnClient* client, const CdnClientRuntime* runtime)
 
 bool initialize_transport(CdnClientRuntime* runtime, CdnHost host) noexcept {
     const wchar_t* server_name = host_wide(host);
-    if (!server_name) {
+    if (!server_name && !embed_stream_host(host)) {
         return false;
     }
     if (runtime->transport_initialized) {
@@ -439,6 +442,15 @@ bool initialize_transport(CdnClientRuntime* runtime, CdnHost host) noexcept {
         if (!transport_drained(runtime)) {
             return false;
         }
+    }
+    if (embed_stream_host(host)) {
+        EmbedStreamLocation location{};
+        if (!embed_stream_location(host, {reinterpret_cast<const char*>(runtime->request_target),
+                runtime->command.target_bytes}, &location)) return false;
+        for (u32 i = 0; i < location.host.bytes; ++i)
+            runtime->provider_host[i] = static_cast<wchar_t>(ascii_lower(location.host.data[i]));
+        runtime->provider_host[location.host.bytes] = 0;
+        server_name = runtime->provider_host;
     }
     if (!tls_stream_initialize(&runtime->transport, server_name,
                                TlsStreamBuffers{Slice<u8>{runtime->encrypted_storage, kEncryptedInputBytes},
@@ -453,17 +465,28 @@ bool initialize_transport(CdnClientRuntime* runtime, CdnHost host) noexcept {
 }
 
 TlsStreamEvent begin_http_send(CdnClient* client, CdnClientRuntime* runtime) noexcept {
-    const CdnRequestResult written = write_static_cdn_get_request(
+    CdnRequestResult written{};
+    if (embed_stream_host(runtime->command.host)) {
+        written.bytes = embed_stream_get(runtime->command.host, {reinterpret_cast<const char*>(runtime->request_target),
+            runtime->command.target_bytes}, runtime->command.range.first, runtime->command.range.bytes,
+            {runtime->request_head, kRequestHeadBytes});
+        if (!written.bytes) written.error = CdnHttpError::invalid_input;
+    } else written = write_static_cdn_get_request(
         runtime->command.image_type, runtime->command.host,
         ConstSlice<u8>{runtime->request_target, runtime->command.target_bytes},
         ConstSlice<u8>{runtime->conditional_etag, runtime->command.etag_bytes},
         Slice<u8>{runtime->request_head, kRequestHeadBytes}, runtime->command.range);
+    const u32 body_capacity = embed_audio_preview_limit(runtime->command.host)
+        ? minimum(runtime->response_capacity, embed_audio_preview_limit(runtime->command.host))
+        : embed_playlist_host(runtime->command.host)
+        ? minimum(runtime->response_capacity, cdn_encoded_body_limit(CdnImageType::hls_playlist))
+        : (embed_stream_host(runtime->command.host))
+        ? minimum(runtime->response_capacity, static_cast<u32>(runtime->command.range.bytes))
+        : minimum(runtime->response_capacity, cdn_encoded_body_limit(runtime->command.image_type));
     if (!written.ok() || !http_response_decoder_initialize(
                              &runtime->response, Slice<u8>{runtime->response_input, kResponseInputBytes},
                              Slice<u8>{runtime->response_head, kCdnMaximumResponseHeaderBytes},
-                             Slice<u8>{runtime->response_body, minimum(runtime->response_capacity,
-                                                                       cdn_encoded_body_limit(
-                                                                           runtime->command.image_type))},
+                             Slice<u8>{runtime->response_body, body_capacity},
                              kCdnMaximumResponseHeaderBytes, kCdnMaximumResponseFields)) {
         return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
     }
@@ -480,7 +503,16 @@ TlsStreamEvent begin_http_send(CdnClient* client, CdnClientRuntime* runtime) noe
 
 TlsStreamEvent begin_exchange(CdnClient* client, CdnClientRuntime* runtime,
                               NetworkLoop* loop) noexcept {
-    if (runtime->transport_ready && runtime->transport_host == runtime->command.host &&
+    bool same_provider = true;
+    if (embed_stream_host(runtime->command.host)) {
+        EmbedStreamLocation location{};
+        same_provider = embed_stream_location(runtime->command.host, {reinterpret_cast<const char*>(runtime->request_target),
+            runtime->command.target_bytes}, &location);
+        for (u32 i = 0; same_provider && i < location.host.bytes; ++i)
+            same_provider = runtime->provider_host[i] == static_cast<wchar_t>(ascii_lower(location.host.data[i]));
+        same_provider = same_provider && !runtime->provider_host[location.host.bytes];
+    }
+    if (same_provider && runtime->transport_ready && runtime->transport_host == runtime->command.host &&
         runtime->transport.state == TlsStreamState::ready) {
         return begin_http_send(client, runtime);
     }
@@ -501,10 +533,10 @@ bool finish_http_response(CdnClient* client, CdnClientRuntime* runtime, NetworkL
         runtime->command.range.bytes
             ? validate_cdn_range_response(runtime->command.image_type, head,
                                           runtime->response.body_bytes, runtime->command.range,
-                                          clock_unix_milliseconds() / 1'000)
+                                          clock_unix_milliseconds() / 1'000, runtime->command.host)
             : validate_static_image_response(runtime->command.image_type, head,
                                              runtime->response.body_bytes,
-                                             clock_unix_milliseconds() / 1'000);
+                                             clock_unix_milliseconds() / 1'000, runtime->command.host);
     if (!runtime->policy.ok()) {
         begin_drain(client, runtime, CdnClientError::response, runtime->policy.error, 0);
         return false;
@@ -791,8 +823,17 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
 
 CdnClientSubmitResult cdn_client_submit(CdnClient* client,
                                         const CdnClientRequest& request) noexcept {
+    const bool provider = embed_stream_host(request.host);
     if (!client || !client->runtime || !client->worker.thread || request.request_id == 0 ||
-        !host_wide(request.host) ||
+        (!host_wide(request.host) && !provider) ||
+        (provider && (request.etag.count ||
+            (embed_playlist_host(request.host)
+                ? (request.image_type != CdnImageType::hls_playlist || request.range.first || request.range.bytes)
+                : embed_audio_preview_limit(request.host)
+                ? (request.image_type != (request.host == CdnHost::apple_music_preview ? CdnImageType::m4a : CdnImageType::mp3) ||
+                   request.range.first || request.range.bytes)
+                : (!request.range.bytes || (request.image_type != CdnImageType::mp4 && request.image_type != CdnImageType::m4a && request.image_type != CdnImageType::mpeg_ts))) ||
+            !embed_stream_location(request.host, {reinterpret_cast<const char*>(request.target.data), request.target.count}))) ||
         (request.image_type != CdnImageType::png &&
          request.image_type != CdnImageType::webp &&
          request.image_type != CdnImageType::gif &&
@@ -804,7 +845,14 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
          request.image_type != CdnImageType::mp3 &&
          request.image_type != CdnImageType::wav &&
          request.image_type != CdnImageType::m4a &&
-         request.image_type != CdnImageType::soundboard_sound) ||
+         request.image_type != CdnImageType::soundboard_sound &&
+         request.image_type != CdnImageType::mpeg_ts &&
+         request.image_type != CdnImageType::hls_playlist) ||
+        ((embed_playlist_host(request.host)) != (request.image_type == CdnImageType::hls_playlist)) ||
+        (request.image_type == CdnImageType::mpeg_ts && request.host != CdnHost::twitch_live && request.host != CdnHost::youtube_live) ||
+        (request.host == CdnHost::youtube_live && request.image_type != CdnImageType::mpeg_ts) ||
+        (request.host == CdnHost::twitch_live && !twitch_live_location(
+            {reinterpret_cast<const char*>(request.target.data),request.target.count},false,nullptr,request.image_type==CdnImageType::mpeg_ts)) ||
         (request.image_type == CdnImageType::soundboard_sound &&
          (request.host != CdnHost::cdn || !soundboard_target_valid(request.target))) ||
         (request.image_type == CdnImageType::lottie_json &&
@@ -821,7 +869,8 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
         (!request.target.data && request.target.count != 0) ||
         (!request.etag.data && request.etag.count != 0) || request.timeout_ms > kMaximumRequestTimeoutMs ||
         (request.range.bytes &&
-         (request.image_type != CdnImageType::mp4 || request.etag.count ||
+         ((request.image_type != CdnImageType::mp4 && request.image_type != CdnImageType::m4a && request.image_type != CdnImageType::mpeg_ts) || request.etag.count ||
+          request.range.bytes > kMediaMaximumProgressiveVideoBytes ||
           request.range.first > kMediaMaximumProgressiveVideoBytes - u64{request.range.bytes})) ||
         load_phase(client) == CdnClientPhase::stopping ||
         load_phase(client) == CdnClientPhase::stopped ||
@@ -834,7 +883,7 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
     if (request.etag.count > kCdnMaximumEtagBytes) {
         return CdnClientSubmitResult{CdnClientSubmitError::etag_capacity};
     }
-    if (!valid_target(request.target) || !valid_etag(request.etag)) {
+    if ((!provider && !valid_target(request.target)) || !valid_etag(request.etag)) {
         return CdnClientSubmitResult{CdnClientSubmitError::invalid_input};
     }
     if (InterlockedCompareExchange(&client->request_state, request_state_writing, request_state_empty) !=

@@ -1416,8 +1416,8 @@ CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipe
 
 namespace {
 bool audio_key_valid(MediaAssetKey key) noexcept {
-    return media_asset_key_valid(key) && key.kind == MediaAssetKind::attachment &&
-           media_attachment_format_audio_supported(media_asset_attachment_format(key));
+    return media_asset_key_valid(key) &&
+           media_attachment_format_audio_supported(media_asset_audio_format(key));
 }
 EncodedAudioError audio_error(OggOpusError error) noexcept {
     switch (error) {
@@ -1474,7 +1474,7 @@ EncodedAudioError audio_error(Mp3Error error) noexcept {
     }
 }
 CdnImageType audio_http_type(MediaAssetKey key) noexcept {
-    const auto format = media_asset_attachment_format(key);
+    const auto format = media_asset_audio_format(key);
     return format == MediaAttachmentFormat::mp3   ? CdnImageType::mp3
            : format == MediaAttachmentFormat::wav ? CdnImageType::wav
            : format == MediaAttachmentFormat::m4a ? CdnImageType::m4a
@@ -1553,7 +1553,7 @@ CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline
         result.state = CdnEncodedAudioState::fetch_required;
         return result;
     }
-    result.error = parse_audio(&result.metadata, media_asset_attachment_format(key),
+    result.error = parse_audio(&result.metadata, media_asset_audio_format(key),
                                result.lease.lookup.bytes, cancelled, context);
     if (result.error != EncodedAudioError::none) {
         if (result.error != EncodedAudioError::cancelled)
@@ -1595,7 +1595,7 @@ CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline,
         }
         if (!response.store_allowed)
             encoded_media_cache_retire(pipeline->cache, key, result.lease.generation);
-        result.error = parse_audio(&result.metadata, media_asset_attachment_format(key),
+        result.error = parse_audio(&result.metadata, media_asset_audio_format(key),
                                    result.lease.lookup.bytes, cancelled, context);
         if (result.error == EncodedAudioError::none) {
             if (response.store_allowed) {
@@ -1631,7 +1631,7 @@ CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline,
         if (!response.store_allowed)
             encoded_media_cache_retire(pipeline->cache, key);
         result.error =
-            parse_audio(&result.metadata, media_asset_attachment_format(key), body, cancelled, context);
+            parse_audio(&result.metadata, media_asset_audio_format(key), body, cancelled, context);
         if (result.error == EncodedAudioError::none) {
             const auto stored =
                 encoded_media_cache_store(pipeline->cache, key, body,

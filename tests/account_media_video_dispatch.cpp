@@ -8,7 +8,7 @@
 namespace maicord {
 AccountVideoResult dispatch_fixture_initialize(AccountVideoSession*, Mp4Decoder*,
                                                const AccountVideoIdentity&, HANDLE,
-                                               Mp4SourceAvailability = {}) noexcept;
+                                               Mp4SourceAvailability = {}, Mp4FragmentAudio* = nullptr) noexcept;
 AccountVideoResult dispatch_fixture_initialize_audio(AccountVideoSession*, const EncodedAudioMetadata*,
                                                      const AccountVideoIdentity&, HANDLE) noexcept;
 AccountVideoResult dispatch_fixture_control(AccountVideoSession*, const AccountVideoIdentity&, u64,
@@ -21,6 +21,10 @@ AccountVideoResult dispatch_fixture_release(AccountVideoSession*, u32) noexcept;
 bool dispatch_fixture_decoder_acknowledge(Mp4Decoder*) noexcept;
 bool dispatch_fixture_matches(const AccountMedia*, MediaAssetKey, u16) noexcept;
 bool dispatch_fixture_audio_matches(const AccountMedia*, MediaAssetKey, u16) noexcept;
+AccountMediaCollectionState dispatch_fixture_collection(const AccountMedia*, MediaAssetKey, bool = true) noexcept;
+BOOL dispatch_fixture_arm(HANDLE, const LARGE_INTEGER*, LONG, PTIMERAPCROUTINE, LPVOID, BOOL) noexcept;
+BOOL dispatch_fixture_cancel(HANDLE) noexcept;
+DWORD dispatch_fixture_wait(DWORD, const HANDLE*, BOOL, DWORD) noexcept;
 } // namespace maicord
 #define account_media_video_reserved dispatch_fixture_reserved
 #define account_media_worker_video_select dispatch_fixture_select
@@ -41,7 +45,14 @@ bool dispatch_fixture_audio_matches(const AccountMedia*, MediaAssetKey, u16) noe
 #define mp4_decoder_acknowledge_frame dispatch_fixture_decoder_acknowledge
 #define account_media_video_matches dispatch_fixture_matches
 #define account_media_audio_matches dispatch_fixture_audio_matches
+#define account_media_collection_state dispatch_fixture_collection
+#define SetWaitableTimer dispatch_fixture_arm
+#define CancelWaitableTimer dispatch_fixture_cancel
+#define WaitForMultipleObjects dispatch_fixture_wait
 #include "../src/app/account_media_video.cpp"
+#undef SetWaitableTimer
+#undef CancelWaitableTimer
+#undef WaitForMultipleObjects
 #undef account_media_video_reserved
 #undef account_media_worker_video_select
 #undef account_media_worker_video_control
@@ -60,6 +71,7 @@ bool dispatch_fixture_audio_matches(const AccountMedia*, MediaAssetKey, u16) noe
 #undef mp4_decoder_acknowledge_frame
 #undef account_media_video_matches
 #undef account_media_audio_matches
+#undef account_media_collection_state
 
 namespace maicord::media_video_dispatch_test {
 struct Fixture {
@@ -68,7 +80,7 @@ struct Fixture {
         seek_observed;
     GpuVideoFrame gpu;
     volatile LONG services, acknowledgements, releases, seeks, errors, decoder_acks;
-    bool dispatched, stopped, audio_only;
+    bool dispatched, stopped, audio_only, live, collection;
 };
 Fixture* current;
 constexpr u64 kPlaybackEpoch = 7, kFrameSerial = 9;
@@ -81,10 +93,12 @@ DWORD WINAPI dispatch(void* opaque) noexcept {
     fixture.dispatched = dispatch_fixture_dispatch(&fixture.worker->lanes[0], &fixture.stopped);
     return 0;
 }
-bool begin(Fixture& fixture, MediaAttachmentFormat format = MediaAttachmentFormat::mp4) noexcept {
+bool begin(Fixture& fixture, MediaAttachmentFormat format = MediaAttachmentFormat::mp4, bool preview = false, bool live = false, bool collection = false) noexcept {
     clear_bytes(&fixture, sizeof(fixture));
     const bool audio_only = format != MediaAttachmentFormat::mp4;
     fixture.audio_only = audio_only;
+    fixture.live = live;
+    fixture.collection = collection;
     current = &fixture;
     fixture.worker = static_cast<AccountMediaWorker*>(
         VirtualAlloc(nullptr, sizeof(AccountMediaWorker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -131,11 +145,30 @@ bool begin(Fixture& fixture, MediaAttachmentFormat format = MediaAttachmentForma
             metadata = EncodedAudioMetadata(source);
         }
     }
+    if (live) {
+        auto* fetch = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        lane.media.progressive = fetch;
+        if (!fetch) return false;
+        fetch->segmented = static_cast<SegmentedVideoFetch*>(VirtualAlloc(nullptr, sizeof(SegmentedVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!fetch->segmented) return false;
+        fetch->segmented->manifest = utf8_literal("live");
+        fetch->state = ProgressiveVideoFetchState::ready;
+        // No network in this fixture; a held request keeps the production
+        // scheduling path idle until Stop reaches joined disposal.
+        fetch->inflight_id = 1; fetch->cancelling = true;
+    }
     worker.initialized = true;
     const AccountVideoSelection selection{
-        media_asset_attachment(30, format,
+        preview ? media_asset_embed(kIdentity.message_id, kIdentity.message_revision, 0, MediaEmbedResource::video, format)
+                : media_asset_attachment(30, format,
                                audio_only ? MediaResolutionTier::original : MediaResolutionTier::px512),
-        kIdentity};
+        kIdentity, static_cast<u16>(collection ? 2 : 0)};
+    if (collection) {
+        auto wrong = selection; wrong.collection_track = 1;
+        if (dispatch_fixture_select(&worker, wrong).error != AccountVideoError::busy || dispatch_fixture_snapshot(&worker).selected) return false;
+        wrong.collection_track = 8193;
+        if (dispatch_fixture_select(&worker, wrong).error != AccountVideoError::invalid_input) return false;
+    }
     if (!dispatch_fixture_select(&worker, selection).ok())
         return false;
     ResetEvent(worker.output_event);
@@ -180,6 +213,7 @@ void finish(Fixture& fixture, void (*check)(bool, const char*) noexcept) noexcep
             InterlockedExchange(&fixture.worker->video_runtime->selected_lane, -1);
         check(dispatch_fixture_destroy(fixture.worker),
               "video dispatch: joined native owner releases its bounded runtime");
+        account_media_release_video(&fixture.worker->lanes[0].media);
         if (fixture.worker->lanes[0].command_event)
             CloseHandle(fixture.worker->lanes[0].command_event);
         if (fixture.worker->stop_event)
@@ -202,12 +236,43 @@ void finish(Fixture& fixture, void (*check)(bool, const char*) noexcept) noexcep
 } // namespace maicord::media_video_dispatch_test
 
 namespace maicord {
+namespace {
+struct DispatchWaitProbe {
+    HANDLE handles[4]{}, armed{}, cancelled{};
+    DWORD count{}, timeout{}, result{};
+    u32 arms{}, cancels{}, waits{};
+    i64 due{};
+    LONG period{};
+    bool arm_ok{true}, callback{}, resume{}, wait_all{};
+};
+DispatchWaitProbe* wait_probe;
+}
+BOOL dispatch_fixture_arm(HANDLE timer, const LARGE_INTEGER* due, LONG period, PTIMERAPCROUTINE callback,
+                          LPVOID argument, BOOL resume) noexcept {
+    if (!wait_probe) return SetWaitableTimer(timer, due, period, callback, argument, resume);
+    auto& probe = *wait_probe;
+    ++probe.arms; probe.armed = timer; probe.due = due->QuadPart; probe.period = period;
+    probe.callback = callback || argument; probe.resume = resume != FALSE;
+    return probe.arm_ok;
+}
+BOOL dispatch_fixture_cancel(HANDLE timer) noexcept {
+    if (!wait_probe) return CancelWaitableTimer(timer);
+    ++wait_probe->cancels; wait_probe->cancelled = timer; return TRUE;
+}
+DWORD dispatch_fixture_wait(DWORD count, const HANDLE* handles, BOOL all, DWORD timeout) noexcept {
+    if (!wait_probe) return WaitForMultipleObjects(count, handles, all, timeout);
+    auto& probe = *wait_probe;
+    ++probe.waits; probe.count = count; probe.timeout = timeout; probe.wait_all = all != FALSE;
+    for (u32 i = 0; i < count && i < 4; ++i) probe.handles[i] = handles[i];
+    return probe.result;
+}
 AccountVideoResult dispatch_fixture_initialize(AccountVideoSession* session, Mp4Decoder* decoder,
                                                const AccountVideoIdentity& identity, HANDLE event,
-                                               Mp4SourceAvailability) noexcept {
+                                               Mp4SourceAvailability, Mp4FragmentAudio*) noexcept {
     session->video = decoder;
     session->lane_event = event;
     session->status.identity = identity;
+    session->status.live = media_video_dispatch_test::current->live;
     session->initialized = true;
     return {};
 }
@@ -311,11 +376,142 @@ bool dispatch_fixture_matches(const AccountMedia*, MediaAssetKey key, u16) noexc
 bool dispatch_fixture_audio_matches(const AccountMedia* media, MediaAssetKey key, u16 generation) noexcept {
     return media && encoded_audio_ready(media->audio_source.metadata) &&
            generation == media->audio_source.cache_generation &&
-           media_asset_attachment_format(key) == media->audio_source.metadata.format;
+           media_asset_audio_format(key) == media->audio_source.metadata.format;
 }
 
+AccountMediaCollectionState dispatch_fixture_collection(const AccountMedia*, MediaAssetKey, bool) noexcept {
+    return media_video_dispatch_test::current && media_video_dispatch_test::current->collection ? AccountMediaCollectionState{3, 2} : AccountMediaCollectionState{};
+}
 void test_account_media_video_dispatch(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace media_video_dispatch_test;
+    {
+        // Fake only the wait boundary: assert operations/arguments, never elapsed time.
+        u32 tokens[4]{};
+        const HANDLE events[]{tokens, tokens + 1, tokens + 2};
+        const HANDLE timer = tokens + 3;
+        DispatchWaitProbe probe{};
+        wait_probe = &probe;
+        for (DWORD count = 2; count <= 3; ++count) {
+            for (DWORD winner = 0; winner <= count; ++winner) {
+                probe = {}; probe.result = WAIT_OBJECT_0 + winner;
+                const DWORD result = wait_video_events(events, count, timer, 17);
+                check(result == (winner == count ? WAIT_TIMEOUT : WAIT_OBJECT_0 + winner) &&
+                          probe.arms == 1 && probe.armed == timer && probe.due == -170000 &&
+                          !probe.period && !probe.callback && !probe.resume &&
+                          probe.waits == 1 && probe.count == count + 1 && !probe.wait_all &&
+                          probe.timeout == INFINITE && probe.handles[count] == timer &&
+                          probe.handles[0] == events[0] && probe.handles[1] == events[1] &&
+                          (count == 2 || probe.handles[2] == events[2]) &&
+                          probe.cancels == (winner == count ? 0u : 1u) &&
+                          (winner == count || probe.cancelled == timer),
+                      "video wait: one-shot deadline preserves stop, command and range priority and cancels on interruption");
+            }
+        }
+        probe = {}; probe.result = WAIT_FAILED;
+        check(wait_video_events(events, 2, timer, 5) == WAIT_FAILED && probe.cancels == 1,
+              "video wait: failed waits retire their timer and preserve the failure");
+        constexpr DWORD timeouts[]{0, INFINITE};
+        for (DWORD timeout : timeouts) {
+            probe = {}; probe.result = WAIT_OBJECT_0 + 1;
+            check(wait_video_events(events, 2, timer, timeout) == WAIT_OBJECT_0 + 1 &&
+                      !probe.arms && !probe.cancels && probe.waits == 1 && probe.count == 2 && probe.timeout == timeout,
+                  "video wait: immediate and indefinite waits never arm a timer");
+        }
+        probe = {}; probe.result = WAIT_TIMEOUT; probe.arm_ok = false;
+        check(wait_video_events(events, 3, timer, 17) == WAIT_TIMEOUT && probe.arms == 1 &&
+                  !probe.cancels && probe.count == 3 && probe.timeout == 17,
+              "video wait: timer setup failure falls back to the original interruptible wait");
+        probe = {}; probe.result = WAIT_OBJECT_0 + 1;
+        check(wait_video_events(events, 2, nullptr, 17) == WAIT_OBJECT_0 + 1 &&
+                  !probe.arms && probe.count == 2 && probe.timeout == 17,
+              "video wait: unavailable timers preserve command handling and finite deadlines");
+        wait_probe = nullptr;
+    }
+    AccountVideoStatus before{}, after{};
+    after.frame_serial = 1;
+    after.frame_pending = true;
+    check(!changed(before, after), "video notification: frame delivery owns its notification");
+    before = after;
+    after.frame_pending = false;
+    check(!changed(before, after), "video notification: frame acknowledgement alone does not wake the UI");
+    after.buffering = true;
+    check(changed(before, after), "video notification: buffering still wakes the UI after acknowledgement");
+    auto* publisher = static_cast<AccountMediaWorker*>(VirtualAlloc(nullptr, sizeof(AccountMediaWorker),
+        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    check(publisher != nullptr, "video notification: mailbox fixture allocates");
+    if (publisher) {
+        publisher->output_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        check(publisher->output_event != nullptr, "video notification: mailbox event creates");
+        if (publisher->output_event) {
+            AccountMediaVideoRuntime runtime{};
+            runtime.worker = publisher;
+            GpuVideoFrame gpu{};
+            AccountVideoFrame frame{};
+            frame.gpu = &gpu;
+            u32 notifications = 0;
+            for (u32 serial = 1; serial <= 60; ++serial) {
+                frame.frame_serial = serial;
+                runtime.session.status.frame_serial = serial;
+                runtime.session.status.frame_pending = true;
+                publish_status(runtime, nullptr, &frame);
+                notifications += WaitForSingleObject(publisher->output_event, 0) == WAIT_OBJECT_0;
+                check(runtime.frame.gpu == &gpu && runtime.frame.frame_serial == serial &&
+                          runtime.snapshot.playback.frame_serial == serial && runtime.snapshot.playback.frame_pending,
+                      "video notification: wake exposes matching frame and status");
+                runtime.session.status.frame_pending = false;
+                publish_status(runtime);
+                notifications += WaitForSingleObject(publisher->output_event, 0) == WAIT_OBJECT_0;
+                check(!runtime.snapshot.playback.frame_pending,
+                      "video notification: acknowledgement still updates the public snapshot");
+            }
+            check(notifications == 60, "video notification: sixty frames and acknowledgements produce sixty wakes");
+            runtime.session.status.buffering = true;
+            publish_status(runtime);
+            check(WaitForSingleObject(publisher->output_event, 0) == WAIT_OBJECT_0,
+                  "video notification: buffering without a frame wakes the UI");
+            runtime.session.status.error = AccountVideoError::demux;
+            publish_status(runtime);
+            check(WaitForSingleObject(publisher->output_event, 0) == WAIT_OBJECT_0,
+                  "video notification: terminal errors without a frame wake the UI");
+            CloseHandle(publisher->output_event);
+        }
+        VirtualFree(publisher, 0, MEM_RELEASE);
+    }
+    auto* tracks = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, 2 * sizeof(ProgressiveVideoFetch),
+        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    check(tracks != nullptr, "live wait: paired source fixture allocates");
+    if (tracks) {
+        SegmentedVideoFetch playlists[2]{};
+        for (u32 i = 0; i < 2; ++i) {
+            tracks[i].segmented = playlists + i;
+            tracks[i].state = ProgressiveVideoFetchState::ready;
+            playlists[i].manifest = utf8_literal("live");
+            playlists[i].refresh_at = 100;
+        }
+        check(progressive_refresh_delay(tracks, tracks + 1, 99) == 1000 &&
+              progressive_refresh_delay(tracks, tracks + 1, 100) == 0,
+              "live wait: free shared transport wakes at the earliest playlist deadline");
+        for (u32 active = 0; active < 2; ++active) {
+            tracks[active].inflight_id = 1;
+            u32 immediate = 0;
+            for (u32 turn = 0; turn < 64; ++turn)
+                immediate += progressive_refresh_delay(tracks, tracks + 1, 100 + turn) == 0;
+            check(immediate == 0 && progressive_refresh_delay(tracks, tracks + 1, 164) == kInfiniteWaitMilliseconds,
+                  "live wait: overdue companion cannot busy-poll while either track owns the shared download");
+            tracks[active].cancelling = true;
+            check(progressive_refresh_delay(tracks, tracks + 1, 164) == kInfiniteWaitMilliseconds,
+                  "live wait: cancelling requests wait for transport retirement too");
+            tracks[active].inflight_id = 0;
+            tracks[active].cancelling = false;
+            check(progressive_refresh_delay(tracks, tracks + 1, 164) == 0,
+                  "live wait: response retirement immediately restores overdue refresh work");
+        }
+        playlists[0].store.ended = playlists[1].store.ended = true;
+        check(progressive_refresh_delay(tracks, tracks + 1, 164) == kInfiniteWaitMilliseconds &&
+              progressive_refresh_delay(nullptr, nullptr, 164) == kInfiniteWaitMilliseconds,
+              "live wait: finished or absent sources schedule no playlist timer");
+        VirtualFree(tracks, 0, MEM_RELEASE);
+    }
     Fixture fixture{};
     bool ready = begin(fixture);
     check(ready, "video dispatch: real lane thread and deterministic late publication initialize");
@@ -339,8 +535,8 @@ void test_account_media_video_dispatch(void (*check)(bool, const char*) noexcept
           "video dispatch: late unclaimed frame releases once and Stop retires without a UI drain");
     finish(fixture, check);
 
-    ready = begin(fixture);
-    check(ready, "video dispatch: taken-frame Stop fixture initializes");
+    ready = begin(fixture, MediaAttachmentFormat::mp4, false, true);
+    check(ready, "live video dispatch: taken-frame Stop fixture initializes");
     if (!ready) {
         finish(fixture, check);
         return;
@@ -350,6 +546,7 @@ void test_account_media_video_dispatch(void (*check)(bool, const char*) noexcept
               WaitForSingleObject(fixture.thread, 50) == WAIT_TIMEOUT &&
               !ReadAcquire(&fixture.acknowledgements) && !ReadAcquire(&fixture.releases),
           "video dispatch: Stop cannot discard or release an already borrowed GPU frame");
+    check(fixture.worker->lanes[0].media.progressive != nullptr, "live metadata remains owned while a GPU frame is borrowed");
     auto wrong = output;
     ++wrong.frame_serial;
     check(!dispatch_fixture_return(fixture.worker, wrong) &&
@@ -360,6 +557,8 @@ void test_account_media_video_dispatch(void (*check)(bool, const char*) noexcept
               ReadAcquire(&fixture.acknowledgements) == 1 && ReadAcquire(&fixture.releases) == 1 &&
               !ReadAcquire(&fixture.errors),
           "video dispatch: exact borrowed frame ACK alone releases the stopped decoder");
+    check(!fixture.worker->lanes[0].media.progressive && !fixture.worker->lanes[0].media.progressive_audio,
+          "joined live retirement discards signed playlists and media instead of restoring expired ordinals");
     finish(fixture, check);
 
     ready = begin(fixture);
@@ -386,14 +585,18 @@ void test_account_media_video_dispatch(void (*check)(bool, const char*) noexcept
           "video dispatch: acknowledged Seek owner then retires through ordinary Stop");
     finish(fixture, check);
     constexpr MediaAttachmentFormat formats[]{MediaAttachmentFormat::ogg_opus, MediaAttachmentFormat::mp3,
-                                              MediaAttachmentFormat::wav};
-    for (const auto format : formats) {
-        ready = begin(fixture, format);
+                                              MediaAttachmentFormat::wav, MediaAttachmentFormat::mp3};
+    for (u32 index = 0; index < 4; ++index) {
+        const auto format = formats[index];
+        ready = begin(fixture, format, index == 3, false, index == 3);
         check(ready, "audio dispatch: each retained tagged source selects the same existing codec lane");
         if (!ready) {
             finish(fixture, check);
             return;
         }
+        if (index == 3) check(dispatch_fixture_snapshot(fixture.worker).collection_count == 3 &&
+            dispatch_fixture_snapshot(fixture.worker).collection_track == 2,
+            "collection dispatch: exact requested track selects and publishes the retained count and index");
         auto stale = AccountVideoControl{kIdentity, 1, 10000, 1, AccountVideoCommand::pause, false};
         ++stale.identity.account_serial;
         check(dispatch_fixture_submit(fixture.worker, stale).error == AccountVideoError::stale &&

@@ -158,6 +158,35 @@ void run() noexcept {
                   AccountMediaRequestState::invalid,
           "media lanes: initialization starts no decode thread and only the cache owner's storage");
 
+    // No live source or network: admission must keep a collection switch off
+    // spare lanes while an earlier track still owns this embed's lane.
+    {
+        const auto key = media_asset_embed(700, 1, 0, MediaEmbedResource::video, MediaAttachmentFormat::m4a);
+        AccountMediaAttachmentRequest request{utf8_literal("https://soundcloud.com/forss/sets/soulhack"), key,
+            700, 1, 0, 0, CdnImageType::m4a, {1, {0, 0}, 2}, nullptr};
+        auto& lane = worker->lanes[1];
+        lane.command.key = key; lane.command.kind = AccountMediaWorkKind::attachment;
+        lane.command.source_message_id = 700; lane.command.source_message_revision = 1;
+        lane.command.collection = 1; lane.command.collection_track = 1;
+        const AccountMediaWorkerPhase phases[]{AccountMediaWorkerPhase::selected_video,
+            AccountMediaWorkerPhase::working, AccountMediaWorkerPhase::command_ready};
+        for (auto phase : phases) {
+            lane.phase = static_cast<LONG>(phase);
+            check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::busy &&
+                !ReadAcquire64(&worker->counters.queued), "collection switching waits for the old track owner without queuing on a spare lane");
+        }
+        request.options.collection_track = 1;
+        check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::pending,
+            "same collection track request reuses the outstanding command");
+        request.options.collection_track = 8193;
+        check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::invalid,
+            "collection request rejects an index beyond the bounded queue before any work");
+        request.options.collection_track = 1; request.signed_url = utf8_literal("https://soundcloud.com/forss/flickermood");
+        check(account_media_worker_request_attachment(worker, request, 1, 1).state == AccountMediaRequestState::invalid,
+            "explicit collection index cannot alter an ordinary single-track request");
+        lane.command = {}; lane.phase = static_cast<LONG>(AccountMediaWorkerPhase::idle);
+    }
+
     // Every decoder kind once, one request at a time. Animated corpus entries
     // reach their parsers too; local previews admit only still first frames.
     static Source sources[kCorpusCount + 2]{};

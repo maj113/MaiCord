@@ -2,6 +2,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/media/mp4_demux.hpp"
 
+namespace maicord { struct Mp4AudioDemuxer; }
+
 // Private bounded box/table walker shared by the video and audio cursors. It
 // owns no storage and admits no codec.
 namespace maicord::mp4_demux_detail {
@@ -24,6 +26,9 @@ bool first_description(ConstSlice<u8>,const Box& stsd,Box* entry) noexcept;
 // disparity track, a spatial-audio alternate): prefer a decodable first sample
 // description, then an enabled track header, then file order.
 Mp4DemuxError select_track(ConstSlice<u8>,const Box& moov,u32 handler,Box* track) noexcept;
+// Shared codec-description validation for ordinary and fragmented tracks.
+Mp4DemuxError parse_description(Mp4Demuxer*, const Box& stsd) noexcept;
+Mp4DemuxError parse_audio_description(Mp4AudioDemuxer&, const Box& stsd) noexcept;
 u64 scale_us(u64,u32) noexcept;
 Mp4DemuxError initialize_tables(Mp4Demuxer*,ConstSlice<u8>,u32 handler,Box* description,
                                 Mp4SourceAvailability availability={}) noexcept;

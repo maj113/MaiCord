@@ -1670,6 +1670,13 @@ bool WINAPI module_voice_audio_status(void* instance, VoiceAudioStatus* output) 
     auto* gateway = module_gateway(instance);
     return gateway && gateway_client_voice_audio_status(gateway, output);
 }
+AccountMediaRequestResult WINAPI module_collection_title(void* instance, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    if (!runtime || !request || !title) {
+        AccountMediaRequestResult invalid{}; invalid.error = AccountMediaError::invalid_input; return invalid;
+    }
+    return account_media_worker_collection_title(&runtime->media, *request, title);
+}
 AccountMediaRequestResult WINAPI
 module_catalog_preview_request(void* instance, const AccountMediaCatalogPreviewRequest* request, u64 now_ms,
                                u64 now_seconds) noexcept {
@@ -2095,6 +2102,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_guild_moderation,
         maicord::module_guild_members_query_cancel,
         maicord::module_channel_info,
+        maicord::module_collection_title,
     };
     return true;
 }

@@ -28,6 +28,22 @@ bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer&, u64 source_frame, 
 struct Mp4AudioFrameTimeBounds {
     i64 floor_100ns{}, ceil_100ns{};
 };
+// Container-independent AAC clock. All three timebases retain their original
+// integers: no microsecond intermediate and no inferred encoder priming.
+// source_frames includes final decoder padding; content_ticks excludes the
+// leading empty edit. A nonzero source_start_ticks admits a nonzero TFDT origin.
+// The functions below leave output unchanged on failure and reject output that
+// overlaps this clock. Native bounds and sample windows use the same rounding
+// rules as their demuxer counterparts below.
+struct Mp4AudioTimeline {
+    u64 source_frames{}, source_start_ticks{}, media_start_ticks{}, empty_edit_ticks{}, content_ticks{};
+    u32 sample_rate{}, media_timescale{}, edit_timescale{}, content_timescale{};
+};
+bool mp4_audio_demux_timeline(const Mp4AudioDemuxer&, Mp4AudioTimeline*) noexcept;
+bool mp4_audio_frame_time_100ns(const Mp4AudioTimeline&, u64 source_frame, i64*) noexcept;
+bool mp4_audio_frame_time_bounds_100ns(const Mp4AudioTimeline&, u64 source_frame,
+                                      Mp4AudioFrameTimeBounds*) noexcept;
+bool mp4_audio_sample_window(const Mp4AudioTimeline&, i64 target_100ns, Mp4AudioSampleWindow*) noexcept;
 // Bounds are derived from the same rational source/edit time. They
 // coincide for integer-exact timestamps; no blanket one-tick tolerance.
 // Failure, overflow, and aliased output leave the caller value unchanged.

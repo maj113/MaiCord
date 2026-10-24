@@ -1926,6 +1926,18 @@ maicord_test(MaiCordYoutubePlayerTests ENTRY maicord_youtube_player_entry
     LIBS maicord_protocol maicord_core kernel32
     TIMEOUT 5 TEST maicord_youtube_player)
 
+# MAICORD_SOUNDCLOUD_LIVE_PROBE=5 checks collection track switches and stale commands.
+# MAICORD_YTM_LIVE_PROBE=1 exercises the reported music streams; adding
+# MAICORD_AAC_SEEK_PROBE=1 compares sought PCM against continuous native decode.
+maicord_test(MaiCordEmbedResolverTests ENTRY maicord_youtube_resolver_entry
+    # Public SoundCloud queues; opt-in native YouTube HD and adaptive AAC seek comparison.
+    SOURCES tests/youtube_resolver.cpp tests/twitch_live_fetch.cpp tests/soundcloud_player.cpp
+        tests/soundcloud_collection.cpp tests/youtube_collection.cpp tests/apple_music_album.cpp
+        tests/apple_music_playlist.cpp tests/native_player_perf.cpp src/app/update_https.cpp
+    LIBS maicord_account_media maicord_app_core maicord_protocol maicord_platform maicord_core
+        d3d11 dxgi ole32 user32 kernel32 ws2_32 secur32 bcrypt
+    TIMEOUT 20 TEST maicord_youtube_resolver)
+
 maicord_test(MaiCordTikTokPlayerTests ENTRY maicord_tiktok_player_entry
     SOURCES tests/tiktok_player.cpp
     LIBS maicord_protocol maicord_core kernel32
@@ -1962,6 +1974,12 @@ maicord_test(MaiCordAppleMusicPlayerTests ENTRY maicord_apple_music_player_entry
     LIBS maicord_protocol maicord_core kernel32
     TIMEOUT 5 TEST maicord_apple_music_player)
 
+maicord_test(MaiCordMp4FragmentTests ENTRY maicord_mp4_fragment_entry
+    SOURCES tests/mp4_fragment.cpp tests/steam_playback_probe.cpp tests/twitch_fragment_probe.cpp tests/twitch_live_session.cpp
+        tests/fragment_audio_playback_probe.cpp
+    LIBS maicord_account_media maicord_media_codec maicord_platform maicord_core kernel32 ole32 user32 d3d11 dxgi
+    TIMEOUT 10 TEST maicord_mp4_fragment)
+
 maicord_test(MaiCordDashManifestTests ENTRY maicord_dash_manifest_entry
     SOURCES tests/dash_manifest.cpp
     LIBS maicord_protocol maicord_core kernel32
@@ -1976,6 +1994,11 @@ maicord_test(MaiCordHlsPlaylistTests ENTRY maicord_hls_playlist_entry
     SOURCES tests/hls_playlist.cpp
     LIBS maicord_protocol maicord_core kernel32
     TIMEOUT 5 TEST maicord_hls_playlist)
+
+maicord_test(MaiCordMpegTsTests ENTRY maicord_mpeg_ts_entry
+    SOURCES tests/mpeg_ts.cpp
+    LIBS maicord_account_media maicord_media_codec maicord_platform maicord_core kernel32 ole32 user32 d3d11 dxgi
+    TIMEOUT 10 TEST maicord_mpeg_ts)
 
 maicord_test(MaiCordImgurPlayerTests ENTRY maicord_imgur_player_entry
     SOURCES tests/imgur_player.cpp

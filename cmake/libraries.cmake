@@ -67,7 +67,14 @@ maicord_library(maicord_media_codec
     src/media/webp.cpp src/media/webp_thumbnail.cpp src/media/webp_alpha.cpp src/media/animated_webp.cpp
     src/media/yuv_convert.cpp src/media/yuv_convert_avx2.cpp
     src/media/rtp_h264.cpp src/media/rtp_h265.cpp src/media/hevc_stream.cpp
-    src/media/rtp_av1.cpp src/media/av1.cpp
+    src/media/rtp_av1.cpp src/media/av1.cpp src/media/mp4_fragment.cpp src/media/mp4_fragment_track.cpp
+    src/media/mp4_fragment_source.cpp
+    src/media/mp4_fragment_audio.cpp
+    src/media/mp4_fragment_segment.cpp
+    src/media/mp4_segment_store.cpp
+    src/media/mpeg_ts.cpp
+    src/media/mpeg_ts_codec.cpp
+    src/media/mpeg_ts_segment_store.cpp
     LIBS maicord_core maicord_compression maicord_opus_decoder ntdll
     INCLUDES third_party/minimp3)
 set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
@@ -227,6 +234,8 @@ maicord_library(maicord_app_core
     # acceptance_record.cpp: durable floor records shared by update_acceptance and the plugin catalog.
     src/app/acceptance_record.cpp src/app/gateway_guild_details.cpp src/app/account_guild_moderation.cpp
     src/app/update_changelog.cpp
+    src/app/embed_resolver.cpp
+    src/app/segmented_video_fetch.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 

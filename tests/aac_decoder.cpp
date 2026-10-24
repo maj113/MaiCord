@@ -5,6 +5,8 @@
 
 namespace maicord {
 void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
+    check(aac_decoder_seek_preroll_packets(1024) == 4 && aac_decoder_seek_preroll_packets(2048) == 32,
+          "AAC seek: LC overlap stays bounded; HE preroll covers periodic SBR headers before audible PCM");
     u32 capacity = 77;
     check(aac_decoder_output_capacity(0, &capacity) && capacity == 16384 &&
               aac_decoder_output_capacity(16384, &capacity) && capacity == 16384 &&

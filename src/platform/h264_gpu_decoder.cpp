@@ -5,6 +5,8 @@
 #include "maicord/media/h264_references.hpp"
 #include "maicord/media/h264_output_queue.hpp"
 #include "maicord/media/video_display.hpp"
+#include "maicord/media/mp4_fragment_source.hpp"
+#include "maicord/media/mp4_segment_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/d3d11.hpp"
@@ -20,6 +22,13 @@ namespace {
 struct State {
     H264GpuPicture picture;
     Mp4Demuxer demux;
+    Mp4FragmentSource* fragmented;
+    // Only fragment initialization installs these hooks. Keeping the optional
+    // parser out of the ordinary read path lets unused adapters be discarded.
+    Mp4DemuxError (*fragment_peek)(Mp4FragmentSource*, Mp4AccessUnit*) noexcept;
+    bool (*fragment_commit)(Mp4FragmentSource*) noexcept;
+    Mp4DemuxError (*fragment_seek)(State*, i64, Mp4SeekPoint*, bool) noexcept;
+    i64 first_presentation;
     H264ReferenceState references;
     H264OutputQueue output;
     ID3D11VideoDevice* device;
@@ -31,9 +40,86 @@ struct State {
     GpuVideoFrame frame;
     VideoDisplayExtent display;
     u32 feedback;
+    i64 fragment_seek_target;
+    u32 fragment_seek_candidate, fragment_seek_attempts;
+    bool fragment_seek_pending, fragment_seek_start;
     bool full_stream;
 };
 static_assert(sizeof(State) <= 4'096);
+
+Mp4DemuxError seek_fragment(State* s, i64 target, Mp4SeekPoint* point, bool start) noexcept {
+    auto& stream = *s->fragmented;
+    Mp4FragmentRange range{};
+    u32 selected = 0;
+    if (stream.segments) {
+        if (s->fragment_seek_pending && s->fragment_seek_target == target && s->fragment_seek_start == start)
+            selected = s->fragment_seek_candidate;
+        else {
+            if (!start) {
+                i64 empty{};
+                if (target < 0 || !mp4_fragment_source_time(stream, stream.track.media_start, &empty)) return Mp4DemuxError::unsupported;
+                const i64 relative = target - empty;
+                const u64 absolute = relative < 0 ? static_cast<u64>(-relative) : static_cast<u64>(relative);
+                if (absolute > 86400000000ull) return Mp4DemuxError::unsupported;
+                const u64 ticks = absolute / 1000000 * stream.track.timescale +
+                    (absolute % 1000000) * stream.track.timescale / 1000000;
+                const u64 origin = static_cast<u64>(stream.track.media_start);
+                if ((relative < 0 && ticks > origin) || ticks > 0x7fffffffffffffffull - origin) return Mp4DemuxError::unsupported;
+                u64 time = relative < 0 ? origin - ticks : origin + ticks;
+                time = minimum(time, stream.index.first_time + stream.index.duration - 1);
+                const auto found = mp4_fragment_source_find(&stream, time, &range);
+                if (found != Mp4DemuxError::none) return found;
+                selected = range.index;
+            }
+            s->fragment_seek_target = target; s->fragment_seek_start = start; s->fragment_seek_pending = true;
+            s->fragment_seek_candidate = selected;
+            s->fragment_seek_attempts = 0;
+        }
+    } else {
+        if (!mp4_fragment_index_range(stream.index, 0, &range)) return Mp4DemuxError::malformed;
+        if (!start) {
+            i64 time{};
+            if (!mp4_fragment_source_time(stream, static_cast<i64>(range.time), &time)) return Mp4DemuxError::unsupported;
+            if (time > target) return Mp4DemuxError::unsupported;
+            for (u32 i = 1; i < stream.index.count; ++i) {
+                if (!mp4_fragment_index_follow(stream.index, range, &range)) return Mp4DemuxError::malformed;
+                if (!mp4_fragment_source_time(stream, static_cast<i64>(range.time), &time)) return Mp4DemuxError::unsupported;
+                if (time > target) break;
+                selected = i;
+            }
+        }
+    }
+    // Index SAP flags are hints. Validate the real access unit against the
+    // active codec configuration before replacing any cursor or GPU references.
+    for (u32 attempts = 0; attempts < 64; ++attempts) {
+        if (stream.segments && s->fragment_seek_attempts == 64) break;
+        Mp4FragmentPosition candidate{}; Mp4AccessUnit unit{};
+        auto error = mp4_fragment_source_prepare(&stream, selected, 0, &candidate);
+        if (error != Mp4DemuxError::none) return error;
+        error = mp4_fragment_position_unit(candidate, &unit);
+        if (error != Mp4DemuxError::none) { mp4_fragment_source_cancel_prepare(&stream); return error; }
+        if (start || unit.presentation_time_us_signed <= target) {
+            H264Picture picture{};
+            const auto parsed = h264_parse_picture(unit.bytes, s->picture.length_bytes, s->picture.sps,
+                s->picture.pps, &picture, stream.track.configuration);
+            if (parsed != H264Error::none) {
+                mp4_fragment_source_cancel_prepare(&stream);
+                return parsed == H264Error::unsupported ? Mp4DemuxError::unsupported : Mp4DemuxError::malformed;
+            }
+            if (picture.first.idr) {
+                if (!mp4_fragment_source_adopt(&stream, candidate)) return Mp4DemuxError::data_pending;
+                s->fragment_seek_pending = false;
+                *point = {unit.sample_index, unit.decode_time_us, unit.presentation_time_us_signed};
+                return Mp4DemuxError::none;
+            }
+        }
+        if (start || !selected) break;
+        --selected; s->fragment_seek_candidate = selected; ++s->fragment_seek_attempts;
+    }
+    mp4_fragment_source_cancel_prepare(&stream);
+    s->fragment_seek_pending = false;
+    return Mp4DemuxError::unsupported;
+}
 
 HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     const auto& picture = s->picture;
@@ -104,9 +190,9 @@ HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
 
 } // namespace
 
-bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
+static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
                                  ID3D11DeviceContext* context, bool full_stream,
-                                 Mp4SourceAvailability availability) noexcept {
+                                 Mp4SourceAvailability availability, Mp4FragmentSource* fragmented) noexcept {
     if (!probe || !device || !context || !encoded.data || !encoded.count)
         return false;
     h264_gpu_decoder_release(probe);
@@ -124,6 +210,7 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
         PAGE_READWRITE));
     if (!s) { probe->status = E_OUTOFMEMORY; return false; }
     probe->state = s;
+    s->fragmented = fragmented;
     s->full_stream = full_stream; s->output.leased = 255;
     const u8* owned = encoded.data;
     if (!borrowed) {
@@ -131,10 +218,34 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
         copy_bytes(copy, encoded.data, encoded.count);
         owned = copy;
     }
-    probe->demux_error = mp4_demux_initialize(&s->demux, {owned, encoded.count}, availability);
-    probe->parse_error = probe->demux_error == Mp4DemuxError::none
-        ? h264_gpu_configuration_from_demux(s->demux, &s->picture, &probe->demux_error)
-        : H264Error::malformed;
+    if (fragmented) {
+        s->fragment_peek = mp4_fragment_source_unit;
+        s->fragment_commit = mp4_fragment_source_commit;
+        s->fragment_seek = seek_fragment;
+        const auto& track = fragmented->track;
+        auto& demux = s->demux;
+        demux.encoded = encoded; demux.availability = availability;
+        demux.width = track.width; demux.height = track.height;
+        demux.sar_width = track.sar_width; demux.sar_height = track.sar_height;
+        demux.rotation = track.rotation; demux.nal_length_bytes = track.nal_length_bytes;
+        demux.timescale = track.timescale; demux.has_edit_list = track.edited;
+        demux.avcc_offset = static_cast<u32>(track.configuration.data - encoded.data);
+        demux.avcc_bytes = track.configuration.count;
+        Mp4AccessUnit first{};
+        probe->demux_error = mp4_fragment_source_unit(fragmented, &first);
+        if (probe->demux_error == Mp4DemuxError::none && !mp4_fragment_source_duration(*fragmented, &demux.duration_us))
+            probe->demux_error = Mp4DemuxError::unsupported;
+        probe->parse_error = probe->demux_error == Mp4DemuxError::none
+            ? h264_gpu_configuration_from_unit(first, track.configuration, track.nal_length_bytes,
+                                                track.width, track.height, &s->picture) : H264Error::malformed;
+        demux.ready = probe->parse_error == H264Error::none;
+        s->first_presentation = first.presentation_time_us_signed;
+    } else {
+        probe->demux_error = mp4_demux_initialize(&s->demux, {owned, encoded.count}, availability);
+        probe->parse_error = probe->demux_error == Mp4DemuxError::none
+            ? h264_gpu_configuration_from_demux(s->demux, &s->picture, &probe->demux_error)
+            : H264Error::malformed;
+    }
     if (probe->parse_error == H264Error::none) {
         const auto& picture = s->picture.sps;
         s->display = video_display_rotated(video_display_extent(picture.width, picture.height,
@@ -204,6 +315,25 @@ bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, 
         a.matrix == 1, a.full_range, s->demux.rotation, {}};
     return true;
 }
+bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
+                                 ID3D11DeviceContext* context, bool full_stream,
+                                 Mp4SourceAvailability availability) noexcept {
+    return initialize_decoder(probe, encoded, device, context, full_stream, availability, nullptr);
+}
+bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder* decoder, Mp4FragmentSource* source,
+                                            ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
+    if (!decoder || decoder->state || !device || !context || !source || !mp4_fragment_source_valid(*source) || source->track.audio || source->ended || source->segment.index ||
+        (source->loaded && source->fragment.index)) return false;
+    Mp4AccessUnit first{};
+    const auto error = mp4_fragment_source_unit(source, &first);
+    if (error != Mp4DemuxError::none) { decoder->demux_error = error; return false; }
+    const Mp4SourceAvailability header{[](void* context, u64 offset, u64 bytes) noexcept {
+        const auto span = mp4_fragment_source_bytes(*static_cast<Mp4FragmentSource*>(context));
+        return offset <= span.count && bytes <= span.count - offset;
+    }, source};
+    return initialize_decoder(decoder, mp4_fragment_source_bytes(*source), device, context, true,
+        source->segments ? header : progressive_source_reader(source->source, source->reader), source);
+}
 
 namespace {
 u32 reference_mask(const State& s) noexcept {
@@ -232,6 +362,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
     frame.error = Mp4DecodeError::invalid_input;
     if (!probe || !probe->state) return frame;
     auto* s = static_cast<State*>(probe->state);
+    s->fragment_seek_pending = false;
     if(max_submissions&&s->output.leased!=255)return frame;
     if (!s->full_stream && probe->submitted) { frame.error = Mp4DecodeError::end_of_stream; return frame; }
     // Caller has enqueued its copy before requesting another frame. All video
@@ -245,17 +376,25 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
             probe->submitted = true; return output_frame(s);
         }
         Mp4Demuxer next = s->demux;
-        const Mp4AccessUnit unit = mp4_demux_next(&next);
+        Mp4AccessUnit unit{};
+        if (s->fragmented) unit.error = s->fragment_peek(s->fragmented, &unit);
+        else unit = mp4_demux_next(&next);
+        if (unit.error == Mp4DemuxError::data_pending) { frame.error = Mp4DecodeError::data_pending; return frame; }
         if (unit.error == Mp4DemuxError::end_of_stream) {
             if (s->output.count) { probe->submitted = true; return output_frame(s); }
             if (s->full_stream && loop_at_end && !restarted) {
-                if(!h264_gpu_decoder_rewind(probe)){frame.error=Mp4DecodeError::stream;return frame;}
+                if(!h264_gpu_decoder_rewind(probe)) {
+                    frame.error=probe->demux_error==Mp4DemuxError::data_pending ? Mp4DecodeError::data_pending : Mp4DecodeError::stream;
+                    return frame;
+                }
                 restarted = true; continue;
             }
             frame.error = Mp4DecodeError::end_of_stream;
             return frame;
         }
-        if (unit.ok() && !mp4_demux_available(s->demux, unit.bytes)) {
+        // Fragment cursors already lease and validate their payload. Separate
+        // files do not belong to the initialization span used for avcC.
+        if (unit.ok() && !s->fragmented && !mp4_demux_available(s->demux, unit.bytes)) {
             frame.error = Mp4DecodeError::data_pending;
             return frame;
         }
@@ -300,7 +439,13 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
         probe->status = status;
         if (FAILED(status)) { frame.error = Mp4DecodeError::sample; return frame; }
         if (++s->feedback == 0) ++s->feedback;
-        s->references = plan.after; s->demux = next;
+        s->references = plan.after;
+        if (s->fragmented) {
+            if (!s->fragment_commit(s->fragmented)) {
+                probe->status = E_UNEXPECTED; frame.error = Mp4DecodeError::stream; return frame;
+            }
+            ++s->demux.sample_index;
+        } else s->demux = next;
         ++submissions;
         const auto order = plan.retained_order;
         if (!h264_output_push(&s->output, {unit.duration_us,
@@ -314,6 +459,7 @@ H264GpuDiagnostic h264_gpu_decoder_diagnostic(const H264GpuDecoder& decoder) noe
     const auto* s = static_cast<const State*>(decoder.state);
     if (!s)
         return {};
+    if (s->fragmented) return {s->demux.sample_index, 0, 0, s->output.count, false};
     auto cursor = s->demux;
     const auto next = mp4_demux_next(&cursor);
     return {s->demux.sample_index, next.presentation_time_us_signed, next.decode_time_us, s->output.count,
@@ -324,6 +470,15 @@ H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder& decoder) noexcept {
     if (!s || !s->demux.ready)
         return {};
     H264GpuMovie movie{s->demux.duration_us, s->demux.sample_count, s->demux.has_edit_list};
+    if (s->fragmented) {
+        if (const auto* store = s->fragmented->segments; store && store->live) {
+            if (!mp4_fragment_source_duration(*s->fragmented, &movie.duration_us)) return {};
+            movie.live = true;
+            movie.duration_complete = store->ended && store->received_count == store->count;
+        }
+        movie.first_presentation_time_us = s->first_presentation; movie.first_presentation_valid = true;
+        return movie;
+    }
     Mp4Demuxer first = s->demux;
     mp4_demux_reset(&first);
     const auto unit = mp4_demux_next(&first);
@@ -348,15 +503,23 @@ Mp4DemuxError h264_gpu_decoder_seek(H264GpuDecoder* decoder,i64 target,Mp4SeekPo
         byte_ranges_overlap(output,{reinterpret_cast<const u8*>(s),sizeof(*s)})||
         byte_ranges_overlap(output,s->demux.encoded))return Mp4DemuxError::invalid_input;
     Mp4Demuxer next=s->demux;Mp4SeekPoint selected{};
-    const auto result=mp4_demux_seek_sync(&next,target,&selected);
+    const auto result=s->fragmented ? s->fragment_seek(s,target,&selected,false)
+                                    : mp4_demux_seek_sync(&next,target,&selected);
     if(result!=Mp4DemuxError::none)return result;
+    if(s->fragmented)next.sample_index=selected.sample_index;
     s->demux=next;s->references={};s->output={};decoder->submitted=false;
-    decoder->status=S_OK;decoder->parse_error=H264Error::none;*point=selected;
+    decoder->status=S_OK;decoder->parse_error=H264Error::none;decoder->demux_error=Mp4DemuxError::none;*point=selected;
     return Mp4DemuxError::none;
 }
 bool h264_gpu_decoder_rewind(H264GpuDecoder* decoder) noexcept {
     if(!decoder||!decoder->state)return false;
     auto* s=static_cast<State*>(decoder->state);if(!s->full_stream)return false;
+    if (s->fragmented) {
+        Mp4SeekPoint point{};
+        decoder->demux_error=s->fragment_seek(s,0,&point,true);
+        if (decoder->demux_error != Mp4DemuxError::none) return false;
+        s->demux.sample_index=0;s->references={};s->output={};decoder->submitted=false;return true;
+    }
     Mp4Demuxer next=s->demux;mp4_demux_reset(&next);if(!next.ready)return false;
     s->demux=next;s->references={};s->output={};decoder->submitted=false;return true;
 }

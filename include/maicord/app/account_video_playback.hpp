@@ -3,7 +3,10 @@
 #include "maicord/media/asset.hpp"
 
 namespace maicord {
-struct AccountVideoSelection { MediaAssetKey key{}; AccountVideoIdentity identity{}; };
+struct AccountVideoSelection {
+    MediaAssetKey key{}; AccountVideoIdentity identity{};
+    u16 collection_track{}; // Zero accepts the resident track; otherwise exact one-based index.
+};
 struct AccountVideoControl {
     AccountVideoIdentity identity{};u64 command_serial{};i64 seek_time_100ns{};
     float volume{1};AccountVideoCommand command{};bool muted{};
@@ -20,6 +23,8 @@ struct AccountVideoPlaybackStatus {
     // the owner resubmits the attachment request with a forced refresh.
     bool source_refresh{};
     AccountVideoBuffered buffered{};
+    u16 collection_count{}, collection_track{};
+    bool collection_more{};
 };
 // The GPU source is borrowed until exact acknowledgement. Acknowledgement means
 // the renderer copy has been queued, or the caller has discarded the frame.

@@ -7,6 +7,12 @@ inline constexpr u32 kAacDecoderMaximumOutputBytes = 16384;
 // Windows' decoder advertises a 49152-byte native output minimum even for LC
 // mono/stereo. Native reusable capacity is separate from the PCM block size.
 inline constexpr u32 kAacDecoderMaximumNativeOutputBytes = 65536;
+// HE-AAC's periodic SBR headers are not present in every packet. Cover a
+// typical one-second header interval plus filter history before audible PCM.
+// 32 packets cover >=1.36 s at the supported HE rates; LC only needs overlap.
+inline constexpr u32 aac_decoder_seek_preroll_packets(u32 frames_per_packet) noexcept {
+    return frames_per_packet == 2048 ? 32u : 4u;
+}
 enum class AacPcmFormat : u8 {
     signed16,
     float32

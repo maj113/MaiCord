@@ -77,6 +77,7 @@ struct Mp4Decoder {
     const GpuVideoFrame* gpu;
     bool ready;
     bool hevc;
+    bool fragmented;
 };
 
 // A non-null availability borrows a sparse progressive source in place (its
@@ -85,6 +86,9 @@ bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded,
                             u16 requested_width, u16 requested_height,
                             ID3D11Device* video_device,
                             Mp4SourceAvailability availability = {}) noexcept;
+// Empty decoder, initial borrowed fragmented AVC source. Unknown total sample
+// count is supported; bounded reads return needs_service while skipping preroll.
+bool mp4_decoder_initialize_fragmented(Mp4Decoder*, Mp4FragmentSource*, ID3D11Device*) noexcept;
 // Worker-only source borrow/metadata. The native decoder keeps the source
 // until release; neither accessor allocates, reparses or creates a device.
 ConstSlice<u8> mp4_decoder_source(const Mp4Decoder&) noexcept;

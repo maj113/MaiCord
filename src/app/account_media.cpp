@@ -12,6 +12,10 @@
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/app/progressive_video_fetch.hpp"
+#include "maicord/app/segmented_video_fetch.hpp"
+#include "maicord/app/embed_resolver.hpp"
+#include "maicord/protocol/embed_provider.hpp"
+#include "maicord/protocol/writer.hpp"
 #include "maicord/media/hevc_mp4_demux.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/media/regional_flag_svg.hpp"
@@ -21,6 +25,35 @@
 
 
 namespace maicord {
+// Exact ordered records and a compact UTF-8 pool. Names are retained for the
+// queue lifetime; neither hovering nor returning to a track refetches them.
+struct CollectionText { char* data{}; u32 bytes{}, capacity{}; };
+static bool collection_text_reserve(CollectionText& text, u32 required) noexcept {
+    if (required > 8u * 1024 * 1024) return false;
+    if (required <= text.capacity) return true;
+    u32 capacity = text.capacity ? text.capacity : 4096;
+    while (capacity < required) capacity *= 2;
+    auto* data = static_cast<char*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!data) return false;
+    copy_bytes(data, text.data, text.bytes);
+    if (text.data) VirtualFree(text.data, 0, MEM_RELEASE);
+    text.data = data; text.capacity = capacity; return true;
+}
+struct CollectionTrack { MediaTrackId id{}; u64 retry_at_ms{}; u32 title_offset{}, preview_offset{}; u16 title_bytes{}, preview_bytes{}; };
+struct AccountMediaCollection {
+    MediaAssetKey key;
+    u64 retry_at_ms;
+    u32 revision, url_bytes;
+    u16 count, selected, initial, failed_track;
+    char url[2048], client[32];
+    CollectionText titles;
+    u16 continuation_bytes;
+};
+static void release_collection(AccountMediaCollection* collection) noexcept {
+    if (!collection) return;
+    if (collection->titles.data) VirtualFree(collection->titles.data, 0, MEM_RELEASE);
+    VirtualFree(collection, 0, MEM_RELEASE);
+}
 namespace {
 
 inline constexpr u32 kCacheEntryStorageBytes =
@@ -142,7 +175,8 @@ AccountMediaRequestResult remember_failure(AccountMedia* media, MediaAssetKey ke
                            failure.error == AccountMediaError::invalid_input ||
                            failure.error == AccountMediaError::target;
     slot->key = key;
-    slot->retry_at_ms = permanent ? ~0ull : deadline_after(now_ms, kAccountMediaFailureRetryMs);
+    slot->retry_at_ms = permanent ? ~0ull : maximum(failure.retry_at_ms,
+                                                    deadline_after(now_ms, kAccountMediaFailureRetryMs));
     failure.retry_at_ms = slot->retry_at_ms;
     media->last_failure = failure;
     ++media->failures;
@@ -322,6 +356,27 @@ bool audio_image_type(CdnImageType type) noexcept {
            type == CdnImageType::wav || type == CdnImageType::m4a;
 }
 
+bool publish_audio_frame(AccountMedia* media, MediaAssetKey key, u64 request_id) noexcept {
+    const auto& source = media->audio_source;
+    media->frame_key = key;
+    media->frame_bytes = 0;
+    media->frame_request_id = request_id;
+    media->frame_source_message_id = source.source_message_id;
+    media->frame_source_message_revision = source.source_message_revision;
+    media->frame_catalog_scope = 0;
+    media->frame_catalog_generation = 0;
+    media->frame_duration_us = source.duration_us;
+    media->frame_index = 0;
+    media->frame_count = 0;
+    media->frame_play_count = 1;
+    media->frame_cache_generation = source.cache_generation;
+    media->frame_canvas_width = 0;
+    media->frame_canvas_height = 0;
+    media->frame_kind = AccountMediaFrameKind::audio_source;
+    mark_frame_ready(media, key, request_id);
+    return true;
+}
+
 bool publish_audio_source(AccountMedia* media, MediaAssetKey key, CdnEncodedAudioResult* decoded,
                           u64 request_id) noexcept {
     if (!decoded->ready())
@@ -366,23 +421,7 @@ bool publish_audio_source(AccountMedia* media, MediaAssetKey key, CdnEncodedAudi
     source.duration_us = encoded_audio_duration_us(source.metadata);
     account_media_release_audio_source(media);
     media->audio_source = source;
-    media->frame_key = key;
-    media->frame_bytes = 0;
-    media->frame_request_id = request_id;
-    media->frame_source_message_id = source.source_message_id;
-    media->frame_source_message_revision = source.source_message_revision;
-    media->frame_catalog_scope = 0;
-    media->frame_catalog_generation = 0;
-    media->frame_duration_us = source.duration_us;
-    media->frame_index = 0;
-    media->frame_count = 0;
-    media->frame_play_count = 1;
-    media->frame_cache_generation = source.cache_generation;
-    media->frame_canvas_width = 0;
-    media->frame_canvas_height = 0;
-    media->frame_kind = AccountMediaFrameKind::audio_source;
-    mark_frame_ready(media, key, request_id);
-    return true;
+    return publish_audio_frame(media, key, request_id);
 }
 
 // Reserves a codec workspace on first use and binds it to the pipeline.
@@ -599,8 +638,9 @@ void adopt_mp4_source(AccountMedia* media) noexcept {
     media->mp4_content_identity = encoded_media_new_content_identity();
 }
 
-bool submit_progressive(AccountMedia* media, CdnByteRange range) noexcept {
-    auto* fetch = media->progressive;
+bool submit_progressive(AccountMedia* media, CdnByteRange range, ProgressiveVideoFetch* selected = nullptr) noexcept {
+    auto* fetch = selected ? selected : media->progressive;
+    if (!fetch) return false;
     if (++media->request_id == 0)
         ++media->request_id;
     const auto submitted = cdn_client_submit(
@@ -610,7 +650,7 @@ bool submit_progressive(AccountMedia* media, CdnByteRange range) noexcept {
                          media->request_id,
                          kCdnClientDefaultTimeoutMs,
                          fetch->host,
-                         CdnImageType::mp4,
+                         fetch->image_type,
                          range});
     if (!submitted.ok())
         return false;
@@ -628,9 +668,10 @@ bool continue_progressive(AccountMedia* media, u64 now_ms, u64 unix_now_seconds)
         return false;
     };
     for (u32 step = 0; step < 4; ++step) {
-        const auto next = progressive_video_fetch_next(fetch, false, unix_now_seconds);
+        ProgressiveVideoFetch* selected{};
+        const auto next = account_media_progressive_next(media, false, unix_now_seconds, &selected);
         if (next.step == ProgressiveVideoStep::submit)
-            return submit_progressive(media, next.range) ||
+            return submit_progressive(media, next.range, selected) ||
                    failure(result(AccountMediaRequestState::failed, AccountMediaError::client));
         if (next.step == ProgressiveVideoStep::refresh_required) {
             // Not a cooldown: the owner refreshes the signed URL and asks again.
@@ -648,9 +689,33 @@ bool continue_progressive(AccountMedia* media, u64 now_ms, u64 unix_now_seconds)
         }
         if (next.step == ProgressiveVideoStep::ready || fetch->state != ProgressiveVideoFetchState::ready)
             continue;
+        if (fetch->kind == ProgressiveVideoKind::fragmented_audio) {
+            Mp4AudioSampleWindow window{};
+            if (!mp4_audio_sample_window(fetch->audio.timeline, 0, &window))
+                return failure(result(AccountMediaRequestState::failed, AccountMediaError::decode));
+            account_media_release_audio_source(media);
+            auto& source = media->audio_source;
+            source.key = media->active_key;
+            source.content_identity = encoded_media_new_content_identity();
+            if (!++media->audio_generation) ++media->audio_generation;
+            source.cache_generation = media->audio_generation;
+            source.source_message_id = media->active_source_message_id;
+            source.source_message_revision = media->active_source_message_revision;
+            source.duration_us = static_cast<u64>(window.duration_100ns / 10);
+            publish_audio_frame(media, source.key, media->active_request_id);
+            return false;
+        }
         const auto bytes = progressive_source_bytes(fetch->source);
         const auto reader = progressive_source_reader(&fetch->source, ProgressiveTrack::video);
         if (!media->mp4_decoder || !media->mp4_decoder->ready) {
+            if (fetch->kind != ProgressiveVideoKind::movie) {
+                if (!ensure_mp4_decoder(media)) return failure(video_failure(media->mp4_decoder));
+                if (!mp4_decoder_initialize_fragmented(media->mp4_decoder, &fetch->fragment, media->video_device)) {
+                    if (media->mp4_decoder->native.demux_error == Mp4DemuxError::data_pending) continue;
+                    return failure(video_failure(media->mp4_decoder));
+                }
+                adopt_mp4_source(media);
+            } else {
             // The decoder configuration reads the first sample; fetch it first.
             Mp4Demuxer first{};
             const auto error = hevc_container_present(bytes) ? hevc_demux_initialize(&first, bytes, reader)
@@ -673,8 +738,10 @@ bool continue_progressive(AccountMedia* media, u64 now_ms, u64 unix_now_seconds)
                                         media->active_proxy_height, media->video_device, reader))
                 return failure(video_failure(media->mp4_decoder));
             adopt_mp4_source(media);
+            }
         }
         const Mp4DecodedFrame decoded = mp4_decoder_read(media->mp4_decoder);
+        if (decoded.error == Mp4DecodeError::needs_service) { media->progressive_continue = true; return true; }
         if (decoded.error == Mp4DecodeError::data_pending)
             continue;
         if (!decoded.ok())
@@ -762,8 +829,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
     };
     if (media->progressive_active) {
         const auto policy = cdn_client_response_policy(response);
-        const auto accepted = progressive_video_fetch_accept(media->progressive, response.request_id,
-                                                             response.transport_ok(), policy, body);
+        const auto accepted = account_media_accept_progressive(media, response, body);
         if (accepted == ProgressiveVideoAccept::progress && policy.range_first == 0 &&
             policy.disposition == CdnResponseDisposition::accept_partial) {
             const auto body_failure = account_media_video_body_failure(body);
@@ -1095,20 +1161,72 @@ bool account_media_trim_scanlines(AccountMedia* media) noexcept {
 bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
                                  u16 cache_generation) noexcept {
     return media && media->mp4_decoder && media->mp4_decoder->ready && video_asset(key) &&
+           (!media->progressive || media->progressive->state != ProgressiveVideoFetchState::failed) &&
            media_asset_key_equal(media->mp4_key, key) &&
            (cache_generation == 0 || media->mp4_generation == cache_generation);
 }
 
 bool account_media_audio_matches(const AccountMedia* media, MediaAssetKey key,
                                  u16 cache_generation) noexcept {
-    return media && encoded_audio_ready(media->audio_source.metadata) &&
-           media->audio_source.content_identity && media->audio_source.bytes.data &&
-           key.kind == MediaAssetKind::attachment &&
-           media_attachment_format_audio_supported(media_asset_attachment_format(key)) &&
+    const bool streaming = media && media->progressive &&
+        media->progressive->kind == ProgressiveVideoKind::fragmented_audio &&
+        media->progressive->state == ProgressiveVideoFetchState::ready;
+    return media && (streaming || (encoded_audio_ready(media->audio_source.metadata) && media->audio_source.bytes.data)) &&
+           media->audio_source.content_identity &&
+           media_asset_key_valid(key) && media_attachment_format_audio_supported(media_asset_audio_format(key)) &&
            media_asset_key_equal(media->audio_source.key, key) &&
            (!cache_generation || media->audio_source.cache_generation == cache_generation);
 }
 
+AccountMediaCollectionState account_media_collection_state(const AccountMedia* media, MediaAssetKey key, bool ready) noexcept {
+    if (!media || !media->collection || !media_asset_key_equal(media->collection->key, key) ||
+        (ready && !account_media_audio_matches(media, key, 0) && !account_media_video_matches(media, key, 0))) return {};
+    const auto& collection = *media->collection;
+    return {collection.count, collection.selected ? collection.selected : collection.failed_track ? collection.failed_track : collection.initial, collection.continuation_bytes != 0};
+}
+bool account_media_collection_title(AccountMedia* media, const AccountMediaCollectionTitleRequest& request,
+    MediaTrackTitle* title, MediaTrackId* id, u64* retry_at_ms) noexcept {
+    auto* queue = media ? media->collection : nullptr;
+    if (!queue || !title || !id || !retry_at_ms || !request.track || request.track > queue->count ||
+        queue->revision != request.source_revision || !media_asset_key_equal(queue->key, request.key)) return 0;
+    *title = {};
+    const auto& track = reinterpret_cast<const CollectionTrack*>(queue + 1)[request.track - 1];
+    *retry_at_ms = track.retry_at_ms;
+    title->bytes = track.title_bytes;
+    if (title->bytes) copy_bytes(title->text, queue->titles.data + track.title_offset, title->bytes);
+    *id = track.id;
+    return true;
+}
+
+bool account_media_collection_title_batch(AccountMedia* media, const AccountMediaCollectionTitleRequest& request,
+    SoundcloudTitleBatch* out) noexcept {
+    MediaTrackTitle title{}; MediaTrackId id{}; u64 retry{};
+    if (!out || !account_media_collection_title(media,request,&title,&id,&retry) || id.youtube_track || id.apple_track) return false;
+    const auto& queue=*media->collection;
+    if (!queue.client[0]) return false;
+    *out={}; copy_bytes(out->client,queue.client,sizeof(out->client));
+    const auto* records=reinterpret_cast<const CollectionTrack*>(&queue+1);
+    const u32 first=(request.track-1)/50*50, end=minimum<u32>(queue.count,first+50);
+    const u64 now=clock_monotonic_milliseconds();
+    for (u32 i=first;i<end;++i) if (!records[i].title_bytes && records[i].retry_at_ms<=now)
+        out->tracks[out->count++]={records[i].id.numeric,static_cast<u16>(i+1)};
+    return out->count!=0;
+}
+bool account_media_collection_title_store(AccountMedia* media, const AccountMediaCollectionTitleRequest& request,
+    const MediaTrackId& track_id, const MediaTrackTitle& title, u64 retry_at_ms) noexcept {
+    MediaTrackTitle ignored{}; MediaTrackId id{}; u64 retry{};
+    if (title.bytes > sizeof(title.text) ||
+        !account_media_collection_title(media, request, &ignored, &id, &retry) || !media_track_id_equal(id, track_id)) return false;
+    auto& queue = *media->collection;
+    auto& track = reinterpret_cast<CollectionTrack*>(&queue + 1)[request.track - 1];
+    if (!track.title_bytes && title.bytes) {
+        if (!collection_text_reserve(queue.titles, queue.titles.bytes + title.bytes)) return false;
+        track.title_offset = queue.titles.bytes; track.title_bytes = title.bytes;
+        copy_bytes(queue.titles.data + queue.titles.bytes, title.text, title.bytes); queue.titles.bytes += title.bytes;
+    }
+    track.retry_at_ms = title.bytes ? 0 : retry_at_ms;
+    return true;
+}
 void account_media_release_audio_source(AccountMedia* media) noexcept {
     if (!media)
         return;
@@ -1424,8 +1542,106 @@ struct AccountMediaUrlRequest {
     ID3D11Device* video_device;
     u64 catalog_scope;
     u32 catalog_generation;
+    bool progressive = false;
+    u64 provider_expires = 0;
+    CdnHost provider_host = CdnHost::none;
+    Utf8View companion_url{};
+    u16 collection_track{};
 };
 
+static bool collection_matches(const AccountMediaCollection* collection, const AccountMediaUrlRequest& request) noexcept {
+    return collection && media_asset_key_equal(collection->key, request.key) && collection->revision == request.source_message_revision &&
+        utf8_equal({collection->url, collection->url_bytes}, request.url);
+}
+static EmbedResolveResult load_collection(AccountMedia* media, const AccountMediaUrlRequest& request) noexcept {
+    auto* previous = collection_matches(media->collection, request) ? media->collection : nullptr;
+    const bool youtube = youtube_collection_locator(request.url).list.bytes != 0;
+    const bool apple = apple_music_collection_locator(request.url).id.bytes != 0;
+    if (previous && (!youtube || request.collection_track != previous->count || !previous->continuation_bytes))
+        return {EmbedPlayerError::none, UpdateTransportError::none, 0, 200};
+    u64 tracks[kMediaCollectionTracks]; SoundcloudCollection metadata{}; YoutubeCollectionPage page{};
+    struct Names {
+        CollectionText text;
+        u64* tracks;
+        bool append(u16 index, const MediaTrackTitle& title, Utf8View preview = {}) noexcept {
+            if (!collection_text_reserve(text, text.bytes + 6 + title.bytes + preview.bytes)) return false;
+            const u16 preview_bytes=static_cast<u16>(preview.bytes);
+            copy_bytes(text.data+text.bytes,&index,2); copy_bytes(text.data+text.bytes+2,&title.bytes,2); copy_bytes(text.data+text.bytes+4,&preview_bytes,2);
+            copy_bytes(text.data+text.bytes+6,title.text,title.bytes); copy_bytes(text.data+text.bytes+6+title.bytes,preview.data,preview.bytes);
+            text.bytes+=6+title.bytes+preview.bytes; return true;
+        }
+        ~Names() noexcept { if (text.data) VirtualFree(text.data, 0, MEM_RELEASE); }
+    } names{{},tracks};
+    const MediaTrackTitleSink sink{&names, +[](void* opaque, u16 index, const MediaTrackTitle& title) noexcept {
+        return static_cast<Names*>(opaque)->append(index,title);
+    }};
+    const AppleMusicCollectionSink album_sink{&names,+[](void* opaque,u16 index,u64 id,const MediaTrackTitle& title,Utf8View preview) noexcept {
+        auto& names=*static_cast<Names*>(opaque); names.tracks[index-1]=id; return names.append(index,title,preview);
+    }};
+    u16 album_count{};
+
+    Utf8View continuation{};
+    if (previous) continuation = {reinterpret_cast<const char*>(previous + 1) + previous->count * sizeof(CollectionTrack), previous->continuation_bytes};
+    auto resolved = youtube ? youtube_collection_resolve(media->provider_resolver, request.url, continuation, &page, {}, sink)
+        : apple ? apple_music_collection_resolve(media->provider_resolver,request.url,&album_count,album_sink)
+        : soundcloud_collection_resolve(media->provider_resolver, request.url, {tracks, kMediaCollectionTracks}, &metadata, {}, sink);
+    if (apple) metadata.count=album_count;
+    if (!resolved.ok()) return resolved;
+    u32 overlap = 0, old_count = previous ? previous->count : 0;
+    // Continuations can repeat the last item(s); remove only an exact boundary
+    // overlap. Repeated songs elsewhere in a playlist retain their positions.
+    if (previous) {
+        const auto* old = reinterpret_cast<const CollectionTrack*>(previous + 1);
+        for (u32 n = 1; n <= minimum<u32>(old_count, page.count); ++n) {
+            bool match = true;
+            for (u32 i = 0; i < n; ++i) if (!media_track_id_equal(old[old_count - n + i].id, page.tracks[i])) { match = false; break; }
+            if (match) overlap = n;
+        }
+        if (page.count == overlap || (continuation.bytes && utf8_equal(continuation, {page.continuation, page.continuation_bytes}))) return {EmbedPlayerError::unavailable};
+    }
+    const u32 count = youtube ? old_count + page.count - overlap : metadata.count;
+    if (count > kMediaCollectionTracks) return {EmbedPlayerError::capacity};
+    if (request.collection_track > count) return {EmbedPlayerError::invalid_input};
+    auto* collection = static_cast<AccountMediaCollection*>(VirtualAlloc(nullptr,
+        sizeof(AccountMediaCollection) + count * sizeof(CollectionTrack) + (youtube ? page.continuation_bytes : 0), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!collection) return {EmbedPlayerError::capacity};
+    if (previous) *collection = *previous;
+    collection->key = request.key;
+    if (!youtube) copy_bytes(collection->client, metadata.client, sizeof(metadata.client));
+    collection->revision = request.source_message_revision; collection->url_bytes = request.url.bytes;
+    copy_bytes(collection->url, request.url.data, request.url.bytes);
+    collection->count = static_cast<u16>(count);
+    if (!previous) collection->initial = youtube ? (page.selected ? page.selected : 1) : static_cast<u16>(metadata.selected + 1);
+    auto* ids = reinterpret_cast<CollectionTrack*>(collection + 1);
+    if (youtube) {
+        if (previous) copy_bytes(ids, previous + 1, old_count * sizeof(CollectionTrack));
+        for (u32 i = overlap; i < page.count; ++i) ids[old_count + i - overlap].id = page.tracks[i];
+        collection->continuation_bytes = page.continuation_bytes;
+        copy_bytes(ids + count, page.continuation, page.continuation_bytes);
+    } else for (u32 i = 0; i < count; ++i) { ids[i].id.numeric = tracks[i]; ids[i].id.apple_track=apple; }
+    if (media->collection) {
+        if (previous) VirtualFree(media->collection, 0, MEM_RELEASE);
+        else release_collection(media->collection);
+    }
+    media->collection = collection;
+    for (u32 at = 0; at + 6 <= names.text.bytes;) {
+        u16 ordinal{}, bytes{}, preview{};
+        copy_bytes(&ordinal,names.text.data+at,2); copy_bytes(&bytes,names.text.data+at+2,2); copy_bytes(&preview,names.text.data+at+4,2); at+=6;
+        if (u32{bytes}+preview > names.text.bytes-at || bytes>kMediaTrackTitleBytes) break;
+        if (ordinal > overlap) {
+            const u16 index = static_cast<u16>(old_count + ordinal - overlap);
+            MediaTrackTitle title{}; title.bytes = bytes; copy_bytes(title.text, names.text.data + at, bytes);
+            const AccountMediaCollectionTitleRequest query{request.key, request.source_message_revision, index};
+            account_media_collection_title_store(media, query, ids[index - 1].id, title, 0);
+            if (preview && collection_text_reserve(collection->titles,collection->titles.bytes+preview)) {
+                ids[index-1].preview_offset=collection->titles.bytes; ids[index-1].preview_bytes=preview;
+                copy_bytes(collection->titles.data+collection->titles.bytes,names.text.data+at+bytes,preview); collection->titles.bytes+=preview;
+            }
+        }
+        at += bytes+preview;
+    }
+    return resolved;
+}
 static bool decode_cached_mp4(AccountMedia* media, const AccountMediaUrlRequest& request,
                               u64 unix_now_seconds) noexcept {
     auto lease = encoded_media_cache_acquire(media->pipeline.cache, request.key, unix_now_seconds);
@@ -1454,37 +1670,49 @@ static bool decode_cached_mp4(AccountMedia* media, const AccountMediaUrlRequest&
     return true;
 }
 
-// Attachment MP4s start with a head range; continue_progressive drives the rest.
+static AccountMediaRequestResult queue_progressive(AccountMedia* media, const AccountMediaUrlRequest& request,
+    u64 now_ms, u64 unix_seconds) noexcept {
+    const auto client = ensure_client_started(media);
+    if (!client.ok()) return client;
+    if (cdn_client_status(&media->client).phase == CdnClientPhase::response_ready)
+        cdn_client_consume_response(&media->client,
+            [](void*, const CdnClientResponse&, ConstSlice<u8>) noexcept { return true; }, nullptr);
+    const auto next = progressive_video_fetch_next(media->progressive, false, unix_seconds);
+    if (next.step != ProgressiveVideoStep::submit || !submit_progressive(media, next.range))
+        return remember_failure(media, request.key, now_ms, result(AccountMediaRequestState::failed, AccountMediaError::client));
+    media->active_key = request.key;
+    media->active_source_message_id = request.source_message_id;
+    media->active_source_message_revision = request.source_message_revision;
+    media->active_proxy_width = request.proxy_width; media->active_proxy_height = request.proxy_height;
+    media->active_image_type = request.image_type;
+    media->progressive_active = media->active = true;
+    return result(AccountMediaRequestState::queued);
+}
+// Inline MP4s start with a head range; continue_progressive drives the rest.
 static AccountMediaRequestResult request_progressive(AccountMedia* media, const AccountMediaUrlRequest& request,
                                                      ConstSlice<u8> target, CdnHost host,
                                                      u64 expires_at_seconds, u64 monotonic_now_ms,
                                                      u64 unix_now_seconds) noexcept {
-    if (decode_cached_mp4(media, request, unix_now_seconds))
+    if (!media->collection && !request.companion_url.bytes && decode_cached_mp4(media, request, unix_now_seconds))
         return result(AccountMediaRequestState::ready);
     account_media_release_video(media);
     media->progressive = static_cast<ProgressiveVideoFetch*>(
         VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!media->progressive || !progressive_video_fetch_begin(media->progressive, target, host, expires_at_seconds))
+    if (!media->progressive || !progressive_video_fetch_begin(media->progressive, target, host, expires_at_seconds,
+            request.companion_url.bytes ? ProgressiveVideoKind::fragmented_video : ProgressiveVideoKind::movie))
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-    // A response left by a cancelled playback range belongs to no request.
-    if (cdn_client_status(&media->client).phase == CdnClientPhase::response_ready)
-        cdn_client_consume_response(
-            &media->client, [](void*, const CdnClientResponse&, ConstSlice<u8>) noexcept { return true; },
-            nullptr);
-    const auto next = progressive_video_fetch_next(media->progressive, false, unix_now_seconds);
-    if (next.step != ProgressiveVideoStep::submit || !submit_progressive(media, next.range)) {
-        AccountMediaRequestResult failure = result(AccountMediaRequestState::failed, AccountMediaError::client);
-        return remember_failure(media, request.key, monotonic_now_ms, failure);
+    if (request.companion_url.bytes) {
+        media->progressive_audio = static_cast<ProgressiveVideoFetch*>(
+            VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!media->progressive_audio || !progressive_video_fetch_begin(media->progressive_audio,
+                {reinterpret_cast<const u8*>(request.companion_url.data), request.companion_url.bytes}, host,
+                expires_at_seconds, ProgressiveVideoKind::fragmented_audio)) {
+            account_media_release_video(media); return result(AccountMediaRequestState::failed, AccountMediaError::memory);
+        }
+        media->progressive_audio->refreshable = false;
     }
-    media->active_key = request.key;
-    media->active_source_message_id = request.source_message_id;
-    media->active_source_message_revision = request.source_message_revision;
-    media->active_proxy_width = request.proxy_width;
-    media->active_proxy_height = request.proxy_height;
-    media->active_image_type = request.image_type;
-    media->progressive_active = true;
-    media->active = true;
-    return result(AccountMediaRequestState::queued);
+    media->progressive->refreshable = request.key.kind == MediaAssetKind::attachment;
+    return queue_progressive(media, request, monotonic_now_ms, unix_now_seconds);
 }
 
 // Spotify album art for activity cards: exactly https://i.scdn.co/image/<id>.
@@ -1506,6 +1734,8 @@ static MediaUrlResult parse_activity_art_url(Utf8View url, Slice<u8> target_outp
     return {target.count, CdnHost::activity_art, MediaUrlError::none};
 }
 
+static AccountMediaRequestResult request_provider_media(AccountMedia*, const AccountMediaUrlRequest&,
+                                                        u64, u64) noexcept;
 static AccountMediaRequestResult request_url_media(AccountMedia* media,
                                                    const AccountMediaUrlRequest& request,
                                                    u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
@@ -1552,19 +1782,32 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
                                              request.key.variant != request.source_message_revision))))) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
-    const AccountMediaFailure* failed = find_failure(media, request.key);
+    const bool collection = embed_collection_url(request.url);
+    const AccountMediaFailure* failed = collection ? nullptr : find_failure(media, request.key);
     if (failed && monotonic_now_ms < failed->retry_at_ms) {
         AccountMediaRequestResult waiting = result(AccountMediaRequestState::retry_wait);
         waiting.retry_at_ms = failed->retry_at_ms;
         return waiting;
     }
     clear_failure(media, request.key);
+    if (request.key.kind == MediaAssetKind::embed && request.provider_host == CdnHost::none &&
+        ((request.progressive && (embed_video_locator(request.url).id.bytes || youtube_collection_locator(request.url).list.bytes)) ||
+         (request.progressive && request.image_type == CdnImageType::m4a && (soundcloud_track_url(request.url) || collection)) ||
+         (request.image_type == CdnImageType::mp3 && (spotify_audio_locator(request.url).bytes || amazon_music_track_locator(request.url).id.bytes)) ||
+         ((request.image_type == CdnImageType::m4a || request.image_type == CdnImageType::mp4) &&
+          apple_music_track_locator(request.url).id.bytes)))
+        return request_provider_media(media, request, monotonic_now_ms, unix_now_seconds);
     u8 target[kCdnMaximumTargetBytes]{};
     u8 proxy_target[kCdnMaximumTargetBytes]{};
     u32 target_bytes = 0;
     CdnHost target_host = CdnHost::none;
     u64 expires_at_seconds = ~0ull;
-    if (attachment_key) {
+    if (request.provider_expires && embed_stream_location(request.provider_host, request.url)) {
+        copy_bytes(target, request.url.data, request.url.bytes);
+        target_bytes = request.url.bytes;
+        target_host = request.provider_host;
+        expires_at_seconds = request.provider_expires;
+    } else if (attachment_key) {
         const AttachmentUrlResult parsed = parse_signed_attachment_url(
             request.url, request.key.id, Slice<u8>{target, sizeof(target)});
         if (!parsed.ok()) {
@@ -1595,8 +1838,14 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
         target_host = parsed.host;
     }
     ConstSlice<u8> request_target{target, target_bytes};
+    if (request.companion_url.bytes && (!request.progressive || request.image_type != CdnImageType::mp4 ||
+        target_host != CdnHost::google_video || !embed_stream_location(target_host, request.companion_url)))
+        return result(AccountMediaRequestState::invalid, AccountMediaError::target);
     if (audio_image_type(request.image_type) &&
-        (!attachment_key || request.proxy_width || request.proxy_height))
+        ((!attachment_key && !(request.key.kind == MediaAssetKind::embed &&
+            ((request.image_type == CdnImageType::mp3 && (target_host == CdnHost::spotify_preview || target_host == CdnHost::amazon_music_preview)) ||
+             (request.image_type == CdnImageType::m4a && target_host == CdnHost::apple_music_preview)))) ||
+         request.proxy_width || request.proxy_height))
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     if (!catalog_key && request.proxy_width != 0 && request.image_type != CdnImageType::mp4) {
         const CdnTargetResult proxied = write_media_proxy_target(
@@ -1641,7 +1890,7 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
             auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
             return remember_failure(media, request.key, monotonic_now_ms, failure);
         }
-        etag = cached.etag;
+        etag = embed_audio_preview_limit(target_host) ? ConstSlice<u8>{} : cached.etag;
     } else if (lottie_asset(request.key)) {
         auto lease = encoded_media_cache_acquire(media->pipeline.cache, request.key, unix_now_seconds);
         const bool fresh = lease.acquired && lease.lookup.state == EncodedMediaCacheLookupState::fresh;
@@ -1792,7 +2041,7 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
     if (!client.ok()) {
         return remember_failure(media, request.key, monotonic_now_ms, client);
     }
-    if (attachment_key && request.image_type == CdnImageType::mp4)
+    if ((attachment_key || request.progressive) && request.image_type == CdnImageType::mp4)
         return request_progressive(media, request, request_target, target_host, expires_at_seconds,
                                    monotonic_now_ms, unix_now_seconds);
     if (++media->request_id == 0) {
@@ -1818,14 +2067,234 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
     return result(AccountMediaRequestState::queued);
 }
 
+static AccountMediaRequestResult request_provider_media(AccountMedia* media, const AccountMediaUrlRequest& request,
+    u64 now_ms, u64 unix_seconds) noexcept {
+    if (media->frame_ready)
+        return result(media_asset_key_equal(media->frame_key, request.key) ? AccountMediaRequestState::ready
+                                                                         : AccountMediaRequestState::busy);
+    if (media->active)
+        return result(media_asset_key_equal(media->active_key, request.key) ? AccountMediaRequestState::pending
+                                                                          : AccountMediaRequestState::busy);
+    const bool collection = embed_collection_url(request.url);
+    const bool resident_collection = collection_matches(media->collection, request);
+    const bool same_track = collection ? resident_collection &&
+        (!request.collection_track || media->collection->selected == request.collection_track) :
+        !media->collection || !media_asset_key_equal(media->collection->key, request.key);
+    if (same_track && (account_media_video_matches(media, request.key, 0) || account_media_audio_matches(media, request.key, 0)))
+        return result(AccountMediaRequestState::ready);
+    auto locator = embed_video_locator(request.url);
+    auto* resolver = media->provider_resolver;
+    if (!resolver && locator.provider != EmbedProvider::imgur) {
+        resolver = static_cast<EmbedResolver*>(VirtualAlloc(nullptr, sizeof(EmbedResolver),
+            MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!resolver) return result(AccountMediaRequestState::failed, AccountMediaError::memory);
+        InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&media->provider_resolver), resolver);
+    }
+    if (resolver && media->audio_cancelled && media->audio_cancelled(media->audio_cancel_context))
+        embed_resolver_cancel(resolver);
+    EmbedStreams streams{};
+    bool episode=false;
+    const auto track = spotify_audio_locator(request.url,&episode);
+    const auto apple = apple_music_track_locator(request.url);
+    const auto amazon = amazon_music_track_locator(request.url);
+    const bool youtube_collection = youtube_collection_locator(request.url).list.bytes != 0;
+    const bool apple_collection = apple_music_collection_locator(request.url).id.bytes != 0;
+    if ((!youtube_collection && !apple_collection && collection) || soundcloud_track_url(request.url)) {
+        if (!request.progressive || request.image_type != CdnImageType::m4a)
+            return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+        char track_url[128]; auto page = request.url; u16 selected = 0;
+        if (collection) {
+            const auto loaded = load_collection(media, request);
+            if (!loaded.ok()) {
+                auto failure = result(loaded.error == EmbedPlayerError::invalid_input ? AccountMediaRequestState::invalid :
+                    AccountMediaRequestState::failed, AccountMediaError::http);
+                failure.retry_at_ms = deadline_after(now_ms, loaded.retry_after_seconds ? u64{loaded.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs);
+                return failure;
+            }
+            auto& queue = *media->collection;
+            selected = request.collection_track ? request.collection_track : queue.initial;
+            if (selected > queue.count) return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+            if (queue.failed_track == selected && now_ms < queue.retry_at_ms) {
+                auto waiting = result(AccountMediaRequestState::retry_wait); waiting.retry_at_ms = queue.retry_at_ms; return waiting;
+            }
+            ProtocolWriter writer{{reinterpret_cast<u8*>(track_url), sizeof(track_url)}, 0};
+            if (!protocol_writer_append_literal(&writer, "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/") ||
+                !protocol_writer_append_u64(&writer, reinterpret_cast<const CollectionTrack*>(&queue + 1)[selected - 1].id.numeric))
+                return result(AccountMediaRequestState::failed, AccountMediaError::target);
+            page = {track_url, writer.used};
+        } else if (media->collection) { release_collection(media->collection); media->collection = nullptr; }
+        account_media_release_audio_source(media);
+        account_media_release_video(media);
+        if (collection) media->collection->selected = 0;
+        media->progressive = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!media->progressive) return result(AccountMediaRequestState::failed, AccountMediaError::memory);
+        const auto resolved = soundcloud_resolve(resolver, page, media->progressive);
+        if (!resolved.ok()) {
+            account_media_release_video(media);
+            auto failure = result(resolved.error == EmbedPlayerError::unsupported || resolved.error == EmbedPlayerError::not_embeddable
+                ? AccountMediaRequestState::unsupported : AccountMediaRequestState::failed, AccountMediaError::http);
+            if (resolved.retry_after_seconds) failure.retry_at_ms = deadline_after(now_ms, u64{resolved.retry_after_seconds} * 1000);
+            if (collection) {
+                media->collection->failed_track = selected;
+                media->collection->retry_at_ms = failure.retry_at_ms ? failure.retry_at_ms : deadline_after(now_ms, kAccountMediaFailureRetryMs);
+                failure.retry_at_ms = media->collection->retry_at_ms;
+                return failure;
+            }
+            return remember_failure(media, request.key, now_ms, failure);
+        }
+        if (collection) { media->collection->selected = selected; media->collection->failed_track = 0; media->collection->retry_at_ms = 0; }
+        return queue_progressive(media, request, now_ms, unix_seconds);
+    }
+    if (youtube_collection || apple_collection) {
+        const auto loaded = load_collection(media, request);
+        if (!loaded.ok()) {
+            auto failure = result(AccountMediaRequestState::failed, AccountMediaError::http);
+            failure.retry_at_ms = deadline_after(now_ms, loaded.retry_after_seconds ? u64{loaded.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs);
+            return failure;
+        }
+        const u16 wanted = request.collection_track ? request.collection_track : media->collection->initial;
+        if (wanted == media->collection->count && media->collection->continuation_bytes) {
+            auto extend = request; extend.collection_track = wanted;
+            const auto next = load_collection(media, extend);
+            if (!next.ok()) {
+                auto failed = result(AccountMediaRequestState::failed, AccountMediaError::http);
+                failed.retry_at_ms = deadline_after(now_ms, next.retry_after_seconds ? u64{next.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs); return failed;
+            }
+        }
+        auto& queue = *media->collection;
+        const u16 selected = wanted;
+        if (!selected || selected > queue.count) return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+        account_media_release_audio_source(media);
+        account_media_release_video(media);
+        queue.selected = selected;
+        const auto& item=reinterpret_cast<const CollectionTrack*>(&queue+1)[selected-1];
+        if (apple_collection) {
+            // The embed key is stable across songs; discard the previous song's encoded cache entry.
+            encoded_media_cache_erase(media->pipeline.cache,request.key);
+            if (!item.preview_bytes) return result(AccountMediaRequestState::unsupported,AccountMediaError::http);
+            streams.audio.url_bytes=item.preview_bytes; streams.expires_seconds=3600;
+            copy_bytes(streams.audio.url,queue.titles.data+item.preview_offset,item.preview_bytes);
+        } else {
+            locator.id = {item.id.youtube, 11};
+            locator.provider = EmbedProvider::youtube_music;
+        }
+    } else if (media->collection) { release_collection(media->collection); media->collection = nullptr; }
+    if (locator.provider == EmbedProvider::steam || locator.provider == EmbedProvider::twitch_vod || locator.provider == EmbedProvider::twitch_live || locator.provider == EmbedProvider::vimeo) {
+        const bool vimeo = locator.provider == EmbedProvider::vimeo;
+        Utf8View privacy_hash{};
+        if (vimeo) vimeo_video_id(request.url, &privacy_hash);
+        const bool live = locator.provider == EmbedProvider::twitch_live;
+        const bool vod = live || locator.provider == EmbedProvider::twitch_vod;
+        const auto steam = steam_video_locator(request.url);
+        if (!request.progressive || request.image_type != CdnImageType::mp4 || !(vod || vimeo ? locator.id.bytes : steam.app.bytes))
+            return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+        account_media_release_video(media);
+        media->progressive = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        media->progressive_audio = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!media->progressive || !media->progressive_audio) {
+            account_media_release_video(media); return result(AccountMediaRequestState::failed, AccountMediaError::memory);
+        }
+        const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
+        const auto resolved = vimeo ? vimeo_resolve(resolver, locator.id, height, unix_seconds, media->progressive, media->progressive_audio, {}, privacy_hash)
+            : vod ? twitch_hls_resolve(resolver, locator.id, height, unix_seconds, media->progressive, media->progressive_audio, {}, live)
+            : steam_resolve(resolver, steam.app, steam.movie, height, media->progressive, media->progressive_audio);
+        if (!resolved.ok()) {
+            account_media_release_video(media);
+            auto failure = result(resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
+                                                                                : AccountMediaRequestState::failed, AccountMediaError::http);
+            if (resolved.retry_after_seconds) failure.retry_at_ms = deadline_after(now_ms, u64{resolved.retry_after_seconds} * 1000);
+            return remember_failure(media, request.key, now_ms, failure);
+        }
+        if (media->progressive_audio->state == ProgressiveVideoFetchState::empty) {
+            VirtualFree(media->progressive_audio, 0, MEM_RELEASE); media->progressive_audio = nullptr;
+        }
+        return queue_progressive(media, request, now_ms, unix_seconds);
+    }
+    const bool preview = apple_collection || track.bytes || amazon.id.bytes || (apple.id.bytes && !apple.video);
+    if (apple.id.bytes && (apple.video ? !request.progressive || request.image_type != CdnImageType::mp4
+                                     : request.image_type != CdnImageType::m4a))
+        return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+    const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
+    // Imgur's single-image MP4 mapping needs no metadata exchange. A resolved
+    // provider_host also prevents re-entering this route for its direct URL.
+    const auto resolved = apple_collection ? EmbedResolveResult{EmbedPlayerError::none,UpdateTransportError::none,0,200}
+        : locator.provider == EmbedProvider::imgur
+        ? EmbedResolveResult{imgur_video_streams(locator.id,&streams),UpdateTransportError::none,0,200}
+        : track.bytes ? spotify_preview_resolve(resolver, track, unix_seconds, &streams,{},episode)
+        : amazon.id.bytes ? amazon_music_preview_resolve(resolver, request.url, unix_seconds, &streams)
+        : apple.id.bytes ? apple_music_preview_resolve(resolver, apple.id, apple.country, unix_seconds, &streams, {}, apple.video)
+        : locator.provider == EmbedProvider::tiktok
+        ? tiktok_resolve(resolver, locator.id, height, unix_seconds, &streams)
+        : locator.provider == EmbedProvider::twitch
+            ? twitch_clip_resolve(resolver, locator.id, height, unix_seconds, &streams)
+        : locator.provider == EmbedProvider::streamable
+            ? streamable_resolve(resolver, locator.id, height, unix_seconds, &streams)
+        : locator.provider == EmbedProvider::pornhub
+            ? pornhub_resolve(resolver, locator.id, height, unix_seconds, &streams)
+        : locator.provider == EmbedProvider::twitter
+            ? twitter_resolve(resolver, locator.id, height, unix_seconds, &streams, {}, twitter_video_locator(request.url).media_index)
+            : youtube_resolve(resolver, locator.id, height, &streams);
+    if(resolved.ok() && streams.live) {
+        if(!request.progressive || request.image_type!=CdnImageType::mp4) {
+            secure_clear_bytes(&streams,sizeof(streams));return result(AccountMediaRequestState::unsupported,AccountMediaError::invalid_input);
+        }
+        account_media_release_video(media);
+        media->progressive=static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr,sizeof(ProgressiveVideoFetch),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+        media->progressive_audio=static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr,sizeof(ProgressiveVideoFetch),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+        const auto live=media->progressive && media->progressive_audio
+            ? youtube_hls_resolve(resolver,{streams.video.url,streams.video.url_bytes},height,unix_seconds,media->progressive,media->progressive_audio)
+            : EmbedResolveResult{EmbedPlayerError::capacity};
+        secure_clear_bytes(&streams,sizeof(streams));
+        if(!live.ok()) {
+            account_media_release_video(media);
+            auto failure=result(live.error==EmbedPlayerError::unsupported?AccountMediaRequestState::unsupported:AccountMediaRequestState::failed,
+                live.error==EmbedPlayerError::capacity?AccountMediaError::memory:AccountMediaError::http);
+            if(live.retry_after_seconds) failure.retry_at_ms=deadline_after(now_ms,u64{live.retry_after_seconds}*1000);
+            return remember_failure(media,request.key,now_ms,failure);
+        }
+        return queue_progressive(media,request,now_ms,unix_seconds);
+    }
+    if (!resolved.ok() || (preview ? !streams.audio.url_bytes : !streams.video.url_bytes ||
+        (!streams.combined && !streams.audio.url_bytes))) {
+        auto failure = result(resolved.ok() || resolved.error == EmbedPlayerError::login_required ||
+                              resolved.error == EmbedPlayerError::not_embeddable ||
+                              resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
+                                                                                 : AccountMediaRequestState::failed,
+                              AccountMediaError::http);
+        if (resolved.retry_after_seconds) failure.retry_at_ms = deadline_after(now_ms, u64{resolved.retry_after_seconds} * 1000);
+        secure_clear_bytes(&streams, sizeof(streams));
+        return remember_failure(media, request.key, now_ms, failure);
+    }
+    auto source = request;
+    const auto& selected = preview ? streams.audio : streams.video;
+    source.url = {selected.url, selected.url_bytes};
+    source.provider_expires = unix_seconds + streams.expires_seconds;
+    source.provider_host = track.bytes ? CdnHost::spotify_preview : amazon.id.bytes ? CdnHost::amazon_music_preview : (apple.id.bytes || apple_collection)
+        ? (apple.video ? CdnHost::apple_music_video_preview : CdnHost::apple_music_preview)
+        : locator.provider == EmbedProvider::tiktok ? CdnHost::tiktok_video
+        : locator.provider == EmbedProvider::twitch ? CdnHost::twitch_video
+        : locator.provider == EmbedProvider::streamable ? CdnHost::streamable_video
+        : locator.provider == EmbedProvider::pornhub ? CdnHost::pornhub_video
+        : locator.provider == EmbedProvider::twitter ? CdnHost::twitter_video
+        : locator.provider == EmbedProvider::imgur ? CdnHost::imgur_video : CdnHost::google_video;
+    if (!preview && !streams.combined) source.companion_url = {streams.audio.url, streams.audio.url_bytes};
+    const auto requested = request_url_media(media, source, now_ms, unix_seconds);
+    secure_clear_bytes(&streams, sizeof(streams));
+    return requested;
+}
 AccountMediaRequestResult account_media_request_attachment(AccountMedia* media,
                                                            const AccountMediaAttachmentRequest& request,
                                                            u64 monotonic_now_ms,
                                                            u64 unix_now_seconds) noexcept {
-    if (request.reserved[0] || request.reserved[1] || request.reserved[2] ||
+    if (request.options.progressive > 1 || request.options.reserved[0] || request.options.reserved[1] ||
+        request.options.collection_track > kMediaCollectionTracks ||
+        (request.options.collection_track && (!request.options.progressive || (!(soundcloud_collection_url(request.signed_url) || apple_music_collection_locator(request.signed_url).id.bytes) || request.image_type != CdnImageType::m4a) &&
+            (!youtube_collection_locator(request.signed_url).list.bytes || request.image_type != CdnImageType::mp4))) ||
+        (request.options.progressive &&
+         (request.key.kind != MediaAssetKind::embed || (request.image_type != CdnImageType::mp4 && request.image_type != CdnImageType::m4a))) ||
         request.key.kind == MediaAssetKind::catalog_preview)
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    const AccountMediaUrlRequest source{request.signed_url,
+    AccountMediaUrlRequest source{request.signed_url,
                                         request.key,
                                         request.source_message_id,
                                         request.source_message_revision,
@@ -1834,7 +2303,9 @@ AccountMediaRequestResult account_media_request_attachment(AccountMedia* media,
                                         request.image_type,
                                         request.video_device,
                                         0,
-                                        0};
+                                        0,
+                                        request.options.progressive != 0};
+    source.collection_track = request.options.collection_track;
     return request_url_media(media, source, monotonic_now_ms, unix_now_seconds);
 }
 
@@ -1990,14 +2461,17 @@ bool account_media_pump(AccountMedia* media, u64 monotonic_now_ms, u64 unix_now_
         return true;
     }
     const CdnClientResult status = cdn_client_status(&media->client);
-    if (status.phase != CdnClientPhase::response_ready) {
+    if (status.phase != CdnClientPhase::response_ready && !media->progressive_continue) {
         return status.phase != CdnClientPhase::failed;
     }
+    if (status.phase == CdnClientPhase::failed) return false;
+    if (status.phase == CdnClientPhase::response_ready) {
     ConsumeContext context{media, monotonic_now_ms};
     const CdnClientTakeResult consumed =
         cdn_client_consume_response(&media->client, consume_response, &context);
     if (!consumed.ok()) {
         return false;
+    }
     }
     if (media->progressive_continue) {
         media->progressive_continue = false;
@@ -2531,6 +3005,7 @@ bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept {
         }
     }
     account_media_release_audio_source(media);
+    if (media->collection) { release_collection(media->collection); media->collection = nullptr; }
     if (media->allocation) {
         VirtualFree(media->allocation, 0, MEM_RELEASE);
     }
@@ -2564,6 +3039,10 @@ bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept {
     account_media_release_video(media);
     if (media->mp4_decoder && media->mp4_decoder != &media->owned_mp4_decoder)
         VirtualFree(media->mp4_decoder, 0, MEM_RELEASE);
+    if (media->provider_resolver) {
+        embed_resolver_release(media->provider_resolver);
+        VirtualFree(media->provider_resolver, 0, MEM_RELEASE);
+    }
     SecureZeroMemory(media, sizeof(*media));
     return true;
 }
@@ -2578,15 +3057,92 @@ void account_media_release_video(AccountMedia* media) noexcept {
         VirtualFree(media->progressive, 0, MEM_RELEASE);
         media->progressive = nullptr;
     }
+    if (media->progressive_audio) {
+        progressive_video_fetch_release(media->progressive_audio);
+        VirtualFree(media->progressive_audio, 0, MEM_RELEASE); media->progressive_audio = nullptr;
+    }
 }
 
-bool account_media_submit_progressive(AccountMedia* media, CdnByteRange range) noexcept {
-    return media && media->progressive && media->client_started && submit_progressive(media, range);
+bool account_media_submit_progressive(AccountMedia* media, CdnByteRange range, bool audio) noexcept {
+    auto* fetch = media ? (audio ? media->progressive_audio : media->progressive) : nullptr;
+    return fetch && media->client_started && submit_progressive(media, range, fetch);
+}
+ProgressiveVideoAccept account_media_accept_progressive(AccountMedia* media, const CdnClientResponse& response,
+                                                         ConstSlice<u8> body) noexcept {
+    if (!media || !response.request_id) return ProgressiveVideoAccept::ignored;
+    ProgressiveVideoFetch* sources[]{media->progressive, media->progressive_audio};
+    for (auto* fetch : sources)
+        if (fetch && fetch->inflight_id == response.request_id) {
+            u64 reference=0;
+            const auto* peer=fetch==sources[0]?sources[1]:sources[0];
+            if(fetch->segmented && fetch->segmented->initialization && fetch->segmented->playlist.transport &&
+                peer && peer->segmented && peer->segmented->store.transport && peer->segmented->store.initialization.base) {
+                // First-file arrival order must not pick two different epochs
+                // when the 33-bit transport clock wraps between audio/video.
+                const auto& track=peer->segmented->store.track;
+                if(track.media_start>=0 && track.timescale) {
+                    const u64 first=static_cast<u64>(track.media_start),seconds=first/track.timescale;
+                    if(seconds<(~u64{0})/90000) reference=seconds*90000+(first%track.timescale)*90000/track.timescale;
+                }
+            }
+            return progressive_video_fetch_accept(fetch, response.request_id, response.transport_ok(),
+                                                   cdn_client_response_policy(response), body,reference);
+        }
+    return ProgressiveVideoAccept::ignored;
+}
+ProgressiveVideoNext account_media_progressive_next(AccountMedia* media, bool read_ahead, u64 now,
+                                                    ProgressiveVideoFetch** selected) noexcept {
+    if (!media || !media->progressive || !selected) return {{}, ProgressiveVideoStep::failed};
+    auto* video = media->progressive; auto* audio = media->progressive_audio;
+    ProgressiveVideoFetch* sources[]{video, audio};
+    const auto pending = progressive_video_fetch_pending;
+    for (auto* f : sources) if (f) {
+        if (!f->segmented) progressive_source_evict(&f->source, progressive_source_budget(f->source));
+        if (f->state == ProgressiveVideoFetchState::failed) {
+            video->state = ProgressiveVideoFetchState::failed; *selected = f; return {{}, ProgressiveVideoStep::failed};
+        }
+    }
+    // One shared CDN request at a time. Urgent audio may preempt video read-ahead
+    // after a seek; the cancelled response must retire before another submit.
+    for (auto* f : sources) if (f && f->inflight_id) {
+        *selected = f;
+        if (f == video && pending(audio) && !f->cancelling) return {{}, ProgressiveVideoStep::cancel};
+        return progressive_video_fetch_next(f, read_ahead, now);
+    }
+    for (auto* f : sources) if (f && f->state != ProgressiveVideoFetchState::ready) {
+        *selected = f; return progressive_video_fetch_next(f, false, now);
+    }
+    const auto synchronized = video->kind == ProgressiveVideoKind::fragmented_audio
+        ? Mp4DemuxError::none : segmented_video_synchronize(video, audio);
+    if (synchronized == Mp4DemuxError::data_pending) {
+        for (auto* f : sources) if (pending(f)) { *selected = f; return progressive_video_fetch_next(f, false, now); }
+    }
+    if (synchronized != Mp4DemuxError::none) {
+        video->state = ProgressiveVideoFetchState::failed; *selected = video; return {{}, ProgressiveVideoStep::failed};
+    }
+    ProgressiveVideoFetch* ordered[]{pending(audio) ? audio : video, pending(audio) ? video : audio};
+    for (auto* f : ordered) if (pending(f)) {
+        const auto next = progressive_video_fetch_next(f, false, now);
+        if (next.step != ProgressiveVideoStep::idle) { *selected = f; return next; }
+    }
+    // Fill the much smaller audio window first; video uses the remaining turns.
+    ProgressiveVideoFetch* ahead[]{audio, video};
+    for (auto* f : ahead) if (f) {
+        const auto next = progressive_video_fetch_next(f, read_ahead, now);
+        if (next.step != ProgressiveVideoStep::idle) { *selected = f; return next; }
+    }
+    *selected = video; return {};
+}
+void account_media_cancel_provider(AccountMedia* media) noexcept {
+    if (!media) return;
+    auto* resolver = static_cast<EmbedResolver*>(InterlockedCompareExchangePointer(
+        reinterpret_cast<void* volatile*>(&media->provider_resolver), nullptr, nullptr));
+    if (resolver) embed_resolver_cancel(resolver);
 }
 
 void account_media_cache_progressive(AccountMedia* media, MediaAssetKey key) noexcept {
     auto* fetch = media ? media->progressive : nullptr;
-    if (!fetch || fetch->cached || !progressive_source_complete(fetch->source) ||
+    if (!fetch || fetch->kind != ProgressiveVideoKind::movie || fetch->cached || !progressive_source_complete(fetch->source) ||
         fetch->source.total_bytes > kAccountMediaProgressiveCacheMaximumBytes)
         return;
     fetch->cached = true;

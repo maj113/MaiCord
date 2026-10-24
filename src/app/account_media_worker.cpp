@@ -1,9 +1,11 @@
 #include "maicord/app/account_media_worker.hpp"
+#include "maicord/app/embed_resolver.hpp"
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/mp4_decoder.hpp"
+#include "maicord/protocol/embed_provider.hpp"
 #include "account_media_video_internal.hpp"
 #include "maicord/sys/d3d11.hpp"
 
@@ -20,6 +22,7 @@ __forceinline AccountMediaWorkerPhase load_phase(const AccountMediaWorkerLane* l
 
 __forceinline bool frame_available(const AccountMediaWorkerLane* lane) noexcept {
     return ReadAcquire(&lane->phase) == phase_value(AccountMediaWorkerPhase::output_ready) &&
+           lane->completed.kind != AccountMediaWorkKind::collection_title &&
            !(lane->completed.kind == AccountMediaWorkKind::local_draft_preview &&
              ReadAcquire(&lane->local_retired)) &&
            lane->completed_result.state == AccountMediaRequestState::ready;
@@ -149,8 +152,11 @@ bool same_work(const AccountMediaWorkItem& left, const AccountMediaWorkItem& rig
     }
     if (left.kind == AccountMediaWorkKind::attachment) {
         return left.source_message_id == right.source_message_id &&
-               left.source_message_revision == right.source_message_revision;
+               left.source_message_revision == right.source_message_revision && left.collection_track == right.collection_track;
     }
+    if (left.kind == AccountMediaWorkKind::collection_title)
+        return media_track_id_equal(left.title_track, right.title_track) && left.collection_track == right.collection_track &&
+            left.source_message_revision == right.source_message_revision;
     if (left.kind == AccountMediaWorkKind::catalog_preview)
         return left.catalog_scope == right.catalog_scope &&
                left.catalog_generation == right.catalog_generation;
@@ -340,8 +346,54 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
     return result;
 }
 
-AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& work) noexcept {
+AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, AccountMediaWorkItem& work) noexcept {
     switch (work.kind) {
+    case AccountMediaWorkKind::collection_title: {
+        auto* resolver = lane->media.provider_resolver;
+        if (!resolver) {
+            resolver = static_cast<EmbedResolver*>(VirtualAlloc(nullptr, sizeof(EmbedResolver), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            if (!resolver) return request_result(AccountMediaRequestState::failed, AccountMediaError::memory);
+            InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&lane->media.provider_resolver), resolver);
+        }
+        if (WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0) embed_resolver_cancel(resolver);
+        MediaTrackTitle title{}; EmbedResolveResult fetched{};
+        if (work.title_batch) {
+            SoundcloudTitleBatch batch{};
+            if (work.text_bytes != sizeof(batch)) return request_result(AccountMediaRequestState::invalid,AccountMediaError::invalid_input);
+            copy_bytes(&batch,work.text,sizeof(batch)); work.text_bytes=0;
+            struct Output { AccountMediaWorkerLane* lane; const SoundcloudTitleBatch* batch; } output{lane,&batch};
+            if (lane->collection_titles) VirtualFree(lane->collection_titles,0,MEM_RELEASE);
+            lane->collection_titles=nullptr; lane->collection_title_bytes=lane->collection_title_committed=0;
+            const MediaTrackTitleSink sink{&output,+[](void* opaque,u16 index,const MediaTrackTitle& title) noexcept {
+                auto& o=*static_cast<Output*>(opaque); auto& lane=*o.lane;
+                const u32 required=lane.collection_title_bytes+12+title.bytes;
+                constexpr u32 capacity=32768;
+                if (required>capacity) return false;
+                if (!lane.collection_titles) lane.collection_titles=static_cast<char*>(VirtualAlloc(nullptr,capacity,MEM_RESERVE,PAGE_READWRITE));
+                if (!lane.collection_titles) return false;
+                if (required>lane.collection_title_committed) {
+                    const u32 committed=(required+4095)&~4095u;
+                    if (!VirtualAlloc(lane.collection_titles,committed,MEM_COMMIT,PAGE_READWRITE)) return false;
+                    lane.collection_title_committed=committed;
+                }
+                u64 id=0; for (u32 i=0;i<o.batch->count;++i) if (o.batch->tracks[i].index==index) { id=o.batch->tracks[i].id; break; }
+                if (!id) return false;
+                char* p=lane.collection_titles+lane.collection_title_bytes;
+                copy_bytes(p,&index,2); copy_bytes(p+2,&title.bytes,2); copy_bytes(p+4,&id,8); copy_bytes(p+12,title.text,title.bytes);
+                lane.collection_title_bytes=required; return true;
+            }};
+            fetched=soundcloud_batch_titles_resolve(resolver,batch,work.collection_track,sink);
+            if (!fetched.ok()) lane->collection_title_bytes=0;
+        } else {
+            fetched = work.title_track.youtube_track ? youtube_title_resolve(resolver, {work.title_track.youtube, 11}, &title) : soundcloud_title_resolve(resolver, work.title_track.numeric, &title);
+            work.text_bytes=fetched.ok()?title.bytes:0; copy_bytes(work.text,title.text,work.text_bytes);
+        }
+        auto result = request_result(fetched.ok() ? AccountMediaRequestState::ready : AccountMediaRequestState::failed,
+            fetched.ok() ? AccountMediaError::none : AccountMediaError::http);
+        if (!fetched.ok()) result.retry_at_ms = deadline_after(clock_monotonic_milliseconds(),
+            fetched.retry_after_seconds ? u64{fetched.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs);
+        return result;
+    }
     case AccountMediaWorkKind::local_draft_preview:
         return execute_local_preview(lane, work);
     case AccountMediaWorkKind::static_asset:
@@ -362,7 +414,7 @@ AccountMediaRequestResult execute(AccountMediaWorkerLane* lane, const AccountMed
                                                     work.proxy_width,
                                                     work.proxy_height,
                                                     work.image_type,
-                                                    {0, 0, 0},
+                                                    {work.progressive, {0, 0}, work.collection_track},
                                                     work.video_device};
         return account_media_request_attachment(&lane->media, request, work.monotonic_now_ms,
                                                 work.unix_now_seconds);
@@ -403,11 +455,11 @@ bool wait_for_network(AccountMediaWorkerLane* lane, AccountMediaRequestResult* r
             return false;
         }
         HANDLE handles[2]{lane->owner->stop_event, notification};
-        const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, lane->media.progressive_continue ? 0 : INFINITE);
         if (waited == WAIT_OBJECT_0) {
             return false;
         }
-        if (waited != WAIT_OBJECT_0 + 1) {
+        if (waited != WAIT_OBJECT_0 + 1 && waited != WAIT_TIMEOUT) {
             *result = asynchronous_failure(lane);
             return false;
         }
@@ -445,6 +497,12 @@ void publish(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& completed
         const auto encoded = encoded_media_cache_find(lane->media.pipeline.cache, lane->media.frame_key, 0);
         if (encoded.found() && encoded.generation == lane->media.frame_cache_generation)
             lane->completed_content_identity = encoded.content_identity;
+    }
+    if (completed.collection) {
+        const auto collection = account_media_collection_state(&lane->media, completed.key, false);
+        result.collection_count = collection.count;
+        result.collection_track = collection.track;
+        result.collection_more = collection.more;
     }
     lane->completed = completed;
     lane->completed_result = result;
@@ -523,7 +581,7 @@ DWORD WINAPI media_worker_entry(void* opaque) noexcept {
         }
 
         // A new request cannot replace the command while this worker is busy.
-        const AccountMediaWorkItem& work = lane->command;
+        AccountMediaWorkItem& work = lane->command;
         account_media_release_audio_source(&lane->media);
         account_media_trim_scanlines(&lane->media);
         // A composer poster was copied into the atlas when its frame was taken;
@@ -589,6 +647,48 @@ void reclaim_leased_lanes(AccountMediaWorker* worker) noexcept {
     }
 }
 
+bool collection_readable(AccountMediaWorkerPhase phase) noexcept {
+    return phase == AccountMediaWorkerPhase::idle || phase == AccountMediaWorkerPhase::leased ||
+        phase == AccountMediaWorkerPhase::output_ready || phase == AccountMediaWorkerPhase::selected_video;
+}
+AccountMedia* collection_title_owner(AccountMediaWorker* worker, const AccountMediaCollectionTitleRequest& request,
+    MediaTrackTitle* title, MediaTrackId* id, u64* retry) noexcept {
+    for (auto& lane : worker->lanes) if (collection_readable(load_phase(&lane))) {
+        if (account_media_collection_title(&lane.media, request, title, id, retry)) return &lane.media;
+    }
+    return nullptr;
+}
+void collect_collection_titles(AccountMediaWorker* worker) noexcept {
+    for (auto& lane : worker->lanes) {
+        if (load_phase(&lane) != AccountMediaWorkerPhase::output_ready || lane.completed.kind != AccountMediaWorkKind::collection_title) continue;
+        const auto& work = lane.completed;
+        AccountMediaCollectionTitleRequest request{work.key, work.source_message_revision, work.collection_track};
+        MediaTrackTitle title{}, cached{}; MediaTrackId id{}; u64 retry{};
+        if (auto* owner=collection_title_owner(worker,request,&cached,&id,&retry); owner && media_track_id_equal(id,work.title_track)) {
+            bool found=false;
+            if (work.title_batch && lane.completed_result.state==AccountMediaRequestState::ready) {
+                for (u32 at=0;at+12<=lane.collection_title_bytes;) {
+                    u16 index{},bytes{}; MediaTrackId item{};
+                    copy_bytes(&index,lane.collection_titles+at,2); copy_bytes(&bytes,lane.collection_titles+at+2,2); copy_bytes(&item.numeric,lane.collection_titles+at+4,8); at+=12;
+                    if (bytes>lane.collection_title_bytes-at || bytes>sizeof(title.text)) break;
+                    title.bytes=bytes; copy_bytes(title.text,lane.collection_titles+at,bytes); at+=bytes;
+                    auto query=request; query.track=index;
+                    const bool stored=account_media_collection_title_store(owner,query,item,title,0);
+                    found=found || (stored && index==request.track);
+                }
+            } else if (!work.title_batch && lane.completed_result.state==AccountMediaRequestState::ready && work.text_bytes<=sizeof(title.text)) {
+                title.bytes=work.text_bytes; copy_bytes(title.text,work.text,title.bytes);
+                found=account_media_collection_title_store(owner,request,id,title,0);
+            }
+            if (!found) account_media_collection_title_store(owner,request,id,{},lane.completed_result.retry_at_ms ?
+                lane.completed_result.retry_at_ms : deadline_after(clock_monotonic_milliseconds(),kAccountMediaFailureRetryMs));
+        }
+        if (lane.collection_titles) VirtualFree(lane.collection_titles,0,MEM_RELEASE);
+        lane.collection_titles=nullptr; lane.collection_title_bytes=lane.collection_title_committed=0;
+        lane.media.frame_ready = false;
+        store_phase(&lane, AccountMediaWorkerPhase::idle);
+    }
+}
 AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWorkItem& work) noexcept {
     if (!worker || !worker->initialized || work.kind == AccountMediaWorkKind::none ||
         !media_asset_key_valid(work.key)) {
@@ -596,7 +696,8 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     }
     if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
         return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
-    AccountMediaWorkerRetry* retry = find_retry(worker, work.key);
+    collect_collection_titles(worker);
+    AccountMediaWorkerRetry* retry = work.collection ? nullptr : find_retry(worker, work.key);
     const u64 retry_now_ms =
         retry && work.monotonic_now_ms == 0 ? clock_monotonic_milliseconds() : work.monotonic_now_ms;
     if (retry && retry_now_ms < retry->retry_at_ms)
@@ -610,6 +711,19 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     for (u32 index = 0; index < kAccountMediaDecodeLaneCount; ++index) {
         AccountMediaWorkerLane& lane = worker->lanes[index];
         AccountMediaWorkerPhase phase = load_phase(&lane);
+        if (work.kind == AccountMediaWorkKind::attachment && work.collection &&
+            lane.command.kind == AccountMediaWorkKind::attachment && lane.command.collection && media_asset_key_equal(lane.command.key, work.key)) {
+            // A track switch cannot run on a spare lane while the previous
+            // selection still owns the source, decoder or PCM reader.
+            if (phase == AccountMediaWorkerPhase::selected_video ||
+                ((phase == AccountMediaWorkerPhase::working || phase == AccountMediaWorkerPhase::command_ready) &&
+                 !same_work(lane.command, work))) return request_result(AccountMediaRequestState::busy);
+            if (phase == AccountMediaWorkerPhase::output_ready && !same_work(lane.completed, work) &&
+                lane.completed_result.state == AccountMediaRequestState::ready) {
+                lane.media.frame_ready = false;
+                store_phase(&lane, AccountMediaWorkerPhase::idle); phase = AccountMediaWorkerPhase::idle;
+            }
+        }
         if (poster_phase(phase)) {
             poster_busy = true;
             if (same_work(lane.command, work)) {
@@ -642,7 +756,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
                     // healthy frames.
                     lane.completed_result.state = AccountMediaRequestState::retry_wait;
                 }
-                if (completed.state != AccountMediaRequestState::ready &&
+                if (!work.collection && completed.state != AccountMediaRequestState::ready &&
                     completed.state != AccountMediaRequestState::retry_wait &&
                     (work.monotonic_now_ms != 0 || completed.error == AccountMediaError::decode)) {
                     // A bad on-demand animation frame must not immediately
@@ -721,7 +835,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
             const bool retain =
                 failure && (lane.completed.kind != AccountMediaWorkKind::animation_advance ||
                             completed.error == AccountMediaError::decode);
-            if (retain && (!completed.retry_at_ms || completed.retry_at_ms > reclaimed_at_ms))
+            if (retain && !lane.completed.collection && (!completed.retry_at_ms || completed.retry_at_ms > reclaimed_at_ms))
                 remember_retry(worker, lane.completed.key, reclaimed_at_ms,
                                lane.completed_result.retry_at_ms);
             InterlockedCompareExchange(&lane.phase, phase_value(AccountMediaWorkerPhase::idle),
@@ -730,14 +844,14 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     }
     // The reclaimed output may use another request kind for this same asset.
     // Its newly preserved cooldown must apply to this request as well.
-    if (reclaimed_at_ms) {
+    if (reclaimed_at_ms && !work.collection) {
         retry = find_retry(worker, work.key);
         if (retry && reclaimed_at_ms < retry->retry_at_ms)
             return retry_wait_until(retry->retry_at_ms);
     }
 
-    const bool animation = work.kind == AccountMediaWorkKind::animation_advance ||
-                           (work.key.flags & media_asset_flag_animated) != 0;
+    const bool animation = work.kind != AccountMediaWorkKind::collection_title &&
+        (work.kind == AccountMediaWorkKind::animation_advance || (work.key.flags & media_asset_flag_animated) != 0);
     const u32 lane_count = animation ? kAccountMediaDecodeLaneCount : kAccountMediaDecodeLaneCount - 1;
     const bool flag_origin = work.key.kind == MediaAssetKind::regional_flag;
     // A new looping video source replaces its lane's resident decoder. Take a
@@ -746,10 +860,16 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     // video, report busy instead of evicting one: visible videos beyond the
     // lane count wait for a decoder rather than restarting each other forever.
     u32 video_lane = kAccountMediaDecodeLaneCount;
-    if (work.kind != AccountMediaWorkKind::animation_advance && looping_video_key(work.key)) {
+    if (work.collection && work.kind == AccountMediaWorkKind::attachment) for (u32 index = animation ? 0 : 1; index < kAccountMediaDecodeLaneCount; ++index) {
+        const auto& lane = worker->lanes[index];
+        if (load_phase(&lane) == AccountMediaWorkerPhase::idle &&
+            ((lane.command.collection && media_asset_key_equal(lane.command.key, work.key)) ||
+             account_media_collection_state(&lane.media, work.key).count)) { video_lane = index; break; }
+    }
+    if (video_lane == kAccountMediaDecodeLaneCount && work.kind != AccountMediaWorkKind::animation_advance && work.kind != AccountMediaWorkKind::collection_title && looping_video_key(work.key)) {
         const u64 now_ms = clock_monotonic_milliseconds();
         u64 oldest = ~0ull;
-        for (u32 index = 0; index < kAccountMediaDecodeLaneCount; ++index) {
+        for (u32 index = animation ? 0 : 1; index < kAccountMediaDecodeLaneCount; ++index) {
             const AccountMediaWorkerLane& lane = worker->lanes[index];
             if (load_phase(&lane) != AccountMediaWorkerPhase::idle)
                 continue;
@@ -847,6 +967,40 @@ void cleanup_failed_initialize(AccountMediaWorker* worker) noexcept {
 
 } // namespace
 
+AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWorker* worker,
+    const AccountMediaCollectionTitleRequest& request, MediaTrackTitle* out) noexcept {
+    if (!worker || !worker->initialized || !out || !request.track || !media_asset_key_valid(request.key) ||
+        WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+        return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
+    collect_collection_titles(worker);
+    MediaTrackTitle title{}; MediaTrackId id{}; u64 retry{};
+    auto* owner = collection_title_owner(worker, request, &title, &id, &retry);
+    if (!owner) return request_result(AccountMediaRequestState::busy);
+    if (title.bytes) { *out = title; return request_result(AccountMediaRequestState::ready); }
+    const auto now = clock_monotonic_milliseconds();
+    if (retry > now) return retry_wait_until(retry);
+    if (id.apple_track) return request_result(AccountMediaRequestState::unsupported);
+    if (!request.fetch) return request_result(AccountMediaRequestState::pending);
+    // Hover never fans out a batch of requests while the pointer moves. One
+    // bounded metadata operation runs alongside the reserved playback lane.
+    for (const auto& lane : worker->lanes) {
+        const auto phase = load_phase(&lane);
+        if ((phase == AccountMediaWorkerPhase::command_ready || phase == AccountMediaWorkerPhase::working) &&
+            lane.command.kind == AccountMediaWorkKind::collection_title) return request_result(AccountMediaRequestState::pending);
+    }
+    AccountMediaWorkItem work{};
+    work.kind = AccountMediaWorkKind::collection_title; work.key = request.key;
+    work.source_message_revision = request.source_revision; work.collection_track = request.track;
+    work.title_track = id; work.monotonic_now_ms = now;
+    SoundcloudTitleBatch batch{};
+    if (!id.youtube_track && account_media_collection_title_batch(owner,request,&batch)) {
+        static_assert(sizeof(batch)<=sizeof(work.text));
+        work.title_batch=true; work.text_bytes=sizeof(batch); copy_bytes(work.text,&batch,sizeof(batch));
+    }
+    work.collection = 1; // A title failure must not poison the playable embed's retry cache.
+    return queue(worker, work);
+}
+
 u32 account_media_worker_animation_lane(const AccountMediaWorker* worker, MediaAssetKey key) noexcept {
     u32 spare[2]{kAccountMediaDecodeLaneCount, kAccountMediaDecodeLaneCount}; // started, unstarted
     for (u32 index = 0; worker && index < kAccountMediaDecodeLaneCount; ++index) {
@@ -940,7 +1094,13 @@ AccountMediaRequestResult account_media_worker_request_guild_icon(
 AccountMediaRequestResult account_media_worker_request_attachment(
     AccountMediaWorker* worker, const AccountMediaAttachmentRequest& request, u64 monotonic_now_ms,
     u64 unix_now_seconds) noexcept {
-    if (request.signed_url.bytes > kAccountMediaWorkerTextCapacity ||
+    const bool collection = embed_collection_url(request.signed_url);
+    if (request.options.progressive > 1 || request.options.reserved[0] || request.options.reserved[1] ||
+        request.options.collection_track > 8192 ||
+        (request.options.collection_track && (!collection || !request.options.progressive || (request.image_type != CdnImageType::m4a && request.image_type != CdnImageType::mp4))) ||
+        (request.options.progressive &&
+         (request.key.kind != MediaAssetKind::embed || (request.image_type != CdnImageType::mp4 && request.image_type != CdnImageType::m4a))) ||
+        request.signed_url.bytes > kAccountMediaWorkerTextCapacity ||
         (!request.signed_url.data && request.signed_url.bytes != 0)) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
@@ -956,6 +1116,9 @@ AccountMediaRequestResult account_media_worker_request_attachment(
     work.text_bytes = static_cast<u16>(request.signed_url.bytes);
     work.image_type = request.image_type;
     work.kind = AccountMediaWorkKind::attachment;
+    work.progressive = request.options.progressive;
+    work.collection = collection;
+    work.collection_track = request.options.collection_track;
     if (!copy_bytes(work.text, sizeof(work.text), request.signed_url.data, request.signed_url.bytes)) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
@@ -1301,6 +1464,8 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
     if (!SetEvent(worker->stop_event)) {
         return false;
     }
+    for (auto& lane : worker->lanes)
+        account_media_cancel_provider(&lane.media);
     // Also wakes a selected owner waiting for a joined-release retry after the
     // manual-reset stop event has already been consumed.
     for (auto& lane : worker->lanes)
@@ -1335,6 +1500,7 @@ bool account_media_worker_stop(AccountMediaWorker* worker, u32 timeout_ms) noexc
         }
     }
     for (const auto& lane : worker->lanes) {
+        if (lane.collection_titles) VirtualFree(lane.collection_titles,0,MEM_RELEASE);
         if (lane.thread)
             CloseHandle(lane.thread);
         CloseHandle(lane.command_event);

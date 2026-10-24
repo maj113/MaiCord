@@ -13,6 +13,10 @@ struct H264GpuPicture {
     H264Picture header;
     u8 length_bytes;
 };
+// Container-independent entry point: validates the actual first IDR against
+// the borrowed AVC configuration, including its decoded display dimensions.
+H264Error h264_gpu_configuration_from_unit(const Mp4AccessUnit&, ConstSlice<u8> avcc,
+    u8 length_bytes, u32 width, u32 height, H264GpuPicture*) noexcept;
 // Inspect an initialized demuxer through a copy. Preserve the playback cursor.
 H264Error h264_gpu_configuration_from_demux(const Mp4Demuxer& demux, H264GpuPicture* output,
                                             Mp4DemuxError* demux_error = nullptr) noexcept;

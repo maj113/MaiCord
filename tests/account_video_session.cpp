@@ -45,6 +45,61 @@ void write_le(u8* output, u32 value, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i)
         output[i] = static_cast<u8>(value >> (8 * i));
 }
+void aac_session(void (*check)(bool, const char*) noexcept, const AccountVideoIdentity& id) noexcept {
+    // Borrowed demux metadata with a one-second leading empty edit. The paused
+    // ring fills before any packet is read; seeking to EOF also needs no packet.
+    // Exercise the real AAC session/ring without a device or compressed fixture.
+    // Codec output and midpoint seeks have a separate live probe.
+    const u8 encoded[]{0x11, 0x90, 0, 0, 0, 3, 0, 0, 4, 0,
+                       0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 1};
+    Mp4AudioDemuxer source{};
+    source.samples.encoded = {encoded, sizeof(encoded)};
+    source.samples.ready = source.samples.has_edit_list = true;
+    source.samples.timescale = source.samples.movie_timescale = source.sample_rate = 48000;
+    source.samples.sample_count = 3;
+    source.samples.stts_offset = 2;
+    source.samples.stsc_offset = 10;
+    source.samples.stts_count = source.samples.stsc_count = source.samples.chunk_count = 1;
+    source.samples.media_duration_ticks = 3072;
+    source.samples.empty_edit_ticks = 48000;
+    source.samples.movie_duration_ticks = 51072;
+    source.asc_bytes = 2;
+    source.channels = 2;
+    source.frames_per_packet = 1024;
+    EncodedAudioMetadata metadata{source};
+    const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    AccountVideoSession session{};
+    const auto initialized = account_video_session_initialize_audio(&session, &metadata, id, event);
+    check(initialized.ok() && session.status.kind == AccountPlaybackKind::mp4 &&
+              session.status.duration_100ns == 10640000 && !session.video && !session.workspace,
+          "AAC preview: retained metadata initializes without a GPU or decoder allocation");
+    if (initialized.ok()) {
+        const auto seek = account_video_session_control(&session, id, 1, AccountVideoCommand::seek, 0);
+        account_video_session_service(&session);
+        const auto progress = account_video_session_audio_progress(&session);
+        check(seek.admitted && session.status.error == AccountVideoError::none &&
+                  !session.status.seeking && session.status.paused && !session.status.ended &&
+                  progress.written_frames == 8192 && !progress.consumed_frames &&
+                  !session.status.frame_pending &&
+                  !account_video_session_acknowledge(&session, id, session.playback_epoch, 1),
+              "AAC preview: paused seek primes bounded edit silence without waiting for a nonexistent picture");
+        const auto bytes = account_video_session_owned_bytes(&session);
+        for (u32 i = 0; i < 3; ++i) account_video_session_service(&session);
+        check(account_video_session_audio_progress(&session).written_frames == 8192 &&
+                  account_video_session_owned_bytes(&session) == bytes && !session.status.ended,
+              "AAC preview: completed paused seek performs no further writes or allocations");
+        const auto end = account_video_session_control(&session, id, 2, AccountVideoCommand::seek,
+                                                       session.status.duration_100ns);
+        account_video_session_service(&session);
+        check(end.admitted && session.status.error == AccountVideoError::none &&
+                  !session.status.seeking && session.status.ended &&
+                  !account_video_session_audio_progress(&session).written_frames,
+              "AAC preview: exact EOF completes an empty audio epoch without a GPU acknowledgement");
+    }
+    check(account_video_session_release(&session, 0).completed && !session.workspace,
+          "AAC preview: joined release retires decoder and native ring");
+    if (event) CloseHandle(event);
+}
 void mp3_session(void (*check)(bool, const char*) noexcept, const AccountVideoIdentity& id) noexcept {
     Mp3Stream source{};
     const bool parsed =
@@ -514,6 +569,17 @@ void test_account_video_session(void (*check)(bool, const char*) noexcept) noexc
               s.status.rejected_command == 0 && s.status.rejected_error == AccountVideoError::none &&
               s.status.desired_command == 3,
           "selected video refusal: the next admitted exact-session command clears its prior receipt");
+    s.desired_play = s.status.buffering = s.seeking = s.status.seeking = true;
+    s.seek_pending = s.seek_start_pending = s.video_pending = s.audio_pending = true;
+    account_video_session_source_failed(&s);
+    const auto failed_service = account_video_session_service(&s, cancel, &called);
+    check(s.status.error == AccountVideoError::demux && !s.desired_play && !s.status.buffering &&
+              !s.status.seeking && !s.seeking && !s.seek_pending && !s.seek_start_pending &&
+              !s.video_pending && !s.audio_pending &&
+              !failed_service.needs_service && !failed_service.frame_ready &&
+              failed_service.next_service_delay_ms == kInfiniteWaitMilliseconds && called == 1 &&
+              s.status.desired_command == 3,
+          "terminal source failure stops service without polling or inventing a user command");
     const auto released = account_video_session_release(&s, 0);
     check(
         released.completed && !s.initialized && !s.workspace &&
@@ -522,5 +588,6 @@ void test_account_video_session(void (*check)(bool, const char*) noexcept) noexc
     opus_session(check, id);
     wave_session(check, id);
     mp3_session(check, id);
+    aac_session(check, id);
 }
 } // namespace maicord

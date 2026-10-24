@@ -1,6 +1,8 @@
 #include "maicord/sys/winsock.hpp"
 
 #include "maicord/app/update_https.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/protocol/writer.hpp"
 
 namespace maicord {
 namespace {
@@ -102,24 +104,30 @@ bool host_wide(Utf8View name, wchar_t* out) noexcept {
     out[name.bytes] = 0;
     return true;
 }
-E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttpResponse* response) noexcept {
+E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttpResponse* response,
+           const HttpsExchangeOptions& options) noexcept {
     const Utf8View host_name = request.host_name;
     if (!host_wide(host_name, t->host) || !request.target.data || !request.target.count || request.target.count > kUpdateTargetCapacity ||
         request.target[0] != '/' || !request.sink || !request.maximum_body_bytes) return E::invalid_input;
     for (u32 i = 0; i < request.target.count; ++i) if (request.target[i] <= ' ' || request.target[i] > '~') return E::invalid_input;
+    struct Head {
+        u8 bytes[8192];
+        ~Head() noexcept { secure_clear_bytes(bytes, sizeof(bytes)); }
+    } head;
+    const u32 n = https_exchange_head(request, options, {head.bytes, sizeof(head.bytes)});
+    if (!n) return E::invalid_input;
     E error = connect_host(t); if (error != E::none) return error;
     error = handshake(t); if (error != E::none) return error;
-    // Request head: fixed fields plus the validated target and host.
-    u8 head[kUpdateTargetCapacity + 256]; u32 n = 0;
-    const auto add = [&](const char* s, u32 bytes) noexcept { copy_bytes(head + n, s, bytes); n += bytes; };
-    add("GET ", 4); add(request.target.data, request.target.count); add(" HTTP/1.1\r\nHost: ", 17);
-    add(host_name.data, host_name.bytes);
-    constexpr char tail[] = "\r\nUser-Agent: MaiCord-Updater\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n";
-    add(tail, sizeof(tail) - 1);
     u32 produced = 0;
-    const TlsResult encrypted = tls_client_encrypt(&t->tls, {head, n}, {t->token, sizeof(t->token)}, &produced);
+    const TlsResult encrypted = tls_client_encrypt(&t->tls, {head.bytes, n}, {t->token, sizeof(t->token)}, &produced);
+    secure_clear_bytes(head.bytes, sizeof(head.bytes));
     if (!encrypted.ok()) return fail(t, E::tls, static_cast<u32>(encrypted.native_status));
     if (!send_all(t, t->token, produced)) return socket_failure(t, E::send);
+    if (options.body.count) {
+        const auto sent = tls_client_encrypt(&t->tls, options.body, {t->token, sizeof(t->token)}, &produced);
+        if (!sent.ok()) return fail(t, E::tls, static_cast<u32>(sent.native_status));
+        if (!send_all(t, t->token, produced)) return socket_failure(t, E::send);
+    }
     UpdateHttpReader reader{};
     while (!reader.complete) {
         if (t->encrypted_bytes) {
@@ -133,7 +141,7 @@ E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttp
                 if (!d.consumed) return fail(t, E::tls, static_cast<u32>(d.native_status));
                 drop(t->encrypted, &t->encrypted_bytes, d.consumed);
                 const bool closed = d.state == TlsDecryptState::peer_closed;
-                error = update_http_read(&reader, request, response, t->plain, &t->plain_bytes, sizeof(t->plain), closed);
+                error = update_http_read(&reader, request, response, t->plain, &t->plain_bytes, sizeof(t->plain), closed, options.read_error_body);
                 if (error != E::none) return fail(t, error, 0);
                 if (closed && !reader.complete) return fail(t, E::receive, 0);
                 continue;
@@ -143,7 +151,7 @@ E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttp
         if (got < 0) return socket_failure(t, E::receive);
         if (!got) {
             // TCP close without close_notify: only a close-delimited body may end here.
-            error = update_http_read(&reader, request, response, t->plain, &t->plain_bytes, sizeof(t->plain), true);
+            error = update_http_read(&reader, request, response, t->plain, &t->plain_bytes, sizeof(t->plain), true, options.read_error_body);
             if (error != E::none) return fail(t, error, 0);
             if (!reader.complete) return fail(t, E::receive, 0);
         }
@@ -151,22 +159,71 @@ E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttp
     return E::none;
 }
 UpdateTransportError get(void* context, const UpdateHttpRequest& request, UpdateHttpResponse* response) noexcept {
-    auto* t = static_cast<UpdateHttpsTransport*>(context);
+    return https_exchange(static_cast<UpdateHttpsTransport*>(context), request, {}, response);
+}
+} // namespace
+
+u32 https_exchange_head(const UpdateHttpRequest& request, const HttpsExchangeOptions& options,
+                        Slice<u8> output) noexcept {
+    if (!update_origin_host_valid(request.host_name) || !request.target.data || !request.target.count ||
+        request.target.count > kUpdateTargetCapacity || request.target[0] != '/' ||
+        options.headers.count > 12 || (options.headers.count && !options.headers.data) ||
+        options.body.count > 4096 || (options.body.count && !options.body.data) || !output.data) return 0;
+    for (u32 i = 0; i < request.target.count; ++i) {
+        const char c = request.target[i];
+        if (c <= ' ' || c > '~' || c == '#' || c == '\\') return 0;
+    }
+    u8 staged[8192];
+    ProtocolWriter w{{staged, sizeof(staged)}, 0};
+    const auto add = [&](Utf8View text) noexcept {
+        return protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(text.data), text.bytes);
+    };
+    bool ok = add(options.body.count ? utf8_literal("POST ") : utf8_literal("GET ")) &&
+        add({request.target.data, request.target.count}) && add(utf8_literal(" HTTP/1.1\r\nHost: ")) &&
+        add(request.host_name) && add(utf8_literal("\r\nAccept-Encoding: identity\r\nConnection: close\r\n"));
+    bool agent = false, accept = false;
+    for (u32 i = 0; ok && i < options.headers.count; ++i) {
+        const auto& h = options.headers[i];
+        if (!ascii_graphic_string(h.name, 64, true) || !h.value.data || !h.value.bytes || h.value.bytes > 2048)
+            { ok = false; break; }
+        for (u32 j = 0; j < h.name.bytes; ++j)
+            if (!ascii_is_alnum(h.name.data[j]) && h.name.data[j] != '-') ok = false;
+        for (u32 j = 0; j < h.value.bytes; ++j)
+            if (h.value.data[j] < ' ' || h.value.data[j] > '~') ok = false;
+        constexpr Utf8View reserved[]{utf8_literal("Host"), utf8_literal("Content-Length"),
+            utf8_literal("Transfer-Encoding"), utf8_literal("Connection"), utf8_literal("Accept-Encoding")};
+        for (auto name : reserved) if (ascii_equal_ignore_case(h.name, name)) ok = false;
+        for (u32 j = 0; j < i; ++j)
+            if (ascii_equal_ignore_case(h.name, options.headers[j].name)) ok = false;
+        agent |= ascii_equal_ignore_case(h.name, utf8_literal("User-Agent"));
+        accept |= ascii_equal_ignore_case(h.name, utf8_literal("Accept"));
+        ok = ok && add(h.name) && add(utf8_literal(": ")) && add(h.value) && add(utf8_literal("\r\n"));
+    }
+    if (!agent) ok = ok && add(utf8_literal("User-Agent: MaiCord-Updater\r\n"));
+    if (!accept) ok = ok && add(utf8_literal("Accept: */*\r\n"));
+    if (options.body.count) ok = ok && add(utf8_literal("Content-Length: ")) &&
+        protocol_writer_append_u64(&w, options.body.count) && add(utf8_literal("\r\n"));
+    ok = ok && add(utf8_literal("\r\n")) && w.used <= output.count;
+    if (ok) copy_bytes(output.data, staged, w.used);
+    secure_clear_bytes(staged, sizeof(staged));
+    return ok ? w.used : 0;
+}
+UpdateTransportError https_exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request,
+    const HttpsExchangeOptions& options, UpdateHttpResponse* response) noexcept {
     if (!t || !t->winsock || !response) return E::invalid_input;
     if (cancelled(t)) return E::cancelled;
     *response = {};
     t->encrypted_bytes = t->plain_bytes = 0; t->native = 0;
-    const E error = exchange(t, request, response);
+    const E error = exchange(t, request, response, options);
     if (error != E::none) response->native_error = t->native;
     close_socket(t);
     tls_client_release(&t->tls);
     SecureZeroMemory(t->plain, sizeof(t->plain));
     return error;
 }
-} // namespace
 
 UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpRequest& request, UpdateHttpResponse* response,
-    u8* buffer, u32* bytes, u32 capacity, bool closed) noexcept {
+    u8* buffer, u32* bytes, u32 capacity, bool closed, bool read_error_body) noexcept {
     if (!r || !response || !buffer || !bytes || *bytes > capacity || !request.sink || !request.maximum_body_bytes) return E::invalid_input;
     if (r->complete) return *bytes ? E::http : E::none;
     if (!r->head_done) {
@@ -185,8 +242,10 @@ UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpReque
             response->content_length = head.head.content_length; response->has_content_length = head.head.has_content_length;
             drop(buffer, bytes, head.head.header_bytes);
             r->head_done = true;
-            // Only 2xx bodies are read; redirects and errors end the exchange.
-            if (head.head.status_code >= 300) { r->complete = true; *bytes = 0; return E::none; }
+            // Redirects end the exchange; error bodies require explicit opt-in.
+            if (head.head.status_code >= 300 && (!read_error_body || head.head.status_code < 400)) {
+                r->complete = true; *bytes = 0; return E::none;
+            }
             r->kind = http_response_body_kind(head.head, false, false);
             if (head.head.has_content_length && head.head.content_length > request.maximum_body_bytes) return E::oversize;
             if (r->kind == HttpBodyKind::chunked &&
