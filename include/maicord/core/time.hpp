@@ -1,8 +1,6 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_types.hpp"
 
 // Declared as <Windows.h> declares them, without parsing it.
 union _LARGE_INTEGER;

@@ -24,6 +24,10 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/account_message_search.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/protocol/channel_overview.hpp"
+#include "maicord/protocol/message_pins.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};

@@ -3,7 +3,6 @@
 #include "maicord/core/base.hpp"
 #include "maicord/ui/theme.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11BlendState;
 struct ID3D11Buffer;

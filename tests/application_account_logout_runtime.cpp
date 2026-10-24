@@ -6,6 +6,7 @@
 #include "../src/app/application_state.hpp"
 #include "../src/app/application_text_form.hpp"
 #include "maicord/app/account_credential_forget.hpp"
+#include "maicord/app/account_logout.hpp"
 #include "maicord/app/account_logout_stop.hpp"
 #include "maicord/core/time.hpp"
 #include "test_output.hpp"

@@ -6,6 +6,7 @@
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/model/permission_bits.hpp"
 namespace maicord::poll_app_test {
 u64 now = 1000, unix_now = 1000;
 }

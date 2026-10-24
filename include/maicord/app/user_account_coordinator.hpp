@@ -4,7 +4,6 @@
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

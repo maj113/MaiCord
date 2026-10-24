@@ -9,6 +9,7 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/account_logout.hpp"
 
 namespace maicord::app_detail {
 namespace {

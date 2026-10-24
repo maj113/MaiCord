@@ -11,6 +11,7 @@
 #include "maicord/sys/com.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/d3d11.hpp"
 #include "test_output.hpp"
 #include "h264_stream_fixture.hpp"
 

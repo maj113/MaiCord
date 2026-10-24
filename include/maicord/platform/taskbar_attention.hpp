@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/sys/shell.hpp"
 
 struct ITaskbarList3;
 
