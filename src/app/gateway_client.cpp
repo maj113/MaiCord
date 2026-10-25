@@ -1311,6 +1311,17 @@ bool start_connect_candidate(NetworkLoop* loop, GatewayClientRuntime* runtime) n
     return false;
 }
 
+// The account's cookies for this endpoint: the page reaches the Gateway
+// cross-site, so only its SameSite=None cookies apply.
+CookieJar* endpoint_cookies(const GatewayClientRuntime* runtime, CookieRequest* request) noexcept {
+    const ClientSessionMetadata* metadata = session_metadata(runtime);
+    const GatewayEndpoint& endpoint = runtime->endpoint;
+    if (!metadata || !metadata->cookies || !endpoint.host_bytes || endpoint.authority[0] == '[')
+        return nullptr;
+    *request = {{endpoint.authority, endpoint.host_bytes}, {endpoint.target, endpoint.target_bytes}, false};
+    return metadata->cookies;
+}
+
 bool initialize_session(GatewayClientRuntime* runtime,
                         const u8 client_key[kWebSocketClientKeyBytes]) noexcept {
     // A connection lost while a large payload was spilled leaves its pages behind.
@@ -1326,6 +1337,7 @@ bool initialize_session(GatewayClientRuntime* runtime,
     }
     runtime->session.grow_index = grow_main_index;
     runtime->session.grow_index_context = runtime;
+    runtime->session.cookies = endpoint_cookies(runtime, &runtime->session.cookie_request);
     return !is_user(runtime) ||
            (gateway_session_enable_zlib_stream(&runtime->session, &runtime->user->inflater,
                                                {runtime->handshake_output, kMessageBytes}) &&
@@ -1349,20 +1361,37 @@ bool begin_websocket_opening(GatewayClientRuntime* runtime) noexcept {
     if (!encoded.ok() || !initialize_session(runtime, client_key)) {
         return false;
     }
+    const ClientSessionMetadata* metadata = session_metadata(runtime);
+    CookieRequest cookie_request{};
+    CookieJar* cookies = endpoint_cookies(runtime, &cookie_request);
+    u8 cookie[kCookieHeaderMaximumBytes];
+    const u32 cookie_bytes =
+        cookies ? cookie_jar_header(cookies, cookie_request, clock_unix_milliseconds(), {cookie, sizeof(cookie)})
+                : 0;
+    const WebSocketPageFields page{
+        metadata ? ConstSlice<u8>{reinterpret_cast<const u8*>(metadata->accept_language.data),
+                                  metadata->accept_language.bytes}
+                 : ConstSlice<u8>{},
+        {cookie, cookie_bytes}};
     const WebSocketHandshakeWriteResult request = websocket_write_opening_request(
         ConstSlice<u8>{reinterpret_cast<const u8*>(runtime->endpoint.target),
                        runtime->endpoint.target_bytes},
         ConstSlice<u8>{reinterpret_cast<const u8*>(runtime->endpoint.authority),
                        runtime->endpoint.authority_bytes},
         ConstSlice<u8>{client_key, kWebSocketClientKeyBytes},
-        Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+        Slice<u8>{runtime->plain_output, kPlainOutputBytes}, &page);
+    secure_clear_bytes(cookie, cookie_bytes);
     if (!request.ok()) {
         return false;
     }
     u32 encrypted_bytes = 0;
-    if (!tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, request.bytes},
-                            Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
-             .ok()) {
+    const bool encrypted =
+        tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, request.bytes},
+                           Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
+            .ok();
+    // The request carries cookies.
+    secure_clear_bytes(runtime->plain_output, request.bytes);
+    if (!encrypted) {
         return false;
     }
     return start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes},

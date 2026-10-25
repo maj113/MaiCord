@@ -2,6 +2,7 @@
 #include "maicord/protocol/websocket_message.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 
 
 namespace maicord {
@@ -348,6 +349,10 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
             out->handshake_error = handshake.error;
             return;
         }
+        if (session->cookies)
+            cookie_jar_store_response(session->cookies, session->cookie_request,
+                                      {byte_queue_readable(session->input).data, handshake.header_bytes},
+                                      clock_unix_milliseconds());
         if (!byte_queue_consume(&session->input, handshake.header_bytes)) {
             return session_error(out, GatewaySessionError::invalid_input);
         }

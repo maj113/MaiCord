@@ -422,6 +422,10 @@ struct RestResponse {
     HttpResponseDecoder http;
     RestHeadResult parsed_head;
     RestMethod request_method;
+    // Optional: each complete head's Set-Cookie fields are stored here for
+    // cookie_request (set after rest_response_initialize).
+    CookieJar* cookies;
+    CookieRequest cookie_request;
 };
 
 using RestResponseStep = HttpResponseDecoderStep;

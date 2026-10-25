@@ -1,3 +1,5 @@
+#include "maicord/core/time.hpp"
+#include "maicord/protocol/cookie_jar.hpp"
 #include "maicord/app/account_session_store.hpp"
 #include "maicord/app/client_session_metadata.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -186,6 +188,28 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
               account_user_session_store_save(path, empty).ok() &&
               account_user_session_store_load(path, profile_id, &restored, &loaded).ok() && !loaded.valid,
           "a malformed heartbeat session is never written and a session without one loads none");
+    // Persistent cookies are saved with the session; session cookies are not.
+    static CookieJar jar, reloaded;
+    const u64 now = clock_unix_milliseconds();
+    const CookieRequest api{utf8_literal("discord.com"), utf8_literal("/api/v9/users/@me"), true};
+    u8 cookie[kCookieHeaderMaximumBytes];
+    constexpr char visitor[] = "__sdcfduid=visitor3";
+    check(cookie_jar_set(&jar, api, utf8_literal("__sdcfduid=visitor3; Max-Age=3600; Secure; Domain=discord.com; Path=/"),
+                         now) &&
+              cookie_jar_set(&jar, api, utf8_literal("_cfuvid=session3; Secure; SameSite=None; Path=/"), now) &&
+              account_user_session_store_save(path, current, &heartbeat, &jar).ok() &&
+              account_user_session_store_load(path, profile_id, &restored, &loaded, &reloaded).ok() &&
+              restored.has_resume && loaded.valid &&
+              cookie_jar_header(&reloaded, api, now, {cookie, sizeof(cookie)}) == sizeof(visitor) - 1 &&
+              bytes_equal(cookie, visitor, sizeof(visitor) - 1) &&
+              account_user_session_store_save(path, empty, nullptr, &jar).ok() &&
+              account_user_session_store_load(path, profile_id, &restored, &loaded, &reloaded).ok() &&
+              !restored.has_resume && reloaded.count == 1 &&
+              account_user_session_store_load(path, profile_id, &restored).ok(),
+          "v4 session keeps persistent cookies encrypted beside or without resume state");
+    cookie_jar_clear(&jar);
+    cookie_jar_clear(&reloaded);
+    secure_clear_bytes(cookie, sizeof(cookie));
     SecureZeroMemory(&legacy, sizeof(legacy));
     SecureZeroMemory(&current, sizeof(current));
     SecureZeroMemory(&restored, sizeof(restored));

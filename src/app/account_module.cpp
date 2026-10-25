@@ -106,6 +106,9 @@ struct AccountModuleRuntime {
     // share the same launch identity until the authenticated account stops.
     UserClientConfigurationStorage client_configuration;
     ClientSessionMetadata client_metadata;
+    // The account's cookies, shared by its REST and Gateway workers; the
+    // persistent ones are saved with the session.
+    CookieJar cookies;
 };
 
 RestClient* module_rest(void* instance, bool details = false) noexcept {
@@ -461,8 +464,8 @@ const ClientHeartbeatSession* persisted_heartbeat(const ClientHeartbeatSession& 
 }
 
 u64 snapshot_fingerprint(const GatewayUserSessionSnapshot& snapshot,
-                         const ClientHeartbeatSession* heartbeat = nullptr) noexcept {
-    u64 hash = kHash64Seed;
+                         const ClientHeartbeatSession* heartbeat, u32 cookie_revision) noexcept {
+    u64 hash = hash_value(kHash64Seed, cookie_revision);
     if (heartbeat) {
         hash = hash_value(hash, heartbeat->created_ms);
         hash = hash_value(hash, heartbeat->last_used_ms);
@@ -488,11 +491,13 @@ bool snapshot_is_persistable(const GatewayUserSessionSnapshot& snapshot) noexcep
 bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot) noexcept {
     const ClientHeartbeatSession session = client_session_metadata_session(&runtime->client_metadata);
     const ClientHeartbeatSession* heartbeat = persisted_heartbeat(session);
+    u32 cookie_revision = 0;
+    const bool cookies = cookie_jar_has_persistent(&runtime->cookies, &cookie_revision);
     if (runtime->coordinator.state.error == UserAccountCoordinatorError::authentication_rejected ||
-        snapshot.profile_id == 0 || (!snapshot_is_persistable(snapshot) && !heartbeat)) {
+        snapshot.profile_id == 0 || (!snapshot_is_persistable(snapshot) && !heartbeat && !cookies)) {
         return true;
     }
-    const u64 fingerprint = snapshot_fingerprint(snapshot, heartbeat);
+    const u64 fingerprint = snapshot_fingerprint(snapshot, heartbeat, cookie_revision);
     if (runtime->has_persisted_fingerprint && runtime->persisted_fingerprint == fingerprint) {
         ++runtime->session_save_skips;
         return true;
@@ -504,7 +509,7 @@ bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapsh
         reset_value(&stored.resume);
     }
     const AccountSessionStoreResult saved =
-        account_user_session_store_save(runtime->session_path, stored, heartbeat);
+        account_user_session_store_save(runtime->session_path, stored, heartbeat, &runtime->cookies);
     runtime->session_error = saved.error;
     runtime->session_native_error = saved.native_error;
     if (!saved.ok()) {
@@ -601,15 +606,17 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     GatewayUserSessionSnapshot restored{};
     ClientHeartbeatSession restored_heartbeat{};
     const AccountSessionStoreResult session = account_user_session_store_load(
-        session_path, profile.metadata.profile_id, &restored, &restored_heartbeat);
+        session_path, profile.metadata.profile_id, &restored, &restored_heartbeat, &runtime->cookies);
     runtime->session_error = session.error;
     runtime->session_native_error = session.native_error;
     result.session_error = static_cast<u8>(session.error);
     result.session_loaded = session.ok();
     const ClientHeartbeatSession* heartbeat =
         session.ok() ? persisted_heartbeat(restored_heartbeat) : nullptr;
-    if (session.ok() && (snapshot_is_persistable(restored) || heartbeat)) {
-        runtime->persisted_fingerprint = snapshot_fingerprint(restored, heartbeat);
+    u32 cookie_revision = 0;
+    const bool cookies = cookie_jar_has_persistent(&runtime->cookies, &cookie_revision);
+    if (session.ok() && (snapshot_is_persistable(restored) || heartbeat || cookies)) {
+        runtime->persisted_fingerprint = snapshot_fingerprint(restored, heartbeat, cookie_revision);
         runtime->has_persisted_fingerprint = true;
     }
 
@@ -647,6 +654,8 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
         result.error = AccountModuleError::coordinator_start;
         return result;
     }
+    runtime->client_metadata.cookies = &runtime->cookies;
+    runtime->client_metadata.accept_language = {configuration.accept_language, configuration.accept_language_bytes};
     configuration.configuration.metadata = &runtime->client_metadata;
     const UserAccountCoordinatorResult started = user_account_coordinator_start(
         &runtime->coordinator, &profile, &configuration.configuration,

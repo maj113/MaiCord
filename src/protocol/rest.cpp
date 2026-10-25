@@ -9,6 +9,7 @@
 #include "json_command_writer.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord {
 namespace {
@@ -1234,6 +1235,9 @@ HttpHeadResult rest_response_head_parser(void* context, ConstSlice<u8> input, u3
     const RestHeadResult parsed =
         parse_rest_response_head(input, maximum_header_bytes, maximum_fields);
     response->parsed_head = parsed;
+    if (response->cookies && parsed.state == HttpParseState::complete)
+        cookie_jar_store_response(response->cookies, response->cookie_request,
+                                  {input.data, parsed.head.header_bytes}, clock_unix_milliseconds());
     return HttpHeadResult{parsed.head, parsed.error_offset, parsed.http_error, parsed.state};
 }
 

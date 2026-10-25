@@ -5,8 +5,9 @@
 namespace maicord {
 
 struct ClientHeartbeatSession;
+struct CookieJar;
 
-inline constexpr u32 kUserAccountSessionStoreVersion = 3;
+inline constexpr u32 kUserAccountSessionStoreVersion = 4;
 inline constexpr u32 kAccountSessionStoreMaximumFileBytes = 64 * 1024;
 
 enum class AccountSessionStoreError : u8 {
@@ -35,15 +36,17 @@ struct AccountSessionStoreResult {
     }
 };
 
-// Stores the profile-bound normal-user Resume state, authenticated user ID and
-// a valid analytics heartbeat session, if any. Version 1 loads with unknown
-// user identity and versions before 3 without a heartbeat session; both are
-// upgraded on the next save.
+// Stores the profile-bound normal-user Resume state, authenticated user ID, a
+// valid analytics heartbeat session and the jar's unexpired persistent
+// cookies, if any (session cookies stay in memory). Version 1 loads with
+// unknown user identity, versions before 3 without a heartbeat session and
+// before 4 without cookies; all are upgraded on the next save. Load restores
+// saved cookies into the jar, replacing its contents.
 AccountSessionStoreResult account_user_session_store_save(
     const wchar_t* path, const GatewayUserSessionSnapshot& snapshot,
-    const ClientHeartbeatSession* heartbeat = nullptr) noexcept;
+    const ClientHeartbeatSession* heartbeat = nullptr, CookieJar* cookies = nullptr) noexcept;
 AccountSessionStoreResult account_user_session_store_load(
     const wchar_t* path, u64 expected_profile_id, GatewayUserSessionSnapshot* snapshot,
-    ClientHeartbeatSession* heartbeat = nullptr) noexcept;
+    ClientHeartbeatSession* heartbeat = nullptr, CookieJar* cookies = nullptr) noexcept;
 
 } // namespace maicord

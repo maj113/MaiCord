@@ -2,6 +2,7 @@
 
 #include "maicord/core/byte_queue.hpp"
 #include "maicord/media/deflate.hpp"
+#include "maicord/protocol/cookie_jar.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
 #include "maicord/protocol/gateway_lifecycle.hpp"
 #include "maicord/protocol/websocket_frame.hpp"
@@ -85,6 +86,10 @@ struct GatewaySession {
     u8 client_key[kWebSocketClientKeyBytes];
     bool transport_compressed;
     bool opened;
+    // Optional: the opening response's Set-Cookie fields are stored here for
+    // cookie_request (set after gateway_session_initialize).
+    CookieJar* cookies;
+    CookieRequest cookie_request;
 };
 
 struct GatewaySessionEvent {

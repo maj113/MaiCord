@@ -23019,12 +23019,17 @@ void test_gateway_session() noexcept {
                           static_cast<u32>(sizeof(structural_scratch) / sizeof(structural_scratch[0]))},
                key, 4096, 4096, false, false, 0),
            "gateway_session_initialize");
+    static CookieJar gateway_cookies;
+    session.cookies = &gateway_cookies;
+    session.cookie_request = {utf8_literal("gateway.discord.gg"), utf8_literal("/?encoding=json&v=9"), false};
     expect(gateway_session_next(&session, 0, 1000).kind == GatewaySessionEventKind::need_input,
            "gateway_session_handshake_need_input");
 
     const ConstSlice<u8> response =
         byte_literal("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                     "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
+                     "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
+                     "Set-Cookie: __cf_bm=bot; HttpOnly; SameSite=None; Secure; Path=/; Domain=discord.gg; "
+                     "Max-Age=1800\r\n\r\n");
     bool handshake_prefixes_wait = true;
     GatewaySessionEvent opened{};
     for (u32 index = 0; index < response.count; ++index) {
@@ -23041,6 +23046,14 @@ void test_gateway_session() noexcept {
     expect(handshake_prefixes_wait && opened.kind == GatewaySessionEventKind::opened && session.opened &&
                session.lifecycle.phase == GatewayLifecyclePhase::awaiting_hello,
            "gateway_session_fragmented_opening");
+    u8 gateway_cookie[kCookieHeaderMaximumBytes];
+    const u32 gateway_cookie_bytes =
+        cookie_jar_header(&gateway_cookies, session.cookie_request, clock_unix_milliseconds(),
+                          Slice<u8>{gateway_cookie, static_cast<u32>(sizeof(gateway_cookie))});
+    expect(gateway_cookies.count == 1 &&
+               bytes_equal(ConstSlice<u8>{gateway_cookie, gateway_cookie_bytes}, byte_literal("__cf_bm=bot")),
+           "gateway_session_opening_stores_cookies");
+    cookie_jar_clear(&gateway_cookies);
 
     const ConstSlice<u8> hello_payload = byte_literal(R"({"op":10,"d":{"heartbeat_interval":45000}})");
     u8 frames[512]{};
@@ -24085,6 +24098,27 @@ void test_rest() noexcept {
                    bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(chrome124.text), chrome124.bytes},
                                byte_literal(R"("Not-A.Brand";v="99", "Chromium";v="124")")),
                "rest_client_hint_brand_list_follows_major_version");
+        // Response heads feed the jar the next request reads.
+        static CookieJar rest_cookies;
+        static u8 response_input[kRestMaximumHeaderBytes];
+        u8 response_body[16]{};
+        RestResponse response{};
+        const bool initialized =
+            rest_response_initialize(&response, Slice<u8>{response_input, kRestMaximumHeaderBytes},
+                                     Slice<u8>{response_body, static_cast<u32>(sizeof(response_body))});
+        response.cookies = &rest_cookies;
+        response.cookie_request = {utf8_literal("discord.com"), utf8_literal("/api/v9/users/@me"), true};
+        const RestResponseStep fed = rest_response_feed(
+            &response, byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                                    "set-cookie: _cfuvid=session; HttpOnly; SameSite=None; Secure; Path=/; "
+                                    "Domain=discord.com\r\n\r\n{}"));
+        static u8 cookie_output[kCookieHeaderMaximumBytes];
+        const u32 cookie_bytes = cookie_jar_header(&rest_cookies, response.cookie_request, clock_unix_milliseconds(),
+                                                   Slice<u8>{cookie_output, sizeof(cookie_output)});
+        expect(initialized && fed.ok() && fed.state == RestResponseState::complete &&
+                   bytes_equal(ConstSlice<u8>{cookie_output, cookie_bytes}, byte_literal("_cfuvid=session")),
+               "rest_response_stores_cookies");
+        cookie_jar_clear(&rest_cookies);
     }
 
     // The client page origin goes on user requests other than GET and HEAD.
@@ -25753,7 +25787,7 @@ void test_account_module_contract() noexcept {
            "account_module_reject_previous_abi_without_any_output_write");
     AccountModuleApi api{};
     expect(get_api && get_api(kAccountModuleApiVersion, &api) && account_host_api_valid(api) &&
-               api.runtime_bytes() >= 1024 && api.runtime_bytes() < 128 * 1024,
+               api.runtime_bytes() >= 1024 && api.runtime_bytes() < 160 * 1024,
            "account_module_api_contract");
     AccountModuleApi previous_contract = api;
     previous_contract.version = kAccountModuleApiVersion - 1;

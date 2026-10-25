@@ -47,6 +47,11 @@ struct ClientSessionMetadata {
     // X-Discord-Locale: the user's interface locale setting once known.
     u32 locale_bytes;
     char locale[kRestUserLocaleMaximumBytes];
+    // Optional, set by the owner after initialize and outliving the workers:
+    // the account's cookies (locked on their own) and the Accept-Language its
+    // WebSocket handshakes send.
+    CookieJar* cookies;
+    Utf8View accept_language;
 };
 
 // False when the properties cannot be encoded or the locale is invalid. A

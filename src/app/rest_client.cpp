@@ -30,7 +30,7 @@ inline constexpr u32 kEncryptedInputBytes = 128 * 1024;
 inline constexpr u32 kHandshakeOutputBytes = 256 * 1024;
 inline constexpr u32 kRecordOutputBytes = 64 * 1024;
 inline constexpr u32 kRequestHeadBytes = 4 * 1024;
-inline constexpr u32 kNormalUserRequestHeadBytes = 20 * 1024;
+inline constexpr u32 kNormalUserRequestHeadBytes = 28 * 1024;
 inline constexpr u32 kUserAuthRequestHeadBytes = 12 * 1024;
 static_assert(kRequestHeadBytes <= kRestMaximumHeaderBytes &&
               kNormalUserRequestHeadBytes <= kRestMaximumHeaderBytes &&
@@ -267,6 +267,8 @@ struct RestClientRuntime {
     u8 armed_headers[kRestExtraHeadersMaximumBytes];
     u64 armed_request_id;
     u32 armed_headers_bytes;
+    // The Cookie value of the request being written, erased once it is.
+    u8 cookie_header[kCookieHeaderMaximumBytes];
 };
 
 struct RateLock {
@@ -583,6 +585,16 @@ bool copy_user_configuration(RestClientRuntime* runtime,
     runtime->user_accept_language_bytes = configuration.accept_language.bytes;
     runtime->metadata = configuration.metadata;
     return true;
+}
+
+// The account's cookie jar: normal-user requests send and store cookies.
+CookieJar* request_cookies(const RestClientRuntime* runtime) noexcept {
+    return !runtime->user_auth_mode && runtime->metadata ? runtime->metadata->cookies : nullptr;
+}
+
+CookieRequest cookie_request(const RestClientRuntime* runtime) noexcept {
+    return {utf8_literal("discord.com"),
+            {reinterpret_cast<const char*>(runtime->request_target), runtime->command.target_bytes}, true};
 }
 
 // The super properties and locale as the live metadata reports them for this request.
@@ -1026,6 +1038,11 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
             Utf8View{runtime->user_timezone, runtime->user_timezone_bytes},
             Utf8View{runtime->user_accept_language, runtime->user_accept_language_bytes}};
         const bool normal_user = runtime->authorization == RestAuthorization::normal_user;
+        CookieJar* const cookies = normal_user ? request_cookies(runtime) : nullptr;
+        const u32 cookie_bytes =
+            cookies ? cookie_jar_header(cookies, cookie_request(runtime), clock_unix_milliseconds(),
+                                        {runtime->cookie_header, kCookieHeaderMaximumBytes})
+                    : 0;
         const RestRequestWriteResult written = write_rest_request_head(
             RestRequestHead{ConstSlice<u8>{runtime->request_target, runtime->command.target_bytes},
                             token, runtime->command.body_bytes, runtime->command.route.method,
@@ -1035,8 +1052,10 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
                             {runtime->audit_reason, runtime->command.audit_reason_bytes},
                             {runtime->extra_headers, runtime->command.extra_headers_bytes},
                             {runtime->multipart_boundary, runtime->command.multipart_boundary_bytes},
-                            runtime->command.send_empty_audit_reason},
+                            runtime->command.send_empty_audit_reason,
+                            {runtime->cookie_header, cookie_bytes}},
             Slice<u8>{runtime->request_head, runtime->request_head_capacity});
+        secure_clear_bytes(runtime->cookie_header, cookie_bytes);
         if (!written.ok()) {
             secure_clear_bytes(runtime->request_head, runtime->request_head_capacity);
             return TlsStreamEvent{0, TlsStreamEventKind::failed, TlsStreamError::invalid_input};
@@ -1305,6 +1324,8 @@ bool drive_transport_event(RestClient* client, RestClientRuntime* runtime,
                 begin_drain(client, runtime, RestClientError::request, 0, false);
                 return false;
             }
+            runtime->response.cookies = request_cookies(runtime);
+            runtime->response.cookie_request = cookie_request(runtime);
             publish_worker_phase(client, runtime, RestClientPhase::receiving);
             runtime->receive_counter = clock_now();
             current = tls_stream_start_read(&runtime->transport, response_plaintext_received, runtime);
