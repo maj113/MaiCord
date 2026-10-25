@@ -57,10 +57,10 @@ constexpr char ascii_hex_digit_upper(u32 value) noexcept {
 }
 
 constexpr bool ascii_is_alnum(char value) noexcept {
-    return ascii_is_digit(value) || (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
+    return static_cast<u8>(value - '0') < 10 || static_cast<u8>((static_cast<u8>(value) | 0x20) - 'a') < 26;
 }
 
-constexpr bool ascii_equal_ignore_case(Utf8View left, Utf8View right) noexcept {
+__declspec(noinline) constexpr bool ascii_equal_ignore_case(Utf8View left, Utf8View right) noexcept {
     if (left.bytes != right.bytes)
         return false;
     for (u32 index = 0; index < left.bytes; ++index)

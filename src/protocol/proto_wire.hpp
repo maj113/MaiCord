@@ -148,7 +148,7 @@ struct ProtoWriter {
             ok = false;
         ++at;
     }
-    void varint(u64 value) noexcept {
+    __declspec(noinline) void varint(u64 value) noexcept {
         do {
             const u8 low = static_cast<u8>(value & 127);
             value >>= 7;
@@ -158,7 +158,7 @@ struct ProtoWriter {
     void tag(u32 field, u32 type) noexcept {
         varint((static_cast<u64>(field) << 3) | type);
     }
-    void fixed64(u64 value) noexcept {
+    __declspec(noinline) void fixed64(u64 value) noexcept {
         for (u32 i = 0; i < 8; ++i)
             byte(static_cast<u8>(value >> (i * 8)));
     }

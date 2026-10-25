@@ -2,7 +2,7 @@
 #include "maicord/core/slice.hpp"
 
 namespace maicord {
-inline bool byte_range_valid(const void* data, usize bytes) noexcept {
+__declspec(noinline) inline bool byte_range_valid(const void* data, usize bytes) noexcept {
     return bytes == 0 || (data && reinterpret_cast<usize>(data) <= ~usize{0} - bytes);
 }
 inline bool byte_range_valid(ConstSlice<u8> span) noexcept {

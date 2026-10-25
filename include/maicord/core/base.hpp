@@ -33,11 +33,18 @@ template <typename T>
 inline constexpr bool is_trivial_v = __is_trivially_constructible(T) && __is_trivially_copyable(T);
 template <typename T> inline constexpr bool is_standard_layout_v = __is_standard_layout(T);
 
-template <typename T> inline void com_release(T*& value) noexcept {
-    if (value) {
-        value->Release();
-        value = nullptr;
+// Releases the COM object in *slot and clears it. IUnknown::Release is the third
+// vtable slot of every COM interface, so one out-of-line body serves all of them.
+__declspec(noinline) inline void com_release_slot(void** slot) noexcept {
+    void* object = *slot;
+    if (object) {
+        reinterpret_cast<unsigned long (*)(void*)>((*static_cast<void***>(object))[2])(object);
+        *slot = nullptr;
     }
+}
+
+template <typename T> inline void com_release(T*& value) noexcept {
+    com_release_slot(reinterpret_cast<void**>(&value));
 }
 
 template <typename T> constexpr T minimum(T a, T b) noexcept {
@@ -75,11 +82,13 @@ constexpr void saturating_increment_if(bool condition, u32& value) noexcept {
 }
 
 constexpr void saturating_accumulate(u32& value, u32 addend = 1) noexcept {
-    value = addend > ~u32{0} - value ? ~u32{0} : value + addend;
+    const u32 sum = value + addend;
+    value = sum < value ? ~u32{0} : sum;
 }
 
 constexpr void saturating_accumulate(u64& value, u64 addend) noexcept {
-    value = addend > ~u64{0} - value ? ~u64{0} : value + addend;
+    const u64 sum = value + addend;
+    value = sum < value ? ~u64{0} : sum;
 }
 
 // Float classification reads the bit pattern: /fp:fast may fold NaN and

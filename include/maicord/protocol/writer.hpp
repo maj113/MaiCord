@@ -46,9 +46,9 @@ Result protocol_writer_finish(const ProtocolWriter& writer, bool ok, Slice<u8> o
 template <usize Count>
 __forceinline bool protocol_writer_append_literal(ProtocolWriter* writer,
                                                   const char (&literal)[Count]) noexcept {
-    static_assert(Count > 0 && Count - 1 <= 0xFFFFFFFFull);
-    return protocol_writer_append_bytes(writer, reinterpret_cast<const u8*>(literal),
-                                        static_cast<u32>(Count - 1));
+    static_assert(Count > 0);
+    // The length-free call is smaller at every site; a literal holds no NUL.
+    return protocol_writer_append_c_string(writer, literal);
 }
 
 } // namespace maicord

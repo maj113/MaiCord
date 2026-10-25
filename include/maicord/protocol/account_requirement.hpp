@@ -29,7 +29,7 @@ struct ApiRejection {
     bool has_code;
     bool captcha;
 };
-constexpr bool api_rejection_requires_action(ApiRejection value) noexcept {
+__declspec(noinline) constexpr bool api_rejection_requires_action(ApiRejection value) noexcept {
     return value.captcha ||
            (value.has_code && (value.code == 40002 || value.code == 40004 || value.code == 20026));
 }

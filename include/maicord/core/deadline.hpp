@@ -9,7 +9,8 @@ inline constexpr u32 kInfiniteWaitMilliseconds = 0xFFFFFFFFu;
 inline constexpr u32 kFiniteWaitMaximumMilliseconds = 0xFFFFFFFEu;
 
 constexpr u64 deadline_after(u64 now, u64 delay) noexcept {
-    return delay > ~0ull - now ? ~0ull : now + delay;
+    const u64 sum = now + delay;
+    return sum < now ? ~0ull : sum;
 }
 
 constexpr u64 earliest_deadline(u64 first, u64 second) noexcept {

@@ -66,19 +66,19 @@ struct JsonBody {
     bool ok = true;
 
     explicit JsonBody(Slice<u8> output) noexcept : writer{output, 0} {}
-    void raw(const char* text) noexcept {
+    __declspec(noinline) void raw(const char* text) noexcept {
         ok = ok && protocol_writer_append_c_string(&writer, text);
     }
-    void byte(u8 value) noexcept {
+    __declspec(noinline) void byte(u8 value) noexcept {
         ok = ok && protocol_writer_append_byte(&writer, value);
     }
-    void number(u64 value) noexcept {
+    __declspec(noinline) void number(u64 value) noexcept {
         ok = ok && protocol_writer_append_u64(&writer, value);
     }
-    void string(Utf8View value) noexcept {
+    __declspec(noinline) void string(Utf8View value) noexcept {
         ok = ok && protocol_writer_append_json_string(&writer, value);
     }
-    void snowflake(u64 value) noexcept {
+    __declspec(noinline) void snowflake(u64 value) noexcept {
         ok = ok && protocol_writer_append_snowflake(&writer, value);
     }
     __declspec(noinline) void key(const char* name) noexcept {
@@ -89,11 +89,11 @@ struct JsonBody {
         raw(name);
         raw("\":");
     }
-    void begin_object() noexcept {
+    __declspec(noinline) void begin_object() noexcept {
         byte('{');
         first = true;
     }
-    void end_object() noexcept {
+    __declspec(noinline) void end_object() noexcept {
         byte('}');
         first = false;
     }
