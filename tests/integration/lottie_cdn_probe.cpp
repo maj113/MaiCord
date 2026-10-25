@@ -2,19 +2,16 @@
 // (cmake/integration.cmake) and run by hand or through tools/probe_*.ps1; it is
 // never part of the CTest suite because it talks to the real service.
 #include "maicord/app/cdn_client.hpp"
-#include "maicord/media/regional_flag_svg.hpp"
-#include "maicord/ui/regional_flag.hpp"
 #include "native_resource_probe.hpp"
 #include "maicord/core/json_reader.hpp"
 
 namespace maicord { namespace {
 void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&done,nullptr);}
 void number(u64 value) noexcept {char text[32];u32 n=0;do{text[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char c=text[i];text[i]=text[n-i-1];text[n-i-1]=c;}DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&done,nullptr);}
-bool lottie_mode() noexcept {return GetEnvironmentVariableW(L"MAICORD_LOTTIE_CDN_PROBE",nullptr,0)!=0;}
-struct Validation {CdnClientResponse response{};u32 layers=0,max_commands=0;bool valid=false;};
+struct Validation {CdnClientResponse response{};bool valid=false;};
 bool consume(void* opaque,const CdnClientResponse& response,ConstSlice<u8> body) noexcept {
     auto& result=*static_cast<Validation*>(opaque);result.response=response;
-    if(lottie_mode()){
+    {
         auto* index=body.count && body.count<=1024*1024 ? static_cast<u32*>(VirtualAlloc(nullptr,
             body.count*sizeof(u32),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE)) : nullptr;
         if(index){const Utf8View text{reinterpret_cast<const char*>(body.data),body.count};
@@ -24,16 +21,7 @@ bool consume(void* opaque,const CdnClientResponse& response,ConstSlice<u8> body)
                 json_visit_root_object(text,{index,scan.count},64,
                     +[](void*,JsonString,JsonValue) noexcept{return true;},nullptr).ok();
             VirtualFree(index,0,MEM_RELEASE);}
-        return true;
     }
-    RegionalFlagSvg image{};GlyphPathCommand commands[kRegionalFlagSvgMaximumCommands];
-    GlyphOutline outline{commands,kRegionalFlagSvgMaximumCommands};
-    result.valid=response.transport_ok()&&response.request_id==1&&response.status_code==200&&!response.redirects&&
-        body.count==response.body_bytes&&body.count&&body.count<=kRegionalFlagSvgMaximumBytes&&
-        regional_flag_svg_parse(body,&image);
-    result.layers=image.count;
-    for(u32 i=0;result.valid&&i<image.count;++i){result.valid=regional_flag_svg_outline(image.layers[i],&outline);
-        result.max_commands=maximum(result.max_commands,outline.count);}
     // Consume even a rejected response so native cleanup is always exercised.
     return true;
 }
@@ -44,8 +32,7 @@ Lifecycle lifecycle(u32 cycle) noexcept {
     if(!resources_ok)return {};
     DWORD baseline=0;const bool baseline_ok=GetProcessHandleCount(GetCurrentProcess(),&baseline)!=FALSE;
     if(!baseline_ok)return {};
-    CdnClient client{};const auto started=cdn_client_start(&client,
-        lottie_mode()?1024*1024:kRegionalFlagSvgMaximumBytes);
+    CdnClient client{};const auto started=cdn_client_start(&client,1024*1024);
     const auto owned_resources=resource_probe::owner(client);
     resources_ok=resource_probe::sample(cycle==1?"cold_started":"warm_started",1)&&resources_ok;
     bool valid=baseline_ok&&started.ok();
@@ -53,15 +40,11 @@ Lifecycle lifecycle(u32 cycle) noexcept {
     print(" start_native=");number(started.native_error);print("\n");
     Validation validation{};
     if(started.ok()&&resources_ok){
-        char target[kRegionalFlagSvgTargetBytes]{};
-        constexpr auto json_target=utf8_literal("/stickers/796140620111544330.json");
-        const u32 bytes=lottie_mode()?json_target.bytes:regional_flag_svg_target(504,{target,sizeof(target)});
-        if(lottie_mode())copy_bytes(target,json_target.data,bytes);
-        const auto submitted=cdn_client_submit(&client,{{reinterpret_cast<const u8*>(target),bytes},{},1,20000,
-            lottie_mode()?CdnHost::cdn:CdnHost::flag_assets,
-            lottie_mode()?CdnImageType::lottie_json:CdnImageType::regional_flag_svg});
+        constexpr auto target=utf8_literal("/stickers/796140620111544330.json");
+        const auto submitted=cdn_client_submit(&client,{{reinterpret_cast<const u8*>(target.data),target.bytes},{},1,
+            20000,CdnHost::cdn,CdnImageType::lottie_json});
         print("submit_error=");number(static_cast<u32>(submitted.error));print("\n");
-        valid=valid&&(lottie_mode()?bytes==json_target.bytes:bytes==kRegionalFlagSvgTargetPrefixBytes+15)&&submitted.ok();
+        valid=valid&&submitted.ok();
         if(submitted.ok()){
             const auto waited=cdn_client_wait_response(&client,25000);
             print("wait_phase=");number(static_cast<u32>(waited.phase));print(" wait_error=");number(static_cast<u32>(waited.error));
@@ -78,8 +61,7 @@ Lifecycle lifecycle(u32 cycle) noexcept {
     print("http_status=");number(response.status_code);print(" bytes=");number(response.body_bytes);
     print(" redirects=");number(response.redirects);print(" client_error=");number(static_cast<u32>(response.error));
     print(" http_error=");number(static_cast<u32>(response.http_error));print(" native_error=");number(response.native_error);
-    print(" elapsed_us=");number(response.elapsed_us);print(" layers=");number(validation.layers);
-    print(" max_commands=");number(validation.max_commands);print("\n");
+    print(" elapsed_us=");number(response.elapsed_us);print("\n");
     if(resources_ok)resources_ok=resource_probe::sample(cycle==1?"cold_response":"warm_response",0);
     bool stopped=!client.runtime&&!client.worker.thread;
     if(!stopped){const auto stop=cdn_client_stop(&client,5000);stopped=stop.phase==CdnClientPhase::stopped;
@@ -167,7 +149,7 @@ bool run() noexcept {
     print("cold_handles_before=");number(cold.before);print(" cold_handles_after=");number(cold.after);
     print(" cold_handle_delta=");if(cold.after<cold.before)print("-");
     number(cold.after>=cold.before?cold.after-cold.before:cold.before-cold.after);print("\n");
-    if(!cold.valid){print("regional_flag_native_cdn_cold_lifecycle_failed\n");return false;}
+    if(!cold.valid){print("lottie_native_cdn_cold_lifecycle_failed\n");return false;}
     // Repeat fresh owners within a fixed public-request bound. Keep natural
     // count drops visible; exact equality and non-accumulation are distinct.
     DWORD previous_after=cold.after;bool all_equal=true,all_no_accumulation=true;
@@ -178,17 +160,17 @@ bool run() noexcept {
         print("warm_handles_before=");number(warm.before);print(" warm_handles_after=");number(warm.after);
         print(" warm_stable=");number(equal?1:0);print(" warm_no_handle_accumulation=");number(no_accumulation?1:0);
         print(" warm_cycle=");number(i+1);print(" previous_handles_after=");number(previous_after);print("\n");
-        if(!warm.valid){print("regional_flag_native_cdn_warm_lifecycle_failed\n");return false;}
+        if(!warm.valid){print("lottie_native_cdn_warm_lifecycle_failed\n");return false;}
         all_equal=all_equal&&equal;all_no_accumulation=all_no_accumulation&&no_accumulation;
         previous_after=warm.after;
     }
     resource_probe::retained_cold();
     print("resource_warm_summary cycles=");number(count);print(" exact_equal=");number(all_equal?1:0);
     print(" no_handle_accumulation=");number(all_no_accumulation?1:0);print(" final_handles=");number(previous_after);print("\n");
-    print(all_equal?"regional_flag_native_cdn_passed_warm_lifecycle_stable\n":
-        all_no_accumulation?"regional_flag_native_cdn_passed_warm_lifecycle_no_handle_accumulation\n":
-        "regional_flag_native_cdn_warm_handle_accumulation_failed\n");
+    print(all_equal?"lottie_native_cdn_passed_warm_lifecycle_stable\n":
+        all_no_accumulation?"lottie_native_cdn_passed_warm_lifecycle_no_handle_accumulation\n":
+        "lottie_native_cdn_warm_handle_accumulation_failed\n");
     return all_no_accumulation;
 }
 }}
-extern "C" __declspec(noreturn) void WINAPI maicord_regional_flag_cdn_probe_entry() noexcept {ExitProcess(maicord::run()?0:1);}
+extern "C" __declspec(noreturn) void WINAPI maicord_lottie_cdn_probe_entry() noexcept {ExitProcess(maicord::run()?0:1);}

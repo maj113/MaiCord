@@ -79,8 +79,7 @@ bool run() noexcept {
             CHECK(regional_flag_sequence({glyph, sizeof(glyph)}) == (bytes ? expected : 0));
             if (bytes) {
                 ++pairs;
-                CHECK(bytes == kRegionalFlagSvgTargetPrefixBytes + 15 &&
-                      regional_flag_svg_target_sequence({target, bytes}) == expected);
+                CHECK(bytes == kRegionalFlagSvgTargetPrefixBytes + 15);
             }
             CHECK(!regional_flag_sequence({glyph, 4}));
             CHECK(!regional_flag_sequence({glyph, 7}));
@@ -106,7 +105,6 @@ bool run() noexcept {
         CHECK(regional_flag_sequence({glyph, sizeof(glyph)}) == 677 + i);
         CHECK(regional_flag_svg_target(static_cast<u16>(677 + i), {target, sizeof(target)}) ==
               kRegionalFlagSvgTargetBytes);
-        CHECK(regional_flag_svg_target_sequence({target, kRegionalFlagSvgTargetBytes}) == 677 + i);
         glyph[27] = 'A';
         CHECK(!regional_flag_sequence({glyph, sizeof(glyph)}));
     }
@@ -133,43 +131,12 @@ bool run() noexcept {
         same({target, kRegionalFlagSvgTargetPrefixBytes + 15},
              utf8_literal(
                  "/jdecked/twemoji/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/assets/svg/1f1f9-1f1f0.svg")));
-    CHECK(!regional_flag_svg_target_sequence(utf8_literal("/assets/02d426f812319d08.svg")));
-    CHECK(!regional_flag_svg_target_sequence(
-        utf8_literal("/jdecked/twemoji/main/assets/svg/1f1f9-1f1f0.svg")));
-    target[17] = 'a';
-    CHECK(!regional_flag_svg_target_sequence({target, kRegionalFlagSvgTargetPrefixBytes + 15}));
-    CHECK(regional_flag_svg_target(505, {target, sizeof(target)}) ==
-          kRegionalFlagSvgTargetPrefixBytes + 15);
-    target[kRegionalFlagSvgTargetPrefixBytes + 5] = '/';
-    CHECK(!regional_flag_svg_target_sequence({target, kRegionalFlagSvgTargetPrefixBytes + 15}));
-    CHECK(regional_flag_svg_target(505, {target, sizeof(target)}) ==
-          kRegionalFlagSvgTargetPrefixBytes + 15);
-    u8 request[512]{};
-    const ConstSlice<u8> path{reinterpret_cast<const u8*>(target), kRegionalFlagSvgTargetPrefixBytes + 15};
-    CHECK(write_static_cdn_get_request(CdnImageType::regional_flag_svg, CdnHost::flag_assets, path, {},
-                                       {request, sizeof(request)})
-              .ok());
-    CHECK(!write_static_cdn_get_request(CdnImageType::regional_flag_svg, CdnHost::cdn, path, {},
-                                        {request, sizeof(request)})
-               .ok());
-    CHECK(!write_static_cdn_get_request(CdnImageType::png, CdnHost::flag_assets, path, {},
-                                        {request, sizeof(request)})
-               .ok());
-    target[kRegionalFlagSvgTargetPrefixBytes] = 'F';
-    CHECK(!write_static_cdn_get_request(CdnImageType::regional_flag_svg, CdnHost::flag_assets, path, {},
-                                        {request, sizeof(request)})
-               .ok());
     u8 parsed[128]{};
     CHECK(!parse_media_url(
                utf8_literal("https://raw.githubusercontent.com/jdecked/twemoji/"
                             "b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/assets/svg/1f1f9-1f1f0.svg"),
                {parsed, sizeof(parsed)})
                .ok());
-    const auto head =
-        utf8_literal("HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nContent-Length: 65537\r\n\r\n");
-    CHECK(validate_static_image_response(CdnImageType::regional_flag_svg,
-                                         {reinterpret_cast<const u8*>(head.data), head.bytes}, 65537, 1)
-              .error == CdnHttpError::body_too_large);
     test_write_text("regional_flag_identity_passed pairs=259 subdivisions=3 catalog=262\n");
     return true;
 }

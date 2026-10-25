@@ -28,8 +28,6 @@ bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) no
 // No caller-controlled URL, revision, asset hash or path is accepted.
 // Returns zero without writing when identity/capacity is invalid.
 u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept;
-// Returns the exact admitted Unicode identity for a canonical pinned target.
-u16 regional_flag_svg_target_sequence(Utf8View target) noexcept;
 
 
 } // namespace maicord

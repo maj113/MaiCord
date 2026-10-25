@@ -29,9 +29,9 @@ maicord_program(MaiCordCdnClientProbe ENTRY maicord_cdn_client_probe_entry
     SOURCES tests/integration/cdn_client_probe.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_codec kernel32 ws2_32
         secur32 bcrypt crypt32)
-maicord_program(MaiCordRegionalFlagCdnProbe ENTRY maicord_regional_flag_cdn_probe_entry
-    SOURCES tests/integration/regional_flag_cdn_probe.cpp
+maicord_program(MaiCordLottieCdnProbe ENTRY maicord_lottie_cdn_probe_entry
+    SOURCES tests/integration/lottie_cdn_probe.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_media_core kernel32 ws2_32 secur32 bcrypt
         crypt32)
 # The Windows resource probe stays an optimized native object outside LTCG.
-set_target_properties(MaiCordRegionalFlagCdnProbe PROPERTIES MAICORD_NO_WHOLE_PROGRAM ON)
+set_target_properties(MaiCordLottieCdnProbe PROPERTIES MAICORD_NO_WHOLE_PROGRAM ON)

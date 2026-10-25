@@ -18,7 +18,6 @@ enum class CdnImageType : u8 {
     gif,
     jpeg,
     mp4,
-    regional_flag_svg,
     lottie_json,
     ogg_opus,
     mp3,
@@ -37,7 +36,6 @@ constexpr u32 cdn_encoded_body_limit(CdnImageType type) noexcept {
     return type == CdnImageType::mp4                 ? kMediaMaximumEncodedVideoBytes
            : type == CdnImageType::mpeg_ts            ? 8u * 1024u * 1024u
            : type == CdnImageType::hls_playlist       ? 64u * 1024u
-           : type == CdnImageType::regional_flag_svg ? 64u * 1024u
            : type == CdnImageType::lottie_json       ? 1024u * 1024u
            : type == CdnImageType::soundboard_sound  ? 1024u * 1024u
                                                      : kCdnMaximumEncodedBodyBytes;

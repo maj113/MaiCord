@@ -1229,8 +1229,6 @@ Utf8View cdn_host_name(CdnHost host) noexcept {
         return utf8_literal("images-ext-1.discordapp.net");
     case CdnHost::images_ext_2:
         return utf8_literal("images-ext-2.discordapp.net");
-    case CdnHost::flag_assets:
-        return utf8_literal("raw.githubusercontent.com");
     case CdnHost::catalog_klipy:
         return utf8_literal("static.klipy.com");
     case CdnHost::catalog_klipy2:

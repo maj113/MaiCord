@@ -21,7 +21,6 @@ enum class CdnHost : u8 {
     media,
     images_ext_1,
     images_ext_2,
-    flag_assets,   // Only the fixed regional-flag metadata targets, never general media URLs.
     catalog_klipy, // Only typed catalog preview requests; excluded from ordinary message URLs.
     // GIF provider hosts that favourites load from directly. Only the tiny
     // animated WebP renditions parse_catalog_preview_url derives (and Klipy's own

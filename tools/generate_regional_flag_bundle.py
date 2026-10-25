@@ -3,15 +3,20 @@
 
 Input: assets/regional_flags/<codepoints>.svg (CC BY 4.0, see
 assets/licenses/Twemoji-graphics.txt). The flag sequence is derived from the
-file name exactly as src/ui/regional_flag.cpp numbers it. Output is a
-deterministic C++ include with one zlib stream per group of similar flags.
+file name exactly as src/ui/regional_flag.cpp numbers it. Coordinates are
+rounded to two decimals (1/3600 of the 36-unit view box). Each flag becomes a
+binary record (elements, fills, path letters with number counts, zigzag
+varint hundredths) that src/app/regional_flag_assets.cpp turns back into the
+SVG text `decode` writes here. Output is a deterministic C++ include with one
+zlib stream per group of similar records.
 """
 import argparse
 from collections import Counter
 import pathlib
+import re
 import zlib
 
-GROUP_RAW_BUDGET = 32 * 1024
+GROUP_RAW_BUDGET = 20 * 1024
 SUBDIVISIONS = {"gbeng": 677, "gbsct": 678, "gbwls": 679}
 
 
@@ -24,6 +29,208 @@ def sequence_of(stem):
         if tag in SUBDIVISIONS:
             return SUBDIVISIONS[tag]
     raise SystemExit(f"unrecognised flag file name: {stem}")
+
+
+NUMBER = re.compile(rb"-?(?:\d+\.?\d*|\.\d+)")
+# Geometry attributes only; names, colours and namespaces stay as written.
+ATTRIBUTE = re.compile(rb' (d|viewBox|cx|cy|r|rx|ry)="([^"]*)"')
+
+
+def rounded(token):
+    """Two-decimal form of a decimal token; integers and runs such as the
+    concatenated arc flags in "011.5" are kept as written."""
+    body = token.lstrip(b"-")
+    if b"." not in body or (len(body) > 1 and body[0:1] == b"0" and body[1:2] != b"."):
+        return token
+    text = f"{round(float(token), 2):.2f}".rstrip("0").rstrip(".")
+    if text in ("-0", ""):
+        text = "0"
+    text = text.replace("0.", ".", 1) if text.startswith(("0.", "-0.")) else text
+    return text.encode()
+
+
+def round_numbers(value):
+    out, previous, end = bytearray(), b"", 0
+    for match in NUMBER.finditer(value):
+        token = rounded(match.group(0))
+        adjacent = match.start() == end and previous
+        out += value[end:match.start()]
+        # Keep adjacent numbers apart once rounding drops a decimal point.
+        if adjacent and token[:1] != b"-" and (token[:1] != b"." or b"." not in previous):
+            out += b" "
+        out += token
+        previous, end = token, match.end()
+    out += value[end:]
+    return bytes(out)
+
+
+def compact(svg):
+    rounded_svg = ATTRIBUTE.sub(lambda m: b" " + m.group(1) + b'="' + round_numbers(m.group(2)) + b'"', svg)
+    numbers = lambda text: [m.group(0) for m in NUMBER.finditer(text)]
+    shape = lambda text: NUMBER.sub(b"#", text).replace(b" ", b"")
+    before, after = numbers(svg), numbers(rounded_svg)
+    assert shape(svg) == shape(rounded_svg) and len(before) == len(after) and all(
+        a == b or abs(float(a) - float(b)) <= 0.005 + 1e-9 for a, b in zip(before, after)), "rounding moved a number"
+    return rounded_svg
+
+
+PATH_NUMBER = re.compile(rb"[-+]?(?:\d+\.?\d*|\.\d+)")
+TAGS = (b"path", b"circle", b"ellipse", b"g")
+SHAPE_ATTRIBUTES = {b"circle": (b"cx", b"cy", b"r"), b"ellipse": (b"cx", b"cy", b"rx", b"ry")}
+ROTATION = b"rotate(-76.714 13.001 18.001)"
+HEADER = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">'
+
+
+def path_items(d):
+    """The path's command letters and numbers; arc flags are single digits."""
+    items, command, index, at = [], b"", 0, 0
+    while at < len(d):
+        c = d[at:at + 1]
+        if c.isalpha():
+            items.append(c); command, index, at = c, 0, at + 1
+        elif c in b" ,\t\r\n":
+            at += 1
+        elif command in b"Aa" and index % 7 in (3, 4):
+            assert c in b"01", d[at:at + 12]
+            items.append(int(c) * 100); at += 1; index += 1
+        else:
+            match = PATH_NUMBER.match(d, at)
+            assert match, d[at:at + 12]
+            items.append(hundredths(match.group(0))); at = match.end(); index += 1
+    return items
+
+
+def hundredths(token):
+    value = round(float(token) * 100)
+    assert abs(value - float(token) * 100) < 1e-6, token
+    return value
+
+
+def varint(value, out, signed=True):
+    if signed:
+        value = (value << 1) ^ (value >> 63)
+    while value >= 0x80:
+        out.append(value & 0x7F | 0x80); value >>= 7
+    out.append(value)
+
+
+def elements(svg):
+    """(closing, tag, attributes) for every element after the root."""
+    rows = []
+    for match in re.finditer(rb"<(/?)([a-z]+)([^>]*?)/?>", svg):
+        closing, tag, body = match.groups()
+        if tag == b"svg":
+            attributes = dict(re.findall(rb' ([a-z:A-Z-]+)="([^"]*)"', body))
+            assert closing or set(attributes) <= {b"xmlns", b"viewBox", b"xml:space"}, attributes
+            continue
+        rows.append((bool(closing), tag, dict(re.findall(rb' ([a-z:-]+)="([^"]*)"', body))))
+    return rows
+
+
+def encode(svg):
+    out = bytearray()
+    for closing, tag, attributes in elements(svg):
+        if closing:
+            assert tag == b"g"; out.append(4); continue
+        assert set(attributes) <= {b"fill", b"fill-rule", b"clip-rule", b"transform", b"d", *SHAPE_ATTRIBUTES.get(tag, ())}, attributes
+        assert attributes.get(b"fill-rule", b"evenodd") == b"evenodd" and attributes.get(b"transform", ROTATION) == ROTATION
+        fill = attributes.get(b"fill", b"")
+        out += bytes((TAGS.index(tag), len(fill))) + fill
+        out.append((b"fill-rule" in attributes) | (b"transform" in attributes) << 1)
+        if tag == b"path":
+            items, at = path_items(attributes[b"d"]), 0
+            while at < len(items):
+                letter, at = items[at], at + 1
+                end = at
+                while end < len(items) and not isinstance(items[end], bytes):
+                    end += 1
+                out += letter; varint(end - at, out, False)
+                for value in items[at:end]:
+                    varint(value, out)
+                at = end
+            out.append(0)
+        else:
+            for name in SHAPE_ATTRIBUTES.get(tag, ()):
+                varint(hundredths(attributes[name]), out)
+    out.append(5)
+    return bytes(out)
+
+
+def decode(record):
+    """The SVG text the client rebuilds from a record."""
+    at, out = 0, bytearray(HEADER)
+
+    def unsigned():
+        nonlocal at
+        value = shift = 0
+        while True:
+            byte = record[at]; at += 1
+            value |= (byte & 0x7F) << shift; shift += 7
+            if byte < 0x80:
+                return value
+
+    def number():
+        value = unsigned()
+        value = (value >> 1) ^ -(value & 1)
+        text = f"{abs(value) // 100}" if abs(value) >= 100 or not abs(value) % 100 else ""
+        if abs(value) % 100:
+            text += f".{abs(value) % 100:02d}".rstrip("0")
+        return (b"-" if value < 0 else b"") + text.encode()
+
+    def separated(numbers):
+        """Numbers joined as the parser reads them: a sign or a second point ends the previous one."""
+        out = previous = b""
+        for text in numbers:
+            if previous and text[:1] != b"-" and not (text[:1] == b"." and b"." in previous):
+                out += b" "
+            out += text
+            previous = text
+        return out
+
+    while True:
+        tag = record[at]; at += 1
+        if tag == 5:
+            return bytes(out + b"</svg>")
+        if tag == 4:
+            out += b"</g>"; continue
+        name, fill_bytes = TAGS[tag], record[at]
+        fill, flags = record[at + 1:at + 1 + fill_bytes], record[at + 1 + fill_bytes]
+        at += 2 + fill_bytes
+        out += b"<" + name
+        if fill:
+            out += b' fill="' + fill + b'"'
+        if flags & 1:
+            out += b' fill-rule="evenodd"'
+        if flags & 2:
+            out += b' transform="' + ROTATION + b'"'
+        if name == b"path":
+            out += b' d="'
+            while record[at]:
+                out.append(record[at]); at += 1
+                out += separated([number() for _ in range(unsigned())])
+            at += 1
+            out += b'"/>'
+        elif name == b"g":
+            out += b">"
+        else:
+            for attribute in SHAPE_ATTRIBUTES[name]:
+                out += b" " + attribute + b'="' + number() + b'"'
+            out += b"/>"
+
+
+def verify(svg, text):
+    """The rebuilt text keeps every element, fill, fill rule and number of the rounded source."""
+    def meaning(source):
+        rows = []
+        for closing, tag, attributes in elements(source):
+            attributes = {k: v for k, v in attributes.items() if k != b"clip-rule"}
+            if b"d" in attributes:
+                attributes[b"d"] = path_items(attributes[b"d"])
+            for name in SHAPE_ATTRIBUTES.get(tag, ()):
+                attributes[name] = hundredths(attributes[name])
+            rows.append((closing, tag, attributes))
+        return rows
+    assert meaning(svg) == meaning(text), "record changed a flag"
 
 
 def best_deflate(data):
@@ -89,9 +296,19 @@ def main():
     parser.add_argument("output", type=pathlib.Path)
     args = parser.parse_args()
 
-    flags = sorted((sequence_of(p.stem), p.read_bytes()) for p in args.source.glob("*.svg"))
+    flags = sorted((sequence_of(p.stem), compact(p.read_bytes())) for p in args.source.glob("*.svg"))
     if len({s for s, _ in flags}) != len(flags):
         raise SystemExit("duplicate flag sequence")
+    texts = {}
+    for index, (sequence, svg) in enumerate(flags):
+        record = encode(svg)
+        texts[sequence] = decode(record)
+        verify(svg, texts[sequence])
+        flags[index] = (sequence, record)
+    checksum = 0xCBF29CE484222325
+    for sequence in sorted(texts):
+        for byte in texts[sequence]:
+            checksum = (checksum ^ byte) * 0x100000001B3 % (1 << 64)
 
     groups, entries = group_flags(flags), []
     assert len(groups) <= 256
@@ -107,7 +324,7 @@ def main():
         assert zlib.decompress(packed) == raw_data
         group_rows.append((len(blob), len(packed), len(raw_data)))
         blob += packed
-        maximum_raw = max(maximum_raw, len(raw_data))
+        maximum_raw = max(maximum_raw, len(raw_data) + max(len(texts[sequence]) for sequence, _ in group))
         for sequence, svg in group:
             offset = offsets[svg]
             assert offset < 65536 and len(svg) < 65536
@@ -115,7 +332,8 @@ def main():
 
     entries.sort()  # Runtime lookup remains a binary search by sequence.
     lines = ["// Generated by tools/generate_regional_flag_bundle.py; do not edit.",
-             "// Twemoji artwork, CC BY 4.0. See assets/licenses/Twemoji-graphics.txt.",
+             "// Twemoji artwork, CC BY 4.0, coordinates rounded. See assets/licenses/Twemoji-graphics.txt.",
+             f"constexpr u64 kFlagTextChecksum=0x{checksum:016X}ull;",
              f"constexpr u32 kFlagCount={len(entries)};",
              f"constexpr u32 kFlagGroupCount={len(groups)};",
              f"constexpr u32 kFlagScratchBytes={maximum_raw};",

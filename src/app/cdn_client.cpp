@@ -164,7 +164,6 @@ const wchar_t* host_wide(CdnHost host) noexcept {
     case CdnHost::media: return L"media.discordapp.net";
     case CdnHost::images_ext_1: return L"images-ext-1.discordapp.net";
     case CdnHost::images_ext_2: return L"images-ext-2.discordapp.net";
-    case CdnHost::flag_assets: return L"raw.githubusercontent.com";
     case CdnHost::catalog_klipy: return L"static.klipy.com";
     case CdnHost::catalog_klipy2: return L"static2.klipy.com";
     case CdnHost::catalog_tenor: return L"media.tenor.com";
@@ -545,8 +544,7 @@ bool finish_http_response(CdnClient* client, CdnClientRuntime* runtime, NetworkL
     const bool reusable =
         runtime->response.connection_reusable && runtime->transport.state == TlsStreamState::ready;
     if (runtime->policy.disposition == CdnResponseDisposition::redirect) {
-        if (runtime->command.image_type == CdnImageType::regional_flag_svg ||
-            runtime->command.image_type == CdnImageType::lottie_json) {
+        if (runtime->command.image_type == CdnImageType::lottie_json) {
             begin_drain(client, runtime, CdnClientError::redirect,
                         CdnHttpError::invalid_location, 0);
             return false;
@@ -839,7 +837,6 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
          request.image_type != CdnImageType::gif &&
          request.image_type != CdnImageType::jpeg &&
          request.image_type != CdnImageType::mp4 &&
-         request.image_type != CdnImageType::regional_flag_svg &&
          request.image_type != CdnImageType::lottie_json &&
          request.image_type != CdnImageType::ogg_opus &&
          request.image_type != CdnImageType::mp3 &&
@@ -859,13 +856,8 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
          (request.host != CdnHost::cdn || !sticker_json_target_valid(request.target))) ||
         (request.host == CdnHost::activity_art &&
          (request.image_type != CdnImageType::jpeg || !activity_art_target_valid(request.target))) ||
-        ((request.host == CdnHost::flag_assets) !=
-         (request.image_type == CdnImageType::regional_flag_svg)) ||
         (cdn_catalog_provider(request.host) &&
          !catalog_provider_request_valid(request.host, request.image_type, request.target)) ||
-        (request.image_type == CdnImageType::regional_flag_svg &&
-         !regional_flag_svg_target_sequence(
-             {reinterpret_cast<const char*>(request.target.data), request.target.count})) ||
         (!request.target.data && request.target.count != 0) ||
         (!request.etag.data && request.etag.count != 0) || request.timeout_ms > kMaximumRequestTimeoutMs ||
         (request.range.bytes &&

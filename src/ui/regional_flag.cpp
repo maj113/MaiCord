@@ -118,27 +118,4 @@ u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
     return bytes;
 }
 
-u16 regional_flag_svg_target_sequence(Utf8View target) noexcept {
-    if (!target.data || (target.bytes != kRegionalFlagSvgTargetPrefixBytes + 15 &&
-        target.bytes != kRegionalFlagSvgTargetBytes)) return 0;
-    for (u32 i = 0; i < kRegionalFlagSvgTargetPrefixBytes; ++i)
-        if (target.data[i] != kRegionalFlagSvgTargetPrefix[i]) return 0;
-    const u32 count = target.bytes == kRegionalFlagSvgTargetBytes ? 7 : 2;
-    char glyph[28]{};
-    u32 at = kRegionalFlagSvgTargetPrefixBytes;
-    for (u32 i = 0; i < count; ++i) {
-        if (i && target.data[at++] != '-') return 0;
-        u32 scalar = 0;
-        for (u32 digit = 0; digit < 5; ++digit) {
-            const char c = target.data[at++];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return 0;
-            scalar = (scalar << 4) | static_cast<u32>(c <= '9' ? c - '0' : c - 'a' + 10);
-        }
-        if (utf8_encode(scalar, glyph + i * 4) != 4) return 0;
-    }
-    constexpr char suffix[] = ".svg";
-    for (u32 i = 0; i < 4; ++i) if (target.data[at++] != suffix[i]) return 0;
-    return regional_flag_sequence({glyph, count * 4});
-}
-
 } // namespace maicord

@@ -251,11 +251,8 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
          (host != CdnHost::cdn || !soundboard_target_valid(target))) ||
         (image_type == CdnImageType::lottie_json &&
          (host != CdnHost::cdn || !sticker_json_target_valid(target))) ||
-        ((host == CdnHost::flag_assets) != (image_type == CdnImageType::regional_flag_svg)) ||
         (host == CdnHost::activity_art && (image_type != CdnImageType::jpeg || !activity_art_target_valid(target))) ||
-        (cdn_catalog_provider(host) && !catalog_provider_request_valid(host, image_type, target)) ||
-        (image_type == CdnImageType::regional_flag_svg &&
-         !regional_flag_svg_target_sequence({reinterpret_cast<const char*>(target.data), target.count}))) {
+        (cdn_catalog_provider(host) && !catalog_provider_request_valid(host, image_type, target))) {
         return CdnRequestResult{0, CdnHttpError::invalid_target};
     }
     if (!valid_etag(etag)) {
@@ -282,8 +279,6 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
              ? protocol_writer_append_literal(&writer, "audio/mpeg, audio/ogg")
          : image_type == CdnImageType::lottie_json
              ? protocol_writer_append_literal(&writer, "application/json")
-         : image_type == CdnImageType::regional_flag_svg
-             ? protocol_writer_append_literal(&writer, "image/svg+xml")
              : protocol_writer_append_literal(&writer, "video/mp4")) &&
         protocol_writer_append_literal(&writer, "\r\nAccept-Encoding: identity"
                                                 "\r\nConnection: keep-alive\r\n") &&
@@ -462,7 +457,6 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
             : image_type == CdnImageType::lottie_json       ? "application/json"
             : image_type == CdnImageType::hls_playlist      ? "application/vnd.apple.mpegurl"
             : image_type == CdnImageType::mpeg_ts           ? "video/mp2t"
-            : image_type == CdnImageType::regional_flag_svg ? "image/svg+xml"
                                                                    : "video/mp4";
         const bool audio_content_type =
             (image_type == CdnImageType::ogg_opus &&

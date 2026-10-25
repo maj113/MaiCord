@@ -51,8 +51,9 @@ add_custom_command(
     VERBATIM)
 add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
 
-# Regional-flag SVGs ship deflate-compressed in groups; the generator packs
-# the committed Twemoji sources and the account module inflates a group on demand.
+# Regional flags ship as compact records deflate-compressed in groups; the
+# generator packs the committed Twemoji sources and the account module
+# inflates a group and rebuilds a flag's SVG text on demand.
 file(GLOB MAICORD_REGIONAL_FLAG_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
 set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")

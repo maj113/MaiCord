@@ -5,11 +5,14 @@
 namespace maicord {
 inline constexpr u32 kRegionalFlagSvgMaximumBytes = 64 * 1024;
 // Licensed artwork from the same pinned Twemoji revision as the Unicode
-// identity table, stored deflate-compressed in groups of adjacent flags. The
-// group is inflated into caller-owned scratch of at least
-// kRegionalFlagSvgMaximumBytes and the result borrows it, so concurrent
-// callers need distinct scratch. Absent for unsupported sequences; no network work.
+// identity table, stored as compact records deflate-compressed in groups of
+// similar flags. The group is inflated into caller-owned scratch of at least
+// kRegionalFlagSvgMaximumBytes, the flag's SVG text is rebuilt after it and
+// the result borrows it, so concurrent callers need distinct scratch. Absent
+// for unsupported sequences; no network work.
 ConstSlice<u8> regional_flag_bundled_svg(u16 sequence, Slice<u8> scratch) noexcept;
+// The generator's FNV-1a checksum of every rebuilt flag text in sequence order.
+u64 regional_flag_bundled_text_checksum() noexcept;
 
 inline constexpr u32 kRegionalFlagSvgMaximumLayers = 64;
 inline constexpr u32 kRegionalFlagSvgMaximumCommands = 2048;

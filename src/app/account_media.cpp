@@ -862,7 +862,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
     }
     const CdnResponseResult policy = cdn_client_response_policy(response);
     const ConstSlice<u8> conditional_etag{response.conditional_etag, response.conditional_etag_bytes};
-    if (media->active_key.kind == MediaAssetKind::regional_flag || lottie_asset(media->active_key)) {
+    if (lottie_asset(media->active_key)) {
         bool published = false;
         if (policy.status_code == 200 && policy.body_bytes == body.count &&
             body.count <= cdn_encoded_body_limit(media->active_image_type)) {
@@ -871,7 +871,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
                 const auto stored = encoded_media_cache_store(
                     media->pipeline.cache, media->active_key, body,
                     {policy.etag, policy.expires_at_seconds, policy.store_allowed, policy.must_revalidate});
-                if (lottie_asset(media->active_key) && stored.stored())
+                if (stored.stored())
                     media->frame_cache_generation = stored.generation;
             }
         } else if (policy.status_code == 304 && !body.count && conditional_etag.count) {
@@ -882,7 +882,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
             if (matches)
                 published =
                     publish_vector(media, media->active_key, lease.lookup.bytes, response.request_id);
-            if (published && lottie_asset(media->active_key) && policy.store_allowed)
+            if (published && policy.store_allowed)
                 media->frame_cache_generation = lease.lookup.generation;
             if (lease.acquired)
                 encoded_media_cache_release(media->pipeline.cache, &lease);
@@ -1330,12 +1330,16 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     if (key.kind == MediaAssetKind::sticker && key.variant == 4 && !ensure_gif_workspace(media)) {
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
     }
+    if (key.kind == MediaAssetKind::regional_flag)
+        return publish_bundled_flag(media, key)
+                   ? result(AccountMediaRequestState::ready)
+                   : result(AccountMediaRequestState::failed, AccountMediaError::decode);
     ConstSlice<u8> etag{};
-    if (key.kind == MediaAssetKind::regional_flag || lottie_asset(key)) {
+    if (lottie_asset(key)) {
         auto lease = encoded_media_cache_acquire(media->pipeline.cache, key, unix_now_seconds);
         const bool fresh = lease.acquired && lease.lookup.state == EncodedMediaCacheLookupState::fresh;
         const bool published = fresh && publish_vector(media, key, lease.lookup.bytes, 0);
-        if (published && lottie_asset(key))
+        if (published)
             media->frame_cache_generation = lease.lookup.generation;
         if (lease.acquired && !fresh && lease.lookup.etag.count <= sizeof(media->pipeline.result_etag)) {
             media->pipeline.result_etag_bytes = lease.lookup.etag.count;
@@ -1350,11 +1354,6 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
             encoded_media_cache_erase(media->pipeline.cache, key);
             return remember_failure(media, key, monotonic_now_ms,
                                     result(AccountMediaRequestState::failed, AccountMediaError::decode));
-        }
-        if (key.kind == MediaAssetKind::regional_flag) {
-            return publish_bundled_flag(media, key)
-                       ? result(AccountMediaRequestState::ready)
-                       : result(AccountMediaRequestState::failed, AccountMediaError::decode);
         }
     } else if (key.kind == MediaAssetKind::attachment) {
         CdnStaticJpegResult cached =
@@ -1470,13 +1469,7 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     }
     u8 target[kCdnMaximumTargetBytes]{};
     CdnTargetResult written{};
-    if (key.kind == MediaAssetKind::regional_flag) {
-        written = {regional_flag_svg_target(static_cast<u16>(key.id),
-                                            {reinterpret_cast<char*>(target), sizeof(target)}),
-                   CdnHost::flag_assets, CdnTargetError::none};
-        if (!written.bytes)
-            written.error = CdnTargetError::invalid_input;
-    } else if (hashed_identity) {
+    if (hashed_identity) {
         copy_bytes(target, guild_target, guild_target_result.bytes);
         written = guild_target_result;
     } else {
@@ -1500,9 +1493,7 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         &media->client,
         CdnClientRequest{ConstSlice<u8>{target, written.bytes}, etag, media->request_id,
                          kCdnClientDefaultTimeoutMs, written.host,
-                         key.kind == MediaAssetKind::regional_flag
-                                    ? CdnImageType::regional_flag_svg
-                         : lottie_asset(key) ? CdnImageType::lottie_json
+                         lottie_asset(key) ? CdnImageType::lottie_json
                          : webp_asset(key)   ? CdnImageType::webp
                          : key.variant == 4  ? CdnImageType::gif
                                                     : CdnImageType::png});

@@ -22,17 +22,15 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
     const auto scratch=media.pipeline.scanline_storage;
     const auto capacity=media.pipeline.scanline_capacity;
     const auto key=media_asset_regional_flag(504);
-    // A synthetic geometry fixture in the proved provider vocabulary, never
-    // bundled presentation artwork or an additional runtime asset source.
-    constexpr auto svg=utf8_literal("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\"><path fill=\"#C00\" d=\"M4 5H32V31H4z\"/></svg>");
+    // A synthetic cached body for the same flag: the bundle stays authoritative.
+    constexpr auto svg=utf8_literal("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\"><path d=\"M0 0T1 1\"/></svg>");
     const ConstSlice<u8> bytes{reinterpret_cast<const u8*>(svg.data),svg.bytes};
-    const auto stored=encoded_media_cache_store(media.pipeline.cache,key,bytes,{{},1000,true,false});
-    check(stored.stored(),"regional flags: existing encoded cache owns bounded SVG fixture");
-    if(!stored.stored()){check(account_media_stop(&media,1000),"regional flags: failed fixture owner stops");return;}
+    check(encoded_media_cache_store(media.pipeline.cache,key,bytes,{{},1000,true,false}).stored(),
+          "regional flags: encoded cache admits an unrelated flag body");
     for(u32 i=0;i<2;++i){
         const auto requested=account_media_request_static_asset(&media,key,100+i,10);
         check(requested.ok()&&requested.state==AccountMediaRequestState::ready,
-              "regional flags: existing media request publishes fresh encoded flag without network");
+              "regional flags: request publishes the bundled flag without network");
         AccountMediaFrame frame{};const bool taken=account_media_take_frame(&media,&frame);
         const auto* program=reinterpret_cast<const ColrPaintProgram*>(frame.bytes.data);
         check(taken&&frame.kind==AccountMediaFrameKind::regional_flag_paint&&media_asset_key_equal(frame.key,key)&&
@@ -41,22 +39,10 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
             !frame.duration_us&&!frame.frame_count&&!frame.image&&!frame.gpu_video,
             "regional flags: frame kind 11 borrows the worker-compiled paint program");
         check(no_codec_owners()&&media.allocation==allocation&&media.pipeline.scanline_storage==scratch&&
-            media.pipeline.scanline_capacity==capacity&&no_leases(),
-            "regional flags: repeat cache publication retains owners and releases every encoded lease");
+            media.pipeline.scanline_capacity==capacity&&no_leases()&&
+            encoded_media_cache_find(media.pipeline.cache,key,10).found(),
+            "regional flags: repeat publication retains owners and leaves the cache untouched");
     }
-    const auto malformed_key=media_asset_regional_flag(505);
-    constexpr auto malformed=utf8_literal("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\"><path d=\"M0 0T1 1\"/></svg>");
-    check(encoded_media_cache_store(media.pipeline.cache,malformed_key,
-        {reinterpret_cast<const u8*>(malformed.data),malformed.bytes},{{},1000,true,false}).stored(),
-        "regional flags: malformed cached SVG fixture admitted only to encoded storage");
-    const auto rejected=account_media_request_static_asset(&media,malformed_key,200,10);
-    check(rejected.state==AccountMediaRequestState::failed&&rejected.error==AccountMediaError::decode&&
-        !media.frame_ready&&!encoded_media_cache_find(media.pipeline.cache,malformed_key,10).found()&&
-        no_leases()&&no_codec_owners(),
-        "regional flags: unknown path command rejects and evicts fresh cached bytes before frame/GPU/network");
-    const auto waiting=account_media_request_static_asset(&media,malformed_key,201,10);
-    check(waiting.state==AccountMediaRequestState::retry_wait&&waiting.retry_at_ms>201&&!media.client_started,
-        "regional flags: malformed asset follows existing negative cache without starting a miss request");
     const auto unsupported=account_media_request_static_asset(&media,media_asset_regional_flag(1),202,10);
     check(unsupported.state==AccountMediaRequestState::unsupported&&!media.client_started,
         "regional flags: unlisted RI pair cannot authorize a network request");
@@ -87,10 +73,12 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
     u32 local_count=0;bool local_ok=media.started;
     static u8 bundle_scratch[kRegionalFlagSvgMaximumBytes];
     const Slice<u8> flag_scratch{bundle_scratch,sizeof(bundle_scratch)};
+    u64 checksum=0xCBF29CE484222325ull;
     for(u16 sequence=1;local_ok && sequence<680;++sequence){
         const auto local=regional_flag_bundled_svg(sequence,flag_scratch);
         if(!local.count)continue;
         ++local_count;
+        for(u32 i=0;i<local.count;++i)checksum=(checksum^local.data[i])*0x100000001B3ull;
         const auto flag=media_asset_regional_flag(sequence);
         const auto request=account_media_request_static_asset(&media,flag,30000+sequence,10);
         AccountMediaFrame local_frame{};
@@ -100,6 +88,8 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
             reinterpret_cast<const ColrPaintProgram*>(local_frame.bytes.data)->storage.offset &&
             !media.client_started && no_codec_owners() && !media.pipeline.cache->entry_count;
     }
+    check(checksum==regional_flag_bundled_text_checksum(),
+        "local flags: rebuilt SVG text matches the generator's verified text byte for byte");
     check(local_ok && local_count==262 && !regional_flag_bundled_svg(1,flag_scratch).count &&
         !regional_flag_bundled_svg(680,flag_scratch).count &&
         !regional_flag_bundled_svg(3,{bundle_scratch,16}).count,
