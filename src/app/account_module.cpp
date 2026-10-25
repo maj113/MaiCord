@@ -637,8 +637,9 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     // while an account's Invisible preference is still unknown to this process.
     configuration.configuration.status = GatewayUserStatus::invisible;
     // The client reports its focus once started (client_focus).
-    if (!client_session_metadata_initialize(&runtime->client_metadata,
-                                            configuration.configuration.properties, heartbeat, false)) {
+    if (!client_session_metadata_initialize(
+            &runtime->client_metadata, configuration.configuration.properties,
+            {configuration.discord_locale, configuration.discord_locale_bytes}, heartbeat, false)) {
         account_media_worker_stop(&runtime->media, 5'000);
         account_profile_release(&profile);
         SecureZeroMemory(runtime, sizeof(*runtime));
@@ -647,13 +648,14 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
         return result;
     }
     configuration.configuration.metadata = &runtime->client_metadata;
-    const UserAccountCoordinatorResult started =
-        user_account_coordinator_start(&runtime->coordinator, &profile, &configuration.configuration,
-                                       // The persisted Gateway resume token is tied to its matching
-                                       // guild/channel/message model. That model is not persisted, so a
-                                       // cross-process RESUMED dispatch cannot reconstruct the UI. Keep
-                                       // validating the session file, but identify as a fresh session.
-                                       nullptr, {configuration.timezone, configuration.timezone_bytes});
+    const UserAccountCoordinatorResult started = user_account_coordinator_start(
+        &runtime->coordinator, &profile, &configuration.configuration,
+        // The persisted Gateway resume token is tied to its matching
+        // guild/channel/message model. That model is not persisted, so a
+        // cross-process RESUMED dispatch cannot reconstruct the UI. Keep
+        // validating the session file, but identify as a fresh session.
+        nullptr, {configuration.timezone, configuration.timezone_bytes},
+        {configuration.accept_language, configuration.accept_language_bytes});
     if (!started.ok()) {
         account_media_worker_stop(&runtime->media, 5'000);
         account_profile_release(&profile);

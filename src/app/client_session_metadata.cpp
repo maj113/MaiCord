@@ -49,6 +49,15 @@ const ClientHeartbeatSession* live_session(const ClientSessionMetadata& metadata
     return client_heartbeat_session_live(metadata.session, now_ms) ? &metadata.session : nullptr;
 }
 
+bool locale_valid(Utf8View locale) noexcept {
+    if (!locale.bytes || locale.bytes > kRestUserLocaleMaximumBytes)
+        return false;
+    for (u32 index = 0; index < locale.bytes; ++index)
+        if (!ascii_is_alnum(locale.data[index]) && locale.data[index] != '-')
+            return false;
+    return true;
+}
+
 } // namespace
 
 bool client_heartbeat_session_live(const ClientHeartbeatSession& session, u64 now_ms) noexcept {
@@ -67,11 +76,13 @@ bool client_heartbeat_session_valid(const ClientHeartbeatSession& session) noexc
 }
 
 bool client_session_metadata_initialize(ClientSessionMetadata* metadata,
-                                        const GatewayUserProperties& properties,
+                                        const GatewayUserProperties& properties, Utf8View locale,
                                         const ClientHeartbeatSession* restored, bool focused) noexcept {
-    if (!metadata)
+    if (!metadata || !locale_valid(locale))
         return false;
     reset_value(metadata);
+    copy_bytes(metadata->locale, locale.data, locale.bytes);
+    metadata->locale_bytes = locale.bytes;
     copy_value(&metadata->properties, properties);
     metadata->properties.client_heartbeat_session_id = {};
     metadata->properties.client_app_state = {};
@@ -82,8 +93,11 @@ bool client_session_metadata_initialize(ClientSessionMetadata* metadata,
 }
 
 u32 client_session_metadata_request(ClientSessionMetadata* metadata, u64 now_ms, u32* revision,
-                                    Slice<u8> output) noexcept {
-    if (!metadata || !revision || output.count < kRestUserSuperPropertiesMaximumBytes)
+                                    Slice<u8> super_properties, Slice<char> locale,
+                                    u32* locale_bytes) noexcept {
+    if (!metadata || !revision || !locale_bytes ||
+        super_properties.count < kRestUserSuperPropertiesMaximumBytes ||
+        locale.count < kRestUserLocaleMaximumBytes)
         return 0;
     ExclusiveLock guard(metadata->lock);
     // As the desktop client extends its super properties: a changed value is
@@ -109,10 +123,24 @@ u32 client_session_metadata_request(ClientSessionMetadata* metadata, u64 now_ms,
     if (changed && !encode(metadata))
         return 0;
     if (*revision != metadata->revision) {
-        copy_bytes(output.data, metadata->super_properties, metadata->super_properties_bytes);
+        copy_bytes(super_properties.data, metadata->super_properties, metadata->super_properties_bytes);
+        copy_bytes(locale.data, metadata->locale, metadata->locale_bytes);
+        *locale_bytes = metadata->locale_bytes;
         *revision = metadata->revision;
     }
     return metadata->super_properties_bytes;
+}
+
+bool client_session_metadata_set_locale(ClientSessionMetadata* metadata, Utf8View locale) noexcept {
+    if (!metadata || !locale_valid(locale))
+        return false;
+    ExclusiveLock guard(metadata->lock);
+    if (utf8_equal(locale, {metadata->locale, metadata->locale_bytes}))
+        return false;
+    copy_bytes(metadata->locale, locale.data, locale.bytes);
+    metadata->locale_bytes = locale.bytes;
+    ++metadata->revision;
+    return true;
 }
 
 bool client_session_metadata_set_focus(ClientSessionMetadata* metadata, bool focused) noexcept {

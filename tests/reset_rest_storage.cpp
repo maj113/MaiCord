@@ -273,7 +273,9 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
         runtime->user_locale == reinterpret_cast<const char*>(runtime->user_super_properties +
             kRestUserSuperPropertiesMaximumBytes) &&
         runtime->user_timezone == runtime->user_locale + kRestUserLocaleMaximumBytes &&
-        reinterpret_cast<usize>(runtime->user_timezone + kRestUserTimezoneMaximumBytes) <= handshake_begin &&
+        runtime->user_accept_language == runtime->user_timezone + kRestUserTimezoneMaximumBytes &&
+        reinterpret_cast<usize>(runtime->user_accept_language + kRestUserAcceptLanguageMaximumBytes) <=
+            handshake_begin &&
         valid_base64_metadata({runtime->user_super_properties, runtime->user_super_properties_bytes}) &&
         runtime->user_locale_bytes && runtime->user_timezone_bytes <= kRestUserTimezoneMaximumBytes,
         "nonsecret metadata fits before aligned final handshake output outside locked credentials");
@@ -288,8 +290,10 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
         {property_scratch, sizeof(property_scratch)}, {expected_properties, sizeof(expected_properties)});
     storage_check(launch_ready && projected.ok() && projected.bytes == runtime->user_super_properties_bytes &&
         bytes_equal(expected_properties, runtime->user_super_properties, projected.bytes) &&
-        utf8_equal(launch.configuration.properties.system_locale,
+        utf8_equal({launch.discord_locale, launch.discord_locale_bytes},
             {runtime->user_locale, runtime->user_locale_bytes}) &&
+        utf8_equal({launch.accept_language, launch.accept_language_bytes},
+            {runtime->user_accept_language, runtime->user_accept_language_bytes}) &&
         utf8_equal({launch.timezone, launch.timezone_bytes}, {runtime->user_timezone, runtime->user_timezone_bytes}),
         "auth startup caches the same immutable launch properties locale and timezone as normal REST");
     // A bad cached projection must reject at the actual submit boundary before
@@ -316,14 +320,16 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
         u8 properties[kRestUserSuperPropertiesMaximumBytes];
         char locale[kRestUserLocaleMaximumBytes];
         char timezone[kRestUserTimezoneMaximumBytes];
+        char languages[kRestUserAcceptLanguageMaximumBytes];
         storage_fill(reinterpret_cast<u8*>(key), sizeof(key), 'A');
         storage_fill(reinterpret_cast<u8*>(rqtoken), sizeof(rqtoken), 'B');
         storage_fill(reinterpret_cast<u8*>(session), sizeof(session), 'C');
         storage_fill(properties, sizeof(properties), 'A');
         storage_fill(reinterpret_cast<u8*>(locale), sizeof(locale), 'a');
         storage_fill(reinterpret_cast<u8*>(timezone), sizeof(timezone), 'b');
+        storage_fill(reinterpret_cast<u8*>(languages), sizeof(languages), 'c');
         const RestUserRequestHeaders maximum_metadata{{properties, sizeof(properties)},
-            {locale, sizeof(locale)}, {timezone, sizeof(timezone)}};
+            {locale, sizeof(locale)}, {timezone, sizeof(timezone)}, {languages, sizeof(languages)}};
         const UserAuthCaptchaHeaders maximum_captcha{{key, sizeof(key)}, {rqtoken, sizeof(rqtoken)},
             {session, sizeof(session)}};
         const auto maximum_head = user_auth_write_request_head(UserAuthOperation::remote_auth_ticket,

@@ -22084,8 +22084,8 @@ void test_user_auth_protocol() noexcept {
             count += maicord::bytes_equal(head.data + index, field.data, field.count) ? 1u : 0u;
         return count;
     };
-    const RestUserRequestHeaders metadata{byte_literal("e30="), utf8_literal("sl-SI"),
-                                          utf8_literal("Europe/Ljubljana")};
+    const RestUserRequestHeaders metadata{byte_literal("e30="), utf8_literal("en-GB"),
+                                          utf8_literal("Europe/Ljubljana"), utf8_literal("sl,en-GB;q=0.9")};
     bool metadata_operations = true;
     for (u32 index = 0; index <= static_cast<u32>(UserAuthOperation::browser_handoff_exchange); ++index) {
         const auto operation = static_cast<UserAuthOperation>(index);
@@ -22099,9 +22099,8 @@ void test_user_auth_protocol() noexcept {
         metadata_operations = metadata_operations && head.ok() && head.bytes >= target.bytes + 5 &&
             maicord::bytes_equal(output, "POST ", 5) &&
             maicord::bytes_equal(output + 5, target.data, target.bytes) &&
-            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\n")) == 1 &&
-            header_count(bytes, byte_literal("\r\nX-Discord-Locale: sl-SI\r\n")) == 1 &&
-            header_count(bytes, byte_literal("\r\nAccept-Language: sl-SI\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\nAccept-Language: "
+                                             "sl,en-GB;q=0.9\r\nX-Discord-Locale: en-GB\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nX-Discord-Timezone: Europe/Ljubljana\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nAuthorization:")) == 0 &&
             header_count(bytes, byte_literal("\r\nOrigin: https://discord.com\r\n")) == 1 &&

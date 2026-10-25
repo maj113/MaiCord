@@ -14,6 +14,7 @@ inline constexpr u32 kRateLimitBucketMaximumBytes = 64;
 inline constexpr u32 kRestUserSuperPropertiesMaximumBytes = 2 * 1024;
 inline constexpr u32 kRestUserLocaleMaximumBytes = 32;
 inline constexpr u32 kRestUserTimezoneMaximumBytes = 64;
+inline constexpr u32 kRestUserAcceptLanguageMaximumBytes = 256;
 // Moderation reason recorded in the guild audit log. Bounded in UTF-8 bytes so
 // the percent-encoded header always fits; the service limit is 512 characters.
 inline constexpr u32 kRestAuditReasonMaximumBytes = 512;
@@ -40,11 +41,13 @@ enum class RestAuthorization : u8 {
 
 // Normal-user requests use the session token verbatim and attach client
 // metadata headers. The timezone is optional because a native Windows zone name
-// must not be mislabeled as an IANA zone.
+// must not be mislabeled as an IANA zone; an empty Accept-Language is omitted.
+// locale is the Discord interface locale (X-Discord-Locale).
 struct RestUserRequestHeaders {
     ConstSlice<u8> super_properties;
     Utf8View locale;
     Utf8View timezone;
+    Utf8View accept_language;
 };
 
 struct RestRequestHead {

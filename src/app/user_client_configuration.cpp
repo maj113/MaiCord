@@ -6,6 +6,7 @@
 #include "maicord/protocol/client_user_agent.hpp"
 
 #include "maicord/platform/random.hpp"
+#include "maicord/sys/registry.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -54,7 +55,147 @@ u32 write_os_version(const OSVERSIONINFOW& version, char* output,
     return offset;
 }
 
+// The locales the desktop host ships (its locales\*.pak).
+constexpr Utf8View kHostLocales[] = {
+    utf8_literal("af"),     utf8_literal("am"),    utf8_literal("ar"),    utf8_literal("bg"),
+    utf8_literal("bn"),     utf8_literal("ca"),    utf8_literal("cs"),    utf8_literal("da"),
+    utf8_literal("de"),     utf8_literal("el"),    utf8_literal("en-GB"), utf8_literal("en-US"),
+    utf8_literal("es-419"), utf8_literal("es"),    utf8_literal("et"),    utf8_literal("fa"),
+    utf8_literal("fi"),     utf8_literal("fil"),   utf8_literal("fr"),    utf8_literal("gu"),
+    utf8_literal("he"),     utf8_literal("hi"),    utf8_literal("hr"),    utf8_literal("hu"),
+    utf8_literal("id"),     utf8_literal("it"),    utf8_literal("ja"),    utf8_literal("kn"),
+    utf8_literal("ko"),     utf8_literal("lt"),    utf8_literal("lv"),    utf8_literal("ml"),
+    utf8_literal("mr"),     utf8_literal("ms"),    utf8_literal("nb"),    utf8_literal("nl"),
+    utf8_literal("pl"),     utf8_literal("pt-BR"), utf8_literal("pt-PT"), utf8_literal("ro"),
+    utf8_literal("ru"),     utf8_literal("sk"),    utf8_literal("sl"),    utf8_literal("sr"),
+    utf8_literal("sv"),     utf8_literal("sw"),    utf8_literal("ta"),    utf8_literal("te"),
+    utf8_literal("th"),     utf8_literal("tr"),    utf8_literal("uk"),    utf8_literal("ur"),
+    utf8_literal("vi"),     utf8_literal("zh-CN"), utf8_literal("zh-TW"),
+};
+// Discord's enabled interface locales, in its list order.
+constexpr Utf8View kDiscordLocales[] = {
+    utf8_literal("en-US"), utf8_literal("en-GB"),  utf8_literal("zh-CN"), utf8_literal("zh-TW"),
+    utf8_literal("cs"),    utf8_literal("da"),     utf8_literal("nl"),    utf8_literal("fr"),
+    utf8_literal("de"),    utf8_literal("el"),     utf8_literal("hu"),    utf8_literal("it"),
+    utf8_literal("ja"),    utf8_literal("ko"),     utf8_literal("pl"),    utf8_literal("pt-BR"),
+    utf8_literal("ru"),    utf8_literal("es-419"), utf8_literal("es-ES"), utf8_literal("sv-SE"),
+    utf8_literal("tr"),    utf8_literal("bg"),     utf8_literal("uk"),    utf8_literal("fi"),
+    utf8_literal("no"),    utf8_literal("hr"),     utf8_literal("ro"),    utf8_literal("lt"),
+    utf8_literal("th"),    utf8_literal("vi"),     utf8_literal("hi"),
+};
+
+// The first subtag.
+Utf8View language_of(Utf8View locale) noexcept {
+    u32 end = 0;
+    while (end < locale.bytes && locale.data[end] != '-' && locale.data[end] != '_')
+        ++end;
+    return {locale.data, end};
+}
+
+u32 emit(Utf8View value, Slice<char> output) noexcept {
+    if (value.bytes > output.count)
+        return 0;
+    copy_bytes(output.data, value.data, value.bytes);
+    return value.bytes;
+}
+
+// A shipped locale equal to candidate, ignoring case.
+const Utf8View* host_locale_named(Utf8View candidate) noexcept {
+    for (const Utf8View& locale : kHostLocales)
+        if (ascii_equal_ignore_case(locale, candidate))
+            return &locale;
+    return nullptr;
+}
+
 } // namespace
+
+u32 client_host_locale(Utf8View locale, Slice<char> output) noexcept {
+    if (const Utf8View* exact = host_locale_named(locale))
+        return emit(*exact, output);
+    const Utf8View language = language_of(locale);
+    if (language.bytes && language.bytes < locale.bytes) {
+        const Utf8View region{locale.data + language.bytes + 1, locale.bytes - language.bytes - 1};
+        const auto is = [](Utf8View value, Utf8View name) noexcept {
+            return ascii_equal_ignore_case(value, name);
+        };
+        // Chromium's regional fallbacks, then the bare language.
+        Utf8View mapped = language;
+        if (is(language, utf8_literal("es")) && !is(region, utf8_literal("es")))
+            mapped = utf8_literal("es-419");
+        else if (is(language, utf8_literal("pt")))
+            mapped = utf8_literal("pt-PT");
+        else if (is(language, utf8_literal("zh")))
+            mapped = is(region, utf8_literal("hk")) || is(region, utf8_literal("mo"))
+                         ? utf8_literal("zh-TW")
+                         : utf8_literal("zh-CN");
+        else if (is(language, utf8_literal("en")))
+            mapped = is(region, utf8_literal("lr")) || is(region, utf8_literal("ph"))
+                         ? utf8_literal("en-US")
+                         : utf8_literal("en-GB");
+        if (const Utf8View* resolved = host_locale_named(mapped))
+            return emit(*resolved, output);
+    }
+    constexpr Utf8View aliases[][2] = {
+        {utf8_literal("en"), utf8_literal("en-US")}, {utf8_literal("iw"), utf8_literal("he")},
+        {utf8_literal("no"), utf8_literal("nb")},    {utf8_literal("pt"), utf8_literal("pt-BR")},
+        {utf8_literal("tl"), utf8_literal("fil")},   {utf8_literal("zh"), utf8_literal("zh-CN")},
+    };
+    for (const auto& alias : aliases)
+        if (ascii_equal_ignore_case(language, alias[0]))
+            return emit(alias[1], output);
+    return emit(utf8_literal("en-US"), output);
+}
+
+u32 client_discord_locale(Utf8View host_locale, Slice<char> output) noexcept {
+    for (const Utf8View& locale : kDiscordLocales)
+        if (utf8_equal(locale, host_locale))
+            return emit(locale, output);
+    const Utf8View language = language_of(host_locale);
+    for (const Utf8View& locale : kDiscordLocales)
+        if (utf8_equal(locale, language))
+            return emit(locale, output);
+    if (utf8_equal(language, utf8_literal("zh")) && host_locale.bytes > 3 &&
+        utf8_equal(language_of({host_locale.data + 3, host_locale.bytes - 3}), utf8_literal("Hant")))
+        return emit(utf8_literal("zh-TW"), output);
+    for (const Utf8View& locale : kDiscordLocales)
+        if (utf8_equal(language_of(locale), language))
+            return emit(locale, output);
+    return emit(utf8_literal("en-US"), output);
+}
+
+u32 client_accept_language(Utf8View host_locale, const wchar_t* preferred, Slice<char> output) noexcept {
+    u32 used = emit(host_locale, output);
+    if (!used)
+        return 0;
+    u32 weight = 9;
+    const wchar_t* next = nullptr;
+    for (const wchar_t* entry = preferred; entry && *entry; entry = next + 1) {
+        for (next = entry; *next;)
+            ++next;
+        char language[kGatewayUserMaximumLocaleBytes];
+        const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, entry, -1, language,
+                                              sizeof(language), nullptr, nullptr);
+        if (bytes <= 1)
+            continue;
+        const Utf8View name{language, static_cast<u32>(bytes - 1)};
+        bool tag = true;
+        for (u32 index = 0; index < name.bytes; ++index)
+            tag = tag && (ascii_is_alnum(name.data[index]) || name.data[index] == '-');
+        if (!tag || utf8_equal(name, host_locale))
+            continue;
+        const u32 required = 1 + name.bytes + 6;
+        if (used + required > output.count)
+            break;
+        output.data[used++] = ',';
+        used += emit(name, {output.data + used, output.count - used});
+        copy_bytes(output.data + used, ";q=0.", 5);
+        used += 5;
+        output.data[used++] = static_cast<char>('0' + weight);
+        if (weight > 1)
+            --weight;
+    }
+    return used;
+}
 
 bool user_client_random_uuid(char* output) noexcept {
     u8 uuid[16]{};
@@ -97,6 +238,7 @@ UserClientConfigurationResult user_client_configuration_initialize(
     copy_bytes(storage->launch_signature, launch_signature, sizeof(launch_signature));
     ReleaseSRWLockExclusive(&launch_lock);
 
+    // The host takes its locale from ICU's default, the user's format locale.
     wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH]{};
     const int locale_characters = GetUserDefaultLocaleName(locale_wide, LOCALE_NAME_MAX_LENGTH);
     if (locale_characters <= 1) {
@@ -104,16 +246,28 @@ UserClientConfigurationResult user_client_configuration_initialize(
         SecureZeroMemory(storage, sizeof(*storage));
         return UserClientConfigurationResult{native_error, UserClientConfigurationError::locale};
     }
-    const int locale_bytes =
+    char system_locale[kGatewayUserMaximumLocaleBytes];
+    const int system_bytes =
         WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, locale_wide, locale_characters - 1,
-                            storage->locale, kGatewayUserMaximumLocaleBytes, nullptr, nullptr);
-    SecureZeroMemory(locale_wide, sizeof(locale_wide));
-    if (locale_bytes <= 0 || locale_bytes > static_cast<int>(kGatewayUserMaximumLocaleBytes)) {
+                            system_locale, sizeof(system_locale), nullptr, nullptr);
+    if (system_bytes <= 0) {
         const u32 native_error = thread_last_error();
         SecureZeroMemory(storage, sizeof(*storage));
         return UserClientConfigurationResult{native_error, UserClientConfigurationError::locale};
     }
-    storage->locale[locale_bytes] = 0;
+    const u32 locale_bytes = client_host_locale({system_locale, static_cast<u32>(system_bytes)},
+                                                {storage->locale, kGatewayUserMaximumLocaleBytes});
+    const Utf8View host_locale{storage->locale, locale_bytes};
+    storage->discord_locale_bytes =
+        client_discord_locale(host_locale, {storage->discord_locale, kGatewayUserMaximumLocaleBytes});
+    // navigator.languages: the host locale, then the Windows language list.
+    wchar_t preferred[512]{};
+    DWORD preferred_bytes = sizeof(preferred) - 2 * sizeof(wchar_t);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\International\\User Profile", L"Languages",
+                     RRF_RT_REG_MULTI_SZ, nullptr, preferred, &preferred_bytes) != ERROR_SUCCESS)
+        preferred[0] = 0;
+    storage->accept_language_bytes = client_accept_language(
+        host_locale, preferred, {storage->accept_language, kRestUserAcceptLanguageMaximumBytes});
     storage->timezone_bytes = host_iana_timezone({storage->timezone, sizeof(storage->timezone)});
 
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
@@ -147,7 +301,7 @@ UserClientConfigurationResult user_client_configuration_initialize(
         Utf8View{storage->os_version, os_version_bytes},
         utf8_literal("x64"),
         utf8_literal("x64"),
-        Utf8View{storage->locale, static_cast<u32>(locale_bytes)},
+        host_locale,
         Utf8View{storage->client_launch_id, kGatewayUserLaunchIdBytes},
         utf8_literal(kClientUserAgent),
         utf8_literal(kClientElectronVersion),

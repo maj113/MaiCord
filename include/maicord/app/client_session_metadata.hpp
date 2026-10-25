@@ -44,19 +44,28 @@ struct ClientSessionMetadata {
     char heartbeat_id[kGatewayUserLaunchIdBytes];
     u32 super_properties_bytes;
     u8 super_properties[kRestUserSuperPropertiesMaximumBytes];
+    // X-Discord-Locale: the user's interface locale setting once known.
+    u32 locale_bytes;
+    char locale[kRestUserLocaleMaximumBytes];
 };
 
-// False when the properties cannot be encoded. A restored session is kept only
-// when valid; whether it is still live is decided at each request.
+// False when the properties cannot be encoded or the locale is invalid. A
+// restored session is kept only when valid; whether it is still live is
+// decided at each request.
 bool client_session_metadata_initialize(ClientSessionMetadata* metadata,
-                                        const GatewayUserProperties& properties,
+                                        const GatewayUserProperties& properties, Utf8View locale,
                                         const ClientHeartbeatSession* restored, bool focused) noexcept;
 
 // The request-time update of the super properties at now_ms (Unix). Copies
-// the header into output when its revision differs from *revision; output
-// holds kRestUserSuperPropertiesMaximumBytes. Returns the header bytes.
+// the header and locale out when their revision differs from *revision;
+// super_properties holds kRestUserSuperPropertiesMaximumBytes and locale
+// kRestUserLocaleMaximumBytes. Returns the header bytes.
 u32 client_session_metadata_request(ClientSessionMetadata* metadata, u64 now_ms, u32* revision,
-                                    Slice<u8> output) noexcept;
+                                    Slice<u8> super_properties, Slice<char> locale,
+                                    u32* locale_bytes) noexcept;
+// The user's interface locale setting; an empty or invalid one is ignored.
+// True when it changed.
+bool client_session_metadata_set_locale(ClientSessionMetadata* metadata, Utf8View locale) noexcept;
 
 // Whether the window is focused, the app state the next request reports.
 // True when it changed.

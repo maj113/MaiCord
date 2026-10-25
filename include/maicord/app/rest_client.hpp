@@ -305,8 +305,10 @@ struct RestUserConfiguration {
     Utf8View locale;
     Utf8View timezone;
     // Optional live metadata that outlives the client; each request then
-    // carries its current super properties instead of the copied ones.
+    // carries its current super properties and locale instead of the copied ones.
     ClientSessionMetadata* metadata;
+    // Optional Accept-Language value.
+    Utf8View accept_language;
 };
 
 // Start requires a zero-initialized or fully stopped client. A live client is

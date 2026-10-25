@@ -50,7 +50,7 @@ void set_failure(UserAccountCoordinator* coordinator, UserAccountCoordinatorErro
 UserAccountCoordinatorResult user_account_coordinator_start(
     UserAccountCoordinator* coordinator, AccountProfile* profile,
     const GatewayUserClientConfiguration* configuration, const GatewayUserSessionSnapshot* session,
-    Utf8View timezone) noexcept {
+    Utf8View timezone, Utf8View accept_language) noexcept {
     if (!coordinator || !profile || !configuration ||
         coordinator->state.phase != UserAccountCoordinatorPhase::empty ||
         profile->metadata.profile_id == 0 || !profile->credential.data || !profile->credential.locked ||
@@ -80,9 +80,10 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         result.error = UserAccountCoordinatorError::credential;
         return result;
     }
+    // Live metadata replaces the locale with the Discord interface locale per request.
     const RestUserConfiguration rest_configuration{ConstSlice<u8>{super_properties, properties.bytes},
                                                    configuration->properties.system_locale, timezone,
-                                                   configuration->metadata};
+                                                   configuration->metadata, accept_language};
     const RestClientResult rest_started =
         rest_client_start_user(&coordinator->rest, &rest_credential, &rest_configuration,
                                kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared);

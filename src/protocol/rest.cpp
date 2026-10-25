@@ -44,7 +44,8 @@ constexpr u32 rate_body_field_code = 1u << 2;
 bool valid_user_headers(const RestUserRequestHeaders& headers) noexcept {
     return valid_base64_metadata(headers.super_properties) &&
            ascii_graphic_string(headers.locale, kRestUserLocaleMaximumBytes, true) &&
-           ascii_graphic_string(headers.timezone, kRestUserTimezoneMaximumBytes);
+           ascii_graphic_string(headers.timezone, kRestUserTimezoneMaximumBytes) &&
+           ascii_graphic_string(headers.accept_language, kRestUserAcceptLanguageMaximumBytes);
 }
 
 const char* method_literal(RestMethod method) noexcept {
@@ -716,11 +717,16 @@ void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept 
         writer.literal("\r\n");
     }
     if (const RestUserRequestHeaders* user = request.user_headers) {
+        // In the order the desktop client sets them.
         writer.literal("X-Super-Properties: ");
         writer.bytes(user->super_properties);
-        writer.literal("\r\nX-Discord-Locale: ");
-        writer.raw(user->locale.data, user->locale.bytes);
-        writer.literal("\r\nAccept-Language: ");
+        writer.literal("\r\n");
+        if (user->accept_language.bytes) {
+            writer.literal("Accept-Language: ");
+            writer.raw(user->accept_language.data, user->accept_language.bytes);
+            writer.literal("\r\n");
+        }
+        writer.literal("X-Discord-Locale: ");
         writer.raw(user->locale.data, user->locale.bytes);
         writer.literal("\r\n");
         if (user->timezone.bytes) {

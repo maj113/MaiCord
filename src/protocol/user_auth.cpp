@@ -732,9 +732,12 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
         const ConstSlice<u8> header_source{reinterpret_cast<const u8*>(user_headers), sizeof(*user_headers)};
         if (!byte_range_valid(header_source) || byte_ranges_overlap(header_source, destination))
             return {0, UserAuthWriteError::invalid_input};
-        const ConstSlice<u8> metadata_fields[]{user_headers->super_properties,
+        const ConstSlice<u8> metadata_fields[]{
+            user_headers->super_properties,
             {reinterpret_cast<const u8*>(user_headers->locale.data), user_headers->locale.bytes},
-            {reinterpret_cast<const u8*>(user_headers->timezone.data), user_headers->timezone.bytes}};
+            {reinterpret_cast<const u8*>(user_headers->timezone.data), user_headers->timezone.bytes},
+            {reinterpret_cast<const u8*>(user_headers->accept_language.data),
+             user_headers->accept_language.bytes}};
         for (const auto field : metadata_fields) {
             if (!byte_range_valid(field) || byte_ranges_overlap(field, destination))
                 return {0, UserAuthWriteError::invalid_input};

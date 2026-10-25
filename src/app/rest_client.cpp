@@ -37,8 +37,9 @@ static_assert(kRequestHeadBytes <= kRestMaximumHeaderBytes &&
               kUserAuthRequestHeadBytes <= kRestMaximumHeaderBytes);
 inline constexpr u32 kUserAuthEncryptedInputBytes = 32 * 1024;
 inline constexpr u32 kUserAuthRecordOutputBytes = 20 * 1024;
-inline constexpr u32 kUserClientMetadataBytes = kRestUserSuperPropertiesMaximumBytes +
-                                               kRestUserLocaleMaximumBytes + kRestUserTimezoneMaximumBytes;
+inline constexpr u32 kUserClientMetadataBytes =
+    kRestUserSuperPropertiesMaximumBytes + kRestUserLocaleMaximumBytes + kRestUserTimezoneMaximumBytes +
+    kRestUserAcceptLanguageMaximumBytes;
 inline constexpr u32 kRateStructuralCount = 256;
 inline constexpr u32 kRateBucketCount = 32;
 inline constexpr u32 kRateBindingCount = 64;
@@ -242,6 +243,7 @@ struct RestClientRuntime {
     u8* user_super_properties;
     char* user_locale;
     char* user_timezone;
+    char* user_accept_language;
     ClientSessionMetadata* metadata;
     u32 metadata_revision;
     u64 rate_wait_until_ms;
@@ -254,6 +256,7 @@ struct RestClientRuntime {
     u32 user_super_properties_bytes;
     u32 user_locale_bytes;
     u32 user_timezone_bytes;
+    u32 user_accept_language_bytes;
     u32 rate_structural_scratch[kRateStructuralCount];
     RestAuthorization authorization;
     RestClientError pending_error;
@@ -323,12 +326,8 @@ AccountRequirement required_action(RestClient* client) noexcept {
 }
 
 constexpr u32 ordinary_fixed_storage_bytes(bool normal_user) noexcept {
-    return kRestClientMaximumTargetBytes +
-           kEncryptedInputBytes + kHandshakeOutputBytes + kRecordOutputBytes +
-           kRestMaximumHeaderBytes +
-           (normal_user ? kRestUserSuperPropertiesMaximumBytes + kRestUserLocaleMaximumBytes +
-                              kRestUserTimezoneMaximumBytes
-                        : 0);
+    return kRestClientMaximumTargetBytes + kEncryptedInputBytes + kHandshakeOutputBytes +
+           kRecordOutputBytes + kRestMaximumHeaderBytes + (normal_user ? kUserClientMetadataBytes : 0);
 }
 
 constexpr u32 user_auth_secure_fixed_storage_bytes(u32 request_capacity) noexcept {
@@ -384,6 +383,8 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullpt
         runtime->user_locale = reinterpret_cast<char*>(cursor);
         cursor += kRestUserLocaleMaximumBytes;
         runtime->user_timezone = reinterpret_cast<char*>(cursor);
+        cursor += kRestUserTimezoneMaximumBytes;
+        runtime->user_accept_language = reinterpret_cast<char*>(cursor);
         // Metadata uses the ordinary allocation, before its final aligned TLS
         // output block. Passwords, CAPTCHA values, and request heads stay locked.
         runtime->handshake_output = reinterpret_cast<u8*>(runtime) + runtime->allocation_bytes -
@@ -432,6 +433,8 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullpt
         runtime->user_locale = reinterpret_cast<char*>(cursor);
         cursor += kRestUserLocaleMaximumBytes;
         runtime->user_timezone = reinterpret_cast<char*>(cursor);
+        cursor += kRestUserTimezoneMaximumBytes;
+        runtime->user_accept_language = reinterpret_cast<char*>(cursor);
     }
 }
 
@@ -556,7 +559,8 @@ void publish_client_failure(RestClient* client, RestClientError error,
 bool valid_user_configuration(const RestUserConfiguration& configuration) noexcept {
     return valid_base64_metadata(configuration.super_properties) &&
            ascii_graphic_string(configuration.locale, kRestUserLocaleMaximumBytes, true) &&
-           ascii_graphic_string(configuration.timezone, kRestUserTimezoneMaximumBytes);
+           ascii_graphic_string(configuration.timezone, kRestUserTimezoneMaximumBytes) &&
+           ascii_graphic_string(configuration.accept_language, kRestUserAcceptLanguageMaximumBytes);
 }
 
 bool copy_user_configuration(RestClientRuntime* runtime,
@@ -567,24 +571,28 @@ bool copy_user_configuration(RestClientRuntime* runtime,
                     configuration.super_properties.data, configuration.super_properties.count) ||
         !copy_bytes(runtime->user_locale, kRestUserLocaleMaximumBytes, configuration.locale.data,
                     configuration.locale.bytes) ||
-        !copy_bytes(runtime->user_timezone, kRestUserTimezoneMaximumBytes,
-                    configuration.timezone.data, configuration.timezone.bytes)) {
+        !copy_bytes(runtime->user_timezone, kRestUserTimezoneMaximumBytes, configuration.timezone.data,
+                    configuration.timezone.bytes) ||
+        !copy_bytes(runtime->user_accept_language, kRestUserAcceptLanguageMaximumBytes,
+                    configuration.accept_language.data, configuration.accept_language.bytes)) {
         return false;
     }
     runtime->user_super_properties_bytes = configuration.super_properties.count;
     runtime->user_locale_bytes = configuration.locale.bytes;
     runtime->user_timezone_bytes = configuration.timezone.bytes;
+    runtime->user_accept_language_bytes = configuration.accept_language.bytes;
     runtime->metadata = configuration.metadata;
     return true;
 }
 
-// The super properties as the live metadata reports them for this request.
+// The super properties and locale as the live metadata reports them for this request.
 void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
     if (!runtime->metadata)
         return;
     const u32 bytes = client_session_metadata_request(
         runtime->metadata, clock_unix_milliseconds(), &runtime->metadata_revision,
-        {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes});
+        {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes},
+        {runtime->user_locale, kRestUserLocaleMaximumBytes}, &runtime->user_locale_bytes);
     if (bytes)
         runtime->user_super_properties_bytes = bytes;
 }
@@ -602,9 +610,11 @@ bool initialize_auth_user_configuration(RestClientRuntime* runtime) noexcept {
         {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes});
     if (!properties.ok())
         return false;
-    return copy_user_configuration(runtime,
-        {{runtime->user_super_properties, properties.bytes}, storage.configuration.properties.system_locale,
-         {storage.timezone, storage.timezone_bytes}});
+    return copy_user_configuration(runtime, {{runtime->user_super_properties, properties.bytes},
+                                             {storage.discord_locale, storage.discord_locale_bytes},
+                                             {storage.timezone, storage.timezone_bytes},
+                                             nullptr,
+                                             {storage.accept_language, storage.accept_language_bytes}});
 }
 
 bool valid_route(const RestRouteKey& route) noexcept {
@@ -1013,7 +1023,8 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
         const RestUserRequestHeaders user_headers{
             ConstSlice<u8>{runtime->user_super_properties, runtime->user_super_properties_bytes},
             Utf8View{runtime->user_locale, runtime->user_locale_bytes},
-            Utf8View{runtime->user_timezone, runtime->user_timezone_bytes}};
+            Utf8View{runtime->user_timezone, runtime->user_timezone_bytes},
+            Utf8View{runtime->user_accept_language, runtime->user_accept_language_bytes}};
         const bool normal_user = runtime->authorization == RestAuthorization::normal_user;
         const RestRequestWriteResult written = write_rest_request_head(
             RestRequestHead{ConstSlice<u8>{runtime->request_target, runtime->command.target_bytes},
@@ -1987,7 +1998,8 @@ RestClientSubmitResult rest_client_submit_user_auth(
     const RestUserRequestHeaders user_headers{
         {runtime->user_super_properties, runtime->user_super_properties_bytes},
         {runtime->user_locale, runtime->user_locale_bytes},
-        {runtime->user_timezone, runtime->user_timezone_bytes}};
+        {runtime->user_timezone, runtime->user_timezone_bytes},
+        {runtime->user_accept_language, runtime->user_accept_language_bytes}};
     const UserAuthWriteResult head = user_auth_write_request_head(
         request.operation, request.body->bytes,
         UserAuthCaptchaHeaders{locked_utf8(request.captcha_key), locked_utf8(request.captcha_rqtoken),

@@ -3,6 +3,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/client_session_metadata.hpp"
+#include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/app/voice_receive.hpp"
 #include "maicord/app/gateway_stream_session.hpp"
 #include "maicord/app/voice_send.hpp"
@@ -879,7 +880,28 @@ bool self_settings_json(Utf8View source, SelfSettingsJson* parsed) noexcept {
                                   parsed)
         .ok();
 }
+// The user's interface locale (localization.locale) becomes X-Discord-Locale;
+// settings without it leave the current one.
+void observe_settings_locale(const GatewayClientRuntime* runtime, JsonValue value) noexcept {
+    ClientSessionMetadata* metadata = session_metadata(runtime);
+    JsonString encoded{};
+    if (!metadata || !json_value_as_string(value, &encoded) || encoded.has_escapes)
+        return;
+    u8 extracted[1024];
+    const UserSettingsExtractResult localization = user_settings_proto_extract_base64(
+        encoded.encoded, user_settings_group_bit(user_settings_localization), {},
+        {extracted, sizeof(extracted)});
+    UserSettingsValue locale{};
+    if (localization.ok() &&
+        user_settings_proto_read(
+            user_settings_proto_group({extracted, localization.bytes}, user_settings_localization),
+            {user_settings_localization, 1, 0, UserSettingsKind::string}, &locale) &&
+        locale.present)
+        client_session_metadata_set_locale(metadata, {locale.text, locale.text_bytes});
+}
+
 bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value, bool partial) noexcept {
+    observe_settings_locale(runtime, value);
     auto& owner = runtime->self_status;
     JsonString encoded{};
     u8 group[kSelfStatusSettingsMaximumGroupBytes];
