@@ -1,4 +1,5 @@
 #include "maicord/render/text_edit_layout.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/utf.hpp"
 #include "maicord/core/hash.hpp"
@@ -522,7 +523,7 @@ void text_edit_layout_invalidate(TextEditLayoutOwner* owner) noexcept {
     owner->caret_offset = 0;
     owner->utf16_units = 0;
     owner->selection_count = 0;
-    owner->caret = TextEditMetric{};
+    reset_value<TextEditMetric>(&owner->caret);
     owner->origin_x = 0.0f;
     owner->origin_y = 0.0f;
     owner->width = 0.0f;

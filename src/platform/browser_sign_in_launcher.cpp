@@ -29,8 +29,8 @@ bool open_validated(HWND window, const SecureBuffer* url) noexcept {
 } // namespace
 
 bool browser_sign_in_launch(HWND window, const SecureBuffer* url) noexcept {
-    constexpr char prefix[] = "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D";
-    constexpr char middle[] = "%26key%3D";
+    static constexpr char prefix[] = "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D";
+    static constexpr char middle[] = "%26key%3D";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
     constexpr u32 middle_bytes = sizeof(middle) - 1;
     constexpr u32 url_bytes = prefix_bytes + 4 + middle_bytes + 36;
@@ -57,7 +57,7 @@ bool browser_sign_in_launch(HWND window, const SecureBuffer* url) noexcept {
 }
 
 bool captcha_bridge_url_valid(const SecureBuffer* url) noexcept {
-    constexpr char prefix[] = "http://127.0.0.1:";
+    static constexpr char prefix[] = "http://127.0.0.1:";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
     if (!locked_url(url) || !matches(url, 0, prefix, prefix_bytes))
         return false;

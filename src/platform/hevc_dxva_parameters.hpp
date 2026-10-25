@@ -22,7 +22,7 @@ inline bool hevc_dxva_picture_parameters(const HevcSps& a, const HevcPps& b,
     if (!hevc_gpu_reference_map(previous, plan, surface, &references))
         return false;
     DXVA_PicParams_HEVC& p = *output;
-    p = {};
+    reset_value(&p);
     p.PicWidthInMinCbsY = static_cast<USHORT>(a.coded_width >> (a.log2_min_cb_minus3 + 3));
     p.PicHeightInMinCbsY = static_cast<USHORT>(a.coded_height >> (a.log2_min_cb_minus3 + 3));
     p.chroma_format_idc = 1;

@@ -68,13 +68,13 @@ StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
         while (directory_units && r->path[directory_units - 1] != L'\\') --directory_units;
         copy_bytes(r->stage, r->path, directory_units * sizeof(wchar_t));
         auto* suffix = r->stage + directory_units;
-        constexpr wchar_t prefix[] = L".maicord-download-";
+        static constexpr wchar_t prefix[] = L".maicord-download-";
         copy_bytes(suffix, prefix, sizeof(prefix) - sizeof(wchar_t));
         suffix += sizeof(prefix) / sizeof(wchar_t) - 1;
         hex(suffix, process_id(), 8); suffix += 8; *suffix++ = L'-';
         hex(suffix, GetTickCount64(), 16); suffix += 16; *suffix++ = L'-';
         hex(suffix, static_cast<u32>(InterlockedIncrement(&serial)), 8); suffix += 8;
-        constexpr wchar_t ending[] = L".part";
+        static constexpr wchar_t ending[] = L".part";
         copy_bytes(suffix, ending, sizeof(ending));
         const auto opened =
             staged_file_begin(&r->staged, loop, r->path, r->stage, known_bytes(r), r->destination_exists,
@@ -276,7 +276,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
 void destroy(HttpsFileDownload* owner) noexcept {
     if (owner->notification) CloseHandle(owner->notification);
     if (owner->runtime) { secure_clear_bytes(owner->runtime, sizeof(Runtime)); VirtualFree(owner->runtime, 0, MEM_RELEASE); }
-    *owner = {};
+    reset_value(owner);
 }
 bool valid_path(ConstSlice<wchar_t> path) noexcept {
     // Reserve room for a unique sibling filename; never accept a relative,
@@ -303,7 +303,7 @@ HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const
         (request.destination_exists &&
          (!request.overwrite_authorized || !request.destination.identity.index)))
         return HttpsFileDownloadError::invalid_input;
-    *owner = {};
+    reset_value(owner);
     owner->runtime = VirtualAlloc(nullptr, https_file_download_runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!owner->runtime) return HttpsFileDownloadError::memory;
     auto* r = static_cast<Runtime*>(owner->runtime);

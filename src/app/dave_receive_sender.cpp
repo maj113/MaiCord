@@ -88,7 +88,7 @@ void dave_receive_sender_release(DaveReceiveSender* sender) noexcept {
         sender->newest = node->older;
         destroy(node);
     }
-    *sender = {};
+    reset_value(sender);
 }
 DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sender,
                                                           DaveReceiveIdentity identity, u64 revision,

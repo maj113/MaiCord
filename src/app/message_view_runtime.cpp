@@ -1,4 +1,5 @@
 #include "maicord/app/message_view_runtime.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -22,11 +23,11 @@ bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
         Arena storage = runtime->storage;
         Arena text_storage = runtime->text_storage;
         arena_reset(&storage, ArenaRewindMode::erase);
-        *runtime = MessageViewRuntime{};
+        reset_value<MessageViewRuntime>(runtime);
         runtime->storage = storage;
         runtime->text_storage = text_storage;
     } else {
-        *runtime = MessageViewRuntime{};
+        reset_value<MessageViewRuntime>(runtime);
         if (!arena_initialize(&runtime->storage,
                               sizeof(MessageViewStorage), 0, 4 * 1024) ||
             !arena_initialize(&runtime->text_storage, kMessageViewTextCapacity, 0, kMessageStoreTextCommitStep)) {
@@ -124,7 +125,7 @@ void message_view_runtime_release(MessageViewRuntime* runtime) noexcept {
         arena_release(&runtime->storage);
         arena_release(&runtime->text_storage);
     }
-    *runtime = MessageViewRuntime{};
+    reset_value<MessageViewRuntime>(runtime);
 }
 
 } // namespace maicord

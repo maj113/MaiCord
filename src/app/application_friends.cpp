@@ -1,4 +1,5 @@
 #include "application_action_captcha.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_friends.hpp"
@@ -137,7 +138,7 @@ bool request_current(const ApplicationFriends& friends, const FriendsRequest& re
 void recovery(ApplicationFriends& friends, Utf8View status) noexcept {
     friends.incomplete = true;friends.status = status;
     if (!request_busy(friends)) {
-        friends.request = {};friends.request.operation = RelationshipOperation::list;
+        reset_value(&friends.request);friends.request.operation = RelationshipOperation::list;
         friends.request.phase = FriendsRequestPhase::failed;
     }
 }
@@ -344,7 +345,7 @@ void close_requests(ApplicationFriends& friends) noexcept {
     application_composer_text_input_suspend();
     if (g_app.context_focus == &friends.requests_scene.widgets) g_app.context_focus = &friends.scene.widgets;
     if (GetCapture() == g_app.window && (friends.pressed.action != UiFriendsAction::none || friends.dragging)) ReleaseCapture();
-    friends.pressed = {};friends.dragging = false;friends.requests_visible = false;
+    reset_value(&friends.pressed);friends.dragging = false;friends.requests_visible = false;
     renderer_bind_friends_requests_scene(&g_app.renderer, nullptr);ui_friends_scene_release(&friends.requests_scene);
     friends.requests_source.count = 0;++friends.requests_source.revision;
 }
@@ -438,7 +439,7 @@ void project_active(ApplicationFriends& friends) noexcept {
     for (u32 i = 0; i < shown; ++i) {
         const auto& card = cards[i];
         auto& out = friends.active_cards[i];
-        out = {};
+        reset_value(&out);
         ActiveText title{{friends.active_text[i][0], sizeof(friends.active_text[i][0]), 0}};
         ActiveText subtitle{{friends.active_text[i][1], sizeof(friends.active_text[i][1]), 0}};
         if (card.kind == ActiveNowKind::voice) {
@@ -939,7 +940,7 @@ void application_friends_hide() noexcept {
     search_focus(*friends, false);
     if (g_app.context_focus == &friends->scene.widgets) g_app.context_focus = nullptr;
     if (GetCapture() == g_app.window && (friends->pressed.action != UiFriendsAction::none || friends->dragging || friends->search_dragging)) ReleaseCapture();
-    friends->visible = false;friends->pressed = {};friends->dragging = false;friends->search_dragging = false;
+    friends->visible = false;reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;
     renderer_bind_friends_scene(&g_app.renderer, nullptr);ui_friends_scene_release(&friends->scene);
 }
 void application_friends_release() noexcept {
@@ -1168,7 +1169,7 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
         invalidate_sources(*friends);
         if (committed.ok()) {
             friends->ready = true;friends->incomplete = false;++friends->membership_epoch;
-            if (!request_busy(*friends)) { friends->request = {};friends->status = {}; }
+            if (!request_busy(*friends)) { reset_value(&friends->request);reset_value(&friends->status); }
         } else {
             recovery(*friends, utf8_literal("Couldn't load your friends. Try again."));
         }
@@ -1251,7 +1252,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
     auto* friends = g_app.friends;
     if (!application_friends_active()) return false;
     if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
-        friends->pressed = {};friends->dragging = false;friends->search_dragging = false;
+        reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;
         if (message == WM_KILLFOCUS) { friends->search_caret_visible = false;friends->search_blink_at = 0;application_composer_text_input_suspend();repaint(); }
         return false;
     }
@@ -1320,7 +1321,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         if (friends->pressed.action == UiFriendsAction::search) {
             search_focus(*friends, true);repaint();
             search_pointer(*friends, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
-            friends->pressed = {};friends->search_dragging = true;SetCapture(g_app.window);return true;
+            reset_value(&friends->pressed);friends->search_dragging = true;SetCapture(g_app.window);return true;
         }
         search_focus(*friends, false);
         if (friends->pressed.action != UiFriendsAction::none) {
@@ -1331,7 +1332,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
     }
     if (message == WM_LBUTTONUP) {
         const auto pressed = friends->pressed;const auto revision = friends->pressed_revision;
-        friends->pressed = {};friends->dragging = false;friends->search_dragging = false;if (GetCapture() == g_app.window) ReleaseCapture();
+        reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;if (GetCapture() == g_app.window) ReleaseCapture();
         if (revision == scene.revision && ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
         return true;
     }

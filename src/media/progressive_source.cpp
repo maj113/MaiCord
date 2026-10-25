@@ -91,7 +91,7 @@ ProgressiveProbe need(const ProgressiveSource& s, u64 offset, u64 end) noexcept 
 bool progressive_source_initialize(ProgressiveSource* s, u32 total_bytes, bool audio_buffer) noexcept {
     if (!s || !total_bytes || total_bytes > kMediaMaximumProgressiveVideoBytes)
         return false;
-    *s = {};
+    reset_value(s);
     const u32 blocks = (total_bytes + kBlock - 1) / kBlock;
     s->base = static_cast<u8*>(VirtualAlloc(nullptr, u64{blocks} * kBlock, MEM_RESERVE, PAGE_READWRITE));
     if (!s->base)
@@ -108,7 +108,7 @@ void progressive_source_release(ProgressiveSource* s) noexcept {
         return;
     if (s->base)
         VirtualFree(s->base, 0, MEM_RELEASE);
-    *s = {};
+    reset_value(s);
 }
 ConstSlice<u8> progressive_source_bytes(const ProgressiveSource& s) noexcept {
     return s.base ? ConstSlice<u8>{s.base, s.total_bytes} : ConstSlice<u8>{};
@@ -340,7 +340,7 @@ u32 progressive_buffered_ranges(const ProgressiveSource& s, const Mp4Demuxer& vi
     if (!s.base || !begin || !end || !capacity || !duration_us || !video.ready || video.encoded.data != s.base)
         return 0;
     Mp4Demuxer cursor = video;
-    cursor.availability = {};
+    reset_value(&cursor.availability);
     mp4_demux_reset(&cursor);
     u32 count = 0;
     bool open = false;

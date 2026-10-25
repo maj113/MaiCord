@@ -65,7 +65,7 @@ EmbedProvider provider(const Url& u) noexcept {
         return EmbedProvider::streamable;
     if (host(u, utf8_literal("music.apple.com")) || host(u, utf8_literal("embed.music.apple.com")))
         return EmbedProvider::apple_music;
-    constexpr Utf8View regions[]{utf8_literal("com"), utf8_literal("co.uk"), utf8_literal("de"),
+    static constexpr Utf8View regions[]{utf8_literal("com"), utf8_literal("co.uk"), utf8_literal("de"),
         utf8_literal("co.jp"), utf8_literal("es"), utf8_literal("fr"), utf8_literal("it"),
         utf8_literal("com.au"), utf8_literal("in"), utf8_literal("ca"), utf8_literal("com.mx"),
         utf8_literal("com.br")};
@@ -168,7 +168,7 @@ static Utf8View soundcloud_path(Utf8View url, bool collection) noexcept {
         if (!equal({path.data + first, separators[1] - first}, utf8_literal("sets"))) return {};
     } else {
         const Utf8View leaf{path.data + first, path.bytes - first};
-        constexpr Utf8View collections[]{utf8_literal("sets"), utf8_literal("tracks"), utf8_literal("albums"),
+        static constexpr Utf8View collections[]{utf8_literal("sets"), utf8_literal("tracks"), utf8_literal("albums"),
             utf8_literal("likes"), utf8_literal("reposts"), utf8_literal("popular-tracks")};
         for (auto name : collections) if (equal(leaf, name)) return {};
     }
@@ -499,7 +499,7 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
             out.id = {parsed.path.data + 7, parsed.path.bytes - 7};
         else if (equal(parsed.path, utf8_literal("/view_video.php")) &&
                  !parameter(parsed.query, utf8_literal("viewkey"), &out.id)) return {};
-        if (!pornhub_video_id(out.id)) out.id = {};
+        if (!pornhub_video_id(out.id)) reset_value(&out.id);
         return out;
     }
     if (out.provider == EmbedProvider::twitter) { out.id=twitter_video_locator(url).id; return out; }
@@ -507,7 +507,7 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
         auto path=parsed.path;
         if(path.bytes && path.data[0]=='/') {
             path={path.data+1,path.bytes-1};
-            constexpr Utf8View endings[]{utf8_literal("/embed"),utf8_literal(".gifv"),utf8_literal(".mp4")};
+            static constexpr Utf8View endings[]{utf8_literal("/embed"),utf8_literal(".gifv"),utf8_literal(".mp4")};
             for(auto ending:endings) if(path.bytes>ending.bytes &&
                 equal({path.data+path.bytes-ending.bytes,ending.bytes},ending)) {
                 path.bytes-=ending.bytes;break;
@@ -559,17 +559,17 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
             if (end > 1 && prefix(rest, utf8_literal("/clip/"))) out.id = {rest.data + 6, rest.bytes - 6};
             else if (!rest.bytes || equal(rest, utf8_literal("/"))) {
                 const Utf8View channel{parsed.path.data + 1, end - 1};
-                constexpr Utf8View reserved[]{utf8_literal("directory"), utf8_literal("downloads"), utf8_literal("search"),
+                static constexpr Utf8View reserved[]{utf8_literal("directory"), utf8_literal("downloads"), utf8_literal("search"),
                     utf8_literal("settings"), utf8_literal("login"), utf8_literal("signup"), utf8_literal("videos"), utf8_literal("p")};
                 for (auto name : reserved) if (ascii_equal_ignore_case(channel, name)) return {};
                 if (twitch_channel_id(channel)) { out.id = channel; out.provider = EmbedProvider::twitch_live; return out; }
             }
         }
-        if (!twitch_clip_id(out.id)) out.id = {};
+        if (!twitch_clip_id(out.id)) reset_value(&out.id);
         return out;
     }
     if (out.provider == EmbedProvider::tiktok) {
-        constexpr Utf8View paths[]{utf8_literal("/player/v1/"), utf8_literal("/embed/v2/"), utf8_literal("/embed/")};
+        static constexpr Utf8View paths[]{utf8_literal("/player/v1/"), utf8_literal("/embed/v2/"), utf8_literal("/embed/")};
         for (auto path : paths)
             if (prefix(parsed.path, path)) { out.id = {parsed.path.data + path.bytes, parsed.path.bytes - path.bytes}; break; }
         if (!out.id.bytes && prefix(parsed.path, utf8_literal("/@"))) {
@@ -585,7 +585,7 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
             valid = digit <= 9 && value <= (~u64{0} - digit) / 10;
             if (valid) value = value * 10 + digit;
         }
-        if (!valid) out.id = {};
+        if (!valid) reset_value(&out.id);
         return out;
     }
     if (out.provider != EmbedProvider::youtube && out.provider != EmbedProvider::youtube_music) return out;
@@ -594,11 +594,11 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
     } else if (equal(parsed.path, utf8_literal("/watch"))) {
         if (!parameter(parsed.query, utf8_literal("v"), &out.id)) return {};
     } else {
-        constexpr Utf8View paths[]{utf8_literal("/embed/"), utf8_literal("/shorts/"), utf8_literal("/live/")};
+        static constexpr Utf8View paths[]{utf8_literal("/embed/"), utf8_literal("/shorts/"), utf8_literal("/live/")};
         for (auto path : paths)
             if (prefix(parsed.path, path)) out.id = {parsed.path.data + path.bytes, parsed.path.bytes - path.bytes};
     }
-    if (!id_valid(out.id)) { out.id = {}; return out; }
+    if (!id_valid(out.id)) { reset_value(&out.id); return out; }
     Utf8View start{}, time{};
     if (!parameter(parsed.query, utf8_literal("start"), &start) ||
         !parameter(parsed.query, utf8_literal("t"), &time) ||

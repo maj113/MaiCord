@@ -29,7 +29,7 @@ bool next_byte(Utf8View value, u32* cursor, u8* decoded) noexcept {
     return true;
 }
 bool token_name(Utf8View name) noexcept {
-    constexpr char expected[] = "token";
+    static constexpr char expected[] = "token";
     u32 cursor = 0;
     u32 count = 0;
     while (cursor < name.bytes) {
@@ -97,7 +97,7 @@ LoginResetLinkError find_reset_token(Utf8View parameters, Utf8View* selected, bo
         const u32 start = equals == end ? end : equals + 1;
         const Utf8View value{parameters.data + start, end - start};
         if (!form_valid(name) || !form_valid(value)) return LoginResetLinkError::malformed_encoding;
-        constexpr char token[] = "token";
+        static constexpr char token[] = "token";
         u32 cursor = 0, count = 0;
         bool prefix = true, array = false;
         while (cursor < name.bytes) {

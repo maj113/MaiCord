@@ -1,4 +1,5 @@
 #include "maicord/protocol/reaction_users.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/rest_route.hpp"
@@ -109,7 +110,7 @@ DecodeStringResult decode_string(JsonString source, u32 maximum_bytes,
         return DecodeStringResult::capacity;
     }
     if (measured.bytes == 0) {
-        *result = Utf8View{};
+        reset_value<Utf8View>(result);
         return DecodeStringResult::ok;
     }
     const JsonStringDecodeResult decoded = json_string_decode_utf8(

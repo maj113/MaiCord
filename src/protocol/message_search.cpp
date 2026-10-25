@@ -1,4 +1,5 @@
 #include "maicord/protocol/message_search.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/message_card_excerpt.hpp"
 
 #include "maicord/protocol/writer.hpp"
@@ -208,35 +209,35 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
 
 void clear_borrowed_views(MessageSearchMessage& item) noexcept {
     auto& message = item.message;
-    message.content = {};
-    message.author_name = {};
-    message.author_avatar_hash = {};
-    message.mention_roles = {};
-    message.member_roles = {};
-    message.mention_users = {};
-    message.reference.author_name = {};
-    message.reference.author_avatar_hash = {};
-    message.reference.content = {};
-    message.interaction.user_name = {};
-    message.interaction.user_avatar_hash = {};
-    message.interaction.command_name = {};
-    message.reactions = {};
-    message.attachments = {};
-    message.embeds = {};
-    message.embed_fields = {};
-    message.stickers = {};
-    message.components = {};
-    message.poll = {};
+    reset_value(&message.content);
+    reset_value(&message.author_name);
+    reset_value(&message.author_avatar_hash);
+    reset_value(&message.mention_roles);
+    reset_value(&message.member_roles);
+    reset_value(&message.mention_users);
+    reset_value(&message.reference.author_name);
+    reset_value(&message.reference.author_avatar_hash);
+    reset_value(&message.reference.content);
+    reset_value(&message.interaction.user_name);
+    reset_value(&message.interaction.user_avatar_hash);
+    reset_value(&message.interaction.command_name);
+    reset_value(&message.reactions);
+    reset_value(&message.attachments);
+    reset_value(&message.embeds);
+    reset_value(&message.embed_fields);
+    reset_value(&message.stickers);
+    reset_value(&message.components);
+    reset_value(&message.poll);
     message.fields &= ~gateway_message_field_poll; // scalar summaries are not explicit poll removals
     auto& child = message.snapshot;
-    child.content = {};
-    child.attachments = {};
-    child.embeds = {};
-    child.embed_fields = {};
-    child.stickers = {};
-    child.components = {};
-    child.mention_users = {};
-    item.card_excerpt = {};
+    reset_value(&child.content);
+    reset_value(&child.attachments);
+    reset_value(&child.embeds);
+    reset_value(&child.embed_fields);
+    reset_value(&child.stickers);
+    reset_value(&child.components);
+    reset_value(&child.mention_users);
+    reset_value(&item.card_excerpt);
 }
 
 bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
@@ -305,8 +306,8 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
     // Without a rich sink the excerpt keeps no mention views; a sink consumes the
     // reusable named-mention and media pools before the next message is decoded.
     if (!context->rich_scratch) {
-        message.mention_roles = {};
-        message.mention_users = {};
+        reset_value(&message.mention_roles);
+        reset_value(&message.mention_users);
     }
     MessageSearchMessage item{message, hit.guild_id, hit.hit, hit.guild_seen};
     // Ordinary cards borrow the already-owned message text. Only a forwarded
@@ -323,7 +324,7 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
         clear_borrowed_views(item);
     } else if (!snapshot_excerpt(*context, hit, item))
         return false;
-    context->messages[page.message_count++] = item;
+    copy_value(&context->messages[page.message_count++], item);
     page.text_bytes += item.message.transient_bytes;
     ++group.message_count;
     group.hit_count += hit.hit ? 1 : 0;
@@ -422,7 +423,7 @@ bool visit_tab_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool visit_tab(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<DecodeContext*>(opaque);
-    constexpr Utf8View names[] = {utf8_literal("messages"), utf8_literal("media"), utf8_literal("files"),
+    static constexpr Utf8View names[] = {utf8_literal("messages"), utf8_literal("media"), utf8_literal("files"),
                                   utf8_literal("links"), utf8_literal("pins")};
     for (u32 index = 0; index < kMessageSearchTabCount; ++index) {
         if (!json_string_equals_ascii(name, names[index]))
@@ -688,7 +689,7 @@ bool json_tab(ProtocolWriter* writer, MessageSearchQuery query, MessageSearchTab
                   protocol_writer_append_c_string(
                       writer, pinned == MessageSearchPinned::pinned ? "true" : "false");
     const u64 bounds[] = {query.min_id, query.max_id};
-    const char* bound_names[] = {"min_id", "max_id"};
+    static constexpr const char* bound_names[] = {"min_id", "max_id"};
     for (u32 index = 0; index < 2; ++index)
         if (bounds[index])
             written = written && json_key(writer, bound_names[index], &first) &&

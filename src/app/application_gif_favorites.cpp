@@ -181,7 +181,7 @@ void clear_scope(ApplicationGifFavorites& p) noexcept {
     p.queue_count = 0;
     p.failed_url_bytes = 0;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     replace_bank(p, nullptr);
 }
 void bind_scope(ApplicationGifFavorites& p) noexcept {
@@ -253,7 +253,7 @@ bool open_interest(bool hover) noexcept {
         p.fetch_wanted = true;
         p.due_at = 1;
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         scheduled = true;
     }
     if (became_visible || scheduled)
@@ -412,7 +412,7 @@ bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32
     action.format = format;
     action.desired = desired;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     if (equal({p.failed_url, p.failed_url_bytes}, key))
         p.failed_url_bytes = 0;
     if (!p.request_id && p.queue_count == 1)
@@ -557,7 +557,7 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
                     drop_action(p);
                 }
                 p.failed = false;
-                p.status = {};
+                reset_value(&p.status);
             }
             p.attempts = 0;
             schedule(p);

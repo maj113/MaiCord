@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/render/renderer_presentation.hpp"
@@ -102,7 +103,7 @@ D3D11DrawPipelineResult initialize_pipeline(D3D11Renderer* renderer) noexcept {
     g_prestarted_glyph_atlas_device = nullptr;
     D3D11DrawPipelineOwner staged = g_prestarted_pipeline;
     const bool prestarted = g_prestarted_pipeline_device && g_prestarted_pipeline_device == renderer->graphics.device;
-    g_prestarted_pipeline = {};
+    reset_value(&g_prestarted_pipeline);
     g_prestarted_pipeline_device = nullptr;
     if (prestarted) {
         renderer->startup_prestart |= 2;
@@ -228,7 +229,7 @@ HRESULT renderer_select_plugin_effect(D3D11Renderer* renderer, u64 owner_id, u64
                                           &changed);
     if (changed) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
-        renderer->settings_backdrop_stamp = {};
+        reset_value(&renderer->settings_backdrop_stamp);
     }
     return result;
 }
@@ -236,7 +237,7 @@ HRESULT renderer_select_plugin_effect(D3D11Renderer* renderer, u64 owner_id, u64
 void renderer_clear_plugin_effect(D3D11Renderer* renderer) noexcept {
     if (renderer && d3d11_background_fx_clear_plugin(&renderer->background_fx)) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
-        renderer->settings_backdrop_stamp = {};
+        reset_value(&renderer->settings_backdrop_stamp);
     }
 }
 
@@ -266,9 +267,9 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
     renderer->draw_layer_scale = 1;
     renderer->popup_layer_scale = 1;
     presentation_damage_reset(&renderer->presentation_damage);
-    renderer->present_dirty_rect = {};
-    renderer->previous_buffer_damage_rect = {};
-    renderer->present_logical_damage_rect = {};
+    reset_value(&renderer->present_dirty_rect);
+    reset_value(&renderer->previous_buffer_damage_rect);
+    reset_value(&renderer->present_logical_damage_rect);
     renderer->present_required = false;
     renderer->present_full = false;
     renderer->previous_buffer_damage_valid = false;
@@ -413,7 +414,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
         // latency semaphore. Keep an already acquired slot until Present uses it.
         renderer->previous_buffer_damage_valid = false;
         renderer->previous_buffer_damage_full = false;
-        renderer->previous_buffer_damage_rect = {};
+        reset_value(&renderer->previous_buffer_damage_rect);
         renderer->retained_presentation.valid = false;
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         d3d11_renderer_caption_invalidate(renderer);
@@ -540,7 +541,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         // then synchronized, so no history remains to carry.
         renderer->previous_buffer_damage_valid = false;
         renderer->previous_buffer_damage_full = false;
-        renderer->previous_buffer_damage_rect = {};
+        reset_value(&renderer->previous_buffer_damage_rect);
         ++renderer->idle_begin_frame_presents;
     } else {
         renderer->previous_buffer_damage_valid = true;
@@ -845,7 +846,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer_release_login_form_text(renderer);
     if (renderer->inline_media.flags)
         VirtualFree(renderer->inline_media.flags, 0, MEM_RELEASE);
-    renderer->inline_media = {};
+    reset_value(&renderer->inline_media);
     if (renderer->graphics.context) {
         renderer->graphics.context->ClearState();
         renderer->graphics.context->Flush();
@@ -881,7 +882,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer->stream_card_scene = nullptr;
     renderer->guild_card_scene = nullptr;
     renderer->guild_banner = nullptr;
-    renderer->media_picker_edit_geometry = {};
+    reset_value(&renderer->media_picker_edit_geometry);
     text_edit_layout_release(&renderer->login_edit);
     renderer->edit_selection_owner = nullptr;
     message_hit_test_cache_release(&renderer->message_hit_test);

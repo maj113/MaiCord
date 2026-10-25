@@ -300,7 +300,7 @@ Utf8View favorite_detail(Utf8View value) noexcept {
     return {value.data, bytes};
 }
 void favorite_item(const GifFavoriteRecord& record, MediaCatalogItem* item) noexcept {
-    *item = {};
+    reset_value(item);
     item->kind = MediaCatalogItemKind::gif;
     item->name = utf8_literal("Saved GIF");
     item->description = favorite_detail(record.url);
@@ -360,7 +360,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
             VirtualFree(p.saved_preview_mask, 0, MEM_RELEASE);
         p.saved_preview_mask = mask;
         p.saved_mask_bytes = mask_bytes;
-        p.saved = {};
+        reset_value(&p.saved);
         p.saved.count = view.records.count;
         p.saved.first_id = g_app.media_picker_item_serial + 1;
         g_app.media_picker_item_serial += view.records.count;
@@ -371,7 +371,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
         p.tile_source_index = first_preview;
         p.favorites_tile.generation = p.favorite_generation;
     }
-    p.tile_item = {};
+    reset_value(&p.tile_item);
     p.tile_item.kind = MediaCatalogItemKind::category;
     p.tile_item.name = utf8_literal("Favorites");
     p.tile_item.available = true;
@@ -684,7 +684,7 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
         Utf8View label{};
         if (!reaction_picker_result_at(p.emoji, index, &selection, &label))
             return false;
-        *out = {};
+        reset_value(out);
         out->id = p.emoji_first_id + index;
         out->kind = UiMediaPickerItemKind::emoji;
         out->enabled = true;
@@ -710,7 +710,7 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     const bool categories = bank->operation == MediaCatalogOperation::gif_categories;
     const auto key = media_asset_catalog_preview(bank->first_id + at, bank->generation, format(*item),
                                                  (item->sticker_format == 2 || item->sticker_format == 3));
-    *out = {};
+    reset_value(out);
     out->id = key.id;
     out->asset_id = preview_admitted(*bank, at) ? key.id : 0;
     out->variant = key.variant;
@@ -720,7 +720,7 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     out->detail = item->description.bytes ? item->description : item->name;
     // Stickers name their source (server or pack) in the footer.
     if (p.kind == UiMediaPickerKind::sticker) {
-        out->detail = {};
+        reset_value(&out->detail);
         for (u32 s = 0; s < p.section_count; ++s)
             if (index >= p.sections[s].first && index - p.sections[s].first < p.sections[s].count) {
                 out->detail = p.sections[s].label;
@@ -1270,7 +1270,7 @@ void application_media_picker_close() noexcept {
                                  p->tab_query_bytes[kind], p->tab_query_bytes[kind]);
         p->kind = p->composer_kind;
         p->reaction_message_id = 0;
-        p->reaction_scope = {};
+        reset_value(&p->reaction_scope);
         p->reaction_error = false;
     }
     revoke_capture(*p);
@@ -1718,7 +1718,7 @@ bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPrevi
     }
     if (!item || !preview_admitted(*bank, local))
         return false;
-    *out = {};
+    reset_value(out);
     out->url = item->preview_url;
     out->key = media_asset_catalog_preview(bank->first_id + local, bank->generation, format(*item),
                                            (item->sticker_format == 2 || item->sticker_format == 3));

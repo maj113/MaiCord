@@ -122,7 +122,7 @@ void copy(UiCallScene& s, const UiCallStage& stage) noexcept {
 UiRect layout(UiCallScene& s, UiRect area, float gap) noexcept {
     s.stage_banner = s.stage_audience = s.stage_requests = {};
     if (!s.stage_active) {
-        s.stage_speakers = {};
+        reset_value(&s.stage_speakers);
         return area;
     }
     if (s.stage_actions & stage_action_accept_invite && ui_rect_height(area) >= kUiCallStageBannerHeight + 160) {
@@ -151,7 +151,7 @@ void place_controls(UiCallScene& s) noexcept {
                                          UiCallControl::stage_end,    UiCallControl::stage_accept,
                                          UiCallControl::stage_decline};
     for (const auto c : stage_controls)
-        s.controls[static_cast<u32>(c)] = {};
+        reset_value(&s.controls[static_cast<u32>(c)]);
     if (!s.stage_active)
         return;
     const float middle = (s.header.top + s.header.bottom) * .5f;

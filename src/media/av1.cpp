@@ -81,7 +81,7 @@ u32 tile_log2(u32 block, u32 target) noexcept {
 }
 
 void reset_film_grain(Av1FilmGrain* grain) noexcept {
-    *grain = {};
+    reset_value(grain);
 }
 
 struct Parser {
@@ -152,7 +152,7 @@ struct Parser {
             return false;
         // ALTREF: furthest backward; BWDREF, ALTREF2: nearest backward; then
         // LAST2, LAST3, BWDREF, ALTREF2, ALTREF still unset: latest forward.
-        constexpr u8 order[]{6, 4, 5, 1, 2, 4, 5, 6};
+        static constexpr u8 order[]{6, 4, 5, 1, 2, 4, 5, 6};
         for (u32 step = 0; step < sizeof(order); ++step) {
             const u32 reference = order[step];
             const bool backward = step < 3;

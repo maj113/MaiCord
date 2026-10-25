@@ -1,4 +1,5 @@
 #include "application_self_status.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
 #include "maicord/core/time.hpp"
@@ -38,7 +39,7 @@ void application_self_status_synchronize() noexcept {
     if (!same_scope(request, snapshot)) {
         if (request.request_id)
             return; // The primary lane retains its exact completion until teardown/drain.
-        request = {};
+        reset_value(&request);
         if (!snapshot.available || !snapshot.profile_id || !snapshot.self_user_id)
             return;
         request.profile_id = snapshot.profile_id;
@@ -86,7 +87,7 @@ bool application_self_status_request(GatewayUserStatus status) noexcept {
     return true;
 }
 void application_self_status_clear() noexcept {
-    g_app.self_status = {};
+    reset_value(&g_app.self_status);
 }
 bool application_self_status_pending(u64 now_ms) noexcept {
     application_self_status_synchronize();

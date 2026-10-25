@@ -1,4 +1,5 @@
 #include "maicord/app/poll_controller.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
@@ -62,7 +63,7 @@ bool flight_current(const PollController& c,const PollControllerCommand& command
 }
 void retire_source(PollController& c) noexcept {
     if (c.flight.active) c.flight.retired=true;
-    c.pending={}; c.pending_ready=false; c.desired_active=false; c.desired_mask=0;
+    reset_value(&c.pending); c.pending_ready=false; c.desired_active=false; c.desired_mask=0;
     c.vote_phase=PollControllerVotePhase::idle; c.refresh_required=false;
     c.vote_barrier=PollControllerError::none;
     c.after_user_id=0; c.voter_answer_id=0; c.voters_more=false; c.voters_failed=false;
@@ -75,11 +76,11 @@ bool poll_controller_source_equal(const PollControllerSource& a,const PollContro
         a.channel_generation==b.channel_generation;
 }
 void poll_controller_initialize(PollController* c) noexcept {
-    if (c) { *c={}; c->initialized=true; }
+    if (c) { reset_value(c); c->initialized=true; }
 }
 void poll_controller_close(PollController* c) noexcept {
     if (!c || !c->initialized) return;
-    retire_source(*c); c->source_active=false; c->snapshot={}; advance(*c);
+    retire_source(*c); c->source_active=false; reset_value(&c->snapshot); advance(*c);
 }
 PollControllerResult poll_controller_observe(PollController* c,const PollControllerSnapshot& p,
                                             bool authoritative_refresh) noexcept {
@@ -96,11 +97,11 @@ PollControllerResult poll_controller_observe(PollController* c,const PollControl
         p.mine_known && !p.finalized) c->vote_barrier=PollControllerError::none;
     if (!p.can_inspect) {
         if (c->flight.active) c->flight.retired=true;
-        c->pending={}; c->pending_ready=false;
+        reset_value(&c->pending); c->pending_ready=false;
     }
     if (!p.can_inspect || p.finalized || !p.can_vote) {
         if (c->pending_ready && c->pending.kind==PollControllerWorkKind::vote) {
-            c->pending_ready=false; c->pending={};
+            c->pending_ready=false; reset_value(&c->pending);
         }
         if (c->flight.active && c->flight.command.kind==PollControllerWorkKind::vote)
             c->flight.retired=true;
@@ -115,7 +116,7 @@ PollControllerResult poll_controller_observe(PollController* c,const PollControl
         c->refresh_required=false;
         c->last_error=landed?PollControllerError::none:PollControllerError::transport;
         if (c->pending_ready && c->pending.kind==PollControllerWorkKind::vote) {
-            c->pending_ready=false; c->pending={};
+            c->pending_ready=false; reset_value(&c->pending);
         }
     } else if (authoritative_refresh) {
         c->refresh_required=false;
@@ -135,7 +136,7 @@ PollControllerResult poll_controller_expire(PollController* c,u64 unix_now) noex
         return result(*c);
     const bool changed=c->vote_barrier!=PollControllerError::expired;
     if (c->pending_ready && c->pending.kind==PollControllerWorkKind::vote) {
-        c->pending={}; c->pending_ready=false;
+        reset_value(&c->pending); c->pending_ready=false;
     }
     if (c->flight.active && c->flight.command.kind==PollControllerWorkKind::vote)
         c->flight.retired=true;
@@ -158,7 +159,7 @@ PollControllerResult poll_controller_queue_vote(PollController* c,u16 mask,u64 n
     }
     if (c->snapshot.mine_mask==mask) return result(*c);
     if (!advance(*c)) return result(*c,PollControllerError::exhausted);
-    c->pending={}; c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::vote;
+    reset_value(&c->pending); c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::vote;
     c->pending.desired_mask=mask; c->pending.epoch=c->epoch; c->pending.due_at_ms=now;
     c->pending_ready=true; c->desired_active=true; c->desired_mask=mask;
     c->vote_phase=PollControllerVotePhase::queued; c->last_error=PollControllerError::none;
@@ -177,7 +178,7 @@ PollControllerResult poll_controller_queue_voter_page(PollController* c,u32 answ
     if (!advance(*c)) return result(*c,PollControllerError::exhausted);
     if (c->flight.active && c->flight.command.kind==PollControllerWorkKind::voters)
         c->flight.retired=true;
-    c->pending={}; c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::voters;
+    reset_value(&c->pending); c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::voters;
     c->pending.answer_id=answer; c->pending.after_user_id=after; c->pending.limit=limit;
     c->pending.epoch=c->epoch; c->pending.due_at_ms=now; c->pending_ready=true;
     c->voter_answer_id=answer; c->after_user_id=after; c->voters_more=false; c->voters_failed=false;
@@ -189,7 +190,7 @@ PollControllerResult poll_controller_queue_refresh(PollController* c,u64 now) no
     if (!c->snapshot.can_inspect) return result(*c,PollControllerError::forbidden);
     if (c->pending_ready) return result(*c,PollControllerError::busy);
     if (!advance(*c)) return result(*c,PollControllerError::exhausted);
-    c->pending={}; c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::refresh;
+    reset_value(&c->pending); c->pending.snapshot=c->snapshot; c->pending.kind=PollControllerWorkKind::refresh;
     c->pending.epoch=c->epoch; c->pending.due_at_ms=now; c->pending_ready=true;
     return result(*c,PollControllerError::none,true);
 }
@@ -204,8 +205,8 @@ bool poll_controller_admit(PollController* c,const PollControllerCommand& comman
     PollControllerCommand current{};
     if (!c || !ticket || !request_id || !poll_controller_prepare(*c,now,unix_now,&current) ||
         !command_equal(command,current)) return false;
-    c->flight={}; c->flight.command=current; c->flight.ticket={request_id,current.epoch};
-    c->flight.active=true; c->pending_ready=false; c->pending={};
+    reset_value(&c->flight); c->flight.command=current; c->flight.ticket={request_id,current.epoch};
+    c->flight.active=true; c->pending_ready=false; reset_value(&c->pending);
     if (command.kind==PollControllerWorkKind::vote) c->vote_phase=PollControllerVotePhase::sending;
     *ticket=c->flight.ticket; return true;
 }
@@ -218,7 +219,7 @@ PollControllerResult poll_controller_submit_failed(PollController* c,u64 now) no
         return result(*c,PollControllerError::busy);
     }
     const auto kind=c->pending.kind;
-    c->pending={}; c->pending_ready=false;
+    reset_value(&c->pending); c->pending_ready=false;
     if (kind==PollControllerWorkKind::vote) {
         c->desired_active=false; c->vote_phase=PollControllerVotePhase::failed;
     } else if (kind==PollControllerWorkKind::voters) c->voters_failed=true;
@@ -233,7 +234,7 @@ PollControllerResult poll_controller_complete(PollController* c,PollControllerTi
         c->flight.ticket.epoch!=ticket.epoch) return {PollControllerError::stale,false,true};
     const auto command=c->flight.command;
     const bool stale=c->flight.retired || !flight_current(*c,command,unix_now);
-    c->flight={};
+    reset_value(&c->flight);
     if (stale) return result(*c,PollControllerError::none,false,true);
     const bool vote=command.kind==PollControllerWorkKind::vote;
     if (response.transport_ok() && response.status_code==429 && response.retry_at_ms &&

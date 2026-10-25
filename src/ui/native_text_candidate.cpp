@@ -1,4 +1,5 @@
 #include "native_text_trim_plan.hpp"
+#include "maicord/core/memory.hpp"
 #include "native_text_span.hpp"
 #include "native_text_script.hpp"
 #include "maicord/text/bidi_ltr.hpp"
@@ -276,7 +277,7 @@ bool acquire_plan(NativeTextContext& owner,const NativeFormat* format,u32 font_f
     if(!prepared.ok()){if(prepared.error==NativeFontError::capacity)++owner.catalogs.retryable_failures;return false;}
     const auto recorded=native_font_session_run(owner.fonts,instance,source,simulations,font);if(recorded.ok())return true;
     if(recorded.error==NativeFontError::capacity)++owner.catalogs.retryable_failures;
-    native_run_plan_release(&owner.store,*output);*output={};return false;
+    native_run_plan_release(&owner.store,*output);reset_value(output);return false;
 }
 bool same_font(const NativeFormatFont& a,const NativeFormatFont& b) noexcept {
     return a.scope==b.scope&&bytes_equal(&a.properties,&b.properties,sizeof(a.properties))&&a.family.count==b.family.count&&bytes_equal(a.family.data,b.family.data,a.family.count*2);
@@ -299,7 +300,7 @@ Binding* binding(NativeTextContext& owner,const NativeFormat* format,u32 font_fl
     const u32 failures=owner.catalogs.retryable_failures;
     auto& slot=owner.bindings[owner.binding_count++];slot.format=format;slot.font_flags=font_flags;
     const bool ready=acquire_plan(owner,format,font_flags,&slot.plan,&slot.font,&slot.key);slot.key|=binding_default;
-    if(!ready){++owner.prepare_failed;if(owner.catalogs.retryable_failures!=failures){slot={};--owner.binding_count;}return nullptr;}
+    if(!ready){++owner.prepare_failed;if(owner.catalogs.retryable_failures!=failures){reset_value(&slot);--owner.binding_count;}return nullptr;}
     return &slot;
 }
 Binding* binding_face(NativeTextContext& owner,const NativeFormat* format,u32 flags,const NativeTextFontRange& face) noexcept {
@@ -311,7 +312,7 @@ Binding* binding_face(NativeTextContext& owner,const NativeFormat* format,u32 fl
         (!(slot.key&binding_default)||same_font(slot.format->font,format->font)))return slot.plan.slot?&slot:nullptr;}
     if(!binding_capacity(owner))return nullptr;owner.last_valid=false;owner.prefer_multiline=false;const u32 failures=owner.catalogs.retryable_failures;
     auto& slot=owner.bindings[owner.binding_count++];slot.format=format;slot.font_flags=flags;slot.key=key;
-    if(!acquire_plan(owner,format,flags,&slot.plan,&slot.font,&slot.key,&face)){++owner.prepare_failed;if(owner.catalogs.retryable_failures!=failures){slot={};--owner.binding_count;}return nullptr;}return &slot;
+    if(!acquire_plan(owner,format,flags,&slot.plan,&slot.font,&slot.key,&face)){++owner.prepare_failed;if(owner.catalogs.retryable_failures!=failures){reset_value(&slot);--owner.binding_count;}return nullptr;}return &slot;
 }
 bool emoji_profile(NativeTextContext& owner,Binding& selected) noexcept {
     if(selected.font_flags!=emoji_font_flag)return false;
@@ -359,7 +360,7 @@ SfntStatus devanagari_run(NativeTextContext& owner,const Binding& binding,Utf8Vi
     const auto* profile=devanagari_profile(owner,binding);if(!profile)return SfntStatus::unsupported_sequence;
     const auto status=native_devanagari_run(owner.store,*profile,text,em,{s.shaping,s.glyphs,s.placements,s.character_glyphs},out,{},spacing,rtl);
     if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<out->glyph_count;++i)if(!s.glyphs[i]){*out={};return SfntStatus::unsupported_sequence;}return SfntStatus::ok;
+    for(u32 i=0;i<out->glyph_count;++i)if(!s.glyphs[i]){reset_value(out);return SfntStatus::unsupported_sequence;}return SfntStatus::ok;
 }
 const NativeIndicPlan* indic_profile(NativeTextContext& owner,const Binding& selected,SfntIndicProfile script) noexcept {
     for(auto* p=owner.indic_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.profile==script)return p->plan.cmap?&p->plan:nullptr;
@@ -588,7 +589,7 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
         for(u32 attempt=0;attempt<2;++attempt){
             arena_reset(&owner.scratch);const u32 factor=attempt?4u:1u;const u32 glyphs=printable?printable*factor+16:0;
             saved=take<char>(owner.scratch,text.bytes);if(!saved.data)return false;
-            s={};if(longest)s.work=storage(owner.scratch,longest,longest*factor+16,false,attempt!=0);s.glyphs=take<u16>(owner.scratch,glyphs);s.placements=take<SfntPlacement>(owner.scratch,glyphs);
+            reset_value(&s);if(longest)s.work=storage(owner.scratch,longest,longest*factor+16,false,attempt!=0);s.glyphs=take<u16>(owner.scratch,glyphs);s.placements=take<SfntPlacement>(owner.scratch,glyphs);
             // Source maps, clusters and runs are bounded by UTF-16 units, not UTF-8 bytes.
             s.source_glyphs=take<u32>(owner.scratch,units);s.clusters=take<NativeParagraphCluster>(owner.scratch,units);
             runs=take<NativeParagraphRun>(owner.scratch,units);if(!runs.data)return false;
@@ -627,7 +628,7 @@ bool native_text_context_initialize(NativeTextContext** output,NativeFontSession
     if(!output)return false;*output=nullptr;if(!fonts)return false;
     auto* reserved=static_cast<u8*>(VirtualAlloc(nullptr,context_reserved_bytes,MEM_RESERVE,PAGE_READWRITE));if(!reserved)return false;
     if(!VirtualAlloc(reserved,sizeof(NativeTextContext),MEM_COMMIT,PAGE_READWRITE)){VirtualFree(reserved,0,MEM_RELEASE);return false;}
-    auto* owner=reinterpret_cast<NativeTextContext*>(reserved);*owner={};owner->backing=owner;
+    auto* owner=reinterpret_cast<NativeTextContext*>(reserved);reset_value(owner);owner->backing=owner;
     // Binding prefixes share the owner's final page; neither array ever moves.
     owner->bindings=reinterpret_cast<Binding*>(reserved+sizeof(NativeTextContext));
     owner->store={native_font_session_instances(fonts),{reinterpret_cast<NativeRunPlanSlot*>(reserved+binding_region_bytes),0}};
@@ -661,7 +662,7 @@ bool native_text_register_font_path(NativeTextContext* owner,const wchar_t* path
 }
 bool native_text_candidate_hits_once(const TextSystem& system,Utf8View text,float width,float height,TextWrapping wrapping,NativeParagraphHitStorage hits,TextMeasureResult* measure) noexcept {
     CatalogOperation catalog_operation(system.native_text);
-    if(!hits.output)return false;*hits.output={};
+    if(!hits.output)return false;reset_value(&(*hits.output));
     if(!measure||!system.native_text||!tracking_valid(system.tracking)||!text.bytes||text.bytes>native_text_maximum_bytes||!text.data)return false;
     if(text.bytes>16000)return native_text_candidate_styled(system,text,{},width,height,nullptr,measure,wrapping,TextOverflow::clip,{},&hits);
     const auto& cached=*system.native_text;
@@ -826,7 +827,7 @@ namespace {
 bool prepare_trim_plan(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,
     float width,float height,TextWrapping wrapping,Slice<NativeParagraphLineFit> fit,NativeParagraphLayout* output,NativeTrimPlanScratch* storage,bool require_styled=false) noexcept {
     CatalogOperation catalog_operation(system.native_text);
-    if(!output)return false;*output={};
+    if(!output)return false;reset_value(output);
     if(!system.native_text||!text.data||!text.bytes||text.bytes>native_text_maximum_bytes||!(height>0)||(!fit.data&&!storage)||!tracking_valid(system.tracking))return false;
     const auto* format=resolve_format(system,wrapping);if(!format)return false;
     auto& owner=*system.native_text;TextMeasureResult prepared{};NativeParagraphLayout layout{};
@@ -915,7 +916,7 @@ bool native_text_candidate_line_once(const TextSystem& system,Utf8View text,floa
             arena_reset(&owner.scratch);saved_text=take<char>(owner.scratch,text.bytes);if(!saved_text.data)return false;
             buffers=storage(owner.scratch,text.bytes,text.bytes*(attempt?4u:1u)+16,arabic,attempt!=0);
         }
-        line={};
+        reset_value(&line);
         {
             status=arabic?arabic_line(owner,*selected,text,system.independent_letters,em,buffers,&line):latin?native_latin_line(owner.store,selected->plan,text,system.independent_letters,em,buffers,&line,{},em*system.tracking,profile):native_ascii_line(owner.store,selected->plan,text,system.independent_letters,em,buffers,&line,{},em*system.tracking);
         }

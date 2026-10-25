@@ -92,7 +92,7 @@ bool resize_region(MessageSnapshotCache* cache, MessageSnapshotEntry* entry, u32
 
 void remove_entry(MessageSnapshotCache* cache, MessageSnapshotEntry* entry) noexcept {
     resize_region(cache, entry, 0);
-    *entry = MessageSnapshotEntry{};
+    reset_value<MessageSnapshotEntry>(entry);
     if (message_snapshot_cache_count(*cache) == 0)
         release_memory(cache);
 }
@@ -293,7 +293,7 @@ const MessageRecord* ordered_record(const MessageStore& store, u32 index) noexce
 void message_snapshot_cache_initialize(MessageSnapshotCache* cache, u32 budget_bytes) noexcept {
     if (!cache)
         return;
-    *cache = MessageSnapshotCache{};
+    reset_value<MessageSnapshotCache>(cache);
     cache->budget = budget_bytes;
 }
 
@@ -301,7 +301,7 @@ void message_snapshot_cache_release(MessageSnapshotCache* cache) noexcept {
     if (!cache)
         return;
     for (auto& entry : cache->entries)
-        entry = MessageSnapshotEntry{};
+        reset_value<MessageSnapshotEntry>(&entry);
     release_memory(cache);
 }
 
@@ -380,7 +380,7 @@ bool message_snapshot_cache_capture(MessageSnapshotCache* cache, const MessageTi
             return false;
         cursor += bytes;
     }
-    *entry = MessageSnapshotEntry{};
+    reset_value<MessageSnapshotEntry>(entry);
     entry->channel_id = input.channel_id;
     entry->newest_id = newest;
     entry->older_cursor = input.older_cursor;
@@ -472,7 +472,7 @@ bool message_snapshot_cache_capture_page(MessageSnapshotCache* cache, u64 channe
         cursor += bytes;
     }
     scratch_clear(value);
-    *entry = MessageSnapshotEntry{};
+    reset_value<MessageSnapshotEntry>(entry);
     entry->channel_id = channel_id;
     entry->newest_id = messages[0].id;
     entry->older_cursor = exhausted ? messages[messages.count - 1].id : 0;

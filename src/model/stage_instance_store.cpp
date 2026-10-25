@@ -11,8 +11,8 @@ u32 index_of(const StageInstanceStore& store, u64 channel_id) noexcept {
 }
 void remove_at(StageInstanceStore* store, u32 index) noexcept {
     for (u32 i = index + 1; i < store->count; ++i)
-        store->records[i - 1] = store->records[i];
-    store->records[--store->count] = {};
+        copy_value(&store->records[i - 1], store->records[i]);
+    reset_value(&store->records[--store->count]);
     ++store->revision;
 }
 } // namespace
@@ -22,7 +22,7 @@ void stage_instance_store_reset(StageInstanceStore* store) noexcept {
         return;
     const bool changed = store->count != 0;
     for (u32 i = 0; i < store->count; ++i)
-        store->records[i] = {};
+        reset_value(&store->records[i]);
     store->count = 0;
     store->revision += changed ? 1u : 0u;
 }
@@ -58,7 +58,7 @@ bool stage_instance_store_apply(StageInstanceStore* store, u64 id, u64 guild_id,
         slot.privacy_level == next.privacy_level && slot.topic_bytes == next.topic_bytes &&
         bytes_equal(slot.topic, next.topic, bytes))
         return true;
-    slot = next;
+    copy_value(&slot, next);
     ++store->revision;
     return true;
 }

@@ -1,4 +1,5 @@
 #include "application_plugin_browser_projection.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 
 namespace maicord::app_detail {
@@ -116,10 +117,15 @@ void bytes_text(PluginBrowserBank& bank, u64 bytes) noexcept {
 struct Emitter {
     PluginBrowserBank& bank;
     u32 count;
-    UiSettingsControl& emit(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool enabled = true,
-        Utf8View action = {}, UiSettingsVariant variant = UiSettingsVariant::standard, u8 flags = 0) noexcept {
+    // Out of line: inlined at each row, the braced control copy repeats.
+    __declspec(noinline) UiSettingsControl& emit(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind,
+        bool enabled = true, Utf8View action = {}, UiSettingsVariant variant = UiSettingsVariant::standard,
+        u8 flags = 0) noexcept {
         static UiSettingsControl overflow{};
-        if (count >= kPluginBrowserControls) return overflow = {};
+        if (count >= kPluginBrowserControls) {
+            reset_value(&overflow);
+            return overflow;
+        }
         bank.controls[count] = {id, label, description, kind, enabled, false, {}, 0, action, nullptr};
         bank.presentation[count] = {variant, flags, kUiSettingsNoDefault};
         return bank.controls[count++];
@@ -278,7 +284,7 @@ void browse(Emitter& out, PluginBrowserUiState ui, const PluginBrowserFacts& fac
 // ---- detail -----------------------------------------------------------------------------------
 namespace {
 Utf8View disclosure_label(u32 bit) noexcept {
-    constexpr Utf8View labels[]{utf8_literal("the internet"), utf8_literal("your files"), utf8_literal("other programs"),
+    static constexpr Utf8View labels[]{utf8_literal("the internet"), utf8_literal("your files"), utf8_literal("other programs"),
         utf8_literal("your keyboard and mouse")};
     return bit < 4 ? labels[bit] : Utf8View{};
 }
@@ -641,7 +647,7 @@ void providers_tab(Emitter& out, const PluginBrowserFacts& facts) noexcept {
 u32 plugin_browser_project(const PluginBrowserUiState& ui, const PluginBrowserFacts& facts, PluginBrowserBank* bank) noexcept {
     if (!bank) return 0;
     bank->used = 0;
-    bank->map = {};
+    reset_value(&bank->map);
     bank->map.detail_entry = ~0u;
     Emitter out{*bank, 0};
     tabs(out, ui, facts);
@@ -691,7 +697,7 @@ inline constexpr Utf8View kBullet = utf8_literal("\xE2\x80\xA2 ");
 // "Install <name>?": provider line, publisher, permissions, disclosures, the
 // full-access warning; unofficial plugins use the danger fill.
 void plugin_browser_install_dialog(const PluginBrowserInstallFacts& f, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     const bool custom = f.kind != PluginProviderKind::official;
     u32 start = d->used;
@@ -735,7 +741,7 @@ void plugin_browser_install_dialog(const PluginBrowserInstallFacts& f, PluginBro
     d->danger = custom || f.downgrade_from;
 }
 void plugin_browser_review_dialog(Utf8View name, u64 version_code, const PluginPermissionDiff& diff, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
     t.add(utf8_literal("Update ")); t.add(name); t.add(utf8_literal(" to ")); t.version(version_code); t.add(utf8_literal("?"));
@@ -752,7 +758,7 @@ void plugin_browser_review_dialog(Utf8View name, u64 version_code, const PluginP
     d->option = utf8_literal("Skip this version instead");
 }
 void plugin_browser_provider_dialog(const PluginBrowserProviderFacts& f, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     const bool key_change = f.old_fingerprint != nullptr;
     u32 start = d->used;
@@ -787,7 +793,7 @@ void plugin_browser_provider_dialog(const PluginBrowserProviderFacts& f, PluginB
     d->danger = true;
 }
 void plugin_browser_remove_provider_dialog(Utf8View name, u32 installed, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
     t.add(utf8_literal("Remove ")); t.add(name); t.add(utf8_literal("?"));
@@ -802,7 +808,7 @@ void plugin_browser_remove_provider_dialog(Utf8View name, u32 installed, PluginB
     d->danger = true;
 }
 void plugin_browser_uninstall_dialog(Utf8View name, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     const u32 start = d->used;
     t.add(utf8_literal("Uninstall ")); t.add(name); t.add(utf8_literal("?"));
@@ -813,7 +819,7 @@ void plugin_browser_uninstall_dialog(Utf8View name, PluginBrowserDialog* d) noex
     d->danger = true;
 }
 void plugin_browser_rollback_dialog(Utf8View name, u64 to_code, u64 from_code, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
     t.add(utf8_literal("Roll back ")); t.add(name); t.add(utf8_literal(" to ")); t.version(to_code); t.add(utf8_literal("?"));
@@ -829,7 +835,7 @@ const PluginCatalogInstalledView* plugin_browser_installed(const PluginCatalogSn
     return installed_owner(snapshot, owner);
 }
 void plugin_browser_update_all_dialog(const PluginCatalogSnapshot& s, ConstSlice<u32> entries, PluginBrowserDialog* d) noexcept {
-    *d = {};
+    reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
     t.add(utf8_literal("Update ")); t.number(entries.count); t.add(entries.count == 1 ? utf8_literal(" plugin?") : utf8_literal(" plugins?"));

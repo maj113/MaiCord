@@ -520,7 +520,7 @@ void application_account_switch_initialize() noexcept {
     const auto opened = account_inventory_open(root, &g_switch.inventory, clock_unix_milliseconds());
     if (!opened.ok()) {
         log_u64(LogLevel::warning, "account", "inventory_error", static_cast<u64>(opened.error));
-        g_switch.inventory = {};
+        reset_value(&g_switch.inventory);
     }
     if (opened.migrated)
         log_write(LogLevel::info, "account", "inventory_migrated");
@@ -675,7 +675,7 @@ bool application_account_switch_shutdown() noexcept {
         return false;
     restore_transferred_host(result);
     application_account_stop_observed(result, true);
-    g_switch.machine = {};
+    reset_value(&g_switch.machine);
     return true;
 }
 

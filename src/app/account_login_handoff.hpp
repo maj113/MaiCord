@@ -370,7 +370,7 @@ AccountLoginStatus pump_remote_auth(AccountLoginRuntime* runtime) noexcept {
             runtime->remote_status = stopped;
             return login_status(runtime);
         }
-        runtime->remote_status = RemoteAuthClientResult{};
+        reset_value<RemoteAuthClientResult>(&runtime->remote_status);
         runtime->remote_status.phase = RemoteAuthClientPhase::authenticated;
     } else if (runtime->last_remote_event == RemoteAuthClientEventKind::failed ||
                runtime->last_remote_event == RemoteAuthClientEventKind::cancelled) {

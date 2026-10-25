@@ -1,4 +1,5 @@
 #include "maicord/app/read_ack_controller.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {
@@ -34,7 +35,7 @@ void erase(ReadAckController* controller, u32 position) noexcept {
     --controller->count;
 }
 void clear_inflight(ReadAckController* controller) noexcept {
-    controller->inflight = {}; controller->request_id = 0;
+    reset_value(&controller->inflight); controller->request_id = 0;
     controller->inflight_active = false; controller->inflight_superseded = false;
 }
 bool find_due(const ReadAckController& controller, u32* index, u64* due) noexcept {
@@ -51,7 +52,7 @@ bool find_due(const ReadAckController& controller, u32* index, u64* due) noexcep
 bool read_ack_controller_initialize(ReadAckController* controller,
     Slice<ReadAckIntent> pending) noexcept {
     if (!controller || !pending.data || !pending.count || pending.count > kReadAckMaximumIntents) return false;
-    *controller = {}; controller->pending = pending; controller->backed_count = pending.count;
+    reset_value(controller); controller->pending = pending; controller->backed_count = pending.count;
     controller->generation = 1; return true;
 }
 bool read_ack_controller_set_reserve(ReadAckController* controller,

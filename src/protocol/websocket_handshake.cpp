@@ -96,7 +96,7 @@ bool valid_client_key(ConstSlice<u8> key) noexcept {
 }
 
 bool valid_origin(ConstSlice<u8> origin) noexcept {
-    constexpr char prefix[] = "https://";
+    static constexpr char prefix[] = "https://";
     if (!origin.data || origin.count <= sizeof(prefix) - 1 || origin.count > 255) {
         return false;
     }

@@ -1,4 +1,5 @@
 #include "application_shell_input.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_guild_menu.hpp"
 #include "application_cursor.hpp"
 #include "application_video.hpp"
@@ -46,7 +47,7 @@ UiPluginSlotBadge header_plugin_hit(float x, float y) noexcept {
     line.bottom = title->rectangle.bottom;
     if (!ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, label->widget, line, nullptr, &badge) ||
         !ui_rect_contains(badge.badge.rectangle, x, y))
-        badge = {};
+        reset_value(&badge);
     return badge;
 }
 bool voice_disconnect_contains(float x, float y) noexcept {

@@ -91,7 +91,7 @@ struct Poly1305 {
 };
 
 void poly_initialize(Poly1305& poly, const u8* key) noexcept {
-    poly = {};
+    reset_value(&poly);
     poly.r[0] = load_le32(key) & 0x3ffffff;
     poly.r[1] = (load_le32(key + 3) >> 2) & 0x3ffff03;
     poly.r[2] = (load_le32(key + 6) >> 4) & 0x3ffc0ff;

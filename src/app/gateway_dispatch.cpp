@@ -1,4 +1,5 @@
 #include "maicord/model/user_activity.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_client.hpp"
 
 #include "maicord/core/byte_order.hpp"
@@ -218,7 +219,7 @@ bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
     if (transient_bytes > output.count || value.bytes > 0xFFFFu) {
         return false;
     }
-    *range = GatewayClientMessageTextRange{};
+    reset_value<GatewayClientMessageTextRange>(range);
     if (value.bytes == 0) {
         return true;
     }
@@ -233,7 +234,7 @@ bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
 
 bool pack_embed_media(Slice<char> output, u32 transient_bytes, const GatewayMessageEmbedMedia& source,
                       GatewayClientMessageEmbedMediaMutation* destination) noexcept {
-    *destination = GatewayClientMessageEmbedMediaMutation{};
+    reset_value<GatewayClientMessageEmbedMediaMutation>(destination);
     destination->width = source.width;
     destination->height = source.height;
     destination->flags = source.flags;
@@ -801,13 +802,13 @@ void notification_incomplete(GatewayClientEvent* e, ConstSlice<u8>* payload, u64
     e->dispatch_kind = GatewayClientDispatchKind::notification_incomplete;
     e->notification = {guild, 0, 0, 0, gateway_notification_incomplete, 0, 0};
     e->dispatch_payload_bytes = 0;
-    *payload = {};
+    reset_value(payload);
 }
 void notification_global_incomplete(GatewayClientEvent* e, ConstSlice<u8>* payload) noexcept {
     e->dispatch_kind = GatewayClientDispatchKind::notification_global;
     e->notification = {0, 0, 0, 0, gateway_notification_incomplete, 0, 0};
     e->dispatch_payload_bytes = 0;
-    *payload = {};
+    reset_value(payload);
 }
 bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storage, GatewayClientEvent* e,
                         ConstSlice<u8>* payload) noexcept {
@@ -1217,7 +1218,7 @@ GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
         result.decoded.error = GatewayEventDecodeError::invalid_data;
     if (cursor) {
         if (result.ok())
-            *cursor = {};
+            reset_value(cursor);
         else if (result.cancelled)
             *cursor = {envelope.sequence, result.visited, result.visited != 0};
     }
@@ -1257,7 +1258,7 @@ GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
         result.decoded.error = GatewayEventDecodeError::invalid_data;
     if (cursor) {
         if (result.ok())
-            *cursor = {};
+            reset_value(cursor);
         else if (result.cancelled)
             *cursor = {envelope.sequence, result.visited, result.visited != 0};
     }
@@ -1276,7 +1277,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                             content_scratch.count)) {
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     }
-    *event = GatewayClientEvent{};
+    reset_value<GatewayClientEvent>(event);
     *payload = ConstSlice<u8>{nullptr, 0};
     event->kind = GatewayClientEventKind::dispatch;
     event->sequence = envelope.sequence;

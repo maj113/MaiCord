@@ -247,7 +247,7 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
     if (ok && s.channel_bytes) {
         // "Live in <channel>"; the prefix and name share one line.
         char line[kUiStreamCardTextBytes + 8];
-        constexpr char prefix[] = "Live in ";
+        static constexpr char prefix[] = "Live in ";
         u32 bytes = sizeof(prefix) - 1;
         copy_bytes(line, prefix, bytes);
         copy_bytes(line + bytes, s.channel, s.channel_bytes);

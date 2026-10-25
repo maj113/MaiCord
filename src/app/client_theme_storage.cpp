@@ -325,7 +325,7 @@ bool catalog_directory_beside(const wchar_t* storage, wchar_t* output) noexcept 
         return false;
     while (length && storage[length - 1] != L'\\' && storage[length - 1] != L'/')
         --length;
-    constexpr wchar_t themes[] = L"themes";
+    static constexpr wchar_t themes[] = L"themes";
     constexpr u32 units = sizeof(themes) / sizeof(wchar_t);
     if (length < 3 || length + units >= kClientThemeIoMaximumPathUnits - kClientThemeCatalogFileUnits)
         return false;
@@ -447,11 +447,11 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
             entry.base = document.base;
             u32 at = catalog.count++;
             while (at && wide_less(entry.file, entry.file_units, catalog.entries[at - 1].file,
-                                   catalog.entries[at - 1].file_units)) {
-                catalog.entries[at] = catalog.entries[at - 1];
+                                   catalog.entries[at - 1].file_units))
                 --at;
-            }
-            catalog.entries[at] = entry;
+            copy_bytes(&catalog.entries[at + 1], &catalog.entries[at],
+                       (catalog.count - 1 - at) * static_cast<u32>(sizeof(entry)));
+            copy_value(&catalog.entries[at], entry);
         } while (FindNextFileW(scan, &data));
         const u32 error = thread_last_error();
         FindClose(scan);

@@ -1,4 +1,5 @@
 #include "maicord/ui/accessibility.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/heap_sort.hpp"
@@ -363,7 +364,7 @@ bool ui_access_tree_initialize(UiAccessTree* tree, Slice<UiAccessNode> nodes, Sl
     if (!tree || !nodes.data || nodes.count < 2 || !text.data || !key_index.data ||
         key_index.count < nodes.count * 2 || (key_index.count & (key_index.count - 1)) != 0)
         return false;
-    *tree = UiAccessTree{};
+    reset_value<UiAccessTree>(tree);
     tree->nodes = nodes;
     tree->text = text;
     tree->slot_map = slot_map;
@@ -404,7 +405,7 @@ u32 ui_access_add(UiAccessTree* tree, u32 parent, const UiAccessNodeDesc& descri
     }
     const u32 index = tree->count++;
     auto& node = tree->nodes[index];
-    node = UiAccessNode{};
+    reset_value<UiAccessNode>(&node);
     node.key = description.key;
     node.item = description.item;
     node.rectangle = description.rectangle;
@@ -828,7 +829,7 @@ bool ui_access_event_state_initialize(UiAccessEventState* state, Slice<UiAccessO
                                       Slice<UiAccessObservation> previous) noexcept {
     if (!state || !current.data || !previous.data || current.count != previous.count || !current.count)
         return false;
-    *state = UiAccessEventState{};
+    reset_value<UiAccessEventState>(state);
     state->current = current;
     state->previous = previous;
     return true;
@@ -837,7 +838,7 @@ bool ui_access_event_state_initialize(UiAccessEventState* state, Slice<UiAccessO
 bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, UiAccessEventPlan* plan) noexcept {
     if (!state || !plan || !tree.finished || !state->current.data)
         return false;
-    *plan = UiAccessEventPlan{};
+    reset_value<UiAccessEventPlan>(plan);
     plan->focus_node = kUiAccessNone;
     constexpr u16 observed_states = ui_access_checked | ui_access_mixed | ui_access_selected | ui_access_expanded |
                                     ui_access_collapsed | ui_access_focused | ui_access_live;

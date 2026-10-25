@@ -279,7 +279,7 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
                          event->dispatch_kind == GatewayClientDispatchKind::message_poll_vote_add &&
                          event->poll_vote.batched;
     drain.poll_checked = drain.poll_current = false;
-    drain.pending_scope = {};
+    reset_value(&drain.pending_scope);
     drain.pending_thread = 0;
     drain.navigation_deleted = 0;
     drain.force = false;
@@ -474,7 +474,7 @@ void refresh_member_role_authority(void* context, u64 guild_id) noexcept {
     auto& author = g_app.account_ui->author_hydration;
     if (author.guild_id == guild_id) {
         for (auto& entry : author.cooldowns)
-            entry = {};
+            reset_value(&entry);
         author.retry_at_ms = 0;
         author.retry_delay_ms = 0;
         author.interest_current = false;

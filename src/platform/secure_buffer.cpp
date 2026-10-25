@@ -107,7 +107,7 @@ SecureBufferResult secure_buffer_initialize(SecureBuffer* buffer, u32 capacity) 
     if (!buffer || capacity == 0) {
         return failure(SecureBufferError::invalid_input, ERROR_INVALID_PARAMETER);
     }
-    *buffer = SecureBuffer{};
+    reset_value<SecureBuffer>(buffer);
     auto* allocation =
         static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!allocation) {
@@ -144,7 +144,7 @@ bool secure_buffer_transfer(SecureBuffer* destination, SecureBuffer* source) noe
         return false;
     }
     *destination = *source;
-    *source = SecureBuffer{};
+    reset_value<SecureBuffer>(source);
     return true;
 }
 
@@ -166,7 +166,7 @@ void secure_buffer_release(SecureBuffer* buffer) noexcept {
         }
         VirtualFree(buffer->data, 0, MEM_RELEASE);
     }
-    *buffer = SecureBuffer{};
+    reset_value<SecureBuffer>(buffer);
 }
 
 ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept {

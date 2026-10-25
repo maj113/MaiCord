@@ -118,7 +118,7 @@ void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept {
     if (!gpu) return;
     com_release(gpu->shader); com_release(gpu->constants);
     com_release(gpu->multithread);
-    *gpu = VideoFrameGpu{};
+    reset_value<VideoFrameGpu>(gpu);
 }
 
 } // namespace maicord

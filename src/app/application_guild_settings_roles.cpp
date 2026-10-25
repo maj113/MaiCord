@@ -1,4 +1,5 @@
 #include "application_guild_settings_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_toast.hpp"
 #include "application_account_presentation.hpp"
 #include "application_channel_session.hpp"
@@ -36,8 +37,9 @@ void load_order() noexcept {
 }
 
 void load_role_editor(const RoleRecord& r) noexcept {
-    owner->editing_role = r.id;
-    owner->role_base = owner->role_draft = guild_role_draft_from(state(), r);
+    copy_value(&owner->editing_role, r.id);
+    owner->role_draft = guild_role_draft_from(state(), r);
+    copy_value(&owner->role_base, owner->role_draft);
     owner->role_conflict = owner->role_echo = owner->role_missing = owner->hex_invalid = false;
     set_editor(editor_name, {owner->role_draft.name, owner->role_draft.name_bytes});
     char hex[8];

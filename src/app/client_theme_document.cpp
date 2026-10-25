@@ -529,7 +529,7 @@ struct MotionVisit {
 bool motion_field(void* context, JsonString name, JsonValue value) noexcept {
     auto& visit = *static_cast<MotionVisit*>(context);
     auto& parse = *visit.parse;
-    constexpr Utf8View keys[]{utf8_literal("duration_ms"), utf8_literal("curve")};
+    static constexpr Utf8View keys[]{utf8_literal("duration_ms"), utf8_literal("curve")};
     const u32 id = key_index(name, keys, 2);
     if (id == 2) {
         ++parse.unsupported;
@@ -642,7 +642,7 @@ bool palette_color(void* context, u32 index, JsonValue value) noexcept {
 bool background_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    constexpr Utf8View keys[]{utf8_literal("colors"),    utf8_literal("angle_degrees"),
+    static constexpr Utf8View keys[]{utf8_literal("colors"),    utf8_literal("angle_degrees"),
                               utf8_literal("intensity"), utf8_literal("effect"),
                               utf8_literal("speed"),     utf8_literal("strength"),
                               utf8_literal("density")};
@@ -770,7 +770,7 @@ bool settings_member(void* context, JsonString name, JsonValue value) noexcept {
 bool components_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    constexpr Utf8View keys[]{utf8_literal("icons"), utf8_literal("settings")};
+    static constexpr Utf8View keys[]{utf8_literal("icons"), utf8_literal("settings")};
     const u32 id = key_index(name, keys, 2);
     if (id == 2) {
         ++parse.unsupported;
@@ -786,7 +786,7 @@ bool components_member(void* context, JsonString name, JsonValue value) noexcept
 }
 bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
-    constexpr Utf8View keys[]{utf8_literal("version"),    utf8_literal("name"),
+    static constexpr Utf8View keys[]{utf8_literal("version"),    utf8_literal("name"),
                               utf8_literal("base"),       utf8_literal("colors"),
                               utf8_literal("background"), utf8_literal("typography"),
                               utf8_literal("metrics"),    utf8_literal("palette"),
@@ -868,7 +868,7 @@ struct Writer {
         character('"');
     }
     void hex(u32 rgba) noexcept {
-        constexpr char digits[] = "0123456789abcdef";
+        static constexpr char digits[] = "0123456789abcdef";
         character('"');
         character('#');
         for (u32 shift = 32; shift;) {
@@ -1154,10 +1154,10 @@ ClientThemeDocumentResult client_theme_document_parse(Utf8View input, const Clie
     parse.candidate.theme.style_revision = 0;
     parse.candidate.theme.appearance =
         parse.candidate.base == ClientThemeBase::light ? ThemeAppearance::light : ThemeAppearance::dark;
-    constexpr JsonMemberVisitor visitors[]{color_member,   background_member, typography_member,
+    static constexpr JsonMemberVisitor visitors[]{color_member,   background_member, typography_member,
                                            metric_member,  palette_member,    semantic_member,
                                            scale_member,   motion_member,     components_member};
-    constexpr u32 kSectionOrder[]{palette_section,    colors_section,  semantic_section,
+    static constexpr u32 kSectionOrder[]{palette_section,    colors_section,  semantic_section,
                                   background_section, typography_section, metrics_section,
                                   scale_section,      motion_section,  components_section};
     static_assert(sizeof(kSectionOrder) / sizeof(kSectionOrder[0]) == section_count);

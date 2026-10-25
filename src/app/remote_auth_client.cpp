@@ -969,7 +969,7 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
     if (!client || client->runtime || client->thread ||
         load_phase(client) != RemoteAuthClientPhase::empty)
         return client_result(nullptr);
-    *client = RemoteAuthClient{};
+    reset_value<RemoteAuthClient>(client);
     publish_phase(client, RemoteAuthClientPhase::starting);
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(
         VirtualAlloc(nullptr, sizeof(RemoteAuthClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -998,7 +998,7 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
         if (client->ready_event)
             CloseHandle(client->ready_event);
         release_runtime(runtime);
-        *client = RemoteAuthClient{};
+        reset_value<RemoteAuthClient>(client);
         return start_failure(client, RemoteAuthClientError::event, native_error);
     }
     constexpr usize kStackReserve = 256 * 1024;
@@ -1011,7 +1011,7 @@ RemoteAuthClientResult remote_auth_client_start(RemoteAuthClient* client) noexce
         CloseHandle(client->notification_event);
         CloseHandle(client->ready_event);
         release_runtime(runtime);
-        *client = RemoteAuthClient{};
+        reset_value<RemoteAuthClient>(client);
         return start_failure(client, RemoteAuthClientError::thread, native_error);
     }
     const DWORD ready = WaitForSingleObject(client->ready_event, 5'000);
@@ -1111,7 +1111,7 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
     CloseHandle(client->cancel_event);
     CloseHandle(client->notification_event);
     CloseHandle(client->ready_event);
-    *client = RemoteAuthClient{};
+    reset_value<RemoteAuthClient>(client);
     RemoteAuthClientResult value{};
     value.phase = RemoteAuthClientPhase::stopped;
     if (terminal.http_status == 429) {

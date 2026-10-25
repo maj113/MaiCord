@@ -79,7 +79,7 @@ void voice_jitter_reset(VoiceJitterBuffer* buffer) noexcept {
     if (!buffer)
         return;
     clear(*buffer);
-    buffer->stats = {};
+    reset_value(&buffer->stats);
     buffer->started = buffer->has_last = buffer->has_played = false;
     buffer->jitter_us = 0;
     buffer->frame_us = kDefaultFrameUs;

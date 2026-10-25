@@ -1,4 +1,5 @@
 #include "maicord/app/call_video_presenter.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -15,7 +16,7 @@ void call_video_presenter_reset(CallVideoPresenter* presenter) noexcept {
         return;
     presenter->count = 0;
     for (auto& stream : presenter->streams)
-        stream = {};
+        reset_value(&stream);
 }
 
 u32 call_video_reduction_extent(u32 width, u32 height, u32 tile_pixels) noexcept {
@@ -45,7 +46,7 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
         if (presenter->streams[i].ready)
             result.changed = true;
         presenter->streams[i] = presenter->streams[--presenter->count];
-        presenter->streams[presenter->count] = {};
+        reset_value(&presenter->streams[presenter->count]);
     }
     for (u32 t = 0; t < targets.count; ++t) {
         const auto& target = targets[t];

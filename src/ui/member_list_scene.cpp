@@ -117,7 +117,7 @@ bool member_list_scene_initialize(MemberListScene* scene, Slice<MemberListRowWid
         !layout_nodes.data || layout_nodes.count < widgets.count) {
         return false;
     }
-    *scene = MemberListScene{};
+    reset_value<MemberListScene>(scene);
     scene->focused_source_index = kUiListNoSelection;
     scene->rows = rows;
     return ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes);
@@ -290,7 +290,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
                     ++count;
             text.bytes = static_cast<u16>(text.bytes + decimal_write_grouped(text.data + text.bytes, count));
             if (source->thread_mode && source->incomplete) {
-                constexpr char partial[] = " (partial)";
+                static constexpr char partial[] = " (partial)";
                 copy_bytes(text.data + text.bytes, partial, sizeof(partial) - 1);
                 text.bytes = static_cast<u16>(text.bytes + sizeof(partial) - 1);
             }
@@ -400,7 +400,7 @@ bool member_list_row_status(const MemberListScene& s, u32 index, Slice<char> sto
                             UiActivityStatus* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     if (index >= s.count || !s.users || !s.source)
         return false;
     const auto& row = s.rows[index];
@@ -486,7 +486,7 @@ UiPluginSlotBadge member_list_plugin_badge(const MemberListScene& s, u32 index) 
     if (!ui_plugin_slot_line_badge(kUiPluginSlotMemberBadge, 0, 0, row.user_id, row.label, line, s.measure, &plugin))
         return plugin;
     const auto tag = member_list_badge(s, index);
-    if (tag.label.bytes && plugin.badge.rectangle.left < tag.rectangle.right + 4) plugin = {};
+    if (tag.label.bytes && plugin.badge.rectangle.left < tag.rectangle.right + 4) reset_value(&plugin);
     return plugin;
 }
 UiPluginSlotBadge member_list_plugin_hit(const MemberListScene& s, float x, float y, u64* user_id) noexcept {
@@ -597,7 +597,7 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
         ++cache->count;
     }
     MemberMediaCacheEntry& entry = cache->entries[slot];
-    entry = MemberMediaCacheEntry{};
+    reset_value<MemberMediaCacheEntry>(&entry);
     entry.user_id = row.user_id;
     entry.width = width;
     entry.state = state;

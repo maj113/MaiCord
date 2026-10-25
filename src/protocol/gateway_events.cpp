@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_events.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/account_requirement.hpp"
 #include "gateway_decode.hpp"
@@ -470,7 +471,7 @@ GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structu
                               context.ready.user.source_offset, JsonScanError::none, user_read.error);
     }
     context.ready.user_id = user.id;
-    *output = context.ready;
+    copy_value(output, context.ready);
     return decode_failure(GatewayEventDecodeError::none);
 }
 
@@ -492,7 +493,7 @@ GatewayEventDecodeResult gateway_decode_resumed(JsonValue data, Slice<u32> struc
 GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,
                                                                       u32 maximum_depth,
                                                                       JsonValue* channels) noexcept {
-    *channels = {};
+    reset_value(channels);
     if (data.kind != JsonValueKind::object)
         return decode_failure(GatewayEventDecodeError::invalid_data);
     SupplementalPrivateContext context{};

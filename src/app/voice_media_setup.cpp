@@ -1,4 +1,5 @@
 #include "maicord/app/voice_media_setup.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/sys/winsock.hpp"
 
@@ -10,7 +11,7 @@ void voice_media_clear(VoiceMediaSetup* setup) noexcept {
     if (!setup)
         return;
     voice_packet_release(&setup->packets);
-    *setup = {};
+    reset_value(setup);
 }
 VoiceMediaSetupError voice_media_ready(VoiceMediaSetup* setup, const VoiceReady& ready) noexcept {
     if (!setup || !ready.ssrc || !ready.port)

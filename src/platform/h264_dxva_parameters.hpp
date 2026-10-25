@@ -70,7 +70,7 @@ inline HRESULT dxva_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecode
     if (fits) copy_bytes(destination, data, bytes);
     status = context->ReleaseDecoderBuffer(decoder, type);
     if (!fits) return E_OUTOFMEMORY;
-    *description = {};
+    reset_value(description);
     description->BufferType = type;
     description->DataSize = bytes;
     return status;

@@ -341,6 +341,6 @@ void user_activity_release(UserActivityStore* s) noexcept {
     stable_storage_release(&s->records);
     stable_storage_release(&s->order);
     stable_storage_release(&s->bank);
-    *s = {};
+    reset_value(s);
 }
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "cff_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 
 namespace maicord {
@@ -53,7 +54,7 @@ SfntStatus real_number(ConstSlice<u8> data, u32* at, double* value) noexcept {
 } // namespace
 
 SfntStatus index_open(ConstSlice<u8> data, u32* at, CffIndex* index) noexcept {
-    *index = {};
+    reset_value(index);
     if (!span(data, *at, 2)) return SfntStatus::truncated;
     const u32 count = byte_load_be16(data.data + *at); *at += 2;
     if (!count) return SfntStatus::ok;
@@ -158,7 +159,7 @@ SfntStatus dictionary(ConstSlice<u8> bytes, Dictionary* out) noexcept {
 
 SfntStatus private_subrs(ConstSlice<u8> table, const Dictionary& dict, CffIndex* subrs, u32* seed,
                            double* default_width, double* nominal_width) noexcept {
-    *subrs = {}; *seed = 0;
+    reset_value(subrs); *seed = 0;
     if (!span(table, dict.private_offset, dict.private_size)) return SfntStatus::truncated;
     Dictionary priv{};
     const auto status = dictionary({table.data + dict.private_offset, dict.private_size}, &priv);
@@ -209,7 +210,7 @@ SfntStatus select_dict(const CffFont& font, u16 glyph, CffIndex* subrs, double* 
 
 SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
     if (!font) return SfntStatus::invalid_input;
-    *font = {};
+    reset_value(font);
     CffFont result{};
     auto status = sfnt_table(face, sfnt_tag('C','F','F',' '), &result.table);
     if (status != SfntStatus::ok) return status;
@@ -268,7 +269,7 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept {
             if (byte_load_be16(select.data + 3 + count * 3) != result.glyph_count) return SfntStatus::malformed;
         } else return SfntStatus::unsupported;
     }
-    *font = result;
+    copy_value(font, result);
     return SfntStatus::ok;
 }
 

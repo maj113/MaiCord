@@ -111,7 +111,7 @@ void project() noexcept {
     for (u32 i = 0; i < listed; ++i) {
         const auto& source = overlay.listing[i];
         auto& row = overlay.rows[i];
-        row = {};
+        reset_value(&row);
         row.label = source.label;
         row.header = source.header;
         const bool shared = source.chords[0].key && source.chords[1].modifiers &&

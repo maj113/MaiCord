@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_read_state.hpp"
 #include "application_state.hpp"
 #include "application_window_focus.hpp"
@@ -187,7 +188,7 @@ void store_action(ApplicationReadState& o, const ReadActionSource& source) noexc
 void clear_manual_failure(ApplicationReadState& o, u64 channel = 0) noexcept {
     if (!channel || o.failed_manual.channel_id == channel) {
         const bool visible = o.failed_manual.channel_id != 0;
-        o.failed_manual = {};
+        reset_value(&o.failed_manual);
         application_message_mutation_notice_clear(ApplicationMessageMutationKind::mark_unread, channel);
         if (visible)
             refresh_message_composer_ui();
@@ -229,7 +230,7 @@ void maintain_selected(ApplicationReadState& o) noexcept {
     const auto* c = source_current(o, source, false) ? readable(source.channel_id, true) : nullptr;
     if (!c || g_app.account_ui->chat_state.selected_channel_id != source.channel_id ||
         !c->read_auto_ack_suppressed) {
-        o.selected_manual = {};
+        reset_value(&o.selected_manual);
         prune_action(o, source.channel_id);
         return;
     }
@@ -306,7 +307,7 @@ void retire_channel(ApplicationReadState& o, u64 channel_id, bool own_activity) 
     read_ack_controller_cancel(&o.queue, channel_id);
     erase_action(o, channel_id);
     if (o.selected_manual.channel_id == channel_id)
-        o.selected_manual = {};
+        reset_value(&o.selected_manual);
     clear_manual_failure(o, channel_id);
     if (retain_read)
         store_action(o, read);
@@ -460,7 +461,7 @@ void application_read_state_ready() noexcept {
     read_ack_controller_reset(&owner.queue);
     clear_token(owner);
     if (!same_actor) {
-        owner.ticket = {};
+        reset_value(&owner.ticket);
         owner.submitted_user_id = 0;
     }
     owner.read_generation = ui.read_state_store.generation;
@@ -474,8 +475,8 @@ void application_read_state_ready() noexcept {
     if (owner.echo_count)
         SecureZeroMemory(owner.echoes.arena.base, owner.echo_count * sizeof(ManualReadEcho));
     owner.action_count = owner.echo_count = 0;
-    owner.submitted_manual = {};
-    owner.selected_manual = {};
+    reset_value(&owner.submitted_manual);
+    reset_value(&owner.selected_manual);
     clear_manual_failure(owner);
     owner.submit_retry_at_ms = 0;
     application_scoped_read_reset();
@@ -518,7 +519,7 @@ bool application_read_state_mark(u64 channel_id, bool immediate) noexcept {
     } else if (clears_failure)
         ++owner->action_serial;
     if (owner->selected_manual.channel_id == channel_id)
-        owner->selected_manual = {};
+        reset_value(&owner->selected_manual);
     clear_manual_failure(*owner, (tracked || clears_failure) ? 0 : channel_id);
     if (!read_state_mark_local(&state, channel_id, desired.message_id, desired.last_viewed,
                                        desired.flags))
@@ -1013,7 +1014,7 @@ bool application_read_state_scoped_commit(ConstSlice<ReadScopeTarget> targets, b
         store_action(*o, source);
         application_scoped_read_superseded(t.channel_id, source.serial);
         if (o->selected_manual.channel_id == t.channel_id)
-            o->selected_manual = {};
+            reset_value(&o->selected_manual);
         if (individual && t.outbound) {
             const ReadAckIntent intent{t.channel_id, t.message_id, viewed, flags, 0};
             if (!read_ack_controller_queue(&o->queue, intent, clock_monotonic_milliseconds(), true))

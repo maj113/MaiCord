@@ -26,7 +26,7 @@ KdfResult mls_export_secret(KdfSha256Workspace& workspace, ConstSlice<u8> export
     auto result = mls_expand_label(workspace, exporter_secret, label, {}, {secret, 32});
     if (result.ok())
         result = sha256(workspace, {&context, 1}, {context_hash, 32});
-    constexpr u8 exported[]{'e', 'x', 'p', 'o', 'r', 't', 'e', 'd'};
+    static constexpr u8 exported[]{'e', 'x', 'p', 'o', 'r', 't', 'e', 'd'};
     if (result.ok())
         result = mls_expand_label(workspace, {secret, 32}, {exported, sizeof(exported)}, {context_hash, 32},
                                   output);

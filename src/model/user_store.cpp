@@ -96,7 +96,7 @@ bool remove_slot(UserStore* store, u32 slot) noexcept {
     }
     store->name_wasted += name_size(store->records[slot]);
     const u16 generation = next_generation(store->records[slot].generation);
-    store->records[slot] = UserRecord{};
+    reset_value<UserRecord>(&store->records[slot]);
     store->records[slot].generation = generation;
     for (u32 index = order + 1; index < store->count; ++index) {
         store->order[index - 1] = store->order[index];
@@ -120,7 +120,7 @@ bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> or
         (double_buffered_names.count & 1u) != 0) {
         return false;
     }
-    *store = UserStore{};
+    reset_value<UserStore>(store);
     store->records = records.data;
     store->order = order.data;
     store->names = double_buffered_names.data;
@@ -129,7 +129,7 @@ bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> or
     if (zeroed)
         return true;
     for (u32 index = 0; index < records.count; ++index) {
-        records[index] = UserRecord{};
+        reset_value<UserRecord>(&records[index]);
         order[index] = ~0u;
     }
     return true;
@@ -279,7 +279,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
         store->order[order_index] = slot;
         ++store->count;
         const u16 generation = next_generation(record.generation);
-        record = UserRecord{};
+        reset_value<UserRecord>(&record);
         record.id = id;
         record.generation = generation;
         record.occupied = true;

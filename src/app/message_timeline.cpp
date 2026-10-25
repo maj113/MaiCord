@@ -1,4 +1,5 @@
 #include "maicord/app/message_timeline.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_client.hpp"
 
 namespace maicord {
@@ -190,7 +191,7 @@ __declspec(noinline) bool resolve_resident_reference(const MessageTimeline& time
         if (rich->embed_count == 1 && !embed.title.bytes && !embed.description.bytes &&
             (embed.type == GatewayMessageEmbedType::image || embed.type == GatewayMessageEmbedType::gifv) &&
             utf8_equal(reference->content, url))
-            reference->content = {};
+            reset_value(&reference->content);
     }
     reference->content_flags = content_flags;
     return true;
@@ -211,7 +212,7 @@ bool message_timeline_initialize(MessageTimeline* timeline, MessageStore* store,
         default_item_units > kMaximumUiItemExtentUnits || viewport_units == 0) {
         return false;
     }
-    *timeline = MessageTimeline{};
+    reset_value<MessageTimeline>(timeline);
     timeline->store = store;
     timeline->list = list;
     timeline->default_item_units = default_item_units;
@@ -368,7 +369,7 @@ bool message_timeline_is_at_bottom(const MessageTimeline& timeline, u64 toleranc
 bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 item_units,
                                       MessageTimelineInvalidation* invalidation) noexcept {
     if (invalidation) {
-        *invalidation = MessageTimelineInvalidation{};
+        reset_value<MessageTimelineInvalidation>(invalidation);
     }
     if (validate_timeline(timeline) != MessageTimelineError::none || !invalidation ||
         index >= timeline->list->count) {
@@ -518,7 +519,7 @@ MessageTimelineApplyResult message_timeline_remove_local(MessageTimeline* timeli
 bool message_timeline_set_delivery(MessageTimeline* timeline, u64 message_id, MessageDeliveryState delivery,
                                    MessageTimelineInvalidation* invalidation) noexcept {
     if (invalidation) {
-        *invalidation = MessageTimelineInvalidation{};
+        reset_value<MessageTimelineInvalidation>(invalidation);
     }
     if (validate_timeline(timeline) != MessageTimelineError::none || !invalidation || message_id == 0) {
         if (timeline) {

@@ -1,4 +1,5 @@
 #include "application_thread_header.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 
 namespace maicord::app_detail {
@@ -11,7 +12,7 @@ float application_thread_header_project(UiThreadHeader* header, UiScene* shell, 
     const auto style = ui_thread_header_style();
     auto view = application_thread_header_projection(application_thread_actions_view(id));
     const float height = ui_thread_header_height(view, style);
-    if (view.visible && (ui_rect_width(available) < 320.f || ui_rect_height(available) < height)) view = {};
+    if (view.visible && (ui_rect_width(available) < 320.f || ui_rect_height(available) < height)) reset_value(&view);
     ui_thread_header_update(header, view, available, clip, style);
     return header->active ? ui_rect_height(header->geometry.rectangle) : 0;
 }

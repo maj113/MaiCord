@@ -1,4 +1,5 @@
 #include "maicord/render/native_glyph_outlines.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/render/glyph_font_limits.hpp"
 #include "maicord/text/font_instance.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -124,7 +125,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     }
     auto& c=*o.color;const auto& geometry=*instance->geometry.font;
     if(c.binding.slot!=binding.slot||c.binding.generation!=binding.generation){
-        c.binding={};arena_reset(&c.scalars);
+        reset_value(&c.binding);arena_reset(&c.scalars);
         auto status=colr_open(geometry.face,&c.font);if(status!=SfntStatus::ok)return failed(o,23,static_cast<u32>(status));
         ColrVariationData data{};status=colr_variation_data_open(c.font,&data);if(status!=SfntStatus::ok)return failed(o,24,static_cast<u32>(status));
         const ConstSlice<double> coordinates=instance->geometry.variation?instance->geometry.variation->coordinates:ConstSlice<double>{};
@@ -162,7 +163,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     const auto status=colr_source_begin(&source,glyph,1000000,&root,&clip,&callbacks);
     if(status==SfntStatus::unsupported_sequence){
         // Ordinary glyphs in the selected color font retain their own outline.
-        root={};root.kind=ColrPaintKind::solid_glyph;root.paint.solidGlyph={glyph,{foreground}};
+        reset_value(&root);root.kind=ColrPaintKind::solid_glyph;root.paint.solidGlyph={glyph,{foreground}};
         source.status=SfntStatus::ok;source.uses_foreground=true;
         callbacks={&outline,+[](void*,ColrPaintElement*) noexcept{return false;},
             +[](void*,ColrPaintElement*) noexcept{return false;},+[](void*) noexcept{return false;},

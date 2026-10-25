@@ -1,4 +1,5 @@
 #include "maicord/media/png.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "png_common.hpp"
 
@@ -173,7 +174,7 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
     if (!image || (!encoded.data && encoded.count != 0)) {
         return parse_failure(result, PngError::invalid_input);
     }
-    *image = PngImage{};
+    reset_value<PngImage>(image);
     image->transparent_gray = ~0u;
     image->transparent_red = ~0u;
     image->transparent_green = ~0u;

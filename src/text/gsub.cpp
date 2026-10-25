@@ -1,4 +1,5 @@
 #include "maicord/text/gsub.hpp"
+#include "maicord/core/memory.hpp"
 #include "layout_read.hpp"
 #include "maicord/text/base.hpp"
 #include "gsub_validated.hpp"
@@ -12,7 +13,7 @@ SfntStatus glyph_array(ConstSlice<u8> b,u32 at,u32 count,u32 limit,u32* work) no
     for(u32 i=0;i<count;++i)if(r16(b,at+i*2)>=limit)return SfntStatus::malformed;return SfntStatus::ok;
 }
 SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output,u32* work,bool ignore_empty=false) noexcept {
-    *output={};if(!bytes.data || !limit || limit>65536)return SfntStatus::invalid_input;if(type<1 || type>4)return SfntStatus::unsupported;
+    reset_value(output);if(!bytes.data || !limit || limit>65536)return SfntStatus::invalid_input;if(type<1 || type>4)return SfntStatus::unsupported;
     if(!span(bytes,0,6))return SfntStatus::truncated;const u16 format=r16(bytes,0);if(format!=1 && !(type==1 && format==2))return SfntStatus::unsupported;
     const bool delta=type==1 && format==1;const u16 count=delta?0:r16(bytes,4);const u32 end=6+static_cast<u32>(count)*2;
     if(!span(bytes,0,end))return SfntStatus::truncated;ConstSlice<u8> coverage_bytes{};auto s=tail(bytes,r16(bytes,2),end,&coverage_bytes);if(s!=SfntStatus::ok)return s;
@@ -104,7 +105,7 @@ SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit
 }
 SfntStatus sfnt_gsub_subtable_match_view(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32 work,u32* work_used,u8 mask) noexcept {
     const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;*output={};if(!valid_input(glyphs,start,positions))return SfntStatus::invalid_input;return gsub_subtable_match(sub,gdef,filter,glyphs,start,alternate,positions,output,&work,mask);
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!valid_input(glyphs,start,positions))return SfntStatus::invalid_input;return gsub_subtable_match(sub,gdef,filter,glyphs,start,alternate,positions,output,&work,mask);
 }
 SfntStatus sfnt_gsub_replacement(const SfntGsubMatch& match,u16 index,u16* glyph) noexcept {
     if(!glyph)return SfntStatus::invalid_input;*glyph=0;if(!match.matched || index>=match.output_count)return SfntStatus::invalid_input;

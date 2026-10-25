@@ -1,4 +1,5 @@
 #include "application_emoji_preferences.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_media_picker.hpp"
 #include "application_settings_envelope.hpp"
 #include "application_state.hpp"
@@ -95,7 +96,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
         // An empty proto is a valid account without frecency settings.
         *groups = nullptr;
         *group_bytes = 0;
-        *snapshot = {};
+        reset_value(snapshot);
         snapshot->versions_present = false;
         return true;
     }
@@ -166,7 +167,7 @@ bool visit_frecency(void* context, Utf8View key, const EmojiFrecencyItem& item) 
         ++p.remote_count[visit.kind];
     }
     auto& target = p.remote[visit.kind][slot];
-    target = {};
+    reset_value(&target);
     target.emoji = emoji;
     target.total_uses = item.total_uses;
     target.recent_count = minimum<u8>(item.recent_count, static_cast<u8>(kReactionPreferenceRecentUseCapacity));
@@ -372,7 +373,7 @@ bool application_emoji_preferences_submit(u64 id, u64 now_ms) noexcept {
                     if (!bytes)
                         continue;
                     auto& entry = p.entries[kind][counts[kind]];
-                    entry = {};
+                    reset_value(&entry);
                     entry.key = {p.entry_keys[kind][counts[kind]], bytes};
                     entry.updated = use_pending(*preferences, kind, usage.emoji);
                     entry.item.total_uses = usage.total_uses;

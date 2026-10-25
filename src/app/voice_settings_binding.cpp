@@ -1,10 +1,11 @@
 #include "voice_settings_binding.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 bool voice_settings_read(const VoicePreferences& p, SettingBinding binding, SettingValue* value) noexcept {
     if (!value)
         return false;
-    *value = {};
+    reset_value(value);
     const auto& a = p.audio;
     switch (binding) {
     case SettingBinding::voice_input_volume:

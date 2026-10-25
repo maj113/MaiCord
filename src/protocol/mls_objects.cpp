@@ -1,4 +1,5 @@
 #include "maicord/protocol/mls_objects.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/mls_reader.hpp"
 
 namespace maicord {
@@ -181,7 +182,7 @@ MlsDecodeResult decode(ConstSlice<u8> input, T* output, bool exact) noexcept {
     if (reader.error == MlsWireError::none && exact && reader.used != input.count)
         reader.fail(MlsWireError::trailing_data, reader.used);
     if (reader.error == MlsWireError::none)
-        *output = candidate;
+        copy_value(output, candidate);
     return reader.result();
 }
 } // namespace

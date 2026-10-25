@@ -1,4 +1,5 @@
 #include "maicord/app/update_handoff.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -39,11 +40,11 @@ bool absolute(const wchar_t* p, u32 n) noexcept {
     return !p[n];
 }
 void hex(wchar_t* out, u32& count, const u8* bytes, u32 n) noexcept {
-    constexpr wchar_t digits[] = L"0123456789abcdef";
+    static constexpr wchar_t digits[] = L"0123456789abcdef";
     for (u32 i = 0; i < n; ++i) { out[count++] = digits[bytes[i] >> 4]; out[count++] = digits[bytes[i] & 15]; }
 }
 void handle_text(wchar_t* out, u32& count, HANDLE h) noexcept {
-    constexpr wchar_t digits[] = L"0123456789abcdef"; const u64 value = reinterpret_cast<u64>(h);
+    static constexpr wchar_t digits[] = L"0123456789abcdef"; const u64 value = reinterpret_cast<u64>(h);
     for (u32 i = 0; i < 16; ++i) out[count++] = digits[(value >> ((15 - i) * 4)) & 15];
 }
 // Reused by the test-only second compilation with a known fixture executable.
@@ -220,7 +221,7 @@ UpdateHandoffResult update_handoff_release(UpdateHandoff* owner) noexcept {
     if (owner->view) { if (!UnmapViewOfFile(owner->view)) return fail(UpdateHandoffError::release, GetLastError()); owner->view = nullptr; }
     HANDLE* handles[]{&owner->thread, &owner->process, &owner->child_event, &owner->child_mapping, &owner->event, &owner->mapping, &owner->parent, &owner->validation};
     for (auto* handle : handles) if (!close(*handle)) return fail(UpdateHandoffError::release, GetLastError());
-    *owner = {}; return {};
+    reset_value(owner); return {};
 }
 UpdateHandoffResult update_handoff_child_open(ConstSlice<wchar_t> line, const UpdateHandoffIdentity& expected,
     bool enrolled, UpdateHandoffChild* owner) noexcept {
@@ -257,6 +258,6 @@ UpdateHandoffResult update_handoff_child_release(UpdateHandoffChild* owner) noex
     if (!owner) return fail(UpdateHandoffError::invalid_input);
     if (owner->view) { if (!UnmapViewOfFile(owner->view)) return fail(UpdateHandoffError::release, GetLastError()); owner->view = nullptr; }
     if (!close(owner->event) || !close(owner->mapping) || !close(owner->parent)) return fail(UpdateHandoffError::release, GetLastError());
-    *owner = {}; return {};
+    reset_value(owner); return {};
 }
 } // namespace maicord

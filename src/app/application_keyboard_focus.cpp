@@ -1,4 +1,5 @@
 #include "application_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_keyboard_focus.hpp"
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
@@ -49,7 +50,7 @@ u32 current_pane() noexcept {
 
 bool finish_focus(UiWidgetManager* owner) noexcept {
     ui_button_keyboard_cancel(&g_app.button_keyboard);
-    thread_header_keyboard = {};
+    reset_value(&thread_header_keyboard);
     ui_scroll_host_cancel(&g_app.scroll_host);
     if (owner != &g_app.message_composer_scene.widgets && g_app.message_composer.focused) {
         stop_local_typing(g_app.message_composer.channel_id);
@@ -216,12 +217,12 @@ bool handle_thread_header_key(u32 key, bool down, bool repeated) noexcept {
     if (!g_app.account_ui || g_app.login.visible || g_app.popup_scene.active || g_app.reaction_viewer.active ||
         (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) {
         ui_button_keyboard_cancel(&g_app.button_keyboard);
-        thread_header_keyboard = {};
+        reset_value(&thread_header_keyboard);
         return true;
     }
     if (logical == UiButtonKey::escape) {
         ui_button_keyboard_cancel(&g_app.button_keyboard);
-        thread_header_keyboard = {};
+        reset_value(&thread_header_keyboard);
         return false;
     }
     const auto target = ui_thread_header_widget_target(g_app.thread_header, g_app.shell_scene.widgets.focused);
@@ -232,11 +233,11 @@ bool handle_thread_header_key(u32 key, bool down, bool repeated) noexcept {
         focused ? &g_app.shell_scene.widgets : nullptr, logical, down, repeated);
     if (result.activate && thread_header_keyboard.armed) {
         const auto captured = thread_header_keyboard;
-        thread_header_keyboard = {};
+        reset_value(&thread_header_keyboard);
         return application_thread_header_activate(
             application_thread_header_activation_source(&g_app.thread_header, captured.ticket), captured.target).handled;
     }
-    if (!down || logical == UiButtonKey::enter) thread_header_keyboard = {};
+    if (!down || logical == UiButtonKey::enter) reset_value(&thread_header_keyboard);
     return result.handled || focused;
 }
 

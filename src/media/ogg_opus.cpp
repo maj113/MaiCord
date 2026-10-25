@@ -1,4 +1,5 @@
 #include "maicord/media/ogg_opus.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 
@@ -378,7 +379,7 @@ OggOpusPacket ogg_opus_demux_next(OggOpusDemuxer* d, Slice<u8> scratch) noexcept
     if (!packet.ok())
         return packet;
     if (!packet_frames(packet.bytes, &packet.duration_frames)) {
-        packet = {};
+        reset_value(&packet);
         packet.error = OggOpusError::malformed;
         return packet;
     }
@@ -398,7 +399,7 @@ OggOpusPacket ogg_opus_demux_next(OggOpusDemuxer* d, Slice<u8> scratch) noexcept
 }
 void ogg_opus_demux_reset(OggOpusDemuxer* d) noexcept {
     if (d && d->ready) {
-        d->cursor = {};
+        reset_value(&d->cursor);
         d->cursor.page_offset = d->first_audio_offset;
     }
 }

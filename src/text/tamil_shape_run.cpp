@@ -1,4 +1,5 @@
 #include "maicord/text/tamil_shape_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/tamil_input.hpp"
 #include "maicord/text/indic_plan.hpp"
 #include "maicord/text/unicode.hpp"
@@ -102,7 +103,7 @@ SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u
 }
 SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> scalars,float em,
     SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if((scalars.count&&!scalars.data)||(steps.count&&!steps.data))return SfntStatus::invalid_input;
     if(static_cast<u64>(scalars.count)*32+steps.count>limits.stage_work)return SfntStatus::resource_limit;

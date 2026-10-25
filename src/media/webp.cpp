@@ -1,4 +1,5 @@
 #include "maicord/media/webp.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/sys/simd.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -129,7 +130,7 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
     if (alphabet_size == 0 || alphabet_size > 19) {
         return false;
     }
-    *code = SmallHuffmanCode{};
+    reset_value<SmallHuffmanCode>(code);
     if (!count_code(lengths, alphabet_size, code->counts, &code->symbol_count, &code->single_symbol)) {
         return false;
     }
@@ -219,7 +220,7 @@ bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* co
     if (alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
         return false;
     }
-    *code = Vp8lHuffmanCode{};
+    reset_value<Vp8lHuffmanCode>(code);
     if (!count_code(workspace->code_lengths, alphabet_size, code->counts, &code->symbol_count,
                     &code->single_symbol) ||
         workspace->symbol_count + code->symbol_count > kVp8lHuffmanSymbolCapacity) {
@@ -378,7 +379,7 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
     if (!image || (!encoded.data && encoded.count != 0)) {
         return parse_failure(result, WebpError::invalid_input);
     }
-    *image = WebpImage{};
+    reset_value<WebpImage>(image);
     if (encoded.count > kWebpEncodedMaximumBytes) {
         return parse_failure(result, WebpError::encoded_limit);
     }
@@ -1168,7 +1169,7 @@ WebpDecodeResult webp_lossless_decode_vp8l_frame_rgba8(ConstSlice<u8> vp8l_paylo
         result.error = WebpError::invalid_input;
         return result;
     }
-    *image = WebpImage{};
+    reset_value<WebpImage>(image);
     if (vp8l_payload.count < 5) {
         result.parse.error = WebpError::truncated;
         result.error = WebpError::truncated;
@@ -1212,7 +1213,7 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(ConstSlice<u8> bitstre
         result.error = WebpError::invalid_input;
         return result;
     }
-    *image = WebpImage{};
+    reset_value<WebpImage>(image);
     if (width > kWebpLosslessDimensionMaximum || height > kWebpLosslessDimensionMaximum ||
         static_cast<u64>(width) * height > kWebpLosslessPixelMaximum) {
         result.parse.error = WebpError::dimensions;

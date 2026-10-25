@@ -1,4 +1,5 @@
 #include "maicord/text/layout_tables.hpp"
+#include "maicord/core/memory.hpp"
 #include "coverage_index.hpp"
 #include "maicord/text/lookup_bounds.hpp"
 #include "maicord/text/base.hpp"
@@ -10,7 +11,7 @@ bool span(ConstSlice<u8> bytes,u32 at,u32 count) noexcept {return at<=bytes.coun
 ConstSlice<u8> slice(ConstSlice<u8> bytes,u32 at,u32 count) noexcept {return {bytes.data+at,count};}
 }
 SfntStatus sfnt_coverage_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntCoverage* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;
     const u16 format=read(bytes,0),count=read(bytes,2);
@@ -68,7 +69,7 @@ SfntStatus sfnt_coverage_glyph(const SfntCoverage& coverage,u32 index,u16* glyph
     return SfntStatus::malformed; // A prepared, immutable view cannot reach this.
 }
 SfntStatus sfnt_class_def_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntClassDef* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
     if(!span(bytes,0,4))return SfntStatus::truncated;
     const u16 format=read(bytes,0);u16 count=0,start=0,maximum=0;u32 offset=4,stride=6;
@@ -103,7 +104,7 @@ u16 sfnt_class_value(const SfntClassDef& classes,u16 glyph) noexcept {
     return 0;
 }
 SfntStatus sfnt_device_open(ConstSlice<u8> bytes,SfntDevice* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!bytes.data)return SfntStatus::invalid_input;
     if(!span(bytes,0,6))return SfntStatus::truncated;
     const u16 start=read(bytes,0),end=read(bytes,2),format=read(bytes,4);

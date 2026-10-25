@@ -3,6 +3,7 @@
 // plugin-code-free query the message scene reads, session "Show" reveals and
 // accessory clicks.
 #include "application_plugins.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_account_presentation.hpp"
 #include "application_content_input.hpp"
@@ -57,7 +58,7 @@ bool render_query(u64 message_id, u32 revision, UiPluginRenderDecoration* output
     NativePluginSdkDecoration decoration{};
     if (!native_plugin_sdk_decorate(rt, message, false, &decoration))
         return false;
-    *output = {};
+    reset_value(output);
     output->visibility = decoration.visibility;
     if (output->visibility == ui_plugin_render_collapsed && revealed(message_id))
         output->visibility = ui_plugin_render_normal;

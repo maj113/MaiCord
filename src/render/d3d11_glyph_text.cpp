@@ -1,4 +1,5 @@
 #include "glyph_effect_ordinals.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/render/d3d11_glyph_text.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
@@ -63,7 +64,7 @@ bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner& owner,
                                     D3D11GlyphGpuFootprint* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     const auto texture = [&](ID3D11Texture2D* resource, DXGI_FORMAT format, u32 bytes) noexcept {
         if (!resource)
             return true;
@@ -205,7 +206,7 @@ u16 retain_run_font(D3D11GlyphTextOwner* owner, const ShapedText& text, const Te
     if (!native_font_run_retain(store, handle))
         return 0;
     auto& face = owner->font_faces[owner->font_face_count++];
-    face = {};
+    reset_value(&face);
     face.native_face = handle;
     face.id = static_cast<u16>(owner->font_face_count);
     const auto* font =
@@ -834,7 +835,7 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
     GlyphAtlasGpuResult gpu{S_OK, GlyphAtlasGpuError::none};
     if (adopt) {
         owner->gpu = *prestarted_atlas;
-        *prestarted_atlas = GlyphAtlasGpu{};
+        reset_value<GlyphAtlasGpu>(prestarted_atlas);
     } else {
         gpu = glyph_atlas_gpu_initialize(&owner->gpu, device, kRendererGlyphAtlasExtent, kRendererGlyphAtlasExtent,
                                          kRendererPathCapacity);
@@ -882,11 +883,11 @@ void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept {
     for (u32 index = 0; owner->font_faces && index < owner->font_face_count; ++index) {
         native_font_run_release(native_font_session_runs(owner->system.native_fonts),
                                 owner->font_faces[index].native_face);
-        owner->font_faces[index] = D3D11GlyphTextFontFace{};
+        reset_value<D3D11GlyphTextFontFace>(&owner->font_faces[index]);
     }
     text_system_release(&owner->system);
     arena_release(&owner->storage);
-    *owner = D3D11GlyphTextOwner{};
+    reset_value<D3D11GlyphTextOwner>(owner);
 }
 
 } // namespace maicord

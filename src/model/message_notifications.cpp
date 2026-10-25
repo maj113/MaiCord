@@ -1,4 +1,5 @@
 #include "maicord/model/message_notifications.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 namespace maicord {
 namespace {
@@ -46,7 +47,7 @@ bool message_notifications_initialize(MessageNotificationStore* s,Slice<MessageN
        overlaps(ConstSlice<MessageNotificationGuildSetting>{g.data,g.count},o)||
        overlaps(ConstSlice<MessageNotificationGuildSetting>{g.data,g.count},t)||
        overlaps(ConstSlice<MessageNotificationOverride>{o.data,o.count},t))return false;
-    *s={};s->guilds=g;s->overrides=o;s->threads=t;s->reserve=r;s->reserve_context=c;return true;
+    reset_value(s);s->guilds=g;s->overrides=o;s->threads=t;s->reserve=r;s->reserve_context=c;return true;
 }
 const MessageNotificationGuildSetting* message_notifications_guild(const MessageNotificationStore&s,u64 id) noexcept {
     for(u32 i=0;i<s.guild_count;++i)if(s.guilds[i].guild_id==id)return &s.guilds[i];return nullptr;

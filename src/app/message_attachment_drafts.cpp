@@ -29,7 +29,7 @@ bool commit(MessageAttachmentDraftStore* store, MessageAttachmentDraft* record, 
 u32 message_attachment_drafts_reserved_bytes() noexcept { return kPayloadBytes * kMessageAttachmentDraftCapacity; }
 bool message_attachment_drafts_initialize(MessageAttachmentDraftStore* store) noexcept {
     if (!store || store->payload) return false;
-    *store = {};
+    reset_value(store);
     store->payload = static_cast<u8*>(VirtualAlloc(nullptr, message_attachment_drafts_reserved_bytes(), MEM_RESERVE, PAGE_READWRITE));
     return store->payload != nullptr;
 }
@@ -38,7 +38,7 @@ void message_attachment_drafts_release(MessageAttachmentDraftStore* store) noexc
     for (u32 i = 0; i < kMessageAttachmentDraftCapacity; ++i)
         if (store->records[i].occupied) message_attachment_drafts_remove(store, identifier(store->records[i], i));
     if (store->payload) VirtualFree(store->payload, 0, MEM_RELEASE);
-    *store = {};
+    reset_value(store);
 }
 MessageAttachmentDraft* message_attachment_drafts_get(MessageAttachmentDraftStore* store, u64 id) noexcept {
     const u32 slot = static_cast<u32>(id);
@@ -89,7 +89,7 @@ MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraft
         auto& record = store->records[slot];
         if (record.occupied) continue;
         u32 generation = record.generation + 1; if (!generation) generation = 1;
-        record = {}; record.generation = generation;
+        reset_value(&record); record.generation = generation;
         record.path_units = files[added].path.count;
         record.filename_bytes = static_cast<u16>(prepared[added].bytes);
         const u64 id = identifier(record, slot);
@@ -248,7 +248,7 @@ bool message_attachment_drafts_remove(MessageAttachmentDraftStore* store, u64 id
     store->committed_bytes -= record->committed_bytes;
     const u32 generation = record->generation;
     upload_source_release(record->content);
-    *record = {}; record->generation = generation;
+    reset_value(record); record->generation = generation;
     const u32 slot = static_cast<u32>(id) - 1;
     for (u32 i = 0; i < store->count; ++i) {
         if (store->order[i] != slot) continue;

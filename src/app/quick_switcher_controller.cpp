@@ -168,7 +168,8 @@ bool better(const QuickSwitcherRow& a, const QuickSwitcherRow& b) noexcept {
     if (a.target.id != b.target.id) return a.target.id < b.target.id;
     return static_cast<u8>(a.target.kind) < static_cast<u8>(b.target.kind);
 }
-void insert(QuickSwitcherController* c, QuickSwitcherRow row, u32 limit) noexcept {
+// Rows are caller scratch: insert and consider may change score and target.
+void insert(QuickSwitcherController* c, QuickSwitcherRow& row, u32 limit) noexcept {
     for (u32 i = 0; i < c->count; ++i) {
         if (c->rows[i].target.id == row.target.id ||
             (row.target.user_id && c->rows[i].target.user_id == row.target.user_id)) {
@@ -182,7 +183,7 @@ void insert(QuickSwitcherController* c, QuickSwitcherRow row, u32 limit) noexcep
                 }
             }
             if (!better(row, c->rows[i])) return;
-            for (u32 j = i + 1; j < c->count; ++j) c->rows[j - 1] = c->rows[j];
+            copy_bytes(&c->rows[i], &c->rows[i + 1], (c->count - i - 1) * static_cast<u32>(sizeof(c->rows[0])));
             --c->count; break;
         }
     }
@@ -203,10 +204,10 @@ void insert(QuickSwitcherController* c, QuickSwitcherRow row, u32 limit) noexcep
     while (!first && position < c->count && !better(row, c->rows[position])) ++position;
     if (position >= limit) { c->overflow = true; return; }
     if (c->count < limit) ++c->count; else c->overflow = true;
-    for (u32 i = c->count - 1; i > position; --i) c->rows[i] = c->rows[i - 1];
-    c->rows[position] = row;
+    copy_bytes(&c->rows[position + 1], &c->rows[position], (c->count - 1 - position) * static_cast<u32>(sizeof(row)));
+    copy_value(&c->rows[position], row);
 }
-void consider(QuickSwitcherController* c, QuickSwitcherRow row, Utf8View query, Utf8View alternate, u32 limit) noexcept {
+void consider(QuickSwitcherController* c, QuickSwitcherRow& row, Utf8View query, Utf8View alternate, u32 limit) noexcept {
     ++c->stats.visited_candidates;
     c->stats.name_bytes += row.label_bytes + row.detail_bytes + alternate.bytes;
     row.score = match_score(query, {row.label, row.label_bytes}, {row.detail, row.detail_bytes}, alternate, row.target.id);
@@ -263,11 +264,13 @@ void resolve_cached_friend_routes(QuickSwitcherController* c, QuickSwitcherSourc
     }
     // Keep score/name/identity ordering deterministic after changing route IDs.
     if (changed) for (u32 i = 1; i < c->count; ++i) {
-        const auto row = c->rows[i]; u32 position = i;
-        while (position && better(row, c->rows[position - 1])) {
-            c->rows[position] = c->rows[position - 1]; --position;
-        }
-        c->rows[position] = row;
+        u32 position = i;
+        while (position && better(c->rows[i], c->rows[position - 1])) --position;
+        if (position == i) continue;
+        QuickSwitcherRow row;
+        copy_value(&row, c->rows[i]);
+        copy_bytes(&c->rows[position + 1], &c->rows[position], (i - position) * static_cast<u32>(sizeof(row)));
+        copy_value(&c->rows[position], row);
     }
 }
 } // namespace
@@ -298,7 +301,7 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
     c->scope = scope; c->stamp = versions; c->initialized = true;
     c->mode = mode;
     c->forwarding_age_restricted = forwarding_age_restricted;
-    c->count = 0; c->overflow = false; c->stats = {}; c->phase = QuickSwitcherPhase::ready;
+    c->count = 0; c->overflow = false; reset_value(&c->stats); c->phase = QuickSwitcherPhase::ready;
     c->query_bytes = valid ? static_cast<u16>(query.bytes) : 0;
     if (valid) copy_bytes(c->query, query.data, query.bytes);
     ++c->revision; if (!c->revision) ++c->revision;
@@ -398,7 +401,7 @@ bool quick_switcher_current(const QuickSwitcherController& c, QuickSwitcherScope
 }
 bool quick_switcher_resolve(const QuickSwitcherController& c, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u32 index, u32 revision, QuickSwitcherTarget* target) noexcept {
-    if (target) *target = {};
+    if (target) reset_value(target);
     if (!target || index >= c.count || !quick_switcher_current(c, scope, sources, revision) || !target_current(sources, c.rows[index].target)) return false;
     *target = c.rows[index].target; return true;
 }

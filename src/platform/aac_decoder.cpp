@@ -1,4 +1,5 @@
 #include "maicord/platform/aac_decoder.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/media/aac_configuration.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/media_foundation.hpp"
@@ -218,7 +219,7 @@ AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u3
         return {Error::invalid_input};
     if (owner->initialized || owner->runtime)
         return {Error::busy};
-    *owner = {};
+    reset_value(owner);
     copy_bytes(owner->asc, asc.data, asc.count);
     owner->asc_bytes = asc.count;
     owner->sample_rate = rate;
@@ -444,7 +445,7 @@ AacDecodeResult aac_decoder_release(AacDecoder* owner) noexcept {
         if (!VirtualFree(s, 0, MEM_RELEASE))
             return fail(*owner, Error::release, HRESULT_FROM_WIN32(GetLastError()));
     }
-    *owner = {};
+    reset_value(owner);
     return {};
 }
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "maicord/text/color_font.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -46,7 +47,7 @@ struct Walker {
 }
 SfntStatus colr_validate_glyph(const ColrFont& font,u16 glyph,Slice<u32> active_path,
                               u32 work_limit,ColrValidation* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!active_path.data || !active_path.count)return SfntStatus::invalid_input;
     u32 root=0;auto status=colr_base_paint(font,glyph,&root);if(status!=SfntStatus::ok)return status;
     Walker walker{font,active_path,work_limit};

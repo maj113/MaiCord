@@ -286,7 +286,7 @@ ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, Utf8Vi
     if (!ui_rect_has_area(r)) {
         // Nothing to show (an empty label): callers may still decorate it.
         static ProfilePart empty;
-        empty = {};
+        reset_value(&empty);
         return &empty;
     }
     // The editor preview is a picture of the card: nothing in it is a control.
@@ -1286,7 +1286,7 @@ bool finish(ProfileScene* s, UiRect viewport) noexcept {
         s->message_field = s->note_field;
         s->edit_rectangle = node->rectangle;
         s->edit_content = ui_rect_inset(s->edit_rectangle, {10, 2, 10, 2});
-        s->message_placeholder = {};
+        reset_value(&s->message_placeholder);
         append(&s->message_placeholder, utf8_literal("Click to add a note"));
         if (s->edit.focused)
             ui_widget_manager_focus(&s->widgets, s->note_field);
@@ -1449,7 +1449,7 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     if (s->edit.active && !s->note_editing && s->message_field.generation) {
         s->edit_rectangle = absolute({x0, footer_top, x0 + content, footer_top + footer_height});
         s->edit_content = ui_rect_inset(s->edit_rectangle, {12, 2, 12, 2});
-        s->message_placeholder = {};
+        reset_value(&s->message_placeholder);
         append(&s->message_placeholder, utf8_literal("Message @"));
         append(&s->message_placeholder, p.nickname.bytes ? p.nickname.view() : p.display_name.view());
         if (s->edit.focused)
@@ -1834,7 +1834,7 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     if (!scroll_container(s, s->body, s->scroll))
         return false;
     // Right: the tab panel beside the card (gutter 32).
-    s->secondary_viewport = {};
+    reset_value(&s->secondary_viewport);
     s->secondary_height = 0;
     const UiRect panel_rect{card.right + 32, pad, mw - (pad - 16), mh};
     if (ui_rect_width(panel_rect) > 120 && !tab_panel(s, panel_rect, wide ? 16.f : 32.f, order, cards))
@@ -2100,7 +2100,7 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
     s->text_hit_count = 0;
     ui_widget_manager_reset(&s->widgets);
     s->bio_widget = s->name_widget = s->message_field = s->note_field = ui_widget_invalid_handle();
-    s->secondary_viewport = {};
+    reset_value(&s->secondary_viewport);
     s->secondary_height = 0;
     s->activity_timed = false;
     s->activity_set = nullptr;
@@ -2261,7 +2261,7 @@ bool profile_scene_scroll(ProfileScene* s, float delta, bool right) noexcept {
 void profile_scene_release(ProfileScene* s) noexcept {
     if (s) {
         arena_release(&s->storage);
-        *s = {};
+        reset_value(s);
     }
 }
 void profile_scene_publish_text_hit(const ProfileScene& scene, UiWidgetReference owner, UiRect layout, UiRect ink,

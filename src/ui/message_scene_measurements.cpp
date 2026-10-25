@@ -1,4 +1,5 @@
 #include "message_scene_measurements.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord::message_scene_detail {
 bool initialize_measurements(MessageScene* scene, bool deferred) noexcept {
@@ -20,7 +21,7 @@ Measurement* measurement(MessageScene* scene, u32 slot, bool snapshot) noexcept 
 }
 
 void restore_measurement(MessageSceneRowWidget* row, const Measurement& value) noexcept {
-    row->rich_layout = value.rich;
+    copy_value(&row->rich_layout, value.rich);
     row->rich_item_layout = value.items;
     row->measured_reply_height = value.reply_height;
     row->measured_content_height = value.content_height;
@@ -33,7 +34,7 @@ void restore_measurement(MessageSceneRowWidget* row, const Measurement& value) n
 void retain_measurement(MessageScene* scene, const MessageSceneRowWidget& row) noexcept {
     Measurement* value = measurement(scene, row.message.slot, row.forwarded_snapshot);
     if (!value) return;
-    value->rich = row.rich_layout;
+    copy_value(&value->rich, row.rich_layout);
     value->items = row.rich_item_layout;
     value->reply_height = row.measured_reply_height;
     value->content_height = row.measured_content_height;

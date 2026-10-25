@@ -98,7 +98,7 @@ bool visit_option(void* context, u32, JsonValue value) noexcept {
     const auto options = field(w.index->document, value, "options");
     const bool ok = options.kind == JsonValueKind::array && options.source.bytes &&
                     json_visit_indexed_array(w.index->document, options, depth_limit, visit_sub, &w).ok();
-    w.group = {};
+    reset_value(&w.group);
     return ok;
 }
 bool read_root(Walk& w, JsonValue value) noexcept {
@@ -125,7 +125,7 @@ bool visit_command(void* context, u32, JsonValue value) noexcept {
         const u32 slot = w.context_count++;
         if (!w.write)
             return true;
-        w.root = {};
+        reset_value(&w.root);
         if (!read_root(w, value) || !w.root.root_name.bytes)
             return false;
         w.root.name = w.root.root_name;
@@ -136,7 +136,7 @@ bool visit_command(void* context, u32, JsonValue value) noexcept {
     }
     if (type != 1)
         return true;
-    w.root = {};
+    reset_value(&w.root);
     if (w.write && !read_root(w, value))
         return false;
     const u32 before = w.count;
@@ -190,7 +190,7 @@ void command_index_release(CommandIndex* index) noexcept {
     if (!index)
         return;
     arena_release(&index->storage);
-    *index = {};
+    reset_value(index);
 }
 bool command_index_decode(Utf8View body, Slice<u32> scratch, CommandIndex* output) noexcept {
     if (!output || !body.bytes || !body.data)
@@ -469,7 +469,7 @@ bool argument_lookup(const CommandIndex& index, const ApplicationCommand& comman
     if (!output || !utf8_validate(input).valid || caret > input.bytes ||
         (caret < input.bytes && (static_cast<u8>(input.data[caret]) & 0xc0) == 0x80))
         return false;
-    *output = {};
+    reset_value(output);
     ArgumentSchema schema{&index};
     if (command.options.source.bytes &&
         !json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema)
@@ -589,7 +589,7 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
     if (!writer || !error || !utf8_validate(input).valid || !utf8_validate(focused_name).valid ||
         !utf8_validate(focused_query).valid)
         return false;
-    *error = {};
+    reset_value(error);
     ArgumentSchema schema{&index};
     if (command.options.source.bytes &&
         !json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema)
@@ -748,7 +748,7 @@ void command_suggestions_release(CommandSuggestions* output) noexcept {
     if (!output)
         return;
     arena_release(&output->storage);
-    *output = {};
+    reset_value(output);
 }
 bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_nonce,
                                 CommandSuggestions* output) noexcept {
@@ -782,7 +782,7 @@ bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_
         return false;
     }
     command_suggestions_release(output);
-    *output = candidate;
+    copy_value(output, candidate);
     return true;
 }
 } // namespace maicord

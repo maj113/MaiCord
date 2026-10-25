@@ -1,4 +1,5 @@
 #include "maicord/platform/tls_client.hpp"
+#include "maicord/core/memory.hpp"
 
 #if !defined(SECURITY_WIN32)
 #endif
@@ -52,7 +53,7 @@ TlsResult tls_client_initialize(TlsClient* client, const wchar_t* server_name) n
     if (!client || !server_name || server_name[0] == 0) {
         return result(TlsError::invalid_argument, SEC_E_INVALID_TOKEN);
     }
-    *client = TlsClient{};
+    reset_value<TlsClient>(client);
     SecInvalidateHandle(credentials(client));
     SecInvalidateHandle(context(client));
     client->server_name = server_name;
@@ -94,7 +95,7 @@ void tls_client_release(TlsClient* client) noexcept {
     if (client->credentials_valid) {
         FreeCredentialsHandle(credentials(client));
     }
-    *client = TlsClient{};
+    reset_value<TlsClient>(client);
 }
 
 TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming,

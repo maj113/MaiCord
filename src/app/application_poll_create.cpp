@@ -236,7 +236,7 @@ bool repaint() noexcept {
 void open_duration_menu(UiRect anchor) noexcept {
     auto& p = *owner;
     for (u32 i = 0; i < kPollDurationCount; ++i) {
-        p.popup_items[i] = {};
+        reset_value(&p.popup_items[i]);
         p.popup_items[i].label = kDurationLabels[i];
         p.popup_items[i].action = kMenuChoiceBase + i;
         p.popup_items[i].flags =
@@ -254,7 +254,7 @@ void post() noexcept {
               (++nonce_sequence & 0x3FFFFFu);
     p.queued = true;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     p.retry_at = 0;
     application_composer_text_input_suspend();
 }
@@ -276,7 +276,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
             return;
         poll_draft_reset(&p.draft);
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         load_editors();
         repaint();
         return;
@@ -394,7 +394,7 @@ bool application_poll_create_open(u64 channel_id) noexcept {
     p.profile_id = g_app.account.status.profile_id;
     p.previous_focus = g_app.context_focus;
     p.queued = p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     poll_draft_reset(&p.draft);
     settings_layer_reset(&p.layer);
     if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}))

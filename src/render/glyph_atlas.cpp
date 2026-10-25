@@ -1,4 +1,5 @@
 #include "maicord/render/glyph_atlas.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -174,7 +175,7 @@ u32 reclaim_unpinned_span(GlyphAtlasAllocator* atlas, u16 height) noexcept {
         for (u32 i = end; i < atlas->row_count; ++i) atlas->rows[i - removed_rows] = atlas->rows[i];
         const u32 old_count = atlas->row_count;
         atlas->row_count -= removed_rows;
-        for (u32 i = atlas->row_count; i < old_count; ++i) atlas->rows[i] = {};
+        for (u32 i = atlas->row_count; i < old_count; ++i) reset_value(&atlas->rows[i]);
         atlas->rows[first] = GlyphAtlasRow{atlas_tick(atlas), static_cast<u16>(y), merged_height, 0, 0, 0, 0};
         if (end == old_count) atlas->next_y = static_cast<u16>(y + merged_height);
         return first;
@@ -192,7 +193,7 @@ void invalidate_all(GlyphAtlasAllocator* atlas, bool count_reset) noexcept {
         }
     }
     for (u32 index = 0; index < atlas->row_capacity; ++index) {
-        atlas->rows[index] = GlyphAtlasRow{};
+        reset_value<GlyphAtlasRow>(&atlas->rows[index]);
     }
     atlas->entry_count = 0;
     atlas->row_count = 0;
@@ -229,7 +230,7 @@ bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u
         padding > width / 2 || padding > height / 2) {
         return false;
     }
-    *atlas = GlyphAtlasAllocator{};
+    reset_value<GlyphAtlasAllocator>(atlas);
     atlas->entries = entries.data;
     atlas->rows = rows.data;
     atlas->entry_capacity = entries.count;
@@ -241,10 +242,10 @@ bool glyph_atlas_initialize(GlyphAtlasAllocator* atlas, u16 width, u16 height, u
     if (zeroed)
         return true;
     for (u32 index = 0; index < entries.count; ++index) {
-        entries[index] = GlyphAtlasEntry{};
+        reset_value<GlyphAtlasEntry>(&entries[index]);
     }
     for (u32 index = 0; index < rows.count; ++index) {
-        rows[index] = GlyphAtlasRow{};
+        reset_value<GlyphAtlasRow>(&rows[index]);
     }
     return true;
 }
@@ -637,7 +638,7 @@ bool glyph_atlas_growth_configure(GlyphAtlasGrowth* growth, GlyphAtlasAllocator*
         atlas->row_count != 0 || atlas->entry_count != 0 || protect_ms < 8) {
         return false;
     }
-    *growth = GlyphAtlasGrowth{};
+    reset_value<GlyphAtlasGrowth>(growth);
     growth->maximum_height = atlas->height;
     growth->minimum_height = minimum(initial_height, atlas->height);
     growth->step = step;
@@ -785,7 +786,7 @@ u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas
     }
     // 3. Drop empty tail shelves and shrink to the step covering the rest.
     while (atlas->row_count != 0 && atlas->rows[atlas->row_count - 1u].occupied_entries == 0) {
-        atlas->rows[--atlas->row_count] = GlyphAtlasRow{};
+        reset_value<GlyphAtlasRow>(&atlas->rows[--atlas->row_count]);
     }
     atlas->next_y = atlas->row_count == 0
                         ? 0

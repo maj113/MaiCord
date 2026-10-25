@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_gpu_timer.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/render/gpu_timing.hpp"
 
@@ -154,7 +155,7 @@ void d3d11_gpu_timer_release(D3D11GpuTimerOwner* owner, ID3D11DeviceContext* con
     }
     d3d11_gpu_timer_collect(owner, context);
     release_queries(owner);
-    *owner = D3D11GpuTimerOwner{};
+    reset_value<D3D11GpuTimerOwner>(owner);
 }
 
 } // namespace maicord

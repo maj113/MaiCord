@@ -1,4 +1,5 @@
 #include "application_navigation_drag.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "application_content_input.hpp"
 #include "application_guild_folders.hpp"
@@ -105,8 +106,8 @@ void publish(const NavigationDragVisual& visual) noexcept {
     application_repaint();
 }
 void clear_visuals() noexcept {
-    g_app.guild_rail_scene.drag = {};
-    g_app.shell_navigation_scene.drag = {};
+    reset_value(&g_app.guild_rail_scene.drag);
+    reset_value(&g_app.shell_navigation_scene.drag);
     application_repaint();
 }
 void retarget() noexcept {
@@ -124,7 +125,7 @@ void retarget() noexcept {
         if (target.drop != NavigationDropKind::none &&
             !channel_reorder_valid(g_app.account_ui->chat_state, g_drag.drag.source_id, target.id,
                                    reorder_drop(target.drop)))
-            target = {};
+            reset_value(&target);
     }
     publish(navigation_drag_update_target(&g_drag.drag, target));
 }
@@ -198,7 +199,7 @@ bool application_navigation_drag_press(LPARAM lparam) noexcept {
         g_drag.visual_source = row->view.id;
     }
     if (g_drag.drag.phase != NavigationDragPhase::armed) {
-        g_drag = {};
+        reset_value(&g_drag);
         return false;
     }
     g_drag.press = lparam;
@@ -231,7 +232,7 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
         if (!navigation_drag_dragging(g_drag.drag)) {
             // A press without a drag is an ordinary click on its row.
             const LPARAM press = g_drag.press;
-            g_drag = {};
+            reset_value(&g_drag);
             activate_navigation_press(press);
             return true;
         }
@@ -243,7 +244,7 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
         NavigationDragTarget target{};
         const bool dropped = navigation_drag_release(&g_drag.drag, &target);
         end_capture();
-        g_drag = {};
+        reset_value(&g_drag);
         clear_visuals();
         if (dropped)
             commit(target, list, source, kind, guild);
@@ -312,7 +313,7 @@ void application_navigation_drag_cancel() noexcept {
     const bool dragging = navigation_drag_dragging(g_drag.drag);
     navigation_drag_cancel(&g_drag.drag);
     end_capture();
-    g_drag = {};
+    reset_value(&g_drag);
     if (dragging)
         clear_visuals();
 }

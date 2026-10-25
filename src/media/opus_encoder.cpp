@@ -1,4 +1,5 @@
 #include "maicord/media/opus_encoder.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include <opus.h>
 
@@ -118,6 +119,6 @@ OpusEncodeResult opus_encoder_encode(OpusEncoder* encoder, ConstSlice<i16> pcm, 
 }
 void opus_encoder_release(OpusEncoder* encoder) noexcept {
     if (encoder)
-        *encoder = {};
+        reset_value(encoder);
 }
 } // namespace maicord

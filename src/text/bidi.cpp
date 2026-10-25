@@ -1,4 +1,5 @@
 #include "maicord/text/detail/bidi_internal.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -202,7 +203,7 @@ UnicodeBidiStatus unicode_bidi_paragraph_end(ConstSlice<UnicodeBidiCell> cells,u
     *end=cells.count;return UnicodeBidiStatus::ok;
 }
 UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection policy,Slice<u32> scratch,UnicodeBidiParagraph* paragraph,BidiBracketResolver resolve_brackets,bool tailored) noexcept {
-    if(!paragraph)return UnicodeBidiStatus::invalid_input;*paragraph={};
+    if(!paragraph)return UnicodeBidiStatus::invalid_input;reset_value(paragraph);
     if(!resolve_brackets || static_cast<u8>(policy)>3 || (cells.count && !cells.data) || (scratch.count && !scratch.data))return UnicodeBidiStatus::invalid_input;
     if(scratch.count<cells.count)return UnicodeBidiStatus::output_too_small;
     for(u32 i=0;i<cells.count;++i) {

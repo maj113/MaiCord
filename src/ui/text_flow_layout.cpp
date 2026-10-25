@@ -1,4 +1,5 @@
 #include "maicord/ui/text_flow_layout.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -31,12 +32,12 @@ bool ui_text_flow_initialize(UiTextFlowLayout* flow, UiRect content_rectangle,
                              UiRect clip_rectangle) noexcept {
     if (!flow || !ui_rect_valid(content_rectangle) || !ui_rect_valid(clip_rectangle)) {
         if (flow) {
-            *flow = UiTextFlowLayout{};
+            reset_value<UiTextFlowLayout>(flow);
             flow->last_error = UiTextFlowError::invalid_input;
         }
         return false;
     }
-    *flow = UiTextFlowLayout{};
+    reset_value<UiTextFlowLayout>(flow);
     flow->content_rectangle = content_rectangle;
     flow->clip_rectangle = clip_rectangle;
     flow->cursor_y = content_rectangle.top;

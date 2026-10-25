@@ -275,7 +275,7 @@ ReportElementKind element_kind(JsonValue value) noexcept {
         const char* text;
         ReportElementKind kind;
     };
-    constexpr Name names[]{{"checkbox", ReportElementKind::checkbox},
+    static constexpr Name names[]{{"checkbox", ReportElementKind::checkbox},
                            {"text", ReportElementKind::text},
                            {"free_text", ReportElementKind::free_text},
                            {"external_link", ReportElementKind::external_link},
@@ -309,7 +309,7 @@ bool element_item(void* p, u32, JsonValue value) noexcept {
     ReportElement* element = d.counting ? &scratch : &menu.elements[d.elements];
     ListContext options{&d, c.node, element};
     if (!d.counting) {
-        *element = {};
+        reset_value(element);
         element->kind = kind;
         element->name = named(menu, value, "name");
         bool submit = false;
@@ -366,7 +366,7 @@ bool node_member(void* p, JsonString, JsonValue value) noexcept {
     ReportNode scratch{};
     ReportNode* node = d.counting ? &scratch : &menu.nodes[d.nodes];
     if (!d.counting) {
-        *node = {};
+        reset_value(node);
         node->id = static_cast<u32>(id);
         node->key = named(menu, value, "key");
         node->header = named(menu, value, "header");
@@ -408,7 +408,7 @@ bool walk_nodes(Decoder& d, JsonValue nodes) noexcept {
 
 void report_menu_release(ReportMenu* menu) noexcept {
     arena_release(&menu->storage);
-    *menu = {};
+    reset_value(menu);
 }
 
 bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) noexcept {

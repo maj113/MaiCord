@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/protocol/gateway_commands.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 // Worker-owned state describes completed transport writes. Latest desired UI
@@ -36,6 +37,6 @@ inline void gateway_subscription_thread_owner_reset_connection(GatewaySubscripti
     gateway_subscription_thread_owner_complete(owner, false);
 }
 inline void gateway_subscription_thread_owner_ready(GatewaySubscriptionThreadOwner* owner, bool fresh) noexcept {
-    if (fresh) *owner = {};
+    if (fresh) reset_value(owner);
 }
 } // namespace maicord

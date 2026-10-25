@@ -32,7 +32,7 @@ __declspec(noinline) inline bool aac_configuration_decode(ConstSlice<u8> source,
             return true;
         }
         bool frequency(u32* out) noexcept {
-            constexpr u32 rates[]{96000, 88200, 64000, 48000, 44100, 32000, 24000,
+            static constexpr u32 rates[]{96000, 88200, 64000, 48000, 44100, 32000, 24000,
                                   22050, 16000, 12000, 11025, 8000,  7350};
             u32 index = 0;
             if (!take(4, &index))
@@ -95,7 +95,7 @@ __declspec(noinline) inline bool aac_configuration_decode(ConstSlice<u8> source,
         if (!bits.take(1, &trailing) || trailing)
             return false;
     }
-    constexpr u32 rates[]{48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000};
+    static constexpr u32 rates[]{48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000};
     bool supported = false;
     for (const auto rate : rates)
         supported = supported || next.sample_rate == rate;

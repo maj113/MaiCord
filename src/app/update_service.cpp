@@ -1,4 +1,5 @@
 #include "maicord/app/update_service.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/update_log.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/platform/random.hpp"
@@ -227,7 +228,7 @@ void offer_changelog(UpdateService* s, const UpdateTransport& transport, Utf8Vie
     if (s->observer.offered) s->observer.offered(s->observer.context, manifest, verified);
 }
 bool hex_name(const wchar_t* name, const u8* digest) noexcept {
-    constexpr wchar_t hex[] = L"0123456789abcdef";
+    static constexpr wchar_t hex[] = L"0123456789abcdef";
     if (name[0] != L'g' || name[1] != L'-') return false;
     for (u32 i = 0; i < 32; ++i)
         if (name[2 + i * 2] != hex[digest[i] >> 4] || name[3 + i * 2] != hex[digest[i] & 15]) return false;
@@ -356,7 +357,7 @@ void update_service_close(UpdateService* s) noexcept {
 
 UpdateServiceError update_service_inspect(UpdateService* s, UpdateInstalledState* out) noexcept {
     if (!s || !out || !s->initialized) return SE::state;
-    *out = {};
+    reset_value(out);
     if (!s->config.configured) return SE::configuration;
     if (!exists(s->paths.journal)) return SE::none;
     const SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
@@ -628,7 +629,7 @@ UpdateServiceError update_service_child_open(const UpdateServiceConfig& config, 
     UpdatePaths paths = input_paths;
     if (!canonicalize(&paths)) return SE::storage;
     // <root>\g-<64 lowercase hex>\MaiCord.exe, root from trusted configuration.
-    constexpr wchar_t exe[] = L"\\MaiCord.exe";
+    static constexpr wchar_t exe[] = L"\\MaiCord.exe";
     constexpr u32 exe_count = sizeof(exe) / sizeof(wchar_t) - 1;
     if (!module.data || module.count != paths.root_count + 1 + 66 + exe_count ||
         !same_path(module.data, paths.root_count, paths.root, paths.root_count) || module[paths.root_count] != L'\\' ||

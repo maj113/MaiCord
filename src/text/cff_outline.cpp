@@ -1,4 +1,5 @@
 #include "cff_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 
@@ -449,17 +450,17 @@ template<bool Bold> SfntStatus decode(const CffFont& font, u16 glyph, double dx,
 #pragma float_control(pop)
 
 template<bool Bold> SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
-    if (metrics) *metrics={};
+    if (metrics) reset_value(metrics);
     if (!output) return SfntStatus::invalid_input;
     auto* commands=output->commands; const u32 capacity=output->capacity;
-    *output={}; output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
+    reset_value(output); output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
     if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
     auto status=decode<Bold>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
     if constexpr (Bold) { if(status==SfntStatus::ok)status=cff_bolden(font,*output,work_limit,oblique); }
     if(status!=SfntStatus::ok) {
-        *output={}; output->commands=commands; output->capacity=capacity;
+        reset_value(output); output->commands=commands; output->capacity=capacity;
         output->fill_rule=GlyphFillRule::winding; output->rejected=1;
-        if (metrics) *metrics={};
+        if (metrics) reset_value(metrics);
     }
     return status;
 }

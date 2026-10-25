@@ -128,7 +128,7 @@ bool records_duplicate(const u8* records, u32 record_bytes, u32 record_index, u6
 void message_drafts_image_release(MessageDraftImage* image) noexcept {
     if (image) {
         file_persistence_secure_release(image->bytes, image->count);
-        *image = MessageDraftImage{};
+        reset_value<MessageDraftImage>(image);
     }
 }
 
@@ -207,7 +207,7 @@ MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, Message
     u8* const file_bytes = image->bytes;
     const u32 total = image->count;
     const u32 records = image->records;
-    *image = MessageDraftImage{};
+    reset_value<MessageDraftImage>(image);
     wchar_t temporary[kAccountProfileMaximumPathCharacters]{};
     for (u32 index = 0; index < characters; ++index) {
         temporary[index] = path[index];

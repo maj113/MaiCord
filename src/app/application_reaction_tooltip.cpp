@@ -80,7 +80,7 @@ void track(u64 scope, u64 channel_id, u64 message_id, u64 emoji_id, Utf8View nam
         utf8_equal({s.emoji_name, s.emoji_name_bytes}, name))
         return;
     const u64 epoch = s.epoch + 1;
-    s = {};
+    reset_value(&s);
     s.scope = scope;
     s.channel_id = channel_id;
     s.message_id = message_id;

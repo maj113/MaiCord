@@ -92,7 +92,7 @@ Operation* open_operation(Worker* w, bool network) noexcept {
     }
     op->workspace_ready = true;
     const auto loaded = plugin_providers_load({op->paths.providers, op->paths.providers_count}, &op->providers);
-    if (!loaded.ok()) op->providers = {}; // a missing or unreadable providers.bin leaves the official provider only
+    if (!loaded.ok()) reset_value(&op->providers); // a missing or unreadable providers.bin leaves the official provider only
     const u8* keys[2]{w->config.keys[0], w->config.keys[1]};
     plugin_catalog_sources_build({w->config.repository, w->config.repository_bytes}, {keys, w->config.key_count}, op->providers,
         &op->keys, &op->sources);
@@ -246,7 +246,7 @@ void settle_unrelated(Worker* w, Operation* op, const PluginBrowserCommand& cmd,
     if (!plugin_journal_load({op->paths.journal, op->paths.journal_count}, &journal).ok() || journal.operation == Op::none) return;
     if (journal.operation == Op::update && journal.phase == PluginJournalPhase::staged && cmd.kind == Kind::operation &&
         cmd.operation == Op::update && journal.owner == cmd.owner && journal.to_code == cmd.version_code && journal.provider == cmd.provider) {
-        w->prepared = {};
+        reset_value(&w->prepared);
         w->prepared.journal = journal;
         w->prepared.options.retain_previous = true;
         w->prepared.manifest_count = plugin_manager_id_path(op->paths.staging, op->paths.staging_count, journal.owner,
@@ -262,7 +262,7 @@ void settle_unrelated(Worker* w, Operation* op, const PluginBrowserCommand& cmd,
 void free_probe(Worker* w) noexcept {
     release(w->probe_work);
     w->probe_work = nullptr;
-    w->probe = {};
+    reset_value(&w->probe);
 }
 void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcept {
     publish(w, [](PluginBrowserWorkerView& v) noexcept { v.phase = PluginBrowserPhase::working; });
@@ -309,7 +309,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
     }
     case Kind::finish:
         manager = plugin_manager_finish(op->paths, w->prepared, cmd.delete_data, &op->manager, &settled);
-        if (manager.ok()) w->prepared = {};
+        if (manager.ok()) reset_value(&w->prepared);
         changed = true;
         break;
     case Kind::probe:
@@ -328,7 +328,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
             typed = {text, n};
         }
         address_error = plugin_provider_address_parse(typed, op->workspace, &address);
-        w->probe_address = address;
+        copy_value(&w->probe_address, address);
         if (address_error != PluginProviderAddressError::none) break;
         if (!ensure_work(w->probe_work)) { address_error = PluginProviderAddressError::invalid_input; break; }
         w->probe = plugin_provider_probe(address, op->transport, op->workspace, w->probe_work, cmd.allow_unsigned && cmd.kind == Kind::probe, now);
@@ -374,7 +374,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         v.settled = settled;
         v.record = record;
         v.address_error = address_error;
-        v.address = w->probe_address;
+        copy_value(&v.address, w->probe_address);
         v.probe = w->probe;
         v.add = add;
     });
@@ -439,7 +439,7 @@ bool plugin_browser_worker_start(const PluginBrowserConfig& config, const Plugin
     if (g_worker) return true;
     auto* w = allocate<Worker>();
     if (!w) return false;
-    w->config = config;
+    copy_value(&w->config, config);
     w->options = options;
     if (options.base && options.base_count && options.base_count <= kPluginManagerBaseMaximumCharacters) {
         copy_bytes(w->base, options.base, options.base_count * static_cast<u32>(sizeof(wchar_t)));
@@ -538,7 +538,7 @@ bool plugin_browser_worker_command(const PluginBrowserCommand& command, u64* ser
     AcquireSRWLockExclusive(w->lock.native());
     const bool accepted = !w->command_pending && !w->command_running;
     if (accepted) {
-        w->command = command;
+        copy_value(&w->command, command);
         w->command_serial = ++w->next_serial;
         w->command_pending = true;
         if (serial) *serial = w->command_serial;

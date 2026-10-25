@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
 #include "maicord/app/shortcut_registry.hpp"
@@ -148,7 +149,7 @@ bool confirm_picks(ApplicationQuickSwitcher& q) noexcept {
                    : application_private_channel_create({people, count});
 }
 void revoke_capture(ApplicationQuickSwitcher& q) noexcept {
-    q.pressed = {}; q.captured = q.dragging = false;
+    reset_value(&q.pressed); q.captured = q.dragging = false;
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
     if (GetCapture() == g_app.window) ReleaseCapture();
 }
@@ -272,7 +273,7 @@ void application_quick_switcher_release() noexcept {
         g_app.quick_switcher = nullptr;
         SecureZeroMemory(q, sizeof(*q)); VirtualFree(q, 0, MEM_RELEASE);
     }
-    g_app.quick_switcher_recent_scope = {};
+    reset_value(&g_app.quick_switcher_recent_scope);
     g_app.quick_switcher_recent_count = 0;
     SecureZeroMemory(g_app.quick_switcher_recent_channels, sizeof(g_app.quick_switcher_recent_channels));
 }
@@ -359,7 +360,7 @@ bool application_quick_switcher_open() noexcept {
     if (g_app.quick_switcher_lifetime_serial == ~u64{0}) return false;
     q->identity = ++g_app.quick_switcher_lifetime_serial;
     q->active = q->focused = q->edit.focused = true;
-    q->controller = {};
+    reset_value(&q->controller);
     for (u32 i = g_app.quick_switcher_recent_count; i > 0; --i)
         quick_switcher_visit(&q->controller, scope(), sources(), g_app.quick_switcher_recent_channels[i - 1]);
     // An empty MRU still needs an initialized scope before publication.

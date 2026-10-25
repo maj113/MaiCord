@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_preferences.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -164,7 +165,7 @@ NativePluginPreferencesResult save_file(NativePluginPreferencesIo* io,const wcha
     // Each transaction gets fresh candidates rather than a permanent slot set.
     static u64 sequence=0;
     u64 suffix=hash64_mix(hash64_mix(GetTickCount64(),process_id()),++sequence);
-    constexpr wchar_t hexadecimal[]=L"0123456789abcdef";
+    static constexpr wchar_t hexadecimal[]=L"0123456789abcdef";
     for(u32 attempt=0;attempt<16;++attempt) {
         for(u32 i=0;i<16;++i) held.path[base+4+i]=hexadecimal[(suffix>>((15-i)*4))&15];
         held.path[temporary_count]=0;
@@ -245,7 +246,7 @@ bool native_plugin_preferences_remove_owner(NativePluginPreferences* preferences
     if(!preferences || !owner || !native_plugin_preferences_valid(*preferences)) return false;
     for(u32 i=0;i<preferences->count;++i) if(preferences->entries[i].owner_id==owner) {
         for(u32 j=i+1;j<preferences->count;++j) preferences->entries[j-1]=preferences->entries[j];
-        preferences->entries[--preferences->count]={};return true;
+        reset_value(&preferences->entries[--preferences->count]);return true;
     }
     return false;
 }
@@ -305,8 +306,8 @@ NativePluginPreferencesResult native_plugin_preferences_load_file(NativePluginPr
         {reinterpret_cast<const u8*>(io),sizeof(*io)})) return fail(Error::invalid_input);
     u32 length=0,parent=0;
     if(!path_valid(path,&length,&parent) || !byte_ranges_disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
-        {reinterpret_cast<const u8*>(path),(length+1)*2})) {*preferences={};return fail(Error::path);}
-    *preferences={};auto outcome=begin(io,path,&parent);if(!outcome.ok()) return outcome;
+        {reinterpret_cast<const u8*>(path),(length+1)*2})) {reset_value(preferences);return fail(Error::path);}
+    reset_value(preferences);auto outcome=begin(io,path,&parent);if(!outcome.ok()) return outcome;
     auto& held=*io->cleanup;outcome=pin(held,parent,false);
     if(!outcome.ok()) {
         if(outcome.error==Error::directory && (outcome.win32_error==ERROR_FILE_NOT_FOUND || outcome.win32_error==ERROR_PATH_NOT_FOUND)) outcome={Error::none,outcome.win32_error,true};
@@ -323,7 +324,7 @@ NativePluginPreferencesResult native_plugin_preferences_load_file(NativePluginPr
     if(bytes_equal(held.record,kMagic,8) && byte_load_le32(held.record+8)!=kNativePluginPreferencesVersion)
         return finish(io,{Error::none,0,true});
     outcome=native_plugin_preferences_decode({held.record,bytes},preferences);
-    outcome=finish(io,outcome);if(!outcome.ok()) *preferences={};return outcome;
+    outcome=finish(io,outcome);if(!outcome.ok()) reset_value(preferences);return outcome;
 }
 NativePluginPreferencesResult native_plugin_preferences_save_file(NativePluginPreferencesIo* io,const wchar_t* path,const NativePluginPreferences& preferences) noexcept {
     return save_file(io,path,preferences,false);
@@ -331,7 +332,7 @@ NativePluginPreferencesResult native_plugin_preferences_save_file(NativePluginPr
 NativePluginPreferencesResult native_plugin_preferences_load(NativePluginPreferencesIo* io,NativePluginPreferences* preferences) noexcept {
     if(!preferences) return fail(Error::invalid_input);
     wchar_t path[1024]{};const auto made=user_path(path);
-    if(!made.ok()) {*preferences={};return made;}return native_plugin_preferences_load_file(io,path,preferences);
+    if(!made.ok()) {reset_value(preferences);return made;}return native_plugin_preferences_load_file(io,path,preferences);
 }
 NativePluginPreferencesResult native_plugin_preferences_save(NativePluginPreferencesIo* io,const NativePluginPreferences& preferences) noexcept {
     wchar_t path[1024]{};const auto made=user_path(path);

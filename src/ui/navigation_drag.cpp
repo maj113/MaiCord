@@ -1,4 +1,5 @@
 #include "maicord/ui/navigation_drag.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -41,7 +42,7 @@ void navigation_drag_press(NavigationDrag* drag, NavigationDragList list, u64 so
                            UiPoint point) noexcept {
     if (!drag)
         return;
-    *drag = {};
+    reset_value(drag);
     const bool draggable = source_id && list != NavigationDragList::none &&
                            (list == NavigationDragList::guilds ? guild_source(kind) || kind == Kind::folder
                                                                : channel_source(kind) || kind == Kind::category);
@@ -64,13 +65,13 @@ bool navigation_drag_move(NavigationDrag* drag, UiPoint point) noexcept {
     if (dx * dx + dy * dy < kNavigationDragThreshold * kNavigationDragThreshold)
         return false;
     drag->phase = NavigationDragPhase::dragging;
-    drag->target = {};
+    reset_value(&drag->target);
     return true;
 }
 
 void navigation_drag_cancel(NavigationDrag* drag) noexcept {
     if (drag)
-        *drag = {};
+        reset_value(drag);
 }
 
 bool navigation_drag_release(NavigationDrag* drag, NavigationDragTarget* drop) noexcept {
@@ -80,7 +81,7 @@ bool navigation_drag_release(NavigationDrag* drag, NavigationDragTarget* drop) n
                            drag->target.id;
     if (committed && drop)
         *drop = drag->target;
-    *drag = {};
+    reset_value(drag);
     return committed;
 }
 

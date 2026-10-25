@@ -1,4 +1,5 @@
 #include "maicord/media/mp4_fragment_source.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/media/mp4_segment_store.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
@@ -42,7 +43,7 @@ E read_fragment(const Mp4FragmentSource& stream, const Mp4FragmentRange& range, 
     error = mp4_fragment_initialize({source.base + first, bytes}, first, range.bytes,
                                     stream.track.defaults, &fragment);
     if (error != E::none) return error;
-    *output = fragment;
+    copy_value(output, fragment);
     return E::none;
 }
 E load(Mp4FragmentSource& stream) noexcept {
@@ -52,12 +53,12 @@ E load(Mp4FragmentSource& stream) noexcept {
         const auto error = mp4_segment_store_request(&store, stream.segment.index);
         if (error != E::none) return error;
         const auto* slot = mp4_segment_store_find(store, stream.segment.index);
-        fragment = slot->media.fragment;
+        copy_value(&fragment, slot->media.fragment);
         if (stream.fragment.count && (fragment.first_time < stream.fragment.first_time + stream.fragment.duration ||
             (store.live && fragment.first_time != stream.fragment.first_time + stream.fragment.duration)))
             return E::malformed;
         if (!mp4_segment_store_retain(&store, stream.segment.index)) return E::data_pending;
-        stream.segment = slot->media.range; stream.fragment = fragment; stream.loaded = true;
+        stream.segment = slot->media.range; copy_value(&stream.fragment, fragment); stream.loaded = true;
         stream.next_fragment = slot->media.next_fragment;
         return E::none;
     }
@@ -68,7 +69,7 @@ E load(Mp4FragmentSource& stream) noexcept {
     if (!progressive_source_retain_metadata(stream.source, stream.reader, stream.segment.offset, fragment.metadata.count)) return E::data_pending;
     // sidx holds presentation timing; tfdt holds decode timing. They need not
     // be equal when pictures reorder. Every packet retains its real timestamps.
-    stream.fragment = fragment;
+    copy_value(&stream.fragment, fragment);
     stream.loaded = true;
     return E::none;
 }
@@ -127,7 +128,7 @@ Mp4DemuxError mp4_fragment_source_initialize_segments(Mp4SegmentStore* store, Mp
         value.presentation_end = last->media.presentation_end;
         if (!value.presentation_end) return E::malformed;
     }
-    *output = value;
+    copy_value(output, value);
     return E::none;
 }
 bool mp4_fragment_source_refresh(Mp4FragmentSource* stream) noexcept {
@@ -171,7 +172,7 @@ Mp4DemuxError mp4_fragment_source_initialize(ProgressiveSource* source, bool aud
     if (value.track.defaults.track_id != value.index.track_id || value.track.timescale != value.index.timescale ||
         !mp4_fragment_index_range(value.index, 0, &value.segment) || value.segment.offset < at) return E::malformed;
     progressive_source_pin(source, 0, at);
-    *output = value;
+    copy_value(output, value);
     return E::none;
 }
 Mp4DemuxError mp4_fragment_source_find(Mp4FragmentSource* stream, u64 time, Mp4FragmentRange* output) noexcept {
@@ -229,7 +230,7 @@ Mp4DemuxError mp4_fragment_source_peek(Mp4FragmentSource* stream, Mp4FragmentPac
         const auto error = mp4_media_segment_fragment({slot->storage.base, slot->bytes}, stream->track,
             stream->next_fragment, &next, &offset);
         if (error == E::none) {
-            stream->fragment = next; stream->next_fragment = offset;
+            copy_value(&stream->fragment, next); stream->next_fragment = offset;
         } else if (error != E::end_of_stream) return error;
     }
     if (stream->loaded && stream->fragment.index == stream->fragment.count) {
@@ -252,7 +253,8 @@ Mp4DemuxError mp4_fragment_source_peek(Mp4FragmentSource* stream, Mp4FragmentPac
         const auto error = load(*stream);
         if (error != E::none) return error;
     }
-    auto cursor = stream->fragment;
+    Mp4Fragment cursor;
+    copy_value(&cursor, stream->fragment);
     Mp4FragmentPacket value{}; value.segment = stream->segment.index;
     const auto error = mp4_fragment_next(&cursor, &value.sample);
     if (error != E::none) return error;
@@ -314,7 +316,7 @@ Mp4DemuxError mp4_fragment_source_prepare(Mp4FragmentSource* stream, u32 segment
         const auto error = mp4_segment_store_request(stream->segments, segment);
         if (error != E::none) return error;
         const auto* slot = mp4_segment_store_find(*stream->segments, segment);
-        value.segment = slot->media.range; value.fragment = slot->media.fragment;
+        value.segment = slot->media.range; copy_value(&value.fragment, slot->media.fragment);
         value.next_fragment = slot->media.next_fragment;
         if (sample >= slot->media.samples) return E::invalid_input;
         while (sample >= value.fragment.count) {
@@ -323,7 +325,7 @@ Mp4DemuxError mp4_fragment_source_prepare(Mp4FragmentSource* stream, u32 segment
             const auto parsed = mp4_media_segment_fragment({slot->storage.base, slot->bytes}, stream->track,
                 value.next_fragment, &following, &next);
             if (parsed != E::none) return parsed;
-            value.fragment = following; value.next_fragment = next;
+            copy_value(&value.fragment, following); value.next_fragment = next;
         }
     } else {
         mp4_fragment_source_cancel_prepare(stream);
@@ -336,7 +338,8 @@ Mp4DemuxError mp4_fragment_source_prepare(Mp4FragmentSource* stream, u32 segment
         Mp4FragmentSample skipped{};
         if (mp4_fragment_next(&value.fragment, &skipped) != E::none) return E::malformed;
     }
-    auto next = value.fragment;
+    Mp4Fragment next;
+    copy_value(&next, value.fragment);
     if (mp4_fragment_next(&next, &value.packet.sample) != E::none) return E::malformed;
     const auto& selected = value.packet.sample;
     if (selected.bytes > kProgressiveMinimumAheadBytes) return E::unsupported;
@@ -346,7 +349,7 @@ Mp4DemuxError mp4_fragment_source_prepare(Mp4FragmentSource* stream, u32 segment
     if (resident != E::none) return resident;
     value.packet.segment = segment;
     value.generation = generation(*stream);
-    *output = value;
+    copy_value(output, value);
     return E::none;
 }
 void mp4_fragment_source_cancel_prepare(Mp4FragmentSource* stream) noexcept {
@@ -363,7 +366,7 @@ bool mp4_fragment_source_adopt(Mp4FragmentSource* stream, const Mp4FragmentPosit
     } else if (!progressive_source_available(*stream->source, position.packet.sample.offset, position.packet.sample.bytes) ||
                !progressive_source_retain_metadata(stream->source, stream->reader, position.segment.offset,
                                                    position.fragment.metadata.count)) return false;
-    stream->segment = position.segment; stream->fragment = position.fragment;
+    stream->segment = position.segment; copy_value(&stream->fragment, position.fragment);
     stream->next_fragment = position.next_fragment;
     stream->loaded = stream->pending = true; stream->ended = false;
     mp4_fragment_source_cancel_prepare(stream);
@@ -416,7 +419,7 @@ bool mp4_fragment_source_select(Mp4FragmentSource* stream, u32 segment) noexcept
     else if (segment < stream->index.count && !mp4_fragment_index_range(stream->index, segment, &selected)) return false;
     mp4_fragment_source_cancel_prepare(stream);
     if (stream->source) progressive_source_retain_metadata(stream->source, stream->reader, 0, 0);
-    stream->segment = selected; stream->fragment = {}; stream->next_fragment = 0;
+    stream->segment = selected; reset_value(&stream->fragment); stream->next_fragment = 0;
     stream->loaded = stream->pending = false;
     stream->ended = segment == stream->index.count && !(stream->segments && stream->segments->live && !stream->segments->ended);
     if (stream->segments) {
@@ -431,6 +434,6 @@ void mp4_fragment_source_release(Mp4FragmentSource* stream) noexcept {
     if (stream->source)
         stream->source->readers[stream->reader == ProgressiveTrack::audio ? 1 : 0] = {stream->source};
     if (stream->segments) { mp4_segment_store_cancel(stream->segments); stream->segments->active = 2; }
-    *stream = {};
+    reset_value(stream);
 }
 } // namespace maicord

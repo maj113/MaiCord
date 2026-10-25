@@ -1,11 +1,13 @@
 #pragma once
 #include "maicord/app/client_preferences.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/theme_presets.hpp"
 #include "maicord/ui/background_color_math.hpp"
 #include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
-inline Theme client_theme_projection(const ClientPreferences& preferences) noexcept {
+// One out-of-line copy: inlined, every token default expands at each caller.
+__declspec(noinline) inline Theme client_theme_projection(const ClientPreferences& preferences) noexcept {
     Theme theme =
         preferences.theme == ClientTheme::light || preferences.theme == ClientTheme::custom_light_gradient
             ? kLightTheme
@@ -19,7 +21,7 @@ inline Theme client_theme_projection(const ClientPreferences& preferences) noexc
         // unchanged; designated canvases use their own actual fill color.
         if (background_theme_valid(preferences.gradient) &&
             preferences.gradient.effect != BackgroundEffect::none) {
-            theme.background = {};
+            reset_value(&theme.background);
             theme.background.effect = preferences.gradient.effect;
             theme.background.speed = preferences.gradient.speed;
             theme.background.strength = preferences.gradient.strength;
@@ -30,9 +32,9 @@ inline Theme client_theme_projection(const ClientPreferences& preferences) noexc
     theme.background =
         background_theme_valid(preferences.gradient) ? preferences.gradient : background_theme_defaults();
     const u32* palette = nullptr;
-    constexpr u32 aurora[3]{0x6935b8, 0x164d80, 0x16836f};
-    constexpr u32 sunset[3]{0x7a284b, 0xa65732, 0x362062};
-    constexpr u32 ocean[3]{0x15335f, 0x167d89, 0x363269};
+    static constexpr u32 aurora[3]{0x6935b8, 0x164d80, 0x16836f};
+    static constexpr u32 sunset[3]{0x7a284b, 0xa65732, 0x362062};
+    static constexpr u32 ocean[3]{0x15335f, 0x167d89, 0x363269};
     if (preferences.theme == ClientTheme::aurora)
         palette = aurora;
     else if (preferences.theme == ClientTheme::sunset)

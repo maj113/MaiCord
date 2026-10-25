@@ -1,4 +1,5 @@
 #include "maicord/platform/speech.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/speech.hpp"
@@ -61,6 +62,6 @@ void speech_release(Speech* speech) noexcept {
     }
     if (speech->com_initialized)
         CoUninitialize();
-    *speech = {};
+    reset_value(speech);
 }
 } // namespace maicord

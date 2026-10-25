@@ -157,7 +157,7 @@ bool unbind_playback_scenes() noexcept {
     renderer_bind_audio_scene(&g_app.renderer, nullptr);
     g_app.renderer.video_scene = nullptr;
     if (g_app.renderer.inline_embed_video.id) {
-        g_app.renderer.inline_embed_video = {};
+        reset_value(&g_app.renderer.inline_embed_video);
         g_app.renderer.retained_presentation.valid = false;
     }
     g_app.renderer.video_scene_search_result = false;
@@ -1110,7 +1110,7 @@ void application_video_blur() noexcept {
 namespace {
 void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
     if (retired_identity)
-        *retired_identity = {};
+        reset_value(retired_identity);
     auto* video = g_app.video;
     if (!video)
         return;

@@ -48,7 +48,7 @@ struct Text {
 bool text(JsonValue value, Text* bank, u32 byte_limit, u32 scalar_limit, Utf8View* out,
           bool nullable = false) noexcept {
     if (nullable && value.kind == JsonValueKind::null_value) {
-        *out = {};
+        reset_value(out);
         return true;
     }
     JsonString string{};
@@ -458,7 +458,7 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
     if (data.kind == JsonValueKind::null_value) {
         if (data.source.bytes != 4 || !bytes_equal(data.source.data, "null", 4))
             return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
-        *output = {};
+        reset_value(output);
         return decode_failure(GatewayEventDecodeError::none);
     }
     if (data.kind != JsonValueKind::object)

@@ -108,7 +108,7 @@ void push_recent(EmojiFrecencyItem& item, u64 value) noexcept {
 }
 
 E frecency_item(Reader r, EmojiFrecencyItem& item) noexcept {
-    item = {};
+    reset_value(&item);
     while (r.at < r.end) {
         u32 f = 0, t = 0;
         u64 n = 0;
@@ -146,8 +146,8 @@ E frecency_item(Reader r, EmojiFrecencyItem& item) noexcept {
 
 // One map entry: key (1) and value (2); missing value is a default item.
 E map_entry(Reader r, Utf8View& key, EmojiFrecencyItem& item) noexcept {
-    key = {};
-    item = {};
+    reset_value(&key);
+    reset_value(&item);
     while (r.at < r.end) {
         u32 f = 0, t = 0;
         if (!r.tag(f, t))
@@ -512,7 +512,7 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
         result.error = E::input;
         return result;
     }
-    *snapshot = {};
+    reset_value(snapshot);
     u32 sizes[3]{};
     // Pass 0 validates and measures; pass 1 copies once everything fits.
     for (u32 pass = 0; pass < 2; ++pass) {
@@ -679,8 +679,8 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
         return fail(E::capacity);
     if (counted.used > scratch.count || counted.used > 3 * (kEmojiPreferencesMaximumGroupBytes + 8))
         return fail(E::capacity);
-    constexpr char start[] = "{\"settings\":\"";
-    constexpr char middle[] = "\",\"required_data_version\":";
+    static constexpr char start[] = "{\"settings\":\"";
+    static constexpr char middle[] = "\",\"required_data_version\":";
     constexpr u32 start_bytes = static_cast<u32>(sizeof(start) - 1);
     constexpr u32 middle_bytes = static_cast<u32>(sizeof(middle) - 1);
     const u32 encoded_bytes = base64_encoded_size(counted.used);

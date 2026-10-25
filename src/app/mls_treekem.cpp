@@ -143,7 +143,7 @@ MlsStatus mls_treekem_joiner_init(KdfSha256Workspace& kdf, MlsTreeKemPrivate* st
         !package.leaf_encryption_key || !tree.nodes.data || !tree.group_id || !tree.leaf_count ||
         signer >= tree.leaf_count)
         return MlsStatus::invalid_argument;
-    *state = {};
+    reset_value(state);
     MlsTreeKemPrivate candidate{};
     MlsWipe wipe{&candidate, sizeof(candidate)};
     if (!p256_export_private(leaf_key, {candidate.leaf_private, kMlsScalarBytes}).ok() ||
@@ -237,7 +237,7 @@ MlsStatus mls_treekem_carry_forward(KdfSha256Workspace& kdf, MlsTreeKemPrivate* 
     if (!next || next == &current || !current.initialized || current.path_count > kMaxPrivateNodes ||
         current.leaf_index >= tree.leaf_count)
         return MlsStatus::invalid_argument;
-    *next = {};
+    reset_value(next);
     if (scratch.count < mls_tree_index_bytes(tree))
         return MlsStatus::buffer_too_small;
     MlsTreeIndex index{};
@@ -262,11 +262,11 @@ MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate*
         current.leaf_index >= proposal_tree.leaf_count || !proposal_tree.group_id ||
         !proposal_tree.nodes.data)
         return MlsStatus::invalid_argument;
-    *next = {};
+    reset_value(next);
     *stub_bytes = 0;
     *tree_bytes = 0;
-    *stub_path = {};
-    *merged = {};
+    reset_value(stub_path);
+    reset_value(merged);
     if (scratch.count < mls_tree_validation_bytes(proposal_tree.leaf_count, proposal_tree.node_count))
         return MlsStatus::buffer_too_small;
     MlsTreeKemPrivate candidate{};
@@ -355,8 +355,8 @@ MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate*
         if (*tree_bytes)
             secure_clear_bytes(tree_output.data, *tree_bytes);
         *stub_bytes = *tree_bytes = 0;
-        *stub_path = {};
-        *merged = {};
+        reset_value(stub_path);
+        reset_value(merged);
         return status;
     }
     *next = candidate;
@@ -373,7 +373,7 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
         (!output.data && output.count))
         return MlsStatus::invalid_argument;
     *written = 0;
-    *path = {};
+    reset_value(path);
     constexpr u32 one_ciphertext = 2 + kMlsPointBytes + 1 + kMlsPathSecretCiphertextBytes;
     constexpr u32 public_key_bytes = 2 + kMlsPointBytes;
     MlsTreeIndex index{};
@@ -495,7 +495,7 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
         status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
         secure_clear_bytes(output.data, minimum(writer.used, output.count));
-        *path = {};
+        reset_value(path);
         return status;
     }
     *written = required;
@@ -509,7 +509,7 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
         current.leaf_index >= merged.leaf_count || committer >= merged.leaf_count ||
         committer == current.leaf_index || (!joiners.data && joiners.count))
         return MlsStatus::invalid_argument;
-    *next = {};
+    reset_value(next);
     MlsTreeKemPrivate candidate{};
     MlsWipe candidate_wipe{&candidate, sizeof(candidate)};
     MlsTreeIndex index{};

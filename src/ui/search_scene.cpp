@@ -229,7 +229,7 @@ UiIcon choice_icon(const UiSearchFilterChoiceSource& source, const UiSearchFilte
     case UiSearchFilterKind::author_type:
         return row.semantic == 1 ? UiIcon::bot : row.semantic == 2 ? UiIcon::webhook : UiIcon::user;
     case UiSearchFilterKind::file_type: {
-        constexpr UiIcon icons[] = {UiIcon::image, UiIcon::file_video, UiIcon::file_audio,
+        static constexpr UiIcon icons[] = {UiIcon::image, UiIcon::file_video, UiIcon::file_audio,
                                     UiIcon::file_text, UiIcon::file_archive};
         return row.semantic < 5 ? icons[row.semantic] : UiIcon::file;
     }
@@ -311,7 +311,7 @@ UiRect choice_avatar_rectangle(const UiMenuRowGeometry& geometry, const UiRect& 
 }
 // Tab presentation and the per-item layouts of the Media, Files and Links tabs.
 Utf8View tab_label(u32 tab) noexcept {
-    constexpr Utf8View labels[] = {utf8_literal("Messages"), utf8_literal("Media"), utf8_literal("Files"),
+    static constexpr Utf8View labels[] = {utf8_literal("Messages"), utf8_literal("Media"), utf8_literal("Files"),
                                    utf8_literal("Links"), utf8_literal("Pins")};
     return tab < 5 ? labels[tab] : Utf8View{};
 }
@@ -493,7 +493,7 @@ bool build_items(UiSearchScene& s) noexcept {
             if (p.item_count == kUiSearchItemMaximum)
                 return nullptr;
             auto& item = p.items[p.item_count++];
-            item = {};
+            reset_value(&item);
             item.source_index = i;
             item.message_id = record->id;
             item.channel_id = record->channel_id;
@@ -876,7 +876,7 @@ bool add_items(UiSearchScene& s) noexcept {
         const u32 v = p.visible_count++;
         p.visible[v] = static_cast<u16>(k);
         p.screens[v] = screen;
-        p.secondary[v] = {};
+        reset_value(&p.secondary[v]);
         p.detail_bytes[v] = 0;
         const auto title = item_title(s, item);
         const Utf8View name = s.layout == UiSearchLayout::grid ? utf8_literal("Open media")
@@ -1072,7 +1072,7 @@ bool rebuild(UiSearchScene& s) noexcept {
         s.buttons[8] = add(s, {p.right - 120, p.top + 40, p.right - 8, p.top + 72},
                            {UiSearchAction::sort, 0, 0}, label(UiSearchAction::sort));
         for (u32 i = 0; i < 5; ++i) {
-            s.tabs[i] = {};
+            reset_value(&s.tabs[i]);
             if (!s.content->tabs)
                 continue;
             const float width = (ui_rect_width(p) - 16) / 5;
@@ -1085,7 +1085,7 @@ bool rebuild(UiSearchScene& s) noexcept {
         const UiSearchAction sorts[] = {UiSearchAction::newest, UiSearchAction::oldest,
                                         UiSearchAction::relevance};
         for (u32 i = 0; i < 3; ++i)
-            s.buttons[3 + i] = {};
+            reset_value(&s.buttons[3 + i]);
         s.buttons[6] =
             add(s, {p.left + 8, p.bottom - 36, p.left + 76, p.bottom - 8}, {UiSearchAction::previous, 0, 0},
                 label(UiSearchAction::previous), s.content->previous);
@@ -1825,7 +1825,7 @@ void ui_search_scene_release(UiSearchScene* s) noexcept {
         ui_widget_storage_release(&s->rich_projection->widgets);
     }
     arena_release(&s->rich_projection_storage);
-    *s = {};
+    reset_value(s);
 }
 bool ui_search_scene_scroll(UiSearchScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset))

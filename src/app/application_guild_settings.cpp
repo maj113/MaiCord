@@ -165,7 +165,7 @@ void release_picked(Picked* picked) noexcept {
         secure_clear_bytes(picked->data, picked->capacity);
         VirtualFree(picked->data, 0, MEM_RELEASE);
     }
-    *picked = {};
+    reset_value(picked);
 }
 namespace {
 // The icon, banner and splash picks and their data URIs.
@@ -240,13 +240,13 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation present
         return ~0u;
     owner->controls[owner->control_count] = control;
     owner->presentation[owner->control_count] = presentation;
-    owner->avatar_media[owner->control_count] = {};
-    owner->list_items[owner->control_count] = {};
+    reset_value(&owner->avatar_media[owner->control_count]);
+    reset_value(&owner->list_items[owner->control_count]);
     return owner->control_count++;
 }
 void popup_row(u32 index, Utf8View label, u32 action, u32 flags) noexcept {
     auto& item = owner->popup_items[index];
-    item = {};
+    reset_value(&item);
     item.label = label;
     item.action = kMenuChoiceBase + action;
     item.flags = static_cast<u16>(popup_item_enabled | flags);
@@ -276,13 +276,13 @@ UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, b
 }
 // Avatar fill for people without a role colour, stable per user.
 u32 person_color(u64 user_id) noexcept {
-    constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
+    static constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
     return colors[(user_id >> 22) % 6];
 }
 
 // "512×512 PNG · 1.0 MB", plus the source size when it was resized.
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept {
-    constexpr Utf8View kinds[]{{}, utf8_literal(" PNG"), utf8_literal(" APNG"), utf8_literal(" GIF"),
+    static constexpr Utf8View kinds[]{{}, utf8_literal(" PNG"), utf8_literal(" APNG"), utf8_literal(" GIF"),
                                utf8_literal(" JPEG"), utf8_literal(" WebP"), utf8_literal(" Lottie")};
     if (info.width) {
         bank.number(info.width);
@@ -424,7 +424,7 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     }
     if (!rgba)
         return false;
-    *theme = {};
+    reset_value(theme);
     theme->colors[0] = rgba >> 8;
     theme->color_count = 1;
     return true;
@@ -521,13 +521,13 @@ bool repaint() noexcept {
 
 void queue(Op op, u64 target) noexcept {
     auto& r = owner->request;
-    r = {};
+    reset_value(&r);
     r.op = op;
     r.target = target;
     r.queued = true;
     owner->retry_at = 0;
     owner->failed = false;
-    owner->status = {};
+    reset_value(&owner->status);
     application_request_frame();
 }
 namespace {
@@ -595,7 +595,7 @@ bool creation_save(TextFormOwnerKey key, Utf8View text) noexcept {
     creation.name_bytes = static_cast<u16>(text.bytes);
     creation.queued = true;
     creation.retry_at = 0;
-    creation.status = {};
+    reset_value(&creation.status);
     ++creation.revision;
     application_request_frame();
     return false;
@@ -617,7 +617,7 @@ ApplicationTextFormProgress creation_progress(TextFormOwnerKey key) noexcept {
 }
 void creation_closed(TextFormOwnerKey key) noexcept {
     if (key.scope == creation.serial && !creation.request_id)
-        creation = {};
+        reset_value(&creation);
 }
 
 } // namespace
@@ -673,7 +673,7 @@ void start_pick(Pick pick) noexcept {
     auto& p = *owner;
     if (p.picker.runtime || !connected() || !editable())
         return;
-    constexpr Utf8View titles[]{{},
+    static constexpr Utf8View titles[]{{},
                                 utf8_literal("Choose a server icon"),
                                 utf8_literal("Choose a server banner"),
                                 utf8_literal("Choose a role icon"),
@@ -708,7 +708,7 @@ bool probe_picked(GuildImageProfile profile, Picked* picked, Utf8View* error) no
     request.profile = profile;
     request.image = {picked->data, picked->bytes};
     request.info = &picked->info;
-    picked->info = {};
+    reset_value(&picked->info);
     const auto probed = g_app.account.api.guild_assets && g_app.account.instance
                             ? g_app.account.api.guild_assets(g_app.account.instance, &request, 0)
                             : RestClientSubmitResult{RestClientSubmitError::invalid_input};
@@ -724,7 +724,7 @@ bool probe_profile_image(Picked* picked, ProfileImageInfo* info, Utf8View* error
     ProfileImageRequest request{};
     request.source = {picked->data, picked->bytes};
     request.info = info;
-    *info = {};
+    reset_value(info);
     if (picked->bytes > kProfileImageSourceMaximumBytes) {
         *error = utf8_literal("Your files are too powerful. Max file size is 10.00 MB.");
         return false;
@@ -772,7 +772,7 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
             p.boost_draft.splash = GuildProfileImageEdit::replace;
         }
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         repaint();
         return;
     }
@@ -788,7 +788,7 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         p.upload = picked;
         p.upload.set = true;
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         const int units = WideCharToMultiByte(CP_UTF8, 0, filename.data, static_cast<int>(filename.count),
                                               p.upload_filename, sizeof(p.upload_filename), nullptr, nullptr);
         p.upload_filename_bytes = units > 0 ? static_cast<u32>(units) : 0;
@@ -822,7 +822,7 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         p.boost_draft.banner = GuildProfileImageEdit::replace;
     }
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     if (pick == Pick::emoji || pick == Pick::sticker) {
         const int units = WideCharToMultiByte(CP_UTF8, 0, filename.data, static_cast<int>(filename.count),
                                               p.upload_filename, sizeof(p.upload_filename), nullptr, nullptr);
@@ -932,7 +932,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         if (mutation_pending())
             return;
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         if (ops().load)
             ops().load();
         repaint();
@@ -1072,7 +1072,7 @@ void select_page(Page page) noexcept {
     p.editing_role = 0;
     p.profile_requested = false;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     release_images();
     release_picked(&p.role_icon);
     set_editor(editor_search, {});
@@ -1160,7 +1160,7 @@ u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<P
     u32 used = 0;
     for (const auto& definition : kPages)
         if ((sections & definition.section) && used < output.count) {
-            output[used] = {};
+            reset_value(&output[used]);
             output[used].label = definition.label;
             output[used].action = action_base + static_cast<u32>(definition.page);
             output[used].flags = popup_item_enabled;
@@ -1208,9 +1208,9 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.audit_filter_action = 0;
     p.audit_filter_action_set = false;
     p.editing_role = p.open_after_create = 0;
-    p.request = {};
+    reset_value(&p.request);
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     p.menu = Menu::none;
     p.engagement_base = p.engagement_draft = {};
     p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
@@ -1220,7 +1220,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.vanity_base_bytes = 0;
     p.vanity_uses = 0;
     p.ban_search_count = p.ban_search_bytes = 0;
-    p.bulk_notice = {};
+    reset_value(&p.bulk_notice);
     p.selected_count = 0;
     release_images();
     release_picked(&p.role_icon);
@@ -1229,7 +1229,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.sticker_count = 0;
     p.stickers_requested = p.stickers_loaded = false;
     p.safety_echo = false;
-    p.form_status = {};
+    reset_value(&p.form_status);
     next_form = next_form_item = 0;
     guild_ban_store_reset(&p.bans, guild_id);
     settings_layer_reset(&p.layer);
@@ -1261,7 +1261,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     {
         // project() requires an active scene; seed the selected page first.
         auto& content = page_content(p.page);
-        content.controls = {};
+        reset_value(&content.controls);
         if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips())) {
             application_guild_settings_close(false);
             return false;
@@ -1421,7 +1421,7 @@ bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8
     const u64 guild = category ? category->guild_id : guild_id;
     if (!guild_context_can_create_channel(s, category ? 0 : guild, category_id))
         return false;
-    creation = {};
+    reset_value(&creation);
     creation.serial = ++creation_serial ? creation_serial : ++creation_serial;
     creation.guild_id = guild;
     creation.parent_id = category_id;
@@ -1451,7 +1451,7 @@ bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8
     request.closed = creation_closed;
     if (application_text_form_open(request))
         return true;
-    creation = {};
+    reset_value(&creation);
     return false;
 }
 
@@ -1888,7 +1888,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         break;
     }
     case Op::role_update:
-        p.role_base = p.role_draft;
+        copy_value(&p.role_base, p.role_draft);
         p.role_echo = true;
         p.role_echo_until = deadline_after(now, kEchoMs);
         continue_save();
@@ -1931,7 +1931,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         guild_ban_store_apply_remove(&p.bans, p.guild_id, p.request.target);
         for (u32 i = 0; i < p.ban_search_count; ++i)
             if (p.ban_search[i].user.id == p.request.target) {
-                p.ban_search[i] = p.ban_search[--p.ban_search_count];
+                copy_value(&p.ban_search[i], p.ban_search[--p.ban_search_count]);
                 break;
             }
         break;
@@ -1961,13 +1961,13 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             break;
         }
         for (u32 i = 0; i < page.entry_count && p.audit_count < kAuditCapacity; ++i)
-            p.audit[p.audit_count++] = p.audit_page[i];
+            copy_value(&p.audit[p.audit_count++], p.audit_page[i]);
         for (u32 i = 0; i < page.user_count; ++i) {
             bool known = false;
             for (u32 j = 0; j < p.audit_user_count && !known; ++j)
                 known = p.audit_users[j].id == p.audit_page_users[i].id;
             if (!known && p.audit_user_count < kAuditUsers)
-                p.audit_users[p.audit_user_count++] = p.audit_page_users[i];
+                copy_value(&p.audit_users[p.audit_user_count++], p.audit_page_users[i]);
         }
         p.audit_complete = page.entry_count < kAuditPage || p.audit_count >= kAuditCapacity;
         break;

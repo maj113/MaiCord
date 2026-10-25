@@ -1,4 +1,5 @@
 #include "maicord/text/devanagari_shape_cluster.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/devanagari_order.hpp"
 #include "devanagari_character.hpp"
 #include "indic_cluster.hpp"
@@ -211,7 +212,7 @@ SfntStatus restore_cluster(void* opaque,SfntClusterMap* clusters,const SfntCompo
 SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,
     ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,SfntShapeStorage storage,SfntShapeRunResult* result,
     ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool followed_by_text,float trailing_spacing,bool rtl,bool word_initial,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};u32 n=input.count;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);u32 n=input.count;
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if(n!=scalars.count||(n&&!input.data)||(!n!=!units))return SfntStatus::invalid_input;
     // Bengali split pieces can outnumber original UTF-16 units. Target scratch

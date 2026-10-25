@@ -23,7 +23,7 @@ i32 hex(char value) noexcept {
 }
 bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parsed = *static_cast<Parse*>(opaque);
-    constexpr Utf8View names[]{utf8_literal("format"), utf8_literal("product"), utf8_literal("arch"),
+    static constexpr Utf8View names[]{utf8_literal("format"), utf8_literal("product"), utf8_literal("arch"),
         utf8_literal("channel"), utf8_literal("version"), utf8_literal("issued"), utf8_literal("expires"),
         utf8_literal("bytes"), utf8_literal("sha256"), utf8_literal("artifact")};
     u32 field = field_count;

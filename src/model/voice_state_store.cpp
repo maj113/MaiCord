@@ -153,7 +153,7 @@ bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceStat
     if (!store || store->count || store->owned.arena.base || !records.data || !records.count ||
         records.count > kVoiceStateCapacity)
         return false;
-    *store = {};
+    reset_value(store);
     store->records = records;
     return true;
 }
@@ -162,7 +162,7 @@ bool voice_state_store_initialize_owned(VoiceStateStore* store, u32 reserved_cap
     if (!store || store->count || store->owned.arena.base || !reserved_capacity ||
         reserved_capacity > kVoiceStateCapacity)
         return false;
-    *store = {};
+    reset_value(store);
     if (!stable_storage_initialize(&store->owned, reserved_capacity, 0, sizeof(VoiceState), alignof(VoiceState)))
         return false;
     store->records = {stable_storage_data<VoiceState>(store->owned), 0};
@@ -173,7 +173,7 @@ void voice_state_store_release(VoiceStateStore* store) noexcept {
     if (!store)
         return;
     stable_storage_release(&store->owned);
-    *store = {};
+    reset_value(store);
 }
 
 bool voice_state_store_reset(VoiceStateStore* store) noexcept {

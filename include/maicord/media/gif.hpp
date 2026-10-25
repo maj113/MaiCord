@@ -131,6 +131,9 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image,
 GifDecodeResult gif_decode_parsed_frame(
     ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
     GifWorkspace* workspace, Slice<u8> indices) noexcept;
+// The same, filling a caller-owned result in place.
+void gif_decode_parsed_frame(GifDecodeResult* out, ConstSlice<u8> encoded, const GifImage& image,
+                             u32 frame_index, GifWorkspace* workspace, Slice<u8> indices) noexcept;
 GifDecodeResult gif_decode_frame(
     ConstSlice<u8> encoded, u32 frame_index, GifImage* image,
     GifWorkspace* workspace, Slice<u8> indices) noexcept;

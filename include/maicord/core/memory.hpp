@@ -51,6 +51,30 @@ inline void clear_bytes(void* destination, u32 bytes) noexcept {
     memset(destination, 0, bytes);
 }
 
+// `*object = T{}` without the zeroed temporary MSVC copies in for a large T:
+// value-initializes in place (memset plus any nonzero member defaults).
+template <typename T>
+inline void reset_value(T* object) noexcept {
+    static_assert(__is_trivially_destructible(T));
+    ::new (static_cast<void*>(object)) T{};
+}
+
+// A memmove the compiler cannot expand inline at a constant size.
+__declspec(noinline) inline void copy_bytes_call(void* destination, const void* source, usize bytes) noexcept {
+    memmove(destination, source, bytes);
+}
+
+// `*destination = source` for a large T as one call instead of the inline
+// vector loop MSVC emits at every site.
+template <typename T>
+inline void copy_value(T* destination, const T& source) noexcept {
+    static_assert(__is_trivially_copyable(T));
+    if constexpr (sizeof(T) > 128)
+        copy_bytes_call(destination, &source, sizeof(T));
+    else
+        *destination = source;
+}
+
 // SecureZeroMemory without <Windows.h>: on x64 the SDK's RtlSecureZeroMemory
 // is this same rep stosb, which the optimizer never removes as a dead store.
 __forceinline void secure_clear_bytes(void* destination, usize bytes) noexcept {

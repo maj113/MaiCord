@@ -1,4 +1,5 @@
 #include "maicord/ui/friends_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
@@ -525,7 +526,7 @@ bool rebuild(UiFriendsScene& s) noexcept {
     const u32 required = 24 + 4 * count;
     if (s.capacity < required) {
         ui_fixed_widget_storage_release(&s.storage);
-        s.widgets = {};
+        reset_value(&s.widgets);
         s.capacity = 0;
         const u32 capacity = (required + 15) & ~15u;
         if (!ui_fixed_widget_storage_initialize(
@@ -771,7 +772,7 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
     scene->surface = surface(viewport, modal);
     scene->active_visible = active_visible;
     scene->active_collapsed = active_collapsed;
-    scene->active_rect = {};
+    reset_value(&scene->active_rect);
     if (active_visible) {
         const float width = active_collapsed ? kUiFriendsActiveNowCollapsedWidth : kUiFriendsActiveNowWidth;
         scene->surface.right -= width;
@@ -812,7 +813,7 @@ void ui_friends_scene_release(UiFriendsScene* s) noexcept {
         return;
     const auto revision = s->revision + 1;
     ui_fixed_widget_storage_release(&s->storage);
-    *s = {};
+    reset_value(s);
     s->revision = revision;
 }
 bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
@@ -838,7 +839,7 @@ bool ui_friends_scene_activation(const UiFriendsScene& s, UiFriendsTarget t,
                                  UiFriendsTarget* out) noexcept {
     if (!out)
         return false;
-    *out = {};
+    reset_value(out);
     if (!current(s) || t.action == UiFriendsAction::none || t.action > UiFriendsAction::active_card)
         return false;
     if (t.action == UiFriendsAction::active_toggle || t.action == UiFriendsAction::active_card) {
@@ -1053,7 +1054,7 @@ u32 ui_friends_scene_visible_count(const UiFriendsScene& s) noexcept {
 bool ui_friends_scene_visible_row(const UiFriendsScene& s, u32 slot, UiFriendsVisibleRow* out) noexcept {
     if (!out)
         return false;
-    *out = {};
+    reset_value(out);
     if (!current(s) || slot >= s.count)
         return false;
     const auto h = s.visible_rows[slot];

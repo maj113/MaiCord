@@ -115,9 +115,9 @@ void number(UiThreadBrowserScene& s, u64 value) noexcept {
 bool rebuild(UiThreadBrowserScene& s) noexcept {
     ui_widget_manager_reset(&s.widgets);
     clear_bytes(s.backing, sizeof(*s.backing));
-    s.body_owner = {};
-    s.retry = {};
-    s.create_post = {};
+    reset_value(&s.body_owner);
+    reset_value(&s.retry);
+    reset_value(&s.create_post);
     s.forum_sort = s.forum_list = s.forum_gallery = {};
     auto layout = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
                                        ui_layout_node_clip_children);
@@ -285,7 +285,7 @@ bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrows
     if (!same_page) {
         s->scroll_dips = 0;
         // Borrowed results never transfer row focus to a new account/parent/page.
-        if (s->focused.action == UiThreadBrowserAction::open_thread) s->focused = {};
+        if (s->focused.action == UiThreadBrowserAction::open_thread) reset_value(&s->focused);
     }
     s->view = view;
     s->observed_rows = view->rows.data;
@@ -328,7 +328,7 @@ bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrows
 void ui_thread_browser_scene_release(UiThreadBrowserScene* s) noexcept {
     if (!s) return;
     ui_fixed_widget_storage_release(&s->storage);
-    *s = {};
+    reset_value(s);
 }
 bool ui_thread_browser_scene_contains(const UiThreadBrowserScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.panel, x, y);

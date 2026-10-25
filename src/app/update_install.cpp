@@ -1,4 +1,5 @@
 #include "maicord/app/update_install.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -54,15 +55,15 @@ bool output_disjoint(const UpdateInstallContext* c, const void* output, u32 byte
     return true;
 }
 void clear_activation(UpdateInstallContext* c) noexcept {
-    c->activation_lease = false; c->activation_sequence = 0; c->activation_transaction = {};
+    c->activation_lease = false; c->activation_sequence = 0; reset_value(&c->activation_transaction);
     SecureZeroMemory(c->activation_document_sha256, sizeof(c->activation_document_sha256));
 }
 void clear_directory(UpdateInstallContext* c) noexcept {
-    c->directory = {}; c->admitted_package = {}; c->cleanup_authorized = false;
+    reset_value(&c->directory); reset_value(&c->admitted_package); c->cleanup_authorized = false;
     c->disposal_started = false;
     for (u32 i = 0; i < kUpdateGenerationMaximumFiles; ++i) {
         c->known_files[i] = false; c->disposed_files[i] = false; c->created_file_owners[i] = false;
-        c->disposition_set[i] = false; c->file_identities[i] = {};
+        c->disposition_set[i] = false; reset_value(&c->file_identities[i]);
     }
 }
 const UpdateGenerationReference* disposal_reference(const UpdateInstallContext& c) noexcept {
@@ -224,7 +225,7 @@ UpdateInstallResult install(UpdateInstallContext* c, UpdateStage* stage, const U
     c->extraction = update_package_extract(stage, offer, *c->authentication.key, *c->authentication.workspace, policy, acceptance,
         {c->structural_scratch, 256}, update_generation_package_target(&c->directory), &c->package);
     r = package_result(c->extraction, UpdateInstallError::extraction); if (!r.ok()) return r;
-    c->admitted_package = c->package.descriptor;
+    copy_value(&c->admitted_package, c->package.descriptor);
     for (u32 i = 0; i < c->package.descriptor.member_count; ++i) {
         r = capture(c, kUpdateGenerationFirstMemberSlot + i, c->package.files[i]); if (!r.ok()) return r;
     }
@@ -244,7 +245,10 @@ UpdateInstallResult install(UpdateInstallContext* c, UpdateStage* stage, const U
     r = preserve_files(c); if (!r.ok()) return r;
     UpdateGenerationState proposed{};
     if (identity) r = generation(update_generation_prepare(c->transaction->state, *identity, c->admitted_package, &proposed));
-    else { proposed.installation = c->transaction->installation; proposed.sequence = 1; proposed.active = {c->admitted_package, true}; }
+    else {
+        proposed.installation = c->transaction->installation; proposed.sequence = 1;
+        copy_value(&proposed.active.package, c->admitted_package); proposed.active.present = true;
+    }
     if (!r.ok()) return r;
     r = commit(c, proposed); if (!r.ok()) return r;
     r = generation(update_generation_directory_release(&c->directory, false)); if (!r.ok()) return r;

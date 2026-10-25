@@ -345,6 +345,57 @@ CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipe
                                                                     u32 frame_index,
                                                                     u64 now_seconds) noexcept;
 
+// The same operations filling a caller-owned result in place: MSVC copies a
+// returned result into the caller at every call.
+void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, MediaAssetKey,
+                                     u64 now_seconds, OggOpusCancelled cancelled = nullptr,
+                                     void* context = nullptr) noexcept;
+void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, MediaAssetKey,
+                                    const CdnResponseResult&, ConstSlice<u8> body,
+                                    ConstSlice<u8> conditional_etag = {},
+                                    OggOpusCancelled cancelled = nullptr, void* context = nullptr) noexcept;
+void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
+                                          MediaAssetKey key, u64 now_seconds) noexcept;
+void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
+                                         MediaAssetKey key, const CdnResponseResult& response,
+                                         ConstSlice<u8> decoded_body,
+                                         ConstSlice<u8> conditional_etag = {}) noexcept;
+void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
+                                           MediaAssetKey key, u64 now_seconds) noexcept;
+void cdn_media_pipeline_admit_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
+                                          MediaAssetKey key, const CdnResponseResult& response,
+                                          ConstSlice<u8> decoded_body,
+                                          ConstSlice<u8> conditional_etag = {}) noexcept;
+void cdn_media_pipeline_lookup_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
+                                           MediaAssetKey key, u64 now_seconds) noexcept;
+void cdn_media_pipeline_admit_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
+                                          MediaAssetKey key, const CdnResponseResult& response,
+                                          ConstSlice<u8> decoded_body,
+                                          ConstSlice<u8> conditional_etag = {}) noexcept;
+void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+                                    u64 now_seconds) noexcept;
+void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+                                   const CdnResponseResult& response, ConstSlice<u8> decoded_body,
+                                   ConstSlice<u8> conditional_etag = {}) noexcept;
+void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+                                          u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept;
+void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+                                   u64 now_seconds) noexcept;
+void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+                                  const CdnResponseResult& response, ConstSlice<u8> decoded_body,
+                                  ConstSlice<u8> conditional_etag = {}) noexcept;
+void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+                                         u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept;
+void cdn_media_pipeline_lookup_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
+                                             MediaAssetKey key, u64 now_seconds) noexcept;
+void cdn_media_pipeline_admit_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
+                                            MediaAssetKey key, const CdnResponseResult& response,
+                                            ConstSlice<u8> decoded_body,
+                                            ConstSlice<u8> conditional_etag = {}) noexcept;
+void cdn_media_pipeline_decode_animated_webp_frame(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
+                                                   MediaAssetKey key, u16 cache_generation, u32 frame_index,
+                                                   u64 now_seconds) noexcept;
+
 static_assert(sizeof(CdnMediaPipeline) <= 1'600);
 
 } // namespace maicord

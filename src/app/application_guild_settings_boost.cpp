@@ -288,7 +288,7 @@ void boost_vanity_loaded(const GuildAdminVanity* vanity) noexcept {
 bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept {
     if (!administrator() || !vanity_dirty())
         return false;
-    *patch = {};
+    reset_value(patch);
     patch->fields = guild_settings_patch_vanity;
     patch->vanity_code = editor_text(editor_vanity);
     return true;

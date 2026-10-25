@@ -1,4 +1,5 @@
 #include "maicord/protocol/guild_community.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
@@ -185,7 +186,7 @@ bool form_member(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool decode_form(const JsonIndexedDocument& document, GuildVerificationForm* output) noexcept {
     auto& form = *output;
-    form = {};
+    reset_value(&form);
     FormPass pass{
         document, &form, {form.text, kGuildVerificationTextBytes, &form.text_used, &form.truncated},
         nullptr,  {},    false};
@@ -840,7 +841,7 @@ bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding*
     if (!s.ok)
         return false;
     auto& o = *output;
-    o = {};
+    reset_value(&o);
     OnboardingPass local{};
     OnboardingPass* pass = &local;
     pass->document = s.document;
@@ -1205,7 +1206,7 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
 bool guild_profile_decode(Utf8View body, Slice<u32> scratch, GuildProfile* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     const auto scanned = scan(body, scratch);
     if (!scanned.ok)
         return false;

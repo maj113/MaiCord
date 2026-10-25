@@ -70,7 +70,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* 
     }
     const RemoteAuthCryptoResult initialized = remote_auth_crypto_initialize(&handshake->crypto);
     if (!initialized.ok()) {
-        *handshake = RemoteAuthHandshake{};
+        reset_value<RemoteAuthHandshake>(handshake);
         return result(RemoteAuthHandshakeError::crypto, 0, RemoteAuthError::none, initialized.error);
     }
     u8 fingerprint[kRemoteAuthSha256Bytes]{};
@@ -85,7 +85,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* 
     if (!fingerprinted.ok() || !encoded.ok() || encoded.bytes != kRemoteAuthFingerprintEncodedBytes) {
         const RemoteAuthCryptoError crypto_error = fingerprinted.error;
         remote_auth_crypto_release(&handshake->crypto);
-        *handshake = RemoteAuthHandshake{};
+        reset_value<RemoteAuthHandshake>(handshake);
         return result(RemoteAuthHandshakeError::crypto, 0, RemoteAuthError::none, crypto_error);
     }
     handshake->phase = RemoteAuthHandshakePhase::awaiting_hello;
@@ -111,7 +111,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         handshake->phase == RemoteAuthHandshakePhase::failed) {
         return result(RemoteAuthHandshakeError::invalid_state);
     }
-    *event = RemoteAuthHandshakeEvent{};
+    reset_value<RemoteAuthHandshakeEvent>(event);
     char packet_text[kRemoteAuthMaximumTicketBytes]{};
     RemoteAuthPacket packet{};
     const RemoteAuthDecodeResult decoded = remote_auth_decode_server_packet(
@@ -304,7 +304,7 @@ RemoteAuthHandshakeResult remote_auth_handshake_tick(RemoteAuthHandshake* handsh
         handshake->phase > RemoteAuthHandshakePhase::ticket_ready) {
         return result(RemoteAuthHandshakeError::invalid_state);
     }
-    *event = RemoteAuthHandshakeEvent{};
+    reset_value<RemoteAuthHandshakeEvent>(event);
     if (handshake->expires_at_ms != 0 && now_ms >= handshake->expires_at_ms) {
         return fail(handshake, RemoteAuthHandshakeError::session_timeout);
     }

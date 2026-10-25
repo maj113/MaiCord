@@ -1,4 +1,5 @@
 #include "d3d11_renderer_draw.hpp"
+#include "maicord/core/memory.hpp"
 #include "d3d11_renderer_interaction_state.hpp"
 #include "d3d11_renderer_layout.hpp"
 #include "d3d11_renderer_caption.hpp"
@@ -488,7 +489,7 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
                 continue;
             append_run(target, &run, scissor, first, quad + 1);
             draw_run(target, run);
-            run = {};
+            reset_value(&run);
             first = quad + 1;
             if (d3d11_background_fx_draw(&renderer->background_fx, context,
                                          {canvas.left, canvas.top, canvas.right, canvas.bottom}, quad)) {
@@ -733,7 +734,7 @@ void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
     if (!renderer)
         return;
     release_backdrop_target(renderer);
-    renderer->settings_backdrop_stamp = {};
+    reset_value(&renderer->settings_backdrop_stamp);
     renderer->settings_backdrop_media_count = 0;
 }
 
@@ -898,7 +899,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             renderer->graphics.context->Unmap(renderer->pipeline.ui_instance_buffer, 0);
         // A refused no-overwrite map: the whole stream uploads instead.
         if (FAILED(mapped_result) || !step_mapped.pData) {
-            step_mapped = {};
+            reset_value(&step_mapped);
             upload_paint = true;
         }
     }

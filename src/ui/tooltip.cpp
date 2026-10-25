@@ -210,7 +210,7 @@ bool ui_tooltip_clear(UiTooltipScene* scene) noexcept {
     const bool changed = scene->pending || scene->visible;
     const u32 revision = scene->revision + (scene->visible ? 1u : 0u);
     const auto text_owner = scene->text_owner;
-    *scene = {};
+    reset_value(scene);
     scene->revision = revision;
     scene->text_owner = text_owner;
     return changed;

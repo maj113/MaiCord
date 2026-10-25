@@ -1,4 +1,5 @@
 #include "maicord/protocol/account_requirement.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/user_auth.hpp"
 namespace maicord {
@@ -111,7 +112,7 @@ AccountRequirement decode_account_requirement(JsonValue value) noexcept {
     JsonString text{};
     if (!json_value_as_string(value, &text))
         return AccountRequirement::other;
-    constexpr Utf8View names[] = {utf8_literal("REQUIRE_CAPTCHA"),
+    static constexpr Utf8View names[] = {utf8_literal("REQUIRE_CAPTCHA"),
                                   utf8_literal("REQUIRE_VERIFIED_EMAIL"),
                                   utf8_literal("REQUIRE_VERIFIED_PHONE"),
                                   utf8_literal("REQUIRE_REVERIFIED_EMAIL"),
@@ -161,7 +162,7 @@ Utf8View account_requirement_notice(AccountRequirement value) noexcept {
     }
 }
 bool api_rejection_decode(Utf8View body, Slice<u32> scratch, ApiRejection* output) noexcept {
-    *output = {};
+    reset_value(output);
     if (!body.bytes || body.bytes > 16384)
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);

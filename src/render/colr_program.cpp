@@ -1,4 +1,5 @@
 #include "maicord/render/colr_program.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/render/glyph_raster.hpp"
 #include "colr_segment_bounds.hpp"
 
@@ -428,7 +429,7 @@ bool colr_program_build(ColrPaintProgram* p, const ColrPaintSource& source,
     arena_reset(&p->storage);
     p->first = p->last = none;
     p->nodes = p->stack = p->peak_stack = p->paint_types = 0;
-    p->bounds = {};
+    reset_value(&p->bounds);
     p->mask_count = p->mask_pixels = 0;
     Builder b{p, &source, scale};
     if (!tree(b, root, identity, 0) || !clip(b, bounds, identity) || p->stack != 1)

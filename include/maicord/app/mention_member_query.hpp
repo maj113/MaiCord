@@ -101,7 +101,7 @@ inline bool mention_member_query_due(const MentionMemberQueryOwner& owner, u64 n
                                      GatewayGuildMemberRequest* request) noexcept {
     if (!owner.due_at_ms || now_ms < owner.due_at_ms)
         return false;
-    *request = {};
+    reset_value(request);
     request->guild_id = owner.guild_id;
     request->channel_id = owner.channel_id;
     request->nonce = kMentionMemberQueryNonceTag | ((owner.serial + 1) & 0xFFFF'FFFF'FFFFull);

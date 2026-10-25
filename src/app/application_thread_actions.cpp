@@ -1,4 +1,5 @@
 #include "application_thread_actions.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
@@ -197,8 +198,8 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
         owner->source.serial = ++next_serial;
     owner->operation = operation;
     owner->metadata_checked = false;
-    owner->refusal_source = {};
-    owner->refusal_text = {};
+    reset_value(&owner->refusal_source);
+    reset_value(&owner->refusal_text);
     owner->due = owner->actor_floor;
     ++owner->revision;
     publish(utf8_literal("Updating thread…"), Phase::queued);
@@ -281,7 +282,7 @@ Admission application_thread_actions_activate(const ApplicationThreadActionTicke
 }
 Admission application_thread_actions_fetch(u64 id, ApplicationThreadActionTicket* ticket) noexcept {
     if (ticket)
-        *ticket = {};
+        reset_value(ticket);
     return queue(id, Operation::fetch_self, ticket);
 }
 Membership application_thread_actions_membership(const ApplicationThreadActionTicket& source) noexcept {
@@ -420,7 +421,7 @@ bool application_thread_actions_response(const RestClientResponse& response,
         response.request_id != owner->flight.request_id)
         return false;
     const auto flight = owner->flight;
-    owner->flight = {};
+    reset_value(&owner->flight);
     const auto* value = source_current(flight.source);
     const bool same =
         !flight.retired && !owner->closing && value && owner->source.serial == flight.source.serial;

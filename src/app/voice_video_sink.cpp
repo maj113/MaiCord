@@ -92,7 +92,7 @@ void log_summary(VoiceVideoSink& sink) noexcept {
                                      {"transport_feedback", summary.transport_feedback}};
         voice_log_fields(VoiceLogLevel::info, "video_receive_summary", {fields, sizeof(fields) / sizeof(fields[0])});
     }
-    summary = {};
+    reset_value(&summary);
 }
 bool ensure_rtp(VoiceVideoSink& sink, u32 local_ssrc) noexcept {
     if (sink.rtp_ready)

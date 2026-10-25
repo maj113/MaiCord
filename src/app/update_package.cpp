@@ -283,7 +283,7 @@ bool update_package_member_name_valid(Utf8View name) noexcept {
         wide[i] = static_cast<wchar_t>(c);
     }
     // The generation directory keeps the signed offer and package beside the members.
-    constexpr Utf8View provenance[]{utf8_literal("offer.json"), utf8_literal("offer.sig"), utf8_literal("package.zip")};
+    static constexpr Utf8View provenance[]{utf8_literal("offer.json"), utf8_literal("offer.sig"), utf8_literal("package.zip")};
     for (const auto reserved : provenance)
         if (name.bytes == reserved.bytes && lower_equal(name.data, reserved.data, name.bytes)) return false;
     return !acceptance_record_reserved_name(wide, name.bytes);

@@ -1,4 +1,5 @@
 #include "settings_catalog.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/client_theme.hpp"
 #include "maicord/core/decimal.hpp"
 
@@ -48,7 +49,7 @@ void number_labels_initialize() noexcept {
         char* text = decibel_labels.text[value];
         u32 at = 0;
         if (db) {
-            constexpr char minus[] = "\xE2\x88\x92";
+            static constexpr char minus[] = "\xE2\x88\x92";
             for (u32 i = 0; i < 3; ++i)
                 text[at++] = minus[i];
         }
@@ -73,11 +74,11 @@ constexpr UiSettingsSchemaNode node(Utf8View key, K kind, Utf8View label, Utf8Vi
     return {key, label, description, keywords, kind, variant, flags, choices, default_choice, bind(binding), action};
 }
 
-constexpr Utf8View message_displays[]{utf8_literal("Default"), utf8_literal("Compact")};
+static constexpr Utf8View message_displays[]{utf8_literal("Default"), utf8_literal("Compact")};
 constexpr Utf8View group_spacings[]{utf8_literal("0px"), utf8_literal("4px"), utf8_literal("8px"),
                                     utf8_literal("16px"), utf8_literal("24px")};
 
-constexpr UiSettingsSchemaNode notifications[]{
+static constexpr UiSettingsSchemaNode notifications[]{
     node(utf8_literal("notifications.overview"), K::category, utf8_literal("Overview"), {}, {}),
     node(utf8_literal("notifications.desktop"), K::toggle, utf8_literal("Enable Desktop Notifications"),
          utf8_literal("If you're looking for per-channel or per-server notifications, right-click the desired server "
@@ -108,7 +109,7 @@ constexpr UiSettingsSchemaNode notifications[]{
          utf8_literal("taskbar overlay count dot"), SettingBinding::unread_badge),
 };
 
-constexpr Utf8View spoiler_choices[]{utf8_literal("On click"), utf8_literal("Always"),
+static constexpr Utf8View spoiler_choices[]{utf8_literal("On click"), utf8_literal("Always"),
                                      utf8_literal("On servers I moderate")};
 constexpr UiSettingsSchemaNode appearance[]{
     node(utf8_literal("appearance.theme"), K::palette, utf8_literal("Theme"),
@@ -189,7 +190,7 @@ constexpr UiSettingsSchemaNode appearance[]{
          SettingBinding::member_list),
 };
 
-constexpr Utf8View sticker_animations[]{utf8_literal("Always animate"), utf8_literal("Animate on interaction"),
+static constexpr Utf8View sticker_animations[]{utf8_literal("Always animate"), utf8_literal("Animate on interaction"),
                                         utf8_literal("Never animate")};
 constexpr UiSettingsSchemaNode accessibility[]{
     node(utf8_literal("accessibility.synced_notice"), K::notice, utf8_literal("Synced settings"), {}, {},
@@ -216,7 +217,7 @@ constexpr UiSettingsSchemaNode accessibility[]{
          dynamic),
 };
 
-constexpr UiSettingsSchemaNode advanced[]{
+static constexpr UiSettingsSchemaNode advanced[]{
     node(utf8_literal("advanced.developer_mode"), K::toggle, utf8_literal("Developer Mode"),
          utf8_literal("Developer Mode exposes context menu items helpful for people writing apps using the Discord "
                       "API, such as Copy ID."),
@@ -226,7 +227,7 @@ constexpr UiSettingsSchemaNode advanced[]{
          {}, none, utf8_literal("Try again"), dynamic | hidden, 2),
 };
 
-constexpr Utf8View update_channels[]{utf8_literal("Stable"), utf8_literal("Preview")};
+static constexpr Utf8View update_channels[]{utf8_literal("Stable"), utf8_literal("Preview")};
 constexpr Utf8View update_intervals[]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"),
                                       utf8_literal("Every 12 hours"), utf8_literal("Once a day")};
 constexpr UiSettingsSchemaNode updates[]{
@@ -257,7 +258,7 @@ constexpr UiSettingsSchemaNode updates[]{
          {}, dynamic),
 };
 
-constexpr UiSettingsSchemaNode voice_nodes[]{
+static constexpr UiSettingsSchemaNode voice_nodes[]{
     node(utf8_literal("voice.devices"), K::category, utf8_literal("Voice"), {}, {}),
     node(utf8_literal("voice.input_device"), K::choice, utf8_literal("Microphone"),
          utf8_literal("The microphone used in voice channels."), utf8_literal("microphone mic input headset"),
@@ -309,7 +310,7 @@ constexpr UiSettingsSchemaNode voice_nodes[]{
          {}, none, utf8_literal("Sign in"), dynamic),
 };
 
-constexpr UiSettingsSchemaNode account_nodes[]{
+static constexpr UiSettingsSchemaNode account_nodes[]{
     node(utf8_literal("account.card"), K::action, utf8_literal("Account"), {}, utf8_literal("avatar profile"),
          SettingBinding::account_card, {}, none, utf8_literal("Edit profile"), dynamic | hidden),
     node(utf8_literal("account.notice"), K::notice, utf8_literal("Account details"), {}, {},
@@ -446,7 +447,7 @@ constexpr UiSettingsSchemaNode language_nodes[]{
          SettingBinding::time_format, {time_formats, 3}, 0, {}, dynamic),
 };
 
-constexpr UiSettingsSchemaNode registered_game_nodes[]{
+static constexpr UiSettingsSchemaNode registered_game_nodes[]{
     node(utf8_literal("games.detection"), K::toggle, utf8_literal("Detect games"),
          utf8_literal("Check running programs every 20 seconds. Program names stay on this device; only the "
                       "game you're playing is shared."),
@@ -459,7 +460,7 @@ constexpr UiSettingsSchemaNode registered_game_nodes[]{
          utf8_literal("add game not detected program"), SettingBinding::add_game, {}, none, {}, dynamic),
 };
 
-constexpr UiSettingsSchemaNode keybind_nodes[]{
+static constexpr UiSettingsSchemaNode keybind_nodes[]{
     node(utf8_literal("keybinds.custom"), K::category, utf8_literal("Custom Keybinds"),
          utf8_literal("Keybinds are custom keyboard shortcuts that let you perform specific actions in MaiCord "
                       "without needing to click through menus. Voice keybinds also work in the background during a "
@@ -474,7 +475,7 @@ constexpr UiSettingsSchemaNode keybind_nodes[]{
          utf8_literal("keyboard shortcuts hotkeys combos"), SettingBinding::keybinds_defaults, {}, none, {}, dynamic),
 };
 
-constexpr UiSettingsSchemaNode system_nodes[]{
+static constexpr UiSettingsSchemaNode system_nodes[]{
     node(utf8_literal("system.startup"), K::category, utf8_literal("General"), {}, {}),
     node(utf8_literal("system.open_on_startup"), K::toggle,
          utf8_literal("Automatically open MaiCord when your computer starts up"), {},
@@ -492,7 +493,7 @@ constexpr UiSettingsSchemaNode system_nodes[]{
          dynamic),
 };
 
-constexpr Utf8View activity_server_choices[]{utf8_literal("Share in all servers"),
+static constexpr Utf8View activity_server_choices[]{utf8_literal("Share in all servers"),
                                              utf8_literal("Share in servers with 200 or fewer members"),
                                              utf8_literal("Do not share in any servers")};
 constexpr UiSettingsSchemaNode activity_nodes[]{
@@ -528,7 +529,7 @@ constexpr UiSettingsSchemaNode activity_nodes[]{
          utf8_literal("join game party voice channel"), SettingBinding::join_voice, {}, none, {}, dynamic),
 };
 
-constexpr UiSettingsSchemaSection sections[]{{utf8_literal("GENERAL")},
+static constexpr UiSettingsSchemaSection sections[]{{utf8_literal("GENERAL")},
                                              {utf8_literal("EXPERIENCE")},
                                              {utf8_literal("GAMES & APPS")},
                                              {utf8_literal("MAICORD")},
@@ -851,7 +852,7 @@ bool settings_theme_swatch(const ClientPreferences& preferences, SettingBinding 
 bool settings_store_read(const ClientPreferences& p, SettingBinding binding, SettingValue* value) noexcept {
     if (!value)
         return false;
-    *value = {};
+    reset_value(value);
     if (const auto field = toggle_field(binding)) {
         value->checked = p.*field;
         return true;

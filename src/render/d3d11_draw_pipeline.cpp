@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_draw_pipeline.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/background_presentation.hpp"
 
 #include "maicord/render/shader_bytecode.hpp"
@@ -189,7 +190,7 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* stage
         !valid_buffer_dimensions(config.media_instance_stride, config.media_instance_capacity)) {
         return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
     }
-    *staged = D3D11DrawPipelineOwner{};
+    reset_value<D3D11DrawPipelineOwner>(staged);
     HRESULT native_error = S_OK;
     const D3D11DrawPipelineError error = create_pipeline_resources(staged, device, config, &native_error);
     if (error != D3D11DrawPipelineError::none) {
@@ -211,8 +212,8 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owne
         return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
     }
     d3d11_draw_pipeline_release(owner);
-    *owner = *staged;
-    *staged = D3D11DrawPipelineOwner{};
+    copy_value(owner, *staged);
+    reset_value<D3D11DrawPipelineOwner>(staged);
     return pipeline_success();
 }
 
@@ -342,8 +343,8 @@ void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {
     com_release(owner->background_buffer);
     owner->background_valid = false;
     owner->background_active = false;
-    owner->background_constants = {};
-    owner->background_source = {};
+    reset_value(&owner->background_constants);
+    reset_value(&owner->background_source);
     owner->background_light = owner->background_source_valid = false;
     owner->background_updates = 0;
     com_release(owner->glyph_sampler);
@@ -383,7 +384,7 @@ bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, ID3D11
         Color colors[5]{};
         if (ui_background_active(theme) && !ui_background_palette(theme, colors))
             return false;
-        next = {};
+        reset_value(&next);
         for (u32 i = 0; i < background.color_count; ++i) {
             next.colors[i][0] = colors[i].red;
             next.colors[i][1] = colors[i].green;

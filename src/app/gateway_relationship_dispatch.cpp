@@ -1,4 +1,5 @@
 #include "gateway_relationship_dispatch.hpp"
+#include "maicord/core/memory.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -273,7 +274,7 @@ bool gateway_client_relationship_record(ConstSlice<u8> payload, u32* cursor, Rel
         for (u32 i = prefix; i < user.avatar_bytes; ++i)
             if (!((user.avatar[i] >= '0' && user.avatar[i] <= '9') || (user.avatar[i] >= 'a' && user.avatar[i] <= 'f'))) return false;
     }
-    *output = candidate;
+    copy_value(output, candidate);
     *cursor += sizeof(candidate);
     return true;
 }

@@ -1,4 +1,5 @@
 #include "maicord/app/account_reconnect.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/protocol/account_requirement.hpp"
 
@@ -94,7 +95,7 @@ void account_reconnect_manual(AccountReconnect* r, u64 now_ms) noexcept {
 
 void account_reconnect_reset(AccountReconnect* r) noexcept {
     const u64 jitter = r->jitter;
-    *r = {};
+    reset_value(r);
     r->jitter = jitter;
 }
 

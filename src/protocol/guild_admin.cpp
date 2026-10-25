@@ -36,7 +36,7 @@ bool text_valid(Utf8View text, u32 minimum_codepoints, u32 maximum_codepoints, b
 
 // data:image/<type>;base64,<payload>
 bool data_uri_valid(Utf8View uri) noexcept {
-    constexpr char prefix[] = "data:image/";
+    static constexpr char prefix[] = "data:image/";
     if (!view_valid(uri) || uri.bytes < sizeof(prefix) - 1 + 8)
         return false;
     for (u32 i = 0; i < sizeof(prefix) - 1; ++i)
@@ -859,7 +859,7 @@ bool decode_user(const JsonIndexedDocument& document, JsonValue value, GuildAdmi
                  GuildAdminError* error) noexcept {
     if (value.kind != JsonValueKind::object)
         return fail(error);
-    *user = {};
+    reset_value(user);
     UserParse p{user, {kUserFields, 5, 0, nullptr}, GuildAdminError::none};
     p.fields.error = &p.error;
     const auto read = json_visit_indexed_object(document, value, kDepth, visit_user, &p);
@@ -1134,7 +1134,7 @@ bool visit_ban_item(void* opaque, u32, JsonValue value) noexcept {
     for (u32 i = 0; i < p.count; ++i)
         if (p.output[i].user.id == ban.user.id)
             return fail(&p.error, GuildAdminError::duplicate);
-    p.output[p.count++] = ban;
+    copy_value(&p.output[p.count++], ban);
     return true;
 }
 
@@ -1189,7 +1189,7 @@ bool visit_audit_entry_item(void* opaque, u32, JsonValue value) noexcept {
     for (u32 i = 0; i < p.page.entry_count; ++i)
         if (p.page.entries[i].id == entry.value.id)
             return fail(&p.error, GuildAdminError::duplicate);
-    p.page.entries[p.page.entry_count++] = entry.value;
+    copy_value(&p.page.entries[p.page.entry_count++], entry.value);
     return true;
 }
 
@@ -1623,7 +1623,7 @@ u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice
 }
 
 void guild_admin_md5_hex(const u8 (&digest)[16], char (&output)[32]) noexcept {
-    constexpr char digits[] = "0123456789abcdef";
+    static constexpr char digits[] = "0123456789abcdef";
     for (u32 i = 0; i < 16; ++i) {
         output[i * 2] = digits[digest[i] >> 4];
         output[i * 2 + 1] = digits[digest[i] & 15];
@@ -1679,7 +1679,7 @@ u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept 
     if (!output.data || output.count < bytes || unix_seconds >= kTimestampLimitSeconds)
         return 0;
     write_civil_time(unix_seconds, output);
-    constexpr char zone[] = "+00:00";
+    static constexpr char zone[] = "+00:00";
     for (u32 i = 0; i < 6; ++i)
         output[19 + i] = zone[i];
     return bytes;
@@ -1785,7 +1785,7 @@ GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, Guil
     constexpr u64 required = 1u | 2u | 4u | 8u;
     if ((p.fields.seen & required) != required || !p.value.id)
         return {0, 0, GuildAdminError::identity};
-    *output = p.value;
+    copy_value(output, p.value);
     return {body.bytes, 1, GuildAdminError::none};
 }
 

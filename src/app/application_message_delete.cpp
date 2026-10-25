@@ -1,4 +1,5 @@
 #include "application_message_delete.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "application_account_presentation.hpp"
 #include "application_message_mutation_source.hpp"
@@ -42,7 +43,7 @@ bool confirmation_save(TextFormOwnerKey key, Utf8View) noexcept {
     // Closing is correct when the message vanished while the dialog was open.
     if (!confirmation_valid(key))
         return true;
-    delete_confirmation = {};
+    reset_value(&delete_confirmation);
     return queue_message_delete(key.item);
 }
 } // namespace
@@ -78,15 +79,15 @@ bool application_message_delete_request(u64 message_id, bool skip_confirmation) 
                                              true};
     request.danger = true;
     if (!application_text_form_open(request)) {
-        delete_confirmation = {};
+        reset_value(&delete_confirmation);
         return false;
     }
     return true;
 }
 
 void reset_message_delete() noexcept {
-    g_app.message_delete = MessageDeleteRequest{};
-    delete_source = {};
+    reset_value<MessageDeleteRequest>(&g_app.message_delete);
+    reset_value(&delete_source);
 }
 
 bool message_can_delete(const MessageRecord& record) noexcept {

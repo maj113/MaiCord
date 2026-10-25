@@ -104,8 +104,8 @@ u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept {
                             link == ReceivedAttachmentLinkKind::image   ? utf8_literal("Open Image Link")
                             : link == ReceivedAttachmentLinkKind::media ? utf8_literal("Open Media Link")
                                                                         : utf8_literal("Open Link")};
-    constexpr u32 actions[]{kMessageLinkActionCopy, kMessageLinkActionOpen};
-    constexpr UiIcon icons[]{UiIcon::link, UiIcon::external_link};
+    static constexpr u32 actions[]{kMessageLinkActionCopy, kMessageLinkActionOpen};
+    static constexpr UiIcon icons[]{UiIcon::link, UiIcon::external_link};
     for (u32 i = 0; i < kMessageLinkMenuItems; ++i) {
         PopupItem item{labels[i], actions[i],
                        static_cast<u16>(popup_item_enabled | (i == 0 ? popup_item_separator_before : 0)), 0};

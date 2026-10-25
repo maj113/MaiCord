@@ -226,7 +226,7 @@ bool secure_edit_initialize(SecureEdit* edit, u32 capacity, bool password,
     if (!edit || capacity == 0 || (password && policy.multiline)) {
         return false;
     }
-    *edit = SecureEdit{};
+    reset_value<SecureEdit>(edit);
     if (!secure_buffer_initialize(&edit->storage, capacity).ok()) {
         return false;
     }
@@ -242,7 +242,7 @@ void secure_edit_release(SecureEdit* edit) noexcept {
     }
     secure_edit_history_release(edit);
     secure_buffer_release(&edit->storage);
-    *edit = SecureEdit{};
+    reset_value<SecureEdit>(edit);
 }
 
 SecureEditResult secure_edit_assign(SecureEdit* edit, Utf8View text) noexcept {

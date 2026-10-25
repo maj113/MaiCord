@@ -1532,13 +1532,13 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     } else if ((d3d11_renderer_active(renderer->image_viewer)) ||
                d3d11_renderer_form_active(*renderer) ||
                d3d11_renderer_active(renderer->reaction_viewer))
-        renderer->paint_stream.scrollbar_viewport = {};
+        reset_value(&renderer->paint_stream.scrollbar_viewport);
     if (d3d11_renderer_active(renderer->profile_scene) &&
         !ui_rect_equal(renderer->paint_stream.scrollbar_viewport,
                        renderer->profile_scene->scroll_viewport) &&
         !ui_rect_equal(renderer->paint_stream.scrollbar_viewport,
                        renderer->profile_scene->secondary_viewport))
-        renderer->paint_stream.scrollbar_viewport = {};
+        reset_value(&renderer->paint_stream.scrollbar_viewport);
     if (renderer->login_visible) {
         if (!renderer->login_scene || renderer->login_scene->widgets.count == 0) {
             return layout_step_failed(__LINE__);
@@ -2731,7 +2731,7 @@ void d3d11_renderer_shell_segment_release(RendererShellSegment* segment) noexcep
     stable_storage_release(&segment->media_handles);
     stable_storage_release(&segment->media_domains);
     stable_storage_release(&segment->media_batches);
-    *segment = RendererShellSegment{};
+    reset_value<RendererShellSegment>(segment);
 }
 
 bool d3d11_renderer_build_paint(D3D11Renderer* renderer, const Theme& theme) noexcept {
@@ -2754,7 +2754,7 @@ bool d3d11_renderer_paint_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->present_full = false;
     renderer->present_logical_damage_valid = false;
     renderer->present_logical_damage_full = false;
-    renderer->present_logical_damage_rect = {};
+    reset_value(&renderer->present_logical_damage_rect);
     bool media_source_changed = false;
     bool retained = (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
                     renderer_presentation_stamp_equal(*stamp, renderer->retained_presentation) &&

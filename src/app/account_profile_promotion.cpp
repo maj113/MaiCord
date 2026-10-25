@@ -1,4 +1,5 @@
 #include "maicord/app/account_profile_promotion.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -48,7 +49,7 @@ AccountProfilePromotionResult account_profile_promotion_stage(AccountProfileProm
         return promotion->state;
     }
     promotion->profile.metadata = source->metadata;
-    source->metadata = AccountProfileMetadata{};
+    reset_value<AccountProfileMetadata>(&source->metadata);
     promotion->state = success(AccountProfilePromotionPhase::staged, bytes);
     return promotion->state;
 }
@@ -78,7 +79,7 @@ void account_profile_promotion_release(AccountProfilePromotion* promotion) noexc
         return;
     }
     account_profile_release(&promotion->profile);
-    *promotion = AccountProfilePromotion{};
+    reset_value<AccountProfilePromotion>(promotion);
 }
 
 bool account_profile_promotion_has_credential(const AccountProfilePromotion& promotion) noexcept {

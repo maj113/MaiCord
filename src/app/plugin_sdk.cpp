@@ -3,6 +3,7 @@
 // decorators live in plugin_sdk_surfaces.cpp; read, events, actions and
 // effects in plugin_sdk_data.cpp.
 #include "plugin_sdk_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
@@ -121,7 +122,7 @@ bool read_node(const mc_slot_node* nodes, u32 stride, u32 index, const NodeLimit
         return false;
     if (node->kind == MC_NODE_BUTTON && (!node->action_id || (!node->text.bytes && !node->icon.bytes))) return false;
     if (node->kind == MC_NODE_LINK && !url_ok(view(node->value))) return false;
-    if (node->kind != MC_NODE_LINK && node->kind != MC_NODE_INPUT) node->value = {};
+    if (node->kind != MC_NODE_LINK && node->kind != MC_NODE_INPUT) reset_value(&node->value);
     if (node->kind != MC_NODE_BUTTON) node->action_id = 0;
     if (node->tone > MC_TONE_CRITICAL) node->tone = MC_TONE_NEUTRAL;
     return true;
@@ -160,7 +161,7 @@ bool chord_equal(NativePluginSdkChord a, NativePluginSdkChord b) noexcept {
 }
 void keybinds_clear_page(NativePluginSdkBinding& binding, u64 page_id) noexcept {
     for (auto& keybind : binding.keybinds)
-        if (keybind.page_id == page_id) keybind = {};
+        if (keybind.page_id == page_id) reset_value(&keybind);
 }
 // Resolves one keybind control; returns the conflict label (empty when usable).
 Utf8View keybind_resolve(const NativePluginSdkBinding& binding, u64 page_id, u64 control_id, NativePluginSdkChord chord,
@@ -350,7 +351,7 @@ struct Writer {
     }
     Utf8View* views(u32 count) noexcept {
         Utf8View* at = page.views + page.views_used;
-        for (u32 i = 0; i < count; ++i) at[i] = {};
+        for (u32 i = 0; i < count; ++i) reset_value(&at[i]);
         page.views_used += count;
         return at;
     }
@@ -359,8 +360,8 @@ void write_setting(NativePluginSdkBinding& binding, Writer& writer, const mc_set
     Page& page = writer.page;
     auto& out = page.bank[index];
     auto& extra = page.extra[index];
-    out = {};
-    extra = {};
+    reset_value(&out);
+    reset_value(&extra);
     extra.sdk_kind = control.kind;
     out.id = control.id;
     out.label = writer.text(view(control.label));
@@ -564,7 +565,7 @@ mc_status MC_CALL cmd_register(void* handle, uint64_t generation, const mc_comma
     candidate.option_count = command.option_count;
     candidate.name_bytes = copy_text(candidate.name, kCommandNameBytes, view(command.name));
     candidate.description_bytes = copy_text(candidate.description, kCommandDescriptionBytes, view(command.description));
-    binding->commands[binding->command_count++] = candidate;
+    copy_value(&binding->commands[binding->command_count++], candidate);
     return MC_OK;
 }
 mc_status MC_CALL cmd_unregister(void* handle, uint64_t generation, uint64_t command_id) {
@@ -573,7 +574,7 @@ mc_status MC_CALL cmd_unregister(void* handle, uint64_t generation, uint64_t com
     for (u32 i = 0; i < binding->command_count; ++i)
         if (binding->commands[i].id == command_id) {
             for (u32 j = i + 1; j < binding->command_count; ++j) binding->commands[j - 1] = binding->commands[j];
-            binding->commands[--binding->command_count] = {};
+            reset_value(&binding->commands[--binding->command_count]);
             return MC_OK;
         }
     return MC_E_NOT_FOUND;
@@ -589,7 +590,7 @@ constexpr mc_cmd_v1 kCommands{sizeof(mc_cmd_v1), 1, cmd_register, cmd_unregister
 
 // ---- mc.store@1 ---------------------------------------------------------------------
 
-constexpr u8 kStoreMagic[8]{'M', 'C', 'S', 'T', 'O', 'R', 'E', '1'};
+static constexpr u8 kStoreMagic[8]{'M', 'C', 'S', 'T', 'O', 'R', 'E', '1'};
 constexpr u32 kStoreHeaderBytes = 24;
 constexpr u32 kStoreFileBytes = kStoreHeaderBytes + kPluginSdkStoreKeys * 3 + kPluginSdkStoreBytes;
 
@@ -602,11 +603,11 @@ bool store_path(const NativePluginSdkBinding& binding, wchar_t (&path)[600], boo
     if (create) CreateDirectoryW(path, nullptr);
     u32 at = base;
     path[at++] = L'\\';
-    constexpr wchar_t digits[] = L"0123456789abcdef";
+    static constexpr wchar_t digits[] = L"0123456789abcdef";
     for (u32 i = 0; i < 16; ++i) path[at++] = digits[(binding.owner_id >> (60 - 4 * i)) & 15];
     path[at] = 0;
     if (create) CreateDirectoryW(path, nullptr);
-    constexpr wchar_t leaf[] = L"\\store.bin";
+    static constexpr wchar_t leaf[] = L"\\store.bin";
     for (u32 i = 0; i < sizeof(leaf) / sizeof(leaf[0]); ++i) path[at + i] = leaf[i];
     return true;
 }
@@ -644,7 +645,7 @@ bool store_decode(Store& store, const u8* file, u32 bytes) noexcept {
 void store_load(NativePluginSdkBinding& binding) noexcept {
     auto& store = binding.store;
     if (store.loaded) return;
-    store = {};
+    reset_value(&store);
     store.loaded = true;
     wchar_t path[600];
     if (!store_path(binding, path, false)) return;
@@ -687,7 +688,7 @@ bool store_save(NativePluginSdkBinding& binding) noexcept {
     u32 length = 0;
     while (path[length]) ++length;
     copy_bytes(temporary, path, length * 2);
-    constexpr wchar_t suffix[] = L".new";
+    static constexpr wchar_t suffix[] = L".new";
     for (u32 i = 0; i < 5; ++i) temporary[length + i] = suffix[i];
     HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr);
@@ -715,7 +716,7 @@ void store_erase(Store& store, u32 index) noexcept {
     copy_bytes(store.data + removed.offset, store.data + removed.offset + bytes, store.used - removed.offset - bytes);
     store.used -= bytes;
     for (u32 i = index + 1; i < store.count; ++i) store.entries[i - 1] = store.entries[i];
-    store.entries[--store.count] = {};
+    reset_value(&store.entries[--store.count]);
     for (u32 i = 0; i < store.count; ++i)
         if (store.entries[i].offset > removed.offset)
             store.entries[i].offset = static_cast<u16>(store.entries[i].offset - bytes);
@@ -815,7 +816,7 @@ mc_status MC_CALL timer_cancel(void* handle, uint64_t generation, uint64_t id) {
     if (!binding) return MC_E_INACTIVE;
     for (auto& timer : binding->timers)
         if (timer.active && timer.id == id) {
-            timer = {};
+            reset_value(&timer);
             return MC_OK;
         }
     return MC_E_NOT_FOUND;
@@ -925,12 +926,12 @@ void WINAPI adapter_stop(void* state, u32) noexcept {
     if (binding->start_attempted && binding->definition.stop)
         binding->definition.stop(binding->plugin_state, binding->plugin_state_bytes);
     store_save(*binding);
-    binding->store = {};
+    reset_value(&binding->store);
     reset_registrations(*binding);
     binding->start_attempted = false;
     binding->plugin_state = nullptr;
     binding->generation = 0;
-    binding->services = {};
+    reset_value(&binding->services);
     binding->phase = Phase::empty;
     clear_bytes(state, sizeof(StateHeader));
 }
@@ -967,7 +968,7 @@ NativePluginActivationResult WINAPI adapter_settings(void* state, u32, NativePlu
 
 bool space(char c) noexcept { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 Utf8View command_name(Utf8View text, Utf8View* rest) noexcept {
-    if (rest) *rest = {};
+    if (rest) reset_value(rest);
     if (!text.bytes || text.data[0] != '/') return {};
     u32 end = 1;
     while (end < text.bytes && !space(text.data[end])) ++end;
@@ -1011,8 +1012,8 @@ bool parse_integer(Utf8View text, i64* value) noexcept {
     return true;
 }
 bool parse_boolean(Utf8View text, bool* value) noexcept {
-    constexpr Utf8View yes[]{utf8_literal("true"), utf8_literal("yes"), utf8_literal("on"), utf8_literal("1")};
-    constexpr Utf8View no[]{utf8_literal("false"), utf8_literal("no"), utf8_literal("off"), utf8_literal("0")};
+    static constexpr Utf8View yes[]{utf8_literal("true"), utf8_literal("yes"), utf8_literal("on"), utf8_literal("1")};
+    static constexpr Utf8View no[]{utf8_literal("false"), utf8_literal("no"), utf8_literal("off"), utf8_literal("0")};
     for (auto word : yes)
         if (ascii_equal_ignore_case(text, word)) { *value = true; return true; }
     for (auto word : no)
@@ -1082,7 +1083,7 @@ bool native_plugin_sdk_destroy(NativePluginSdkBinding* binding) noexcept {
 
 NativePluginSdkQueryError native_plugin_sdk_query(NativePluginSdkBinding* binding, mc_query_fn query, u64 expected_owner,
                                                 NativePluginDefinition* adapter) noexcept {
-    if (adapter) *adapter = {};
+    if (adapter) reset_value(adapter);
     if (!live(binding) || !query || !adapter || binding->phase != Phase::empty) return NativePluginSdkQueryError::invalid;
     const mc_host_info info{sizeof(mc_host_info), kPluginSdkHostAbi};
     mc_plugin_definition definition{};
@@ -1152,7 +1153,7 @@ const NativePluginSdkBinding* native_plugin_sdk_find(const NativePluginSdkRuntim
 
 bool native_plugin_sdk_settings_edit(const NativePluginSdkRuntime& runtime, UiPageKey key, u64 control_id,
                                     NativePluginSdkEdit* edit) noexcept {
-    if (edit) *edit = {};
+    if (edit) reset_value(edit);
     const auto* binding = binding_for(runtime, key.owner_id);
     const Page* page = binding ? find_page(*binding, key.page_id) : nullptr;
     const u32 index = page ? find_control(*page, control_id) : ~0u;
@@ -1202,8 +1203,8 @@ NativePluginError native_plugin_sdk_settings_submit(NativePluginSdkRuntime* runt
 
 bool native_plugin_sdk_keybind_normalize(Utf8View text, char (&output)[64], u32* bytes) noexcept {
     if (!bytes || !text.bytes || text.bytes > 63) return false;
-    constexpr Utf8View modifiers[]{utf8_literal("Ctrl"), utf8_literal("Alt"), utf8_literal("Shift"), utf8_literal("Win")};
-    constexpr Utf8View aliases[]{utf8_literal("control"), utf8_literal("option"), utf8_literal("shift"), utf8_literal("meta")};
+    static constexpr Utf8View modifiers[]{utf8_literal("Ctrl"), utf8_literal("Alt"), utf8_literal("Shift"), utf8_literal("Win")};
+    static constexpr Utf8View aliases[]{utf8_literal("control"), utf8_literal("option"), utf8_literal("shift"), utf8_literal("meta")};
     u32 mask = 0;
     char key[12];
     u32 key_bytes = 0;
@@ -1266,7 +1267,7 @@ bool native_plugin_sdk_keybind_normalize(Utf8View text, char (&output)[64], u32*
 
 bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chord) noexcept {
     if (!chord) return false;
-    *chord = {};
+    reset_value(chord);
     char text[64];
     u32 bytes = 0;
     if (!native_plugin_sdk_keybind_normalize(normal, text, &bytes)) return false;
@@ -1500,7 +1501,7 @@ NativePluginSdkPoll native_plugin_sdk_poll(NativePluginSdkRuntime* runtime) noex
                 const u64 id = timer.id;
                 // Repeats restart from now so a stalled loop never fires a burst.
                 if (timer.repeat) timer.due = now + timer.interval;
-                else timer = {};
+                else reset_value(&timer);
                 Call call(*binding, PluginCallKind::timer);
                 binding->timer_handler(binding->plugin_state, binding->plugin_state_bytes, id);
             }

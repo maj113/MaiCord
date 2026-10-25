@@ -379,7 +379,7 @@ MessageRichString store_string(MessageRichStore* store, Utf8View value, bool* tr
 
 void copy_embed_media(MessageRichStore* store, const GatewayMessageEmbedMedia& source,
                       MessageRichEmbedMedia* destination, bool* truncated) noexcept {
-    *destination = MessageRichEmbedMedia{};
+    reset_value<MessageRichEmbedMedia>(destination);
     destination->url = store_string(store, source.url, truncated);
     destination->proxy_url = store_string(store, source.proxy_url, truncated);
     destination->content_type = store_string(store, source.content_type, truncated);
@@ -401,19 +401,19 @@ bool count_wasted(void* opaque, MessageRichString* value) noexcept {
 
 void clear_replaced(MessageRichRecord* record, u32 fields) noexcept {
     if ((fields & gateway_message_field_interaction) != 0)
-        record->interaction = {};
+        reset_value(&record->interaction);
     if ((fields & gateway_message_field_thread) != 0)
-        record->thread = {};
+        reset_value(&record->thread);
     if ((fields & gateway_message_field_mentions) != 0) {
         record->system.target_user_id = 0;
-        record->system.target_name = {};
+        reset_value(&record->system.target_name);
     }
     if ((fields & gateway_message_field_call) != 0) {
         record->system.call_ended_ms = 0;
         record->system.call_present = record->system.call_ended = record->system.call_participated = false;
     }
     if ((fields & kReferenceFields) != 0) {
-        record->reference = MessageRichReference{};
+        reset_value<MessageRichReference>(&record->reference);
     }
     if ((fields & gateway_message_field_reactions) != 0) {
         record->reaction_count = 0;
@@ -521,7 +521,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         for (u32 index = 0; index < input.reactions.count; ++index) {
             const GatewayMessageReaction& source = input.reactions[index];
             MessageRichReaction& destination = record->reactions[index];
-            destination = MessageRichReaction{};
+            reset_value<MessageRichReaction>(&destination);
             destination.emoji_id = source.emoji_id;
             destination.name = store_string(store, source.name, truncated);
             destination.count = source.count;
@@ -536,7 +536,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         for (u32 index = 0; index < input.attachments.count; ++index) {
             const GatewayMessageAttachment& source = input.attachments[index];
             MessageRichAttachment& destination = record->attachments[index];
-            destination = MessageRichAttachment{};
+            reset_value<MessageRichAttachment>(&destination);
             destination.id = source.id;
             destination.size = source.size;
             destination.filename = store_string(store, source.filename, truncated);
@@ -560,7 +560,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         for (u32 index = 0; index < input.embeds.count; ++index) {
             const GatewayMessageEmbed& source = input.embeds[index];
             MessageRichEmbed& destination = record->embeds[index];
-            destination = MessageRichEmbed{};
+            reset_value<MessageRichEmbed>(&destination);
             destination.title = store_string(store, source.title, truncated);
             destination.description = store_string(store, source.description, truncated);
             destination.url = store_string(store, source.url, truncated);
@@ -587,7 +587,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         for (u32 index = 0; index < input.embed_fields.count; ++index) {
             const GatewayMessageEmbedField& source = input.embed_fields[index];
             MessageRichEmbedField& destination = record->embed_fields[index];
-            destination = MessageRichEmbedField{};
+            reset_value<MessageRichEmbedField>(&destination);
             destination.name = store_string(store, source.name, truncated);
             destination.value = store_string(store, source.value, truncated);
             destination.embed_index = source.embed_index;
@@ -599,7 +599,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         for (u32 index = 0; index < input.stickers.count; ++index) {
             const GatewayMessageSticker& source = input.stickers[index];
             MessageRichSticker& destination = record->stickers[index];
-            destination = MessageRichSticker{};
+            reset_value<MessageRichSticker>(&destination);
             destination.id = source.id;
             destination.name = store_string(store, source.name, truncated);
             destination.format_type = source.format_type;
@@ -610,7 +610,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         for (u32 index = 0; index < input.components.count; ++index) {
             const GatewayMessageComponent& source = input.components[index];
             MessageRichComponent& destination = record->components[index];
-            destination = MessageRichComponent{};
+            reset_value<MessageRichComponent>(&destination);
             destination.label = store_string(store, source.label, truncated);
             destination.content = store_string(store, source.content, truncated);
             destination.custom_id = store_string(store, source.custom_id, truncated);
@@ -641,7 +641,7 @@ bool erase_snapshot_slot(MessageRichStore* store, u16 slot) noexcept {
         wasted > ~0u - store->text_wasted)
         return false;
     const u16 generation = store->records[slot].generation;
-    store->records[slot] = {};
+    reset_value(&store->records[slot]);
     store->records[slot].generation = static_cast<u16>(generation == 0xFFFFu ? 1u : generation + 1u);
     store->text_wasted += static_cast<u32>(wasted);
     --store->snapshot_count;
@@ -663,7 +663,7 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
         return false;
     store->text_wasted += static_cast<u32>(bytes);
     const u16 generation = store->records[slot].generation;
-    store->records[slot] = MessageRichRecord{};
+    reset_value<MessageRichRecord>(&store->records[slot]);
     store->records[slot].generation = generation == 0xFFFFu ? 1u : static_cast<u16>(generation + 1u);
     for (u32 index = order_index + 1; index < store->count; ++index) {
         store->order[index - 1] = store->order[index];
@@ -681,7 +681,7 @@ bool initialize_store(MessageRichStore* store, MessageRichRecord* records, Stabl
         order.count < capacity || !text.data || text.count < 2 || (text.count & 1u) != 0) {
         return false;
     }
-    *store = MessageRichStore{};
+    reset_value<MessageRichStore>(store);
     store->records = records;
     store->record_storage = record_storage;
     store->order = order.data;
@@ -692,7 +692,7 @@ bool initialize_store(MessageRichStore* store, MessageRichRecord* records, Stabl
     store->text_capacity = text.count;
     store->sparse_text = sparse_text;
     for (u32 index = 0; index < record_extent; ++index) {
-        records[index] = MessageRichRecord{};
+        reset_value<MessageRichRecord>(&records[index]);
         records[index].generation = 1;
     }
     for (u32 index = 0; index < capacity; ++index) {
@@ -716,7 +716,7 @@ bool extend_records(MessageRichStore* store) noexcept {
     store->records = stable_storage_data<MessageRichRecord>(*store->record_storage);
     store->record_extent = store->record_storage->capacity;
     for (u32 index = previous_extent; index < store->record_extent; ++index) {
-        store->records[index] = MessageRichRecord{};
+        reset_value<MessageRichRecord>(&store->records[index]);
         store->records[index].generation = 1;
     }
     return true;
@@ -756,7 +756,7 @@ void message_rich_store_release(MessageRichStore* store) noexcept {
     if (store->record_storage) {
         stable_storage_release(store->record_storage);
     }
-    *store = MessageRichStore{};
+    reset_value<MessageRichStore>(store);
 }
 
 MediaAttachmentFormat message_rich_attachment_audio_format(
@@ -932,7 +932,7 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     MessageRichRecord* record = &store->records[slot];
     if (!search.found) {
         const u16 generation = record->generation == 0 ? 1 : record->generation;
-        *record = MessageRichRecord{};
+        reset_value<MessageRichRecord>(record);
         record->forwarded_snapshot_child = child;
         record->generation = generation;
         record->message_id = message_id;
@@ -1542,7 +1542,7 @@ bool parse_record(ConstSlice<u8> input, MessageRichRecord* record, ConstSlice<u8
     copy_bytes(&header, input.data, sizeof(header));
     if (header.bytes < kPackedRichMinimum || header.bytes > input.count || header.string_bytes > header.bytes)
         return false;
-    *record = MessageRichRecord{};
+    reset_value<MessageRichRecord>(record);
     const u8* cursor = input.data + sizeof(header);
     copy_bytes(record, cursor, kRichHead);
     cursor += kRichHead;
@@ -1664,7 +1664,7 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
         for (u32 index = 0; index < count; ++index) {
             MessageRichRecord& record = store->records[slots[index]];
             const u16 generation = record.generation;
-            record = MessageRichRecord{};
+            reset_value<MessageRichRecord>(&record);
             record.generation = generation == 0 ? 1 : generation;
         }
         return false;

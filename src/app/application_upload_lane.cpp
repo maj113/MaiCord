@@ -1,4 +1,5 @@
 #include "application_upload_lane.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 namespace maicord::app_detail {
 namespace {
@@ -44,10 +45,10 @@ bool application_upload_lane_release(ApplicationUploadLease* lease) noexcept {
     if (!lease || !lease->id) return true;
     if (!same(*lease)) return false;
     if (!upload_started || !g_app.account.instance || g_app.account.instance != lease->instance) {
-        upload_lane = {}; *lease = {}; upload_started = false; return true;
+        reset_value(&upload_lane); reset_value(lease); upload_started = false; return true;
     }
     const auto result = application_upload_lane_operation(*lease, AccountUploadOperation::release);
     if (!result.released) return false;
-    upload_lane = {}; *lease = {}; upload_started = false; return true;
+    reset_value(&upload_lane); reset_value(lease); upload_started = false; return true;
 }
 } // namespace maicord::app_detail

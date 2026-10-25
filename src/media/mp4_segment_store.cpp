@@ -34,7 +34,7 @@ Mp4DemuxError mp4_segment_store_initialize(Mp4SegmentStore* s, ConstSlice<u8> in
     value.live = live;
     value.generation = s->generation; value.request_serial = s->request_serial;
     advance(value.generation); advance(value.request_serial);
-    *s = value;
+    copy_value(s, value);
     return E::none;
 }
 const Mp4SegmentSlot* mp4_segment_store_find(const Mp4SegmentStore& s, u32 number) noexcept {
@@ -114,6 +114,6 @@ void mp4_segment_store_release(Mp4SegmentStore* s) noexcept {
     for (auto& slot : s->slots) reserved_bytes_release(&slot.storage);
     u64 generation = s->generation, serial = s->request_serial;
     advance(generation); advance(serial);
-    *s = {}; s->generation = generation; s->request_serial = serial;
+    reset_value(s); s->generation = generation; s->request_serial = serial;
 }
 } // namespace maicord

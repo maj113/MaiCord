@@ -116,7 +116,7 @@ bool rebuild(UiInboxScene& s) noexcept {
         const float widths[]{c.this_server_available ? 104.f : 0.f, 96.f, 72.f};
         const UiInboxAction actions[]{UiInboxAction::filter_server, UiInboxAction::filter_everyone,
                                       UiInboxAction::filter_roles};
-        constexpr Utf8View names[]{utf8_literal("Server filter"), utf8_literal("Include @everyone mentions"),
+        static constexpr Utf8View names[]{utf8_literal("Server filter"), utf8_literal("Include @everyone mentions"),
                                    utf8_literal("Include @role mentions")};
         for (u32 i = 0; i < 3; ++i) {
             if (!widths[i])
@@ -299,7 +299,7 @@ void ui_inbox_scene_release(UiInboxScene* s) noexcept {
     if (!s)
         return;
     ui_fixed_widget_storage_release(&s->storage);
-    *s = {};
+    reset_value(s);
 }
 bool ui_inbox_scene_contains(const UiInboxScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.panel, x, y);

@@ -201,7 +201,7 @@ u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
     }
     const auto platform = session_platform(a);
     if (platform.bytes && a.type != UserActivityType::custom) {
-        constexpr Utf8View verbs[] = {utf8_literal("Playing on "),   utf8_literal("Live on "),
+        static constexpr Utf8View verbs[] = {utf8_literal("Playing on "),   utf8_literal("Live on "),
                                       utf8_literal("Listening on "), utf8_literal("Watching on "),
                                       {},                            utf8_literal("Competing on ")};
         w.put(verbs[static_cast<u32>(a.type)]);
@@ -430,7 +430,7 @@ struct Pending {
 UserActivityPlatform platform(JsonValue v) noexcept {
     char text[16];
     const u32 bytes = decode(v, text, sizeof(text), true);
-    constexpr Utf8View names[] = {utf8_literal("desktop"),  utf8_literal("xbox"),     utf8_literal("ps4"),
+    static constexpr Utf8View names[] = {utf8_literal("desktop"),  utf8_literal("xbox"),     utf8_literal("ps4"),
                                   utf8_literal("ps5"),      utf8_literal("ios"),      utf8_literal("android"),
                                   utf8_literal("embedded"), utf8_literal("samsung"),  utf8_literal("meta_quest")};
     for (u32 i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
@@ -532,7 +532,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
         }
     }
     auto& a = c.out->items[c.out->count];
-    a = {};
+    reset_value(&a);
     a.type = static_cast<UserActivityType>(type);
     a.application_id = number(f.application_id);
     a.created_ms = number(f.created_at);
@@ -605,7 +605,7 @@ bool root_member(void* opaque, JsonString key, JsonValue value) noexcept {
 
 bool user_activities_decode(const JsonIndexedDocument& doc, JsonValue presence, u64 user_id,
                             UserActivitySet* output, bool* has) noexcept {
-    *output = {};
+    reset_value(output);
     output->user_id = user_id;
     *has = false;
     if (!presence.source.data || presence.kind != JsonValueKind::object)

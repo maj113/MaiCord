@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/model/chat_state.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
@@ -16,7 +17,7 @@ inline constexpr float kUiPluginSlotRowNameKeep = 48;
 // close button), centred on the 32-DIP head (DM rows: the whole row).
 inline bool shell_navigation_plugin_badge(const ShellNavigationScene& scene, u32 index,
                                           UiPluginSlotBadge* out) noexcept {
-    *out = {};
+    reset_value(out);
     if (!g_ui_plugin_slot_query || !scene.active || index >= scene.count) return false;
     const auto& row = scene.rows[index];
     if (!row.view.id || row.view.type == kNavigationEventsRowType || row.view.type == kNavigationRequestsRowType)
@@ -35,7 +36,7 @@ inline bool shell_navigation_plugin_badge(const ShellNavigationScene& scene, u32
 
 // Server rail: the corner badge of a guild row (folder headers have none).
 inline bool guild_rail_plugin_corner(const GuildRailScene& scene, u32 index, UiPluginSlotCorner* out) noexcept {
-    *out = {};
+    reset_value(out);
     if (!g_ui_plugin_slot_query || !scene.active || index >= scene.count) return false;
     const auto& row = scene.rows[index];
     if (row.view.folder_role == GuildFolderRole::header || row.view.unavailable) return false;

@@ -105,7 +105,7 @@ bool decode_entry(const u8* input, AccountInventoryEntry* entry) noexcept {
     copy_bytes(decoded.avatar_hash, input + offset, decoded.avatar_hash_bytes);
     if (!entry_valid(decoded))
         return false;
-    *entry = decoded;
+    copy_value(entry, decoded);
     return true;
 }
 
@@ -232,7 +232,7 @@ AccountInventoryResult account_inventory_open(const AccountPaths& root, AccountI
     const AccountInventoryResult loaded = account_inventory_load(path, inventory);
     if (loaded.error != AccountInventoryError::missing)
         return loaded;
-    *inventory = {};
+    reset_value(inventory);
     u64 user_id = 0;
     if (!account_inventory_profile_user(root.profile, &user_id))
         return AccountInventoryResult{};
@@ -241,7 +241,7 @@ AccountInventoryResult account_inventory_open(const AccountPaths& root, AccountI
     entry.user_id = user_id;
     entry.slot = 0;
     entry.last_used_unix_ms = now_unix_ms;
-    inventory->entries[0] = entry;
+    copy_value(&inventory->entries[0], entry);
     inventory->count = 1;
     inventory->active_slot = 0;
     AccountInventoryResult saved = account_inventory_save(path, *inventory);
@@ -275,7 +275,7 @@ AccountInventoryError account_inventory_upsert(AccountInventory* inventory,
         return AccountInventoryError::invalid_input;
     for (u32 index = 0; index < inventory->count; ++index)
         if (inventory->entries[index].slot == entry.slot) {
-            inventory->entries[index] = entry;
+            copy_value(&inventory->entries[index], entry);
             return AccountInventoryError::none;
         }
     if (inventory->count >= kAccountInventoryMaximumAccounts)
@@ -290,8 +290,8 @@ bool account_inventory_remove_slot(AccountInventory* inventory, u32 slot) noexce
     for (u32 index = 0; index < inventory->count; ++index)
         if (inventory->entries[index].slot == slot) {
             for (u32 next = index + 1; next < inventory->count; ++next)
-                inventory->entries[next - 1] = inventory->entries[next];
-            inventory->entries[--inventory->count] = {};
+                copy_value(&inventory->entries[next - 1], inventory->entries[next]);
+            reset_value(&inventory->entries[--inventory->count]);
             return true;
         }
     return false;
@@ -362,7 +362,7 @@ bool account_inventory_set_identity(AccountInventoryEntry* entry, Utf8View displ
     updated.avatar_hash_bytes = copy_label(updated.avatar_hash, kAccountInventoryAvatarHashBytes, avatar_hash);
     if (bytes_equal(&updated, entry, sizeof(updated)))
         return false;
-    *entry = updated;
+    copy_value(entry, updated);
     return true;
 }
 

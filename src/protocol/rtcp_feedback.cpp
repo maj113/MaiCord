@@ -1,4 +1,5 @@
 #include "maicord/protocol/rtcp_feedback.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 
@@ -298,7 +299,7 @@ RtcpTransportFeedbackWrite rtcp_write_transport_feedback(Slice<u8> output, u32 o
 
 void rtcp_transport_feedback_reset(RtcpTransportFeedbackState* state) noexcept {
     if (state)
-        *state = {};
+        reset_value(state);
 }
 
 void rtcp_transport_feedback_record(RtcpTransportFeedbackState* state, u16 sequence, u32 media_ssrc,

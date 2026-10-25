@@ -1,4 +1,5 @@
 #include "maicord/text/khmer_input.hpp"
+#include "maicord/core/memory.hpp"
 #include "khmer_character.hpp"
 namespace maicord {
 using C=KhmerCategory;
@@ -85,7 +86,7 @@ SfntStatus sfnt_khmer_cluster_boundaries(ConstSlice<u32> input,Slice<u8> output,
     return SfntStatus::ok;
 }
 SfntStatus sfnt_khmer_expand_cluster(ConstSlice<u32> input,Slice<SfntKhmerInputScalar> output,SfntKhmerInputResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntKhmerInputScalar)))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;
     u64 count=input.count,units=0;Expansion expansion{};
@@ -93,7 +94,7 @@ SfntStatus sfnt_khmer_expand_cluster(ConstSlice<u32> input,Slice<SfntKhmerInputS
     if(count>0xffffffffu||units>0xffffffffu)return SfntStatus::resource_limit;
     const SfntKhmerInputResult sizes{static_cast<u32>(count),static_cast<u32>(units)};
     if(count>output.count){*result=sizes;return SfntStatus::output_too_small;}
-    u32 at=0,source=0;expansion={};
+    u32 at=0,source=0;reset_value(&expansion);
     for(u32 i=0;i<input.count;++i){const u32 c=input[i];if(expansion.next(input,i))output[at++]={0x17c1,source};output[at++]={c,source};source+=c>0xffff?2u:1u;}
     *result=sizes;return SfntStatus::ok;
 }

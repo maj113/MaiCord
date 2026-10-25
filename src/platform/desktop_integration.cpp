@@ -270,7 +270,7 @@ bool desktop_launch_parse(ConstSlice<wchar_t> line, DesktopLaunch* launch) noexc
 bool desktop_link_parse(ConstSlice<wchar_t> url, DesktopLinkTarget* target) noexcept {
     if (!target)
         return false;
-    *target = {};
+    reset_value(target);
     if (!url.data || url.count > kDesktopUrlCapacity || !prefix_folded(url, 0, L"discord:"))
         return false;
     u32 end = url.count;

@@ -1,4 +1,5 @@
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/memory.hpp"
 #include "network_native.hpp"
 
 #include "maicord/sys/winsock.hpp"
@@ -18,7 +19,7 @@ NetworkResult failure(NetworkError error, i32 native_error) noexcept {
 
 void initialize_operation(NetworkOperation* operation, NetworkConnection* owner, NetworkOperationKind kind,
                           u32 generation) noexcept {
-    *operation = NetworkOperation{};
+    reset_value<NetworkOperation>(operation);
     operation->owner = owner;
     operation->generation = generation;
     operation->kind = kind;
@@ -48,7 +49,7 @@ bool bind_wildcard(SOCKET socket_value, i32 family) noexcept {
     if (family == AF_INET6) {
         sockaddr_in6 address{};
         address.sin6_family = AF_INET6;
-        address.sin6_addr = IN6_ADDR{};
+        reset_value<IN6_ADDR>(&address.sin6_addr);
         return bind(socket_value, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0;
     }
     WSASetLastError(WSAEAFNOSUPPORT);
@@ -61,7 +62,7 @@ NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
     if (!loop) {
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
-    *loop = NetworkLoop{};
+    reset_value<NetworkLoop>(loop);
 
     WSADATA data{};
     const i32 startup_error = WSAStartup(MAKEWORD(2, 2), &data);
@@ -99,7 +100,7 @@ void network_loop_release(NetworkLoop* loop) noexcept {
     if (loop->winsock_started) {
         WSACleanup();
     }
-    *loop = NetworkLoop{};
+    reset_value<NetworkLoop>(loop);
 }
 
 NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* connection,
@@ -109,7 +110,7 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
 
-    *connection = NetworkConnection{};
+    reset_value<NetworkConnection>(connection);
     connection->socket = INVALID_SOCKET;
     connection->generation = 1;
     const SOCKET socket_value =
@@ -231,7 +232,7 @@ NetworkResult network_resolver_start(NetworkLoop* loop, NetworkResolver* resolve
         return failure(NetworkError::invalid_argument, WSAEINVAL);
     }
 
-    *resolver = NetworkResolver{};
+    reset_value<NetworkResolver>(resolver);
     resolver->generation = 1;
     resolver->operation.owner = resolver;
     resolver->operation.generation = resolver->generation;
@@ -279,7 +280,7 @@ bool network_resolver_release(NetworkResolver* resolver) noexcept {
     if (resolver->results) {
         FreeAddrInfoExW(resolver->results);
     }
-    *resolver = NetworkResolver{};
+    reset_value<NetworkResolver>(resolver);
     return true;
 }
 
@@ -288,7 +289,7 @@ NetworkResult network_signal_post(NetworkLoop* loop, NetworkSignal* signal, u32 
         InterlockedCompareExchange(&signal->pending, 1, 0) != 0) {
         return failure(NetworkError::invalid_argument, ERROR_INVALID_PARAMETER);
     }
-    signal->operation = NetworkOperation{};
+    reset_value<NetworkOperation>(&signal->operation);
     signal->operation.owner = signal;
     signal->operation.kind = NetworkOperationKind::signal;
     signal->value = value;

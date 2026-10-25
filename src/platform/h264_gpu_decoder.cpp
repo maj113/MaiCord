@@ -375,7 +375,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
             h264_sps_output_reorder(a), maximum<u8>(h264_sps_dpb_frames(a), 1)))) {
             probe->submitted = true; return output_frame(s);
         }
-        Mp4Demuxer next = s->demux;
+        Mp4Demuxer next; copy_value(&next, s->demux);
         Mp4AccessUnit unit{};
         if (s->fragmented) unit.error = s->fragment_peek(s->fragmented, &unit);
         else unit = mp4_demux_next(&next);
@@ -417,7 +417,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
             reset |= header.first.marking[i].operation == 5;
         if (reset && s->output.count) {
             if (header.first.idr && header.first.discard_prior)
-                s->output = {};
+                reset_value(&s->output);
             else { probe->submitted = true; return output_frame(s); }
         }
         const u8 surface = h264_free_surface(s->output, header.first.idr ? 0 : reference_mask(*s),
@@ -439,13 +439,13 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
         probe->status = status;
         if (FAILED(status)) { frame.error = Mp4DecodeError::sample; return frame; }
         if (++s->feedback == 0) ++s->feedback;
-        s->references = plan.after;
+        copy_value(&s->references, plan.after);
         if (s->fragmented) {
             if (!s->fragment_commit(s->fragmented)) {
                 probe->status = E_UNEXPECTED; frame.error = Mp4DecodeError::stream; return frame;
             }
             ++s->demux.sample_index;
-        } else s->demux = next;
+        } else copy_value(&s->demux, next);
         ++submissions;
         const auto order = plan.retained_order;
         if (!h264_output_push(&s->output, {unit.duration_us,
@@ -460,7 +460,7 @@ H264GpuDiagnostic h264_gpu_decoder_diagnostic(const H264GpuDecoder& decoder) noe
     if (!s)
         return {};
     if (s->fragmented) return {s->demux.sample_index, 0, 0, s->output.count, false};
-    auto cursor = s->demux;
+    Mp4Demuxer cursor; copy_value(&cursor, s->demux);
     const auto next = mp4_demux_next(&cursor);
     return {s->demux.sample_index, next.presentation_time_us_signed, next.decode_time_us, s->output.count,
             next.ok()};
@@ -479,7 +479,7 @@ H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder& decoder) noexcept {
         movie.first_presentation_time_us = s->first_presentation; movie.first_presentation_valid = true;
         return movie;
     }
-    Mp4Demuxer first = s->demux;
+    Mp4Demuxer first; copy_value(&first, s->demux);
     mp4_demux_reset(&first);
     const auto unit = mp4_demux_next(&first);
     if(unit.ok()){movie.first_presentation_time_us=unit.presentation_time_us_signed;movie.first_presentation_valid=true;}
@@ -502,12 +502,12 @@ Mp4DemuxError h264_gpu_decoder_seek(H264GpuDecoder* decoder,i64 target,Mp4SeekPo
         byte_ranges_overlap(output,{reinterpret_cast<const u8*>(decoder),sizeof(*decoder)})||
         byte_ranges_overlap(output,{reinterpret_cast<const u8*>(s),sizeof(*s)})||
         byte_ranges_overlap(output,s->demux.encoded))return Mp4DemuxError::invalid_input;
-    Mp4Demuxer next=s->demux;Mp4SeekPoint selected{};
+    Mp4Demuxer next; copy_value(&next, s->demux);Mp4SeekPoint selected{};
     const auto result=s->fragmented ? s->fragment_seek(s,target,&selected,false)
                                     : mp4_demux_seek_sync(&next,target,&selected);
     if(result!=Mp4DemuxError::none)return result;
     if(s->fragmented)next.sample_index=selected.sample_index;
-    s->demux=next;s->references={};s->output={};decoder->submitted=false;
+    copy_value(&s->demux, next);reset_value(&s->references);reset_value(&s->output);decoder->submitted=false;
     decoder->status=S_OK;decoder->parse_error=H264Error::none;decoder->demux_error=Mp4DemuxError::none;*point=selected;
     return Mp4DemuxError::none;
 }
@@ -518,10 +518,10 @@ bool h264_gpu_decoder_rewind(H264GpuDecoder* decoder) noexcept {
         Mp4SeekPoint point{};
         decoder->demux_error=s->fragment_seek(s,0,&point,true);
         if (decoder->demux_error != Mp4DemuxError::none) return false;
-        s->demux.sample_index=0;s->references={};s->output={};decoder->submitted=false;return true;
+        s->demux.sample_index=0;reset_value(&s->references);reset_value(&s->output);decoder->submitted=false;return true;
     }
-    Mp4Demuxer next=s->demux;mp4_demux_reset(&next);if(!next.ready)return false;
-    s->demux=next;s->references={};s->output={};decoder->submitted=false;return true;
+    Mp4Demuxer next; copy_value(&next, s->demux);mp4_demux_reset(&next);if(!next.ready)return false;
+    copy_value(&s->demux, next);reset_value(&s->references);reset_value(&s->output);decoder->submitted=false;return true;
 }
 bool h264_gpu_decoder_seek_start(H264GpuDecoder* decoder) noexcept {
     if(!decoder||!decoder->state)return false;
@@ -540,7 +540,7 @@ void h264_gpu_decoder_release(H264GpuDecoder* probe) noexcept {
         com_release(s->guard); com_release(s->context); com_release(s->device);
         VirtualFree(s, 0, MEM_RELEASE);
     }
-    *probe = {};
+    reset_value(probe);
 }
 
 bool h264_gpu_decoder_busy(const H264GpuDecoder& decoder) noexcept {

@@ -1,4 +1,5 @@
 #include "maicord/media/mpeg_ts_segment_store.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/media/mpeg_ts_codec.hpp"
 #include "maicord/media/h264_parameters.hpp"
 #include "maicord/media/h264_stream.hpp"
@@ -117,7 +118,7 @@ E fill(Mp4SegmentStore& s,u32 number,ConstSlice<u8> body,u64 duration_us,u64 ini
         !reserved_bytes_commit(&slot.storage,body.count+table+headroom)) return E::out_of_memory;
     // The active slot stays pinned. Any proposal borrowing this candidate must
     // become stale before its bytes can be compacted, including on failure.
-    slot.bytes=0; slot.media={}; advance(s.generation);
+    slot.bytes=0; reset_value(&slot.media); advance(s.generation);
     u8* data=slot.storage.base; u32 used=table,count=0; u64 first=0,last=0,clock=0;
     VideoUnit units[samples_limit]; u32 unit_count=0,unit_base=0,unit_index=0;
     if(!s.track.audio) {

@@ -140,7 +140,7 @@ u64 lifetime;
 using Bank = TextBank;
 
 u32 person_color(u64 user_id) noexcept {
-    constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
+    static constexpr u32 colors[]{0x5865f2ff, 0x757e8aff, 0x3ba55cff, 0xfaa61aff, 0xed4245ff, 0xeb459fff};
     return colors[(user_id >> 22) % 6];
 }
 const ChatStateStore& state() noexcept {
@@ -288,7 +288,7 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation present
         return ~0u;
     owner->controls[owner->control_count] = control;
     owner->presentation[owner->control_count] = presentation;
-    owner->avatar_media[owner->control_count] = {};
+    reset_value(&owner->avatar_media[owner->control_count]);
     return owner->control_count++;
 }
 UiSettingsEditor* editor(u32 index, u64 control, Utf8View placeholder, bool enabled) noexcept {
@@ -341,7 +341,7 @@ void project_text_overview() noexcept {
         0,
         conflict ? utf8_literal("Use my changes") : utf8_literal("Refresh")};
     for (u32 i = 0; i < 5; ++i)
-        p.presentation[i] = {};
+        reset_value(&p.presentation[i]);
     if (conflict)
         p.presentation[4].variant = UiSettingsVariant::primary;
     p.control_count = 5;
@@ -601,7 +601,7 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     const u32 rgba = owner->row_accent[id - kTargetBase];
     if (!rgba)
         return false;
-    *theme = {};
+    reset_value(theme);
     theme->colors[0] = rgba >> 8;
     theme->color_count = 1;
     return true;
@@ -633,7 +633,7 @@ bool project() noexcept {
     active.presentation = p.presentation;
     active.avatar_media = p.avatar_media;
     active.footer = &p.footer;
-    other.controls = {};
+    reset_value(&other.controls);
     other.presentation = nullptr;
     other.avatar_media = nullptr;
     other.footer = nullptr;
@@ -693,7 +693,7 @@ void queue(Op op) noexcept {
     owner->queued = true;
     owner->retry_at = 0;
     owner->failed = false;
-    owner->status = {};
+    reset_value(&owner->status);
     application_request_frame();
 }
 bool guard_dirty() noexcept {
@@ -740,9 +740,13 @@ void confirm_delete() noexcept {
     application_text_form_open(request);
 }
 void open_slowmode(UiRect anchor, u32 current) noexcept {
-    for (u32 i = 0; i < 14; ++i)
-        owner->popup_items[i] = {slowmode_labels[i], 700 + i,
-                                 static_cast<u16>(popup_item_enabled | (slowmode_values[i] == current ? popup_item_checked : 0))};
+    for (u32 i = 0; i < 14; ++i) {
+        auto& item = owner->popup_items[i];
+        reset_value(&item);
+        item.label = slowmode_labels[i];
+        item.action = 700 + i;
+        item.flags = static_cast<u16>(popup_item_enabled | (slowmode_values[i] == current ? popup_item_checked : 0));
+    }
     owner->menu = Menu::slowmode;
     settings_layer_open_choice(&owner->layer, owner->identity.channel_id, {owner->popup_items, 14}, anchor, 240);
 }
@@ -758,7 +762,7 @@ void open_target_menu(UiRect anchor) noexcept {
         const bool everyone = roles[i]->id == p.identity.guild_id;
         if (everyone)
             continue;
-        p.popup_items[count] = {};
+        reset_value(&p.popup_items[count]);
         p.popup_items[count].label = bank.add(chat_state_store_role_name(state(), *roles[i]));
         p.popup_items[count].detail = utf8_literal("Role");
         p.popup_items[count].action = 2'000 + count;
@@ -780,7 +784,7 @@ void open_target_menu(UiRect anchor) noexcept {
                 name = user_store_name(users, *user);
         if (!name.bytes)
             continue;
-        p.popup_items[count] = {};
+        reset_value(&p.popup_items[count]);
         p.popup_items[count].label = bank.add(name);
         p.popup_items[count].detail = utf8_literal("Member");
         p.popup_items[count].action = 2'000 + count;
@@ -814,7 +818,7 @@ void select(UiPageKey key) noexcept {
         return;
     settings_layer_close_choice(&p.layer);
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     if (ui_page_key_equal(key, permissions_key))
         load_overwrites();
     ui_page_registry_select(&p.registry, key);
@@ -858,7 +862,7 @@ void activate_hook(SettingsLayer*, const SettingsLayerActivation& activation) no
         if (busy())
             return;
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         if (permissions)
             load_overwrites();
         else if (p.text) {
@@ -1086,7 +1090,7 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
     p.op = Op::none;
     p.queued = p.failed = false;
     p.request_id = 0;
-    p.status = {};
+    reset_value(&p.status);
     p.menu = Menu::none;
     p.selected_target = channel->guild_id;
     settings_layer_reset(&p.layer);
@@ -1098,7 +1102,7 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
         message_composer_initialize(&p.models[0], {p.controller.draft.name, kChannelOverviewNameBytes});
         message_composer_initialize(&p.models[1], {p.controller.draft.topic, kChannelOverviewTopicBytes});
     } else {
-        p.controller = {};
+        reset_value(&p.controller);
         clear_bytes(&p.base, sizeof(p.base));
         clear_bytes(&p.draft, sizeof(p.draft));
         p.draft.channel_id = channel_id;

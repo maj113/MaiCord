@@ -1,4 +1,5 @@
 #include "maicord/text/devanagari_order.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/devanagari_clusters.hpp"
 #include "devanagari_character.hpp"
 #include "indic_cluster.hpp"
@@ -18,7 +19,7 @@ u32 consonant_prefix(ConstSlice<u32> order,const C* categories,u32 at) noexcept 
 }
 SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,ConstSlice<u8> forms,
     Slice<u32> order,Slice<u8> masks,SfntDevanagariOrderResult* result,u64 work,bool inserted_circle) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};const u32 n=scalars.count,nil=0xffffffffu;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);const u32 n=scalars.count,nil=0xffffffffu;
     if(forms.count!=n||(n&&(!scalars.data||!forms.data))||(order.count&&!order.data)||(masks.count&&!masks.data))return SfntStatus::invalid_input;
     const bool bengali=profile==SfntIndicProfile::bengali,gurmukhi=profile==SfntIndicProfile::gurmukhi,odia=profile==SfntIndicProfile::odia,kannada=profile==SfntIndicProfile::kannada,malayalam=profile==SfntIndicProfile::malayalam,southern=profile==SfntIndicProfile::telugu||kannada||malayalam;
     const auto* info=sfnt_indic_script(profile);const u32 block=info?info->block_first:0;

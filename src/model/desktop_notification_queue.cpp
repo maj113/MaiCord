@@ -1,4 +1,5 @@
 #include "maicord/model/desktop_notification_queue.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -21,13 +22,13 @@ u32 size(const DesktopNotificationQueueRow& row) noexcept {return row.title_byte
 void increment(u64& n) noexcept {if(n!=~u64{0})++n;}
 bool initialized(const DesktopNotificationQueue* q) noexcept {return q && q->rows.data && q->bytes.data && q->scratch.data;}
 void clear_inflight(DesktopNotificationQueue& q) noexcept {
-    clear_bytes(q.scratch.data,size(q.inflight));q.inflight={};q.has_inflight=q.dispatching=q.inflight_canceled=false;q.attempt=0;
+    clear_bytes(q.scratch.data,size(q.inflight));reset_value(&q.inflight);q.has_inflight=q.dispatching=q.inflight_canceled=false;q.attempt=0;
 }
 void erase_head(DesktopNotificationQueue& q) noexcept {
     const u32 n=size(q.rows[0]);
     copy_bytes(q.bytes.data,q.bytes.data+n,q.used-n);clear_bytes(q.bytes.data+q.used-n,n);
     for(u32 i=1;i<q.count;++i){q.rows[i-1]=q.rows[i];q.rows[i-1].offset-=n;}
-    q.rows[--q.count]={};q.used-=n;
+    reset_value(&q.rows[--q.count]);q.used-=n;
 }
 enum class Purge : u8 {all,channel,message};
 bool matches(const DesktopNotificationQueueRow& r,Purge kind,u64 p,u64 g,u64 c,u64 m) noexcept {
@@ -42,7 +43,7 @@ u32 purge(DesktopNotificationQueue* q,Purge kind,u64 p=0,u64 g=0,u64 c=0,u64 m=0
         const u32 n=size(row);copy_bytes(q->bytes.data+used,q->bytes.data+row.offset,n);row.offset=used;used+=n;q->rows[kept++]=row;
     }
     clear_bytes(q->bytes.data+used,q->used-used);
-    for(u32 i=kept;i<q->count;++i)q->rows[i]={};q->count=kept;q->used=used;
+    for(u32 i=kept;i<q->count;++i)reset_value(&q->rows[i]);q->count=kept;q->used=used;
     if(q->has_inflight && !q->inflight_canceled && matches(q->inflight,kind,p,g,c,m)){
         ++removed;increment(q->counters.canceled);q->inflight_canceled=true;
         // Preserve borrowed scratch while the native call is in progress.
@@ -58,7 +59,7 @@ bool desktop_notification_queue_initialize(DesktopNotificationQueue* q,Slice<Des
         overlaps(q,sizeof(*q),rows.data,usize(rows.count)*sizeof(*rows.data)) || overlaps(q,sizeof(*q),bytes.data,bytes.count) ||
         overlaps(q,sizeof(*q),scratch.data,scratch.count) || overlaps(rows.data,usize(rows.count)*sizeof(*rows.data),bytes.data,bytes.count) ||
         overlaps(rows.data,usize(rows.count)*sizeof(*rows.data),scratch.data,scratch.count) || overlaps(bytes.data,bytes.count,scratch.data,scratch.count))return false;
-    *q={};q->rows=rows;q->bytes=bytes;q->scratch=scratch;
+    reset_value(q);q->rows=rows;q->bytes=bytes;q->scratch=scratch;
     clear_bytes(rows.data,rows.count*sizeof(*rows.data));clear_bytes(bytes.data,bytes.count);clear_bytes(scratch.data,scratch.count);return true;
 }
 void desktop_notification_queue_reset(DesktopNotificationQueue* q,u64 p,u64 g) noexcept {

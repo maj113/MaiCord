@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 // Annex B access-unit builder shared by the H.264 (RFC 6184) and H.265
@@ -20,7 +21,7 @@ struct RtpVideoAssembly {
     bool damaged;    // Something was dropped: the access unit is not intact.
 };
 inline void rtp_video_assembly_begin(RtpVideoAssembly* assembly, Slice<u8> output) noexcept {
-    *assembly = {};
+    reset_value(assembly);
     assembly->output = output;
 }
 // Ends the access unit. An unterminated fragmentation unit is removed and the

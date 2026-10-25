@@ -1,4 +1,5 @@
 #include "maicord/ui/message_system_text.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/decimal.hpp"
 
@@ -240,7 +241,7 @@ bool message_system_text_build(const MessageSystemTextInput& input, Slice<char> 
                                MessageSystemText* result) noexcept {
     if (!result || !output.data || output.count == 0)
         return false;
-    *result = MessageSystemText{};
+    reset_value<MessageSystemText>(result);
     u32 tier = 0;
     const Pattern selected = pattern(input, &tier);
     result->icon = selected.icon;

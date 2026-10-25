@@ -1,4 +1,5 @@
 #include "maicord/ui/forum_channel_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/thread_browser_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_surface.hpp"
@@ -115,7 +116,7 @@ void ui_forum_sort(Slice<UiForumSortKey> keys, UiForumSort sort) noexcept {
 void ui_forum_toolbar_layout(UiRect band, const UiForumChannelView& view, const UiForumStyle& s,
     UiForumToolbar* out) noexcept {
     if (!out) return;
-    *out = {};
+    reset_value(out);
     const float width = maximum(0.f, ui_rect_width(band));
     const float row_top = band.top + (s.toolbar_row_height - s.control_height) * .5f;
     const float sort_right = minimum(band.left + s.sort_width, band.left + width * .5f);

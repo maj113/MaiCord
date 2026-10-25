@@ -206,7 +206,7 @@ ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch* f, const Cd
         copy_bytes(owned, body.data, body.count);
         if (next.initialization.bytes) next.initialization.data = owned + (next.initialization.data - next.input.data);
         next.input.data = owned;
-        s.playlist = next; s.current = {}; f->transport_failures = 0;
+        s.playlist = next; reset_value(&s.current); f->transport_failures = 0;
         return ProgressiveVideoAccept::progress;
     }
     if (!s.initialization && (!s.store.pending || s.serial != s.store.request_serial || s.number != s.store.demand))
@@ -242,11 +242,11 @@ u32 segmented_video_refresh_delay(const ProgressiveVideoFetch* f, u64 now) noexc
 }
 void segmented_video_retire(ProgressiveVideoFetch* f) noexcept {
     auto& s = *f->segmented;
-    f->audio = {};
+    reset_value(&f->audio);
     if (mp4_fragment_source_valid(f->fragment)) mp4_fragment_source_select(&f->fragment, 0);
     mp4_segment_store_cancel(&s.store); s.store.active = 2;
     if (!++s.store.generation) ++s.store.generation;
-    for (auto& slot : s.store.slots) { slot.bytes = 0; slot.media = {}; reserved_bytes_decommit(&slot.storage); }
+    for (auto& slot : s.store.slots) { slot.bytes = 0; reset_value(&slot.media); reserved_bytes_decommit(&slot.storage); }
 }
 void segmented_video_release(ProgressiveVideoFetch* f) noexcept {
     if (!f || !f->segmented) return;

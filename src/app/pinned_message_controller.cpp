@@ -75,7 +75,7 @@ void install(PinnedMessageController& value, const MessagePinsPage& page,
         const auto& item = items[at];
         const auto& message = item.message;
         auto& row = value.rows[at];
-        row = {};
+        reset_value(&row);
         row.channel_id = message.channel_id;
         row.message_id = message.id;
         row.author_id = message.author_id;
@@ -96,7 +96,7 @@ void install(PinnedMessageController& value, const MessagePinsPage& page,
         row.excerpt_truncated = card.truncated;
         row.rich_truncated = message.rich_truncations != 0 || message.snapshot.rich_truncations != 0;
     }
-    for (u32 at = items.count; at < value.page.count; ++at) value.rows[at] = {};
+    for (u32 at = items.count; at < value.page.count; ++at) reset_value(&value.rows[at]);
     value.page = page;
     value.page_remote_revision = value.remote_revision;
     value.has_page = value.authoritative = true;

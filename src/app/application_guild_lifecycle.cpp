@@ -70,7 +70,7 @@ enum : u64 {
     control_privacy_joining,
 };
 
-constexpr Utf8View kExpiryLabels[kGuildInviteExpiryCount]{
+static constexpr Utf8View kExpiryLabels[kGuildInviteExpiryCount]{
     utf8_literal("30 minutes"), utf8_literal("1 hour"), utf8_literal("6 hours"), utf8_literal("12 hours"),
     utf8_literal("1 day"),      utf8_literal("7 days"), utf8_literal("Never")};
 constexpr Utf8View kUsesLabels[kGuildInviteUsesCount]{
@@ -171,7 +171,7 @@ bool background_scope() noexcept {
     if (!g_app.account_ui)
         return false;
     if (g_background.account_scope != g_app.plugin_account_scope_serial) {
-        g_background = {};
+        reset_value(&g_background);
         g_background.account_scope = g_app.plugin_account_scope_serial;
     }
     return true;
@@ -257,7 +257,7 @@ void queue(Op op) noexcept {
     owner->op = op;
     owner->queued = true;
     owner->failed = false;
-    owner->status = {};
+    reset_value(&owner->status);
     owner->retry_at = 0;
     pump_message_history();
 }
@@ -267,7 +267,7 @@ void release_icon() noexcept {
         secure_clear_bytes(owner->icon.data, owner->icon.bytes);
         VirtualFree(owner->icon.data, 0, MEM_RELEASE);
     }
-    owner->icon = {};
+    reset_value(&owner->icon);
 }
 Utf8View image_error(GuildImageError error) noexcept {
     switch (error) {
@@ -315,7 +315,7 @@ void poll_picker() noexcept {
         if (status.ok() && status.count == 1 && owner->scene.active && owner->mode == Mode::create) {
             if (read_icon(native_file_picker_path(&owner->picker, 0), &error)) {
                 owner->failed = false;
-                owner->status = {};
+                reset_value(&owner->status);
             } else {
                 owner->failed = true;
                 owner->status = error;
@@ -352,14 +352,14 @@ void push(const UiSettingsControl& control,
     if (owner->control_count >= kControlCapacity)
         return;
     owner->presentation[owner->control_count] = presentation;
-    owner->avatar_media[owner->control_count] = {};
+    reset_value(&owner->avatar_media[owner->control_count]);
     owner->controls[owner->control_count++] = control;
 }
 bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     if (!owner || !theme || id != control_color || choice > kGuildRoleColorCount)
         return false;
     const u32 color = choice ? kGuildRoleColors[choice - 1] : kGuildFolderDefaultColor;
-    *theme = {};
+    reset_value(theme);
     theme->colors[0] = color;
     theme->color_count = 1;
     return true;
@@ -470,7 +470,7 @@ void project_folder(Bank& bank) noexcept {
           {p.color_labels, kGuildRoleColorCount + 1}, p.color_index, {}, nullptr});
     p.footer = {footer_status(bank), utf8_literal("Done"), utf8_literal("Cancel"), true, known && connected(), false,
                 p.failed};
-    p.content.description = {};
+    reset_value(&p.content.description);
 }
 // Privacy settings: the official client's per-server modal. Each switch edits one
 // privacy.*_guild_ids list of the synced settings at once (batched into the
@@ -549,7 +549,7 @@ void open_menu(Menu menu, UiRect anchor) noexcept {
     const u32 count = expiry ? kGuildInviteExpiryCount : kGuildInviteUsesCount;
     const u32 selected = expiry ? p.expiry : p.uses;
     for (u32 i = 0; i < count; ++i) {
-        p.popup_items[i] = {};
+        reset_value(&p.popup_items[i]);
         p.popup_items[i].label = expiry ? kExpiryLabels[i] : kUsesLabels[i];
         p.popup_items[i].action = kMenuChoiceBase + i;
         p.popup_items[i].flags = static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0));
@@ -741,7 +741,7 @@ bool open_modal(Mode mode, Utf8View title, u64 focus) noexcept {
     p.profile_id = g_app.account.status.profile_id;
     p.queued = p.failed = false;
     p.op = Op::none;
-    p.status = {};
+    reset_value(&p.status);
     p.copied_until = 0;
     settings_layer_reset(&p.layer);
     if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}))
@@ -920,7 +920,7 @@ bool application_guild_lifecycle_open_invite(u64 guild_id, u64 channel_id) noexc
     owner->uses = owner->link_uses = 0;
     owner->temporary = owner->link_temporary = false;
     owner->invite_valid = false;
-    owner->invite = {};
+    reset_value(&owner->invite);
     if (!open_modal(Mode::invite, {owner->title, bank.used}, control_link))
         return false;
     // The official client makes the default link at once (7 days, no limit).
@@ -975,7 +975,7 @@ bool application_guild_lifecycle_open_join() noexcept {
     if (!application_account_available() || !background_scope() || g_app.text_form || application_channel_overview_active())
         return false;
     auto& b = g_background;
-    b.join_status = {};
+    reset_value(&b.join_status);
     ++b.join_revision;
     ApplicationTextFormRequest request{utf8_literal("Join a server"),
                                        utf8_literal("Enter an invite below to join an existing server."),
@@ -1011,7 +1011,7 @@ bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
     b.leave_guild = guild_id;
     b.leave_owner = guild_context_owner(s, guild_id);
     b.leave_done = b.leave_queued = false;
-    b.leave_status = {};
+    reset_value(&b.leave_status);
     ++b.leave_revision;
     const Utf8View name = chat_state_store_guild_name(s, *guild);
     Bank title{b.leave_title, sizeof(b.leave_title), 0};
@@ -1130,7 +1130,7 @@ void application_guild_lifecycle_release() noexcept {
         if (b.reorder_request)
             g_app.account.api.guild_admin(g_app.account.instance, nullptr, b.reorder_request);
     }
-    g_background = {};
+    reset_value(&g_background);
     if (!owner)
         return;
     if (owner->request_id && g_app.account.instance) {
@@ -1312,7 +1312,7 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
         if (ok) {
             // GUILD_DELETE removes the server; the dialog closes on success.
             b.leave_done = true;
-            b.leave_status = {};
+            reset_value(&b.leave_status);
         } else {
             const auto text = failure(response);
             b.leave_status = text.bytes ? text : utf8_literal("Couldn't leave this server. Try again.");
@@ -1341,7 +1341,7 @@ bool application_guild_lifecycle_response(const RestClientResponse& response, Ut
             p.link_uses = p.uses;
             p.link_temporary = p.temporary;
             p.failed = false;
-            p.status = {};
+            reset_value(&p.status);
         } else {
             const auto text = failure(response);
             p.failed = true;

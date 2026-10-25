@@ -1,4 +1,5 @@
 #include "maicord/ui/forum_post_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/widget_builder.hpp"
 #include "maicord/ui/widget_scroll.hpp"
@@ -84,7 +85,7 @@ bool measure(void* context, const UiLayoutMeasureRequest& r, UiSize* size, float
     if (!(key >= attachment_key_base ? ui_attachment_draft_list_label(s->attachment_list, key)
                                      : label(s->content, key))
              .bytes) {
-        *size = {};
+        reset_value(size);
         *baseline = 0;
         return true;
     }
@@ -360,8 +361,8 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
     const bool was = s->active,
                changed = !was || layout != s->layout_signature || presentation != s->presentation_signature;
     auto prior = forum_post_focused(*s);
-    prior.attachment_widget = {};
-    s->content = c;
+    reset_value(&prior.attachment_widget);
+    copy_value(&s->content, c);
     s->measure = cache;
     const bool rebuilt = !s->widgets.count || tree != s->tree_signature;
     if (rebuilt && !build(s)) {
@@ -405,7 +406,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
                                   (compact ? ui_layout_node_scroll_vertical : 0);
         content->spec.style.height = compact ? ui_layout_content() : ui_layout_fill();
         content->spec.style.gap = style.gap;
-        constexpr ForumPostElement fields[]{ForumPostElement::title, ForumPostElement::body};
+        static constexpr ForumPostElement fields[]{ForumPostElement::title, ForumPostElement::body};
         for (const auto field : fields) {
             auto* node = ui_layout_engine_resolve(&s->widgets.layout,
                                                   s->widgets.storage[s->elements[idx(field)].slot].layout);
@@ -492,7 +493,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
 void forum_post_release(ForumPostScene* s) noexcept {
     if (s) {
         ui_fixed_widget_storage_release(&s->storage);
-        *s = {};
+        reset_value(s);
     }
 }
 ForumPostTarget forum_post_hit_test(const ForumPostScene& s, float x, float y) noexcept {

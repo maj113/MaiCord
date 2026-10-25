@@ -310,7 +310,7 @@ bool reader_initialize(BitReader* reader, ConstSlice<DeflateInputSpan> spans) no
     if (!spans.data || spans.count == 0) {
         return false;
     }
-    *reader = BitReader{};
+    reset_value<BitReader>(reader);
     reader->spans = spans.data;
     reader->span_count = spans.count;
     u64 total = 0;
@@ -889,7 +889,7 @@ bool input_byte_from_end(ConstSlice<DeflateInputSpan> input, u32 reverse_index, 
 }
 
 bool input_ends_sync_flush(ConstSlice<DeflateInputSpan> input) noexcept {
-    constexpr u8 suffix[4] = {0x00, 0x00, 0xFF, 0xFF};
+    static constexpr u8 suffix[4] = {0x00, 0x00, 0xFF, 0xFF};
     for (u32 index = 0; index < 4; ++index) {
         u8 value = 0;
         if (!input_byte_from_end(input, 3 - index, &value) || value != suffix[index]) {

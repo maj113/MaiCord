@@ -1,4 +1,5 @@
 #include "maicord/app/voice_connection.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
@@ -311,7 +312,7 @@ void voice_connection_stop(VoiceConnection* connection) noexcept {
     connection->reconnect_deadline_ms = 0;
     connection->reconnect_pending = connection->resumed = false;
     connection->reconnect_attempts = 0;
-    connection->dave = {};
+    reset_value(&connection->dave);
     connection->sink_want_count = 0;
     connection->sink_wants_configured = connection->sink_wants_sent = false;
     connection->dave_reconnects = 0;
@@ -665,7 +666,7 @@ void voice_connection_drive(VoiceConnection* connection, const VoiceConnectionSe
         connection->resumed = false;
         connection->error = VoiceConnectionError::none;
         connection->media_error = VoiceMediaSetupError::none;
-        connection->participant_error = {};
+        reset_value(&connection->participant_error);
         GatewayEndpoint endpoint{};
         if (voice_gateway_endpoint(credentials.endpoint, &endpoint) != GatewayEndpointError::none) {
             fail(connection, VoiceConnectionError::endpoint, "endpoint_invalid");

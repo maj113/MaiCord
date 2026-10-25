@@ -1,4 +1,5 @@
 #include "maicord/ui/video_controls.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
@@ -58,7 +59,7 @@ void append_clock_text(char* text, u32& cursor, u64 milliseconds, bool hours_fie
     append_number(text, cursor, seconds % 60, true);
 }
 void append_unknown(char* text, u32& cursor) noexcept {
-    constexpr char unknown[] = "-:--";
+    static constexpr char unknown[] = "-:--";
     for (u32 i = 0; i < 4; ++i)
         text[cursor++] = unknown[i];
 }
@@ -253,7 +254,7 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, UiRect bounds,
     // into another row. The seek and speaker targets remain available.
     if (seek_right - seek_left < style.range_height || seek_left < time_left)
         return false;
-    *out = projection;
+    copy_value(out, projection);
     return true;
 }
 Utf8View ui_video_controls_label(const UiVideoControlsProjection& projection, UiVideoControl id) noexcept {
@@ -288,7 +289,7 @@ bool ui_video_controls_key(const UiVideoControlsProjection& projection, UiVideoK
                            UiVideoControl* focus, UiVideoAction* out) noexcept {
     if (!focus)
         return false;
-    constexpr UiVideoControl order[]{UiVideoControl::play_pause, UiVideoControl::seek, UiVideoControl::mute,
+    static constexpr UiVideoControl order[]{UiVideoControl::play_pause, UiVideoControl::seek, UiVideoControl::mute,
                                      UiVideoControl::volume, UiVideoControl::expand, UiVideoControl::previous_track, UiVideoControl::track, UiVideoControl::next_track};
     constexpr u32 count = sizeof(order) / sizeof(order[0]);
     if (key == UiVideoKey::previous || key == UiVideoKey::next) {
@@ -304,7 +305,7 @@ bool ui_video_controls_key(const UiVideoControlsProjection& projection, UiVideoK
             if (descriptor && descriptor->enabled) {
                 *focus = order[cursor];
                 if (out)
-                    *out = {};
+                    reset_value(out);
                 return true;
             }
         }

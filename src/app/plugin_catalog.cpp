@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_catalog.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/sys/crypto.hpp"
@@ -65,7 +66,7 @@ struct Guard {
         if (released.ok()) return failure;
         // A failed close is ownership, not an empty error result. The caller
         // allocated its stable gate before this operation and can retry release.
-        *output = held; held = {};
+        *output = held; reset_value(&held);
         return released;
     }
 };
@@ -185,7 +186,7 @@ NativePluginCatalogResult native_plugin_verified_file_release(NativePluginVerifi
         handle = nullptr; --file->ancestor_count;
     }
     if (error) return result(NativePluginCatalogError::release, error);
-    *file = {};
+    reset_value(file);
     return result(NativePluginCatalogError::none);
 }
 NativePluginCatalogResult native_plugin_catalog_initialize(NativePluginCatalog* catalog,
@@ -196,11 +197,11 @@ NativePluginCatalogResult native_plugin_catalog_initialize(NativePluginCatalog* 
     const ConstSlice<u8> entries{reinterpret_cast<const u8*>(storage.data), storage.count * static_cast<u32>(sizeof(*storage.data))};
     const ConstSlice<u8> path{reinterpret_cast<const u8*>(directory.data), directory.count * 2};
     if (!byte_ranges_disjoint(object, entries) || !byte_ranges_disjoint(object, path) || !byte_ranges_disjoint(entries, path)) return result(NativePluginCatalogError::invalid_input);
-    *catalog = {};
+    reset_value(catalog);
     catalog->entries = storage;
     catalog->directory_characters = directory.count;
     for (u32 i = 0; i < directory.count; ++i) catalog->directory[i] = directory[i];
-    for (u32 i = 0; i < storage.count; ++i) storage[i] = {};
+    for (u32 i = 0; i < storage.count; ++i) reset_value(&storage[i]);
     return result(NativePluginCatalogError::none);
 }
 NativePluginCatalogResult native_plugin_catalog_release(NativePluginCatalog* catalog) noexcept {
@@ -251,7 +252,7 @@ NativePluginCatalogResult native_plugin_catalog_refresh(NativePluginCatalog* cat
         if (catalog->count == catalog->entries.count || length >= kNativePluginCatalogFilenameCapacity) {
             outcome = result(NativePluginCatalogError::capacity); break;
         }
-        auto& entry = catalog->entries[catalog->count++]; entry = {};
+        auto& entry = catalog->entries[catalog->count++]; reset_value(&entry);
         entry.filename_characters = length;
         for (u32 i = 0; i < length; ++i) entry.filename[i] = data.cFileName[i];
         if (data.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) entry.status = NativePluginCatalogError::file;
@@ -266,10 +267,15 @@ NativePluginCatalogResult native_plugin_catalog_refresh(NativePluginCatalog* cat
     // scan owner; do not implicitly retry that failure before the caller sees it.
     if (outcome.error != NativePluginCatalogError::release) outcome = finish(outcome);
     if (!outcome.ok()) { catalog->count = 0; return outcome; }
+    // Find each insertion point first, then move the entries it passes at once.
     for (u32 i = 1; i < catalog->count; ++i) {
-        auto item = catalog->entries[i]; u32 j = i;
-        while (j && filename_compare(item, catalog->entries[j - 1]) < 0) { catalog->entries[j] = catalog->entries[j - 1]; --j; }
-        catalog->entries[j] = item;
+        u32 j = i;
+        while (j && filename_compare(catalog->entries[i], catalog->entries[j - 1]) < 0) --j;
+        if (j == i) continue;
+        NativePluginCatalogEntry item;
+        copy_value(&item, catalog->entries[i]);
+        copy_bytes(&catalog->entries[j + 1], &catalog->entries[j], (i - j) * static_cast<u32>(sizeof(item)));
+        copy_value(&catalog->entries[j], item);
     }
     // Compare every parsed entry including already-conflicted ones so a chain
     // cannot leave a later alias or owner accidentally enableable.
@@ -301,9 +307,9 @@ NativePluginCatalogResult native_plugin_declared_file_verify(ConstSlice<wchar_t>
     if (!outcome.ok()) return guard.finish(output, outcome);
     if (guard.held.bytes > kNativePluginDllMaximumBytes) return guard.finish(output, result(NativePluginCatalogError::size));
     outcome = native_plugin_verified_file_hash(&guard.held, {manifest.sha256, 32});
-    if (outcome.error == NativePluginCatalogError::release) { *output = guard.held; guard.held = {}; return outcome; }
+    if (outcome.error == NativePluginCatalogError::release) { *output = guard.held; reset_value(&guard.held); return outcome; }
     if (!outcome.ok()) return guard.finish(output, outcome);
-    *output = guard.held; guard.held = {};
+    *output = guard.held; reset_value(&guard.held);
     return result(NativePluginCatalogError::none);
 }
 NativePluginCatalogResult native_plugin_verified_file_hash(NativePluginVerifiedFile* file, ConstSlice<u8> expected) noexcept {

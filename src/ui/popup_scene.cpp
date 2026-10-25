@@ -1,4 +1,5 @@
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
 #include "maicord/ui/text_style.hpp"
@@ -362,7 +363,7 @@ bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Slice<Pop
         !widgets.data || widgets.count < 2 || !layout_nodes.data || layout_nodes.count < widgets.count) {
         return false;
     }
-    *scene = PopupScene{};
+    reset_value<PopupScene>(scene);
     scene->items = items;
     scene->rows = rows;
     scene->selected_index = ~0u;
@@ -376,11 +377,11 @@ bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<Ui
         layout_nodes.count < widgets.count || !storage_bytes(item_capacity, &reserve_bytes)) {
         return false;
     }
-    *scene = PopupScene{};
+    reset_value<PopupScene>(scene);
     scene->selected_index = ~0u;
     if (!ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes) ||
         !arena_initialize(&scene->owned_storage, reserve_bytes, 0, 4 * 1024)) {
-        *scene = PopupScene{};
+        reset_value<PopupScene>(scene);
         return false;
     }
     scene->owned_capacity = item_capacity;
@@ -392,7 +393,7 @@ void popup_scene_release(PopupScene* scene) noexcept {
         return;
     }
     arena_release(&scene->owned_storage);
-    *scene = PopupScene{};
+    reset_value<PopupScene>(scene);
 }
 
 bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyles* styles) noexcept {
@@ -765,7 +766,7 @@ bool popup_scene_close(PopupScene* scene) noexcept {
     scene->kind = PopupKind::none;
     scene->owner_id = 0;
     scene->source_revision = 0;
-    scene->feedback = {};
+    reset_value(&scene->feedback);
     scene->feedback_reserved = false;
     scene->item_count = 0;
     scene->selected_index = ~0u;
@@ -976,7 +977,7 @@ bool popup_scene_set_feedback(PopupScene* scene, Utf8View text, bool error) noex
 
 bool popup_scene_resolve_item_layout(const PopupScene& scene, u32 index, PopupItemLayout* layout) noexcept {
     if (layout) {
-        *layout = PopupItemLayout{};
+        reset_value<PopupItemLayout>(layout);
     }
     if (!layout || !scene.active || index >= scene.item_count || index >= scene.items.count ||
         index >= scene.rows.count || scene.rows[index].source_index != index) {

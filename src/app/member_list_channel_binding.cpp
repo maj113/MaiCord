@@ -1,4 +1,5 @@
 #include "maicord/app/member_list_channel_binding.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/heap_sort.hpp"
@@ -124,7 +125,7 @@ bool member_list_subscription_select(MemberListSubscriptionRetry* retry, u64 gui
     if (!retry || now_ms == 0 || ((guild_id == 0) != (channel_id == 0))) {
         return false;
     }
-    *retry = MemberListSubscriptionRetry{};
+    reset_value<MemberListSubscriptionRetry>(retry);
     if (channel_id != 0) {
         retry->guild_id = guild_id;
         retry->channel_id = channel_id;
@@ -151,7 +152,7 @@ bool member_list_subscription_fail(MemberListSubscriptionRetry* retry, u64 now_m
 
 void member_list_subscription_complete(MemberListSubscriptionRetry* retry) noexcept {
     if (retry) {
-        *retry = MemberListSubscriptionRetry{};
+        reset_value<MemberListSubscriptionRetry>(retry);
     }
 }
 
@@ -264,7 +265,7 @@ bool member_list_channel_memory_subscribe(MemberListChannelMemory* memory, u64 g
     const bool new_guild = !guild;
     if (new_guild) {
         guild = victim;
-        *guild = {};
+        reset_value(guild);
         guild->guild_id = guild_id;
     }
     saturating_increment(memory->clock);
@@ -295,7 +296,7 @@ bool member_list_channel_memory_subscribe(MemberListChannelMemory* memory, u64 g
     guild->lost[0] = list_lost && (remembered ? resend_lost || was_lost : true);
     if (!remembered)
         guild->count = minimum(guild->count + 1, kGatewayGuildSubscriptionMaximumChannels);
-    *frame = {};
+    reset_value(frame);
     frame->guild_id = guild_id;
     frame->channel_id = channel_id;
     frame->range_count = range_count;
@@ -317,7 +318,7 @@ void member_list_channel_memory_connection(MemberListChannelMemory* memory, bool
     if (fresh)
         for (auto& guild : memory->guilds)
             if (guild.guild_id != shown_guild_id || !shown_guild_id)
-                guild = {};
+                reset_value(&guild);
     memory->flush = true;
 }
 
@@ -378,7 +379,7 @@ void thread_member_list_subscription_refresh(ThreadMemberListSubscriptionRetry* 
     }
 }
 void thread_member_list_subscription_complete(ThreadMemberListSubscriptionRetry* retry) noexcept {
-    if (retry) *retry = {};
+    if (retry) reset_value(retry);
 }
 
 } // namespace maicord

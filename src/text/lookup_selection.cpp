@@ -1,4 +1,5 @@
 #include "maicord/text/lookup_selection.hpp"
+#include "maicord/core/memory.hpp"
 #include "context_lookups.hpp"
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
@@ -11,7 +12,7 @@ SfntStatus select_lookup(void* context,u16 index) noexcept {
 }
 }
 SfntStatus sfnt_lookup_selection(const SfntLayout& layout,ConstSlice<u16> roots,Slice<u64> bits,Slice<u16> queue,SfntLookupSelectionResult* output,u32 budget) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!layout.table.data||static_cast<u8>(layout.kind)>1||(roots.count&&!roots.data)||!valid(bits)||!valid(queue))return SfntStatus::invalid_input;
     const u32 words=(layout.lookup_count+63u)/64;if(bits.count<words||queue.count<layout.lookup_count)return SfntStatus::output_too_small;
     u64 work=budget;Selection selection{bits,queue,0,layout.lookup_count};

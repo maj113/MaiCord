@@ -1,4 +1,5 @@
 #include "maicord/ui/native_text_catalog.hpp"
+#include "maicord/core/memory.hpp"
 #include "native_text_catalog_owner.hpp"
 #include "maicord/text/font_fallback_catalog.hpp"
 #include "maicord/core/log.hpp"
@@ -89,7 +90,7 @@ NativeTextCatalogScope* append_scope(NativeTextCatalogs& owner,const wchar_t* pa
     auto* scope=static_cast<NativeTextCatalogScope*>(arena_allocate(&owner.storage,
         sizeof(NativeTextCatalogScope)+(static_cast<usize>(units)+1)*sizeof(wchar_t),alignof(NativeTextCatalogScope)));
     if(!scope)return nullptr;
-    *scope={};auto* saved=reinterpret_cast<wchar_t*>(scope+1);copy_bytes(saved,path,(units+1)*2);scope->path=saved;
+    reset_value(scope);auto* saved=reinterpret_cast<wchar_t*>(scope+1);copy_bytes(saved,path,(units+1)*2);scope->path=saved;
     owner.scopes.entries[owner.count++]=scope;return scope;
 }
 }
@@ -104,7 +105,7 @@ bool native_text_catalog_register_path(NativeTextCatalogs* owner,const wchar_t* 
 bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,
     NativeFontInstanceHandle* output,NativeFontSelection* source,u32* candidate,u32* simulations,u32* selected_scope,bool* missing_family) noexcept {
     if(missing_family)*missing_family=false;
-    if(output)*output={};if(source)*source={};if(candidate)*candidate=0xffffffffu;if(simulations)*simulations=0;if(selected_scope)*selected_scope=0xffffffffu;
+    if(output)reset_value(output);if(source)reset_value(source);if(candidate)*candidate=0xffffffffu;if(simulations)*simulations=0;if(selected_scope)*selected_scope=0xffffffffu;
     if(!owner||query.scope>=owner->count||!query.family.count||!query.family.data||query.family.count>32767||!session||!scratch||!scratch->base||!output||!source)return false;
     const FamilyOrder* family=nullptr;bool loaded=false;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family,&loaded))return false;
     if(!family->order.count){
@@ -120,7 +121,7 @@ bool native_text_catalog_select_query(NativeTextCatalogs* owner,const NativeText
 }
 #include "native_system_fallback.inc"
 bool native_text_catalog_select_face(NativeTextCatalogs* owner,u32 scope,u32 candidate,u32 simulations,NativeFontSession* session,Arena* scratch,NativeFontInstanceHandle* output,NativeFontSelection* source,bool refresh) noexcept {
-    if(output)*output={};if(source)*source={};
+    if(output)reset_value(output);if(source)reset_value(source);
     if(!owner||scope>=owner->count||simulations>3||!session||!scratch||!scratch->base||!output||!source||owner->coverage.session!=session)return false;
     const auto* selected=candidate_catalog(*owner,scope,&candidate);if(!selected)return false;const auto& catalog=*selected;NativeFontCatalogEntry entry{};
     if(!native_font_catalog_entry(catalog,candidate,&entry).ok()||entry.settings.count>2)return false;

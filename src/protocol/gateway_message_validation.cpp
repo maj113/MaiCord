@@ -134,7 +134,7 @@ bool parse_iso_timestamp(JsonString value, u64* timestamp_ms) noexcept {
         month == 0 || month > 12 || hour > 23 || minute > 59 || second > 59) {
         return false;
     }
-    constexpr u8 month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    static constexpr u8 month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     u32 maximum_day = month_days[month - 1];
     if (month == 2 && leap_year(year)) {
         ++maximum_day;

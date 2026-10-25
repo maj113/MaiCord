@@ -223,7 +223,7 @@ u32 profile_activity_episode_text(Utf8View s, Slice<char> output) noexcept {
 bool profile_activity_content(const UserActivity& a, bool bot, bool self, ProfileActivityContent* out) noexcept {
     if (!out || a.type == UserActivityType::custom)
         return false;
-    *out = {};
+    reset_value(out);
     auto& c = *out;
     c.heading.bytes = static_cast<u16>(user_activity_heading(a, {c.heading.data, sizeof(c.heading.data)}));
     c.spotify = user_activity_is_spotify(a);

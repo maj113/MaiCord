@@ -51,7 +51,7 @@ bool reaction_viewer_initialize(ReactionViewer* viewer, Slice<ReactionViewerUser
         !text.data || text.count == 0 || text.count > kReactionViewerTextCapacity) {
         return false;
     }
-    *viewer = ReactionViewer{};
+    reset_value<ReactionViewer>(viewer);
     viewer->users = users.data;
     viewer->user_capacity = users.count;
     viewer->text = text.data;
@@ -60,11 +60,11 @@ bool reaction_viewer_initialize(ReactionViewer* viewer, Slice<ReactionViewerUser
     viewer->hovered_user = kReactionViewerNoIndex;
     viewer->hovered_aggregate = kReactionViewerNoIndex;
     if (!initialize_text_owner(viewer)) {
-        *viewer = ReactionViewer{};
+        reset_value<ReactionViewer>(viewer);
         return false;
     }
     for (u32 index = 0; index < users.count; ++index) {
-        users[index] = ReactionViewerUser{};
+        reset_value<ReactionViewerUser>(&users[index]);
     }
     return true;
 }

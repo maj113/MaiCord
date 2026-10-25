@@ -83,7 +83,7 @@ bool ui_guild_banner_media(u64 guild_id, Utf8View hash, u32 dpi, bool animate, b
                            UiGuildImageMedia* output) noexcept {
     if (!output || !guild_id || !hash_valid(hash))
         return false;
-    *output = {};
+    reset_value(output);
     const bool animated = animate && ui_guild_banner_animated_hash(hash);
     Writer w{output->url, kUiGuildImageUrlBytes, 0, true};
     w.text(utf8_literal("https://cdn.discordapp.com/banners/"));
@@ -101,7 +101,7 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
                            UiGuildImageMedia* output) noexcept {
     if (!output || !guild_id || !size_dips || !hash_valid(hash))
         return false;
-    *output = {};
+    reset_value(output);
     Writer w{output->url, kUiGuildImageUrlBytes, 0, true};
     w.text(discovery ? utf8_literal("https://cdn.discordapp.com/discovery-splashes/")
                      : utf8_literal("https://cdn.discordapp.com/splashes/"));
@@ -116,7 +116,7 @@ bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size
 bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool discoverable, u32 dpi,
                                 UiGuildImageMedia* output) noexcept {
     if (output)
-        *output = {};
+        reset_value(output);
     return output && discoverable && custom_banner.bytes &&
            ui_guild_splash_media(guild_id, custom_banner, true, kUiGuildCardBannerRequestDips, dpi, output);
 }

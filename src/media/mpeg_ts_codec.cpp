@@ -43,7 +43,7 @@ MpegTsError packed_aac_segment(ConstSlice<u8> input, PackedAudioSegment* output)
     if (!synchsafe(p+6,&size) || size>input.count-10) return E::malformed;
     if (size>65536) return E::capacity;
     const u32 end=10+size; bool found=false; u64 timestamp=0;
-    constexpr char owner[]="com.apple.streaming.transportStreamTimestamp";
+    static constexpr char owner[]="com.apple.streaming.transportStreamTimestamp";
     for (u32 at=10,frames=0;at<end;) {
         if (!p[at]) {for(;at<end;++at) if(p[at]) return E::malformed;break;}
         if (end-at<10) return E::malformed;

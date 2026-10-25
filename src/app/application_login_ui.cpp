@@ -92,7 +92,7 @@ bool text_store_range(void*, u32 first, u32 last, RECT* output, bool* clipped) n
     if (!edit || !g_app.renderer_ready || !application_content_to_screen(&origin)) return false;
     if (IsIconic(g_app.window)) {
         if (!output || !clipped) return false;
-        *output = {}; *clipped = true; return true;
+        reset_value(output); *clipped = true; return true;
     }
     const LoginElement element = edit == &g_app.login.login ?
         LoginElement::login_field : LoginElement::password_field;
@@ -248,13 +248,13 @@ bool application_synchronize_login_view() noexcept {
     view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
     view.caps_lock = focused_edit == &application.login.password && (GetKeyState(VK_CAPITAL) & 1) != 0;
     if (phone) {
-        view.login = {}; view.remote_user = {}; view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
+        reset_value(&view.login); reset_value(&view.remote_user); view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
         view.mfa_capabilities = view.selected_mfa_capability = view.backup_acknowledgement_seconds = 0;
         view.mfa_code_ready = false; view.sms_sending = view.sms_sent = view.sms_failed = false;
     }
-    if (view.reset_mode) view.login = {};
+    if (view.reset_mode) reset_value(&view.login);
     if (view.reset_mode && login_credential_fields_hidden(view.status, view.remote_status, true))
-        view.password_mask = {};
+        reset_value(&view.password_mask);
     LoginScene& scene = application.login_scene;
     scene.restoring_session = view.status == RendererLoginStatus::restoring_session;
     scene.back_only = login_requires_back(view.status, view.remote_status);
@@ -411,7 +411,7 @@ bool application_initialize_login_ui() noexcept {
         secure_edit_release(&login.password);
         secure_edit_release(&login.login);
         const u64 epoch = login.application_auth_epoch + 1;
-        login = LoginRuntime{};
+        reset_value<LoginRuntime>(&login);
         login.application_auth_epoch = epoch;
         return false;
     }
@@ -431,7 +431,7 @@ void application_release_login_ui() noexcept {
     secure_edit_release(&application.login.password);
     secure_edit_release(&application.login.login);
     const u64 epoch = application.login.application_auth_epoch + 1;
-    application.login = LoginRuntime{};
+    reset_value<LoginRuntime>(&application.login);
     application.login.application_auth_epoch = epoch;
 }
 

@@ -1,4 +1,5 @@
 #include "application_call.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_content_input.hpp"
 #include "application_account_presentation.hpp"
@@ -344,7 +345,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
     const bool roster = !view.snapshot_valid ||
                         call_video_roster_changed({before, camera_targets(view.snapshot, before)},
                                                   {after, camera_targets(snapshot, after)});
-    view.snapshot = snapshot;
+    copy_value(&view.snapshot, snapshot);
     view.snapshot_valid = true;
     const bool shown = scene_visible() && view.channel_id == s->channel_id && g_app.window && !IsIconic(g_app.window);
     const float pixel_scale = static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u) / 96.f;
@@ -548,7 +549,7 @@ bool application_call_open(u64 channel_id, u64 focus_user) noexcept {
         application_thread_browser_close();
     if (!view.open || view.channel_id != channel_id) {
         view.opened_ms = GetTickCount64();
-        view.lifecycle = {};
+        reset_value(&view.lifecycle);
     }
     view.open = true;
     view.channel_id = channel_id;
@@ -866,7 +867,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
 
 bool application_call_header_search(float width, UiRect* field) noexcept {
     if (field)
-        *field = {};
+        reset_value(field);
     view.search_width = 0;
     // Beside its chat (split) the call leaves the title bar to the chat column.
     if (!field || !view.open || !g_app.account_ui || g_app.login.visible || application_settings_active() ||

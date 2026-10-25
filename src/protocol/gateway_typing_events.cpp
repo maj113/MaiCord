@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_typing_events.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "gateway_decode.hpp"
 
@@ -54,7 +55,7 @@ bool visit_typing(void* opaque, JsonString name, JsonValue value) noexcept {
 GatewayEventDecodeResult gateway_decode_typing_start(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
     GatewayTypingStartEvent* output) noexcept {
-    *output = GatewayTypingStartEvent{};
+    reset_value<GatewayTypingStartEvent>(output);
     const JsonScanResult scan =
         json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok()) {

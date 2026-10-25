@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/ui/theme.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 inline bool ui_background_direction(u16 degrees, float* x, float* y) noexcept {
@@ -80,7 +81,7 @@ inline bool ui_background_palette(const Theme& theme, Color* colors) noexcept {
         colors[i] = {((value >> 16) & 255) / 255.f, ((value >> 8) & 255) / 255.f, (value & 255) / 255.f, 1};
     }
     for (u32 i = theme.background.color_count; i < 5; ++i)
-        colors[i] = {};
+        reset_value(&colors[i]);
     return true;
 }
 inline Color ui_background_canvas_color(const Theme& theme, Color plate,

@@ -1,4 +1,5 @@
 #include "maicord/text/font_names.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
@@ -16,7 +17,7 @@ bool english_tag(ConstSlice<u8> tag) noexcept {
 }
 }
 SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!table.data)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!table.data)return SfntStatus::invalid_input;
     if(table.count<6)return SfntStatus::truncated;
     const u16 version=word(table,0),count=word(table,2),storage=word(table,4);
     if(version>1)return SfntStatus::unsupported;
@@ -32,7 +33,7 @@ SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
     *output={table,count,storage,tags,version};return SfntStatus::ok;
 }
 SfntStatus sfnt_name_record(const SfntNames& names,u32 index,SfntName* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!names.table.data||index>=names.records)return SfntStatus::invalid_input;
     const u32 at=6+index*12;const u16 language=word(names.table,at+4);
     SfntName name{{names.table.data+names.storage+word(names.table,at+10),word(names.table,at+8)}, {},
@@ -44,7 +45,7 @@ SfntStatus sfnt_name_record(const SfntNames& names,u32 index,SfntName* output) n
     *output=name;return SfntStatus::ok;
 }
 SfntStatus sfnt_name_english(const SfntNames& names,u16 id,SfntName* output,bool* found) noexcept {
-    if(output)*output={};if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;
+    if(output)reset_value(output);if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;
     u32 best=0xffffffff;SfntName selected{};
     for(u32 i=0;i<names.records;++i){
         // Opening already validated every record span. Unrelated IDs need no
@@ -75,7 +76,7 @@ SfntStatus sfnt_name_decode(const SfntName& name,Slice<u16> output,u32* units) n
     for(u32 i=0;i<count;++i)output[i]=word(name.bytes,i*2);*units=count;return SfntStatus::ok;
 }
 SfntStatus sfnt_font_attributes(const SfntFace& face,SfntFontAttributes* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};ConstSlice<u8> table{};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> table{};
     const auto status=sfnt_table(face,sfnt_tag('O','S','/','2'),&table);if(status!=SfntStatus::ok)return status;
     if(table.count<64)return SfntStatus::truncated;
     const u16 weight=word(table,4),width=word(table,6);

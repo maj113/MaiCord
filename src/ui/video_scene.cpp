@@ -1,4 +1,5 @@
 #include "maicord/ui/video_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
@@ -264,7 +265,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
         !ui_video_controls_project(playback, bounds, controls, theme, &projected_controls,
                                    same_source && volume_expanded(*scene)) ||
         !rectangle(ui_rect_overlap(preview, clip))) {
-        *scene = {};
+        reset_value(scene);
         return false;
     }
     auto& status = projected_controls.controls[5];
@@ -310,11 +311,11 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     const u16 old_track = preserve_hover ? scene->hover_track : 0;
     const u64 old_since = preserve_hover ? scene->track_hover_since_ms : 0;
     const bool old_requested = preserve_hover && scene->track_hover_requested;
-    *scene = {};
+    reset_value(scene);
     copy_bytes(scene->track_title, old_title, old_title_bytes); scene->track_title_bytes = old_title_bytes;
     copy_bytes(scene->hover_time, old_tip, old_tip_bytes); scene->hover_time_bytes = old_tip_bytes;
     scene->hover_track = old_track; scene->track_hover_since_ms = old_since; scene->track_hover_requested = old_requested;
-    scene->projection = projected_controls;
+    copy_value(&scene->projection, projected_controls);
     scene->style = style;
     scene->clip = effective;
     scene->preview = preview;
@@ -325,21 +326,21 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     if (!playback.playing && playback.can_play && !playback.error && !playback.buffering) {
         scene->center_play = ui_video_play_affordance_rectangle(preview, {});
         if (rectangle(ui_rect_overlap(scene->center_play, bounds))) {
-            scene->center_play = {};
+            reset_value(&scene->center_play);
         }
     }
     u32 label_cursor = 0;
     for (u32 i = 0; i < kUiVideoControlCount; ++i) {
         const auto label = ui_video_controls_label(projected_controls, projected_controls.controls[i].id);
         if (label.bytes > 128 || label.bytes > sizeof(scene->labels) - label_cursor) {
-            *scene = {};
+            reset_value(scene);
             return false;
         }
         if (label.bytes)
             copy_bytes(scene->labels + label_cursor, label.data, label.bytes);
         scene->label_offsets[i] = static_cast<u16>(label_cursor); label_cursor += label.bytes;
         scene->label_bytes[i] = label.bytes;
-        scene->projection.controls[i].label = {};
+        reset_value(&scene->projection.controls[i].label);
     }
     if (same_source && eligible(*scene, old_focus)) {
         scene->focus = old_focus;
@@ -409,7 +410,7 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
         !scene_style_valid(style, controls) ||
         !ui_video_controls_project(playback, {0, 0, controls.minimum_width, height}, controls, theme,
                                    &validated)) {
-        *scene = {};
+        reset_value(scene);
         return false;
     }
     const bool same_source = scene->active && scene->play_only && same_playback_source(*scene, playback);
@@ -422,10 +423,10 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
     const auto label =
         playback.error ? controls.error : ui_video_controls_label(validated, UiVideoControl::play_pause);
     if (label.bytes > 128) {
-        *scene = {};
+        reset_value(scene);
         return false;
     }
-    *scene = {};
+    reset_value(scene);
     scene->active = true;
     scene->play_only = true;
     scene->play_opacity = affordance.opacity;
@@ -441,7 +442,7 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
     scene->projection.bounds = button;
     scene->projection.controls[0] = descriptor;
     scene->projection.controls[0].bounds = button;
-    scene->projection.controls[0].label = {};
+    reset_value(&scene->projection.controls[0].label);
     scene->label_bytes[0] = label.bytes;
     copy_bytes(scene->labels, label.data, label.bytes);
     if (same_source && eligible(*scene, focus)) {

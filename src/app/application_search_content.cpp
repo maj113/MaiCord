@@ -1,4 +1,5 @@
 #include "application_search_content.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_link_trust.hpp"
 #include "application_media_policy.hpp"
 #include "application_search_navigation.hpp"
@@ -122,8 +123,8 @@ bool confirm(const SearchContentRequest& owner, Utf8View url, const ReceivedAtta
     return true;
 }
 void reset_owner() noexcept {
-    content_owner.intent = {};
-    content_owner.request = {};
+    reset_value(&content_owner.intent);
+    reset_value(&content_owner.request);
 }
 // A message link jumps to the message; any other link goes through confirm().
 bool open_link(const ApplicationSearchSourceTicket& ticket, const SearchContentRequest& owner,
@@ -190,7 +191,7 @@ void application_search_content_pump() noexcept {
     const auto identity = content_owner.intent.identity;
     Utf8View source{}, ready{};
     if (!attachment_source(owner, identity, &source) || !attachment_media_allowed(owner, false)) {
-        content_owner.intent = {};
+        reset_value(&content_owner.intent);
         return;
     }
     const auto result = received_attachment_open_resume(&content_owner.intent, identity, source, &g_app.media_urls,

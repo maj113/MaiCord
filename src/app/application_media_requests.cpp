@@ -320,7 +320,7 @@ u32 ApplicationMediaPump::yield_decorative_media(MediaAssetKey key) noexcept {
     if (!application.profile || !application.profile->scene.active ||
         !profile_scene_shows(application.profile->scene, key))
         return 0;
-    constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::decoration};
+    static constexpr MemberMedia layers[] = {MemberMedia::nameplate, MemberMedia::decoration};
     MediaAssetKey decorative[128];
     u32 count = 0;
     const auto& members = application.member_list_scene;
@@ -1983,7 +1983,7 @@ Utf8View application_notification_avatar_uri(u64 user_id, Utf8View avatar_hash, 
             return {};
     }
     // file:///C:/... with forward slashes; toasts reject '?', '#' and backslashes.
-    constexpr char prefix[] = "file:///";
+    static constexpr char prefix[] = "file:///";
     copy_bytes(storage.data, prefix, sizeof(prefix) - 1);
     const int converted = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(used),
                                               storage.data + sizeof(prefix) - 1,

@@ -1,4 +1,5 @@
 #include "maicord/text/font_catalog.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include <stddef.h>
 #include "maicord/core/win32_file_info.hpp"
@@ -21,7 +22,7 @@ ConstSlice<FontAxisSetting> native_font_catalog_settings(const NativeFontCatalog
     return {c.settings.data+v.first_setting,v.setting_count};
 }
 NativeFontResult native_font_catalog_entry(const NativeFontCatalog& c,u32 candidate,NativeFontCatalogEntry* output) noexcept {
-    if(output)*output={};if(!output||!valid(c)||candidate>=c.count.candidates)return result(NativeFontError::invalid_input);
+    if(output)reset_value(output);if(!output||!valid(c)||candidate>=c.count.candidates)return result(NativeFontError::invalid_input);
     const u32 face_index=c.candidates[candidate].face;if(face_index>=c.count.faces)return result(NativeFontError::invalid_input);
     const auto& face=c.faces[face_index];if(face.file>=c.count.files)return result(NativeFontError::invalid_input);const auto& file=c.files[face.file];
     const auto path=native_font_catalog_path(c,face.file);if(!path.count||!room(file.path_offset,c.count.strings,path.count+1)||c.strings[file.path_offset+path.count])return result(NativeFontError::invalid_input);

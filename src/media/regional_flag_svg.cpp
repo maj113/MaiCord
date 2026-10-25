@@ -1,4 +1,5 @@
 #include "maicord/media/regional_flag_svg.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/simd.hpp"
 
@@ -178,7 +179,7 @@ bool regional_flag_svg_parse(ConstSlice<u8> encoded, RegionalFlagSvg* output) no
     const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output),sizeof(RegionalFlagSvg)};
     if(!output||!byte_range_valid(destination)||!byte_range_valid(encoded)||!encoded.count||
         encoded.count>kRegionalFlagSvgMaximumBytes||byte_ranges_overlap(encoded,destination))return false;
-    *output={};
+    reset_value(output);
     Cursor c{{reinterpret_cast<const char*>(encoded.data),encoded.count}};
     RegionalFlagSvgLayer inherited[4]{}; inherited[0].color={0,0,0,1};inherited[0].fill_rule=GlyphFillRule::winding;
     u32 depth=0,elements=0;bool root_seen=false,root_closed=false;
@@ -193,7 +194,7 @@ bool regional_flag_svg_parse(ConstSlice<u8> encoded, RegionalFlagSvg* output) no
             else return false;continue;}
         const bool svg=equal(tag,"svg"),group=equal(tag,"g"),path=equal(tag,"path"),circle=equal(tag,"circle"),ellipse_tag=equal(tag,"ellipse");
         if((!svg&&!group&&!path&&!circle&&!ellipse_tag)||(svg&&root_seen)||(!svg&&!root_seen))return false;
-        RegionalFlagSvgLayer layer=inherited[depth];layer.path={};layer.cx=layer.cy=layer.rx=layer.ry=layer.rotation=0;
+        RegionalFlagSvgLayer layer=inherited[depth];reset_value(&layer.path);layer.cx=layer.cy=layer.rx=layer.ry=layer.rotation=0;
         u32 seen=0;bool self=false;
         while(true) {
             skip(c);if(c.at==c.input.bytes)return false;

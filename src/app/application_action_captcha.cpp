@@ -1,4 +1,5 @@
 #include "application_action_captcha.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 #include "maicord/core/time.hpp"
 
@@ -45,7 +46,7 @@ CaptchaBridgeStatus call(AccountActionCaptchaOperation operation, u64 request_id
 void reset() noexcept {
     secure_buffer_release(&g_captcha.body);
     const u64 generation = g_captcha.generation;
-    g_captcha = {};
+    reset_value(&g_captcha);
     g_captcha.generation = generation;
 }
 bool open_url(const SecureBuffer& url) noexcept {

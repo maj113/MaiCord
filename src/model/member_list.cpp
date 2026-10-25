@@ -1,4 +1,5 @@
 #include "maicord/model/member_list.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/model/role_policy.hpp"
@@ -83,7 +84,7 @@ bool member_list_view_initialize(MemberListView* projection,
         rows.count < member_scratch.count) {
         return false;
     }
-    *projection = MemberListView{};
+    reset_value<MemberListView>(projection);
     projection->rows = rows;
     projection->member_scratch = member_scratch;
     return true;

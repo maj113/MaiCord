@@ -185,7 +185,7 @@ void perform(VoiceMessageAction action) noexcept {
         if (!command(VoiceMessageOperation::start) || g_voice.status.state == VoiceMessageState::failed) {
             const auto failure = g_voice.status.failure;
             command(VoiceMessageOperation::discard);
-            g_voice.flow = {};
+            reset_value(&g_voice.flow);
             end_notice(failure == VoiceMessageFailure::microphone_access ? VoiceMessageNotice::microphone_access
                                                                          : VoiceMessageNotice::failed_start);
         }
@@ -200,7 +200,7 @@ void perform(VoiceMessageAction action) noexcept {
         command(VoiceMessageOperation::finish);
         if (g_voice.status.state != VoiceMessageState::finished) {
             command(VoiceMessageOperation::discard);
-            g_voice.flow = {};
+            reset_value(&g_voice.flow);
             end_notice(VoiceMessageNotice::microphone);
             break;
         }
@@ -296,7 +296,7 @@ bool stale() noexcept {
 const UiComposerVoiceView* application_voice_message_view(u32 channel_actions, bool sending_restricted) noexcept {
     if (stale()) {
         remove_draft();
-        g_voice.flow = {};
+        reset_value(&g_voice.flow);
     }
     if (!module_ready())
         return nullptr;
@@ -314,7 +314,7 @@ const UiComposerVoiceView* application_voice_message_view(u32 channel_actions, b
                                 application_composer_slowmode_active(channel)};
     if (!channel || !voice_message_available(gate))
         return nullptr;
-    g_voice.view = {};
+    reset_value(&g_voice.view);
     g_voice.view.mode = UiComposerVoiceMode::available;
     return &g_voice.view;
 }
@@ -408,7 +408,7 @@ void application_voice_message_deactivated() noexcept {
 bool application_voice_message_pump() noexcept {
     if (stale()) {
         remove_draft();
-        g_voice.flow = {};
+        reset_value(&g_voice.flow);
         return refresh_message_composer_ui();
     }
     const u64 now = clock_monotonic_milliseconds();
@@ -472,6 +472,6 @@ void application_voice_message_release() noexcept {
     if (voice_message_flow_active(g_voice.flow) && module_ready() && g_voice.instance == g_app.account.instance)
         command(VoiceMessageOperation::discard);
     remove_draft();
-    g_voice = {};
+    reset_value(&g_voice);
 }
 } // namespace maicord::app_detail

@@ -345,14 +345,14 @@ bool message_media_controller_initialize(MessageMediaController* controller,
         !power_of_two(asset_marks.count) || asset_marks.count < 4) {
         return false;
     }
-    *controller = MessageMediaController{};
+    reset_value<MessageMediaController>(controller);
     controller->rows = rows.data;
     controller->asset_marks = asset_marks.data;
     controller->row_capacity = rows.count;
     controller->asset_mark_capacity = asset_marks.count;
     controller->asset_mark_epoch = 1;
     for (u32 index = 0; index < asset_marks.count; ++index) {
-        asset_marks[index] = MessageMediaAssetMark{};
+        reset_value<MessageMediaAssetMark>(&asset_marks[index]);
     }
     controller->initialized = true;
     return true;
@@ -364,7 +364,7 @@ bool message_media_controller_initialize_owned(MessageMediaController* controlle
         row_capacity == 0 || !power_of_two(asset_mark_capacity) || asset_mark_capacity < 4) {
         return false;
     }
-    *controller = MessageMediaController{};
+    reset_value<MessageMediaController>(controller);
     if (!stable_storage_initialize(&controller->owned_rows, row_capacity, row_capacity,
                                    sizeof(MessageMediaVisibleRow), alignof(MessageMediaVisibleRow), true) ||
         !stable_storage_initialize(&controller->owned_asset_marks, asset_mark_capacity, asset_mark_capacity,
@@ -395,7 +395,7 @@ void message_media_controller_release(MessageMediaController* controller) noexce
         if (controller->emoji_memo)
             VirtualFree(controller->emoji_memo, 0, MEM_RELEASE);
     }
-    *controller = MessageMediaController{};
+    reset_value<MessageMediaController>(controller);
 }
 
 void message_media_controller_begin_pump(MessageMediaController* controller, u64 view_signature) noexcept {

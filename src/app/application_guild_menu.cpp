@@ -1,4 +1,5 @@
 #include "application_guild_menu.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_toast.hpp"
 
 #include "application_account_logout.hpp"
@@ -112,7 +113,7 @@ bool open_settings_pages(u64 guild_id) noexcept {
         return opened.ok();
     }
     set_popup_owner(PopupOwnerKind::guild);
-    header = {};
+    reset_value(&header);
     g_app.context_focus = &g_app.popup_scene.widgets;
     return refresh_popup_text();
 }
@@ -132,7 +133,7 @@ void application_guild_menu_synchronize() noexcept {
     if (header_popup_current() && (!available() || selected_guild() != header.guild_id))
         dismiss_popup();
     if (header.active && !header_popup_current())
-        header = {};
+        reset_value(&header);
     const bool open = application_guild_menu_header_open();
     if (g_app.shell_scene.guild_menu_expanded != open) {
         g_app.shell_scene.guild_menu_expanded = open;
@@ -219,7 +220,7 @@ bool application_guild_menu_activate(u32 action) noexcept {
         return open_settings_pages(guild) || dismiss_popup();
     if (!dismiss_popup())
         return false;
-    header = {};
+    reset_value(&header);
     application_guild_menu_synchronize();
     if (action > action_settings_page && action <= action_settings_page + kGuildSettingsPageCount)
         return application_guild_settings_open(guild, static_cast<u8>(action - action_settings_page)) || true;
@@ -285,14 +286,14 @@ u32 application_guild_menu_context_items(u64 guild_id, GuildMenuContextGroup gro
             ++used;
         }
         if (used < output.count) {
-            output[used] = {};
+            reset_value(&output[used]);
             output[used].label = utf8_literal("Privacy settings");
             output[used].action = action_privacy;
             output[used].flags = popup_item_enabled;
             ++used;
         }
         if (used < output.count && profile_allowed(guild_id)) {
-            output[used] = {};
+            reset_value(&output[used]);
             output[used].label = utf8_literal("Edit per-server profile");
             output[used].action = action_profile;
             output[used].flags = popup_item_enabled;

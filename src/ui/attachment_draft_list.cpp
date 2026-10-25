@@ -1,4 +1,5 @@
 #include "maicord/ui/attachment_draft_list.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/core/utf.hpp"
@@ -44,7 +45,7 @@ bool ui_attachment_draft_list_build(UiAttachmentDraftList* list, UiWidgetManager
             return false;
     if (style.minimum_card_width < 96 || style.preview_extent < 24 || style.control_height < 24)
         return false;
-    *list = {};
+    reset_value(list);
     list->manager = manager;
     list->rows = rows;
     list->key_base = key_base;
@@ -210,7 +211,7 @@ UiRect ui_attachment_draft_list_preview(const UiAttachmentDraftList& list, u32 r
     const auto* n = node(list, row, preview);
     if (!n) {
         if (clip)
-            *clip = {};
+            reset_value(clip);
         return {};
     }
     if (clip)

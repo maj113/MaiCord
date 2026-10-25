@@ -1,4 +1,5 @@
 #include "application_plugins.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
@@ -35,7 +36,7 @@ void turn_off(ApplicationPlugins& plugins, u64 owner_id, u32 flag) noexcept {
         plugins.activating = false;
         if (unloaded.ok()) {
             plugins.label_bytes[i] = 0;
-            plugins.loaded_identities[i] = {};
+            reset_value(&plugins.loaded_identities[i]);
             plugins.loaded_identity_generations[i] = 0;
         } else {
             log_u64(LogLevel::warning, "plugins", "budget_unload_error", static_cast<u64>(unloaded.error));
@@ -80,7 +81,7 @@ NativePluginSdkRuntime* application_plugins_runtime() noexcept {
 }
 
 bool application_plugins_sdk_open(ApplicationPlugins& plugins, PluginCallMarker* leftover) noexcept {
-    if (leftover) *leftover = {};
+    if (leftover) reset_value(leftover);
     if (plugins.sdk) return true;
     auto* sdk = static_cast<ApplicationPluginsSdk*>(
         VirtualAlloc(nullptr, sizeof(ApplicationPluginsSdk), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));

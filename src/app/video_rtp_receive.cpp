@@ -1,4 +1,5 @@
 #include "maicord/app/video_rtp_receive.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/media/rtp_av1.hpp"
@@ -52,7 +53,7 @@ bool starts_access_unit(VideoRtpCodec codec, ConstSlice<u8> payload) noexcept {
 void release_window(VideoRtpStream* stream) noexcept {
     if (stream->slots)
         VirtualFree(stream->slots, 0, MEM_RELEASE);
-    *stream = {};
+    reset_value(stream);
 }
 // Loss breaks the reference chain until the next keyframe.
 void lose(VideoRtpStream& stream) noexcept {
@@ -105,7 +106,7 @@ u64 unwrap(const VideoRtpStream& stream, u16 sequence) noexcept {
 void mark_missing(const VideoRtpConfig& config, VideoRtpStream& stream, u64 sequence, u64 now_us,
                   bool expire) noexcept {
     auto& slot = slot_at(stream, sequence);
-    slot = {};
+    reset_value(&slot);
     slot.sequence = sequence;
     // An over-wide gap is lost at once: time zero is always expired.
     slot.time_us = expire ? 0 : now_us;
@@ -335,7 +336,7 @@ VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 no
     void* block = VirtualAlloc(nullptr, window_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!block)
         return nullptr;
-    *chosen = {};
+    reset_value(chosen);
     chosen->slots = static_cast<VideoRtpSlot*>(block);
     chosen->payloads = static_cast<u8*>(block) + sizeof(VideoRtpSlot) * usize{kVideoRtpPacketSlots};
     chosen->ssrc = ssrc;
@@ -393,7 +394,7 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
             update_jitter(stream, timestamp, now_us);
         stream.highest = extended;
     }
-    slot = {};
+    reset_value(&slot);
     slot.sequence = extended;
     slot.time_us = now_us;
     slot.timestamp = timestamp;
@@ -448,7 +449,7 @@ bool video_rtp_initialize(VideoRtpReceiver* receiver, u32 local_ssrc, VideoRtpFr
         static_cast<u8*>(VirtualAlloc(nullptr, kVideoRtpFrameBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!frame)
         return false;
-    *receiver = {};
+    reset_value(receiver);
     receiver->frame = frame;
     receiver->config = video_rtp_default_config();
     receiver->local_ssrc = local_ssrc;
@@ -464,7 +465,7 @@ void video_rtp_release(VideoRtpReceiver* receiver) noexcept {
         release_window(&stream);
     if (receiver->frame)
         VirtualFree(receiver->frame, 0, MEM_RELEASE);
-    *receiver = {};
+    reset_value(receiver);
 }
 
 void video_rtp_set_local_ssrc(VideoRtpReceiver* receiver, u32 local_ssrc) noexcept {
@@ -599,7 +600,7 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
         const i64 lost = static_cast<i64>(expected) - static_cast<i64>(stream.received);
         const u64 expected_interval = expected - stream.expected_prior;
         const u64 received_interval = stream.received - stream.received_prior;
-        block = {};
+        reset_value(&block);
         block.ssrc = stream.ssrc;
         block.cumulative_lost = lost > 0x7fffff ? 0x7fffff : lost < -0x800000 ? -0x800000 : static_cast<i32>(lost);
         if (expected_interval > received_interval)

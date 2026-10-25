@@ -1,4 +1,5 @@
 #include "maicord/media/animation_timeline.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -179,7 +180,7 @@ bool animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationT
         buckets.count < entries.count * 2u) {
         return false;
     }
-    *timeline = AnimationTimeline{};
+    reset_value<AnimationTimeline>(timeline);
     timeline->entries = entries.data;
     timeline->buckets = buckets.data;
     timeline->capacity = entries.count;
@@ -202,7 +203,7 @@ bool animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<Animatio
 
     const u32 previous_capacity = timeline->capacity;
     for (u32 index = previous_capacity; index < entries.count; ++index) {
-        entries[index] = AnimationTimelineEntry{};
+        reset_value<AnimationTimelineEntry>(&entries[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
         buckets[index] = kEmptyBucket;
@@ -222,7 +223,7 @@ void animation_timeline_reset(AnimationTimeline* timeline) noexcept {
         return;
     }
     for (u32 index = 0; index < timeline->capacity; ++index) {
-        timeline->entries[index] = AnimationTimelineEntry{};
+        reset_value<AnimationTimelineEntry>(&timeline->entries[index]);
     }
     for (u32 index = 0; index < timeline->bucket_capacity; ++index) {
         timeline->buckets[index] = kEmptyBucket;
@@ -231,7 +232,7 @@ void animation_timeline_reset(AnimationTimeline* timeline) noexcept {
     timeline->visibility_epoch = 1;
     timeline->scan_cursor = 0;
     timeline->free_cursor = 0;
-    timeline->counters = AnimationTimelineCounters{};
+    reset_value<AnimationTimelineCounters>(&timeline->counters);
     timeline->suspended_at_us = 0;
     timeline->suspended = false;
 }
@@ -282,7 +283,7 @@ AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
         ++timeline->entry_count;
     }
     AnimationTimelineEntry& entry = timeline->entries[slot];
-    entry = AnimationTimelineEntry{};
+    reset_value<AnimationTimelineEntry>(&entry);
     entry.key = descriptor.key;
     entry.generation = descriptor.generation;
     entry.frame_count = static_cast<u16>(descriptor.frame_count);
@@ -325,7 +326,7 @@ AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, 
     if (timeline->entries[slot].generation != generation) {
         return {AnimationTimelineError::stale_generation, slot};
     }
-    timeline->entries[slot] = AnimationTimelineEntry{};
+    reset_value<AnimationTimelineEntry>(&timeline->entries[slot]);
     timeline->buckets[bucket] = kTombstoneBucket;
     timeline->free_cursor = slot;
     --timeline->entry_count;

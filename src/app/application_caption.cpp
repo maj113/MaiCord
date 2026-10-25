@@ -146,7 +146,7 @@ LRESULT hit_test(HWND window, LPARAM lparam) noexcept {
 // Monitor edges with an auto-hide appbar (the taskbar).
 u8 autohide_edges(const RECT& monitor) noexcept {
     u8 edges = 0;
-    constexpr UINT kEdges[]{ABE_LEFT, ABE_TOP, ABE_RIGHT, ABE_BOTTOM};
+    static constexpr UINT kEdges[]{ABE_LEFT, ABE_TOP, ABE_RIGHT, ABE_BOTTOM};
     for (u32 i = 0; i < 4; ++i) {
         APPBARDATA bar{};
         bar.cbSize = sizeof(bar);
@@ -576,7 +576,7 @@ bool application_caption_window_message(HWND window, UINT message, WPARAM wparam
         const UiCaptionBarLayout layout = layout_for(client.right, dpi);
         info->rcTitleBar = screen_rect(window, {0, 0, layout.width, layout.height}, dpi);
         info->rgrect[0] = info->rcTitleBar;
-        constexpr u32 kSlots[kUiCaptionButtonCount]{2, 3, 5};
+        static constexpr u32 kSlots[kUiCaptionButtonCount]{2, 3, 5};
         for (u32 i = 0; i < kUiCaptionButtonCount; ++i) {
             info->rgrect[kSlots[i]] = screen_rect(window, layout.buttons[i], dpi);
             info->rgstate[kSlots[i]] = 0;

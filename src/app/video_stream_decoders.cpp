@@ -1,4 +1,5 @@
 #include "maicord/app/video_stream_decoders.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/voice_log.hpp"
 #include "maicord/platform/gpu_stream_decoder.hpp"
 #include "maicord/protocol/voice_video_signaling.hpp"
@@ -77,7 +78,7 @@ GpuStreamDecoder* detach(VideoStreamDecoders::Stream* stream) noexcept {
     voice_log_fields(s.gpu_failures || s.unsupported ? VoiceLogLevel::warning : VoiceLogLevel::info,
                      "video_decoder_summary", {fields, sizeof(fields) / sizeof(fields[0])});
     release_frame(stream->latest);
-    *stream = {};
+    reset_value(stream);
     return decoder;
 }
 
@@ -137,7 +138,7 @@ bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> f
     for (auto& candidate : decoders->streams)
         if (!slot && !candidate.decoder) slot = &candidate;
     if (slot) {
-        *slot = {};
+        reset_value(slot);
         slot->decoder = decoder;
         slot->ssrc = ssrc;
         slot->codec = codec;
@@ -170,7 +171,7 @@ u32 decodable(void* context) noexcept {
 
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept {
     if (!decoders) return;
-    *decoders = {};
+    reset_value(decoders);
 }
 
 void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Device* device) noexcept {
@@ -223,7 +224,7 @@ void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
     AcquireSRWLockExclusive(decoders->lock.native());
     for (u32 i = 0; i < kVideoStreamDecoderStreams; ++i)
         if (decoders->streams[i].decoder) detached[i] = detach(&decoders->streams[i]);
-    decoders->keyframes = {};
+    reset_value(&decoders->keyframes);
     ID3D11Device* device = decoders->device;
     decoders->device = nullptr;
     InterlockedExchange(&decoders->decodable, 0);

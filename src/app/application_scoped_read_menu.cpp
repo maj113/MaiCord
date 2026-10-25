@@ -1,4 +1,5 @@
 #include "application_guild_community.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_guild_menu.hpp"
 #include "application_scoped_read_menu.hpp"
 
@@ -95,7 +96,7 @@ bool application_scoped_read_menu_action(u32 action) noexcept {
     return action == popup_action_mark_scope_read || action == popup_action_retry_scope_read;
 }
 void application_scoped_read_menu_clear() noexcept {
-    menu = {};
+    reset_value(&menu);
 }
 u32 application_scoped_read_menu_owner_bytes() noexcept {
     return sizeof(menu);
@@ -232,7 +233,7 @@ bool application_scoped_read_menu_refresh() noexcept {
     if (!menu.active)
         return true;
     if (!popup_current()) {
-        menu = {};
+        reset_value(&menu);
         return true;
     }
     // Refresh cannot turn an obsolete open menu into a fresh account action.

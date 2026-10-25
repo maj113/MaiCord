@@ -555,9 +555,9 @@ void revoke_capture(ApplicationDownloads& q) noexcept {
     const bool owned = q.captured || q.scene.widgets.captured.generation;
     g_app.downloads_pointer_tail = g_app.downloads_pointer_tail || q.captured;
     q.captured = false;
-    q.pressed = {};
-    q.pressed_widget = {};
-    q.pressed_bounds = {};
+    reset_value(&q.pressed);
+    reset_value(&q.pressed_widget);
+    reset_value(&q.pressed_bounds);
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
     if (owned && GetCapture() == g_app.window)
         ReleaseCapture();
@@ -574,7 +574,7 @@ void log_failure(const HttpsFileDownloadResult& transfer) noexcept {
 bool image_file(const DownloadJob& j) noexcept {
     const Utf8View name = j.chosen_name_bytes ? Utf8View{j.chosen_name, j.chosen_name_bytes}
                                               : Utf8View{j.source.filename, j.source.filename_bytes};
-    constexpr Utf8View kImages[]{utf8_literal(".png"), utf8_literal(".jpg"), utf8_literal(".jpeg"),
+    static constexpr Utf8View kImages[]{utf8_literal(".png"), utf8_literal(".jpg"), utf8_literal(".jpeg"),
                                  utf8_literal(".gif"), utf8_literal(".webp"), utf8_literal(".avif")};
     for (const auto extension : kImages)
         if (name.bytes > extension.bytes &&
@@ -590,7 +590,7 @@ void toast_result(const DownloadJob& j) noexcept {
 void fail_job(ApplicationDownloads& q, DownloadJob& j, HttpsFileDownloadError error) noexcept {
     j.phase = JobPhase::failed;
     j.transfer.error = error;
-    j.resolution = {};
+    reset_value(&j.resolution);
     log_failure(j.transfer);
     q.reveal = true;
     toast_result(j);
@@ -607,7 +607,7 @@ void cancel_job(ApplicationDownloads& q, u32 index) noexcept {
         g_app.account.api.download(q.account_instance, AccountDownloadOperation::cancel, j.id, nullptr);
     else if (q.picker_job != index) {
         j.phase = JobPhase::cancelled;
-        j.resolution = {};
+        reset_value(&j.resolution);
     }
     if (q.warning_id == j.id)
         q.warning_id = 0;
@@ -749,7 +749,7 @@ bool application_downloads_synchronize() noexcept {
     for (const auto& j : q->jobs)
         count += j.occupied;
     q->source = {q, count, q->revision, resolve_row, scene_current};
-    q->content = {};
+    reset_value(&q->content);
     q->content.heading = utf8_literal("Downloads");
     q->content.revision = q->revision;
     q->content.status = count == kDownloadJobs
@@ -888,8 +888,8 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
         j->force_refresh =
             j->force_refresh || j->transfer.status_code == 403 || j->transfer.status_code == 404;
         release_path(*j);
-        j->transfer = {};
-        j->resolution = {};
+        reset_value(&j->transfer);
+        reset_value(&j->resolution);
         j->cancel_requested = false;
         j->after_choice_warning = false;
         j->phase = j->source.risky ? JobPhase::warning : JobPhase::queued;
@@ -1244,7 +1244,7 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
         static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!pixels)
         return false;
-    constexpr MediaResolutionTier tiers[]{MediaResolutionTier::original, MediaResolutionTier::px2048,
+    static constexpr MediaResolutionTier tiers[]{MediaResolutionTier::original, MediaResolutionTier::px2048,
                                           MediaResolutionTier::px1024,   MediaResolutionTier::px512,
                                           MediaResolutionTier::px256,    MediaResolutionTier::px128,
                                           MediaResolutionTier::px64};

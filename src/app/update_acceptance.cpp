@@ -131,7 +131,7 @@ UpdateAcceptanceResult update_acceptance_begin(ConstSlice<wchar_t> path,
     if (!result.ok()) return result;
     result = load(candidate.path, &candidate.state);
     candidate.record_present = result.ok();
-    if (result.error == UpdateAcceptanceError::missing && allow_first_use) result = {};
+    if (result.error == UpdateAcceptanceError::missing && allow_first_use) reset_value(&result);
     if (!result.ok()) { CloseHandle(candidate.lock); return result; }
     *transaction = candidate;
     return {};

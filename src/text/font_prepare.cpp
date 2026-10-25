@@ -1,10 +1,11 @@
 #include "maicord/text/font_prepare.hpp"
+#include "maicord/core/memory.hpp"
 namespace maicord {namespace {
 template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
 NativeFontResult failure(SfntStatus s) noexcept {return {NativeFontError::font,s,0};}
 }
 NativeFontResult native_font_prepare(NativeFontSession* session,NativeFontHandle face,ConstSlice<FontAxisSetting> settings,u32 simulations,bool outline_instructions,Arena* scratch,NativeFontInstanceHandle* output,bool* oblique,bool* bold) noexcept {
-    if(oblique)*oblique=false;if(bold)*bold=false;if(output)*output={};
+    if(oblique)*oblique=false;if(bold)*bold=false;if(output)reset_value(output);
     if(!session||!scratch||!scratch->base||!output||(settings.count&&!settings.data))return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* selected=native_font_get(*native_font_session_fonts(session),face);if(!selected)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if(simulations>3||((simulations&2)&&!oblique)||((simulations&1)&&!bold))return failure(SfntStatus::unsupported);

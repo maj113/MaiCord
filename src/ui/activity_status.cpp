@@ -38,7 +38,7 @@ bool ui_activity_status(const UserActivity* primary, const UserAppearanceRecord*
                         Slice<char> storage, UiActivityStatus* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     custom_status(appearance, primary != nullptr, output);
     if (primary) {
         output->glyph = bot ? UiActivityGlyph::none : ui_activity_glyph(primary->type);
@@ -51,7 +51,7 @@ bool ui_user_activity_status(const UserStore& users, u64 user_id, const UserAppe
                              Slice<char> storage, UiActivityStatus* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     UserActivityType type{};
     const bool rich = user_activity_first_type(users.activities, user_id, &type);
     custom_status(appearance, rich, output);

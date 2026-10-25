@@ -173,7 +173,7 @@ VoiceTransmitAction voice_transmit_next(VoiceTransmitter* transmitter, bool want
 
 void voice_transmit_reset(VoiceTransmitter* transmitter) noexcept {
     if (transmitter)
-        *transmitter = {};
+        reset_value(transmitter);
 }
 
 u32 voice_rtp_header(Slice<u8> output, u16 sequence, u32 timestamp, u32 ssrc) noexcept {

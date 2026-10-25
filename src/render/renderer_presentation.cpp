@@ -1,4 +1,5 @@
 #include "maicord/render/renderer_presentation.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/core/hash.hpp"
 #include "d3d11_renderer_interaction_state.hpp"
@@ -892,7 +893,7 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
     const bool partial = reject == 0;
     diff.reject_reason = reject;
     if (!partial)
-        renderer->presentation_damage = staged;
+        copy_value(&renderer->presentation_damage, staged);
     diff.valid = false;
     diff.pending = paint_diff_storage(&diff) && paint.batch_count <= kMaxPaintBatches &&
                    paint.clip_count <= kMaxPaintClips &&
@@ -979,7 +980,7 @@ void renderer_paint_diff_release(D3D11Renderer* renderer) noexcept {
     if (!renderer)
         return;
     release_paint_diff_storage(&renderer->paint_diff);
-    renderer->paint_diff = RendererPaintDiff{};
+    reset_value<RendererPaintDiff>(&renderer->paint_diff);
 }
 
 } // namespace maicord

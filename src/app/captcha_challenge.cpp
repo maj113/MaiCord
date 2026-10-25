@@ -1,4 +1,5 @@
 #include "maicord/app/captcha_challenge.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -69,7 +70,7 @@ namespace {
 
 void clear_locked(CaptchaChallenge* challenge) noexcept {
     secure_buffer_clear(&challenge->secrets);
-    challenge->snapshot = CaptchaChallengeSnapshot{};
+    reset_value<CaptchaChallengeSnapshot>(&challenge->snapshot);
 }
 
 bool external_output(const CaptchaChallenge* challenge, const SecureBuffer* output) noexcept {
@@ -122,7 +123,7 @@ CaptchaChallengeResult captcha_challenge_initialize(CaptchaChallenge* challenge)
         return CaptchaChallengeResult{ERROR_INVALID_PARAMETER, CaptchaChallengeError::invalid_input,
                                       UserAuthDecodeError::none};
     }
-    *challenge = CaptchaChallenge{};
+    reset_value<CaptchaChallenge>(challenge);
     const SecureBufferResult initialized =
         secure_buffer_initialize(&challenge->secrets, kCaptchaChallengeSecretBytes);
     if (!initialized.ok()) {
@@ -146,7 +147,7 @@ void captcha_challenge_release(CaptchaChallenge* challenge) noexcept {
         return;
     }
     secure_buffer_release(&challenge->secrets);
-    *challenge = CaptchaChallenge{};
+    reset_value<CaptchaChallenge>(challenge);
 }
 
 CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16 status_code, Utf8View body,
@@ -197,7 +198,7 @@ CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16
         *response = decoded;
     }
     if (!result.ok()) {
-        *response = UserAuthResponse{};
+        reset_value<UserAuthResponse>(response);
     }
     ReleaseSRWLockExclusive(challenge->lock.native());
     return result;
@@ -276,8 +277,8 @@ bool captcha_challenge_visit_replay_headers(const CaptchaChallenge* challenge,
                          snapshot.session_id_bytes, true};
     const bool visited = snapshot.active && visitor(context, rqtoken.bytes != 0 ? &rqtoken : nullptr,
                                                     session.bytes != 0 ? &session : nullptr);
-    rqtoken = SecureBuffer{};
-    session = SecureBuffer{};
+    reset_value<SecureBuffer>(&rqtoken);
+    reset_value<SecureBuffer>(&session);
     ReleaseSRWLockShared(challenge->lock.native());
     return visited;
 }

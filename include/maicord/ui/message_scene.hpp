@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/ui/list_navigation.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/app/message_timeline.hpp"
 #include "maicord/core/stable_storage.hpp"
@@ -324,7 +325,7 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene&, MessageMedi
 // Cached plugin decoration of a message revision (never runs plugin code).
 inline bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
                                             UiPluginRenderDecoration* output) noexcept {
-    *output = {};
+    reset_value(output);
     return scene.plugin_decorations && ui_plugin_render(message_id, revision, output);
 }
 inline u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept {

@@ -1,4 +1,5 @@
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
@@ -361,7 +362,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
             r.control = {r.control.right - pad - button_width, middle - height * .5f, r.control.right - pad,
                          middle + height * .5f};
         } else
-            r.control = {};
+            reset_value(&r.control);
         r.height = ui_rect_height(r.row);
         return r;
     }
@@ -950,7 +951,7 @@ bool build(UiSettingsScene* scene) noexcept {
         return false;
     if (scene->capacity < required || scene->prefix_capacity < prefix_required) {
         ui_fixed_widget_storage_release(&scene->storage);
-        scene->widgets = {};
+        reset_value(&scene->widgets);
         scene->capacity = 0;
         scene->prefix_capacity = 0;
         if (!ui_fixed_widget_storage_initialize(&scene->storage, required,
@@ -1503,7 +1504,7 @@ bool ui_settings_scene_set_search(UiSettingsScene* scene, const UiSettingsEditor
 
 bool ui_settings_scene_search_geometry(const UiSettingsScene& scene, UiSettingsControlGeometry* output) noexcept {
     if (output)
-        *output = {};
+        reset_value(output);
     const auto* node = output && current(scene) && scene.search_field.generation
                            ? ui_widget_manager_layout_node(scene.widgets, scene.search_field)
                            : nullptr;
@@ -1570,7 +1571,7 @@ bool ui_settings_scene_tick(UiSettingsScene* scene, u64 now_ms, bool reduced_mot
         if (!animation.started_ms)
             continue;
         if (now_ms >= animation.started_ms + duration + kUiTransitionFrameMs)
-            animation = {};
+            reset_value(&animation);
         else
             animating = true;
     }
@@ -1667,7 +1668,7 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         scene->flash_control = 0;
         scene->flash = 0;
         for (auto& animation : scene->animations)
-            animation = {};
+            reset_value(&animation);
     }
     if (retain_layout) {
         synchronize_input(*scene);
@@ -1692,7 +1693,7 @@ void ui_settings_scene_release(UiSettingsScene* scene) noexcept {
     const auto presentation = scene->presentation;
     const u64 opens = scene->opens;
     ui_fixed_widget_storage_release(&scene->storage);
-    *scene = {};
+    reset_value(scene);
     scene->revision = revision;
     scene->page_generation = page_generation;
     scene->presentation = presentation;
@@ -1931,7 +1932,7 @@ bool ui_settings_scene_control_anchor(const UiSettingsScene& scene, UiSettingsTa
 bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, UiSettingsTarget target,
                                         UiSettingsControlGeometry* output) noexcept {
     if (output)
-        *output = {};
+        reset_value(output);
     u32 index = 0;
     const auto* control = ui_settings_scene_control(scene, target, &index);
     if (!output || !control)
@@ -1970,7 +1971,7 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, UiSettings
 bool ui_settings_scene_editor_hit(const UiSettingsScene& scene, float x, float y,
                                   UiSettingsControlGeometry* output) noexcept {
     if (output)
-        *output = {};
+        reset_value(output);
     const auto target = ui_settings_scene_hit_test(scene, x, y);
     const auto* control = ui_settings_scene_control(scene, target);
     return control && control->enabled && editor_kind(control->kind) &&

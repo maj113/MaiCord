@@ -112,7 +112,7 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
         if (bytes)
             copy_bytes(payload_scratch.data, list.source.data, bytes);
         event->dispatch_kind = GatewayClientDispatchKind::guild_stickers_update;
-        event->member_list = {};
+        reset_value(&event->member_list);
         event->member_list.guild_id = root.guild_id;
         event->dispatch_payload_bytes = bytes;
         *payload = {reinterpret_cast<const u8*>(payload_scratch.data), bytes};
@@ -131,7 +131,7 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
     event->dispatch_kind = member_remove ? GatewayClientDispatchKind::guild_member_remove
                            : ban_add     ? GatewayClientDispatchKind::guild_ban_add
                                          : GatewayClientDispatchKind::guild_ban_remove;
-    event->member_list = {};
+    reset_value(&event->member_list);
     event->member_list.guild_id = root.guild_id;
     event->member_list.record_count = 1;
     event->dispatch_payload_bytes = writer.used;

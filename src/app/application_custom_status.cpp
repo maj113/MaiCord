@@ -46,7 +46,7 @@ void scope() noexcept {
         return;
     if (request.request_id)
         return; // The primary lane still owns this completion.
-    request = {};
+    reset_value(&request);
     request.account_scope = g_app.plugin_account_scope_serial;
 }
 u64 local_ms_of_day() noexcept {
@@ -63,7 +63,7 @@ void project_appearance(u64 unix_now) noexcept {
     if (!application_custom_status_snapshot(&effective))
         return;
     if (!self_custom_status_active(effective, unix_now))
-        effective = {};
+        reset_value(&effective);
     if (request.projected_known && self_custom_status_equal(request.projected, effective))
         return;
     auto& users = g_app.account_ui->user_store;
@@ -83,7 +83,7 @@ void project_appearance(u64 unix_now) noexcept {
     if (!user_appearance_upsert(&users.appearance, appearance))
         return;
     saturating_increment(users.revision);
-    request.projected = effective;
+    copy_value(&request.projected, effective);
     request.projected_known = true;
     if (g_app.renderer_ready)
         refresh_account_text(true);
@@ -228,7 +228,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     if (target.control_id != control_clear)
         return;
     for (u32 i = 0; i < kClearCount; ++i) {
-        f.popup_items[i] = {};
+        reset_value(&f.popup_items[i]);
         f.popup_items[i].label = kClearLabels[i];
         f.popup_items[i].action = kMenuChoiceBase + i;
         f.popup_items[i].flags = static_cast<u16>(popup_item_enabled | (i == f.clear_index ? popup_item_checked : 0));
@@ -275,7 +275,7 @@ bool application_custom_status_snapshot(SelfCustomStatus* output) noexcept {
         return false;
     scope();
     if (request.queued) {
-        *output = request.desired;
+        copy_value(output, request.desired);
         return true;
     }
     return saved(output);
@@ -291,9 +291,12 @@ bool application_custom_status_request(const SelfCustomStatus* status) noexcept 
     scope();
     if (!application_custom_status_available())
         return false;
-    request.desired = status ? *status : SelfCustomStatus{};
+    if (status)
+        copy_value(&request.desired, *status);
+    else
+        reset_value(&request.desired);
     if (!request.desired.text_bytes && !request.desired.emoji_name_bytes && !request.desired.emoji_id)
-        request.desired = {};
+        reset_value(&request.desired);
     request.queued = true;
     request.failed = false;
     request.attempts = 0;
@@ -397,7 +400,7 @@ u64 application_custom_status_next_wake() noexcept {
 void application_custom_status_clear() noexcept {
     if (request.request_id)
         return;
-    request = {};
+    reset_value(&request);
 }
 
 bool application_custom_status_open() noexcept {
@@ -420,7 +423,7 @@ bool application_custom_status_open() noexcept {
     f.lifetime = ++lifetime_serial;
     f.account_scope = g_app.plugin_account_scope_serial;
     f.invalid = false;
-    f.status = {};
+    reset_value(&f.status);
     SelfCustomStatus current{};
     const bool known = application_custom_status_snapshot(&current) &&
                        self_custom_status_active(current, clock_unix_milliseconds());

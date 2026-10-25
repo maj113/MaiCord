@@ -1,4 +1,5 @@
 #include "maicord/model/notification_retention.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 
 namespace maicord {
@@ -99,7 +100,7 @@ void erase(NotificationRetention& n,const Found& found,Erase prepared) noexcept 
     }
     n.index[hole]=0;
     if(found.row!=last){n.rows[found.row]=n.rows[last];n.index[prepared.moved_slot]=found.row+1;}
-    n.rows[last]={};--n.count;
+    reset_value(&n.rows[last]);--n.count;
 }
 u32 ticket_index(const NotificationRetentionRow& row,u32 ordinal) noexcept {
     const u32 index=u32(row.head)+ordinal;
@@ -143,7 +144,7 @@ NotificationRetentionAppend notification_retention_append(NotificationRetention*
     if(located.error!=Error::none)return {located.error};
     if(!located.exists){
         if(n->count==n->rows.count)return {Error::full_channels};
-        auto& row=n->rows[n->count];row={};row.channel=channel;row.tickets[0]=ticket;row.count=1;
+        auto& row=n->rows[n->count];reset_value(&row);row.channel=channel;row.tickets[0]=ticket;row.count=1;
         n->index[located.slot]=++n->count;return {};
     }
     auto& row=n->rows[located.row];

@@ -1,4 +1,5 @@
 #include "maicord/text/gpos.hpp"
+#include "maicord/core/memory.hpp"
 #include "layout_read.hpp"
 #include "maicord/text/base.hpp"
 #include "gpos_validated.hpp"
@@ -8,7 +9,7 @@ using layout_read::WorkReport;using layout_read::r16;using layout_read::tail;
 inline bool spend(u32* work,u32 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
 bool span(ConstSlice<u8> b,u32 at,u64 size) noexcept {return at<=b.count && size<=b.count-at && (!size || b.data);}
 SfntStatus device(ConstSlice<u8> parent,u16 offset,u32 minimum,SfntDevice* output,u32* work) noexcept {
-    *output={};if(!offset)return SfntStatus::ok;if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);return s==SfntStatus::ok?sfnt_device_open(bytes,output):s;
+    reset_value(output);if(!offset)return SfntStatus::ok;if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);return s==SfntStatus::ok?sfnt_device_open(bytes,output):s;
 }
 SfntStatus value_valid(ConstSlice<u8> parent,u32 offset,u16 format,u32 minimum,u32* work) noexcept {
     const u16 size=sfnt_position_value_size(format);if(size==0xffff)return SfntStatus::unsupported;
@@ -33,7 +34,7 @@ SfntStatus validate_values(ConstSlice<u8> parent,u32 at,u32 count,u32 stride,u8 
     for(u32 i=0;i<count;++i){auto s=value_valid(parent,at+i*stride,format,minimum,work);if(s!=SfntStatus::ok)return s;}return SfntStatus::ok;
 }
 SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposSubtable* output,u32* work) noexcept {
-    *output={};if(!bytes.data || !limit || limit>65536)return SfntStatus::invalid_input;if(type<1 || type>2)return SfntStatus::unsupported;
+    reset_value(output);if(!bytes.data || !limit || limit>65536)return SfntStatus::invalid_input;if(type<1 || type>2)return SfntStatus::unsupported;
     if(!spend(work))return SfntStatus::resource_limit;if(!span(bytes,0,type==1?6u:10u))return SfntStatus::truncated;const u16 fmt=r16(bytes,0);if(fmt<1 || fmt>2)return SfntStatus::unsupported;
     const u16 vf1=r16(bytes,4),vf2=type==2?r16(bytes,6):0,b1=sfnt_position_value_size(vf1),b2=sfnt_position_value_size(vf2);if(b1==0xffff || b2==0xffff)return SfntStatus::unsupported;
     SfntGposSubtable result{};result.table=bytes;result.glyph_limit=limit;result.type=static_cast<u8>(type);result.format=static_cast<u8>(fmt);
@@ -86,24 +87,24 @@ SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,
 }
 u16 sfnt_position_value_size(u16 format) noexcept {if(format&0xff00)return 0xffff;u16 bytes=0;while(format){format=static_cast<u16>(format&(format-1));bytes+=2;}return bytes;}
 SfntStatus sfnt_value_record_read(const SfntValueRecord& record,SfntPositionValue* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};SfntPositionValue result{};u32 at=record.offset;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntPositionValue result{};u32 at=record.offset;
     for(u32 i=0;i<8;++i)if(record.format&(1u<<i)){const u16 v=r16(record.parent,at);at+=2;if(i<4)result.design[i]=static_cast<i16>(v);else if(v){const auto s=sfnt_device_open({record.parent.data+v,record.parent.count-v},&result.devices[i-4]);if(s!=SfntStatus::ok)return s;}}
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_anchor_open(ConstSlice<u8> bytes,SfntAnchor* output,u32 work,u32* used) noexcept {
-    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!bytes.data)return SfntStatus::invalid_input;if(!span(bytes,0,6))return SfntStatus::truncated;
+    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);if(!bytes.data)return SfntStatus::invalid_input;if(!span(bytes,0,6))return SfntStatus::truncated;
     if(!spend(&work))return SfntStatus::resource_limit;const u16 fmt=r16(bytes,0);if(fmt<1 || fmt>3)return SfntStatus::unsupported;const u32 size=fmt==1?6u:fmt==2?8u:10u;if(!span(bytes,0,size))return SfntStatus::truncated;
     if(fmt==3)for(u32 i=0;i<2;++i){SfntDevice d{};const auto s=device(bytes,r16(bytes,6+i*2),size,&d,&work);if(s!=SfntStatus::ok)return s;}
     *output={bytes};return SfntStatus::ok;
 }
 SfntStatus sfnt_anchor_read(const SfntAnchor& anchor,SfntAnchorValue* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};SfntAnchorValue result{};result.format=r16(anchor.table,0);result.x=static_cast<i16>(r16(anchor.table,2));result.y=static_cast<i16>(r16(anchor.table,4));
+    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntAnchorValue result{};result.format=r16(anchor.table,0);result.x=static_cast<i16>(r16(anchor.table,2));result.y=static_cast<i16>(r16(anchor.table,4));
     if(result.format==2)result.point=r16(anchor.table,6);
     if(result.format==3)for(u32 i=0;i<2;++i){const u16 at=r16(anchor.table,6+i*2);if(at){const auto s=sfnt_device_open({anchor.table.data+at,anchor.table.count-at},&result.devices[i]);if(s!=SfntStatus::ok)return s;}}
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_position_value_resolve(const SfntPositionValue& value,const SfntPositionInstance& instance,SfntPositionAdjustment* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;SfntPositionAdjustment result{};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;SfntPositionAdjustment result{};
     for(u32 i=0;i<4;++i){result.design[i]=value.design[i];const auto& d=value.devices[i];if(!d.format)continue;
         if(d.format==0x8000){if(!instance.variable)continue;u32 index=0;sfnt_device_variation_index(d,&index);if(index==0xffffffffu)continue;if(!instance.variations)return SfntStatus::missing_table;double delta=0;const auto s=item_variation_delta(*instance.variations,index,&delta,instance.arithmetic);if(s!=SfntStatus::ok)return s;result.design[i]+=delta;}
         else {if(d.format>3)return SfntStatus::invalid_input;if(instance.variable)continue;const auto s=sfnt_device_pixels(d,(i&1)?instance.ppem_y:instance.ppem_x,&result.pixels[i]);if(s!=SfntStatus::ok)return s;}}
@@ -113,6 +114,6 @@ SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 limit,SfntG
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(table,type,limit,output,&work);
 }
 SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32 work,u32* used) noexcept {
-    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;return gpos_subtable_match(sub,gdef,filter,glyphs,start,end,output,&work);
+    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;return gpos_subtable_match(sub,gdef,filter,glyphs,start,end,output,&work);
 }
 }

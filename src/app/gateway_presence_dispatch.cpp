@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
@@ -79,7 +80,7 @@ GatewayEventDecodeResult gateway_client_decode_presence(
     GatewayClientPresenceUpdate* output, UserAppearance* appearance) noexcept {
     if (!output || !scratch.data || scratch.count == 0 || maximum_depth == 0 ||
         !data.source.data || data.source.bytes == 0) return {0, GatewayEventDecodeError::invalid_input};
-    *output = {};
+    reset_value(output);
     PresenceContext context{};
     auto decoded = read_object(data, scratch, maximum_depth, false, &context);
     if (!decoded.ok()) return decoded;
@@ -90,7 +91,7 @@ GatewayEventDecodeResult gateway_client_decode_presence(
     if (!decoded.ok()) return decoded;
     if ((context.fields & 8) == 0) return {0, GatewayEventDecodeError::missing_required_field};
     if (appearance) {
-        *appearance = {}; appearance->user_id = context.value.user_id; appearance->guild_id = context.value.guild_id;
+        reset_value(appearance); appearance->user_id = context.value.user_id; appearance->guild_id = context.value.guild_id;
         const auto scan = json_scan_structurals_avx1(data.source, scratch);
         if (!scan.ok() || !activity_decode({data.source, {scratch.data, scan.count}},
             {data.source, 0, JsonValueKind::object}, appearance)) return {0, GatewayEventDecodeError::invalid_data};

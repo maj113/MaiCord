@@ -40,7 +40,7 @@ bool fresh(const UpdatePreparationContext& context) noexcept {
 } // namespace
 
 void update_prepare_stage_name(const u8* digest, wchar_t* name) noexcept {
-    constexpr wchar_t prefix[] = L"maicord-", hex[] = L"0123456789abcdef", suffix[] = L".stage";
+    static constexpr wchar_t prefix[] = L"maicord-", hex[] = L"0123456789abcdef", suffix[] = L".stage";
     for (u32 i = 0; i < 8; ++i) name[i] = prefix[i];
     for (u32 i = 0; i < 32; ++i) {
         name[8 + i * 2] = hex[digest[i] >> 4];

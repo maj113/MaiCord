@@ -445,7 +445,7 @@ u16 acquire_binding_slot(RestRateScheduler* scheduler, const RestRouteKey& route
     }
     RestRateBinding& binding = scheduler->bindings[candidate];
     const u16 generation = next_generation(binding.generation);
-    binding = RestRateBinding{};
+    reset_value<RestRateBinding>(&binding);
     binding.route = route;
     binding.last_used_ms = now_ms;
     binding.bucket_index = invalid_rate_index;
@@ -499,7 +499,7 @@ u16 acquire_bucket_slot(RestRateScheduler* scheduler, const RestRouteKey& route,
     }
     RestRateBucket& bucket = scheduler->buckets[candidate];
     const u16 generation = next_generation(bucket.generation);
-    bucket = RestRateBucket{};
+    reset_value<RestRateBucket>(&bucket);
     bucket.route_id = route.route_id;
     bucket.major_key = route.major_key;
     bucket.last_used_ms = now_ms;
@@ -959,13 +959,13 @@ bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
         return false;
     }
     for (u32 index = 0; index < buckets.count; ++index) {
-        buckets[index] = RestRateBucket{};
+        reset_value<RestRateBucket>(&buckets[index]);
     }
     for (u32 index = 0; index < bindings.count; ++index) {
-        bindings[index] = RestRateBinding{};
+        reset_value<RestRateBinding>(&bindings[index]);
         bindings[index].bucket_index = invalid_rate_index;
     }
-    *scheduler = RestRateScheduler{};
+    reset_value<RestRateScheduler>(scheduler);
     scheduler->buckets = buckets;
     scheduler->bindings = bindings;
     return true;
@@ -1204,7 +1204,7 @@ bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage,
         (!body_output.data && body_output.count != 0) || !method_literal(request_method)) {
         return false;
     }
-    *response = RestResponse{};
+    reset_value<RestResponse>(response);
     response->request_method = request_method;
     return http_response_decoder_initialize(&response->http, input_storage, {}, body_output,
                                             kRestMaximumHeaderBytes, kRestMaximumHeaderFields,

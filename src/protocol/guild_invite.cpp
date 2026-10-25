@@ -1,4 +1,5 @@
 #include "maicord/protocol/guild_invite.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/json_ids.hpp"
@@ -202,7 +203,7 @@ GuildInviteOutcome guild_invite_decode_response(u16 http_status, Utf8View body, 
         return GuildInviteOutcome::unavailable;
     if (!parsed || !invite.guild_id)
         return GuildInviteOutcome::malformed;
-    *output = invite;
+    copy_value(output, invite);
     return GuildInviteOutcome::resolved;
 }
 

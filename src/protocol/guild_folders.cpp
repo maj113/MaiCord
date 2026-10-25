@@ -310,7 +310,7 @@ GuildFoldersError guild_folders_decode(ConstSlice<u8> input, GuildFolderSettings
         return counts.folders >= kGuildFoldersMaximumFolders || counts.guilds >= kGuildFoldersMaximumGuilds
                    ? E::capacity
                    : E::protobuf;
-    counts = {};
+    reset_value(&counts);
     group(w, 0, w.size, output, counts);
     output->folder_count = counts.folders;
     output->guild_id_count = counts.guilds;

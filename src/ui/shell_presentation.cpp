@@ -1,4 +1,5 @@
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/badge.hpp"
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/presence.hpp"
@@ -62,7 +63,7 @@ bool paint_guild_indicator(PaintStream* stream, float left, UiRect row, const Gu
 bool paint_thread_spine(PaintStream* stream, const ShellThreadSpine& spine, Color color) noexcept {
     constexpr float w = kShellThreadSpineWidth, r = kShellThreadSpineRadius;
     // Quarter arc from the rail into the arm as four round-capped segments.
-    constexpr float cosines[]{1.0f, 0.9238795f, 0.7071068f, 0.3826834f, 0.0f};
+    static constexpr float cosines[]{1.0f, 0.9238795f, 0.7071068f, 0.3826834f, 0.0f};
     const UiPoint centre{spine.arc_end.x, spine.arc_start.y};
     UiPoint previous = spine.arc_start;
     for (u32 i = 1; i < 5; ++i) {
@@ -1022,7 +1023,7 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
                                                const Theme& theme, PaintStream* paint, u32 dpi,
                                                UiTypingDotsPaint* dots) noexcept {
     if (dots)
-        *dots = {};
+        reset_value(dots);
     // Typing dots: always three quads, so a step patches only their geometry
     // (renderer_step_typing_dots).
     if (scene && scene->active && scene->typing_dots && message_composer_scene_typing_label(*scene).bytes) {

@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_module_loader.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -98,7 +99,7 @@ NativePluginModuleResult release_resources(NativePluginModule* module) noexcept 
     const auto integrity = release_integrity(module);
     if (!integrity.ok()) return integrity;
     // Retain the operation guard through DLL_PROCESS_DETACH reentry.
-    *module = {};
+    reset_value(module);
     return result(NativePluginModuleError::none);
 }
 

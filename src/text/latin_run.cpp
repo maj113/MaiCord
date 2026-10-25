@@ -1,4 +1,5 @@
 #include "maicord/text/latin_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "nominal_placements.hpp"
 #include "maicord/text/alphabetic_run.hpp"
 #include "maicord/text/lookup_plan.hpp"
@@ -61,7 +62,7 @@ SfntStatus finish_egyptian_controls(void* opaque,Slice<SfntComponentGlyph> glyph
     return SfntStatus::ok;
 }
 SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool require_source_coverage,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl=false,SfntShapeRunResult* raw_output=nullptr,bool khmer_fallback=false) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};u32 em_bits=0;copy_bytes(&em_bits,&em,4);
+    if(!out)return SfntStatus::invalid_input;reset_value(out);u32 em_bits=0;copy_bytes(&em_bits,&em,4);
     const auto* plan=native_run_plan_get(store,handle,independent);
     if(!plan||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||
        (s.mapped.count&&!s.mapped.data)||(s.shaping.components.count&&!s.shaping.components.data)||(s.shaping.targets.count&&!s.shaping.targets.data)||
@@ -243,14 +244,14 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
 }
 }
 SfntStatus native_latin_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,SfntShapeStorage storage,SfntShapeRunResult* out,SfntShapeLimits limits) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};
+    if(!out)return SfntStatus::invalid_input;reset_value(out);
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     NativeAsciiStorage s{{reinterpret_cast<SfntClusterGlyph*>(storage.positions.data),static_cast<u32>(minimum(capacity,u64{0xffffffffu}))},storage,{},storage.placements,storage.character_glyphs};
     NativeAsciiResult compact{};return alphabetic_run(store,handle,text,independent,em,s,&compact,limits,false,nullptr,true,rtl,out);
 }
 SfntStatus native_khmer_fallback_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,
     SfntShapeStorage storage,SfntShapeRunResult* out,ConstSlice<u16> substitutions,ConstSlice<u16> positioning,SfntShapeLimits limits) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};
+    if(!out)return SfntStatus::invalid_input;reset_value(out);
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     NativeAsciiStorage s{{reinterpret_cast<SfntClusterGlyph*>(storage.positions.data),static_cast<u32>(minimum(capacity,u64{0xffffffffu}))},storage,{},storage.placements,storage.character_glyphs};
     const NativeAlphabeticPlan profile{handle,substitutions,positioning,sfnt_tag('l','a','t','n'),independent,false};
@@ -261,7 +262,7 @@ SfntStatus native_latin_run(const NativeRunPlanStore& store,NativeRunPlanHandle 
 }
 SfntStatus native_alphabetic_run(const NativeRunPlanStore& store,const NativeAlphabeticPlan& profile,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool coverage,bool force_shaping,bool rtl) noexcept {
     if(!profile.script_tag){
-        if(out)*out={};const auto* plan=native_run_plan_get(store,profile.run,profile.independent);if(!plan)return SfntStatus::invalid_input;
+        if(out)reset_value(out);const auto* plan=native_run_plan_get(store,profile.run,profile.independent);if(!plan)return SfntStatus::invalid_input;
         const auto* instance=native_font_instance_get(*store.instances,store.slots[profile.run.slot-1].instance);
         const auto* font=instance?native_font_get(*store.instances->fonts,instance->face):nullptr;if(!font)return SfntStatus::invalid_input;
         NativeEmojiPlan common{profile.run,&font->cmap,profile.substitution_roots,profile.positioning_roots,0,profile.positioning_program};
@@ -273,7 +274,7 @@ SfntStatus native_alphabetic_run(const NativeRunPlanStore& store,const NativeAlp
         return result;
     }
     if((profile.script_tag!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(profile.script_tag))||
-        (profile.substitution_roots.count&&!profile.substitution_roots.data)||(profile.positioning_roots.count&&!profile.positioning_roots.data)){if(out)*out={};return SfntStatus::invalid_input;}
+        (profile.substitution_roots.count&&!profile.substitution_roots.data)||(profile.positioning_roots.count&&!profile.positioning_roots.data)){if(out)reset_value(out);return SfntStatus::invalid_input;}
     return alphabetic_run(store,profile.run,text,profile.independent,em,s,out,limits,coverage,&profile,force_shaping,rtl);
 }
 }

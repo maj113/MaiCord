@@ -1,4 +1,5 @@
 #include "application_guild_settings_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "application_settings.hpp"
 #include "maicord/app/account_profile_edit.hpp"
@@ -251,7 +252,7 @@ bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
     if (!guild_server_profile_write(p.profile_draft, {reinterpret_cast<const char*>(p.icon_uri), p.icon_uri_bytes},
                                     state(), p.guild_id, traits, write))
         return false;
-    *patch = {};
+    reset_value(patch);
     patch->fields = guild_settings_patch_profile;
     patch->profile = write;
     return true;

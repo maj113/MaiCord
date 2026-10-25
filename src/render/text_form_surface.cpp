@@ -1,9 +1,10 @@
 #include "maicord/render/text_form_surface.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 bool text_form_surface_update(TextFormSurface* surface, const TextSystem& text) noexcept {
     if (!surface) return false;
-    surface->geometry = {};
+    reset_value(&surface->geometry);
     surface->composition_complete = true;
     if (!surface->scene || !surface->scene->active) {
         text_edit_layout_invalidate(&surface->layout);
@@ -54,6 +55,6 @@ bool text_form_surface_update(TextFormSurface* surface, const TextSystem& text) 
 void text_form_surface_release(TextFormSurface* surface) noexcept {
     if (!surface) return;
     text_edit_layout_release(&surface->layout);
-    *surface = {};
+    reset_value(surface);
 }
 } // namespace maicord

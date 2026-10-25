@@ -229,7 +229,7 @@ bool application_guild_folders_folder(u64 folder_id, ApplicationGuildFolder* out
     if (index == ~0u)
         return false;
     const auto& record = g_folders->settings.folders[index];
-    *output = {};
+    reset_value(output);
     output->id = folder_id;
     output->color = record.has_color ? record.color : kGuildFolderDefaultColor;
     output->has_color = record.has_color;

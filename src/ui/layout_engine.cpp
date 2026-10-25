@@ -708,7 +708,7 @@ bool ui_layout_engine_initialize(UiLayoutEngine* engine, Slice<UiLayoutNode> sto
     if (!engine || !storage.data || storage.count == 0 || storage.count > kInvalidUiLayoutSlot) {
         return false;
     }
-    *engine = UiLayoutEngine{};
+    reset_value<UiLayoutEngine>(engine);
     engine->storage = storage;
     engine->generation = 1;
     return true;
@@ -735,7 +735,7 @@ bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasu
     engine->measure_context = context;
     engine->unstable_node = ui_layout_invalid_handle();
     for (u32 index = 0; index < engine->count; ++index) {
-        engine->storage[index].measure_constraint = UiSize{};
+        reset_value<UiSize>(&engine->storage[index].measure_constraint);
     }
     return true;
 }
@@ -828,9 +828,9 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
         }
         for (u32 index = 0; index < engine->count; ++index) {
             engine->storage[index].visible = false;
-            engine->storage[index].rectangle = UiRect{};
-            engine->storage[index].content_rectangle = UiRect{};
-            engine->storage[index].clip_rectangle = UiRect{};
+            reset_value<UiRect>(&engine->storage[index].rectangle);
+            reset_value<UiRect>(&engine->storage[index].content_rectangle);
+            reset_value<UiRect>(&engine->storage[index].clip_rectangle);
         }
         for (u32 reverse = engine->count; reverse != 0; --reverse) {
             measure_node(engine, reverse - 1);

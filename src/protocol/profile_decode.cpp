@@ -107,7 +107,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
     ProfileString<256> text{};
     if (!string(f[2].value, &text))
         return false;
-    c.out->activity = text;
+    copy_value(&c.out->activity, text);
     c.out->fields |= appearance_custom_status;
     c.custom = true;
     Field emoji[] = {{utf8_literal("id")}, {utf8_literal("name")}, {utf8_literal("animated")}};
@@ -133,11 +133,11 @@ bool badge_item(void* opaque, u32, JsonValue v) noexcept {
     if (!string(f[0].value, &b.id) || !string(f[2].value, &b.description) || !b.id.bytes)
         return true;
     if (!string(f[1].value, &b.icon))
-        b.icon = {};
+        reset_value(&b.icon);
     constexpr auto https = utf8_literal("https://");
     if (!string(f[3].value, &b.link) || b.link.bytes <= https.bytes ||
         !utf8_equal({b.link.data, https.bytes}, https))
-        b.link = {};
+        reset_value(&b.link);
     ++c.profile->badge_count;
     return true;
 }
@@ -152,14 +152,14 @@ bool connection_item(void* opaque, u32 i, JsonValue v) noexcept {
         return false;
     // A connection whose fields do not fit is left out, not the profile.
     if (!string(f[0].value, &b.type) || !string(f[1].value, &b.name) || !boolean(f[2].value, &b.verified)) {
-        b = {};
+        reset_value(&b);
         return true;
     }
     // Platform metadata is loosely typed; only a string created_at is read.
     Field m[] = {{utf8_literal("created_at")}};
     if (f[3].value.kind == JsonValueKind::object && object(*c.doc, f[3].value, m) &&
         m[0].value.kind == JsonValueKind::string && !string(m[0].value, &b.created_at))
-        b.created_at = {};
+        reset_value(&b.created_at);
     ++c.profile->connection_count;
     return true;
 }
@@ -184,9 +184,9 @@ bool peer_item(void* opaque, u32 i, JsonValue v) noexcept {
         name = c.friends ? f[3].value : JsonValue{};
     // An oversized name or icon drops that field, not the profile.
     if (!string(name, &b.name))
-        b.name = {};
+        reset_value(&b.name);
     if (!string(c.friends ? f[5].value : f[6].value, &b.icon))
-        b.icon = {};
+        reset_value(&b.icon);
     ++*c.count;
     return true;
 }
@@ -366,7 +366,7 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
         if (!string(f[6].value, &a.avatar))
             return false;
     }
-    *output = a;
+    copy_value(output, a);
     return true;
 }
 bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
@@ -377,8 +377,8 @@ bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
     if (!present(f[0].value))
         return true;
     output->fields = (output->fields | appearance_activity) & ~u32{appearance_custom_status};
-    output->activity = {};
-    output->status_emoji = {};
+    reset_value(&output->activity);
+    reset_value(&output->status_emoji);
     output->status_emoji_id = 0;
     output->emoji_animated = false;
     Activities context{&doc, output, false};
@@ -389,7 +389,7 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
                             UserProfile* p) noexcept {
     if (!expected)
         return false;
-    *p = {};
+    reset_value(p);
     const auto scan = json_scan_structurals_avx1(json, scratch);
     if (!scan.ok())
         return false;
@@ -476,15 +476,17 @@ bool profile_effect_decode(Utf8View json, Slice<u32> scratch, u64 sku,
         !json_visit_indexed_array(doc, f[0].value, 64, profile_effect_item, &context).ok())
         return false;
     for (u32 i = 1; i < effect.count; ++i) {
-        auto layer = effect.layers[i];
         u32 at = i;
-        while (at && effect.layers[at - 1].z_index > layer.z_index) {
-            effect.layers[at] = effect.layers[at - 1];
+        while (at && effect.layers[at - 1].z_index > effect.layers[i].z_index)
             --at;
-        }
-        effect.layers[at] = layer;
+        if (at == i)
+            continue;
+        ProfileEffectLayer layer;
+        copy_value(&layer, effect.layers[i]);
+        copy_bytes(&effect.layers[at + 1], &effect.layers[at], (i - at) * static_cast<u32>(sizeof(layer)));
+        copy_value(&effect.layers[at], layer);
     }
-    *output = effect;
+    copy_value(output, effect);
     return true;
 }
 } // namespace maicord

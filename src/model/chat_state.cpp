@@ -466,7 +466,7 @@ bool initialize_store(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u1
         (double_buffered_names.count & 1u) != 0) {
         return false;
     }
-    *store = ChatStateStore{};
+    reset_value<ChatStateStore>(store);
     store->guilds = guilds.data;
     store->guild_order = guild_order.data;
     store->channels = channels.data;
@@ -480,11 +480,11 @@ bool initialize_store(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u1
     if (zeroed)
         return true;
     for (u32 index = 0; index < guilds.count; ++index) {
-        guilds[index] = GuildRecord{};
+        reset_value<GuildRecord>(&guilds[index]);
         guild_order[index] = 0xFFFF;
     }
     for (u32 index = 0; index < channels.count; ++index) {
-        channels[index] = ChannelRecord{};
+        reset_value<ChannelRecord>(&channels[index]);
         channel_order[index] = 0xFFFF;
     }
     return true;
@@ -591,7 +591,7 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
         store->guild_order[order_index] = static_cast<u16>(slot);
         ++store->guild_count;
         const u16 generation = next_generation(record.generation);
-        record = GuildRecord{};
+        reset_value<GuildRecord>(&record);
         record.generation = generation;
         record.id = input.id;
         record.occupied = true;
@@ -900,7 +900,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         store->channel_order[order_index] = static_cast<u16>(slot);
         ++store->channel_count;
         const u16 generation = next_generation(record.generation);
-        record = ChannelRecord{};
+        reset_value<ChannelRecord>(&record);
         record.generation = generation;
         record.id = input.id;
         record.occupied = true;
@@ -1018,7 +1018,7 @@ bool chat_state_store_remove_channel(ChatStateStore* store, u64 channel_id) noex
         private_channel_store_remove(store->private_channels, channel_id);
     store->name_wasted += record.name_bytes;
     const u16 generation = next_generation(record.generation);
-    record = ChannelRecord{};
+    reset_value<ChannelRecord>(&record);
     record.generation = generation;
     store->channel_free_hint = minimum<u16>(store->channel_free_hint, store->channel_order[order_index]);
     for (u32 index = order_index + 1; index < store->channel_count; ++index) {
@@ -1055,7 +1055,7 @@ bool chat_state_store_remove_guild(ChatStateStore* store, u64 guild_id, bool una
     chat_state_store_remove_guild_emojis(store, guild_id);
     store->name_wasted += record.name_bytes;
     const u16 generation = next_generation(record.generation);
-    record = GuildRecord{};
+    reset_value<GuildRecord>(&record);
     record.generation = generation;
     store->guild_free_hint = minimum<u16>(store->guild_free_hint, store->guild_order[order_index]);
     for (u32 index = order_index + 1; index < store->guild_count; ++index) {
@@ -1100,7 +1100,7 @@ u32 chat_state_store_clear_private_channels(ChatStateStore* store) noexcept {
             ++store->activity_mutations;
         store->name_wasted += channel.name_bytes;
         const u16 generation = next_generation(channel.generation);
-        channel = {};
+        reset_value(&channel);
         channel.generation = generation;
         store->channel_free_hint = minimum(store->channel_free_hint, slot);
         ++store->channel_mutations;
@@ -1223,7 +1223,7 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
         }
         ++store->role_count;
         RoleRecord& role = store->roles[index];
-        role = RoleRecord{};
+        reset_value<RoleRecord>(&role);
         role.id = input.id;
         role.guild_id = input.guild_id;
         role.name_offset = name_offset;

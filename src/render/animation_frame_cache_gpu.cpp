@@ -1,4 +1,5 @@
 #include "maicord/render/animation_frame_cache_gpu.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 
@@ -14,7 +15,7 @@ void release_storage(AnimationFrameCacheGpuStorage* storage) noexcept {
     stable_storage_release(&storage->buckets);
     stable_storage_release(&storage->allocations);
     stable_storage_release(&storage->presentations);
-    *storage = AnimationFrameCacheGpuStorage{};
+    reset_value<AnimationFrameCacheGpuStorage>(storage);
 }
 
 void unbind_media_resources(ID3D11DeviceContext1* context) noexcept {
@@ -133,7 +134,7 @@ bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, u16 width
     if (!gpu || width < 3 || height < 3 || maximum_frame_extent == 0) {
         return false;
     }
-    *gpu = AnimationFrameCacheGpu{};
+    reset_value<AnimationFrameCacheGpu>(gpu);
     gpu->maximum_frame_extent = maximum_frame_extent;
     if (!stable_storage_initialize(&gpu->storage.entries, kAnimationFrameCacheGpuEntryCapacity,
                                    kAnimationFrameCacheGpuInitialEntryCapacity,
@@ -164,7 +165,7 @@ bool animation_frame_cache_gpu_initialize(AnimationFrameCacheGpu* gpu, u16 width
         return true;
     }
     release_storage(&gpu->storage);
-    *gpu = AnimationFrameCacheGpu{};
+    reset_value<AnimationFrameCacheGpu>(gpu);
     return false;
 }
 
@@ -248,7 +249,7 @@ void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
     animation_frame_cache_reset(&gpu->cache);
     AnimationFramePresentation* values = presentations(gpu);
     for (u32 index = 0; values && index < gpu->storage.presentations.capacity; ++index) {
-        values[index] = AnimationFramePresentation{};
+        reset_value<AnimationFramePresentation>(&values[index]);
     }
 }
 
@@ -259,7 +260,7 @@ void animation_frame_cache_gpu_release(AnimationFrameCacheGpu* gpu) noexcept {
     com_release(gpu->texture_view);
     com_release(gpu->texture);
     release_storage(&gpu->storage);
-    *gpu = AnimationFrameCacheGpu{};
+    reset_value<AnimationFrameCacheGpu>(gpu);
 }
 
 void animation_frame_cache_gpu_begin_visibility(AnimationFrameCacheGpu* gpu) noexcept {
@@ -274,7 +275,7 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, ID3D11Device
                                        const AnimationFrameCacheDescriptor& descriptor,
                                        MediaAtlasHandle* presented_media) noexcept {
     if (presented_media) {
-        *presented_media = MediaAtlasHandle{};
+        reset_value<MediaAtlasHandle>(presented_media);
     }
     if (!gpu || !device || !context || !media_atlas || !media_texture || descriptor.width == 0 ||
         descriptor.height == 0 || descriptor.width > gpu->maximum_frame_extent ||
@@ -338,10 +339,10 @@ bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* 
                                        const AnimationFrameCacheKey& key, AnimationFrameCacheResult* result,
                                        MediaAtlasHandle* presented_media) noexcept {
     if (result) {
-        *result = AnimationFrameCacheResult{};
+        reset_value<AnimationFrameCacheResult>(result);
     }
     if (presented_media) {
-        *presented_media = MediaAtlasHandle{};
+        reset_value<MediaAtlasHandle>(presented_media);
     }
     if (!gpu || !media_atlas || !gpu->texture_view || !result) {
         return false;
@@ -369,7 +370,7 @@ bool animation_frame_cache_gpu_restore(AnimationFrameCacheGpu* gpu, MediaAtlas* 
 bool animation_frame_cache_gpu_resolve(AnimationFrameCacheGpu* gpu, const MediaAtlasResult& media,
                                        GlyphAtlasAllocation* frame) noexcept {
     if (frame) {
-        *frame = GlyphAtlasAllocation{};
+        reset_value<GlyphAtlasAllocation>(frame);
     }
     if (!gpu || !frame || media.handle.generation == 0 ||
         media.handle.slot >= gpu->storage.presentations.capacity || !gpu->texture_view) {
@@ -382,7 +383,7 @@ bool animation_frame_cache_gpu_resolve(AnimationFrameCacheGpu* gpu, const MediaA
     if (presentation.media_generation != media.handle.generation ||
         !glyph_atlas_validate(gpu->cache.allocations, presentation.frame, frame) ||
         !glyph_atlas_pin(&gpu->cache.allocations, presentation.frame)) {
-        presentation = AnimationFramePresentation{};
+        reset_value<AnimationFramePresentation>(&presentation);
         return false;
     }
     return true;

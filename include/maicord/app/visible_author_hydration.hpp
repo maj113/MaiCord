@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/user_store.hpp"
@@ -136,14 +137,14 @@ inline bool visible_author_hydration_plan(VisibleAuthorHydration* owner, u64 gui
         return false;
     if (owner->guild_id != guild) {
         const u64 not_before = owner->send_not_before_ms, serial = owner->serial;
-        *owner = {};
+        reset_value(owner);
         owner->guild_id = guild;
         owner->send_not_before_ms = not_before;
         owner->serial = serial;
     }
     owner->channel_id = channel;
     owner->next_at_ms = 0;
-    *request = {};
+    reset_value(request);
     request->guild_id = guild;
     request->channel_id = channel;
     for (u32 i = 0; i < missing.count; ++i) {

@@ -1,4 +1,5 @@
 #include "maicord/ui/poll_controls.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
@@ -460,7 +461,7 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
     geometry.bounds = {0, 0, width, layout.height};
     if (!positive(layout.height) || layout.height > kMaximumUiCoordinate)
         return false;
-    *out = layout;
+    copy_value(out, layout);
     return true;
 }
 
@@ -476,7 +477,7 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
         return false;
     UiPollProjection projection{};
     projection.state = state;
-    projection.geometry = layout.geometry;
+    copy_value(&projection.geometry, layout.geometry);
     auto& geometry = projection.geometry;
     // Footer actions, right-aligned in their band: [Show results] [primary].
     const UiRect band = layout.geometry.vote;
@@ -497,7 +498,7 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
         const float right = primary_width ? primary_rect.left - 2 * style.padding : band.right;
         geometry.results = {right - layout.show_width, band.top, right, band.bottom};
     } else
-        geometry.results = {};
+        reset_value(&geometry.results);
     if (layout.geometry.footer_rows == 1) {
         // The details text ends before the actions.
         const float actions_left = ui_rect_has_area(geometry.results) ? geometry.results.left
@@ -689,12 +690,12 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
     if (!owner_current(owner) || !ui_rect_valid_or_empty(clip) ||
         static_cast<u32>(surface) > static_cast<u32>(UiPollSourceSurface::forward) ||
         !ui_poll_controls_project(state, bounds, style, theme, cache, backend, &projection)) {
-        *scene = {};
+        reset_value(scene);
         return false;
     }
     const auto effective = ui_rect_intersection(projection.geometry.bounds, clip);
     if (!ui_rect_has_area(effective)) {
-        *scene = {};
+        reset_value(scene);
         return false;
     }
     const bool same = scene->active && scene->owner.manager == owner.manager &&
@@ -711,7 +712,7 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
                                                ui_poll_target_rectangle(projection, scene->capture));
     const auto focus = scene->focus, hover = scene->hover, capture = scene->capture;
     const bool keyboard = scene->keyboard_focus;
-    *scene = {};
+    reset_value(scene);
     scene->projection = projection;
     scene->style = style;
     scene->owner = owner;
@@ -735,8 +736,8 @@ UiPollTarget ui_poll_scene_hit(const UiPollScene& scene, UiPoint point) noexcept
 }
 void ui_poll_scene_blur(UiPollScene* scene) noexcept {
     if (scene) {
-        scene->focus = {};
-        scene->capture = {};
+        reset_value(&scene->focus);
+        reset_value(&scene->capture);
         scene->keyboard_focus = false;
     }
 }
@@ -748,8 +749,8 @@ UiPollSceneResult ui_poll_scene_pointer(UiPollScene* scene, UiPollPointerEvent e
     if (event == UiPollPointerEvent::cancel || event == UiPollPointerEvent::leave ||
         !scene_current(*scene)) {
         result.release_capture = scene->capture.control != UiPollControl::none;
-        scene->capture = {};
-        scene->hover = {};
+        reset_value(&scene->capture);
+        reset_value(&scene->hover);
         return result;
     }
     const auto hit = ui_poll_scene_hit(*scene, point);
@@ -763,7 +764,7 @@ UiPollSceneResult ui_poll_scene_pointer(UiPollScene* scene, UiPollPointerEvent e
         result.handled = result.release_capture = true;
         if (ui_poll_target_equal(hit, scene->capture))
             result.action_requested = ui_poll_controls_action(scene->projection, hit, &result.action);
-        scene->capture = {};
+        reset_value(&scene->capture);
     } else
         result.handled =
             hit.control != UiPollControl::none || scene->capture.control != UiPollControl::none;

@@ -1,4 +1,5 @@
 #include "maicord/platform/uia_provider.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/ui/accessibility.hpp"
@@ -894,7 +895,7 @@ UiaBounds screen_bounds(const UiaProviderHost* host, const UiRect& rectangle) no
 HRESULT STDMETHODCALLTYPE fragment_bounds(void* self, UiaBounds* out) noexcept {
     if (!out)
         return E_POINTER;
-    *out = {};
+    reset_value(out);
     auto* element = element_from<kFragment>(self);
     Resolved r{};
     if (!resolve_element(element, &r))
@@ -2002,7 +2003,7 @@ bool raise_event(UiaProviderHost* host, u64 key, int event) noexcept {
 bool uia_host_initialize(UiaProviderHost* host, HWND window, const UiaHostCallbacks& callbacks) noexcept {
     if (!host || !callbacks.tree)
         return false;
-    *host = UiaProviderHost{};
+    reset_value<UiaProviderHost>(host);
     host->window = window;
     host->callbacks = callbacks;
     host->thread = GetCurrentThreadId();

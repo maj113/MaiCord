@@ -45,7 +45,7 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
         copy_bytes(names + kUiAccountMenuIdentityBytes, identity.username.data, identity.username.bytes);
     if (status_bytes)
         copy_bytes(names + 2 * kUiAccountMenuIdentityBytes, identity.custom_status.data, status_bytes);
-    *model = {};
+    reset_value(model);
     model->user_id = identity.user_id;
     copy_bytes(model->display_name, names, name.bytes);
     if (identity.username.bytes)
@@ -82,7 +82,7 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
                                               UiIcon::identifier, popup_item_separator_before);
     if (identity.status_available && identity.presence != UiPresence::unknown) {
         constexpr const char* labels[] = {"Online", "Idle", "Do Not Disturb", "Invisible"};
-        constexpr u32 bytes[] = {6, 4, 14, 9};
+        static constexpr u32 bytes[] = {6, 4, 14, 9};
         for (u32 i = 0; i < 4; ++i) {
             auto& item = model->items[model->count + i];
             item = action(

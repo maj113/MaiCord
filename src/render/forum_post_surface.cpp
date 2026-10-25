@@ -1,11 +1,12 @@
 #include "maicord/render/forum_post_surface.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 bool forum_post_surface_update(ForumPostSurface* surface, const TextSystem& text) noexcept {
     if (!surface)
         return false;
     for (u32 f = 0; f < 2; ++f) {
-        surface->geometry[f] = {};
+        reset_value(&surface->geometry[f]);
         surface->composition_complete[f] = true;
         if (!surface->scene || !surface->scene->active) {
             text_edit_layout_invalidate(&surface->layouts[f]);
@@ -69,6 +70,6 @@ void forum_post_surface_release(ForumPostSurface* surface) noexcept {
         return;
     for (auto& layout : surface->layouts)
         text_edit_layout_release(&layout);
-    *surface = {};
+    reset_value(surface);
 }
 } // namespace maicord

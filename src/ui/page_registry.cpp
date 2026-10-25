@@ -1,4 +1,5 @@
 #include "maicord/ui/page_registry.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/utf.hpp"
 
@@ -35,7 +36,7 @@ u32 remove_pages(UiPageRegistry* registry, UiPageKey key, bool whole_owner) noex
     }
     if (count == old_count) return 0;
     // Erase removed descriptors so dormant slots retain no plugin pointers.
-    for (u32 index = count; index < old_count; ++index) registry->storage[index] = {};
+    for (u32 index = count; index < old_count; ++index) reset_value(&registry->storage[index]);
     registry->count = count;
     registry->selected_index = !count ? kUiPageNoSelection :
         selected != kUiPageNoSelection ? selected :
@@ -90,7 +91,7 @@ UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) no
 
 bool ui_page_registry_clear(UiPageRegistry* registry) noexcept {
     if (!registry || !registry->storage.data || !registry->count) return false;
-    for (u32 index = 0; index < registry->count; ++index) registry->storage[index] = {};
+    for (u32 index = 0; index < registry->count; ++index) reset_value(&registry->storage[index]);
     registry->count = 0;
     registry->selected_index = kUiPageNoSelection;
     saturating_increment(registry->revision);

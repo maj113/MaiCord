@@ -19,8 +19,8 @@ bool startable(const PrivateChannelActionController* c, const ChatStateStore& st
 }
 void start(PrivateChannelActionController* c, const ChatStateStore& state,
            const PrivateChannelActionRequest& request) noexcept {
-    *c = {};
-    c->request = request;
+    reset_value(c);
+    copy_value(&c->request, request);
     c->phase = PrivateChannelActionPhase::queued;
     c->intent_revision = state.navigation_intent_revision;
 }
@@ -304,7 +304,7 @@ bool private_channel_action_accept(PrivateChannelActionController* c, ChatStateS
         break;
     }
     const u64 result = c->result_channel_id;
-    *c = {};
+    reset_value(c);
     c->result_channel_id = result;
     return true;
 }

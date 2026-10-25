@@ -1,4 +1,5 @@
 #include "maicord/text/gpos_execute.hpp"
+#include "maicord/core/memory.hpp"
 #include "gpos_validated.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
@@ -7,9 +8,9 @@ bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_fini
 bool spend(SfntPositionExecution* result,u64* remaining,u64 cost=1) noexcept {if(cost>*remaining)return false;*remaining-=cost;result->operations+=cost;return true;}
 SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& instance,SfntPositionAdjustment* out,SfntPositionExecution* result,u64* work) noexcept {
     if(!spend(result,work,9))return SfntStatus::resource_limit;
-    if(!record.format){*out={};return SfntStatus::ok;}
+    if(!record.format){reset_value(out);return SfntStatus::ok;}
     if(!(record.format&0xf0)){
-        *out={};const u8* at=record.parent.data+record.offset;
+        reset_value(out);const u8* at=record.parent.data+record.offset;
         for(u32 i=0;i<4;++i)if(record.format&(1u<<i)){out->design[i]=static_cast<i16>(byte_load_be16(at));at+=2;}
         return SfntStatus::ok;
     }
@@ -63,7 +64,7 @@ SfntStatus sfnt_position_initialize(ConstSlice<double> advances,ConstSlice<u8> f
     for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]=sfnt_position_nominal(advances.data[i],zero,rtl);}return SfntStatus::ok;
 }
 SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application,const SfntLookupBounds* bounds) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);if(!sfnt_glyph_view_valid(glyphs) || start>end || end>sfnt_glyph_count(glyphs) || positions.count<sfnt_glyph_count(glyphs) || (positions.count && !positions.data) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
     for(u32 at=start;at<end && (!selected || at==start);){if(!spend(result,&work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);
         if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;if(lookup.subtables.count && glyph.glyph>=lookup.subtables.data[0].glyph_limit)return SfntStatus::glyph_out_of_range;

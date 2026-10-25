@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/ui/badge.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/icon.hpp"
 
 namespace maicord {
@@ -82,7 +83,7 @@ struct UiPluginSlotBadge {
 };
 inline bool ui_plugin_slot_badge(u32 surface, u64 channel_id, u64 message_id, u64 user_id, UiWidgetHandle owner,
                                  UiPluginSlotBadge* out) noexcept {
-    *out = {};
+    reset_value(out);
     UiPluginSlotNode nodes[4]{};
     const u32 count = ui_plugin_slots(surface, channel_id, message_id, user_id, {nodes, 4});
     for (u32 i = 0; i < count; ++i) {
@@ -122,7 +123,7 @@ inline bool ui_plugin_slot_line_badge(u32 surface, u64 channel_id, u64 message_i
     if (!ui_plugin_slot_badge(surface, channel_id, message_id, user_id, owner, out)) return false;
     out->badge.rectangle = ui_badge_layout(cache, out->badge.label, line, true, out->badge.style).outer;
     if (ui_rect_width(out->badge.rectangle) >= 40) return true;
-    *out = {};
+    reset_value(out);
     return false;
 }
 // Paints the badge frame and its leading icon (or a tone marker) in theme colours.
@@ -158,7 +159,7 @@ inline bool ui_plugin_slot_row_badge(u32 surface, u64 channel_id, UiWidgetHandle
     const auto layout = ui_badge_layout(nullptr, out->badge.label, line, true, out->badge.style);
     out->badge.rectangle = layout.outer;
     if (!layout.clipped && layout.outer.left >= label.left + keep) return true;
-    *out = {};
+    reset_value(out);
     return false;
 }
 // A small round badge on a server icon's top-right corner (the mention badge
@@ -176,7 +177,7 @@ inline UiRect ui_plugin_slot_corner_rectangle(UiRect icon) noexcept {
             icon.top - 2 + kUiPluginSlotCornerExtent};
 }
 inline bool ui_plugin_slot_corner(u32 surface, u64 guild_id, UiRect icon, UiPluginSlotCorner* out) noexcept {
-    *out = {};
+    reset_value(out);
     if (!guild_id || !ui_rect_has_area(icon)) return false;
     UiPluginSlotNode nodes[4]{};
     const u32 count = ui_plugin_slots(surface, 0, 0, 0, guild_id, {nodes, 4});

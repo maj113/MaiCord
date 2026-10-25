@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_guild_folders.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_user_settings.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "gateway_ready_projection.hpp"
@@ -15,7 +16,7 @@ struct MemberArrayCursor {
     u32 offset = 1, count = 0;
     bool valid = false;
     bool init(JsonValue value, Slice<u32> scratch) noexcept {
-        *this = {};
+        reset_value(this);
         array = value;
         offset = 1;
         if (value.kind != JsonValueKind::array || !value.source.data)
@@ -216,7 +217,7 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
             pass.merged_invalid || !pass.members.next(&members) || members.kind != JsonValueKind::array;
     }
     do {
-        event = {}; payload = {};
+        reset_value(&event); reset_value(&payload);
         if (bad_members) {
             pass.result.route.error = GatewayClientDispatchRouteError::decode;
             pass.result.route.event_error = GatewayEventDecodeError::invalid_data;
@@ -243,7 +244,7 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
         // READY header already listed it, so it stays an unavailable entry.
         if (!pass.result.degraded_guilds) pass.result.degraded_route = pass.result.route;
         ++pass.result.degraded_guilds;
-        pass.result.route = {};
+        reset_value(&pass.result.route);
         return true;
     }
     if (!pass.result.route.ok()) return false;
@@ -293,7 +294,7 @@ bool run(Pass& pass) noexcept {
     if (!allowed(pass)) return false;
     GatewayClientEvent event{}; ConstSlice<u8> payload{};
     do {
-        event = {}; payload = {};
+        reset_value(&event); reset_value(&payload);
         pass.result.route = gateway_client_route_ready(ready, pass.scratch.arrays, pass.scratch.records,
             64, pass.scratch.header, &event, &payload);
     } while (!pass.result.route.ok() && grow_record_index(pass));
@@ -314,7 +315,7 @@ bool run(Pass& pass) noexcept {
     gateway_client_publish_user_settings(ready.user_settings_proto, ready.auth_session_id_hash, false,
         pass.scratch.payload, pass.sequence, true, pass.now_ms, relay, &pass);
     if (pass.result.interrupted) return false;
-    pass.members = {};
+    reset_value(&pass.members);
     pass.merged_invalid = false;
     if (ready.merged_members.source.data) {
         // Count before positional binding: a short or long array cannot shift
@@ -413,7 +414,7 @@ GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
     if (preflight) {
         const auto degraded_route = pass.result.degraded_route;
         const u32 degraded_guilds = pass.result.degraded_guilds;
-        pass.result = {};
+        reset_value(&pass.result);
         pass.result.phase = GatewayReadyProjectionPhase::publication;
         if (staged) {
             pass.result.degraded_route = degraded_route;

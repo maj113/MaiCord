@@ -1,4 +1,5 @@
 #include "application_search_navigation.hpp"
+#include "maicord/core/memory.hpp"
 #include "rest_rate_retry.hpp"
 #include "application_state.hpp"
 #include "application_content_input.hpp"
@@ -143,7 +144,7 @@ bool navigate() noexcept {
             navigation.retry_at = 0;
             notice(utf8_literal("Checking your access to this private thread…"), ApplicationMessageNavigationStage::waiting_membership);
         } else if (admission == ApplicationThreadActionEnqueueResult::busy) {
-            navigation.membership = {};
+            reset_value(&navigation.membership);
             navigation.retry_at = deadline_after(clock_monotonic_milliseconds(), 50);
             notice(utf8_literal("Checking access…"), ApplicationMessageNavigationStage::waiting_membership);
         } else finish(application_thread_actions_admission_text(admission), ApplicationMessageNavigationStage::failure_membership);
@@ -233,7 +234,7 @@ bool begin_navigation(const ApplicationSearchNavigationSource& source, const Mes
         else application_search_source_notice(source.ticket, utf8_literal("Another message is opening. Try again in a moment."));
         return true;
     }
-    navigation = {};
+    reset_value(&navigation);
     navigation.source = source;
     navigation.timeline = timeline != nullptr;
     if (timeline) {

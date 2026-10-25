@@ -25,7 +25,7 @@ inline GatewayStateRecoveryResult gateway_state_recovery_request(GatewayStateRec
 
 inline bool gateway_state_recovery_schedule(GatewayStateRecovery* state, u64 now_ms) noexcept {
     if (!state->pending || !state->attempts || state->attempts > 3) return false;
-    constexpr u32 delays[] = {1000, 30'000, 300'000};
+    static constexpr u32 delays[] = {1000, 30'000, 300'000};
     state->due_ms = deadline_after(now_ms, delays[state->attempts - 1]);
     state->pending = false;
     return true;

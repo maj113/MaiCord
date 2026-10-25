@@ -1,4 +1,5 @@
 #include "application_account_logout.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_module.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
@@ -297,7 +298,7 @@ bool application_account_logout_open() noexcept {
     auto& owner = *g_app.account_logout;
     if (owner.form_bound)
         return true;
-    owner = {};
+    reset_value(&owner);
     initialize_key(owner, g_app.account.status.profile_id, g_app.account_ui->chat_state.self_user_id);
     owner.source_ui = g_app.account_ui;
     owner.source_instance = g_app.account.instance;
@@ -405,7 +406,7 @@ bool application_account_logout_prepare_startup(const AccountPaths* paths) noexc
     }
     startup_retry_due = 0;
     auto& owner = *g_app.account_logout;
-    owner = {};
+    reset_value(&owner);
     initialize_key(owner, 0, 0);
     if (valid) {
         owner.paths = paths ? *paths : resolved;

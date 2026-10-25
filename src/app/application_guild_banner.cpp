@@ -1,4 +1,5 @@
 #include "application_guild_banner.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_shell_input.hpp"
 #include "application_state.hpp"
 #include "maicord/core/hash.hpp"
@@ -70,9 +71,9 @@ void application_guild_banner_project(u64 now_ms) noexcept {
     const u32 dpi = g_app.renderer.dpi ? g_app.renderer.dpi : 96;
     bool media = shown && ui_guild_banner_media(guild_id, hash, dpi, false, false, &b.still);
     if (!media)
-        b.still = {};
+        reset_value(&b.still);
     if (!(eligible && media && ui_guild_banner_media(guild_id, hash, dpi, true, b.gif, &b.moving)))
-        b.moving = {};
+        reset_value(&b.moving);
     // A stopped animation (or one of a server no longer shown) gives its
     // playback back; the still stays resident.
     const MediaAssetKey playing = animate && media_asset_key_valid(b.moving.key) ? b.moving.key : MediaAssetKey{};
@@ -163,7 +164,7 @@ bool application_guild_banner_take_retired(MediaAssetKey* key) noexcept {
     if (!key || !media_asset_key_valid(g_banner.retired))
         return false;
     *key = g_banner.retired;
-    g_banner.retired = {};
+    reset_value(&g_banner.retired);
     return true;
 }
 } // namespace maicord::app_detail

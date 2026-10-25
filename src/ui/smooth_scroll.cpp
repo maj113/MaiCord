@@ -1,4 +1,5 @@
 #include "maicord/ui/smooth_scroll.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -106,7 +107,7 @@ bool ui_smooth_scroll_queue(UiSmoothScroll* scroll, double delta, u64 now_us,
         return false;
     }
     if (absolute(queued) < 0.0001) {
-        *scroll = UiSmoothScroll{};
+        reset_value<UiSmoothScroll>(scroll);
         return true;
     }
     u32 duration_us = segment_duration_us(queued, units_per_pixel);
@@ -165,7 +166,7 @@ bool ui_smooth_scroll_step(UiSmoothScroll* scroll, u64 now_us, double* delta) no
 
 void ui_smooth_scroll_cancel(UiSmoothScroll* scroll) noexcept {
     if (scroll) {
-        *scroll = UiSmoothScroll{};
+        reset_value<UiSmoothScroll>(scroll);
     }
 }
 

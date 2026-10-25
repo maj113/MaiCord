@@ -35,7 +35,7 @@ GuildMemberSearchMode guild_member_search_mode(u32 page, u32 previous_page, u32 
 bool guild_member_search_bind(GuildMemberSearchStore* store, Slice<GuildSearchMember> members) noexcept {
     if (!store || !members.data || !members.count)
         return false;
-    *store = {};
+    reset_value(store);
     store->members = members.data;
     store->capacity = members.count;
     store->page = 1;
@@ -101,7 +101,7 @@ void guild_member_search_apply(GuildMemberSearchStore* store, const GuildMemberS
                 continue;
             ++store->count;
         }
-        store->members[at] = member;
+        copy_value(&store->members[at], member);
     }
     store->total = page.total_result_count;
     store->total_known = page.total_known;

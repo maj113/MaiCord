@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/ui/secure_edit.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/ui/login_view.hpp"
@@ -181,7 +182,7 @@ inline bool application_phone_range_geometry(const SecureEdit& edit, UiRect boun
     if (!ui_rect_has_area(original)) return false;
     const auto rectangle = ui_rect_intersection(original, visible_bounds ? *visible_bounds : bounds);
     *clipped = !ui_rect_equal(original, rectangle);
-    if (!ui_rect_has_area(rectangle)) { *output = {}; *clipped = true; return true; }
+    if (!ui_rect_has_area(rectangle)) { reset_value(output); *clipped = true; return true; }
     *output = application_login_pixel_rect(rectangle, dpi, origin);
     return true;
 }
@@ -216,7 +217,7 @@ inline bool application_login_range_geometry(const SecureEdit& edit,
     // TSF requires zero geometry when a requested range is completely hidden.
     if (last < visible_first || first > visible_last ||
         (first < last && (last == visible_first || first == visible_last))) {
-        *output = {}; *clipped = true; return true;
+        reset_value(output); *clipped = true; return true;
     }
     const u32 a = maximum(first, visible_first) - visible_first;
     const u32 b = minimum(last, visible_last) - visible_first;
@@ -244,7 +245,7 @@ inline bool application_login_range_geometry(const SecureEdit& edit,
     }
     const auto visible = ui_rect_intersection(rectangle, bounds);
     range_clipped = range_clipped || !ui_rect_equal(rectangle, visible);
-    if (!ui_rect_has_area(visible)) { *output = {}; *clipped = true; return true; }
+    if (!ui_rect_has_area(visible)) { reset_value(output); *clipped = true; return true; }
     *output = application_login_pixel_rect(visible, dpi, screen_origin);
     *clipped = range_clipped;
     return true;

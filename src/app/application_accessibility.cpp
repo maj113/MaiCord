@@ -1,4 +1,5 @@
 #include "application_guild_community.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_caption.hpp"
 #include "application_profile_editor.hpp"
@@ -1049,7 +1050,7 @@ void build_caption(UiAccessTree* tree) noexcept {
     const u32 parent = ui_access_add(tree, 0, bar);
     if (parent == kUiAccessNone)
         return;
-    constexpr UiCaptionPart kParts[]{UiCaptionPart::icon,     UiCaptionPart::update,
+    static constexpr UiCaptionPart kParts[]{UiCaptionPart::icon,     UiCaptionPart::update,
                                      UiCaptionPart::settings, UiCaptionPart::minimize,
                                      UiCaptionPart::maximize, UiCaptionPart::close};
     for (const UiCaptionPart part : kParts) {
@@ -1876,7 +1877,7 @@ void observe_status(u64 now_ms) noexcept {
     }
     // A new account session starts from its current state, silently.
     if (status.account_instance != g_app.account.instance) {
-        status = {};
+        reset_value(&status);
         status.account_instance = g_app.account.instance;
     }
     const bool primed = status.primed;

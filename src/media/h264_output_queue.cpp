@@ -1,4 +1,5 @@
 #include "maicord/media/h264_output_queue.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 u32 h264_pending_surfaces(const H264OutputQueue& queue) noexcept {
@@ -35,7 +36,7 @@ bool h264_output_pop(H264OutputQueue* queue, H264Output* picture) noexcept {
         if (queue->pictures[i].poc < queue->pictures[selected].poc) selected = i;
     *picture = queue->pictures[selected]; queue->leased = picture->surface;
     for (u32 i = selected + 1; i < queue->count; ++i) queue->pictures[i - 1] = queue->pictures[i];
-    queue->pictures[--queue->count] = {};
+    reset_value(&queue->pictures[--queue->count]);
     return true;
 }
 } // namespace maicord

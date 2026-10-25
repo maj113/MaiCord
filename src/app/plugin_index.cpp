@@ -424,7 +424,7 @@ bool version_entry(void* context, u32 index, JsonValue value) noexcept {
     v.abi = static_cast<u32>(vc.abi); v.min_host_abi = static_cast<u32>(vc.min_host); v.max_host_abi = static_cast<u32>(vc.max_host);
     if (update_version_channel(v.version_code) == UpdateChannel::preview) {
         // Reserved for later clients: validated, never offered.
-        v = {};
+        reset_value(&v);
         ++out.ignored_versions;
         return true;
     }
@@ -764,7 +764,7 @@ PluginIndexResult read(Utf8View document, ConstSlice<u8> signature, const P256Ke
     return {E::none};
 }
 void hex(u64 value, u32 digits, char* out) noexcept {
-    constexpr char alphabet[] = "0123456789abcdef";
+    static constexpr char alphabet[] = "0123456789abcdef";
     for (u32 i = 0; i < digits; ++i) out[i] = alphabet[(value >> ((digits - 1 - i) * 4)) & 15];
 }
 
@@ -872,7 +872,7 @@ PluginIndexResult plugin_index_manifest(const PluginIndex& index, Utf8View docum
     copy_bytes(m.sha256, file->sha256, 32);
     // Index text is stricter than the manifest's, so only the ABI can fail here.
     if (!native_plugin_manifest_valid(m)) return {E::abi};
-    *output = m;
+    copy_value(output, m);
     return {E::none};
 }
 

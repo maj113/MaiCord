@@ -1,11 +1,12 @@
 #include "maicord/text/emoji_paragraph.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/visibility.hpp"
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord {
 SfntStatus native_emoji_paragraph_shape(const NativeRunPlanStore& store,const NativeEmojiPlan& plan,Utf8View input,float em,
     const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,bool coverage,bool rtl,bool arabic) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(input.bytes>65535)return SfntStatus::resource_limit;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(input.bytes>65535)return SfntStatus::resource_limit;
     if(!plan.cmap||(plan.substitution_roots.count&&!plan.substitution_roots.data)||(plan.positioning_roots.count&&!plan.positioning_roots.data)||em>65536||
        (input.bytes&&!input.data)||(s.source_glyphs.count&&!s.source_glyphs.data)||(s.clusters.count&&!s.clusters.data)||
        (s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data))return SfntStatus::invalid_input;

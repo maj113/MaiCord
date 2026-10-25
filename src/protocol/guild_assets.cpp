@@ -542,7 +542,7 @@ GuildAssetResult guild_asset_write_body(const GuildAssetRequest& r, GuildPrepare
 
 bool guild_asset_choose_boundary(const GuildAssetRequest& r, GuildPreparedImage image, u64 seed,
                                  Slice<u8> output) noexcept {
-    constexpr char prefix[] = "MaiCordFormBoundary";
+    static constexpr char prefix[] = "MaiCordFormBoundary";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
     static_assert(prefix_bytes + 13 == kGuildAssetBoundaryBytes);
     if (!output.data || output.count < kGuildAssetBoundaryBytes || !byte_range_valid(image.bytes))

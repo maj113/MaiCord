@@ -1,4 +1,5 @@
 #include "maicord/ui/icon_pack.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/media/deflate.hpp"
 
@@ -110,7 +111,7 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
     };
     const auto end_contour = [&](bool closed) noexcept {
         GlyphPathCommand& command = outline->commands[count++];
-        command = {};
+        reset_value(&command);
         // Filled contours close implicitly, as in SVG.
         command.kind = closed || begin_kind == GlyphPathCommandKind::begin_filled
                            ? GlyphPathCommandKind::end_closed
@@ -126,7 +127,7 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
         if ((op == op_move_stroke || op == op_move_fill) && open)
             end_contour(false);
         GlyphPathCommand& command = outline->commands[count++];
-        command = {};
+        reset_value(&command);
         if (op == op_move_stroke || op == op_move_fill) {
             const bool closed_follows = [&]() noexcept {
                 // Scan ahead to this contour's terminator for the solid variant.

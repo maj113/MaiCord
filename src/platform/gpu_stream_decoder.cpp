@@ -63,7 +63,7 @@ const Backend& backend(const GpuStream& stream) noexcept {
 void release_buffer(GpuStreamInput* input) noexcept {
     if (input->data)
         VirtualFree(input->data, 0, MEM_RELEASE);
-    *input = {};
+    reset_value(input);
 }
 
 bool reserve(GpuStreamInput* input, u32 bytes) noexcept {
@@ -240,7 +240,7 @@ HRESULT gpu_stream_submit(GpuStream* stream, const GpuStreamSubmission& submissi
         result = stream->context->ReleaseDecoderBuffer(stream->decoder, type);
         if (!fits)
             return E_OUTOFMEMORY;
-        *description = {};
+        reset_value(description);
         description->BufferType = type;
         description->DataSize = data.count;
         uploaded += data.count;
@@ -415,7 +415,7 @@ void gpu_stream_release_decoder(GpuStream* stream) noexcept {
     com_release(stream->decoder);
     if (stream->guard)
         stream->guard->Leave();
-    stream->frame = {};
+    reset_value(&stream->frame);
     stream->presented = 255;
     stream->slice_entries = 0;
     stream->coded_width = stream->coded_height = 0;

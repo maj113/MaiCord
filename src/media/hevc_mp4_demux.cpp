@@ -1,4 +1,5 @@
 #include "maicord/media/hevc_mp4_demux.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/media/hevc.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
@@ -81,7 +82,7 @@ Mp4DemuxError hevc_demux_initialize(Mp4Demuxer* output, ConstSlice<u8> source,
     d.nal_length_bytes = static_cast<u8>((source.data[config.payload + 21] & 3u) + 1);
     if (d.nal_length_bytes == 3)
         return Mp4DemuxError::unsupported;
-    *output = d;
+    copy_value(output, d);
     return Mp4DemuxError::none;
 }
 ConstSlice<u8> hevc_demux_hvcc(const Mp4Demuxer& d) noexcept {

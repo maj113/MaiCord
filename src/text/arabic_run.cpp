@@ -1,4 +1,5 @@
 #include "maicord/text/arabic_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/latin_run.hpp"
 #include "maicord/text/arabic_shape_run.hpp"
 #include "maicord/text/arabic_joining.hpp"
@@ -8,7 +9,7 @@
 namespace maicord {
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,
     Utf8View text,bool independent,bool rtl,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto plan=native_arabic_plan_get(store,handle,independent);
     if(!plan.shape || !plan.cmap || (text.bytes && !text.data) || !(em>0) || em>65536 ||
        (storage.components.count && !storage.components.data) || (storage.positions.count && !storage.positions.data) ||
@@ -37,7 +38,7 @@ SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlan
 }
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,
     const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};
+    if(!out)return SfntStatus::invalid_input;reset_value(out);
     if((s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data)||(s.character_glyphs.count&&!s.character_glyphs.data))return SfntStatus::invalid_input;
     SfntShapeRunResult result{};const auto status=native_arabic_run(store,handle,text,independent,rtl,em,s.shaping,&result,limits);if(status!=SfntStatus::ok)return status;
     if(result.glyph_count>s.glyphs.count||result.glyph_count>s.placements.count||result.source_units>s.character_glyphs.count)return SfntStatus::output_too_small;

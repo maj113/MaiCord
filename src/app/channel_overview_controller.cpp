@@ -1,4 +1,5 @@
 #include "maicord/app/channel_overview_controller.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -84,7 +85,7 @@ bool channel_overview_controller_open(ChannelOverviewController* value, ChannelO
     if (!value || value->request_id || !scope_valid(scope) || !can_manage || value->revision == ~u64{0})
         return false;
     const u64 revision = value->revision;
-    *value = {};
+    reset_value(value);
     value->revision = revision;
     value->scope = scope;
     value->active = true;

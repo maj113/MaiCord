@@ -118,8 +118,8 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
         {utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes},
     };
     constexpr u32 field_count = static_cast<u32>(sizeof(fields) / sizeof(fields[0]));
-    constexpr char build_key[] = ",\"client_build_number\":";
-    constexpr char suffix[] = ",\"client_event_source\":null}";
+    static constexpr char build_key[] = ",\"client_build_number\":";
+    static constexpr char suffix[] = ",\"client_event_source\":null}";
     EncodedString encoded[field_count]{};
     const u32 build_digits = decimal_digits(properties.client_build_number);
     u32 required =
@@ -433,12 +433,12 @@ GatewayCommandWriteResult gateway_write_guild_member_request(const GatewayGuildM
                                                              Slice<u8> output) noexcept {
     if (!gateway_guild_member_request_valid(request))
         return {0, GatewayCommandError::invalid_input};
-    constexpr char prefix[] = "{\"op\":8,\"d\":{\"guild_id\":\"";
+    static constexpr char prefix[] = "{\"op\":8,\"d\":{\"guild_id\":\"";
     if (gateway_guild_member_request_is_query(request)) {
         // The composer's member search: {"guild_id","query","limit","presences":false,"nonce"}.
-        constexpr char query[] = "\",\"query\":";
-        constexpr char limit[] = ",\"limit\":";
-        constexpr char tail[] = ",\"presences\":false,\"nonce\":\"";
+        static constexpr char query[] = "\",\"query\":";
+        static constexpr char limit[] = ",\"limit\":";
+        static constexpr char tail[] = ",\"presences\":false,\"nonce\":\"";
         EncodedString text{};
         if (!encoded_string(Utf8View{request.query, request.query_bytes}, false, &text))
             return {0, GatewayCommandError::invalid_utf8};
@@ -459,8 +459,8 @@ GatewayCommandWriteResult gateway_write_guild_member_request(const GatewayGuildM
         write_literal(output.data, &offset, "\"}}");
         return {offset, GatewayCommandError::none};
     }
-    constexpr char users[] = "\",\"presences\":false,\"user_ids\":[";
-    constexpr char nonce[] = "],\"nonce\":\"";
+    static constexpr char users[] = "\",\"presences\":false,\"user_ids\":[";
+    static constexpr char nonce[] = "],\"nonce\":\"";
     u32 required = static_cast<u32>(sizeof(prefix) + sizeof(users) + sizeof(nonce) - 3) +
                    decimal_digits(request.guild_id) + decimal_digits(request.nonce) + 3;
     for (u32 i = 0; i < request.user_count; ++i)

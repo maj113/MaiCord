@@ -36,7 +36,7 @@ bool ui_account_switcher_build(UiAccountSwitcherModel* model, u64 owner_id, UiAc
     for (u32 i = 0; i < accounts.count; ++i)
         if (!accounts[i].user_id || !label_valid(accounts[i].display_name) || !label_valid(accounts[i].username))
             return false;
-    *model = {};
+    reset_value(model);
     model->owner_id = owner_id;
     model->panel = panel;
     const bool manage = panel == UiAccountSwitcherPanel::manage_accounts;
@@ -67,7 +67,7 @@ bool ui_account_switcher_build(UiAccountSwitcherModel* model, u64 owner_id, UiAc
             flags |= popup_item_danger;
         item = {{model->labels[i], label}, static_cast<u32>(UiAccountSwitcherAction::account_first) + i, flags, 0};
         item.detail = detail;
-        item.presentation = {};
+        reset_value(&item.presentation);
         item.presentation.secondary_line = detail.bytes != 0;
         item.media_id = account.user_id;
         item.media_variant = account.avatar_variant;

@@ -1,4 +1,5 @@
 #include "maicord/model/reaction_preferences.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -145,7 +146,7 @@ void recompute_table(ReactionPreferenceTable& table, ReactionPreferenceKind kind
 }
 
 void clear_table(ReactionPreferenceTable& table) noexcept {
-    table = ReactionPreferenceTable{};
+    reset_value<ReactionPreferenceTable>(&table);
     for (auto& entry : table.frequently)
         entry = kNoEmoji;
 }
@@ -171,7 +172,7 @@ ReactionPreferenceUsage* admit_usage(ReactionPreferenceStore* store, ReactionPre
     }
     if (index == kReactionPreferenceUsageCapacity)
         return nullptr;
-    table.usage[index] = ReactionPreferenceUsage{};
+    reset_value<ReactionPreferenceUsage>(&table.usage[index]);
     table.usage[index].emoji = emoji;
     table.usage[index].sequence = next_sequence(store);
     table.usage[index].occupied = true;
@@ -232,7 +233,7 @@ bool reaction_preferences_initialize(ReactionPreferenceStore* store) noexcept {
     if (!store || store->collapsed_guilds.arena.base) {
         return false;
     }
-    *store = ReactionPreferenceStore{};
+    reset_value<ReactionPreferenceStore>(store);
     store->next_sequence = 1;
     for (auto& table : store->tables)
         clear_table(table);
@@ -244,7 +245,7 @@ bool reaction_preferences_initialize(ReactionPreferenceStore* store) noexcept {
 void reaction_preferences_release(ReactionPreferenceStore* store) noexcept {
     if (!store) return;
     stable_storage_release(&store->collapsed_guilds);
-    *store = ReactionPreferenceStore{};
+    reset_value<ReactionPreferenceStore>(store);
 }
 
 ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStore* store,

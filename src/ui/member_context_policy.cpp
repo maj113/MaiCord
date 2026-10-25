@@ -1,4 +1,5 @@
 #include "maicord/ui/member_context_policy.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
@@ -54,14 +55,14 @@ u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
 }
 
 u32 member_context_timeout_choices(const MemberModerationMenuActions& actions, Slice<PopupItem> output) noexcept {
-    constexpr Utf8View labels[] = {utf8_literal("60 seconds"), utf8_literal("5 minutes"), utf8_literal("10 minutes"),
+    static constexpr Utf8View labels[] = {utf8_literal("60 seconds"), utf8_literal("5 minutes"), utf8_literal("10 minutes"),
                                    utf8_literal("1 hour"),     utf8_literal("1 day"),     utf8_literal("1 week")};
     static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(kModerationTimeoutChoices) / sizeof(u32));
     constexpr u32 count = sizeof(labels) / sizeof(labels[0]);
     if (!output.data || output.count < count)
         return 0;
     for (u32 i = 0; i < count; ++i) {
-        output[i] = {};
+        reset_value(&output[i]);
         output[i].label = labels[i];
         output[i].action = actions.choice_first + i;
         output[i].flags = popup_item_enabled;
@@ -70,7 +71,7 @@ u32 member_context_timeout_choices(const MemberModerationMenuActions& actions, S
 }
 
 u32 member_context_ban_choices(const MemberModerationMenuActions& actions, Slice<PopupItem> output) noexcept {
-    constexpr Utf8View labels[] = {utf8_literal("Keep their messages"),   utf8_literal("Delete the last hour"),
+    static constexpr Utf8View labels[] = {utf8_literal("Keep their messages"),   utf8_literal("Delete the last hour"),
                                    utf8_literal("Delete the last 6 hours"), utf8_literal("Delete the last 12 hours"),
                                    utf8_literal("Delete the last day"),   utf8_literal("Delete the last 3 days"),
                                    utf8_literal("Delete the last week")};
@@ -79,7 +80,7 @@ u32 member_context_ban_choices(const MemberModerationMenuActions& actions, Slice
     if (!output.data || output.count < count)
         return 0;
     for (u32 i = 0; i < count; ++i) {
-        output[i] = {};
+        reset_value(&output[i]);
         output[i].label = labels[i];
         output[i].action = actions.choice_first + i;
         output[i].flags = static_cast<u16>(popup_item_enabled | (i == 1 ? popup_item_separator_before : 0u));

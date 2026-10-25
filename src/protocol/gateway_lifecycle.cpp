@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_lifecycle.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/deadline.hpp"
 
@@ -35,7 +36,7 @@ GatewayLifecycleAction reconnect_action(GatewayLifecycle* lifecycle, bool can_re
 } // namespace
 
 void gateway_lifecycle_initialize(GatewayLifecycle* lifecycle) noexcept {
-    *lifecycle = GatewayLifecycle{};
+    reset_value<GatewayLifecycle>(lifecycle);
 }
 
 GatewayLifecycleStep gateway_lifecycle_connected(GatewayLifecycle* lifecycle,
@@ -171,9 +172,9 @@ GatewayWriteResult gateway_write_heartbeat(const GatewayLifecycle& lifecycle, Sl
     if (!output.data) {
         return GatewayWriteResult{0, GatewayLifecycleError::invalid_input};
     }
-    constexpr u8 prefix[] = {'{', '"', 'o', 'p', '"', ':', '1', ',', '"', 'd', '"', ':'};
-    constexpr u8 suffix[] = {'}'};
-    constexpr u8 null_value[] = {'n', 'u', 'l', 'l'};
+    static constexpr u8 prefix[] = {'{', '"', 'o', 'p', '"', ':', '1', ',', '"', 'd', '"', ':'};
+    static constexpr u8 suffix[] = {'}'};
+    static constexpr u8 null_value[] = {'n', 'u', 'l', 'l'};
     const u32 value_bytes = lifecycle.has_sequence ? decimal_digits(lifecycle.last_sequence)
                                                    : static_cast<u32>(sizeof(null_value));
     const u32 required = static_cast<u32>(sizeof(prefix)) + value_bytes + static_cast<u32>(sizeof(suffix));

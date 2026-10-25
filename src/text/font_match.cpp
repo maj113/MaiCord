@@ -1,4 +1,5 @@
 #include "maicord/text/font_match.hpp"
+#include "maicord/core/memory.hpp"
 namespace maicord {namespace {
 bool valid(NativeFontProperties p) noexcept {return p.weight&&p.weight<=1000&&p.width&&p.width<=9&&p.style<=2;}
 struct Rank {i32 distance,negative_dot,x,y,z,simulations,base_weight;};
@@ -9,7 +10,7 @@ bool before(const Rank& a,const Rank& b) noexcept {
 }
 }
 SfntStatus native_font_match(ConstSlice<NativeFontProperties> candidates,NativeFontProperties requested,NativeFontMatch* output,u32 maximum_candidates) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!valid(requested)||(candidates.count&&!candidates.data))return SfntStatus::invalid_input;
     if(candidates.count>maximum_candidates)return SfntStatus::resource_limit;
     if(!candidates.count)return SfntStatus::unsupported_sequence;

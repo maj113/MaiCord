@@ -1,4 +1,5 @@
 #include "maicord/protocol/embed_player.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/media/encoded_video_limits.hpp"
@@ -49,7 +50,7 @@ EmbedPlayerError embedded_json(Utf8View html, Utf8View marker, Utf8View* output,
     using E = EmbedPlayerError;
     // Extract one bounded JSON object from the public embed configuration;
     // strings and escapes cannot terminate it and no script is evaluated.
-    *output = {};
+    reset_value(output);
     auto& json = *output;
     for (u32 i = 0; i + marker.bytes < html.bytes; ++i) {
         if (!bytes_equal(html.data + i, marker.data, marker.bytes) ||
@@ -500,7 +501,7 @@ bool embed_stream_location(CdnHost cdn, Utf8View url, EmbedStreamLocation* out) 
             !utf8_equal({target.data+target.bytes-4,4},utf8_literal(".mp4")) ||
             !imgur_video_id({target.data+1,target.bytes-5})) return false;
     } else if (cdn == CdnHost::streamable_video) {
-        constexpr Utf8View hosts[]{utf8_literal("cdn-cf-east.streamable.com"), utf8_literal("cdn-cf-west.streamable.com"),
+        static constexpr Utf8View hosts[]{utf8_literal("cdn-cf-east.streamable.com"), utf8_literal("cdn-cf-west.streamable.com"),
             utf8_literal("cdn-b-east.streamable.com"), utf8_literal("cdn-b-west.streamable.com")};
         bool allowed = false;
         for (auto name : hosts) allowed = allowed || ascii_equal_ignore_case(host, name);
@@ -768,7 +769,7 @@ EmbedPlayerError twitter_video_streams(Utf8View json,Utf8View id,u16 height,u8 m
     E error=E::unsupported;
     if(!json_visit_indexed_array(doc,video[0].value,24,twitter_variant,&variants).ok()) error=E::malformed;
     else if(variants.selected.url_bytes) {
-        *output={};output->video=variants.selected;output->combined=true;output->expires_seconds=3600;
+        reset_value(output);output->video=variants.selected;output->combined=true;output->expires_seconds=3600;
         error=E::none;
     }
     secure_clear_bytes(&variants.selected,sizeof(variants.selected));
@@ -1215,7 +1216,7 @@ EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> sc
     if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
     JsonValue value{json, 0, JsonValueKind::object};
-    constexpr Utf8View path[]{utf8_literal("props"), utf8_literal("pageProps"), utf8_literal("state"),
+    static constexpr Utf8View path[]{utf8_literal("props"), utf8_literal("pageProps"), utf8_literal("state"),
         utf8_literal("data"), utf8_literal("entity")};
     for (auto name : path) {
         Field entry[]{{name}};
@@ -1316,7 +1317,7 @@ static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Sl
     if (!name.bytes) return E::unavailable;
     staged.bytes = static_cast<u16>(name.bytes);
     for (u32 i = 0; i < name.bytes; ++i) if (static_cast<u8>(staged.text[i]) < 32) staged.text[i] = ' ';
-    *out = staged;
+    copy_value(out, staged);
     return E::none;
 }
 
@@ -1396,7 +1397,7 @@ EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32
                 if (!decoded.ok()) return false;
                 title.bytes += static_cast<u16>(decoded.bytes); return true;
             };
-            if (!json_visit_indexed_array(*c.doc, runs, 24, run, &title_runs).ok()) cached = {};
+            if (!json_visit_indexed_array(*c.doc, runs, 24, run, &title_runs).ok()) reset_value(&cached);
             for (u32 i = 0; i < cached.bytes; ++i) if (static_cast<u8>(cached.text[i]) < 32) cached.text[i] = ' ';
             if (cached.bytes) {
                 if (c.sink.write && !c.sink.write(c.sink.context, page.count, cached)) { c.overflow = true; return false; }
@@ -1426,7 +1427,7 @@ EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32
 namespace {
 bool html_space(char c) noexcept { return c==' ' || c=='\t' || c=='\r' || c=='\n' || c=='\f'; }
 EmbedPlayerError playlist_json(Utf8View html, Utf8View* out) noexcept {
-    *out={};
+    reset_value(out);
     constexpr auto start=utf8_literal("<script"),end=utf8_literal("</script>");
     for (u32 i=0;i+start.bytes<html.bytes;++i) {
         if (!bytes_equal(html.data+i,start.data,start.bytes) || (html.data[i+start.bytes]!='>' && !html_space(html.data[i+start.bytes]))) continue;

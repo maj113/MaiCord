@@ -1,4 +1,5 @@
 #include "maicord/ui/emoji_presentation.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/emoji_font_ranges.hpp"
 #include "maicord/core/utf.hpp"
 namespace maicord {namespace {
@@ -33,7 +34,7 @@ inline bool atom(Utf8View text,TextEmojiCursor& cursor,bool* selected) noexcept 
 }
 }
 TextEmojiNext text_emoji_next(Utf8View text,TextEmojiCursor* cursor,TextEmojiRange* output) noexcept {
-    if(output)*output={};
+    if(output)reset_value(output);
     if(!cursor||!output||(text.bytes&&!text.data)||cursor->byte>text.bytes||cursor->unit>cursor->byte)return TextEmojiNext::invalid_input;
     auto position=*cursor;TextEmojiRange range{};bool have_range=false;
     while(position.byte<text.bytes){

@@ -1,4 +1,5 @@
 #include "maicord/platform/random.hpp"
+#include "maicord/core/memory.hpp"
 #include "mls_wire.hpp"
 
 namespace maicord {
@@ -38,7 +39,7 @@ u64 hash_bytes(const void* data, u32 bytes, u64 seed) noexcept {
     return hash ^ (hash >> 33);
 }
 MlsStatus raw_at(const Validation& v, u32 index, RawNode* raw) noexcept {
-    *raw = {};
+    reset_value(raw);
     if (index >= v.tree.node_count)
         return MlsStatus::invalid_argument;
     const u32 offset = v.offsets[index];

@@ -174,7 +174,7 @@ void load_note(ApplicationProfile& p) noexcept {
     const u64 user = p.data.user_id;
     s.note_visible = g_app.account_ui && user && user != g_app.account_ui->chat_state.self_user_id;
     if (!s.note_visible) {
-        s.note_text = {};
+        reset_value(&s.note_text);
         s.note_loading = false;
         return;
     }
@@ -584,9 +584,9 @@ bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexc
         p->mutation = ProfileRoleChange::none;
         p->mutation_role = 0;
         p->scene.roles_busy = false;
-        p->effect = {};
+        reset_value(&p->effect);
         p->effect_pending = false;
-        p->data = {};
+        reset_value(&p->data);
         p->data.user_id = user;
         p->data.guild_id = guild;
         p->loaded_at = 0;

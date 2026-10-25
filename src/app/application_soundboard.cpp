@@ -239,7 +239,7 @@ void add_effect(u64 user_id, u64 channel_id, Utf8View emoji, bool custom_emoji, 
     auto& effect = board.effects[slot];
     effect.bytes = effect_text(effect.text, sizeof(effect.text), emoji, custom_emoji, name);
     if (!effect.bytes) {
-        effect = {};
+        reset_value(&effect);
         return;
     }
     effect.user_id = user_id;
@@ -266,7 +266,7 @@ void drop_head() noexcept {
     auto& slot = board.queue[board.head];
     if (slot.file)
         VirtualFree(slot.file, 0, MEM_RELEASE);
-    slot = {};
+    reset_value(&slot);
     board.head = (board.head + 1) % kQueueCapacity;
     --board.count;
 }
@@ -274,7 +274,7 @@ bool enqueue(SoundboardRequest request, ConstSlice<u8> file = {}) noexcept {
     if (board.count == kQueueCapacity)
         return false;
     auto& slot = board.queue[(board.head + board.count) % kQueueCapacity];
-    slot = {};
+    reset_value(&slot);
     request.name = {slot.name, utf8_copy_truncated(slot.name, sizeof(slot.name), request.name)};
     request.emoji_name = {slot.emoji, utf8_copy_truncated(slot.emoji, sizeof(slot.emoji), request.emoji_name)};
     if (file.count) {
@@ -287,7 +287,7 @@ bool enqueue(SoundboardRequest request, ConstSlice<u8> file = {}) noexcept {
     if (!soundboard_request_valid(request)) {
         if (slot.file)
             VirtualFree(slot.file, 0, MEM_RELEASE);
-        slot = {};
+        reset_value(&slot);
         return false;
     }
     slot.request = request;
@@ -298,13 +298,13 @@ bool enqueue(SoundboardRequest request, ConstSlice<u8> file = {}) noexcept {
 // Next list to load when no write is queued: default sounds first.
 bool next_load(SoundboardRequest* request) noexcept {
     if (board.defaults == LoadState::wanted) {
-        *request = {};
+        reset_value(request);
         request->operation = SoundboardOperation::default_list;
         return true;
     }
     for (u32 i = 0; i < board.load_count; ++i)
         if (board.loads[i].state == LoadState::wanted) {
-            *request = {};
+            reset_value(request);
             request->operation = SoundboardOperation::guild_list;
             request->guild_id = board.loads[i].guild_id;
             return true;
@@ -384,7 +384,7 @@ bool build_picker(bool open) noexcept {
             return false;
         }
         auto& item = p.items[count];
-        item = {};
+        reset_value(&item);
         const u32 bytes = utf8_copy_truncated(p.labels[count], kLabelBytes, label);
         item.label = {p.labels[count], bytes};
         item.flags = static_cast<u16>(count ? popup_item_separator_before : popup_item_none);
@@ -397,7 +397,7 @@ bool build_picker(bool open) noexcept {
             return;
         }
         auto& item = p.items[count];
-        item = {};
+        reset_value(&item);
         char* label = p.labels[count];
         u32 bytes = 0;
         if (sound.emoji_name_bytes && !sound.emoji_id) {
@@ -441,7 +441,7 @@ bool build_picker(bool open) noexcept {
     group(0, utf8_literal("Default sounds"));
     if (!count) {
         const bool loading = board.defaults == LoadState::wanted || board.defaults == LoadState::in_flight;
-        p.items[0] = {};
+        reset_value(&p.items[0]);
         p.items[0].label = loading && !p.query_bytes ? utf8_literal("Loading sounds…")
                            : p.query_bytes           ? utf8_literal("No sounds match your search")
                                                      : utf8_literal("No sounds yet");
@@ -526,7 +526,7 @@ void application_soundboard_gateway(const GatewayClientEvent& event, ConstSlice<
         board.sound_count = kept;
         board.load_count = 0;
         for (auto& effect : board.effects)
-            effect = {};
+            reset_value(&effect);
         return;
     }
     if (event.kind != GatewayClientEventKind::dispatch || !g_app.account_ui)
@@ -715,7 +715,7 @@ const SoundboardSound* application_soundboard_find(u64 sound_id) noexcept {
 bool application_soundboard_probe(ConstSlice<u8> file, SoundboardFileInfo* info, Utf8View* error) noexcept {
     SoundboardFileInfo local{};
     auto* out = info ? info : &local;
-    *out = {};
+    reset_value(out);
     SoundboardRequest request{};
     request.operation = SoundboardOperation::probe;
     request.sound = file;
@@ -929,7 +929,7 @@ u64 application_soundboard_next_wake(bool lane_idle) noexcept {
         if (!effect.user_id)
             continue;
         if (now >= effect.until_ms) {
-            effect = {};
+            reset_value(&effect);
             expired = true;
         } else
             earliest(effect.until_ms);

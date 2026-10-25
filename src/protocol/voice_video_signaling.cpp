@@ -55,7 +55,7 @@ void transport_fields(Writer& writer, const EncodedString& address, const VoiceG
 VoiceVideoCodec voice_video_codec(JsonString name) noexcept {
     if (!name.encoded.bytes)
         return VoiceVideoCodec::none;
-    constexpr VoiceVideoCodec codecs[]{VoiceVideoCodec::h264, VoiceVideoCodec::h265, VoiceVideoCodec::vp8,
+    static constexpr VoiceVideoCodec codecs[]{VoiceVideoCodec::h264, VoiceVideoCodec::h265, VoiceVideoCodec::vp8,
                                        VoiceVideoCodec::vp9, VoiceVideoCodec::av1};
     for (const auto codec : codecs) {
         const auto text = codec_name(codec);
@@ -66,7 +66,7 @@ VoiceVideoCodec voice_video_codec(JsonString name) noexcept {
 }
 
 u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noexcept {
-    constexpr VoiceVideoCodec order[]{VoiceVideoCodec::av1, VoiceVideoCodec::h265, VoiceVideoCodec::h264};
+    static constexpr VoiceVideoCodec order[]{VoiceVideoCodec::av1, VoiceVideoCodec::h265, VoiceVideoCodec::h264};
     decodable |= voice_video_codec_bit(VoiceVideoCodec::h264);
     u32 count = 0;
     for (const auto codec : order)
@@ -78,7 +78,7 @@ u32 voice_video_decode_offers(u32 decodable, Slice<VoiceCodecOffer> output) noex
 bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept {
     if (random.count != 16 || !random.data || output.count < kVoiceRtcConnectionIdBytes || !output.data)
         return false;
-    constexpr char hex[] = "0123456789abcdef";
+    static constexpr char hex[] = "0123456789abcdef";
     u8 bytes[16];
     copy_bytes(bytes, random.data, 16);
     bytes[6] = static_cast<u8>((bytes[6] & 0x0f) | 0x40); // Version 4.

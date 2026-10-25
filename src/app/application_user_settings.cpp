@@ -128,7 +128,7 @@ void scope() noexcept {
         g_app.account.api.account_settings(g_app.account.instance, nullptr, g_owner.request_id);
     release_bank();
     const u64 applied = g_owner.applied_revision;
-    g_owner = {};
+    reset_value(&g_owner);
     g_owner.applied_revision = applied + 1;
     g_owner.profile_id = profile;
     g_owner.self_user_id = self;
@@ -166,7 +166,7 @@ bool write(UserSettingsField field, UserSettingsValue value) noexcept {
     if (!s || !user_settings_store_set(s, field, value, clock_monotonic_milliseconds()))
         return false;
     g_owner.failed = false;
-    g_owner.status = {};
+    reset_value(&g_owner.status);
     application_user_settings_apply_display();
     application_request_frame();
     return true;
@@ -394,7 +394,7 @@ bool application_user_settings_response(const RestClientResponse& response, Utf8
         mark_failed(utf8_literal("Couldn't save your settings. Your change was undone."));
     else if (outcome == UserSettingsOutcome::saved) {
         g_owner.failed = false;
-        g_owner.status = {};
+        reset_value(&g_owner.status);
     }
     application_user_settings_apply_display();
     application_request_frame();
@@ -413,7 +413,7 @@ u64 application_user_settings_next_wake() noexcept {
 void application_user_settings_release() noexcept {
     application_text_form_cancel_owner(content_confirmation_valid);
     release_bank();
-    g_owner = {};
+    reset_value(&g_owner);
     message_scene_set_display(&g_app.message_scene, {g_app.preferences.message_group_spacing, false});
     timestamp_set_hour_cycle(HourCycle::automatic);
     if (message_rich_set_display({}))

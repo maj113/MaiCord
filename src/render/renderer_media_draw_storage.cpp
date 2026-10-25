@@ -1,4 +1,5 @@
 #include "maicord/render/renderer_media_draw_storage.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/render/media_atlas.hpp"
 
 namespace maicord {
@@ -22,7 +23,7 @@ bool renderer_media_draw_storage_initialize(
     if (!storage) {
         return false;
     }
-    *storage = RendererMediaDrawStorage{};
+    reset_value<RendererMediaDrawStorage>(storage);
     if (!stable_storage_initialize(
             &storage->quads, kRendererMediaQuadCapacity,
             kRendererMediaInitialQuadCapacity, sizeof(MediaQuad),
@@ -115,7 +116,7 @@ void renderer_media_draw_storage_release(
     stable_storage_release(&storage->handles);
     stable_storage_release(&storage->domains);
     stable_storage_release(&storage->batches);
-    *storage = RendererMediaDrawStorage{};
+    reset_value<RendererMediaDrawStorage>(storage);
 }
 
 } // namespace maicord

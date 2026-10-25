@@ -897,7 +897,7 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
                               : members.error);
         event->dispatch_kind = chunk ? GatewayClientDispatchKind::guild_members_chunk
                                      : GatewayClientDispatchKind::guild_member_profile_update;
-        event->member_list = {};
+        reset_value(&event->member_list);
         event->member_list.guild_id = root.guild_id;
         event->member_list.record_count = writer.records;
         event->member_list.member_record_count = writer.members;

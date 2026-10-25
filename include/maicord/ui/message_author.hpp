@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/ui/badge.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/profile_appearance.hpp"
@@ -66,7 +67,7 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
     const Utf8View name{command.text.data, minimum(command.text.bytes, command.styles[0].byte_count)};
     if (!name.bytes)
         return false;
-    *out = {};
+    reset_value(out);
     out->appearance = global;
     UiPluginRenderDecoration decoration{};
     const bool decorated = message_scene_plugin_decoration(scene, record->id, record->revision, &decoration);
@@ -187,7 +188,7 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
             plugin.badge.rectangle = ui_badge_layout(cache, label, line, true, plugin.badge.style).outer;
             tail_left = plugin.badge.rectangle.right + 8;
         } else {
-            plugin = {};
+            reset_value(&plugin);
         }
     }
     for (u32 i = 0; decorated && i < decoration.badge_count && i < kUiPluginRenderBadges; ++i) {
@@ -208,7 +209,7 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
         line.left = tail_left - 2;
         line.right = minimum(command.rectangle.right, line.left + width);
         if (ui_rect_width(line) < 40) {
-            slot = {};
+            reset_value(&slot);
             break;
         }
         slot.badge.rectangle = ui_badge_layout(cache, label, line, true, slot.badge.style).outer;

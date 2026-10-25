@@ -148,7 +148,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_initialize(
         exchange->transport.worker.thread) {
         return failure(RemoteAuthTicketExchangeError::invalid_input, ERROR_INVALID_PARAMETER);
     }
-    *exchange = RemoteAuthTicketExchange{};
+    reset_value<RemoteAuthTicketExchange>(exchange);
     SecureBufferResult secured =
         secure_buffer_initialize(&exchange->request, kRemoteAuthTicketExchangeRequestBytes);
     if (!secured.ok()) {

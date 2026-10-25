@@ -1,4 +1,5 @@
 #include "maicord/protocol/message_pins.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord {
@@ -14,7 +15,7 @@ bool cursor_instant(const MessagePinsCursor& cursor, PinInstant* instant) noexce
         if (!((c >= '0' && c <= '9') || c == '-' || c == '+' || c == ':' || c == '.' ||
               c == 'T' || c == 'Z')) return false;
     }
-    *instant = {};
+    reset_value(instant);
     if (!parse_iso_timestamp({{cursor.timestamp, cursor.bytes}, 0, false}, &instant->milliseconds))
         return false;
     if (cursor.timestamp[19] == '.') {
@@ -158,8 +159,8 @@ bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
         if (context->items[previous].message.id == message.id)
             return reject(context, MessagePinsDecodeError::duplicate_message, item.message.source_offset);
     }
-    message.mention_roles = {};
-    if (!context->mentions.data) message.mention_users = {};
+    reset_value(&message.mention_roles);
+    if (!context->mentions.data) reset_value(&message.mention_users);
     context->items[index] = {message, item.pinned_at, item.instant.milliseconds};
     context->result.page.next_before = item.pinned_at;
     context->result.page.count = index + 1;

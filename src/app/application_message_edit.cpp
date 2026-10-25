@@ -84,7 +84,7 @@ bool apply_response(u32 body_bytes) noexcept {
                            message.channel_id == edit.channel_id &&
                            message.author_id == g_app.account_ui->chat_state.self_user_id;
         // No stack-backed role-ID view may outlive this decode transaction.
-        message.mention_roles = {};
+        reset_value(&message.mention_roles);
         if (!decoded_response) {
             log_u64(LogLevel::warning, "message", "message_edit_response_decode_error",
                     static_cast<u64>(decoded.error));
@@ -129,7 +129,7 @@ bool apply_response(u32 body_bytes) noexcept {
 
 void reset_message_edit() noexcept {
     message_edit_runtime_reset(&g_app.message_edit);
-    edit_source = {};
+    reset_value(&edit_source);
 }
 bool application_message_edit_pending_available() noexcept {
     const auto* record = message_mutation_source_record(edit_source, g_app.message_edit.channel_id,

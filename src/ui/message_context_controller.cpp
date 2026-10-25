@@ -1,4 +1,5 @@
 #include "maicord/ui/message_context_controller.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/message_store.hpp"
 
@@ -46,16 +47,14 @@ struct PopupRollback {
     u32 layout_count;
 
     void save(const PopupScene& value, u32 new_count) noexcept {
-        scene = value;
+        copy_value(&scene, value);
         item_count = minimum(value.item_count, new_count);
         widget_count = minimum(value.widgets.count, 2 + new_count * kPopupWidgetsPerItem);
         layout_count = minimum(value.widgets.layout.count, 2 + new_count * kPopupWidgetsPerItem);
-        for (u32 index = 0; index < item_count; ++index) {
-            items[index] = value.items[index];
-            rows[index] = value.rows[index];
-        }
-        for (u32 index = 0; index < widget_count; ++index) widgets[index] = value.widgets.storage[index];
-        for (u32 index = 0; index < layout_count; ++index) layout[index] = value.widgets.layout.storage[index];
+        copy_bytes(items, value.items.data, item_count * static_cast<u32>(sizeof(items[0])));
+        copy_bytes(rows, value.rows.data, item_count * static_cast<u32>(sizeof(rows[0])));
+        copy_bytes(widgets, value.widgets.storage.data, widget_count * static_cast<u32>(sizeof(widgets[0])));
+        copy_bytes(layout, value.widgets.layout.storage.data, layout_count * static_cast<u32>(sizeof(layout[0])));
     }
 
     void restore(PopupScene* value) noexcept {
@@ -65,7 +64,7 @@ struct PopupRollback {
         const auto retained_layout = value->widgets.layout.storage;
         const auto retained_owned_storage = value->owned_storage;
         const u32 rejected = value->rejected;
-        *value = scene;
+        copy_value(value, scene);
         // Successful backing materialization/reservation is reusable even when
         // the commit fails; reserve guarantees that existing pointers stay put.
         value->items = retained_items;
@@ -74,12 +73,10 @@ struct PopupRollback {
         value->widgets.layout.storage = retained_layout;
         value->owned_storage = retained_owned_storage;
         value->rejected = rejected;
-        for (u32 index = 0; index < item_count; ++index) {
-            value->items[index] = items[index];
-            value->rows[index] = rows[index];
-        }
-        for (u32 index = 0; index < widget_count; ++index) value->widgets.storage[index] = widgets[index];
-        for (u32 index = 0; index < layout_count; ++index) value->widgets.layout.storage[index] = layout[index];
+        copy_bytes(value->items.data, items, item_count * static_cast<u32>(sizeof(items[0])));
+        copy_bytes(value->rows.data, rows, item_count * static_cast<u32>(sizeof(rows[0])));
+        copy_bytes(value->widgets.storage.data, widgets, widget_count * static_cast<u32>(sizeof(widgets[0])));
+        copy_bytes(value->widgets.layout.storage.data, layout, layout_count * static_cast<u32>(sizeof(layout[0])));
     }
 };
 
@@ -116,8 +113,8 @@ MessageContextControllerResult message_context_controller_open(
         menu.count && menu.items[menu.count - 1].action == static_cast<u32>(MessageContextAction::copy_id);
     const u32 leading = menu.count - (trailing_id ? 1u : 0u);
     u32 count = 0;
-    for (u32 index = 0; index < leading; ++index)
-        combined[count++] = menu.items[index];
+    copy_bytes(combined, menu.items, leading * static_cast<u32>(sizeof(combined[0])));
+    count = leading;
     for (u32 index = 0; index < media_items.count; ++index) {
         combined[count] = media_items[index];
         if (index == 0)

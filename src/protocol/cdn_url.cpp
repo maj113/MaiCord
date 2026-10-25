@@ -104,7 +104,7 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
         (!target_output.data && target_output.count != 0)) {
         return attachment_url_failure(AttachmentUrlError::invalid_input);
     }
-    constexpr char scheme[] = "https://";
+    static constexpr char scheme[] = "https://";
     constexpr u32 scheme_bytes = sizeof(scheme) - 1;
     if (url.bytes <= scheme_bytes || !ascii_equal(url.data, scheme_bytes, scheme)) {
         return attachment_url_failure(AttachmentUrlError::invalid_scheme);
@@ -134,8 +134,8 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
         }
     }
 
-    constexpr char attachment_prefix[] = "/attachments/";
-    constexpr char ephemeral_prefix[] = "/ephemeral-attachments/";
+    static constexpr char attachment_prefix[] = "/attachments/";
+    static constexpr char ephemeral_prefix[] = "/ephemeral-attachments/";
     constexpr u32 attachment_prefix_bytes = sizeof(attachment_prefix) - 1;
     constexpr u32 ephemeral_prefix_bytes = sizeof(ephemeral_prefix) - 1;
     bool ephemeral = false;
@@ -344,7 +344,7 @@ MediaUrlResult parse_media_url(Utf8View url, Slice<u8> target_output) noexcept {
     if (!url.data || url.bytes == 0 || (!target_output.data && target_output.count != 0)) {
         return media_url_failure(MediaUrlError::invalid_input);
     }
-    constexpr char scheme[] = "https://";
+    static constexpr char scheme[] = "https://";
     constexpr u32 scheme_bytes = sizeof(scheme) - 1;
     if (url.bytes <= scheme_bytes || !ascii_equal(url.data, scheme_bytes, scheme)) {
         return media_url_failure(MediaUrlError::invalid_scheme);
@@ -448,8 +448,8 @@ struct KlipyOrigin {
     u32 bytes;
 };
 KlipyOrigin klipy_origin(Utf8View url) noexcept {
-    constexpr char first[] = "https://static.klipy.com";
-    constexpr char second[] = "https://static2.klipy.com";
+    static constexpr char first[] = "https://static.klipy.com";
+    static constexpr char second[] = "https://static2.klipy.com";
     if (url.data && url.bytes > sizeof(first) - 1 && ascii_equal(url.data, sizeof(first) - 1, first))
         return {CdnHost::catalog_klipy, sizeof(first) - 1};
     if (url.data && url.bytes > sizeof(second) - 1 && ascii_equal(url.data, sizeof(second) - 1, second))
@@ -471,8 +471,8 @@ u32 catalog_proxy_query_bits(ConstSlice<u8> target) noexcept {
               c == '-'))
             return invalid;
     }
-    constexpr char provider[] = "/https/static.klipy.com";
-    constexpr char provider2[] = "/https/static2.klipy.com";
+    static constexpr char provider[] = "/https/static.klipy.com";
+    static constexpr char provider2[] = "/https/static2.klipy.com";
     if (cursor == token_begin || cursor - token_begin > 128)
         return invalid;
     const ConstSlice<u8> wrapped{target.data + cursor, target.count - cursor};
@@ -581,7 +581,7 @@ bool giphy_target_valid(ConstSlice<u8> target) noexcept {
 }
 // Splits https://<host>/<path> (no port, credentials, query or fragment kept).
 bool split_https(const char* url, u32 bytes, const char** host, u32* host_bytes, const char** path, u32* path_bytes) noexcept {
-    constexpr char scheme[] = "https://";
+    static constexpr char scheme[] = "https://";
     if (bytes <= 8 || !ascii_equal(url, 8, scheme)) return false;
     u32 slash = 8;
     while (slash < bytes && url[slash] != '/') ++slash;
@@ -902,9 +902,9 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
         return video_favourite(url, target_output);
     if (format != MediaAttachmentFormat::webp)
         return media_url_failure(MediaUrlError::invalid_input);
-    constexpr char proxy_1[] = "https://images-ext-1.discordapp.net/";
-    constexpr char proxy_2[] = "https://images-ext-2.discordapp.net/";
-    constexpr char media_external[] = "https://media.discordapp.net/external/";
+    static constexpr char proxy_1[] = "https://images-ext-1.discordapp.net/";
+    static constexpr char proxy_2[] = "https://images-ext-2.discordapp.net/";
+    static constexpr char media_external[] = "https://media.discordapp.net/external/";
     const bool images_ext = url.bytes >= sizeof(proxy_1) - 1 && (ascii_equal(url.data, sizeof(proxy_1) - 1, proxy_1) ||
                                                                  ascii_equal(url.data, sizeof(proxy_2) - 1, proxy_2));
     if (images_ext ||

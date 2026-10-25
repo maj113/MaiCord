@@ -45,7 +45,7 @@ bool private_channel_store_initialize(PrivateChannelStore* store,
     if (!store || !records.data || !records.count || !recipients.data || !recipients.count ||
         store->record_backing.base || store->recipient_backing.base || store->nickname_backing.base ||
         (!nicknames.data && nicknames.count)) return false;
-    *store = {};
+    reset_value(store);
     store->records = records;
     store->recipients = recipients;
     store->nicknames = nicknames;
@@ -54,7 +54,7 @@ bool private_channel_store_initialize(PrivateChannelStore* store,
 bool private_channel_store_initialize_owned(PrivateChannelStore* store, u32 records, u32 recipients) noexcept {
     if (!store || !records || !recipients || records > 65'535 || recipients > 1'000'000 ||
         store->record_backing.base || store->recipient_backing.base || store->nickname_backing.base) return false;
-    *store = {};
+    reset_value(store);
     if (!arena_initialize(&store->record_backing, static_cast<usize>(records) * sizeof(PrivateChannelRecord), 0, 4096) ||
         !arena_initialize(&store->recipient_backing, static_cast<usize>(recipients) * sizeof(u64), 0, 4096) ||
         !arena_initialize(&store->nickname_backing, static_cast<usize>(recipients) * sizeof(PrivateNicknameRecord), 0, 4096)) {
@@ -71,7 +71,7 @@ void private_channel_store_release(PrivateChannelStore* store) noexcept {
     arena_release(&store->record_backing);
     arena_release(&store->recipient_backing);
     arena_release(&store->nickname_backing);
-    *store = {};
+    reset_value(store);
 }
 void private_channel_store_clear(PrivateChannelStore* store) noexcept {
     if (!store) return;
@@ -142,7 +142,7 @@ bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChan
     bool changed = false;
     if (index == store->count || store->records[index].id != input.id) {
         for (u32 i = store->count; i > index; --i) store->records[i] = store->records[i - 1];
-        store->records[index] = {};
+        reset_value(&store->records[index]);
         store->records[index].id = input.id;
         ++store->count;
         changed = true;

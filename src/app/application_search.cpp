@@ -767,7 +767,7 @@ void focus(ApplicationSearch& s, bool value) noexcept {
 // Ends any press, drag or capture the panel holds.
 void release_pointer(ApplicationSearch& s) noexcept {
     s.dragging = s.captured = s.scrollbar_dragging = false;
-    s.pressed = {};
+    reset_value(&s.pressed);
     ui_widget_manager_capture(&s.scene.widgets, ui_widget_invalid_handle());
     if (GetCapture() == g_app.window)
         ReleaseCapture();
@@ -831,7 +831,7 @@ void retire_actions(ApplicationSearch& s) noexcept {
     ++s.action_epoch;
     if (!s.action_epoch)
         ++s.action_epoch;
-    s.validation = {};
+    reset_value(&s.validation);
     application_search_content_release();
     application_search_navigation_synchronize();
 }
@@ -857,7 +857,7 @@ void current_scope(ApplicationSearch& s) noexcept {
     s.bank = s.candidate = nullptr;
     s.source.rich_timeline = nullptr;
     s.source.polls = nullptr;
-    s.source.rich_order = {};
+    reset_value(&s.source.rich_order);
     retire_actions(s);
     s.panel = !id && s.panel;
     focus(s, false);
@@ -1119,7 +1119,7 @@ void choices_publish(SearchFilterChoices& b) noexcept {
         return;
     }
     b.source.revision = ~u32{0};
-    b.source.rows = {};
+    reset_value(&b.source.rows);
     b.source.selected = kUiSearchFilterNoSelection;
     b.source.hint = utf8_literal("Suggestions unavailable. Type a value.");
 }
@@ -1137,7 +1137,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
     if (filter.kind == UiSearchFilterKind::none) {
         member_query_withdraw(s);
         if (s.choices) {
-            s.choices->filter = filter;
+            copy_value(&s.choices->filter, filter);
             s.choices->stamp = stamp;
         }
         return false;
@@ -1157,8 +1157,8 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         utf8_equal(b.filter.prefix(), filter.prefix())) {
         // Selection/caret changes still invalidate every captured row,
         // while identical matching inputs keep the existing choices.
-        b.stamp = stamp;
-        b.filter = filter;
+        copy_value(&b.stamp, stamp);
+        copy_value(&b.filter, filter);
         choices_publish(b);
         return true;
     }
@@ -1168,12 +1168,12 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         b.filter.kind == filter.kind && utf8_equal(b.filter.prefix(), filter.prefix());
     const u64 selected_id = preserve_selection ? b.rows[b.source.selected].id : 0;
     const u32 selected_semantic = preserve_selection ? b.rows[b.source.selected].semantic : 0;
-    b.stamp = stamp;
-    b.filter = filter;
+    copy_value(&b.stamp, stamp);
+    copy_value(&b.filter, filter);
     b.initialized = true;
     b.capacity_limited = false;
     ++b.rebuilds;
-    b.source = {};
+    reset_value(&b.source);
     b.source.context = &s;
     b.source.current = choices_current;
     b.source.kind = filter.kind;
@@ -1332,7 +1332,7 @@ bool choice_accept(ApplicationSearch& s, u32 revision, u32 index) noexcept {
                                        {replacement, bytes}) != MessageComposerResult::changed)
         return false;
     message_composer_break_history_run(&s.edit);
-    s.validation = {};
+    reset_value(&s.validation);
     s.suggestions = false;
     s.filters = s.sort_menu = false;
     focus(s, true);
@@ -1448,7 +1448,7 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
         // Thread names, not messages: the browser lists the matches in place
         // and opens the chosen thread. The field keeps the query and focus.
         s.filters = s.suggestions = s.sort_menu = false;
-        s.validation = {};
+        reset_value(&s.validation);
         s.committed_edit_revision = s.edit.text_revision;
         application_thread_browser_search(message_composer_text(s.edit));
         return repaint();
@@ -1496,7 +1496,7 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
             return repaint();
         }
     }
-    s.validation = {};
+    reset_value(&s.validation);
     if (!message_search_begin(&s.controller, s.account_id, parsed.query)) {
         s.validation = utf8_literal("Search could not be queued.");
         return repaint();
@@ -1986,7 +1986,7 @@ void synchronize_privacy(ApplicationSearch& s) noexcept {
             g_app.context_focus = &s.scene.widgets;
     }
     ++s.source.revision;
-    s.pressed = {};
+    reset_value(&s.pressed);
     s.captured = s.dragging = false;
     ui_widget_manager_capture(&s.scene.widgets, ui_widget_invalid_handle());
     if (GetCapture() == g_app.window)
@@ -2535,7 +2535,7 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
     if (!application_search_synchronize())
         return false;
     const auto token = s->submitted;
-    s->submitted = {};
+    reset_value(&s->submitted);
     s->submitted_cancelled = false;
     if (!context_current(*s) || s->submitted_account_scope != s->account_scope ||
         s->submitted_profile_id != s->profile_id || token.scope_id != s->scope_id ||
@@ -2941,7 +2941,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         s->dragging = false;
         s->captured = false;
         s->scrollbar_dragging = false;
-        s->pressed = {};
+        reset_value(&s->pressed);
         ui_widget_manager_capture(&s->scene.widgets, ui_widget_invalid_handle());
         return false;
     }
@@ -3007,7 +3007,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         if (hit.action == UiSearchAction::none && (s->suggestions || s->filters || s->sort_menu)) {
             s->suggestions = s->filters = s->sort_menu = false;
             focus(*s, false);
-            s->pressed = {};
+            reset_value(&s->pressed);
             repaint();
             return true;
         }
@@ -3015,7 +3015,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         if (hit.action == UiSearchAction::scope) {
             // The chip acts on press, like the field it sits in: the press
             // itself would blur the field and retire a release target.
-            s->pressed = {};
+            reset_value(&s->pressed);
             activate(*s, hit);
             return true;
         }
@@ -3027,7 +3027,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         if (s->panel && !s->filters && !s->suggestions && !s->sort_menu &&
             ui_scrollbar_track_hit(scrollbar, x, y)) {
             focus(*s, false);
-            s->pressed = {};
+            reset_value(&s->pressed);
             s->scrollbar_dragging = ui_scrollbar_thumb_hit(scrollbar, x, y);
             s->thumb_grab = y - scrollbar.thumb.top;
             if (!s->scrollbar_dragging)

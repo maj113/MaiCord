@@ -70,7 +70,7 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
     entry.retired = true;
     entry.ready = false;
     if (!entry.admitted || !actor_current(entry) || !g_app.account.api.media_local_preview) {
-        entry = {};
+        reset_value(&entry);
         return;
     }
     AccountMediaLocalPreviewRequest exact{};
@@ -82,7 +82,7 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
     if (result.state == AccountMediaRequestState::pending)
         entry.poll_at = deadline_after(now, 100);
     else
-        entry = {};
+        reset_value(&entry);
 }
 } // namespace
 
@@ -156,7 +156,7 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
                 continue;
             if (!actor_current(entry)) {
                 changed();
-                entry = {};
+                reset_value(&entry);
                 continue;
             }
             if (!source_current(entry) && (!entry.retired || now >= entry.poll_at))
@@ -196,7 +196,7 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
                 }
             if (!entry || owner->next_generation >= 0x7fffffffu)
                 continue;
-            *entry = {};
+            reset_value(entry);
             changed();
             entry->occupied = true;
             entry->draft_id = id;
@@ -219,9 +219,9 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
                 entry->request.path = message_attachment_drafts_path(&state->drafts, id);
             if (!media_asset_key_valid(key) || !local_draft_preview_request_valid(entry->request)) {
                 // Unsupported formats and oversized sources keep the file card.
-                entry->request.snapshot = {};
-                entry->request.content = {};
-                entry->request.path = {};
+                reset_value(&entry->request.snapshot);
+                reset_value(&entry->request.content);
+                reset_value(&entry->request.path);
                 entry->failed = true;
                 continue;
             }

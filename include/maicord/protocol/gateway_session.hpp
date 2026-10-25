@@ -130,5 +130,8 @@ bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maxim
 // Zero-copy event views remain valid until the next push/next call on this session.
 GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_jitter,
                                          u64 now_ms) noexcept;
+// The same, filling a caller-owned event in place (the event is about 600 bytes).
+void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32 heartbeat_jitter,
+                          u64 now_ms) noexcept;
 
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "maicord/text/tibetan_shape_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "selector_slots.hpp"
 #include "maicord/text/tibetan_input.hpp"
 #include "tibetan_character.hpp"
@@ -48,7 +49,7 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
 }
 SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((input.count&&!input.data)||(steps.count&&!steps.data)||plan.substitution_roots.count)return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*8+steps.count>limits.stage_work)return SfntStatus::resource_limit;
     if(steps.count&&!plan.substitutions)return SfntStatus::invalid_input;

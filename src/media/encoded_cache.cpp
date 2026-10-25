@@ -1,4 +1,5 @@
 #include "maicord/media/encoded_cache.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -246,7 +247,7 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
     if (!page_owners.data || page_owners.count < pages) {
         return false;
     }
-    *cache = EncodedMediaCache{};
+    reset_value<EncodedMediaCache>(cache);
     cache->entries = entries.data;
     cache->entry_capacity = entries.count;
     cache->page_owners = page_owners.data;
@@ -255,7 +256,7 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
     cache->index_buckets = index_buckets.data;
     cache->index_bucket_capacity = index_buckets.count;
     for (u32 index = 0; index < entries.count; ++index) {
-        entries[index] = EncodedMediaCacheEntry{};
+        reset_value<EncodedMediaCacheEntry>(&entries[index]);
     }
     for (u32 page = 0; page < pages; ++page) {
         page_owners[page] = kEncodedMediaCacheFreePage;
@@ -321,7 +322,7 @@ bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLeas
         }
     }
     ReleaseSRWLockExclusive(cache->lock.native());
-    *lease = EncodedMediaCacheLease{};
+    reset_value<EncodedMediaCacheLease>(lease);
     lease->entry_index = kInvalidIndex;
     return valid;
 }

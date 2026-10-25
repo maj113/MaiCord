@@ -1,4 +1,5 @@
 #include "application_window.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "application_caption.hpp"
 #include "application_state.hpp"
@@ -70,7 +71,7 @@ void application_apply_minimum_window_track(HWND window, MINMAXINFO* limits) noe
 }
 
 bool application_create_main_window(WNDPROC window_proc) noexcept {
-    constexpr wchar_t kClassName[] = L"MaiCordMainWindow";
+    static constexpr wchar_t kClassName[] = L"MaiCordMainWindow";
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);
     // A flip-model swap chain owns all client pixels. Class-wide redraws
@@ -130,7 +131,7 @@ bool application_window_set_fullscreen(bool on) noexcept {
     if (!window || on == g_fullscreen.on)
         return false;
     if (on) {
-        g_fullscreen.placement = {};
+        reset_value(&g_fullscreen.placement);
         g_fullscreen.placement.length = sizeof(g_fullscreen.placement);
         MONITORINFO monitor{};
         monitor.cbSize = sizeof(monitor);

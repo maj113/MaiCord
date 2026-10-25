@@ -1,4 +1,5 @@
 #include "maicord/render/media_atlas.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -129,7 +130,7 @@ u32 find_free_slot(MediaAtlas* atlas) noexcept {
 void erase_entry(MediaAtlas* atlas, u32 slot, u32 bucket) noexcept {
     MediaAtlasEntry& entry = atlas->entries[slot];
     const u16 generation = entry.generation;
-    entry = MediaAtlasEntry{};
+    reset_value<MediaAtlasEntry>(&entry);
     entry.generation = generation;
     atlas->buckets[bucket] = kTombstoneBucket;
     atlas->free_cursor = slot;
@@ -149,7 +150,7 @@ bool rebuild_buckets_and_clear_stale(MediaAtlas* atlas) noexcept {
         if (entry.occupied &&
             !glyph_atlas_validate(atlas->allocations, entry.allocation)) {
             const u16 generation = entry.generation;
-            entry = MediaAtlasEntry{};
+            reset_value<MediaAtlasEntry>(&entry);
             entry.generation = generation;
             --atlas->entry_count;
             ++atlas->stale_entries;
@@ -194,13 +195,13 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
     atlas->stale_entries = 0;
     atlas->rejected = 0;
     atlas->next_allocation_key = 0;
-    atlas->growth = GlyphAtlasGrowth{};
+    reset_value<GlyphAtlasGrowth>(&atlas->growth);
     atlas->disposal_backup_frames = 0;
     atlas->disposal_backup_used_ms = 0;
     if (zeroed)
         return true; // kEmptyBucket is zero
     for (u32 index = 0; index < entries.count; ++index) {
-        entries[index] = MediaAtlasEntry{};
+        reset_value<MediaAtlasEntry>(&entries[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
         buckets[index] = kEmptyBucket;
@@ -218,7 +219,7 @@ void media_atlas_reset(MediaAtlas* atlas) noexcept {
     for (u32 index = 0, live = atlas->entry_count; index < atlas->entry_capacity && live; ++index) {
         live -= atlas->entries[index].occupied;
         const u16 generation = atlas->entries[index].generation;
-        atlas->entries[index] = MediaAtlasEntry{};
+        reset_value<MediaAtlasEntry>(&atlas->entries[index]);
         atlas->entries[index].generation = generation;
     }
     for (u32 index = 0; index < atlas->bucket_capacity; ++index) {
@@ -365,7 +366,7 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
     }
     MediaAtlasEntry& entry = atlas->entries[slot];
     const u16 generation = entry.generation;
-    entry = MediaAtlasEntry{};
+    reset_value<MediaAtlasEntry>(&entry);
     entry.key = key;
     entry.allocation = allocation.handle;
     entry.generation = next_generation(generation);
@@ -475,7 +476,7 @@ bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,
 bool media_atlas_resolve_visible(MediaAtlas* atlas, MediaAtlasHandle handle,
                                  MediaAtlasResult* result) noexcept {
     if (result) {
-        *result = MediaAtlasResult{};
+        reset_value<MediaAtlasResult>(result);
     }
     if (!atlas || !result || !media_atlas_validate(*atlas, handle, result)) {
         return false;

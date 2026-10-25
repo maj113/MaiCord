@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/protocol/gateway_presence.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 inline constexpr u32 kGatewayPresenceSendLimit = 5;
@@ -21,7 +22,7 @@ inline bool gateway_self_status_initialize(GatewaySelfStatusOwner* owner, u64 pr
                                            GatewayPresenceUpdate presence) noexcept {
     if (!profile_id || presence.status > GatewayUserStatus::invisible ||
         (presence.has_since && presence.status != GatewayUserStatus::idle)) return false;
-    *owner = {};
+    reset_value(owner);
     owner->profile_id = profile_id;
     owner->revision = 1;
     owner->desired = presence;

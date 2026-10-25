@@ -1,4 +1,5 @@
 #include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/list_navigation.hpp"
@@ -124,7 +125,7 @@ bool shell_navigation_scene_initialize(ShellNavigationScene* scene,
         !layout_storage.data || row_storage.count > (~0u - 2u) / 4u) {
         return false;
     }
-    *scene = ShellNavigationScene{};
+    reset_value<ShellNavigationScene>(scene);
     scene->rows = row_storage;
     scene->root = ui_widget_invalid_handle();
     return ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage);

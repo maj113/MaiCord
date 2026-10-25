@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/latin_paragraph.hpp"
+#include "maicord/core/memory.hpp"
 #include "unicode_line_geometry.hpp"
 namespace maicord {
 // One resolved script/font item. The printable callback and paragraph collector
@@ -16,7 +17,7 @@ SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics&,Utf8View,f
 template<class Plan,class Run> SfntStatus script_paragraph_shape(const NativeRunPlanStore& store,const Plan& plan,NativeRunPlanHandle handle,
     Utf8View text,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,
     float spacing,bool rtl,Run) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     const auto* metrics=native_run_plan_metrics(store,handle);if(!metrics)return SfntStatus::invalid_input;
     struct Source {const NativeRunPlanStore& store;const Plan& plan;const SfntFontLayoutMetrics& metrics;float spacing;bool rtl;} source{store,plan,*metrics,spacing,rtl};
     const auto shape=[](void* opaque,Utf8View input,float size,const NativeAsciiLineStorage& storage,NativeAsciiLineResult* result) noexcept {

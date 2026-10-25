@@ -18,7 +18,7 @@ bool same_entry(const UiToastEntry& a, const UiToastEntry& b) noexcept {
 void pop(UiToastScene* s) noexcept {
     for (u32 i = 1; i < s->count; ++i)
         s->entries[i - 1] = s->entries[i];
-    s->entries[--s->count] = {};
+    reset_value(&s->entries[--s->count]);
 }
 bool active(UiToastPhase phase) noexcept {
     return phase == UiToastPhase::entering || phase == UiToastPhase::shown ||
@@ -291,7 +291,7 @@ void ui_toast_clear(UiToastScene* s) noexcept {
         return;
     const auto owner = s->text_owner;
     const u32 serial = s->serial, revision = s->revision + 1;
-    *s = {};
+    reset_value(s);
     s->text_owner = owner;
     s->serial = serial;
     s->revision = revision;

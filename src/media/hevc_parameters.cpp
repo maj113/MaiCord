@@ -147,7 +147,7 @@ void hrd(HevcBits& b, u32 layers) noexcept {
     }
 }
 void vui(HevcBits& b, HevcSps& s) noexcept {
-    constexpr u16 sar[17][2] = {{0, 0},   {1, 1},    {12, 11}, {10, 11}, {16, 11}, {40, 33},
+    static constexpr u16 sar[17][2] = {{0, 0},   {1, 1},    {12, 11}, {10, 11}, {16, 11}, {40, 33},
                                 {24, 11}, {20, 11},  {32, 11}, {80, 33}, {18, 11}, {15, 11},
                                 {64, 33}, {160, 99}, {4, 3},   {3, 2},   {2, 1}};
     if (b.bit()) {
@@ -267,7 +267,7 @@ HevcNal hevc_next_nal(HevcNalCursor* c) noexcept {
         return n;
     }
     for (;;) {
-        n = {};
+        reset_value(&n);
         if (c->offset == c->bytes.count) {
             n.error = HevcError::end;
             return n;
@@ -526,7 +526,7 @@ HevcError hevc_parse_pps(ConstSlice<u8> nal, const HevcSps& s, HevcPps* output) 
         return HevcError::invalid_input;
     HevcPps p{};
     clear_bytes(&p, sizeof(p));
-    p.scaling = s.scaling;
+    copy_value(&p.scaling, s.scaling);
     auto b = hevc_payload(nal, 34);
     p.id = static_cast<u8>(b.ue(63));
     p.sps_id = static_cast<u8>(b.ue(15));
@@ -597,7 +597,7 @@ HevcError hevc_parse_pps(ConstSlice<u8> nal, const HevcSps& s, HevcPps* output) 
     if (b.error == HevcError::none)
         b.trailing();
     if (b.error == HevcError::none)
-        *output = p;
+        copy_value(output, p);
     return b.error;
 }
 HevcError hevc_select_parameters(ConstSlice<u8> config, u8 pps_id, HevcConfiguration* output) noexcept {

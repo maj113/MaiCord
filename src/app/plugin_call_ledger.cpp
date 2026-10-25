@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_call_ledger.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 
@@ -21,7 +22,7 @@ PluginCallLedgerEntry* entry(PluginCallLedger* ledger, u64 owner, bool create) n
         if (!empty && !candidate.owner_id) empty = &candidate;
     }
     if (!create || !empty) return nullptr;
-    *empty = {};
+    reset_value(empty);
     empty->owner_id = owner;
     return empty;
 }
@@ -45,7 +46,7 @@ void read_marker(const u8* bytes, PluginCallMarker* leftover) noexcept {
 } // namespace
 
 bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) noexcept {
-    if (leftover) *leftover = {};
+    if (leftover) reset_value(leftover);
     if (!path) return false;
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
@@ -60,7 +61,7 @@ bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) no
 }
 
 bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, PluginCallMarker* leftover) noexcept {
-    if (leftover) *leftover = {};
+    if (leftover) reset_value(leftover);
     if (!ledger || ledger->view) return false;
     initialize_timing(ledger);
     if (!path) return true;
@@ -172,7 +173,7 @@ u64 plugin_call_ledger_take_disable(PluginCallLedger* ledger) noexcept {
     for (auto& candidate : ledger->entries)
         if (candidate.owner_id && candidate.disable_requested) {
             const u64 owner = candidate.owner_id;
-            candidate = {};
+            reset_value(&candidate);
             return owner;
         }
     return 0;
@@ -181,7 +182,7 @@ u64 plugin_call_ledger_take_disable(PluginCallLedger* ledger) noexcept {
 void plugin_call_ledger_forget(PluginCallLedger* ledger, u64 owner) noexcept {
     if (!ledger) return;
     for (auto& candidate : ledger->entries)
-        if (owner && candidate.owner_id == owner) candidate = {};
+        if (owner && candidate.owner_id == owner) reset_value(&candidate);
 }
 
 } // namespace maicord

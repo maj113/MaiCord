@@ -177,7 +177,7 @@ AccountCredentialForgetResult account_credential_forget_complete_after_join(
     if (!result.ok())
         return result;
     // Keep the committed marker until the temporary marker is gone, too.
-    constexpr u32 marker_order[]{5u, 4u};
+    static constexpr u32 marker_order[]{5u, 4u};
     for (const u32 target : marker_order) {
         target_path(paths, target, scratch);
         const u32 error = remove(io, scratch);

@@ -1,10 +1,11 @@
 #include "maicord/text/arabic_paragraph.hpp"
+#include "maicord/core/memory.hpp"
 #include "script_paragraph.hpp"
 #include "unicode_line_geometry.hpp"
 namespace maicord {
 SfntStatus native_arabic_paragraph_shape(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,Utf8View input,
     bool independent,bool rtl,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     const auto plan=native_arabic_plan_get(store,handle,independent);if(!plan.shape)return SfntStatus::invalid_input;
     const auto* metrics=native_run_plan_metrics(*store.runs,store.slots[handle.slot-1].run);if(!metrics)return SfntStatus::invalid_input;
     struct Source {const NativeArabicPlanStore& store;NativeArabicPlanHandle handle;const SfntFontLayoutMetrics& metrics;bool independent,rtl;float spacing;} source{store,handle,*metrics,independent,rtl,trailing_spacing};

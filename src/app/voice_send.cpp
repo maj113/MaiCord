@@ -204,7 +204,7 @@ void voice_send_configure(VoiceSend* send, const VoiceAudioSettings& settings) n
     if (!send)
         return;
     AcquireSRWLockExclusive(send->lock.native());
-    send->settings = settings;
+    copy_value(&send->settings, settings);
     send->settings.input_device[kVoiceDeviceIdCharacters - 1] = 0;
     send->settings.output_device[kVoiceDeviceIdCharacters - 1] = 0;
     ++send->revision;
@@ -303,7 +303,10 @@ void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const Gatewa
     send->signal = signal;
     AcquireSRWLockExclusive(send->lock.native());
     if (send->revision != send->applied_revision || !send->configured) {
-        send->applied = send->configured || send->revision ? send->settings : voice_audio_settings_defaults();
+        if (send->configured || send->revision)
+            copy_value(&send->applied, send->settings);
+        else
+            send->applied = voice_audio_settings_defaults();
         send->applied_revision = send->revision;
         send->configured = true;
     }

@@ -95,7 +95,7 @@ bool layout(UiQuickSwitcherScene& s, bool force = false) noexcept {
         }
         if (visible) {
             s.visible[i] = s.accepted[index]; s.row_rectangles[i] = row; ++s.count;
-        } else { s.visible[i] = {}; s.row_rectangles[i] = {}; }
+        } else { reset_value(&s.visible[i]); reset_value(&s.row_rectangles[i]); }
         const auto clipped = visible ? ui_rect_intersection(row, s.body) : UiRect{};
         dirty |= rectangle(s, s.rows[i], clipped, s.body, visible,
                            visible && s.accepted[index].enabled, false);
@@ -204,7 +204,7 @@ bool ui_quick_switcher_scene_update(UiQuickSwitcherScene* s, const UiQuickSwitch
 }
 void ui_quick_switcher_scene_release(UiQuickSwitcherScene* s) noexcept {
     if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage); *s = {};
+    ui_fixed_widget_storage_release(&s->storage); reset_value(s);
 }
 bool ui_quick_switcher_scene_contains(const UiQuickSwitcherScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.viewport, x, y);

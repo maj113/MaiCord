@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "gateway_decode.hpp"
 
@@ -114,7 +115,7 @@ bool bounded_string(JsonString source, u32 maximum_bytes, Slice<char> output, u3
     if (*used > output.count) {
         return false;
     }
-    *value = Utf8View{};
+    reset_value<Utf8View>(value);
     const u32 remaining = output.count - *used;
     const JsonStringDecodeResult decoded = json_string_decode_utf8(
         source, Slice<char>{output.data ? output.data + *used : nullptr,
@@ -527,10 +528,10 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
                               root.referenced_message.source_offset);
     }
     if (!output->reference.content.bytes && referenced.poll.source.data) {
-        preview.text = {};
+        reset_value(&preview.text);
         json_visit_indexed_object(scratch, referenced.poll, maximum_depth, visit_referenced_question, &preview);
         if (preview.question.source.data) {
-            preview.text = {};
+            reset_value(&preview.text);
             json_visit_indexed_object(scratch, preview.question, maximum_depth, visit_referenced_question,
                                       &preview);
             if (preview.text.encoded.data &&
@@ -698,7 +699,7 @@ bool visit_thread(void* opaque, JsonString name, JsonValue value) noexcept {
 
 GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexedDocument& scratch, u32 depth,
                                        Slice<char> text, u32* used, GatewayMessageEvent* output) noexcept {
-    output->thread = {};
+    reset_value(&output->thread);
     if (value.kind == JsonValueKind::null_value)
         return decode_failure(GatewayEventDecodeError::none);
     ThreadContext context{};
@@ -898,7 +899,7 @@ GatewayEventDecodeResult decode_reactions(JsonValue array, const JsonIndexedDocu
             details.normal = reaction.count;
         }
         GatewayMessageReaction& destination = output_scratch.reactions[index];
-        destination = GatewayMessageReaction{};
+        reset_value<GatewayMessageReaction>(&destination);
         destination.emoji_id = emoji.id;
         destination.count = reaction.count;
         destination.normal_count = details.normal;
@@ -1132,7 +1133,7 @@ bool embed_part_url(const EmbedPartContext& part, u64 bit, JsonString source, Sl
         return false;
     }
     if (destination->bytes != 0 && !rich_url_valid(*destination, false)) {
-        *destination = Utf8View{};
+        reset_value<Utf8View>(destination);
         *text_used = rollback;
     }
     return true;
@@ -1260,7 +1261,7 @@ GatewayEventDecodeResult decode_embed_media(JsonValue object, const JsonIndexedD
     if (!result.ok()) {
         return result;
     }
-    *destination = GatewayMessageEmbedMedia{};
+    reset_value<GatewayMessageEmbedMedia>(destination);
     destination->width = context.width;
     destination->height = context.height;
     destination->flags = context.flags;
@@ -1419,7 +1420,7 @@ bool visit_embed_component_item(void* opaque, u32, JsonValue value) noexcept {
 // one bounded description in the decoded text bank.
 bool embed_component_description(const EmbedComponentWalk& walk, Slice<char> text_output, u32* text_used,
                                  Utf8View* description, u32* truncations) noexcept {
-    *description = {};
+    reset_value(description);
     const u32 begin = *text_used;
     for (u32 i = 0; i < walk.text_count; ++i) {
         if (i) {
@@ -1463,7 +1464,7 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
             return result;
         }
         GatewayMessageEmbed& destination = output_scratch.embeds[index];
-        destination = GatewayMessageEmbed{};
+        reset_value<GatewayMessageEmbed>(&destination);
         destination.field_begin = static_cast<u16>(field_count);
         destination.color = context.color;
         destination.has_color = (context.seen & (1ull << 4)) != 0;
@@ -1563,7 +1564,7 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                                           field_values[field].source_offset);
                 }
                 GatewayMessageEmbedField& field_output = output_scratch.embed_fields[field_count];
-                field_output = GatewayMessageEmbedField{};
+                reset_value<GatewayMessageEmbedField>(&field_output);
                 field_output.embed_index = static_cast<u16>(index);
                 field_output.inline_field = parsed.inline_field;
                 if (!bounded_string(parsed.name, kRichEmbedTitleMaximumBytes, text_output, text_used,
@@ -1617,12 +1618,12 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                 !decode_embed_media(walk.thumbnail, scratch, maximum_depth, text_output, text_used,
                                     &destination.thumbnail, &output->rich_truncations)
                      .ok())
-                destination.thumbnail = GatewayMessageEmbedMedia{};
+                reset_value<GatewayMessageEmbedMedia>(&destination.thumbnail);
             if (walk.image.source.data && !destination.image.url.bytes &&
                 !decode_embed_media(walk.image, scratch, maximum_depth, text_output, text_used,
                                     &destination.image, &output->rich_truncations)
                      .ok())
-                destination.image = GatewayMessageEmbedMedia{};
+                reset_value<GatewayMessageEmbedMedia>(&destination.image);
         }
     }
     output->embeds = ConstSlice<GatewayMessageEmbed>{output_scratch.embeds.data, count};
@@ -1680,7 +1681,7 @@ GatewayEventDecodeResult decode_stickers(JsonValue array, const JsonIndexedDocum
                                   values[index].source_offset);
         }
         GatewayMessageSticker& destination = output_scratch.stickers[index];
-        destination = GatewayMessageSticker{};
+        reset_value<GatewayMessageSticker>(&destination);
         destination.id = parsed.id;
         destination.format_type = static_cast<u8>(parsed.format_type);
         if (!bounded_string(parsed.name, kGatewayMessageUserNameMaximumBytes, text_output, text_used,
@@ -1978,7 +1979,7 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
         }
         const u16 destination_index = static_cast<u16>(output_count);
         GatewayMessageComponent& destination = output_scratch.components[output_count++];
-        destination = GatewayMessageComponent{};
+        reset_value<GatewayMessageComponent>(&destination);
         destination.id = parsed.id;
         destination.parent = work[cursor].parent;
         destination.order = work[cursor].order;
@@ -2133,7 +2134,7 @@ bool visit_snapshot_item(void* opaque, u32 index, JsonValue value) noexcept {
 }
 GatewayEventDecodeResult extract_snapshot(JsonValue value, const JsonIndexedDocument& document,
                                           u32 maximum_depth, JsonValue* body, bool* present) noexcept {
-    *body = {};
+    reset_value(body);
     *present = false;
     if (value.kind == JsonValueKind::null_value)
         return decode_failure(GatewayEventDecodeError::none);
@@ -2169,7 +2170,7 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
                                          Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> text,
                                          u32* used, const GatewayMessageSnapshotScratch& scratch,
                                          GatewayMessageSnapshot* output) noexcept {
-    *output = {};
+    reset_value(output);
     JsonValue body_value{};
     bool present = false;
     auto result = extract_snapshot(value, document, maximum_depth, &body_value, &present);

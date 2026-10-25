@@ -1,4 +1,5 @@
 #include "maicord/ui/accessibility_scenes.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
@@ -1137,7 +1138,7 @@ u32 add_synthetic(UiAccessTree* tree, u32 parent, u8 surface, u64 identity, UiAc
     description.surface = surface;
     if (!ui_rect_has_area(description.visible)) {
         description.state |= ui_access_offscreen;
-        description.visible = {};
+        reset_value(&description.visible);
     }
     return ui_access_add(tree, parent, description);
 }

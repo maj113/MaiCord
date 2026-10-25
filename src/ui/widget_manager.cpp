@@ -1,4 +1,5 @@
 #include "maicord/core/time.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/widget_manager.hpp"
 
 namespace maicord {
@@ -48,7 +49,7 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
     }
     const u16 slot = static_cast<u16>(manager->count++);
     UiWidget& widget = manager->storage[slot];
-    widget = UiWidget{};
+    reset_value<UiWidget>(&widget);
     widget.layout = layout_handle;
     widget.parent = root ? ui_widget_invalid_handle() : parent;
     widget.id = description.id;
@@ -65,7 +66,7 @@ bool ui_widget_manager_initialize(UiWidgetManager* manager, Slice<UiWidget> widg
         widget_storage.count > kInvalidUiWidgetSlot || widget_storage.count > layout_storage.count) {
         return false;
     }
-    *manager = UiWidgetManager{};
+    reset_value<UiWidgetManager>(manager);
     manager->storage = widget_storage;
     manager->generation = 1;
     manager->focused = ui_widget_invalid_handle();
@@ -272,7 +273,7 @@ bool ui_widget_manager_focus(UiWidgetManager* manager, UiWidgetHandle handle) no
 bool ui_widget_manager_context_anchor(const UiWidgetManager& manager, UiRect* anchor) noexcept {
     if (!anchor)
         return false;
-    *anchor = {};
+    reset_value(anchor);
     const auto* widget = ui_widget_manager_resolve(manager, manager.focused);
     if (!widget || !widget_focusable(manager, *widget))
         return false;

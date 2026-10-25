@@ -157,7 +157,7 @@ H264Error h264_parameter_sets_resolve(const H264ParameterSets& sets, u8 pps_id, 
     const H264Error error = h264_parse_pps({picture->raw, picture->bytes}, sequence->parsed, &parsed);
     if (error != H264Error::none) return error;
     *sps = sequence->parsed;
-    *pps = parsed;
+    copy_value(pps, parsed);
     return H264Error::none;
 }
 
@@ -236,7 +236,7 @@ H264ScanStatus h264_stream_scan(H264ParameterSets* sets, H264StreamScanner* scan
             if (!vcl) {
                 if (sps != &picture->sps) {
                     picture->sps = *sps;
-                    picture->pps = *pps;
+                    copy_value(&picture->pps, *pps);
                 }
                 picture->first = slice;
                 // Leading slices were lost: concealment would need references
@@ -292,8 +292,8 @@ H264ScanStatus h264_stream_scan(H264ParameterSets* sets, H264StreamScanner* scan
 
 void h264_stream_reset(H264StreamState* state) noexcept {
     if (!state) return;
-    state->references = {};
-    state->output = {};
+    reset_value(&state->references);
+    reset_value(&state->output);
     state->output.leased = 255;
     state->waiting = true;
     state->drain = false;
@@ -352,7 +352,7 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
     const u32 busy = (first.idr ? 0u : reference_mask(state->references)) | (next.reinitialize ? 0u : state->held);
     H264OutputQueue pending = state->output;
     if (next.reinitialize)
-        pending = {}; // Drained before new surfaces replace theirs.
+        reset_value(&pending); // Drained before new surfaces replace theirs.
     pending.leased = 255;
     const u8 surface = h264_free_surface(pending, busy, capacity);
     if (surface == 255) {
@@ -369,7 +369,7 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
     }
     if (reset && state->output.count) {
         if (first.idr && first.discard_prior) {
-            state->output = {};
+            reset_value(&state->output);
             state->output.leased = 255;
         } else state->drain = true;
     }

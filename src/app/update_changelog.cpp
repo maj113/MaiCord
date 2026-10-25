@@ -49,7 +49,7 @@ u32 sanitize(char* text, u32 bytes) noexcept {
 bool visit_entry(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& e = *static_cast<EntryParse*>(opaque);
     auto& parse = *e.parse;
-    constexpr Utf8View names[]{utf8_literal("version"), utf8_literal("date"), utf8_literal("commit"), utf8_literal("text")};
+    static constexpr Utf8View names[]{utf8_literal("version"), utf8_literal("date"), utf8_literal("commit"), utf8_literal("text")};
     u32 field = entry_field_count;
     for (u32 i = 0; i < entry_field_count; ++i)
         if (json_string_equals_ascii(name, names[i])) { field = i; break; }
@@ -103,7 +103,7 @@ bool visit_entries(void* opaque, u32, JsonValue value) noexcept {
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
     auto& log = *parse.log;
-    constexpr Utf8View names[]{utf8_literal("format"), utf8_literal("product"), utf8_literal("channel"),
+    static constexpr Utf8View names[]{utf8_literal("format"), utf8_literal("product"), utf8_literal("channel"),
         utf8_literal("version"), utf8_literal("base"), utf8_literal("entries")};
     u32 field = field_count;
     for (u32 i = 0; i < field_count; ++i)
@@ -245,7 +245,7 @@ u32 update_changelog_date_text(u64 unix_seconds, bool year, Slice<char> output) 
     const u32 day = static_cast<u32>(day_of_year - (153 * month_index + 2) / 5 + 1);
     const u32 month = static_cast<u32>(month_index < 10 ? month_index + 3 : month_index - 9);
     const u64 civil_year = static_cast<u64>(year_of_era + era * 400 + (month <= 2 ? 1 : 0));
-    constexpr char names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    static constexpr char names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
     char text[24];
     u32 used = 0;
     copy_bytes(text, names + (month - 1) * 3, 3);

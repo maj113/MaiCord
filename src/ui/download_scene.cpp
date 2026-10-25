@@ -251,7 +251,7 @@ bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source
 }
 void ui_download_scene_release(UiDownloadScene* s) noexcept {
     if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage); *s = {};
+    ui_fixed_widget_storage_release(&s->storage); reset_value(s);
 }
 bool ui_download_scene_contains(const UiDownloadScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.viewport,x,y);

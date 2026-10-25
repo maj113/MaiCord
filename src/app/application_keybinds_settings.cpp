@@ -1,4 +1,5 @@
 #include "application_keybinds_settings.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_voice.hpp"
 #include "maicord/core/log.hpp"
 
@@ -35,7 +36,7 @@ void ensure_loaded() noexcept {
     if (ui.loaded)
         return;
     ui.loaded = true;
-    ui.keybinds = {};
+    reset_value(&ui.keybinds);
     custom_keybinds_load(&ui.keybinds);
     ++ui.revision;
 }

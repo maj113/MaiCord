@@ -1,4 +1,5 @@
 #include "application_dm_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "application_content_input.hpp"
 #include "application_friends.hpp"
@@ -141,7 +142,7 @@ CachedProfile* claim(u64 user) noexcept {
             oldest = &entry;
     if (!oldest)
         return nullptr;
-    *oldest = {};
+    reset_value(oldest);
     oldest->user_id = user;
     oldest->data.user_id = user;
     return oldest;

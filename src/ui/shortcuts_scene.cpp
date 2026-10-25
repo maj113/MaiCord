@@ -1,4 +1,5 @@
 #include "maicord/ui/shortcuts_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/foreground_color.hpp"
@@ -197,7 +198,7 @@ void ui_shortcuts_scene_release(UiShortcutsScene* s) noexcept {
     if (!s)
         return;
     ui_fixed_widget_storage_release(&s->storage);
-    *s = {};
+    reset_value(s);
 }
 UiShortcutsTarget ui_shortcuts_scene_hit_test(const UiShortcutsScene& s, float x, float y) noexcept {
     if (!current(s) || !ui_rect_contains(s.viewport, x, y))

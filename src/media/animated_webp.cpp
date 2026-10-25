@@ -1,4 +1,5 @@
 #include "maicord/media/animated_webp.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {
@@ -75,7 +76,7 @@ AnimatedWebpError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 size, Ani
         return AnimatedWebpError::rectangle;
     }
 
-    *frame = AnimatedWebpFrame{};
+    reset_value<AnimatedWebpFrame>(frame);
     frame->duration_ms = duration_ms;
     frame->x_offset = static_cast<u16>(x);
     frame->y_offset = static_cast<u16>(y);
@@ -161,7 +162,7 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
     if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
         return parse_failure(result, AnimatedWebpError::invalid_input);
     }
-    *image = AnimatedWebpImage{};
+    reset_value<AnimatedWebpImage>(image);
     AnimatedWebpFrame* frames = workspace->extended_frames.data
                                     ? workspace->extended_frames.data : workspace->frames;
     u32 capacity = workspace->extended_frames.data

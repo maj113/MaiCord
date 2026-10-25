@@ -1,4 +1,5 @@
 #include "application_guild_settings_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "application_settings.hpp"
 
@@ -210,7 +211,7 @@ bool bans_search_request(GuildModerationRequest* request) noexcept {
     auto& p = *owner;
     if (!p.ban_search_bytes)
         return false;
-    *request = {};
+    reset_value(request);
     request->operation = GuildModerationOperation::ban_search;
     request->guild_id = p.guild_id;
     request->query = {p.ban_search_text, p.ban_search_bytes};

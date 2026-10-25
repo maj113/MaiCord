@@ -211,7 +211,7 @@ void destroy(HttpsFileUpload* upload) noexcept {
         SecureZeroMemory(upload->runtime, sizeof(Runtime));
         VirtualFree(upload->runtime, 0, MEM_RELEASE);
     }
-    *upload = {};
+    reset_value(upload);
 }
 }
 u32 https_file_upload_runtime_bytes() noexcept { return static_cast<u32>((sizeof(Runtime) + 4095) & ~4095ull); }
@@ -224,7 +224,7 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
         path.count > kHttpsFileUploadMaximumPathUnits || !timeout_ms || timeout_ms > 60 * 60 * 1000)
         return HttpsFileUploadError::invalid_input;
     for (u32 i = 0; i < path.count; ++i) if (!path[i]) return HttpsFileUploadError::invalid_input;
-    *upload = {};
+    reset_value(upload);
     upload->runtime = VirtualAlloc(nullptr, https_file_upload_runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!upload->runtime) return HttpsFileUploadError::memory;
     auto* r = static_cast<Runtime*>(upload->runtime);

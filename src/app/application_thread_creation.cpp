@@ -428,7 +428,7 @@ bool application_thread_creation_submit(u64 id, u64 now) noexcept {
         else fail(owner, utf8_literal("Couldn't create the thread. Try again."), owner.uncertain);
         return false;
     }
-    owner.flight = admitted;
+    copy_value(&owner.flight, admitted);
     owner.flight.request.name = {owner.flight.name, admitted.request.name.bytes};
     if (owner.serial != admitted.serial || owner.retired || !source_current(owner)) {
         cancel_flight(owner);
@@ -443,7 +443,7 @@ bool application_thread_creation_response(const RestClientResponse& response, Ut
     auto& owner = *creation_owner;
     auto flight = owner.flight;
     flight.request.name = {flight.name, flight.request.name.bytes};
-    owner.flight = {};
+    reset_value(&owner.flight);
     const u64 now = clock_monotonic_milliseconds();
     if (actor_current(flight.source) && (response.rate_limited || response.status_code == 429)) {
         owner.actor_floor = maximum(owner.actor_floor, maximum(response.retry_at_ms,

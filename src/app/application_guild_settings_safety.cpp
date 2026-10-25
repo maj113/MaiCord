@@ -5,7 +5,7 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-constexpr Utf8View kVerificationChoices[]{utf8_literal("None"), utf8_literal("Low"), utf8_literal("Medium"),
+static constexpr Utf8View kVerificationChoices[]{utf8_literal("None"), utf8_literal("Low"), utf8_literal("Medium"),
                                           utf8_literal("High"), utf8_literal("Highest")};
 static_assert(sizeof(kVerificationChoices) / sizeof(kVerificationChoices[0]) == kGuildVerificationLevels);
 constexpr Utf8View kVerificationDetails[]{

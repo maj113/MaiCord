@@ -1,4 +1,5 @@
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -43,7 +44,7 @@ u16 regional_flag_sequence(Utf8View glyph) noexcept {
     } else {
         if (scalars[0] != 0x1f3f4 || scalars[1] != 0xe0067 ||
             scalars[2] != 0xe0062 || scalars[6] != 0xe007f) return 0;
-        constexpr char subdivisions[3][3] = {{'e', 'n', 'g'}, {'s', 'c', 't'}, {'w', 'l', 's'}};
+        static constexpr char subdivisions[3][3] = {{'e', 'n', 'g'}, {'s', 'c', 't'}, {'w', 'l', 's'}};
         for (u32 i = 0; i < 3; ++i)
             if (scalars[3] == 0xe0000u + static_cast<u32>(subdivisions[i][0]) &&
                 scalars[4] == 0xe0000u + static_cast<u32>(subdivisions[i][1]) &&
@@ -56,7 +57,7 @@ u16 regional_flag_sequence(Utf8View glyph) noexcept {
 }
 
 bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) noexcept {
-    if (range) *range = {};
+    if (range) reset_value(range);
     if (!cursor || !range || (!text.data && text.bytes) || *cursor > text.bytes) return false;
     u32 position = *cursor;
     while (position < text.bytes) {
@@ -100,7 +101,7 @@ u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
         scalars[0] = 0x1f1e6u + (sequence - 1) / 26;
         scalars[1] = 0x1f1e6u + (sequence - 1) % 26;
     } else {
-        constexpr char subdivisions[3][3] = {{'e', 'n', 'g'}, {'s', 'c', 't'}, {'w', 'l', 's'}};
+        static constexpr char subdivisions[3][3] = {{'e', 'n', 'g'}, {'s', 'c', 't'}, {'w', 'l', 's'}};
         count = 7; scalars[0] = 0x1f3f4; scalars[1] = 0xe0067; scalars[2] = 0xe0062;
         for (u32 i = 0; i < 3; ++i) scalars[3 + i] = 0xe0000u + static_cast<u32>(subdivisions[sequence - 677][i]);
         scalars[6] = 0xe007f;
@@ -108,7 +109,7 @@ u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
     const u32 bytes = kRegionalFlagSvgTargetPrefixBytes + count * 6 - 1 + 4;
     if (output.count < bytes) return 0;
     for (u32 i = 0; i < kRegionalFlagSvgTargetPrefixBytes; ++i) output[i] = kRegionalFlagSvgTargetPrefix[i];
-    constexpr char hexadecimal[] = "0123456789abcdef", suffix[] = ".svg";
+    static constexpr char hexadecimal[] = "0123456789abcdef", suffix[] = ".svg";
     u32 at = kRegionalFlagSvgTargetPrefixBytes;
     for (u32 i = 0; i < count; ++i) {
         if (i) output[at++] = '-';

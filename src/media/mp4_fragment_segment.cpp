@@ -1,4 +1,5 @@
 #include "maicord/media/mp4_fragment.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
 
@@ -89,7 +90,7 @@ Mp4DemuxError mp4_media_segment_initialize(ConstSlice<u8> bytes, const Mp4Fragme
     if (!indexed) value.range.duration = end - value.range.time;
     if (track.audio && (value.fragment.first_time != value.range.time || end - value.fragment.first_time != value.range.duration))
         return E::malformed;
-    *output = value;
+    copy_value(output, value);
     return E::none;
 }
 } // namespace maicord

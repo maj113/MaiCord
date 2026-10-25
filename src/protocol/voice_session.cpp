@@ -41,7 +41,7 @@ bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> 
     byte_queue_initialize(&session->input, input);
     session->fragments = fragments;
     session->scratch = scratch;
-    session->tracker = {};
+    reset_value(&session->tracker);
     session->fragment_bytes = 0;
     session->maximum_frame_bytes = maximum_frame_bytes;
     session->maximum_message_bytes = maximum_message_bytes;
@@ -175,7 +175,7 @@ void voice_session_clear(VoiceSession* session) noexcept {
     if (session->fragments.data)
         secure_clear_bytes(session->fragments.data, session->fragments.count);
     byte_queue_clear(&session->input, false);
-    session->tracker = {};
+    reset_value(&session->tracker);
     session->fragment_bytes = 0;
     session->closed = true;
 }

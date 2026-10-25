@@ -99,7 +99,7 @@ void project_stickers(Bank& bank) noexcept {
     push(category(control_list_category, bank.since(heading)));
     if (p.stickers_loaded && !p.sticker_count)
         push(notice({}, utf8_literal("This server has no stickers yet.")));
-    constexpr Utf8View formats[]{{}, utf8_literal("PNG"), utf8_literal("APNG"), utf8_literal("Lottie"),
+    static constexpr Utf8View formats[]{{}, utf8_literal("PNG"), utf8_literal("APNG"), utf8_literal("Lottie"),
                                  utf8_literal("GIF")};
     for (u32 i = 0; i < p.sticker_count; ++i) {
         const auto& sticker = p.stickers[i];
@@ -347,7 +347,7 @@ bool expression_save(TextFormOwnerKey key, Utf8View text) noexcept {
     }
     default: return false;
     }
-    p.form_status = {};
+    reset_value(&p.form_status);
     repaint();
     return true;
 }
@@ -366,7 +366,7 @@ void open_expression_form(u64 kind, u64 item) noexcept {
     request.progress = expression_progress;
     request.closed = expression_closed;
     request.single_line = true;
-    p.form_status = {};
+    reset_value(&p.form_status);
     ++p.form_revision;
     u32 initial_bytes = 0;
     const auto copy_initial = [&](Utf8View text) noexcept {

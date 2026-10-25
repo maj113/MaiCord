@@ -1,4 +1,5 @@
 #include "maicord/ui/login_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/widget_builder.hpp"
 
 namespace maicord {
@@ -513,7 +514,7 @@ bool control_input_enabled(const LoginScene& scene, LoginControl control) noexce
 }
 
 void sync_login_input(LoginScene* scene) noexcept {
-    constexpr LoginControl controls[]{
+    static constexpr LoginControl controls[]{
         LoginControl::login,           LoginControl::password,   LoginControl::submit,
         LoginControl::forgot_password, LoginControl::qr,         LoginControl::mfa_totp,
         LoginControl::mfa_sms,         LoginControl::mfa_backup, LoginControl::mfa_webauthn,
@@ -599,7 +600,7 @@ void login_scene_release(LoginScene* scene) noexcept {
         return;
     }
     ui_fixed_widget_storage_release(&scene->storage);
-    *scene = LoginScene{};
+    reset_value<LoginScene>(scene);
 }
 
 bool login_scene_layout_with_metrics(LoginScene* scene, float width, float height,

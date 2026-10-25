@@ -1,4 +1,5 @@
 #include "application_load_trace.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_channel_session.hpp"
 #include "application_channel_snapshots.hpp"
 
@@ -82,10 +83,10 @@ bool synchronize_selected_channel() noexcept {
     if (state.selected_channel_id || !state.restore_channel_id)
         g_app.member_list_scene.restore_channel_id = 0;
     application_channel_snapshot_capture(ui.active_channel_id);
-    g_app.message_catchup = MessageHistoryCatchup{};
-    g_app.message_older = MessageHistoryOlder{};
-    g_app.attachment_refresh = AttachmentRefresh{};
-    g_app.reply_refresh = ReplyReferenceRefresh{};
+    reset_value<MessageHistoryCatchup>(&g_app.message_catchup);
+    reset_value<MessageHistoryOlder>(&g_app.message_older);
+    reset_value<AttachmentRefresh>(&g_app.attachment_refresh);
+    reset_value<ReplyReferenceRefresh>(&g_app.reply_refresh);
     if (!message_timeline_reset(&g_app.message_view.timeline) ||
         !message_timeline_set_scroll(&g_app.message_view.timeline, 0, true)) {
         log_write(LogLevel::error, "app", "selected_channel_timeline_reset_failed");
@@ -108,7 +109,7 @@ bool synchronize_selected_channel() noexcept {
     ui.active_channel_id = state.selected_channel_id;
     application_quick_switcher_note_channel(ui.active_channel_id);
     const u64 epoch = g_app.load_trace.channel_epoch + 1;
-    g_app.load_trace = {};
+    reset_value(&g_app.load_trace);
     g_app.load_trace.channel_epoch = epoch;
     g_app.load_trace.channel_started = clock_now();
     application_trace_load_stage("channel_selected");

@@ -1,4 +1,5 @@
 #include "maicord/text/gvar.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/truetype_outline.hpp"
 #include "sfnt_read.hpp"
 namespace maicord {namespace {
@@ -149,7 +150,7 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
 #pragma float_control(pop)
 }
 SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!span(table,0,20))return SfntStatus::truncated;
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;if(r16(table,4)!=axes || r16(table,12)!=glyphs || (r16(table,14)&~1))return SfntStatus::malformed;
     const u16 shared=r16(table,6),stride=r16(table,14)&1?4:2;const u32 tuples=r32(table,8),data=r32(table,16),header=20+(static_cast<u32>(glyphs)+1)*stride,cells=static_cast<u32>(shared)*axes;
     if(shared>4096 || data<header || (shared && tuples<header))return SfntStatus::malformed;
@@ -158,7 +159,7 @@ SfntStatus sfnt_gvar_open(ConstSlice<u8> table,u16 axes,u16 glyphs,SfntGvar* out
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> coordinates,Slice<double> storage,SfntGvarInstance* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data || coordinates.count!=font.axis_count || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;
     if(storage.count<font.shared_count || (font.shared_count && !storage.data))return SfntStatus::output_too_small;
     if(!spend(work,coordinates.count))return SfntStatus::resource_limit;for(u32 i=0;i<coordinates.count;++i)if(!(coordinates[i]>=-1 && coordinates[i]<=1))return SfntStatus::invalid_input;
@@ -182,7 +183,7 @@ SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,ConstSlic
     if(!spend(work,ends.count) || !spend(work,total))return SfntStatus::resource_limit;
     u32 previous=0;for(u32 i=0;i<ends.count;++i){if(ends[i]<origin || ends[i]-origin>=points.count || (i && ends[i]<=previous))return SfntStatus::invalid_input;previous=ends[i];}
     if(!composite && (points.count?(ends.count==0 || previous-origin+1!=points.count):ends.count!=0))return SfntStatus::invalid_input;
-    for(u32 i=0;i<total;++i)output[i]={};Tuples tuples{instance};auto status=tuples.open(glyph);if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<total;++i)reset_value(&output[i]);Tuples tuples{instance};auto status=tuples.open(glyph);if(status!=SfntStatus::ok)return status;
     PointList shared{{},total,true};
     if(tuples.shared){const auto s=point_list(tuples.serialized,total,scratch.shared_points,&shared,work);if(s!=SfntStatus::ok)return s;}
     for(u32 i=0;i<tuples.count;++i){ConstSlice<u8> packed{};u16 index=0;double scale=0;

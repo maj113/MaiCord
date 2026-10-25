@@ -1,4 +1,5 @@
 #include "maicord/text/font_instance.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -17,7 +18,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
     ConstSlice<FontAxisSetting> settings,bool instructions,NativeFontPrepareScratch scratch,
     NativeFontInstanceHandle* output,u32 work,u32* used,usize state_limit) noexcept {
     WorkReport report{work,work,used};
-    if(output)*output={};if(!store||!valid(*store)||!output)return result(NativeFontError::invalid_input);
+    if(output)reset_value(output);if(!store||!valid(*store)||!output)return result(NativeFontError::invalid_input);
     const auto* face=native_font_get(*store->fonts,handle);if(!face)return result(NativeFontError::invalid_input);
     const auto& geometry=face->geometry;const u32 axes=geometry.axes.axis_count;u32 child=0;
     if(instructions && geometry.kind!=FontGeometryKind::truetype)return result(NativeFontError::font,SfntStatus::unsupported);
@@ -62,7 +63,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
             // Disabled glyph programs cannot consume preparation arrays. Keep
             // the small profile header and any preceding variation state, and
             // decommit whole unused pages without allocating/copying again.
-            prepared->storage={};prepared->cvt={};prepared->functions={};prepared->twilight={};prepared->stack_capacity=0;
+            reset_value(&prepared->storage);reset_value(&prepared->cvt);reset_value(&prepared->functions);reset_value(&prepared->twilight);prepared->stack_capacity=0;
             if(!arena_rewind(&state,retained_end))return result(NativeFontError::invalid_input);
             const usize committed=(state.offset+page-1)&~(page-1);
             if(committed<state.committed){if(!VirtualFree(state.base+committed,state.committed-committed,MEM_DECOMMIT))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());state.committed=committed;}
@@ -71,7 +72,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
     }
     if(state.base){DWORD old=0;if(!VirtualProtect(state.base,state.committed,PAGE_READONLY,&old))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());}
     if(!native_font_retain(store->fonts,handle))return result(NativeFontError::capacity);
-    auto& p=store->slots[free_slot];p.instance=instance;p.state=state;state={};p.references=1;++p.generation;
+    auto& p=store->slots[free_slot];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
     *output={free_slot+1,p.generation};return result(NativeFontError::none);
 }
 bool native_font_instance_retain(NativeFontInstanceStore* s,NativeFontInstanceHandle h) noexcept {
@@ -79,7 +80,7 @@ bool native_font_instance_retain(NativeFontInstanceStore* s,NativeFontInstanceHa
 }
 bool native_font_instance_release(NativeFontInstanceStore* s,NativeFontInstanceHandle h) noexcept {
     if(!s)return false;auto* p=slot(*s,h);if(!p)return false;if(--p->references)return true;
-    const auto face=p->instance.face;const u32 generation=p->generation;arena_release(&p->state);*p={};p->generation=generation;return native_font_release(s->fonts,face);
+    const auto face=p->instance.face;const u32 generation=p->generation;arena_release(&p->state);reset_value(p);p->generation=generation;return native_font_release(s->fonts,face);
 }
 const NativeFontInstance* native_font_instance_get(const NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
     const auto* p=slot(s,h);return p?&p->instance:nullptr;

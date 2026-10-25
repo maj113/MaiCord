@@ -1,4 +1,5 @@
 #include "maicord/protocol/relationships.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -114,7 +115,7 @@ RelationshipsDecodeError decode_record(const JsonIndexedDocument& document, Json
     }
     parse.mutation.preserve_nickname = event == RelationshipEvent::add &&
         (!(parse.seen & 4) || parse.nickname_null);
-    *output = parse.mutation;
+    copy_value(output, parse.mutation);
     return RelationshipsDecodeError::none;
 }
 bool scan_document(Utf8View input, Slice<u32> scratch, JsonIndexedDocument* document) noexcept {
@@ -149,7 +150,7 @@ bool visit_snapshot(void* opaque, u32, JsonValue value) noexcept {
     snapshot.records[snapshot.count++] = decoded.record;
     if (decoded.user.id && snapshot.users.count) {
         if (snapshot.user_count == snapshot.users.count) { snapshot.error = RelationshipsDecodeError::capacity; return false; }
-        snapshot.users[snapshot.user_count++] = decoded.user;
+        copy_value(&snapshot.users[snapshot.user_count++], decoded.user);
     }
     return true;
 }

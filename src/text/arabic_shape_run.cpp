@@ -1,4 +1,5 @@
 #include "maicord/text/arabic_shape_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/arabic_marks.hpp"
 #include "maicord/text/arabic_joining.hpp"
 
@@ -76,7 +77,7 @@ SfntStatus restore_cgj_clusters(void* opaque,SfntClusterMap* clusters,const Sfnt
 SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,ConstSlice<u32> scalars,
     u32 units,ConstSlice<u32> boundaries,bool rtl,float em,SfntShapeStorage storage,
     SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(scalars.count!=input.count)return SfntStatus::invalid_input;
     auto status=sfnt_arabic_mark_order(scalars,storage.character_glyphs,limits.stage_work,rtl);
     if(status!=SfntStatus::ok)return status;
@@ -149,7 +150,7 @@ SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,
             if(i<leading){glyph.source=input[i].source;expanded[written++]={dotted,glyph.source};}
             expanded[written++]=glyph;
         }
-        input={expanded,static_cast<u32>(count)};order={};
+        input={expanded,static_cast<u32>(count)};reset_value(&order);
         if(!logical){
             if(count*2+boundaries.count>limits.stage_work)return SfntStatus::resource_limit;
             u32 boundary_index=0;

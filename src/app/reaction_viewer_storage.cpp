@@ -1,4 +1,5 @@
 #include "maicord/app/reaction_viewer_storage.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 
@@ -8,13 +9,13 @@ void reaction_viewer_storage_release(ReactionViewerStorage* storage, ReactionVie
         stable_storage_release(&storage->page_users);
         stable_storage_release(&storage->text);
         stable_storage_release(&storage->users);
-        *storage = ReactionViewerStorage{};
+        reset_value<ReactionViewerStorage>(storage);
     }
     if (controller) {
-        *controller = ReactionViewerController{};
+        reset_value<ReactionViewerController>(controller);
     }
     if (viewer) {
-        *viewer = ReactionViewer{};
+        reset_value<ReactionViewer>(viewer);
     }
 }
 

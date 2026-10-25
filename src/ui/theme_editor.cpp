@@ -65,7 +65,7 @@ void rgb_hsv(UiThemeEditorScene& s, u32 rgb) noexcept {
     }
 }
 void numbers(UiThemeEditorScene& s) noexcept {
-    constexpr char digits[] = "0123456789ABCDEF";
+    static constexpr char digits[] = "0123456789ABCDEF";
     s.hex[0] = '#';
     const u32 rgb = s.draft.colors[s.selected_stop];
     for (u32 i = 0; i < 6; ++i)
@@ -200,7 +200,7 @@ void enabled(UiThemeEditorScene& s) noexcept {
     if (auto* scrollbar =
             ui_widget_manager_resolve(&s.widgets, s.elements[at(UiThemeEditorElement::scrollbar)]))
         scrollbar->flags = ui_widget_enabled | ui_widget_hit_test;
-    constexpr UiThemeEditorElement effects[]{UiThemeEditorElement::speed, UiThemeEditorElement::strength,
+    static constexpr UiThemeEditorElement effects[]{UiThemeEditorElement::speed, UiThemeEditorElement::strength,
                                              UiThemeEditorElement::density};
     for (const auto e : effects) {
         auto* w = ui_widget_manager_resolve(&s.widgets, s.elements[at(e)]);
@@ -216,7 +216,7 @@ void enabled(UiThemeEditorScene& s) noexcept {
                                             ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
                                             : ui_widget_none);
     }
-    constexpr UiThemeEditorElement actions[]{UiThemeEditorElement::add, UiThemeEditorElement::remove};
+    static constexpr UiThemeEditorElement actions[]{UiThemeEditorElement::add, UiThemeEditorElement::remove};
     for (const auto e : actions) {
         auto* w = ui_widget_manager_resolve(&s.widgets, s.elements[at(e)]);
         if (w)
@@ -349,7 +349,7 @@ void ui_theme_editor_release(UiThemeEditorScene* s) noexcept {
         return;
     ui_theme_editor_close(s);
     ui_fixed_widget_storage_release(&s->storage);
-    *s = {};
+    reset_value(s);
 }
 const UiLayoutNode* ui_theme_editor_node(const UiThemeEditorScene& s, UiThemeEditorElement e) noexcept {
     return at(e) < kUiThemeEditorElements ? ui_widget_manager_layout_node(s.widgets, s.elements[at(e)])
@@ -380,7 +380,7 @@ bool ui_theme_editor_move_focus(UiThemeEditorScene* s, bool reverse) noexcept {
     if (!s || !ui_theme_editor_current(*s))
         return false;
     const auto old = s->widgets.focused;
-    constexpr UiThemeEditorElement order[]{UiThemeEditorElement::close,
+    static constexpr UiThemeEditorElement order[]{UiThemeEditorElement::close,
                                            UiThemeEditorElement::dark,
                                            UiThemeEditorElement::light,
                                            UiThemeEditorElement::gradient,

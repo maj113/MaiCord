@@ -1,4 +1,5 @@
 #include "maicord/protocol/hls_playlist.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/utf.hpp"
@@ -235,7 +236,7 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
         if (prefix(line, utf8_literal("#EXT-X-STREAM-INF:"))) {
             if (pending) return E::malformed;
             if (++count > 64) return E::capacity;
-            Attribute fields[16]{}; u32 fields_count{}; candidate = {}; candidate_group = {}; codec = 0;
+            Attribute fields[16]{}; u32 fields_count{}; reset_value(&candidate); reset_value(&candidate_group); codec = 0;
             if (!attributes({line.data + 18, line.bytes - 18}, fields, &fields_count)) return E::malformed;
             bool known_codec = false;
             for (u32 i = 0; i < fields_count; ++i) {
@@ -287,7 +288,7 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
     if (audio_group.bytes) {
         // Only the selected variant's group can supply its audio. A second
         // bounded pass avoids retaining a table of rendition strings.
-        value.audio = {}; reader.at = 0; u32 renditions = 0, priority = 0;
+        reset_value(&value.audio); reader.at = 0; u32 renditions = 0, priority = 0;
         while (reader.line(&line)) {
             if (!prefix(line, utf8_literal("#EXT-X-MEDIA:"))) continue;
             if (++renditions > 64) return E::capacity;
@@ -353,7 +354,7 @@ HlsPlaylistError hls_media_playlist(Utf8View input, HlsMediaPlaylist* output, Hl
         else if (prefix(line, utf8_literal("#EXT-X-KEY"))) {
             if (!equal(line, utf8_literal("#EXT-X-KEY:METHOD=NONE"))) return E::unsupported;
         } else {
-            constexpr Utf8View numeric[]{utf8_literal("#EXT-X-VERSION:"), utf8_literal("#EXT-X-TARGETDURATION:"),
+            static constexpr Utf8View numeric[]{utf8_literal("#EXT-X-VERSION:"), utf8_literal("#EXT-X-TARGETDURATION:"),
                 utf8_literal("#EXT-X-MEDIA-SEQUENCE:"), utf8_literal("#EXT-X-DISCONTINUITY-SEQUENCE:")};
             bool parsed = false;
             for (u32 i = 0; i < 4; ++i) if (prefix(line, numeric[i])) {

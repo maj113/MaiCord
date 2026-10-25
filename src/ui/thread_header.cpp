@@ -1,4 +1,5 @@
 #include "maicord/ui/thread_header.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/background_surface.hpp"
@@ -371,7 +372,7 @@ u32 ui_thread_menu_build(const UiThreadHeaderView& v, UiThreadMenuActions action
                 ? utf8_literal("This thread is locked.") : Utf8View{};
             else if (action == UiThreadAction::join) item.detail = utf8_literal("You can't join this thread.");
             else if (v.busy) item.detail = utf8_literal("A thread action is pending.");
-            else item.detail = Utf8View{};
+            else reset_value<Utf8View>(&item.detail);
         }
         item.presentation = ui_menu_row_presentation(icon, item.detail.bytes != 0);
     }

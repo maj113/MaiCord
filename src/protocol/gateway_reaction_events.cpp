@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_reaction_events.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "gateway_decode.hpp"
@@ -100,7 +101,7 @@ GatewayEventDecodeResult finish_emoji(const EmojiContext& emoji, u32 offset, Sli
         return decode_failure(GatewayEventDecodeError::missing_required_field, offset);
     output->emoji_id = emoji.id;
     output->animated = emoji.animated;
-    output->name = {};
+    reset_value(&output->name);
     // Deleted custom emoji keep their ID even when their name is unavailable.
     if (emoji.name_null)
         return emoji.id ? GatewayEventDecodeResult{}
@@ -227,7 +228,7 @@ GatewayEventDecodeResult gateway_decode_message_reaction(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> name_output, GatewayMessageReactionEventKind kind,
     GatewayMessageReactionEvent* output) noexcept {
-    *output = GatewayMessageReactionEvent{};
+    reset_value<GatewayMessageReactionEvent>(output);
     const JsonScanResult scan =
         json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok()) {

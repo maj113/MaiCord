@@ -760,7 +760,7 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
                           layout_nodes.count < kMessageComposerWidgetCapacity))) {
         return false;
     }
-    *scene = MessageComposerScene{};
+    reset_value<MessageComposerScene>(scene);
     if (!initialize_owned_storage(scene)) {
         message_composer_scene_release(scene);
         return false;
@@ -1071,7 +1071,7 @@ MessageComposerSceneResult message_composer_scene_update(
         scene->premium_type = projection->state->self_premium_type;
     if (scene->model != model) {
         if (scene->model && scene->model->atomic_spans.data == scene->atomic_spans)
-            scene->model->atomic_spans = {};
+            reset_value(&scene->model->atomic_spans);
         scene->styles_document = scene->styles_revision = 0;
     }
     if (!model || !ui_rect_has_area(viewport)) {
@@ -1081,7 +1081,7 @@ MessageComposerSceneResult message_composer_scene_update(
         scene->model = model;
         scene->viewport = viewport;
         scene->active = false;
-        scene->command = {};
+        reset_value(&scene->command);
         scene->channel_allows_send = false;
         scene->reply_message_id = 0;
         scene->reply_mention_visible = false;
@@ -1485,11 +1485,11 @@ void message_composer_scene_release(MessageComposerScene* scene) noexcept {
         return;
     }
     if (scene->model && scene->model->atomic_spans.data == scene->atomic_spans)
-        scene->model->atomic_spans = {};
+        reset_value(&scene->model->atomic_spans);
     if (scene->owns_storage) {
         arena_release(&scene->owned_storage);
     }
-    *scene = MessageComposerScene{};
+    reset_value<MessageComposerScene>(scene);
 }
 
 Utf8View message_composer_scene_display_text(const MessageComposerScene& scene) noexcept {

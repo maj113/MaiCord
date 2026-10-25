@@ -1,4 +1,5 @@
 #include "maicord/ui/ansi_text.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/profile_appearance.hpp"
 #include "maicord/ui/message_author.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
@@ -958,7 +959,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         const u32 slot = renderer->text_effect_count++;
         auto& material = renderer->text_effects.materials[slot];
         renderer->text_effect_uploaded_count = 0;
-        material = {};
+        reset_value(&material);
         UiRect effect_ink = command.rectangle;
         for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
             const auto& quad = renderer->content_text->quads[i];
@@ -1251,7 +1252,7 @@ ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer
 // Friends search borrows composer_layout while the main chat content is
 // covered. The thread browser has no field: the header search bar serves it.
 bool measure_content_search(D3D11Renderer* renderer) noexcept {
-    renderer->friends_search_geometry = {};
+    reset_value(&renderer->friends_search_geometry);
     const auto* scene = renderer->friends_scene;
     if (!scene || !scene->active || !scene->content || !scene->content->search.active ||
         d3d11_renderer_active(renderer->friends_requests_scene)) {
@@ -1303,7 +1304,7 @@ bool measure_content_search(D3D11Renderer* renderer) noexcept {
 }
 
 bool measure_message_search(D3D11Renderer* renderer) noexcept {
-    renderer->search_edit_geometry = {};
+    reset_value(&renderer->search_edit_geometry);
     if (!d3d11_renderer_search_visible(*renderer)) {
         text_edit_layout_invalidate(&renderer->search_layout);
         return true;
@@ -1342,7 +1343,7 @@ bool measure_message_search(D3D11Renderer* renderer) noexcept {
     return true;
 }
 bool measure_media_picker(D3D11Renderer* renderer) noexcept {
-    renderer->media_picker_edit_geometry = {};
+    reset_value(&renderer->media_picker_edit_geometry);
     auto& layout = renderer->media_picker_layout;
     const bool quick = d3d11_renderer_quick_switcher_visible(*renderer);
     const bool forward = d3d11_renderer_message_forward_visible(*renderer);
@@ -1420,7 +1421,7 @@ bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTex
     native->clip = ui_search_scene_content_clip(*renderer.search_scene, native->clip);
     if (!native->text.bytes || !ui_rect_has_area(native->rectangle) || !ui_rect_has_area(native->clip))
         return false;
-    *neutral = {};
+    reset_value(neutral);
     neutral->text = native->text;
     neutral->owner = native->owner;
     neutral->rectangle = native->rectangle;
@@ -1574,7 +1575,7 @@ bool project_shell_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitt
 bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter,
                           TextOverlayBoundaries* boundaries) noexcept {
     if (d3d11_renderer_login_form_text(*renderer)) {
-        *boundaries = {};
+        reset_value(boundaries);
         UiTextOutput output{nullptr, emitter};
         return !d3d11_renderer_text_form_active(*renderer) ||
                (renderer->text_form->scene->content.confirmation_only &&
@@ -2601,7 +2602,7 @@ void renderer_discard_typography(RendererTypographyCandidate* candidate) noexcep
     if (!candidate)
         return;
     release_typography_owner(candidate->owner);
-    *candidate = {};
+    reset_value(candidate);
 }
 
 bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandidate* candidate) noexcept {
@@ -2610,7 +2611,7 @@ bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandi
         candidate->source_identity != typography_source_identity(renderer->glyph_text.system))
         return false;
     if (!candidate->owner) {
-        *candidate = {};
+        reset_value(candidate);
         return true;
     }
     auto* previous_owner = renderer->typography_owner;
@@ -2631,10 +2632,10 @@ bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandi
     for (auto& handle : renderer->native_text_faces)
         handle = 0;
     if (renderer->picker_glyph_cache)
-        *renderer->picker_glyph_cache = {};
+        reset_value(renderer->picker_glyph_cache);
     shaped_text_cache_clear(renderer->shaped_text_cache);
     renderer->glyph_text.system = owner->system;
-    owner->system = {};
+    reset_value(&owner->system);
     renderer->typography_owner = owner;
     ++renderer->typography_revision;
     // The public measure revision is 16-bit; it wraps to 1, never 0.
@@ -2654,7 +2655,7 @@ bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandi
     presentation_damage_invalidate_full(&renderer->presentation_damage);
     text_system_release(&previous_system);
     release_typography_owner(previous_owner);
-    *candidate = {};
+    reset_value(candidate);
     return true;
 }
 
@@ -2697,7 +2698,7 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
         return false;
     }
     if (!friends_active)
-        renderer->friends_search_geometry = {};
+        reset_value(&renderer->friends_search_geometry);
     if (settings_active || login_form)
         text_edit_layout_invalidate(&renderer->composer_layout);
     for (u32 attempt = 0; attempt < 8; ++attempt) {

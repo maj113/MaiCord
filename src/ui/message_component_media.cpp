@@ -53,7 +53,7 @@ bool message_component_media_resolve(const MessageRichStore& store, const Messag
                     component.type != gateway_component_gallery_item))
         return false;
     const Utf8View url = message_rich_store_string(store, component.url);
-    constexpr char https[] = "https://";
+    static constexpr char https[] = "https://";
     if (url.bytes <= sizeof(https) - 1u || !bytes_equal(url.data, https, sizeof(https) - 1u))
         return false;
     MediaAttachmentFormat format = message_component_media_format(url);

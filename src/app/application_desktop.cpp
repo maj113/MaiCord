@@ -361,7 +361,7 @@ void application_desktop_release() noexcept {
             ReleaseMutex(g_desktop.mutex);
         CloseHandle(g_desktop.mutex);
     }
-    g_desktop = {};
+    reset_value(&g_desktop);
 }
 
 } // namespace maicord::app_detail

@@ -1,4 +1,5 @@
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_reaction_presentation.hpp"
 #include "maicord/ui/scrollbar.hpp"
@@ -890,7 +891,7 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
                                 MessageMediaCommandStream* media, MessagePresentationResult* result,
                                 const MessageTextPresentation* text) noexcept {
     if (result) {
-        *result = MessagePresentationResult{};
+        reset_value<MessagePresentationResult>(result);
     }
     if (!paint || !media || !result || !scene.active || !scene.timeline ||
         !ui_rect_has_area(scene.viewport) || !media->storage.data) {
@@ -915,7 +916,7 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
             saturating_increment_if(recorder->dropped == content_dropped, recorder->dropped);
         }
         media->count = 0;
-        *result = MessagePresentationResult{};
+        reset_value<MessagePresentationResult>(result);
     };
     media->count = 0;
     media->rejected = 0;

@@ -1,4 +1,5 @@
 #include "maicord/text/devanagari_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/devanagari_clusters.hpp"
 #include "maicord/text/devanagari_shape_cluster.hpp"
 #include "maicord/text/base.hpp"
@@ -14,7 +15,7 @@ static_assert(sizeof(ClusterMemo)==24);
 SfntStatus native_devanagari_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u8> font_forms,
     ConstSlice<SfntLookupStep> steps,Utf8View text,float em,NativeDevanagariRunStorage storage,
     NativeAsciiResult* result,SfntShapeLimits limits,float trailing_spacing,bool reuse_clusters,bool rtl) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if((text.bytes&&!text.data)||font_forms.count!=128||!font_forms.data||(steps.count&&!steps.data)||
        (storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||

@@ -157,6 +157,13 @@ bool message_reaction_controller_admit(MessageReactionController*, const Message
 MessageReactionOutcome message_reaction_controller_complete(
     MessageReactionController*, MessageReactionTicket, MessageReactionCompletion, u64 now_ms,
     u64 retry_at_ms = 0, MessageReactionRetryScope = MessageReactionRetryScope::intent) noexcept;
+// queue and complete filling a caller-owned outcome in place.
+void message_reaction_controller_queue(MessageReactionOutcome*, MessageReactionController*,
+                                       const MessageReactionTarget&, MessageReactionSource,
+                                       MessageReactionAuthority, bool desired_mine, u64 now_ms) noexcept;
+void message_reaction_controller_complete(MessageReactionOutcome*, MessageReactionController*,
+                                          MessageReactionTicket, MessageReactionCompletion, u64 now_ms,
+                                          u64 retry_at_ms, MessageReactionRetryScope) noexcept;
 // Host supplies only validated actor/source-current Gateway observations.
 // Foreign events change counts, never the user's own membership. Own events
 // are idempotent against the stored server mine flag, independently of UI overlays.

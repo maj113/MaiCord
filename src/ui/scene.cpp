@@ -1,4 +1,5 @@
 #include "maicord/ui/scene.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -217,7 +218,7 @@ bool project_shell(UiScene* scene) noexcept {
             return false;
         }
         UiNode& node = scene->nodes[index];
-        node = UiNode{};
+        reset_value<UiNode>(&node);
         node.rectangle = layout->rectangle;
         node.widget = UiWidgetHandle{static_cast<u16>(index), scene->widgets.generation};
         node.semantic = static_cast<UiSemantic>(widget.id - 1);
@@ -498,7 +499,7 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
     if (!add_node(scene, UiSemantic::thread_header, content, thread_style))
         return false;
     const auto thread_root = scene->semantics[static_cast<u32>(UiSemantic::thread_header)];
-    constexpr UiSemantic thread_children[]{UiSemantic::thread_status, UiSemantic::thread_primary,
+    static constexpr UiSemantic thread_children[]{UiSemantic::thread_status, UiSemantic::thread_primary,
                                            UiSemantic::thread_overflow, UiSemantic::thread_feedback,
                                            UiSemantic::thread_cancel};
     for (auto semantic : thread_children)
@@ -525,7 +526,7 @@ bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
     if (!scene || scene->storage.arena.base) {
         return false;
     }
-    *scene = UiScene{};
+    reset_value<UiScene>(scene);
     if (!ui_fixed_widget_storage_initialize(&scene->storage, kMaximumUiNodes,
                                             sizeof(UiNode) * kMaximumUiNodes, alignof(UiNode))) {
         return false;
@@ -544,7 +545,7 @@ void ui_scene_release(UiScene* scene) noexcept {
         return;
     }
     ui_fixed_widget_storage_release(&scene->storage);
-    *scene = UiScene{};
+    reset_value<UiScene>(scene);
 }
 
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,

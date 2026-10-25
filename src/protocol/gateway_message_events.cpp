@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "gateway_decode.hpp"
 
@@ -635,7 +636,7 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
                                         const GatewayMessageRichScratch& rich_scratch, u64 current_user_id,
                                         bool capture_names, bool capture_rich, bool create,
                                         GatewayMessageEvent* output, bool snapshot_core = false) noexcept {
-    *output = GatewayMessageEvent{};
+    reset_value<GatewayMessageEvent>(output);
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
@@ -733,7 +734,7 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
             return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
     context.event.transient_bytes = transient_used;
-    *output = context.event;
+    copy_value(output, context.event);
     return decode_failure(GatewayEventDecodeError::none);
 }
 
@@ -803,11 +804,11 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Sl
                             gateway_message_field_mentions | gateway_message_field_mention_roles |
                             gateway_message_field_mention_everyone | gateway_message_field_type;
     if (output->fields & ~allowed) {
-        *output = {};
+        reset_value(output);
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
-    output->mention_roles = {};
-    output->member_roles = {};
+    reset_value(&output->mention_roles);
+    reset_value(&output->member_roles);
     output->mentions_current_user = false;
     return result;
 }
@@ -933,7 +934,7 @@ GatewayEventDecodeResult gateway_decode_message_update(
 GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth,
                                                        GatewayMessageDeleteEvent* output) noexcept {
-    *output = GatewayMessageDeleteEvent{};
+    reset_value<GatewayMessageDeleteEvent>(output);
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
@@ -958,7 +959,7 @@ GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32
 GatewayEventDecodeResult gateway_decode_message_bulk_delete(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<u64> ids,
     GatewayMessageBulkDeleteEvent* output) noexcept {
-    *output = GatewayMessageBulkDeleteEvent{};
+    reset_value<GatewayMessageBulkDeleteEvent>(output);
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }

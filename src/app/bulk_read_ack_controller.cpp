@@ -1,4 +1,5 @@
 #include "maicord/app/bulk_read_ack_controller.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {
@@ -49,7 +50,7 @@ bool bulk_read_ack_initialize(BulkReadAckController* c, Slice<BulkReadAckIntent>
     if (!c || !pending.data || !pending.count || pending.count > kBulkReadAckMaximumTargets ||
         !flight.data || flight.count < kBulkReadAckMaximumBatch)
         return false;
-    *c = {};
+    reset_value(c);
     c->pending = pending;
     c->flight = flight;
     c->reserve_pending = pending_reserve;

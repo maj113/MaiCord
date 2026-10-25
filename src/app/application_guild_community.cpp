@@ -74,7 +74,7 @@ enum : u64 {
     control_event_base = 5000,
 };
 
-constexpr Utf8View kWhereLabels[3]{utf8_literal("Stage channel"), utf8_literal("Voice channel"),
+static constexpr Utf8View kWhereLabels[3]{utf8_literal("Stage channel"), utf8_literal("Voice channel"),
                                    utf8_literal("Somewhere else")};
 constexpr u32 kDurationCount = 8;
 constexpr u32 kDurationMinutes[kDurationCount]{0, 30, 60, 120, 180, 360, 720, 1440};
@@ -832,7 +832,7 @@ bool project() noexcept {
     p.bank_index ^= 1;
     Bank bank{p.banks[p.bank_index], sizeof(p.banks[0]), 0};
     p.control_count = 0;
-    p.content.description = {};
+    reset_value(&p.content.description);
     switch (p.mode) {
     case Mode::rules: project_rules(bank); break;
     case Mode::onboarding:
@@ -954,7 +954,7 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     if (editor_slot(control) < 0)
         return false;
     owner->failed = false;
-    owner->status = {};
+    reset_value(&owner->status);
     return true;
 }
 bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding,
@@ -1011,7 +1011,7 @@ bool switch_mode(Mode mode, u64 focus) noexcept {
     p.mode = mode;
     p.menu = Menu::none;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     p.scene.focus = {UiSettingsTargetKind::control, kPage, focus};
     if (!repaint())
         return false;
@@ -1046,7 +1046,7 @@ bool open_modal(Mode mode, u64 guild_id, Utf8View title, u64 focus) noexcept {
     p.guild_id = guild_id;
     p.guild_generation = g->generation;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     p.copied_until = 0;
     clear_editors();
     settings_layer_reset(&p.layer);
@@ -1089,7 +1089,7 @@ void reload() noexcept {
     auto& p = *owner;
     p.phase = Phase::loading;
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     if (p.mode == Mode::rules)
         enqueue(GuildCommunityOperation::verification_get, p.guild_id);
     else if (p.mode == Mode::onboarding || p.mode == Mode::channels_roles)
@@ -1158,7 +1158,7 @@ void submit_modal() noexcept {
     default:
         break;
     }
-    p.status = {};
+    reset_value(&p.status);
     p.failed = false;
 }
 void reset_modal() noexcept {
@@ -1210,7 +1210,7 @@ void open_menu(Menu menu, UiRect anchor) noexcept {
         return;
     count = minimum(count, kTimeChoices);
     for (u32 i = 0; i < count; ++i) {
-        p.popup_items[i] = {};
+        reset_value(&p.popup_items[i]);
         p.popup_items[i].label = labels[i];
         p.popup_items[i].action = kMenuChoiceBase + i;
         p.popup_items[i].flags = static_cast<u16>(popup_item_enabled | (i == selected ? popup_item_checked : 0));
@@ -1320,7 +1320,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         return;
     }
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     repaint();
 }
 void choose(SettingsLayer*, u32 action) noexcept {
@@ -1534,12 +1534,12 @@ void application_guild_community_joined(u64 guild_id) noexcept {
 bool application_guild_community_open_rules(u64 guild_id) noexcept {
     if (!g_app.account.api.guild_community || !guild(guild_id) || !can_open())
         return false;
-    owner->form = {};
+    reset_value(&owner->form);
     owner->form_body_bytes = 0;
     owner->phase = Phase::loading;
-    owner->status = {};
+    reset_value(&owner->status);
     for (auto& answer : owner->answers)
-        answer = {};
+        reset_value(&answer);
     char title[160];
     Bank bank{title, sizeof(title), 0};
     bank.add(guild_name(guild_id));
@@ -1552,10 +1552,10 @@ bool application_guild_community_open_rules(u64 guild_id) noexcept {
 bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noexcept {
     if (!g_app.account.api.guild_community || !guild(guild_id) || !can_open())
         return false;
-    owner->onboarding = {};
+    reset_value(&owner->onboarding);
     owner->flow_count = owner->step = 0;
     owner->phase = Phase::loading;
-    owner->status = {};
+    reset_value(&owner->status);
     if (!open_modal(revisit ? Mode::channels_roles : Mode::onboarding, guild_id,
                     revisit ? utf8_literal("Channels & Roles") : utf8_literal("Customize your experience"), 0))
         return false;
@@ -1638,14 +1638,14 @@ u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, 
         return 0;
     u32 used = 0;
     if (onboarding_action && used < output.count && (g->upload_features & guild_record_onboarding)) {
-        output[used] = {};
+        reset_value(&output[used]);
         output[used].label = utf8_literal("Channels & Roles");
         output[used].action = onboarding_action;
         output[used].flags = popup_item_enabled;
         ++used;
     }
     if (create_event_action && used < output.count && can_manage_events(guild_id)) {
-        output[used] = {};
+        reset_value(&output[used]);
         output[used].label = utf8_literal("Create event");
         output[used].action = create_event_action;
         output[used].flags = popup_item_enabled;

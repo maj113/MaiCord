@@ -1,4 +1,5 @@
 #include "maicord/text/gpos_program.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/components.hpp"
 #include "gpos_validated.hpp"
 #include "context_lookups.hpp"
@@ -14,13 +15,13 @@ SfntStatus require_children(const SfntGposExecutableLookup& lookup,u16 count,Con
     return SfntStatus::ok;
 }
 SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequirements* req) noexcept {
-    *req={};if(lookup.type>=1 && lookup.type<=6)return SfntStatus::ok;
+    reset_value(req);if(lookup.type>=1 && lookup.type<=6)return SfntStatus::ok;
     if(lookup.type==7 || lookup.type==8)return sfnt_context_requirements(bytes,lookup.type==7?SfntContextKind::sequence:SfntContextKind::chained,req);
     return SfntStatus::unsupported;
 }
 }
 SfntStatus sfnt_gpos_program_requirements(const SfntLayout& layout,SfntGposProgramRequirements* output,u32 budget,ConstSlice<u64> selected,const SfntGposProgram* inherited) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::positioning)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(layout.kind!=SfntLayoutKind::positioning)return SfntStatus::invalid_input;
     if(inherited&&(inherited->lookups.count!=layout.lookup_count||(layout.lookup_count&&!inherited->lookups.data&&!inherited->entries)))return SfntStatus::invalid_input;
     const auto valid_selection=selection_valid(layout,selected);if(valid_selection!=SfntStatus::ok)return valid_selection;
     SfntGposProgramRequirements req{layout.lookup_count};u64 work=budget;
@@ -33,7 +34,7 @@ SfntStatus sfnt_gpos_program_requirements(const SfntLayout& layout,SfntGposProgr
     *output=req;return SfntStatus::ok;
 }
 SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gdef,u32 limit,SfntGposProgramStorage storage,SfntGposProgram* output,u32 subwork,u32 budget,ConstSlice<u64> selected,const SfntGposProgram* inherited) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(layout.kind!=SfntLayoutKind::positioning)return SfntStatus::invalid_input;
     if(inherited&&(inherited->glyph_limit!=limit||inherited->gdef.table.data!=gdef.table.data||inherited->gdef.table.count!=gdef.table.count||
         inherited->lookups.count!=layout.lookup_count||(layout.lookup_count&&!inherited->lookups.data&&!inherited->entries)))return SfntStatus::invalid_input;
@@ -44,12 +45,12 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
     u64 directory_work=budget;
     u32 record=0,basic=0,attachment=0,context=0,coverage=0,classes=0,shared_work=minimum(subwork,65536u),closure_work=budget;
     for(u32 i=0;i<layout.lookup_count;++i){if(!spend(&directory_work))return SfntStatus::resource_limit;
-        if(compact)storage.entries[i]=nullptr;else storage.lookups[i]={};if(!selected_lookup(selected,i))continue;
+        if(compact)storage.entries[i]=nullptr;else reset_value(&storage.lookups[i]);if(!selected_lookup(selected,i))continue;
         const auto* prior=inherited?sfnt_gpos_lookup(*inherited,static_cast<u16>(i)):nullptr;
         if(prior&&prior->type){s=require_children(*prior,layout.lookup_count,selected,closure_work);if(s!=SfntStatus::ok)return s;
             if(compact)storage.entries[i]=prior;else storage.lookups[i]=*prior;continue;}
         if(compact&&record==storage.lookups.count)return SfntStatus::output_too_small;
-        auto& dest=storage.lookups[compact?record++:i];dest={};
+        auto& dest=storage.lookups[compact?record++:i];reset_value(&dest);
         SfntLookup lookup{};s=sfnt_layout_lookup(layout,static_cast<u16>(i),&lookup);if(s!=SfntStatus::ok)return s;
         if(!spend(&directory_work,lookup.subtable_count))return SfntStatus::resource_limit;dest.type=lookup.type;
         if(lookup.type<=2){if(lookup.subtable_count>storage.basic.count-basic)return SfntStatus::output_too_small;
@@ -163,7 +164,7 @@ struct Executor {
 };
 }
 SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output,SfntAnchorPointResolver resolver,void* context) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};const u32 n=sfnt_glyph_count(glyphs);
+    if(!output)return SfntStatus::invalid_input;reset_value(output);const u32 n=sfnt_glyph_count(glyphs);
     const auto* root=lookup<program.lookups.count?sfnt_gpos_lookup(program,lookup):nullptr;
     if(!sfnt_glyph_view_valid(glyphs) || !root || !root->type || !program.glyph_limit || program.glyph_limit>65536 || start>end || end>n || nominal.count<n || flags.count<n || positions.count<n || (n && (!nominal.data || !flags.data || !positions.data)) || (associations.count && (associations.count<n || !associations.data)) || (targets.count && !targets.data) || static_cast<u8>(null_policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1 || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.cursive_bits) || !valid(scratch.ligature_prefix) || !valid(scratch.cursive_chains) || scratch.positions.count>0x3fffffffu)return SfntStatus::invalid_input;
     u64 work=limits.operations;
@@ -179,7 +180,7 @@ SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 l
     output->operations+=limits.operations-work;return status;
 }
 SfntStatus sfnt_gpos_execute_validated_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,ConstSlice<double> nominal,ConstSlice<u8> flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,SfntGposExecutionLimits limits,SfntGposExecutionResult* output,SfntAnchorPointResolver resolver,void* context) noexcept {
-    *output={};Executor e{program,glyphs,nominal,flags,associations,targets,positions,rtl,instance,null_policy,component_policy,scratch,*output,limits.operations,limits.match_work,resolver,context};
+    reset_value(output);Executor e{program,glyphs,nominal,flags,associations,targets,positions,rtl,instance,null_policy,component_policy,scratch,*output,limits.operations,limits.match_work,resolver,context};
     const auto status=e.run(lookup,start,end);output->operations=limits.operations-e.work;return status;
 }
 }

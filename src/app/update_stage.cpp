@@ -65,7 +65,7 @@ bool stage_name(ConstSlice<wchar_t> name) noexcept {
         if ((value < L'a' || value > L'z') && (value < L'0' || value > L'9') &&
             value != L'.' && value != L'-' && value != L'_') return false;
     }
-    constexpr wchar_t suffix[] = L".stage";
+    static constexpr wchar_t suffix[] = L".stage";
     for (u32 index = 0; index < 6; ++index)
         if (lower(name[name.count - 6 + index]) != suffix[index]) return false;
     return true;

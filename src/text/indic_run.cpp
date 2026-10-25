@@ -1,4 +1,5 @@
 #include "run_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/indic_input.hpp"
 #include "maicord/text/unicode.hpp"
 #include "indic_cluster.hpp"
@@ -15,7 +16,7 @@ namespace maicord {
 SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> font_forms,
     float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
     bool word_initial,bool followed_by_text,float trailing_spacing,bool rtl,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(font_forms.count!=128||!font_forms.data)return SfntStatus::invalid_input;
     if(input.count>31)return SfntStatus::unsupported_sequence;
     // Bengali admits one composite vowel; Odia can admit two in one cluster.
@@ -50,7 +51,7 @@ bool word_character(u32 scalar) noexcept {
 }
 SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((text.bytes&&!text.data)||forms.count!=128||!forms.data||(steps.count&&!steps.data)||!plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     const u32 source_size=text.bytes;
@@ -63,7 +64,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
 
     if(total_units>storage.character_glyphs.count)return SfntStatus::output_too_small;
     if(total_units&&!storage.character_glyphs.data)return SfntStatus::invalid_input;
-    auto cluster_plan=plan;cluster_plan.positioning_roots={};
+    auto cluster_plan=plan;reset_value(&cluster_plan.positioning_roots);
     if(profile==SfntIndicProfile::odia)cluster_plan.position_instance.source_mark_targets=true;
     u32 count=0,units=0,targets=0;SfntGlyphSummary glyph_bounds{},mark_bounds{};
     const bool position_bounds=plan.positioning_roots.count>1;
@@ -119,7 +120,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!indic_form_profile(profile)||prepared.indic.profile!=profile)return SfntStatus::invalid_input;
     const auto* parent=native_run_plan_get(store,prepared.indic.run);if(!parent||!prepared.indic.cmap)return SfntStatus::invalid_input;
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.indic.positioning_program,{},prepared.indic.positioning());
@@ -127,7 +128,7 @@ SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& st
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,
     const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
        (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
     SfntShapeRunResult shaped{};const auto status=indic_owned_run(profile,store,prepared,text,em,storage.shaping,&shaped,limits,rtl,trailing_spacing);
@@ -135,7 +136,7 @@ SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& st
 }
 SfntStatus indic_form_paragraph(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,
     Utf8View text,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,bool rtl) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!indic_form_profile(profile)||plan.indic.profile!=profile)return SfntStatus::invalid_input;
     return script_paragraph_shape(store,plan,plan.indic.run,text,em,s,boundaries,output,trailing_spacing,rtl,
         [](const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,Utf8View input,float size,const NativeAsciiStorage& storage,NativeAsciiResult* result,float spacing,bool rtl) noexcept {

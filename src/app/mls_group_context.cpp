@@ -45,7 +45,7 @@ MlsStatus mls_key_package_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, b
                                 MlsKeyPackage* package, u32* consumed) noexcept {
     if (!package || !consumed || !input.data || !input.count)
         return MlsStatus::invalid_argument;
-    *package = {};
+    reset_value(package);
     *consumed = 0;
     input.count = minimum(input.count, kMlsMaxKeyPackageBytes);
     MlsKeyPackageView view{};
@@ -91,7 +91,7 @@ MlsStatus mls_key_package_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, b
 MlsStatus mls_external_sender_parse(ConstSlice<u8> input, MlsExternalSender* sender) noexcept {
     if (!sender || !input.data || !input.count || input.count > kMlsMaxExternalSenderBytes)
         return MlsStatus::invalid_argument;
-    *sender = {};
+    reset_value(sender);
     MlsReader reader{input};
     const u8* key = mls_read_point(reader);
     const auto credential = reader.integer(2);
@@ -136,7 +136,7 @@ MlsStatus mls_group_context_parse(ConstSlice<u8> input, ConstSlice<u8> external_
                                   MlsGroupContext* context, u32* consumed) noexcept {
     if (!context || !consumed || !input.data || !input.count || !external_sender.data)
         return MlsStatus::invalid_argument;
-    *context = {};
+    reset_value(context);
     *consumed = 0;
     MlsGroupContextView view{};
     if (!mls_group_context_decode_prefix({input.data, minimum(input.count, kMlsGroupContextMaximum)}, &view)
@@ -153,7 +153,7 @@ MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
     if (!info || !input.data || !input.count || input.count > kMlsMaxGroupInfoBytes ||
         !external_sender.data)
         return MlsStatus::invalid_argument;
-    *info = {};
+    reset_value(info);
     MlsGroupInfoView view{};
     if (!mls_group_info_decode(input, &view).ok())
         return MlsStatus::malformed;
@@ -214,7 +214,7 @@ MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& c
         !tree.group_id || signer >= tree.leaf_count || tree.serialized.count > kMlsMaxRatchetTreeBytes)
         return MlsStatus::invalid_argument;
     *written = 0;
-    *info = {};
+    reset_value(info);
     u8 root[kMlsHashBytes], signature[kMlsSignatureMaximum];
     if (const auto status = mls_tree_root_hash(kdf, tree, root); status != MlsStatus::ok)
         return status;
@@ -252,7 +252,7 @@ MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& c
         status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
         secure_clear_bytes(output.data, minimum(writer.used, output.count));
-        *info = {};
+        reset_value(info);
         return status;
     }
     *written = writer.used;
@@ -278,14 +278,14 @@ MlsStatus mls_transcript_initial(KdfSha256Workspace& kdf, MlsTranscript* transcr
                                  const u8* tag) noexcept {
     if (!transcript || !tag)
         return MlsStatus::invalid_argument;
-    *transcript = {};
+    reset_value(transcript);
     return transcript_interim(kdf, transcript, tag);
 }
 MlsStatus mls_transcript_join(KdfSha256Workspace& kdf, MlsTranscript* transcript, const u8* confirmed,
                               const u8* tag) noexcept {
     if (!transcript || !confirmed || !tag)
         return MlsStatus::invalid_argument;
-    *transcript = {};
+    reset_value(transcript);
     copy_bytes(transcript->confirmed, confirmed, kMlsHashBytes);
     transcript->has_confirmed = true;
     return transcript_interim(kdf, transcript, tag);

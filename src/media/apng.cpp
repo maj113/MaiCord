@@ -1,4 +1,5 @@
 #include "maicord/media/apng.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "png_common.hpp"
 
@@ -12,7 +13,7 @@ ApngParseResult fail(ApngParseResult result, ApngError error) noexcept {
 
 void initialize_image(ApngImage* image,
                       ApngWorkspace* workspace) noexcept {
-    *image = ApngImage{};
+    reset_value<ApngImage>(image);
     image->frames = workspace->frames;
     image->spans = workspace->spans;
     image->frame_capacity = kApngFrameCapacity;

@@ -63,7 +63,7 @@ bool identity_paths(Identity& i) noexcept {
 // Writes the tray/taskbar mark in the current theme's colours and names it in
 // the identity. On failure the identity keeps Windows' generic icon.
 void prepare_icon(Identity& i) noexcept {
-    i.config.icon_path={};
+    reset_value(&i.config.icon_path);
     if(!i.icon_units) return;
     constexpr u32 extent = kTrayIconMaximumExtent, pixels_bytes = extent*extent*4;
     const u64 png_bytes = clipboard_image_png_bytes(extent,extent);
@@ -258,7 +258,7 @@ void purge_display(ApplicationNotifications& n) noexcept {
 }
 void release_retention(ApplicationNotifications& n) noexcept {
     auto* rows=n.retention.rows.data; auto* index=n.retention.index.data;
-    n.retention={};
+    reset_value(&n.retention);
     if(rows) VirtualFree(rows,0,MEM_RELEASE);
     if(index) VirtualFree(index,0,MEM_RELEASE);
 }
@@ -435,7 +435,7 @@ Utf8View preview(Application& a,Utf8View source,char* output,u32 capacity) noexc
     const auto parsed=message_markdown_parse(source,{text,1024},{styles,1024},{spans,64},options,{});
     if(!parsed.ok()) return utf8_literal("New message");
     u32 used{}; bool hidden=false;
-    constexpr char redacted[]="[Spoiler]";
+    static constexpr char redacted[]="[Spoiler]";
     for(u32 i=0;i<parsed.text.bytes;++i) {
         if(styles[i]&text_style_spoiler) {
             if(!hidden) { if(used+sizeof(redacted)-1>capacity) return utf8_literal("New message"); copy_bytes(output+used,redacted,sizeof(redacted)-1); used+=sizeof(redacted)-1; }
@@ -763,7 +763,7 @@ void application_notifications_drain(Application* a) noexcept {
     if(display_can_progress || desktop_notifications_history_pending(&n.native) || audio_can_resume ||
         (n.backpressured && !n.audio_backpressured)) post_continuation(*a,n);
     if(!n.pending.message_id || !n.ready || !a->account_ui || a->login.visible) return;
-    request=n.pending; n.pending={};
+    request=n.pending; reset_value(&n.pending);
     if(request.profile_id!=a->account.status.profile_id) return;
     const auto& state=a->account_ui->chat_state;
     const auto* channel=chat_state_store_find_channel(state,request.channel_id);
@@ -782,7 +782,7 @@ void application_notifications_account_stop(Application* a) noexcept {
     auto& n=*a->notifications;
     audio_reset(n,false);
     if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_profile(&n.native,n.profile));
-    n.ready=n.live=false; n.snapshot=false; n.profile=0; n.pending={}; n.global={}; n.mention_on_all=false;
+    n.ready=n.live=false; n.snapshot=false; n.profile=0; reset_value(&n.pending); reset_value(&n.global); n.mention_on_all=false;
     release_retention(n);
     if(n.display) desktop_notification_queue_reset(&n.display->queue,0,0);
     n.backpressured=n.audio_backpressured=false;
@@ -928,7 +928,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         // Same-account partial READY settings retain omitted guild/override
         // rows. A full snapshot clears them at its typed begin boundary.
         n->settings.thread_count=0; ++n->settings.revision;
-        n->global={}; n->global_known_gates=n->global_gates=0; n->mention_on_all=false;
+        reset_value(&n->global); n->global_known_gates=n->global_gates=0; n->mention_on_all=false;
         n->profile=a->account.status.profile_id; n->live=true; n->ready=n->snapshot=false;
         audio_preferences(*a,*n); audio_reset(*n,n->audio_preference);
         if(++n->generation==0) ++n->generation;
@@ -1032,7 +1032,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         }
         if(valid) {
             copy_bytes(&global,payload.data,sizeof(global));
-            if(global.fields&~15u || global.status>MessageNotificationStatus::offline) { n->global={}; return; }
+            if(global.fields&~15u || global.status>MessageNotificationStatus::offline) { reset_value(&n->global); return; }
             const bool partial=(event.notification.flags&gateway_notification_partial)!=0;
             // Valid full preloaded settings use the connected client's
             // ONLINE/quiet=false defaults. Missing/malformed proto stays unknown.
@@ -1042,7 +1042,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
                 global.fields|=notification_status|notification_quiet;
             }
             message_notifications_apply_global(&n->global,global,partial);
-        } else n->global={};
+        } else reset_value(&n->global);
     } else if(kind==GatewayClientDispatchKind::notification_thread) {
         MessageNotificationThreadSetting thread{};
         if(payload.count!=sizeof(thread)) { message_notifications_mark_incomplete(&n->settings,event.notification.guild_id); return; }
@@ -1269,7 +1269,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     if(!outputs.ordinary) return;
     Utf8View author{}; if(!gateway_client_event_message_author_name(event,payload,&author)) return;
     if(!author.bytes) author=entity(a,MessageMarkdownEntityKind::user,message.author_id);
-    if(contains_nul(author)) author={};
+    if(contains_nul(author)) reset_value(&author);
     if(author.bytes>256) author=utf8_literal("New message");
     char body[1024];
     const Utf8View text=preview(*a,message.content,body,sizeof(body));
@@ -1292,7 +1292,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     Utf8View avatar{};
     if(g_notification_avatar && message.author_id) {
         Utf8View hash{};
-        if(!gateway_client_event_message_author_avatar_hash(event,payload,&hash)) hash={};
+        if(!gateway_client_event_message_author_avatar_hash(event,payload,&hash)) reset_value(&hash);
         if(const auto* user=user_store_find(a->account_ui->user_store,message.author_id))
             if(user->avatar_hash_bytes) hash=user_store_avatar_hash(*user);
         avatar=g_notification_avatar(message.author_id,hash,{avatar_uri,sizeof(avatar_uri)});

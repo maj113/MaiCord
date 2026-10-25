@@ -147,7 +147,7 @@ bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noe
 bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
     if (!attention)
         return false;
-    *attention = {};
+    reset_value(attention);
     attention->created_message = RegisterWindowMessageW(L"TaskbarButtonCreated");
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     attention->com_initialized = SUCCEEDED(apartment);
@@ -225,7 +225,7 @@ void taskbar_attention_release(TaskbarAttention* attention, HWND window) noexcep
         DestroyIcon(static_cast<HICON>(attention->icon));
     if (attention->com_initialized)
         CoUninitialize();
-    *attention = {};
+    reset_value(attention);
 }
 
 } // namespace maicord

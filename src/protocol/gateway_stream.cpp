@@ -53,7 +53,7 @@ bool count_viewer(void* context, u32, JsonValue value) noexcept {
 }
 bool nullable_string(JsonValue value, JsonString* output) noexcept {
     if (value.kind == JsonValueKind::null_value) {
-        *output = {};
+        reset_value(output);
         return true;
     }
     return json_value_as_string(value, output);

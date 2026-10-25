@@ -1,9 +1,10 @@
 #include "maicord/text/font_geometry.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 namespace maicord {
 using namespace sfnt_read;
 SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};FontGeometry font{};font.face=face;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);FontGeometry font{};font.face=face;
     if(face.version==sfnt_tag('O','T','T','O')){
         font.kind=FontGeometryKind::cff;const auto s=cff_open(face,&font.outline.cff);if(s!=SfntStatus::ok)return s;
     }else{
@@ -18,9 +19,9 @@ SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcep
 SfntStatus font_geometry_instance(const FontGeometry& font,ConstSlice<FontAxisSetting> settings,
     FontGeometryInstanceStorage storage,FontGeometryInstance* output,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(!output)return SfntStatus::invalid_input;*output={};if(!font.face.file.data || (settings.count && !settings.data))return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!font.face.file.data || (settings.count && !settings.data))return SfntStatus::invalid_input;
     if(!font.axes.axis_count){*output={&font,nullptr};return SfntStatus::ok;}
-    if(!storage.variation)return SfntStatus::output_too_small;*storage.variation={};
+    if(!storage.variation)return SfntStatus::output_too_small;reset_value(&(*storage.variation));
     FontAxisMappings mappings{};u32 child=0;auto s=font_axis_mappings_open(font.face,font.axes.axis_count,storage.maps,&mappings,work,&child);work-=child;if(s!=SfntStatus::ok)return s;
     s=font_axis_coordinates(font.axes,mappings,settings,storage.coordinates,{},FontAxisPrecision::fixed16,work,&child);work-=child;if(s!=SfntStatus::ok)return s;
     if(font.gvar.table.data){s=sfnt_gvar_instance_prepare(font.gvar,{storage.coordinates.data,font.axes.axis_count},storage.shared_scalars,storage.variation,work,&child);work-=child;if(s!=SfntStatus::ok)return s;}
@@ -29,10 +30,10 @@ SfntStatus font_geometry_instance(const FontGeometry& font,ConstSlice<FontAxisSe
 }
 SfntStatus font_geometry_outline(const FontGeometryInstance& instance,u16 glyph,
     FontGeometryScratch* scratch,GlyphOutline* output,u32 work,CffGlyphMetrics* cff_metrics,bool oblique,bool bold) noexcept {
-    if(cff_metrics)*cff_metrics={};
-    if(!instance.font || !output || (!scratch && instance.font->kind==FontGeometryKind::truetype)){if(output){auto* commands=output->commands;const u32 capacity=output->capacity;*output={};output->commands=commands;output->capacity=capacity;}return SfntStatus::invalid_input;}
+    if(cff_metrics)reset_value(cff_metrics);
+    if(!instance.font || !output || (!scratch && instance.font->kind==FontGeometryKind::truetype)){if(output){auto* commands=output->commands;const u32 capacity=output->capacity;reset_value(output);output->commands=commands;output->capacity=capacity;}return SfntStatus::invalid_input;}
     const auto& font=*instance.font;
-    if(bold&&font.kind==FontGeometryKind::cff){auto* commands=output->commands;const u32 capacity=output->capacity;*output={};output->commands=commands;output->capacity=capacity;output->rejected=1;return SfntStatus::unsupported;}
+    if(bold&&font.kind==FontGeometryKind::cff){auto* commands=output->commands;const u32 capacity=output->capacity;reset_value(output);output->commands=commands;output->capacity=capacity;output->rejected=1;return SfntStatus::unsupported;}
     if(font.kind==FontGeometryKind::cff)return cff_outline(font.outline.cff,glyph,output,work,cff_metrics,oblique);
     scratch->truetype.work_limit=work;
     SfntOutlineVariation variation{instance.variation,scratch->variation,scratch->deltas};

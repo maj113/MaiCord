@@ -54,7 +54,7 @@ bool progressive_video_fetch_restore(ProgressiveVideoFetch* f) noexcept {
 void progressive_video_fetch_retire(ProgressiveVideoFetch* f) noexcept {
     if (!f) return;
     if (f->segmented) { segmented_video_retire(f); return; }
-    f->audio = {}; mp4_fragment_source_release(&f->fragment);
+    reset_value(&f->audio); mp4_fragment_source_release(&f->fragment);
     progressive_source_reset_readers(&f->source); progressive_source_trim(&f->source);
 }
 
@@ -152,7 +152,7 @@ ProgressiveVideoAccept progressive_video_fetch_accept(ProgressiveVideoFetch* f, 
         return ProgressiveVideoAccept::ignored;
     const bool cancelled = f->cancelling;
     f->inflight_id = 0;
-    f->inflight = {};
+    reset_value(&f->inflight);
     f->cancelling = false;
     if (cancelled && f->segmented) return ProgressiveVideoAccept::ignored;
     if (!transport_ok) {

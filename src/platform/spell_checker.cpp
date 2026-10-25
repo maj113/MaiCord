@@ -53,7 +53,7 @@ bool spell_checker_choose_language(const wchar_t* locale, bool (*supported)(void
                 return copy_tag(output, candidate, base);
         }
     }
-    constexpr wchar_t fallback[] = L"en-US";
+    static constexpr wchar_t fallback[] = L"en-US";
     return supported(context, fallback) && copy_tag(output, fallback, 5);
 }
 
@@ -146,7 +146,7 @@ void spell_checker_release(SpellChecker* spell) noexcept {
     com_release(spell->factory);
     if (spell->com_initialized)
         CoUninitialize();
-    *spell = {};
+    reset_value(spell);
 }
 
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "maicord/text/shape_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "gpos_validated.hpp"
 #include "gsub_validated.hpp"
 #include "shape_position.hpp"
@@ -38,7 +39,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     u32 units,ConstSlice<u32> boundaries,bool rtl,float em,const SfntShapeStorage& s,
     SfntShapeRunResult* result,SfntShapeLimits limits,ConstSlice<SfntLookupStep> steps,ConstSlice<u32> input_order,SfntShapeGlyphPolicy policy,const SfntShapeInputPolicy* initial,const SfntShapeStagePolicy* stages,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;
-    *result={};
+    reset_value(result);
     if(!valid(input)||!valid(boundaries)||!valid(steps)||!valid(input_order)||!valid(plan.substitution_roots)||!valid(plan.positioning_roots)||
        !valid(s.glyphs)||!valid(s.components)||!valid(s.cluster_bits)||!valid(s.character_glyphs)||
        !valid(s.targets)||!valid(s.associations)||!valid(s.advances)||!valid(s.flags)||
@@ -72,7 +73,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     if(initial){if(!initial->prepare)return SfntStatus::invalid_input;
         status=initial->prepare(initial->context,&buffer,&clusters,&forest,s.substitutions,limits.stage_work);if(status!=SfntStatus::ok)return status;
         const auto prepared=sfnt_glyph_buffer_view(buffer);const u32 count=sfnt_glyph_count(prepared);if(count>limits.stage_work)return SfntStatus::resource_limit;
-        substitution={};
+        reset_value(&substitution);
         for(u32 i=0;i<count;++i)sfnt_glyph_summary_add(substitution,sfnt_glyph_at(prepared,i).glyph);
     }
     u64 work=limits.lookup_operations;SfntGlyphClassMemo classes;
@@ -96,7 +97,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         if(stages&&next_stage<=steps[index].stage){status=prepare_stages(steps[index].stage);if(status!=SfntStatus::ok)return status;}
         if(refresh){const auto current=sfnt_glyph_buffer_view(buffer);const u32 count=sfnt_glyph_count(current);
             if(count>work)return SfntStatus::resource_limit;work-=count;result->lookup_operations+=count;
-            substitution={};
+            reset_value(&substitution);
             for(u32 i=0;i<count;++i){auto& glyph=const_cast<SfntGsubGlyph&>(sfnt_glyph_at(current,i));glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph,classes);
                 sfnt_glyph_summary_add(substitution,glyph.glyph);}
             refresh=false;bounds_current=true;}

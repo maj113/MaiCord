@@ -402,7 +402,7 @@ bool visit_sound(void* opaque, JsonString name, JsonValue value) noexcept {
     return valid;
 }
 void sound_defaults(SoundParse* p) noexcept {
-    *p = {};
+    reset_value(p);
     p->value.available = true;
     p->value.volume = kSoundboardVolumeScale;
 }

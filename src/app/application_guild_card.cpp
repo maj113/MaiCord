@@ -218,7 +218,7 @@ void activate() noexcept {
 void retry() noexcept {
     auto& c = *g_card;
     c.phase = Phase::loading;
-    c.profile = {};
+    reset_value(&c.profile);
     application_guild_community_profile(c.guild_id);
     project();
 }
@@ -244,10 +244,10 @@ bool application_guild_card_open(u64 guild_id, UiRect anchor) noexcept {
         c.phase = Phase::ready;
     } else {
         c.phase = Phase::loading;
-        c.profile = {};
+        reset_value(&c.profile);
         c.icon_key = c.badge_key = {};
         c.icon_url_bytes = c.badge_url_bytes = 0;
-        c.banner = {};
+        reset_value(&c.banner);
         if (!application_guild_community_profile(guild_id))
             c.phase = Phase::failed;
     }
@@ -285,7 +285,7 @@ void application_guild_card_response(u64 guild_id, bool join, const RestClientRe
             g_join.phase = JoinPhase::captcha;
         } else {
             log_u64(LogLevel::warning, "guild_card", "join_status", response.status_code);
-            g_join = {};
+            reset_value(&g_join);
         }
         if (open_now() && g_card->guild_id == guild_id)
             project();
@@ -303,7 +303,7 @@ void application_guild_card_response(u64 guild_id, bool join, const RestClientRe
         const u64 code = response.transport_ok() ? guild_asset_error_code(body, {c.scratch, 8192}) : 0;
         if (ok)
             log_write(LogLevel::warning, "guild_card", "profile_decode_failed");
-        c.profile = {};
+        reset_value(&c.profile);
         c.phase = code == kGuildProfilePrivateErrorCode ? Phase::private_profile : Phase::failed;
     }
     project();
@@ -393,12 +393,12 @@ void application_guild_card_join_poll(u64 now_ms) noexcept {
         return;
     const u64 guild = g_join.guild_id;
     if (g_join.scope != g_app.plugin_account_scope_serial || !available()) {
-        g_join = {};
+        reset_value(&g_join);
         return;
     }
     // The lurked server is here: switch to it at once, as the official client does.
     if ((g_join.phase == JoinPhase::requesting || g_join.phase == JoinPhase::awaiting) && member_of(guild)) {
-        g_join = {};
+        reset_value(&g_join);
         if (open_now() && g_card->guild_id == guild)
             application_guild_card_close();
         select_content_guild(guild);
@@ -406,7 +406,7 @@ void application_guild_card_join_poll(u64 now_ms) noexcept {
     }
     if (g_join.phase == JoinPhase::awaiting && now_ms >= g_join.deadline_ms) {
         log_write(LogLevel::warning, "guild_card", "join_arrival_timeout");
-        g_join = {};
+        reset_value(&g_join);
     } else if (g_join.phase == JoinPhase::captcha) {
         switch (application_action_captcha_phase(ApplicationActionCaptchaKind::guild_join, guild)) {
         case ApplicationActionCaptchaPhase::solved:
@@ -416,7 +416,7 @@ void application_guild_card_join_poll(u64 now_ms) noexcept {
         case ApplicationActionCaptchaPhase::captured:
             return;
         default:
-            g_join = {};
+            reset_value(&g_join);
             break;
         }
     } else {
@@ -493,7 +493,7 @@ void application_guild_card_media_failed(MediaAssetKey key, const AccountMediaRe
 }
 
 void application_guild_card_release() noexcept {
-    g_join = {};
+    reset_value(&g_join);
     if (!g_card)
         return;
     if (g_app.renderer.guild_card_scene == &g_card->scene)

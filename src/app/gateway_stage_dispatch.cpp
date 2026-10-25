@@ -11,7 +11,7 @@ constexpr u32 kSnapshotRecords = kGatewayClientDispatchPayloadCapacity / sizeof(
 
 // Copies a decoded instance; the topic is truncated on a code point boundary.
 bool make_record(const GatewayStageInstance& instance, u64 guild_id, GatewayClientStageInstanceRecord* record) noexcept {
-    *record = {};
+    reset_value(record);
     record->id = instance.id;
     record->guild_id = instance.guild_id ? instance.guild_id : guild_id;
     record->channel_id = instance.channel_id;

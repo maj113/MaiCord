@@ -1,6 +1,7 @@
 #pragma once
 // Private to the plugin manager (plugin_manager_install.cpp, plugin_manager_runtime.cpp).
 #include "maicord/app/plugin_manager_install.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord::plugin_manager_detail {
 
@@ -19,7 +20,7 @@ inline PluginManagerResult record_failure(AcceptanceRecordResult result) noexcep
 }
 // A missing state.bin is an empty state.
 inline AcceptanceRecordResult load_state(const PluginManagerPaths& paths, PluginManagerState* state) noexcept {
-    *state = {};
+    reset_value(state);
     const auto loaded = plugin_manager_state_load({paths.state, paths.state_count}, state);
     return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
 }

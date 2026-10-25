@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_device.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dcomp.hpp"
@@ -329,7 +330,7 @@ void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation,
                                      STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!g_prestart.thread) {
         CloseHandle(g_prestart.ready);
-        g_prestart = DevicePrestart{};
+        reset_value<DevicePrestart>(&g_prestart);
     }
 }
 
@@ -342,7 +343,7 @@ void d3d11_device_prestart_finish() noexcept {
     CloseHandle(g_prestart.ready);
     com_release(g_prestart.context);
     com_release(g_prestart.device);
-    g_prestart = DevicePrestart{};
+    reset_value<DevicePrestart>(&g_prestart);
 }
 
 void d3d11_device_owner_release(D3D11DeviceOwner* owner) noexcept {

@@ -266,7 +266,7 @@ bool cursor_row(void* opaque, u32, JsonValue value) noexcept {
 GatewayClientDispatchRouteResult gateway_client_route_channel_cursors(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 depth, Slice<char> storage,
     GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
-    if (payload) *payload = {};
+    if (payload) reset_value(payload);
     if (!event || !payload || !scratch.data || !scratch.count || !depth ||
         (!storage.data && storage.count) || scratch.count > 0x3fffffffu ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(envelope.data.source.data), envelope.data.source.bytes},
@@ -297,7 +297,7 @@ GatewayClientDispatchRouteResult gateway_client_route_channel_cursors(const Gate
     event->kind = GatewayClientEventKind::dispatch;
     event->sequence = envelope.sequence; event->has_sequence = envelope.has_sequence;
     event->dispatch_kind = GatewayClientDispatchKind::channel_cursor_update;
-    event->state = {};
+    reset_value(&event->state);
     event->state.guild_id = root.guild_id;
     event->state.fields = gateway_client_state_field_guild_id;
     event->state.record_count = rows.count;
@@ -327,7 +327,7 @@ GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue da
 GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonValue data,
     Slice<u32> scratch, u32 depth, Slice<char> storage,
     GatewayClientEvent* event, ConstSlice<u8>* payload, GatewayClientLargeRecord large) noexcept {
-    if (payload) *payload = {};
+    if (payload) reset_value(payload);
     if (!event || !payload || (!storage.data && storage.count) || scratch.count > 0x3fffffffu ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(data.source.data), data.source.bytes},
                             {reinterpret_cast<const u8*>(storage.data), storage.count}) ||
@@ -377,7 +377,7 @@ GatewayClientDispatchRouteResult gateway_client_route_read_state_snapshot(JsonVa
 GatewayClientDispatchRouteResult gateway_client_route_message_ack(JsonValue data,
     Slice<u32> scratch, u32 depth, GatewayClientEvent* event,
     ConstSlice<u8>* payload) noexcept {
-    if (payload) *payload = {};
+    if (payload) reset_value(payload);
     if (!event || !payload || !data.source.data || !data.source.bytes || !scratch.data || !scratch.count || !depth)
         return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
     if (data.kind != JsonValueKind::object) return failure(GatewayEventDecodeError::invalid_data, data.source_offset);

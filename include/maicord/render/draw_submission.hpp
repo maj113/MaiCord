@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/render/raster_clip.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 
@@ -32,7 +33,7 @@ static_assert(sizeof(DrawSubmissionState) == 36);
 
 // A new stream: nothing is assumed bound and its counters restart.
 inline void draw_submission_begin(DrawSubmissionState* state) noexcept {
-    *state = DrawSubmissionState{};
+    reset_value<DrawSubmissionState>(state);
 }
 
 // Another user bound over the context: rebind everything at the next draw.

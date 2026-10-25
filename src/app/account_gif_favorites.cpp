@@ -18,7 +18,7 @@ RestClientSubmitResult settings_proto(RestClient* rest, AccountGifFavoritesOpera
         (operation == AccountGifFavoritesOperation::fetch && patch.count) ||
         (operation == AccountGifFavoritesOperation::update && !valid(patch)))
         return invalid;
-    constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
+    static constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
     const bool update = operation == AccountGifFavoritesOperation::update;
     return rest_client_submit_user_settings(
         rest,

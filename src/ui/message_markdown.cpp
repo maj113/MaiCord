@@ -456,7 +456,7 @@ bool push_delimiter(Parser* parser, u32 style, u8 marker_bytes, DelimiterKind ki
     if (parser->output_mode == OutputMode::source) {
         SourceSink& sink = *parser->source_sink;
         SourceScope& scope = sink.scopes[parser->depth - 1];
-        scope = {};
+        reset_value(&scope);
         scope.parent_style = sink.active_style;
         u32 cached = 0;
         while (cached < sink.cache_count && sink.cache[cached].input_offset != parser->input_offset) ++cached;
@@ -735,7 +735,7 @@ bool valid_url(Utf8View input, u32 begin, u32 end) noexcept {
         return false;
     }
     constexpr const char* schemes[] = {"https://", "http://", "discord://"};
-    constexpr u32 lengths[] = {8, 7, 10};
+    static constexpr u32 lengths[] = {8, 7, 10};
     bool scheme = false;
     for (u32 item = 0; item < 3; ++item) {
         if (lengths[item] <= end - begin) {
@@ -881,7 +881,7 @@ bool try_close_masked_link(Parser* parser) noexcept {
 // trailing-")" balancing. Returns the URL's byte length, or 0.
 u32 autolink_bytes(Utf8View input, u32 begin) noexcept {
     constexpr const char* schemes[] = {"https://", "http://", "steam://"};
-    constexpr u32 lengths[] = {8, 7, 8};
+    static constexpr u32 lengths[] = {8, 7, 8};
     u32 scheme = 0;
     for (u32 item = 0; item < 3 && !scheme; ++item)
         if (lengths[item] <= input.bytes - begin && bytes_equal(input.data + begin, schemes[item], lengths[item]))
@@ -1118,7 +1118,7 @@ bool try_emit_message_link(Parser* parser, bool* matched) noexcept {
                                                        MessageMarkdownEntityKind::channel, link.channel_id);
         if ((!channel_name.data && channel_name.bytes != 0) ||
             (channel_name.bytes != 0 && !utf8_validate(channel_name).valid)) {
-            channel_name = Utf8View{};
+            reset_value<Utf8View>(&channel_name);
         }
     }
     if (!emit_byte(parser, '#', channel_style) ||
@@ -1176,7 +1176,7 @@ bool emit_entity_tag(Parser* parser, MessageMarkdownEntityKind entity_kind,
         resolved = parser->options->resolve_entity(parser->options->context, entity_kind, id);
         if ((!resolved.data && resolved.bytes != 0) ||
             (resolved.bytes != 0 && !utf8_validate(resolved).valid)) {
-            resolved = Utf8View{};
+            reset_value<Utf8View>(&resolved);
         }
     }
     const bool use_resolved = resolved.bytes != 0 && output_available(*parser, resolved.bytes + 1);
@@ -1358,7 +1358,7 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
             // U+FFFC reserves one shaped inline-object cell.  The renderer
             // suppresses its glyph and places the atlas emoji in this semantic
             // cell, so the raw <:name:id> token is never exposed visually.
-            constexpr char replacement[] = {'\xEF', '\xBF', '\xBC'};
+            static constexpr char replacement[] = {'\xEF', '\xBF', '\xBC'};
             for (u32 byte = 0; byte < 3; ++byte) {
                 if (!emit_byte(parser, replacement[byte], text_style_custom_emoji)) {
                     return false;
@@ -1421,7 +1421,7 @@ bool word_boundary_after(Utf8View input, u32 offset) noexcept {
 bool try_emit_named_mention(Parser* parser, bool* matched) noexcept {
     *matched = false;
     constexpr const char* names[] = {"@everyone", "@here"};
-    constexpr u32 lengths[] = {9, 5};
+    static constexpr u32 lengths[] = {9, 5};
     for (u32 item = 0; item < 2; ++item) {
         if (starts_with(*parser, names[item], lengths[item]) &&
             word_boundary_after(parser->input, parser->input_offset + lengths[item])) {
@@ -1513,7 +1513,7 @@ bool block_prefix(Parser* parser) noexcept {
             if (inline_reply) {
                 // Inline list items: "• " before an unordered item, "N. " kept.
                 if (unordered) {
-                    constexpr char bullet[] = "\xE2\x80\xA2 ";
+                    static constexpr char bullet[] = "\xE2\x80\xA2 ";
                     for (u32 index = 0; index < sizeof(bullet) - 1; ++index)
                         if (!emit_byte(parser, bullet[index], 0, begin))
                             return false;

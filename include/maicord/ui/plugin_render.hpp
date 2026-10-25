@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 
@@ -51,7 +52,7 @@ inline u64 g_ui_plugin_render_revision = 0;
 
 // False means "no decoration": the message renders unchanged.
 inline bool ui_plugin_render(u64 message_id, u32 revision, UiPluginRenderDecoration* output) noexcept {
-    *output = {};
+    reset_value(output);
     return g_ui_plugin_render_query && message_id && g_ui_plugin_render_query(message_id, revision, output);
 }
 constexpr bool ui_plugin_render_source(u16 source_id) noexcept {

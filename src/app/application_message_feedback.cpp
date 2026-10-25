@@ -1,4 +1,5 @@
 #include "application_message_feedback.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 #include "application_account_presentation.hpp"
@@ -32,7 +33,7 @@ ComposerFeedback feedback;
 void feedback_bind_account() noexcept {
     if (feedback.account_instance == g_app.account.instance)
         return;
-    feedback = {};
+    reset_value(&feedback);
     feedback.account_instance = g_app.account.instance;
 }
 

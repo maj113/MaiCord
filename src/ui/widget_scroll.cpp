@@ -1,4 +1,5 @@
 #include "maicord/ui/widget_scroll.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -32,7 +33,7 @@ bool ui_scroll_reveal_offset(float first, float last, float viewport_first, floa
 bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle owner,
                                UiWidgetScrollGeometry* geometry) noexcept {
     if (!geometry) return false;
-    *geometry = {};
+    reset_value(geometry);
     const auto* widget = ui_widget_manager_resolve(manager, owner);
     const auto* root = ui_widget_manager_layout_node(manager, owner);
     if (!widget || !root || !root->visible || !(root->spec.style.flags & ui_layout_node_visible) ||

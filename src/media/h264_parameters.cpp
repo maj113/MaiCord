@@ -194,7 +194,7 @@ H264Error h264_parse_pps(ConstSlice<u8> nal, const H264Sps& sps, H264Pps* output
     H264Bits bits = payload(nal, 8);
     if (bits.error != H264Error::none) return bits.error;
     H264Pps pps{};
-    pps.scaling = sps.scaling;
+    copy_value(&pps.scaling, sps.scaling);
     pps.id = static_cast<u8>(bits.ue(255));
     pps.sps_id = static_cast<u8>(bits.ue(31));
     if (pps.sps_id != sps.id) return H264Error::malformed;
@@ -226,7 +226,7 @@ H264Error h264_parse_pps(ConstSlice<u8> nal, const H264Sps& sps, H264Pps* output
             return H264Error::unsupported;
     }
     if (!bits.finish()) return bits.error;
-    *output = pps;
+    copy_value(output, pps);
     return H264Error::none;
 }
 

@@ -1,4 +1,5 @@
 #include "application_commands.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_cursor.hpp"
 #include "application_scrolling.hpp"
@@ -267,7 +268,7 @@ bool write_surface(void*, u64 key, double offset, bool* changed) noexcept {
 
 void update_scrollbar_hover(float x, float y) noexcept {
     UiRect viewport{};
-    constexpr Surface order[] = {
+    static constexpr Surface order[] = {
         inbox,
         profile_peers, profile_details, command_categories,
         suggestions,   reaction_types,  reaction_users,    thread_browser, pinned_messages, composer, guilds,
@@ -380,7 +381,7 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
             return true;
         }
     }
-    constexpr Surface order[] = {profile_peers,     profile_details, reaction_types,     reaction_users,
+    static constexpr Surface order[] = {profile_peers,     profile_details, reaction_types,     reaction_users,
                                  command_categories, suggestions,
                                  thread_browser, pinned_messages,    composer,       guilds,             channels, members,
                                  dm_profile,     messages};
@@ -473,7 +474,7 @@ void popup_glide_settled() noexcept {
     log_u64(LogLevel::info, "scroll", "popup_glide_ticks", popup_glide.ticks);
     log_u64(LogLevel::info, "scroll", "popup_glide_tick_max_us", popup_glide.max_us);
     log_u64(LogLevel::info, "scroll", "popup_glide_tick_mean_us", popup_glide.total_us / popup_glide.ticks);
-    popup_glide = {};
+    reset_value(&popup_glide);
 }
 } // namespace
 

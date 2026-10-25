@@ -1,4 +1,5 @@
 #include "maicord/platform/tls_stream.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/sys/winsock.hpp"
@@ -399,7 +400,7 @@ bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_nam
         ranges_overlap(buffers.handshake_output, buffers.record_output)) {
         return false;
     }
-    *stream = TlsStream{};
+    reset_value<TlsStream>(stream);
     stream->connection.socket = INVALID_SOCKET;
     stream->server_name = server_name;
     u32 digits = 1;
@@ -420,7 +421,7 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
     byte_queue_clear(&stream->encrypted_input, true);
     // Keep the initialized endpoint, buffers and state; reset everything else.
     const TlsStream configured = *stream;
-    *stream = TlsStream{};
+    reset_value<TlsStream>(stream);
     stream->connection.socket = INVALID_SOCKET;
     stream->server_name = configured.server_name;
     copy_bytes(stream->service, configured.service, sizeof(stream->service));

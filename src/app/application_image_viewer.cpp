@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_toast.hpp"
 #include "application_content_point.hpp"
 #include "application_image_viewer.hpp"
@@ -102,7 +103,7 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
         if (!message_rich_attachment_preview_extent(store, attachment, 550, &width, &height))
             width = 400, height = 225;
         auto& item = items[count++];
-        item = {};
+        reset_value(&item);
         item.kind = MessageSceneRichItemKind::attachment;
         item.index = static_cast<u8>(i);
         item.attachment_id = attachment.id;
@@ -146,7 +147,7 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
             selected.format == MediaAttachmentFormat::unknown)
             continue;
         auto& item = items[count++];
-        item = {};
+        reset_value(&item);
         item.kind = MessageSceneRichItemKind::embed;
         item.index = static_cast<u8>(i);
         item.resource = selected.resource;
@@ -201,7 +202,7 @@ void select_item(u32 index) noexcept {
     viewer.item_index = static_cast<u8>(index);
     auto& item = viewer.items[index];
     viewer.attachment_id = item.attachment_id;
-    viewer.failed_key = {};
+    reset_value(&viewer.failed_key);
     if (!ui_image_viewer_set_item(&viewer.scene, item.pixels, index, viewer.item_count, item.video))
         return;
     ui_image_viewer_set_caption(&viewer.scene, item_caption(source, item));
@@ -415,7 +416,7 @@ void record_identity(const MessageRecord& message, MessageHandle handle, bool sn
 } // namespace
 bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept {
     const auto& viewer = g_app.image_viewer;
-    *out = {};
+    reset_value(out);
     if (!viewer.scene.active || !g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed || g_app.login.visible ||
         viewer.account_scope != g_app.plugin_account_scope_serial || viewer.profile_id != g_app.account.status.profile_id ||
         viewer.self_user_id != g_app.account_ui->chat_state.self_user_id) return false;
@@ -475,7 +476,7 @@ void application_image_viewer_dismiss() noexcept {
     viewer.closing = true;
     // Only the item that opened from a preview can travel back into it.
     if (viewer.item_index != viewer.origin_item)
-        viewer.origin = {};
+        reset_value(&viewer.origin);
     ui_button_pointer(&viewer.scene.widgets, UiButtonPointerEvent::cancel, {});
     application_video_cancel_pointer();
     application_request_frame();
@@ -510,7 +511,7 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
         keys[count++] = viewer.key;
     // One neighbour on each side keeps arrow navigation instant without
     // letting a large gallery evict the preview atlas.
-    constexpr i32 steps[]{1, -1};
+    static constexpr i32 steps[]{1, -1};
     for (const i32 step : steps) {
         if (viewer.item_count < 2 || count >= capacity)
             break;
@@ -571,7 +572,7 @@ bool application_image_viewer_synchronize() noexcept {
             pixels = {static_cast<float>(frame.width), static_cast<float>(frame.height)};
     }
     if (pixels.width != scene.pixels.width || pixels.height != scene.pixels.height) {
-        scene.pixels = pixels; scene.viewport = {};
+        scene.pixels = pixels; reset_value(&scene.viewport);
         if (item) item->pixels = pixels;
     }
     ui_image_viewer_set_dpi(&scene, g_app.renderer.dpi);
@@ -683,7 +684,7 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                     attachment.width && attachment.height ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
                                                           : UiSize{width, height}))
                 return true;
-            viewer.search_source = {}; viewer.search_result = false;
+            reset_value(&viewer.search_source); viewer.search_result = false;
             record_identity(*message, row.message, content_scope != 0);
             OpenRequest request{preview, MessageSceneRichItemKind::attachment, index, MediaEmbedResource::none,
                                 row.forwarded_snapshot};
@@ -736,7 +737,7 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                                           ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)}
                                           : UiSize{width, height}))
                 return true;
-            viewer.search_source = {}; viewer.search_result = false;
+            reset_value(&viewer.search_source); viewer.search_result = false;
             record_identity(*message, row.message, content_scope != 0);
             OpenRequest request{preview, MessageSceneRichItemKind::embed, member, MediaEmbedResource::none,
                                 row.forwarded_snapshot};

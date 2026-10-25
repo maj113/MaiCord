@@ -1,8 +1,9 @@
 #include "maicord/ui/button_keyboard.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 void ui_button_keyboard_cancel(UiButtonKeyboard* state) noexcept {
-    if (state) state->pressed = {};
+    if (state) reset_value(&state->pressed);
 }
 
 UiButtonKeyResult ui_button_keyboard_key(UiButtonKeyboard* state, const UiWidgetManager* owner,

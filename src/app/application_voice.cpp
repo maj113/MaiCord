@@ -1,4 +1,5 @@
 #include "application_user_actions.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_voice.hpp"
 #include "application_voice_channels.hpp"
@@ -222,7 +223,7 @@ void application_voice_pump() noexcept {
             voice.status = status;
         voice.status_at_ms = now + (voice.monitor ? 30 : 1000);
     } else if (!(s && in_call(*s)) && !voice.monitor)
-        voice.status = {};
+        reset_value(&voice.status);
     refresh_view();
     application_voice_channels_pump();
     application_voice_settings_tick();

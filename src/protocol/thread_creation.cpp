@@ -1,4 +1,5 @@
 #include "maicord/protocol/thread_creation.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/thread_actions.hpp"
@@ -269,7 +270,7 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
         parse.value.self_join_timestamp_ms = member.join_timestamp_ms;
         parse.value.self_flags = member.flags;
     }
-    *output = parse.value;
+    copy_value(output, parse.value);
     return {input.bytes};
 }
 } // namespace

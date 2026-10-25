@@ -1,4 +1,5 @@
 #include "application_click_count.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_forum_form_state.hpp"
 #include "application_cursor.hpp"
@@ -98,7 +99,7 @@ bool project(ApplicationForumForm* f) noexcept {
             secure_text_store_unbind(&field.store);
             secure_text_store_detach(&field.store);
             secure_edit_cancel_composition(&field.edit);
-            field.composition = {};
+            reset_value(&field.composition);
         }
         end_capture(f);
         ui_button_keyboard_cancel(&f->keyboard);
@@ -211,7 +212,7 @@ bool project(ApplicationForumForm* f) noexcept {
         ui_button_keyboard_cancel(&f->keyboard);
         if (previous_target.element == ForumPostElement::attachments) {
             auto restore = previous_target;
-            restore.attachment_widget = {};
+            reset_value(&restore.attachment_widget);
             if (!forum_post_focus(&f->scene, restore))
                 forum_post_focus(&f->scene, {ForumPostElement::add_files, 0});
         }
@@ -323,7 +324,7 @@ void changed(void* context) noexcept {
     auto* f = field ? field->owner : nullptr;
     if (!valid(f) || f->refreshing || !f->editable)
         return;
-    f->local_status = {};
+    reset_value(&f->local_status);
     application_forum_post_draft_update(f->ticket, text(f->fields[0]), text(f->fields[1]));
     if (f == owner) {
         reset_caret(f);
@@ -341,7 +342,7 @@ bool focus(ApplicationForumForm* f, ForumPostTarget target) noexcept {
     if (prior >= 0 && prior != next) {
         secure_text_store_unbind(&f->fields[prior].store);
         secure_text_store_detach(&f->fields[prior].store);
-        f->fields[prior].composition = {};
+        reset_value(&f->fields[prior].composition);
     }
     if (next >= 0 && f->editable) {
         auto& field = f->fields[next];
@@ -469,7 +470,7 @@ bool activate(ApplicationForumForm* f, ForumPostTarget target) noexcept {
         return true;
     }
     if (target.element == ForumPostElement::tags && target.tag < f->scene.content.tags.count) {
-        f->local_status = {};
+        reset_value(&f->local_status);
         application_forum_post_tag_toggle(f->ticket, f->tags[target.tag].id);
         if (f == owner)
             refresh(f);
@@ -494,7 +495,7 @@ bool activate(ApplicationForumForm* f, ForumPostTarget target) noexcept {
         if (field.composition.active)
             return true;
     }
-    f->local_status = {};
+    reset_value(&f->local_status);
     if (v.can_retry)
         application_forum_post_retry(f->ticket, f->risk_acknowledged);
     else if (application_forum_post_draft_update(f->ticket, text(f->fields[0]), text(f->fields[1])))
@@ -518,7 +519,7 @@ bool apply(ApplicationForumForm* f, u32 field_index, SecureEditResult result) no
         f->local_status = field_index ? utf8_literal("This message contains an unsupported character.")
                                       : utf8_literal("The title must be a single line.");
     else if (result == SecureEditResult::changed) {
-        f->local_status = {};
+        reset_value(&f->local_status);
         application_forum_post_draft_update(f->ticket, text(f->fields[0]), text(f->fields[1]));
         if (f != owner)
             return true;
@@ -639,13 +640,13 @@ bool application_forum_form_suspend_child(const ApplicationForumPostTicket& tick
         secure_text_store_unbind(&field.store);
         secure_text_store_detach(&field.store);
         secure_edit_cancel_composition(&field.edit);
-        field.composition = {};
+        reset_value(&field.composition);
     }
     f->caret_visible = false;
     f->blink_at_ms = 0;
     for (auto& field : f->scene.content.fields) {
         field.caret_visible = false;
-        field.composition = {};
+        reset_value(&field.composition);
     }
     ui_widget_manager_focus(&f->scene.widgets, ui_widget_invalid_handle());
     ++f->scene.revision;
@@ -663,7 +664,7 @@ void application_forum_form_resume_child(const ApplicationForumPostTicket& ticke
     }
     g_app.context_focus = &f->scene.widgets;
     auto previous = f->child_previous_focus;
-    previous.attachment_widget = {};
+    reset_value(&previous.attachment_widget);
     if (refresh(f) && !focus(f, previous))
         focus(f, {ForumPostElement::cancel, 0});
 }
@@ -749,7 +750,7 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
             for (auto& field : f->fields) {
                 secure_text_store_unbind(&field.store);
                 secure_text_store_detach(&field.store);
-                field.composition = {};
+                reset_value(&field.composition);
             }
             focus(f, next);
         }

@@ -1,9 +1,10 @@
 #include "maicord/app/command_autocomplete.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 namespace maicord {
 void command_autocomplete_cancel(CommandAutocomplete* state) noexcept {
     command_suggestions_release(&state->suggestions);
-    *state = {};
+    reset_value(state);
 }
 bool command_autocomplete_observe(CommandAutocomplete* state, CommandAutocompleteQuery query,
                                   u64 now) noexcept {

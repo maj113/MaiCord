@@ -1,4 +1,5 @@
 #include "maicord/text/lookup_plan.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/simple_script.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "layout_language.hpp"
@@ -86,15 +87,15 @@ __declspec(noinline) SfntStatus finish_lookup_plan(ConstSlice<u64> bits,Slice<u1
     return SfntStatus::ok;
 }
 SfntStatus sfnt_latin_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,independent,false,0);
 }
 SfntStatus sfnt_common_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work,bool independent) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,independent,true,0);
 }
 SfntStatus sfnt_khmer_fallback_substitutions(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(unusable(layout,scratch,indices)||layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,true,false,sfnt_tag('k','h','m','r'));
 }
@@ -110,7 +111,7 @@ bool sfnt_alphabetic_script_supported(u32 script) noexcept {
     }
 }
 SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,u32 script,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(script==sfnt_tag('l','a','t','n'))return sfnt_latin_lookup_plan(layout,variations,independent,scratch,indices,result,work);
     if(!sfnt_alphabetic_script_supported(script)||unusable(layout,scratch,indices))return SfntStatus::invalid_input;
     return build(layout,variations,scratch,indices,*result,work,independent,false,script);

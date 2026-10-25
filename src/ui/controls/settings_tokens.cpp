@@ -24,7 +24,7 @@ const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexc
 // The first 49 metrics have the same field order in the packed theme and resolved layout.
 static_assert([]() constexpr {
 #define METRIC_OFFSET(field) {offsetof(UiThemeSettings, field), offsetof(UiSettingsMetrics, field)}
-    constexpr usize offsets[][2] = {
+    static constexpr usize offsets[][2] = {
         METRIC_OFFSET(modal_max_width), METRIC_OFFSET(modal_viewport_ratio), METRIC_OFFSET(modal_ratio_threshold),
         METRIC_OFFSET(modal_inset_top), METRIC_OFFSET(modal_inset_side), METRIC_OFFSET(modal_inset_bottom),
         METRIC_OFFSET(modal_radius), METRIC_OFFSET(modal_compact_width), METRIC_OFFSET(sidebar_width),

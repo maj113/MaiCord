@@ -1,4 +1,5 @@
 #include "maicord/platform/clipboard_image.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -48,7 +49,7 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
     if (!rgba || !total || stride < width * 4 || !output.data || output.count < total)
         return 0;
     u8* out = output.data;
-    constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    static constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     copy_bytes(out, signature, 8);
     u8* ihdr = out + 8;
     put_u32_be(ihdr, 13);
@@ -172,7 +173,7 @@ struct Dib {
     bool use_alpha;
 };
 bool dib_layout(ConstSlice<u8> dib, Dib* out) noexcept {
-    *out = {};
+    reset_value(out);
     if (!dib.data || dib.count < 40) return false;
     const u32 header = byte_load_le32(dib.data);
     const i32 width = static_cast<i32>(byte_load_le32(dib.data + 4)), height = static_cast<i32>(byte_load_le32(dib.data + 8));
@@ -373,7 +374,7 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
         filter_row(row, y ? packed[(y + 1) & 1] : nullptr, row_bytes, channels, data + u64{y} * (1 + row_bytes));
     }
     unreserve(rows);
-    constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    static constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     copy_bytes(png, signature, 8);
     u8 header[13]{};
     put_u32_be(header, w); put_u32_be(header + 4, h);
@@ -423,7 +424,7 @@ u32 clipboard_paste_plan(ClipboardPasteFormats formats, ClipboardPasteKind (&pla
     return count;
 }
 u64 clipboard_image_png_length(ConstSlice<u8> png) noexcept {
-    constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    static constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     if (!png.data || png.count < 8 + 25 + 12 || !bytes_equal(png.data, signature, 8) ||
         byte_load_be32(png.data + 8) != 13 || !bytes_equal(png.data + 12, "IHDR", 4))
         return 0;
@@ -439,7 +440,7 @@ u64 clipboard_image_png_length(ConstSlice<u8> png) noexcept {
 }
 DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 limit, ClipboardPng* output) noexcept {
     if (!output || !payload.data || !limit) return ERROR_INVALID_PARAMETER;
-    *output = {};
+    reset_value(output);
     if (kind == ClipboardPasteKind::png) {
         const u64 bytes = clipboard_image_png_length(payload);
         if (!bytes) return ERROR_INVALID_DATA;
@@ -456,6 +457,6 @@ DWORD clipboard_paste_png(ClipboardPasteKind kind, ConstSlice<u8> payload, u64 l
     return encode_dib_png(dib, limit, output);
 }
 void clipboard_png_release(ClipboardPng* png) noexcept {
-    if (png) { unreserve(png->data); *png = {}; }
+    if (png) { unreserve(png->data); reset_value(png); }
 }
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "maicord/text/font_family.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 #include "maicord/text/font_names.hpp"
 #include "maicord/sys/intrin.hpp"
@@ -95,7 +96,7 @@ u16 resolved_weight(u16 raw,u16 extracted) noexcept {
 }
 SfntStatus native_font_family(const SfntFace& face,Slice<u16> output,NativeFontFamily* result,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(!result)return SfntStatus::invalid_input;*result={};if(output.count&&!output.data)return SfntStatus::invalid_input;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);if(output.count&&!output.data)return SfntStatus::invalid_input;
     SfntFontAttributes attributes{};auto status=sfnt_font_attributes(face,&attributes);if(status!=SfntStatus::ok)return status;
     ConstSlice<u8> table{};status=sfnt_table(face,sfnt_tag('n','a','m','e'),&table);if(status!=SfntStatus::ok)return status;
     SfntNames names{};status=sfnt_names_open(table,&names);if(status!=SfntStatus::ok)return status;
@@ -126,7 +127,7 @@ SfntStatus native_font_family(const SfntFace& face,Slice<u16> output,NativeFontF
     if(!count)return SfntStatus::unsupported;*result={properties,count};return SfntStatus::ok;
 }
 SfntStatus native_font_family_candidates(const SfntFace& face,Slice<u16> name,NativeFontFamily* family,NativeFontCandidates* candidates,u32 work) noexcept {
-    if(family)*family={};if(candidates)*candidates={};if(!family||!candidates)return SfntStatus::invalid_input;
+    if(family)reset_value(family);if(candidates)reset_value(candidates);if(!family||!candidates)return SfntStatus::invalid_input;
     NativeFontFamily resolved{};u32 used=0;auto status=native_font_family(face,name,&resolved,work,&used);if(status!=SfntStatus::ok)return status;
     NativeFontCandidates source{};status=native_font_candidates_open(face,&source,work-used);if(status!=SfntStatus::ok)return status;
     source.base=resolved.properties;*family=resolved;*candidates=source;return SfntStatus::ok;

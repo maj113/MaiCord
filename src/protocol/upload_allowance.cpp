@@ -1,4 +1,5 @@
 #include "maicord/protocol/upload_allowance.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 namespace maicord {
 namespace {
@@ -28,7 +29,7 @@ bool assignment(void* opaque, u32, JsonValue value) noexcept {
         }, &fields);
     if (!parsed.ok()) return false;
     // Murmur3 hashes of the four assignment names the policy reads.
-    constexpr u32 hashes[]{3942863072u, 587404649u, 981354709u, 3383307794u};
+    static constexpr u32 hashes[]{3942863072u, 587404649u, 981354709u, 3383307794u};
     for (u32 i = 0; i < 4; ++i) if (fields.hash == hashes[i]) {
         if (!fields.valid || (fields.seen & 3) != 3) return false;
         if (context.seen & (1u << i)) return false;
@@ -60,7 +61,7 @@ bool upload_policy_state(JsonValue state, u64 user_id, Slice<u32> scratch, Uploa
 }
 bool upload_policy_decode(JsonValue apex, u64 user_id, Slice<u32> scratch, UploadPolicy* policy) noexcept {
     if (!user_id) return false;
-    *policy = {};
+    reset_value(policy);
     if (!apex.source.bytes || apex.kind == JsonValueKind::null_value) return true;
     const auto scan = json_scan_structurals_avx1(apex.source, scratch);
     if (!scan.ok()) return false;

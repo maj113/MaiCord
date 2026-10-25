@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_bundle_install.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
@@ -61,7 +62,7 @@ bool same_manifest(const NativePluginManifest& a,const NativePluginManifest& b) 
         a.publisher_bytes==b.publisher_bytes&&bytes_equal(a.publisher,b.publisher,a.publisher_bytes);
 }
 void hexadecimal(u64 value,wchar_t* out) noexcept {
-    constexpr wchar_t digits[]=L"0123456789abcdef";
+    static constexpr wchar_t digits[]=L"0123456789abcdef";
     for(u32 i=0;i<16;++i)out[i]=digits[(value>>((15-i)*4))&15];
 }
 void managed_name(const NativePluginManifest& manifest,wchar_t (&name)[128]) noexcept {
@@ -81,7 +82,7 @@ bool source_path(Runtime& r,u32* directory,u32* leaf) noexcept {
     *directory=slash==2?3:slash;*leaf=slash+1;return true;
 }
 bool destination_valid(const Runtime& r) noexcept {
-    constexpr wchar_t suffix[]=L"\\MaiCord\\plugins";constexpr u32 n=sizeof(suffix)/sizeof(wchar_t)-1;
+    static constexpr wchar_t suffix[]=L"\\MaiCord\\plugins";constexpr u32 n=sizeof(suffix)/sizeof(wchar_t)-1;
     if(r.destination_characters<n+2)return false;
     for(u32 i=0;i<n;++i)if(ascii_lower(r.destination[r.destination_characters-n+i])!=ascii_lower(suffix[i]))return false;
     return true;
@@ -174,7 +175,7 @@ Error retention_limit(Runtime& r,bool new_file) noexcept {
 Error lock_owner(Runtime& r,u64 owner_id) noexcept {
     wchar_t lock[128]{};constexpr wchar_t lock_prefix[]=L"maicord-install-";
     for(u32 i=0;i<15;++i)lock[i]=lock_prefix[i];hexadecimal(owner_id,lock+15);
-    constexpr wchar_t lock_suffix[]=L".lock";for(u32 i=0;i<6;++i)lock[31+i]=lock_suffix[i];
+    static constexpr wchar_t lock_suffix[]=L".lock";for(u32 i=0;i<6;++i)lock[31+i]=lock_suffix[i];
     const auto checked=native_plugin_pinned_file_open(r.destination_directory,{lock,36},&r.lock,GENERIC_READ|GENERIC_WRITE|DELETE,FILE_SHARE_READ,
         CREATE_NEW,FILE_FLAG_DELETE_ON_CLOSE|FILE_ATTRIBUTE_TEMPORARY);
     checkpoint(r);if(!checked.ok())return fail(r,checked.win32_error==ERROR_FILE_EXISTS||checked.win32_error==ERROR_ALREADY_EXISTS||
@@ -316,7 +317,7 @@ Error publish(Runtime& r) noexcept {
     u32 entry=r.catalog.count;
     for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.installed.owner_id){entry=i;break;}
     if(entry==r.catalog.count)++r.catalog.count;
-    auto& published=r.catalog.entries[entry];published={};published.manifest=r.installed;
+    auto& published=r.catalog.entries[entry];reset_value(&published);copy_value(&published.manifest,r.installed);
     published.filename_characters=r.manifest_characters;
     for(u32 i=0;i<=r.manifest_characters;++i)published.filename[i]=r.manifest_leaf[i];
     // Visibility is already committed even when a later flush/cleanup fails.
@@ -419,7 +420,8 @@ Error publish_uninstall(Runtime& r) noexcept {
     // Closing both pins removes the name; the snapshot drops the owner.
     r.result.committed=true;
     for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.installed.owner_id){
-        for(u32 j=i+1;j<r.catalog.count;++j)r.catalog.entries[j-1]=r.catalog.entries[j];--r.catalog.count;break;}
+        copy_bytes(&r.catalog.entries[i],&r.catalog.entries[i+1],(r.catalog.count-i-1)*static_cast<u32>(sizeof(r.catalog.entries[0])));
+        --r.catalog.count;break;}
     checked=native_plugin_verified_file_release(&r.staged_manifest);
     if(checked.ok())checked=native_plugin_verified_file_release(&r.target_manifest);
     if(!checked.ok())return fail(r,Error::release,checked);
@@ -529,7 +531,7 @@ Error launch(NativePluginBundleInstall* owner,ConstSlice<wchar_t> manifest_path,
 // Recovery: the installer's staged "<owner16>.maicord-plugin.json.new<16 hex>" names.
 bool staged_manifest_name(const wchar_t* name,u64 owner_id) noexcept {
     wchar_t prefix[16];hexadecimal(owner_id,prefix);
-    constexpr wchar_t suffix[]=L".maicord-plugin.json.new";constexpr u32 suffix_characters=sizeof(suffix)/sizeof(wchar_t)-1;
+    static constexpr wchar_t suffix[]=L".maicord-plugin.json.new";constexpr u32 suffix_characters=sizeof(suffix)/sizeof(wchar_t)-1;
     u32 length{};while(length<MAX_PATH&&name[length])++length;
     if(length!=16+suffix_characters+16)return false;
     for(u32 i=0;i<16;++i)if(ascii_lower(name[i])!=prefix[i])return false;
@@ -626,13 +628,17 @@ bool native_plugin_bundle_install_catalog(const NativePluginBundleInstall* owner
         for(u32 j=0;j<i;++j)if(byte_ranges_overlap(ranges[i],ranges[j]))return false;}
     if(!native_plugin_catalog_initialize(catalog,{r.destination,r.destination_characters},entries).ok())return false;
     catalog->count=r.catalog.count;
-    for(u32 i=0;i<catalog->count;++i)entries[i]=r.catalog.entries[i];
+    copy_bytes(entries.data,r.catalog.entries.data,catalog->count*static_cast<u32>(sizeof(*entries.data)));
     // The catalogue scan orders names; append must preserve that stable window.
-    for(u32 i=1;i<catalog->count;++i){auto value=entries[i];u32 j=i;
+    // Find each insertion point first, then move the entries it passes at once.
+    for(u32 i=1;i<catalog->count;++i){const auto& value=entries[i];u32 j=i;
         while(j){const auto& previous=entries[j-1];u32 k{};
             while(k<value.filename_characters&&k<previous.filename_characters&&ascii_lower(value.filename[k])==ascii_lower(previous.filename[k]))++k;
             const bool before=k<value.filename_characters&&(k==previous.filename_characters||ascii_lower(value.filename[k])<ascii_lower(previous.filename[k]));
-            if(!before)break;entries[j]=previous;--j;}entries[j]=value;}
+            if(!before)break;--j;}
+        if(j==i)continue;
+        NativePluginCatalogEntry moved;copy_value(&moved,entries[i]);
+        copy_bytes(&entries[j+1],&entries[j],(i-j)*static_cast<u32>(sizeof(moved)));copy_value(&entries[j],moved);}
     return true;
 }
 NativePluginBundleInstallError native_plugin_bundle_install_commit(NativePluginBundleInstall* owner) noexcept {
@@ -671,7 +677,7 @@ bool native_plugin_bundle_install_release(NativePluginBundleInstall* owner,u32 t
     if(owner->thread){if(!CloseHandle(owner->thread))return false;owner->thread=nullptr;}
     if(owner->command){if(!CloseHandle(owner->command))return false;owner->command=nullptr;}
     if(owner->notification){if(!CloseHandle(owner->notification))return false;owner->notification=nullptr;}
-    if(!VirtualFree(owner->runtime,0,MEM_RELEASE))return false;*owner={};return true;
+    if(!VirtualFree(owner->runtime,0,MEM_RELEASE))return false;reset_value(owner);return true;
 }
 NativePluginBundleInstallResources native_plugin_bundle_install_resources(const NativePluginBundleInstall* owner) noexcept {
     if(!owner||!owner->runtime)return {};

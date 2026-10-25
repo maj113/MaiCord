@@ -1,4 +1,5 @@
 #include "maicord/media/opus_decoder.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include <opus.h>
 
@@ -125,6 +126,6 @@ bool opus_packet_has_fec(ConstSlice<u8> packet) noexcept {
 }
 void opus_decoder_release(OpusDecoder* decoder) noexcept {
     if (decoder)
-        *decoder = {};
+        reset_value(decoder);
 }
 } // namespace maicord

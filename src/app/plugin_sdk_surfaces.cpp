@@ -1,6 +1,7 @@
 // Plugin SDK host, ABI 5: context menus (mc.ui.menus@2), slots and popovers
 // (mc.ui.slots@2) and message render decorators (mc.msg.render@1).
 #include "plugin_sdk_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/icon.hpp"
 
 namespace maicord {
@@ -51,7 +52,7 @@ mc_status MC_CALL menus_register(void* handle, uint64_t generation, uint64_t id,
         if (!menu && !candidate.registered) menu = &candidate;
     }
     if (!menu) return MC_E_BUDGET;
-    *menu = {};
+    reset_value(menu);
     menu->id = id;
     menu->target = target;
     menu->flags = flags;
@@ -66,7 +67,7 @@ mc_status MC_CALL menus_unregister(void* handle, uint64_t generation, uint64_t i
     if (!permitted(*binding, MC_PERM_MENUS)) return MC_E_DENIED;
     for (auto& menu : binding->menus)
         if (menu.registered && menu.id == id) {
-            menu = {};
+            reset_value(&menu);
             ++binding->runtime->menu_revision;
             return MC_OK;
         }
@@ -189,7 +190,7 @@ mc_status MC_CALL slots_clear(void* handle, uint64_t generation, const mc_slot_t
     if (!read_target(source_target, &target)) return MC_E_INVALID;
     for (auto& entry : binding->slots)
         if (same_target(entry, target)) {
-            entry = {};
+            reset_value(&entry);
             ++binding->runtime->slot_revision;
             return MC_OK;
         }
@@ -204,7 +205,7 @@ mc_status MC_CALL slots_clear_surface(void* handle, uint64_t generation, uint32_
     for (u32 i = 0; i < binding->slot_high_water; ++i) {
         auto& entry = binding->slots[i];
         if (entry.node_count && (surface == MC_SLOT_SURFACE_COUNT || entry.surface == surface)) {
-            entry = {};
+            reset_value(&entry);
             changed = true;
         }
     }
@@ -331,7 +332,7 @@ constexpr u32 kRenderPluginBytes = 64 + 2 * 96 + kPluginSdkRenderContentBytes +
                                    kPluginSdkRenderAccessories * (kNodeLabelBytes + kSlotTooltipBytes + kNodeValueBytes);
 void put_arena_node(NativePluginSdkRuntime& runtime, NativePluginSdkRenderArenaNode& out, u64 owner,
                     const mc_slot_node& node) noexcept {
-    out = {};
+    reset_value(&out);
     out.owner_id = owner;
     out.action_id = node.action_id;
     out.kind = static_cast<u8>(node.kind);
@@ -387,7 +388,7 @@ void merge_text(NativePluginSdkRuntime& runtime, u32* offset, u16* bytes, Utf8Vi
 }
 void fill_output(const NativePluginSdkRuntime& runtime, const NativePluginSdkRenderEntry& entry,
                  NativePluginSdkDecoration* output) noexcept {
-    *output = {};
+    reset_value(output);
     output->visibility = entry.visibility;
     output->media = entry.media;
     output->name_tone = entry.name_tone;
@@ -583,7 +584,7 @@ bool native_plugin_sdk_decoration_current(const NativePluginSdkRuntime& runtime,
 
 bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePluginSdkRenderMessage& message, bool evaluate,
                                 NativePluginSdkDecoration* output) noexcept {
-    if (output) *output = {};
+    if (output) reset_value(output);
     if (!runtime || !output || !message.message_id) return false;
     auto* entry = render_find(*runtime, message.message_id);
     if (entry && render_current(*runtime, *entry, message.revision)) {
@@ -680,7 +681,7 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
         }
     }
     merged.stamp = ++runtime->render_stamp;
-    *entry = merged;
+    copy_value(entry, merged);
     ++runtime->render_revision;
     if (!entry_decorated(*entry)) return false;
     fill_output(*runtime, *entry, output);

@@ -1,4 +1,5 @@
 #include "maicord/text/sfnt.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 
 namespace maicord {
@@ -15,7 +16,7 @@ bool selector_valid(u32 scalar) noexcept {
 
 // Validate before exposing a view. Multiplications follow count/span checks.
 SfntStatus subtable(ConstSlice<u8> table, u32 offset, ConstSlice<u8>* out) noexcept {
-    *out = {};
+    reset_value(out);
     if (offset > table.count || table.count - offset < 2) return SfntStatus::truncated;
     const u8* p = table.data + offset;
     const u32 available = table.count - offset;
@@ -185,7 +186,7 @@ SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* out) noexcept {
 
 SfntStatus sfnt_cmap_open(const SfntFace& face, SfntCmap* cmap) noexcept {
     if (!cmap) return SfntStatus::invalid_input;
-    *cmap = {};
+    reset_value(cmap);
     SfntCmap result{};
     auto status = sfnt_glyph_count(face, &result.glyph_count);
     if (status != SfntStatus::ok) return status;

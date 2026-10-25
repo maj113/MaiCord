@@ -241,7 +241,7 @@ u64 hash_rect(u64 hash, UiRect r) noexcept {
 }
 void place_controls(UiCallScene& s) noexcept {
     for (auto& control : s.controls)
-        control = {};
+        reset_value(&control);
     const float middle = (s.bar.top + s.bar.bottom) * .5f;
     UiCallControl order[8];
     u32 order_count = 0;
@@ -275,7 +275,7 @@ void place_controls(UiCallScene& s) noexcept {
     if (right - kFullscreenButton > x)
         s.controls[static_cast<u32>(UiCallControl::fullscreen)] = {
             right - kFullscreenButton, middle - kFullscreenButton * .5f, right, middle + kFullscreenButton * .5f};
-    s.search_field = {};
+    reset_value(&s.search_field);
     if (!s.fullscreen) {
         const auto header = ui_call_header_layout(s.header, s.chat_available, s.search_width);
         s.controls[static_cast<u32>(UiCallControl::close)] = header.close;
@@ -339,13 +339,13 @@ void place_tiles(UiCallScene& s, UiRect area) noexcept {
         for (u32 i = 0; i < count; ++i)
             s.tiles[s.tile_count++] = {s.participants[i].user_id, rects[i], rects[i], rects[i], area,
                                        static_cast<u16>(i), false, false};
-        s.strip = {};
+        reset_value(&s.strip);
         return;
     }
     s.scroll = 0;
     if (count == 1) {
         s.tiles[s.tile_count++] = {s.focus_user, area, area, area, area, static_cast<u16>(focused), true, false};
-        s.strip = {};
+        reset_value(&s.strip);
         return;
     }
     const auto focus = ui_call_focus_measure(area, count - 1, s.gap);

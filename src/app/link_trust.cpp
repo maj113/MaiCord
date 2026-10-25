@@ -119,19 +119,19 @@ bool link_target_parse(Utf8View url, LinkTarget* target) noexcept {
     }
     if (parsed.web && (!parsed.host_bytes || !entry_valid(link_target_host(parsed), kLinkTrustHostBytes)))
         return false;
-    *target = parsed;
+    copy_value(target, parsed);
     return true;
 }
 
 bool link_trust_builtin_host(Utf8View host) noexcept {
-    constexpr Utf8View exact[] = {utf8_literal("discord.gg"),           utf8_literal("discord.gift"),
+    static constexpr Utf8View exact[] = {utf8_literal("discord.gg"),           utf8_literal("discord.gift"),
                                   utf8_literal("discord.new"),          utf8_literal("media.discordapp.net"),
                                   utf8_literal("open.spotify.com"),     utf8_literal("www.spotify.com")};
     for (const auto value : exact)
         if (utf8_equal(host, value))
             return true;
     // /(?:^|\.)(?:discordapp|discord|discordmerch)\.com$/
-    constexpr Utf8View owned[] = {utf8_literal("discordapp.com"), utf8_literal("discord.com"),
+    static constexpr Utf8View owned[] = {utf8_literal("discordapp.com"), utf8_literal("discord.com"),
                                   utf8_literal("discordmerch.com")};
     for (const auto value : owned)
         if (utf8_equal(host, value) ||
@@ -305,7 +305,7 @@ bool link_trust_load_file(const wchar_t* path, LinkTrustStore* store) noexcept {
     if (!path || !store)
         return false;
     const u32 revision = store->revision;
-    *store = {};
+    reset_value(store);
     store->revision = revision + 1;
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);

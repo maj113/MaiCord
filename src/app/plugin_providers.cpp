@@ -158,7 +158,7 @@ PluginProviderAddressError plugin_provider_address_parse(Utf8View text, KdfSha25
         return AE::invalid_input;
     a.id = static_cast<u64>(byte_load_be32(digest)) << 32 | byte_load_be32(digest + 4);
     if (a.id <= kPluginProviderOfficial) return AE::host; // 0 and 1 are reserved (a 2^-63 chance)
-    *output = a;
+    copy_value(output, a);
     return AE::none;
 }
 
@@ -194,7 +194,7 @@ bool plugin_provider_fingerprint(KdfSha256Workspace& workspace, const u8* key, u
 
 u32 plugin_provider_fingerprint_text(const u8* fingerprint, Slice<char> output) noexcept {
     if (!fingerprint || !output.data || output.count < kPluginProviderFingerprintTextBytes) return 0;
-    constexpr char digits[] = "0123456789ABCDEF";
+    static constexpr char digits[] = "0123456789ABCDEF";
     u32 at = 0;
     for (u32 i = 0; i < 16; ++i) {
         if (i && !(i % 2)) output[at++] = ' ';
@@ -271,7 +271,7 @@ PluginProviderInsertError plugin_providers_insert(PluginProviders* providers, co
     if (providers->count >= kPluginProviderMaximum) return IE::capacity;
     PluginProviders next = *providers;
     PluginProviderRecord& e = next.entries[next.count++];
-    e = {};
+    reset_value(&e);
     e.id = address.id;
     e.added = now;
     e.flags = kPluginProviderEnabled | kPluginProviderCheckDaily | (probe.signed_provider ? kPluginProviderSigned : 0);

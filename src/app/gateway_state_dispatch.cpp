@@ -431,7 +431,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->banner_seen = value.kind == JsonValueKind::null_value ||
                                json_value_as_string(value, &context->banner);
         if (!context->banner_seen)
-            context->banner = {};
+            reset_value(&context->banner);
         return true;
     }
     if (json_name_is(name, utf8_literal("rate_limit_per_user"))) {
@@ -808,7 +808,7 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
     }
     // Decoded in place: callers read the object only after success.
     StateObjectContext& context = *output;
-    context = {};
+    reset_value(&context);
     JsonReadResult read{};
     if (document) {
         // The array's immutable index already covers this complete child,
@@ -1994,7 +1994,7 @@ GatewayClientDispatchRouteResult gateway_client_route_private_channel(
         return route_error(GatewayClientDispatchRouteError::decode, decoded.error);
     if (object.mutation.type != 1 && object.mutation.type != 3)
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
-    *event = {};
+    reset_value(event);
     event->kind = GatewayClientEventKind::dispatch;
     event->state = object.mutation;
     PayloadWriter writer{storage, 0};
@@ -2034,7 +2034,7 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
         event->thread_self = {member.mutation.guild_id, receipt.thread_id, self_user_id,
                              gateway_thread_self_known | gateway_thread_self_joined, {},
                              thread_join_seconds_from_ms(receipt.join_timestamp_ms)};
-        *payload = {}; event->dispatch_payload_bytes = 0;
+        reset_value(payload); event->dispatch_payload_bytes = 0;
         return {};
     }
     const bool guild_create =
@@ -2380,8 +2380,8 @@ GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayE
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     u32 capacity = storage.count;
     for (;;) {
-        *event = {};
-        *payload = {};
+        reset_value(event);
+        reset_value(payload);
         event->kind = GatewayClientEventKind::dispatch;
         event->sequence = envelope.sequence;
         event->has_sequence = envelope.has_sequence;
@@ -2410,8 +2410,8 @@ GatewayClientDispatchRouteResult gateway_client_route_self_members(JsonValue mem
                                                                    ConstSlice<u8>* payload) noexcept {
     if (!event || !payload || !guild_id || !self_user_id || members.kind != JsonValueKind::array)
         return route_error(GatewayClientDispatchRouteError::invalid_input);
-    *event = {};
-    *payload = {};
+    reset_value(event);
+    reset_value(payload);
     u32 object_scratch[512]{};
     PayloadWriter writer{storage, 0};
     bool found = false;
@@ -2449,8 +2449,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(
         Slice<char> storage{};
         if (!large.acquire(large.context, capacity, &storage) || !storage.data || storage.count < capacity)
             return routed;
-        *event = {};
-        *payload = {};
+        reset_value(event);
+        reset_value(payload);
         routed = gateway_client_route_dispatch(envelope, structural_scratch, maximum_depth,
                                                {storage.data, capacity}, bulk_ids, self_user_id, event, payload);
     }
@@ -2483,7 +2483,7 @@ bool gateway_client_route_guild_placeholder(JsonValue guild, Slice<u32> structur
         &identity);
     if (!read.ok() || !identity.seen || !identity.id)
         return false;
-    *event = GatewayClientEvent{};
+    reset_value<GatewayClientEvent>(event);
     event->kind = GatewayClientEventKind::dispatch;
     event->dispatch_kind = GatewayClientDispatchKind::guild_create;
     event->state.id = identity.id;
@@ -2579,7 +2579,7 @@ GatewayClientDispatchRouteResult gateway_client_route_ready(
         result.error_offset = context.error_offset != 0 ? context.error_offset : read.error_offset;
         return result;
     }
-    *event = GatewayClientEvent{};
+    reset_value<GatewayClientEvent>(event);
     event->kind = GatewayClientEventKind::ready;
     event->state.id = ready.user_id;
     event->state.read_state_partial = read_state.partial;

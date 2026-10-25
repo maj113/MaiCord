@@ -565,7 +565,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     // underline/strike boundaries; color-only effects do not split runs. Han
     // fallback items stay separate (their paint cuts were removed during mapping).
     if(editor){const auto weight=format->font.properties.weight;const auto font_style=format->font.properties.style;bool base_monospace=format->font.family.count==8;
-        constexpr u16 expected[]{'c','o','n','s','o','l','a','s'};for(u32 i=0;base_monospace&&i<8;++i){const auto c=format->font.family[i];base_monospace=static_cast<u16>(c>='A'&&c<='Z'?c+32:c)==expected[i];}
+        static constexpr u16 expected[]{'c','o','n','s','o','l','a','s'};for(u32 i=0;base_monospace&&i<8;++i){const auto c=format->font.family[i];base_monospace=static_cast<u16>(c>='A'&&c<='Z'?c+32:c)==expected[i];}
         const auto properties=[&](const StyledSpan& span) noexcept {const u32 flags=span.flags;if(span.binding()->font_flags==emoji_font_flag)return flags&(text_style_underline|text_style_strikethrough);return static_cast<u32>((!text_system_fixed_weight(system,flags)&&(flags&text_style_bold))?600u:weight)|
             (static_cast<u32>((flags&text_style_italic)?2u:font_style)<<16)|((!base_monospace&&(flags&text_style_monospace))?1u<<24:0)|
             ((flags&text_style_underline)?1u<<25:0)|((flags&text_style_strikethrough)?1u<<26:0);};

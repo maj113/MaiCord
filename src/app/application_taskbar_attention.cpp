@@ -1,4 +1,5 @@
 #include "application_taskbar_attention.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_friends.hpp"
 #include "application_state.hpp"
 #include "application_window_focus.hpp"
@@ -102,7 +103,7 @@ void application_taskbar_attention_counts(u32* mentions, bool* unread) noexcept 
 void application_taskbar_attention_release() noexcept {
     if (g_owner.initialized)
         taskbar_attention_release(&g_owner.native, g_app.window);
-    g_owner = {};
+    reset_value(&g_owner);
 }
 
 } // namespace maicord::app_detail

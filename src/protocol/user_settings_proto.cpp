@@ -568,7 +568,7 @@ bool base_value(const UserSettingsStore& store, UserSettingsField field, u64 key
         *value = user_settings_member(key, user_settings_proto_contains(group, field, key));
         return value->present;
     }
-    *value = {};
+    reset_value(value);
     return user_settings_proto_read(group, field, value);
 }
 } // namespace
@@ -614,7 +614,7 @@ bool user_settings_store_set(UserSettingsStore* store, UserSettingsField field, 
             return true;
         for (u32 i = index + 1; i < store->dirty_count; ++i)
             store->dirty[i - 1] = store->dirty[i];
-        store->dirty[--store->dirty_count] = {};
+        reset_value(&store->dirty[--store->dirty_count]);
         if (!store->dirty_count)
             store->due_ms = 0;
         ++store->revision;

@@ -5,6 +5,7 @@
 // account panel buttons, the message hover bar's plugin buttons, and the
 // popover a slot action leaves in the runtime.
 #include "application_plugins.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
@@ -75,7 +76,7 @@ Utf8View badge_tooltip(u64 channel_id) noexcept {
 } // namespace
 
 bool application_plugins_surface_hit(float x, float y, ApplicationPluginSurfaceHit* out) noexcept {
-    *out = {};
+    reset_value(out);
     if (!g_ui_plugin_slot_query || !g_app.account_ui || g_app.login.visible) return false;
     if (account_hit(x, y, out)) return true;
     const auto& rail = g_app.guild_rail_scene;

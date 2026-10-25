@@ -108,7 +108,7 @@ bool place_controls(UiImageViewer* v) noexcept {
             return false;
         bool visible = shown(*v, index);
         auto& style = node->spec.style;
-        style.margin = {};
+        reset_value(&style.margin);
         if (index == ui_image_viewer_previous || index == ui_image_viewer_next) {
             // Centred on the media body, not the whole viewport.
             style.margin = {kChevronInset, kBodyTop, kChevronInset, kBodyBottom};
@@ -190,7 +190,7 @@ bool ui_image_viewer_open(UiImageViewer* v, UiRect viewport, UiSize pixels) noex
         return false;
     const u32 revision = v->revision + 1;
     const float dpi_scale = v->dpi_scale > 0 ? v->dpi_scale : 1;
-    *v = {};
+    reset_value(v);
     v->revision = revision;
     v->dpi_scale = dpi_scale;
     constexpr u32 capacity = ui_image_viewer_button_count + 1;
@@ -273,7 +273,7 @@ bool ui_image_viewer_set_item(UiImageViewer* v, UiSize pixels, u32 item, u32 cou
     v->video = video;
     v->zoom = 1;
     v->fit = 0;
-    v->pan = {};
+    reset_value(&v->pan);
     v->dragging = false;
     v->caption_bytes = 0;
     v->media = UiImageViewerMedia::ready;
@@ -476,7 +476,7 @@ bool ui_image_viewer_apply(UiImageViewer* v, UiImageViewerCommand command) noexc
         return true;
     case UiImageViewerCommand::fit:
         v->zoom = 1;
-        v->pan = {};
+        reset_value(&v->pan);
         arrange(v);
         ++v->revision;
         return true;
@@ -506,7 +506,7 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
     // The media scrim is always black, so its toolbar uses light foregrounds
     // independently of the application's selected appearance.
     const Theme& toolbar_theme = kDefaultTheme;
-    constexpr UiIcon icons[]{UiIcon::zoom_out, UiIcon::zoom_in,       UiIcon::fit,  UiIcon::close,
+    static constexpr UiIcon icons[]{UiIcon::zoom_out, UiIcon::zoom_in,       UiIcon::fit,  UiIcon::close,
                              UiIcon::download, UiIcon::external_link, UiIcon::copy, UiIcon::maximize};
     const u32 first = paint->count;
     for (u32 i = 0; ok && i < ui_image_viewer_previous; ++i) {

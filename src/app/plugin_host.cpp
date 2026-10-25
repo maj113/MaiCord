@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_host.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/plugin_settings_projection.hpp"
 #include "maicord/app/plugin_call_ledger.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -88,7 +89,7 @@ void stop_slot(NativePluginHost* host, NativePluginSlot* slot) noexcept {
     host->state_bytes -= slot->definition.state_bytes;
     --host->active_count;
     // Dormant slots retain no plugin callbacks, contexts or owner metadata.
-    *slot = {};
+    reset_value(slot);
 }
 
 } // namespace
@@ -102,7 +103,7 @@ bool native_plugin_host_initialize(NativePluginHost* host, UiPageRegistry* pages
     auto* sdk = host->sdk;
     auto* ledger = host->ledger;
     *host = {slots, pages, policy, generation, 0, 0, false, sdk, ledger};
-    for (u32 index = 0; index < slots.count; ++index) slots[index] = {};
+    for (u32 index = 0; index < slots.count; ++index) reset_value(&slots[index]);
     return true;
 }
 
@@ -202,7 +203,7 @@ NativePluginResult native_plugin_host_disable_all(NativePluginHost* host) noexce
 
 NativePluginResult native_plugin_host_settings_token(const NativePluginHost* host,
     UiPageKey page, NativePluginUiToken* token) noexcept {
-    if (token) *token = {};
+    if (token) reset_value(token);
     if (!host || !host->slots.data || !host->pages || !token || !page.owner_id || !page.page_id)
         return result(NativePluginError::invalid_argument);
     if (host->busy) return result(NativePluginError::busy);

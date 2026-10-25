@@ -693,7 +693,7 @@ bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> in
         (!body_output.data && body_output.count != 0) || (!head_parser && head_parser_context)) {
         return false;
     }
-    *decoder = HttpResponseDecoder{};
+    reset_value<HttpResponseDecoder>(decoder);
     decoder->body = body_output;
     decoder->retained_head = retained_head;
     decoder->head_parser = head_parser;

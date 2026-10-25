@@ -1,4 +1,5 @@
 #include "maicord/ui/message_action_bar.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/reaction_preferences.hpp"
@@ -277,7 +278,7 @@ MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const Mess
     candidate.revision = bar->revision;
     saturating_increment_if(opening, candidate.opens);
     saturating_increment_if(changed, candidate.revision);
-    *bar = candidate;
+    copy_value(bar, candidate);
     return MessageActionBarResult{MessageActionBarError::none, changed};
 }
 

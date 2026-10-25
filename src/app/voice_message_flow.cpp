@@ -1,4 +1,5 @@
 #include "maicord/app/voice_message.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/protocol/base64.hpp"
 
@@ -40,7 +41,7 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
         return VoiceMessageAction::none;
     auto& f = *flow;
     const auto reset = [&](VoiceMessageNotice notice) noexcept {
-        f = {};
+        reset_value(&f);
         f.notice = notice;
     };
     if (f.phase != VoiceMessagePhase::idle &&
@@ -52,7 +53,7 @@ VoiceMessageAction voice_message_flow_apply(VoiceMessageFlow* flow, VoiceMessage
     case VoiceMessagePhase::idle:
         if ((event != VoiceMessageEvent::press && event != VoiceMessageEvent::toggle) || !channel_id)
             return VoiceMessageAction::none;
-        f = {};
+        reset_value(&f);
         f.phase = VoiceMessagePhase::recording;
         f.channel_id = channel_id;
         f.held = event == VoiceMessageEvent::press;

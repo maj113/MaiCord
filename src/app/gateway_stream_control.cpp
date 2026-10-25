@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_stream_control.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {
@@ -266,6 +267,6 @@ void gateway_stream_release(GatewayStreamControl* stream) noexcept {
     voice_setup_release(&stream->setup);
     stream->phase = GatewayStreamPhase::idle;
     stream->end = GatewayStreamEnd::none;
-    stream->key = {};
+    reset_value(&stream->key);
 }
 } // namespace maicord

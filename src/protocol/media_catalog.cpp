@@ -1,4 +1,5 @@
 #include "maicord/protocol/media_catalog.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -358,12 +359,12 @@ bool pack(void* opaque, u32, JsonValue value) noexcept {
     c.pack_id = p.id;
     c.cover_id = p.cover;
     c.pack_name = p.name;
-    c.pack_label = {};
+    reset_value(&c.pack_label);
     c.pack_name_copied = false;
     const bool okay = array(c, p.stickers, MediaCatalogItemKind::sticker);
     c.pack_id = c.cover_id = 0;
-    c.pack_name = {};
-    c.pack_label = {};
+    reset_value(&c.pack_name);
+    reset_value(&c.pack_label);
     c.pack_name_copied = false;
     return okay;
 }
@@ -601,7 +602,7 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
     if (!visit(c, operation))
         return c.result;
     const auto measured_count = c.selected, measured_bytes = c.used, total = c.result.source_count;
-    c.result = {};
+    reset_value(&c.result);
     c.selected = c.used = 0;
     c.page_closed = false;
     c.write = true;

@@ -1,4 +1,5 @@
 #include "maicord/platform/desktop_notifications.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winrt.hpp"
@@ -128,7 +129,7 @@ bool ui_owner(Server* s) noexcept {return s && s->active && s->thread==GetCurren
 void drop_transport(Server* s) noexcept {release(s->notifier);release(s->factory);release(s->history);release(s->xml_factory);}
 void drop_snapshot(Server* s) noexcept {release(s->history_snapshot);s->history_cursor=s->history_size=0;}
 void retire_history_request(Server* s) noexcept {
-    drop_snapshot(s);if(s->history_count){s->history_requests[s->history_head]={};s->history_head=(s->history_head+1)%8;--s->history_count;}
+    drop_snapshot(s);if(s->history_count){reset_value(&s->history_requests[s->history_head]);s->history_head=(s->history_head+1)%8;--s->history_count;}
 }
 void cancel_profile_history(Server* s,u64 profile) noexcept {
     if(s->history_count&&s->history_requests[s->history_head].profile==profile)drop_snapshot(s);
@@ -188,7 +189,7 @@ HRESULT remove_once(Server* s,u64 profile,u64 message) noexcept {
 }
 bool desktop_notification_hex_id(u64 id,Slice<wchar_t> out) noexcept {
     if(!id||!out.data||out.count<17)return false;
-    constexpr wchar_t digits[]=L"0123456789abcdef";
+    static constexpr wchar_t digits[]=L"0123456789abcdef";
     for(u32 i=0;i<16;++i)out[i]=digits[(id>>((15-i)*4))&15];out[16]=0;return true;
 }
 bool desktop_notification_activation_format(DesktopNotificationActivation a,Slice<wchar_t> out,u32* count) noexcept {
@@ -199,7 +200,7 @@ bool desktop_notification_activation_format(DesktopNotificationActivation a,Slic
     desktop_notification_hex_id(a.message_id,{out.data+44,17});*count=kActivationUnits;return true;
 }
 bool desktop_notification_activation_parse(ConstSlice<wchar_t> text,DesktopNotificationActivation* out) noexcept {
-    if(out)*out={};if(!out||!text.data||text.count!=kActivationUnits||!bytes_equal(text.data,kActivationPrefix,6*sizeof(wchar_t))||
+    if(out)reset_value(out);if(!out||!text.data||text.count!=kActivationUnits||!bytes_equal(text.data,kActivationPrefix,6*sizeof(wchar_t))||
         text[22]!=L';'||text[23]!=L'c'||text[24]!=L'='||text[41]!=L';'||text[42]!=L'm'||text[43]!=L'=')return false;
     u64 ids[3]{};constexpr u32 starts[]={6,25,44};
     for(u32 n=0;n<3;++n)for(u32 i=0;i<16;++i){const wchar_t c=text[starts[n]+i];u32 v;
@@ -207,7 +208,7 @@ bool desktop_notification_activation_parse(ConstSlice<wchar_t> text,DesktopNotif
     if(!ids[0]||!ids[1]||!ids[2])return false;*out={ids[0],ids[1],ids[2]};return true;
 }
 DesktopNotificationResult desktop_notification_xml(const DesktopNotificationPayload& p,DesktopNotificationXml* out) noexcept {
-    if(!out)return failed(DesktopNotificationError::invalid_input,E_POINTER);*out={};
+    if(!out)return failed(DesktopNotificationError::invalid_input,E_POINTER);reset_value(out);
     wchar_t args[61];u32 units{};
     if(!desktop_notification_activation_format(p.target,{args,61},&units)||!xml_utf8(p.title)||!xml_utf8(p.body)||!xml_utf8(p.avatar_file_uri))return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
     if(p.avatar_file_uri.bytes){const auto v=p.avatar_file_uri;
@@ -218,7 +219,7 @@ DesktopNotificationResult desktop_notification_xml(const DesktopNotificationPayl
     Writer w{out};bool ok=w.literal("<toast activationType=\"foreground\" launch=\"")&&w.append({ascii,60})&&w.literal("\"><visual><binding template=\"ToastGeneric\"><text>")&&w.escaped(p.title)&&w.literal("</text><text>")&&w.escaped(p.body)&&w.literal("</text>");
     if(ok&&p.avatar_file_uri.bytes)ok=w.literal("<image placement=\"appLogoOverride\" hint-crop=\"circle\" src=\"")&&w.escaped(p.avatar_file_uri)&&w.literal("\"/>");
     if(ok)ok=w.literal("</binding></visual>");if(ok&&p.silent)ok=w.literal("<audio silent=\"true\"/>");if(ok)ok=w.literal("</toast>");
-    if(!ok){*out={};return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));}return {};
+    if(!ok){reset_value(out);return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));}return {};
 }
 DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications* n,const DesktopNotificationConfig& c) noexcept {
     if(!n||n->runtime||!app_id_valid(c.app_id)||same_guid(c.activator_id,GUID{})||
@@ -268,7 +269,7 @@ DesktopNotificationResult desktop_notifications_remove_channel(DesktopNotificati
     for(u32 i=0;i<s->history_count;++i){auto& r=s->history_requests[(s->history_head+i)%8];if(r.profile==profile&&r.channel==channel){if(i==0&&s->history_snapshot)r.refresh=true;return {};}}
     if(s->history_count==8)return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA));
     const bool starting=s->history_count==0;s->history_requests[(s->history_head+s->history_count)%8]={profile,channel};++s->history_count;
-    if(starting&&s->wake_window&&!PostMessageW(s->wake_window,s->wake_message,0,0)){--s->history_count;s->history_requests[s->history_head]={};return failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(GetLastError()));}
+    if(starting&&s->wake_window&&!PostMessageW(s->wake_window,s->wake_message,0,0)){--s->history_count;reset_value(&s->history_requests[s->history_head]);return failed(DesktopNotificationError::transport,HRESULT_FROM_WIN32(GetLastError()));}
     return {};
 }
 bool desktop_notifications_history_pending(const DesktopNotifications* n) noexcept {
@@ -323,7 +324,7 @@ DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications* n
 }
 bool desktop_notifications_take_activation(DesktopNotifications* n,DesktopNotificationActivation* out) noexcept {
     auto* s=owner(n);if(!ui_owner(s)||!out)return false;AcquireSRWLockExclusive(&s->lock);const bool have=s->count!=0;
-    if(have){*out=s->queue[s->head];s->queue[s->head]={};s->head=(s->head+1)%kDesktopNotificationActivationCapacity;--s->count;}
+    if(have){*out=s->queue[s->head];reset_value(&s->queue[s->head]);s->head=(s->head+1)%kDesktopNotificationActivationCapacity;--s->count;}
     ReleaseSRWLockExclusive(&s->lock);return have;
 }
 void desktop_notifications_discard_activations(DesktopNotifications* n) noexcept {

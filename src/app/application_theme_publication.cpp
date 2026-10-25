@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_custom_theme.hpp"
 #include "application_theme_publication.hpp"
 
@@ -25,19 +26,29 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     // Imported serialized documents cannot transfer any runtime style pointer.
     palette.styles = nullptr;
     palette.style_revision = 0;
-    const UiThemeTypography typography = document ? document->typography : UiThemeTypography{};
-    const UiThemeMetrics metrics = document ? document->metrics : UiThemeMetrics{};
+    // Built-in defaults by reference: conditional copies of these banks
+    // expand into inline vector loops.
+    static constexpr UiThemeTypography default_typography{};
+    static constexpr UiThemeMetrics default_metrics{};
+    static constexpr UiThemeIcons default_icons{};
+    static constexpr UiThemeSettings default_settings{};
+    const UiThemeTypography& typography = document ? document->typography : default_typography;
+    const UiThemeMetrics& metrics = document ? document->metrics : default_metrics;
     const UiThemeMetrics previous_metrics =
         publication.styles ? publication.styles->metrics : UiThemeMetrics{};
-    UiResolvedThemeStyles candidate = publication.styles ? *publication.styles : UiResolvedThemeStyles{};
+    UiResolvedThemeStyles candidate;
+    if (publication.styles)
+        copy_value(&candidate, *publication.styles);
+    else
+        reset_value(&candidate);
     UiThemeStylesResult styles_result{};
     if (document || publication.styles) {
         styles_result = ui_theme_styles_apply(&candidate, typography, metrics);
         if (!styles_result.ok())
             return false;
         // Component tokens are paint-only data beside the typed banks.
-        const UiThemeIcons icons = document ? document->icons : UiThemeIcons{};
-        const UiThemeSettings settings = document ? document->settings : UiThemeSettings{};
+        const UiThemeIcons& icons = document ? document->icons : default_icons;
+        const UiThemeSettings& settings = document ? document->settings : default_settings;
         if (!bytes_equal(&candidate.icons, &icons, sizeof(icons)) ||
             !bytes_equal(&candidate.settings, &settings, sizeof(settings))) {
             candidate.icons = icons;

@@ -1,10 +1,11 @@
 #include "maicord/text/latin_line.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/latin_run.hpp"
 #include "maicord/text/alphabetic_run.hpp"
 #include "unicode_line_geometry.hpp"
 namespace maicord {
 SfntStatus native_latin_line(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,float em,const NativeAsciiLineStorage& s,NativeAsciiLineResult* out,SfntShapeLimits limits,float trailing_spacing,const NativeAlphabeticPlan* profile,bool force_shaping,bool rtl,bool paragraph_only) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};if(s.clusters.count&&!s.clusters.data)return SfntStatus::invalid_input;
+    if(!out)return SfntStatus::invalid_input;reset_value(out);if(s.clusters.count&&!s.clusters.data)return SfntStatus::invalid_input;
     if(profile&&(profile->run.slot!=handle.slot||profile->run.generation!=handle.generation||profile->independent!=independent))return SfntStatus::invalid_input;
     if(rtl&&!profile)return SfntStatus::unsupported_sequence;
     const bool common=profile&&!profile->script_tag;

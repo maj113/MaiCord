@@ -1,4 +1,5 @@
 #include "maicord/app/update_generation_authentication.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -209,7 +210,7 @@ UpdateGenerationResult select_package(UpdateGenerationTransaction* transaction,
         if (selected.ok() && !verify(context, transaction, transaction->state.active.package, &native))
             selected = fail(UpdateGenerationError::authenticity, native);
         if (selected.ok()) selected = update_generation_validate(transaction);
-        if (selected.ok()) descriptor = transaction->state.active.package;
+        if (selected.ok()) copy_value(&descriptor, transaction->state.active.package);
     } else {
         selected = update_generation_select(transaction, update_generation_authenticator(context), &descriptor);
     }
@@ -222,11 +223,11 @@ UpdateGenerationResult select_package(UpdateGenerationTransaction* transaction,
         if (!selected.ok()) return selected;
         return cleanup.ok() ? fail(UpdateGenerationError::authenticity, ERROR_INVALID_DATA) : cleanup;
     }
-    UpdatePackage package{}; package.descriptor = descriptor;
+    reset_value(output); copy_value(&output->descriptor, descriptor);
     for (u32 i = 0; i < members; ++i) {
-        package.files[i] = context->files[kUpdateGenerationFirstMemberSlot + i]; context->files[kUpdateGenerationFirstMemberSlot + i] = nullptr;
+        output->files[i] = context->files[kUpdateGenerationFirstMemberSlot + i]; context->files[kUpdateGenerationFirstMemberSlot + i] = nullptr;
     }
-    *output = package; return {};
+    return {};
 }
 } // namespace
 UpdateGenerationResult update_generation_select_package(UpdateGenerationTransaction* transaction,

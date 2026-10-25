@@ -367,7 +367,7 @@ bool send_invite_link(u64 channel_id) noexcept {
 void finish_invite(bool ok) noexcept {
     if (!ok)
         log_write(LogLevel::warning, "user_menu", "invite_failed");
-    g_state->invite = {};
+    reset_value(&g_state->invite);
 }
 u64 read_channel_id(Utf8View body) noexcept {
     struct Find {

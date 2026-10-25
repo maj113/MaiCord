@@ -1,4 +1,5 @@
 #include "maicord/ui/poll_controls.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
@@ -241,7 +242,7 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
         return false;
     char digits[20];
     const u32 digit_count = decimal_write(digits, static_cast<u64>(state.page_index) + 1);
-    constexpr char prefix[] = "Page ";
+    static constexpr char prefix[] = "Page ";
     for (u32 i = 0; i < sizeof(prefix) - 1; ++i)
         projected.page_text[projected.page_bytes++] = prefix[i];
     for (u32 i = 0; i < digit_count; ++i)
@@ -261,7 +262,7 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
                       ui_poll_voters_target_rectangle(projected, scene->capture)) &&
         ui_poll_voters_target_enabled(projected, scene->capture))
         projected.capture = scene->capture;
-    *scene = projected;
+    copy_value(scene, projected);
     return true;
 }
 bool ui_poll_voters_scene_scroll(UiPollVotersScene* scene, float delta) noexcept {
@@ -271,8 +272,8 @@ bool ui_poll_voters_scene_scroll(UiPollVotersScene* scene, float delta) noexcept
     publish_scroll(*scene, old + delta);
     if (old == scene->scroll)
         return false;
-    scene->hover = {};
-    scene->capture = {};
+    reset_value(&scene->hover);
+    reset_value(&scene->capture);
     return true;
 }
 UiRect ui_poll_voters_row_rectangle(const UiPollVotersScene& scene, u32 index) noexcept {
@@ -377,8 +378,8 @@ UiPollVotersSceneResult ui_poll_voters_scene_pointer(UiPollVotersScene* scene, U
         return result;
     if (!current(*scene) || event == UiPollPointerEvent::cancel || event == UiPollPointerEvent::leave) {
         result.release_capture = scene->capture.control != UiPollVotersControl::none;
-        scene->capture = {};
-        scene->hover = {};
+        reset_value(&scene->capture);
+        reset_value(&scene->hover);
         return result;
     }
     const auto hit = ui_poll_voters_scene_hit(*scene, point);
@@ -392,7 +393,7 @@ UiPollVotersSceneResult ui_poll_voters_scene_pointer(UiPollVotersScene* scene, U
         result.action_requested = ui_poll_voters_target_equal(hit, scene->capture);
         if (result.action_requested)
             result.action = action(*scene, hit);
-        scene->capture = {};
+        reset_value(&scene->capture);
     } else
         result.handled =
             hit.control != UiPollVotersControl::none || scene->capture.control != UiPollVotersControl::none;

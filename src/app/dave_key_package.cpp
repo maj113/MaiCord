@@ -25,7 +25,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
         return {0, 0, DavePackageError::key_reuse};
     for (u32 i = 0; i != 8; ++i)
         identity[7 - i] = static_cast<u8>(user_id >> (8 * i));
-    const u8 one[]{0, 1}, two[]{0, 2};
+    static constexpr u8 one[]{0, 1}, two[]{0, 2};
     MlsKeyPackageView view{};
     view.version = 1;
     view.cipher_suite = 2;
@@ -104,7 +104,7 @@ DavePackageResult dave_key_package_create(KdfSha256Workspace& workspace, const P
     DaveKeyPackage candidate{};
     const auto result = produce(workspace, signing, user_id, candidate);
     if (result.ok()) {
-        *output = candidate;
+        copy_value(output, candidate);
         // Transfer handles, then erase only the local descriptor/public bytes.
         secure_clear_bytes(&candidate, sizeof(candidate));
     } else

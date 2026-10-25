@@ -20,7 +20,7 @@ RestClientSubmitResult account_media_catalog(RestClient* rest,
         return {written.error == MediaCatalogError::capacity ? RestClientSubmitError::target_capacity
                                                              : RestClientSubmitError::invalid_input};
     // Distinct endpoint buckets; search text never changes route identity.
-    constexpr u64 routes[]{0x4749464341544547ull, 0x4749465452454E44ull, 0x4749465345415243ull,
+    static constexpr u64 routes[]{0x4749464341544547ull, 0x4749465452454E44ull, 0x4749465345415243ull,
                            0x4749465355474745ull, 0x535449434B504143ull, 0x535449434B475549ull};
     const bool guild = query->operation == MediaCatalogOperation::guild_stickers;
     return rest_client_submit(

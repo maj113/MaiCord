@@ -171,7 +171,7 @@ HRESULT upload(State& s, D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data,
                                      s.context->ReleaseDecoderBuffer(s.decoder, type));
     if (!fits)
         return E_OUTOFMEMORY;
-    *out = {};
+    reset_value(out);
     out->BufferType = type;
     out->DataSize = bytes;
     return result;
@@ -318,9 +318,9 @@ bool reset(H264GpuDecoder& handle) noexcept {
     mp4_demux_reset(&cursor);
     if (!cursor.ready)
         return false;
-    s.demux = cursor;
-    s.references = {};
-    s.output = {};
+    copy_value(&s.demux, cursor);
+    reset_value(&s.references);
+    reset_value(&s.output);
     handle.submitted = false;
     return true;
 }
@@ -378,7 +378,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     handle->demux_error = hevc_demux_initialize(&s->demux, {owned, encoded.count}, availability);
     HRESULT result = handle->demux_error == Mp4DemuxError::none ? S_OK : E_INVALIDARG;
     if (SUCCEEDED(result)) {
-        auto cursor = s->demux;
+        Mp4Demuxer cursor; copy_value(&cursor, s->demux);
         const auto unit = mp4_demux_next_ready(&cursor);
         u8 pps{};
         auto error = unit.ok() ? hevc_picture_parameter_id(unit.bytes, s->demux.nal_length_bytes, &pps)
@@ -522,7 +522,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
         }
         if (picture.irap && s.output.count) {
             if (picture.no_output_prior)
-                s.output = {};
+                reset_value(&s.output);
             else {
                 handle->submitted = true;
                 return output_frame(s);
@@ -563,7 +563,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
             return frame;
         }
         s.picture = picture;
-        s.demux = next;
+        copy_value(&s.demux, next);
         s.references = plan.after;
         if (++s.feedback == 0)
             ++s.feedback;
@@ -591,7 +591,7 @@ H264GpuMovie hevc_gpu_decoder_movie(const H264GpuDecoder& handle) noexcept {
     const auto* s = static_cast<const State*>(handle.state);
     if (!s || !s->demux.ready)
         return {};
-    auto cursor = s->demux;
+    Mp4Demuxer cursor; copy_value(&cursor, s->demux);
     mp4_demux_reset(&cursor);
     const auto first = mp4_demux_next(&cursor);
     return {s->demux.duration_us, s->demux.sample_count, s->demux.has_edit_list,
@@ -601,7 +601,7 @@ H264GpuDiagnostic hevc_gpu_decoder_diagnostic(const H264GpuDecoder& handle) noex
     const auto* s = static_cast<const State*>(handle.state);
     if (!s)
         return {};
-    auto cursor = s->demux;
+    Mp4Demuxer cursor; copy_value(&cursor, s->demux);
     const auto next = mp4_demux_next(&cursor);
     return {s->demux.sample_index, next.presentation_time_us_signed, next.decode_time_us, s->output.count,
             next.ok()};
@@ -629,9 +629,9 @@ Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekP
     if (!unit.ok() || hevc_parse_picture(unit.bytes, s.config, &picture) != HevcError::none ||
         !picture.irap)
         return Mp4DemuxError::unsupported;
-    s.demux = next;
-    s.references = {};
-    s.output = {};
+    copy_value(&s.demux, next);
+    reset_value(&s.references);
+    reset_value(&s.output);
     handle->submitted = false;
     handle->status = S_OK;
     handle->parse_error = H264Error::none;
@@ -659,7 +659,7 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
         com_release(s->device);
         VirtualFree(s, 0, MEM_RELEASE);
     }
-    *handle = {};
+    reset_value(handle);
 }
 bool hevc_gpu_decoder_busy(const H264GpuDecoder& handle) noexcept {
     return h264_gpu_decoder_busy(handle);

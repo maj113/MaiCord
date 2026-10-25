@@ -1,4 +1,5 @@
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/memory.hpp"
 #include "network_native.hpp"
 
 namespace maicord {
@@ -29,7 +30,7 @@ NetworkResult network_file_read(NetworkFile* file, u64 offset, Slice<u8> buffer)
     if (!file || !file->handle || file->pending || !buffer.data || !buffer.count ||
         offset >= file->bytes || buffer.count > file->bytes - offset)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
-    file->operation = {};
+    reset_value(&file->operation);
     file->operation.owner = file;
     file->operation.kind = NetworkOperationKind::file_read;
     file->operation.generation = file->generation;
@@ -59,7 +60,7 @@ NetworkResult network_file_create(NetworkLoop* loop, NetworkFile* file, const wc
     const HANDLE handle = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
         FILE_FLAG_OVERLAPPED | FILE_FLAG_SEQUENTIAL_SCAN | FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) return {static_cast<i32>(thread_last_error()), NetworkError::file_open};
-    file->handle = handle; file->bytes = 0; file->identity = {};
+    file->handle = handle; file->bytes = 0; reset_value(&file->identity);
     if (++file->generation == 0) ++file->generation;
     if (!CreateIoCompletionPort(handle, loop->completion_port, reinterpret_cast<ULONG_PTR>(file), 0)) {
         return {static_cast<i32>(thread_last_error()), NetworkError::file_open};
@@ -70,7 +71,7 @@ NetworkResult network_file_write(NetworkFile* file, u64 offset, ConstSlice<u8> b
     if (!file || !file->handle || file->pending || !buffer.data || !buffer.count ||
         offset > 0x7fffffffffffffffull || buffer.count > 0x7fffffffffffffffull - offset)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
-    file->operation = {}; file->operation.owner = file;
+    reset_value(&file->operation); file->operation.owner = file;
     file->operation.kind = NetworkOperationKind::file_write; file->operation.generation = file->generation;
     file->operation.overlapped.Offset = static_cast<DWORD>(offset);
     file->operation.overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);

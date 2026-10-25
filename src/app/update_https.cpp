@@ -1,4 +1,5 @@
 #include "maicord/sys/winsock.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/app/update_https.hpp"
 #include "maicord/core/ascii.hpp"
@@ -190,7 +191,7 @@ u32 https_exchange_head(const UpdateHttpRequest& request, const HttpsExchangeOpt
             if (!ascii_is_alnum(h.name.data[j]) && h.name.data[j] != '-') ok = false;
         for (u32 j = 0; j < h.value.bytes; ++j)
             if (h.value.data[j] < ' ' || h.value.data[j] > '~') ok = false;
-        constexpr Utf8View reserved[]{utf8_literal("Host"), utf8_literal("Content-Length"),
+        static constexpr Utf8View reserved[]{utf8_literal("Host"), utf8_literal("Content-Length"),
             utf8_literal("Transfer-Encoding"), utf8_literal("Connection"), utf8_literal("Accept-Encoding")};
         for (auto name : reserved) if (ascii_equal_ignore_case(h.name, name)) ok = false;
         for (u32 j = 0; j < i; ++j)
@@ -212,7 +213,7 @@ UpdateTransportError https_exchange(UpdateHttpsTransport* t, const UpdateHttpReq
     const HttpsExchangeOptions& options, UpdateHttpResponse* response) noexcept {
     if (!t || !t->winsock || !response) return E::invalid_input;
     if (cancelled(t)) return E::cancelled;
-    *response = {};
+    reset_value(response);
     t->encrypted_bytes = t->plain_bytes = 0; t->native = 0;
     const E error = exchange(t, request, response, options);
     if (error != E::none) response->native_error = t->native;

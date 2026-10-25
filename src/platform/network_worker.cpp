@@ -1,4 +1,5 @@
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/platform/network_worker.hpp"
 #include "network_worker_startup.hpp"
 
@@ -20,7 +21,7 @@ NetworkWorkerResult failure(NetworkWorkerError error, u32 native_error) noexcept
 void close_worker(NetworkWorker* worker) noexcept {
     CloseHandle(worker->thread);
     CloseHandle(worker->ready_event);
-    *worker = NetworkWorker{};
+    reset_value<NetworkWorker>(worker);
 }
 
 NetworkWorkerStep dispatch(NetworkWorker* worker, NetworkWorkerEventKind kind,
@@ -80,7 +81,7 @@ static NetworkWorkerResult launch_worker(NetworkWorker* worker, NetworkWorkerHan
     if (!worker || !handler || worker->thread || worker->ready_event) {
         return failure(NetworkWorkerError::invalid_input, ERROR_INVALID_PARAMETER);
     }
-    *worker = NetworkWorker{};
+    reset_value<NetworkWorker>(worker);
     worker->handler = handler;
     worker->context = context;
     worker->asynchronous_start = asynchronous;
@@ -94,7 +95,7 @@ static NetworkWorkerResult launch_worker(NetworkWorker* worker, NetworkWorkerHan
     if (!worker->thread) {
         const u32 native_error = thread_last_error();
         CloseHandle(worker->ready_event);
-        *worker = NetworkWorker{};
+        reset_value<NetworkWorker>(worker);
         return failure(NetworkWorkerError::thread_create, native_error);
     }
     return success();

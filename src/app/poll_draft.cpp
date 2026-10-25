@@ -156,7 +156,7 @@ bool poll_draft_build(const PollDraft& draft, PollCreate* poll) noexcept {
     built.duration_hours = kPollDurations[draft.duration_index];
     built.allow_multiselect = draft.allow_multiselect;
     if (!poll_create_valid(built)) return false;
-    *poll = built;
+    copy_value(poll, built);
     return true;
 }
 } // namespace maicord

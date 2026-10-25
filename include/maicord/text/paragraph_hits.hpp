@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/ascii_line.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/paragraph_hit_metric.hpp"
 namespace maicord {
 inline constexpr u32 native_hit_group_start=0x80000000u,native_hit_newline=0x40000000u;
@@ -26,7 +27,7 @@ struct NativeParagraphHits {
     ConstSlice<NativeParagraphHitRun> visual_runs{};
 };
 inline bool native_paragraph_hit_advances(const NativeParagraphHits& h,u32 index,ConstSlice<float>* output) noexcept {
-    if(!output)return false;*output={};if(index>=h.clusters.count||!h.clusters.data)return false;
+    if(!output)return false;reset_value(output);if(index>=h.clusters.count||!h.clusters.data)return false;
     const u32 first=h.clusters[index].advance_flags&native_hit_advance_mask;
     const u32 end=index+1<h.clusters.count?h.clusters[index+1].advance_flags&native_hit_advance_mask:h.advances.count;
     if(end<first||end>h.advances.count||(end&&!h.advances.data))return false;

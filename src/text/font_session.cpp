@@ -1,4 +1,5 @@
 #include "maicord/text/font_session.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/font_run.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -80,14 +81,14 @@ NativeFontSessionStats native_font_session_stats(const NativeFontSession* sessio
     stats.peak_files=session->peak_files;stats.peak_faces=session->peak_faces;stats.peak_instances=session->peak_instances;stats.peak_mapped_bytes=session->peak_mapped_bytes;stats.references=session->references;return stats;
 }
 NativeFontResult native_font_session_face(NativeFontSession* session,const wchar_t* path,u32 index,NativeFontHandle* output) noexcept {
-    if(output)*output={};if(!session||!output||!path||!*path)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
+    if(output)reset_value(output);if(!session||!output||!path||!*path)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if((!session->fonts.files.count&&!extend_files(*session))||(!session->fonts.faces.count&&!extend(session->faces,session->fonts.faces)))return capacity_error();
     const auto result=native_font_acquire(&session->fonts,path,index,output,grow_fonts,session);
     if(result.ok())peak(*session);return result;
 }
 NativeFontResult native_font_session_instance(NativeFontSession* session,NativeFontHandle face,ConstSlice<FontAxisSetting> settings,
     bool instructions,NativeFontPrepareScratch scratch,NativeFontInstanceHandle* output) noexcept {
-    if(output)*output={};if(!session||!output)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
+    if(output)reset_value(output);if(!session||!output)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if(!native_font_get(session->fonts,face))return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     if(!session->store.slots.count&&!extend(session->instances,session->store.slots))return capacity_error();
     auto result=native_font_instance_acquire(&session->store,face,settings,instructions,scratch,output);
@@ -96,7 +97,7 @@ NativeFontResult native_font_session_instance(NativeFontSession* session,NativeF
     if(result.ok())peak(*session);return result;
 }
 NativeFontResult native_font_session_run(NativeFontSession* session,NativeFontInstanceHandle instance,const NativeFontSelection& source,u32 simulations,NativeFontRunHandle* output) noexcept {
-    if(output)*output={};if(!session||!output)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
+    if(output)reset_value(output);if(!session||!output)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     auto result=native_font_run_acquire(&session->run_store,instance,source,simulations,output);
     if(result.error==NativeFontError::capacity){bool available=false;for(u32 i=0;i<session->run_store.slots.count;++i){const auto& s=session->run_store.slots[i];available|=!s.references&&s.generation!=0xffffffffu;}
         if(!available&&extend(session->runs,session->run_store.slots))result=native_font_run_acquire(&session->run_store,instance,source,simulations,output);}

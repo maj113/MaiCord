@@ -51,7 +51,7 @@ OggOpusWriterError ogg_opus_writer_begin(OggOpusWriter* w, Slice<u8> output, u32
                                          u32 input_sample_rate, Utf8View vendor) noexcept {
     if (!w || !output.data || (!vendor.data && vendor.bytes) || vendor.bytes > 255)
         return OggOpusWriterError::invalid_input;
-    *w = {};
+    reset_value(w);
     w->output = output;
     w->serial = serial;
     u8 head[19];
@@ -68,7 +68,7 @@ OggOpusWriterError ogg_opus_writer_begin(OggOpusWriter* w, Slice<u8> output, u32
     copy_bytes(tags + 12, vendor.data, vendor.bytes);
     byte_store_le32(tags + 12 + vendor.bytes, 0); // No user comments.
     if (!header_page(w, 0x02, {head, sizeof(head)}) || !header_page(w, 0, {tags, 16 + vendor.bytes})) {
-        *w = {};
+        reset_value(w);
         return OggOpusWriterError::capacity;
     }
     w->started = true;

@@ -50,7 +50,7 @@ Utf8View endpoint_query(GatewayEndpointPolicy policy) noexcept {
 
 GatewayEndpointError gateway_endpoint_parse_with_policy(Utf8View url, GatewayEndpointPolicy policy,
                                                         GatewayEndpoint* endpoint) noexcept {
-    constexpr char scheme[] = "wss://";
+    static constexpr char scheme[] = "wss://";
     const Utf8View query = endpoint_query(policy);
     if (!endpoint || !url.data || url.bytes <= sizeof(scheme) - 1 || !query.data) {
         return GatewayEndpointError::invalid_input;
@@ -202,7 +202,7 @@ bool gateway_endpoint_validate(const GatewayEndpoint& endpoint) noexcept {
         return false;
     }
     char url[6 + kGatewayEndpointAuthorityCapacity + kGatewayEndpointTargetCapacity]{};
-    constexpr char scheme[] = "wss://";
+    static constexpr char scheme[] = "wss://";
     u32 bytes = 0;
     for (u32 index = 0; index < sizeof(scheme) - 1; ++index) {
         url[bytes++] = scheme[index];

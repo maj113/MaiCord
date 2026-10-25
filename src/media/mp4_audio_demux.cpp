@@ -1,4 +1,5 @@
 #include "maicord/media/mp4_audio_demux.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/media/aac_configuration.hpp"
 #include "mp4_demux_detail.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -184,7 +185,7 @@ Mp4DemuxError mp4_audio_demux_initialize(Mp4AudioDemuxer* output, ConstSlice<u8>
         !byte_range_valid(source) ||
         byte_ranges_overlap(source, {reinterpret_cast<const u8*>(output), sizeof(*output)}))
         return Mp4DemuxError::invalid_input;
-    *output = {};
+    reset_value(output);
     Mp4AudioDemuxer d{};
     mp4_demux_detail::Box stsd{};
     auto error = mp4_demux_detail::initialize_tables(&d.samples, source,
@@ -193,7 +194,7 @@ Mp4DemuxError mp4_audio_demux_initialize(Mp4AudioDemuxer* output, ConstSlice<u8>
     if (error == Mp4DemuxError::none)
         error = description(d, stsd);
     if (error == Mp4DemuxError::none)
-        *output = d;
+        copy_value(output, d);
     return error;
 }
 ConstSlice<u8> mp4_audio_demux_asc(const Mp4AudioDemuxer& d) noexcept {

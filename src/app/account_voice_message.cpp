@@ -256,7 +256,7 @@ bool account_voice_message_command(AccountVoiceMessage* v, const VoiceMessageCom
         }
     }
     if (status) {
-        *status = {};
+        reset_value(status);
         AcquireSRWLockShared(v->lock.native());
         status->state = v->state;
         status->failure = v->failure;

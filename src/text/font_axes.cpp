@@ -1,4 +1,5 @@
 #include "maicord/text/font_axes.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 
 namespace maicord {
@@ -7,13 +8,13 @@ using namespace sfnt_read;
 i32 fixed(const u8* p) noexcept {return static_cast<i32>(byte_load_be32(p));}
 }
 SfntStatus font_axis(const FontAxes& axes,u32 index,FontAxis* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(index>=axes.axis_count)return SfntStatus::invalid_input;
     const auto* p=axes.axes.data+index*axes.axis_stride;
     *output={byte_load_be32(p),fixed(p+4),fixed(p+8),fixed(p+12),be16(p+16),be16(p+18)};return SfntStatus::ok;
 }
 SfntStatus font_named_instance(const FontAxes& axes,u32 index,FontNamedInstance* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(index>=axes.instance_count)return SfntStatus::invalid_input;
     const auto* p=axes.instances.data+index*axes.instance_stride;
     const u32 size=axes.axis_count*4u;
@@ -21,7 +22,7 @@ SfntStatus font_named_instance(const FontAxes& axes,u32 index,FontNamedInstance*
     return SfntStatus::ok;
 }
 SfntStatus font_axes_table_open(ConstSlice<u8> table,FontAxes* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!span(table,0,16))return SfntStatus::truncated;
     if(be16(table.data)!=1)return SfntStatus::unsupported;
     const u32 first=be16(table.data+4),count=be16(table.data+8),stride=be16(table.data+10);
@@ -48,7 +49,7 @@ SfntStatus font_axes_table_open(ConstSlice<u8> table,FontAxes* output,u32 work) 
     *output=result;return SfntStatus::ok;
 }
 SfntStatus font_axes_open(const SfntFace& face,FontAxes* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     ConstSlice<u8> table{};const auto status=sfnt_table(face,sfnt_tag('f','v','a','r'),&table);
     if(status==SfntStatus::missing_table)return SfntStatus::ok;
     return status==SfntStatus::ok?font_axes_table_open(table,output,work):status;
@@ -56,7 +57,7 @@ SfntStatus font_axes_open(const SfntFace& face,FontAxes* output,u32 work) noexce
 SfntStatus font_axis_mappings_table_open(ConstSlice<u8> table,u16 count,Slice<AxisSegmentMap> storage,
                                         FontAxisMappings* output,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!count)return SfntStatus::ok;
     if(!span(table,0,8))return SfntStatus::truncated;
     if(be16(table.data)!=1)return SfntStatus::unsupported;
@@ -84,7 +85,7 @@ SfntStatus font_axis_mappings_table_open(ConstSlice<u8> table,u16 count,Slice<Ax
 SfntStatus font_axis_mappings_open(const SfntFace& face,u16 count,Slice<AxisSegmentMap> storage,
                                   FontAxisMappings* output,u32 work,u32* used) noexcept {
     if(used)*used=0;
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!count)return SfntStatus::ok;
     ConstSlice<u8> table{};const auto status=sfnt_table(face,sfnt_tag('a','v','a','r'),&table);
     if(status==SfntStatus::missing_table)return SfntStatus::ok;

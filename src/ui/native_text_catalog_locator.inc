@@ -27,7 +27,7 @@ bool system_family_file(NativeTextCatalogs& owner,const NativeTextFontQuery& que
     auto& locator=*owner.locator;
     LOGFONTW description{};description.lfHeight=-16;description.lfWeight=query.properties.weight;description.lfItalic=query.properties.style!=0;
     description.lfCharSet=DEFAULT_CHARSET;description.lfOutPrecision=OUT_OUTLINE_PRECIS;copy_bytes(description.lfFaceName,query.family.data,query.family.count*2);
-    constexpr wchar_t light[]=L" Light",semibold[]=L" Semibold";
+    static constexpr wchar_t light[]=L" Light",semibold[]=L" Semibold";
     const ConstSlice<wchar_t> suffix=query.properties.weight==300?ConstSlice<wchar_t>{light,sizeof(light)/2}:ConstSlice<wchar_t>{semibold,sizeof(semibold)/2};
     const bool alias=(query.properties.weight==300||query.properties.weight==600)&&query.family.count+suffix.count<=LF_FACESIZE;
     for(u32 attempt=0;attempt<(alias?2u:1u);++attempt){const bool exact=alias&&!attempt;

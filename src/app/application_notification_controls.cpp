@@ -290,9 +290,9 @@ u32 application_notification_menu_items(u64 guild_id, u64 channel_id, Slice<Popu
     const auto setting = current_setting(guild, channel_id);
     const bool muted = message_notification_muted(setting, clock_unix_milliseconds());
     const bool dm = channel_is_private(type);
-    constexpr Utf8View mute_labels[]{utf8_literal("Mute server"), utf8_literal("Mute category"),
+    static constexpr Utf8View mute_labels[]{utf8_literal("Mute server"), utf8_literal("Mute category"),
                                      utf8_literal("Mute conversation"), utf8_literal("Mute channel")};
-    constexpr Utf8View unmute_labels[]{utf8_literal("Unmute server"), utf8_literal("Unmute category"),
+    static constexpr Utf8View unmute_labels[]{utf8_literal("Unmute server"), utf8_literal("Unmute category"),
                                        utf8_literal("Unmute conversation"), utf8_literal("Unmute channel")};
     const u32 index = !channel_id ? 0 : type == 4 ? 1 : dm ? 2 : 3;
     u32 count = 0;
@@ -357,7 +357,7 @@ bool application_notification_menu_activate(u32 action) noexcept {
         patch.suppress_roles = !setting.suppress_roles;
     } else
         return dismiss_popup();
-    owner.menu = {};
+    reset_value(&owner.menu);
     dismiss_popup();
     return apply(patch);
 }
@@ -497,6 +497,6 @@ bool application_notification_controls_response(const RestClientResponse& respon
 void application_notification_controls_clear() noexcept {
     if (owner.request_id && g_app.account.instance && g_app.account.api.guild_settings)
         g_app.account.api.guild_settings(g_app.account.instance, nullptr, owner.request_id);
-    owner = {};
+    reset_value(&owner);
 }
 } // namespace maicord::app_detail

@@ -13,7 +13,7 @@ using ME = PluginManagerError;
 using Op = PluginJournalOperation;
 
 AcceptanceRecordResult load_providers(const PluginManagerPaths& paths, PluginProviders* providers) noexcept {
-    *providers = {};
+    reset_value(providers);
     const auto loaded = plugin_providers_load({paths.providers, paths.providers_count}, providers);
     return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
 }
@@ -58,7 +58,7 @@ void remember_revoked(PluginEvaluation* ev, u64 owner, const NativePluginManifes
     for (u32 i = 0; i < ev->revoked_count; ++i) if (ev->revoked[i].owner == owner) return;
     if (ev->revoked_count >= kPluginManagerStateMaximumEntries) return;
     auto& r = ev->revoked[ev->revoked_count++];
-    r = {};
+    reset_value(&r);
     r.owner = owner;
     if (manifest) {
         r.name_bytes = minimum(manifest->name_bytes, kNativePluginNameCapacity);
@@ -78,7 +78,7 @@ void plugin_catalog_keys_release(PluginCatalogKeys* keys) noexcept {
 void plugin_catalog_sources_build(Utf8View repository, ConstSlice<const u8*> official_keys, const PluginProviders& providers,
     PluginCatalogKeys* keys, PluginCatalogSources* output) noexcept {
     if (!keys || !output) return;
-    *output = {};
+    reset_value(output);
     if (repository.bytes && official_keys.data && official_keys.count) {
         const P256Key* imported[2]{};
         u32 count = 0;
@@ -120,7 +120,7 @@ PluginStartupResult plugin_manager_startup(const PluginManagerPaths& paths, cons
     PluginStartupGate* gate) noexcept {
     PluginStartupResult r{};
     if (!work || !gate || !paths.manager_count) { r.manager = failure(ME::invalid_input); return r; }
-    *gate = {};
+    reset_value(gate);
     if (GetFileAttributesW(paths.manager) == INVALID_FILE_ATTRIBUTES) return r; // the catalog was never used
     PluginJournal journal{};
     const auto journaled = plugin_journal_load({paths.journal, paths.journal_count}, &journal);
@@ -191,7 +191,7 @@ PluginManagerResult plugin_manager_evaluate(const PluginManagerPaths& paths, con
         for (u32 i = 0; i < state.count;) {
             if (inventory_manifest(*work, state.entries[i].owner)) { ++i; continue; }
             for (u32 j = i + 1; j < state.count; ++j) state.entries[j - 1] = state.entries[j];
-            state.entries[--state.count] = {};
+            reset_value(&state.entries[--state.count]);
             ++ev->pruned;
             state_changed = true;
         }
@@ -210,7 +210,7 @@ PluginManagerResult plugin_manager_evaluate(const PluginManagerPaths& paths, con
         if (!entry) {
             if (state.count >= kPluginManagerStateMaximumEntries) continue;
             entry = &state.entries[state.count++];
-            *entry = {};
+            reset_value(entry);
             entry->owner = m.owner_id;
         }
         const PluginIndexVersion& listed = pass.index->versions[pass.index->plugins[plugin].first_version + version];
@@ -303,7 +303,7 @@ PluginManagerResult plugin_manager_evaluate(const PluginManagerPaths& paths, con
         if (!plugin_index_revocation(nullptr, off, item.manifest.owner_id, item.manifest.sha256).blocked) continue;
         if (state.count >= kPluginManagerStateMaximumEntries) continue;
         PluginManagerEntry& e = state.entries[state.count++];
-        e = {};
+        reset_value(&e);
         e.owner = item.manifest.owner_id;
         e.flags = kPluginStateRevokedMalicious;
         copy_bytes(e.installed_sha256, item.manifest.sha256, 32);
@@ -388,7 +388,7 @@ bool remove_record(PluginProviders* providers, u64 provider) noexcept {
     for (u32 i = 0; i < providers->count; ++i) {
         if (providers->entries[i].id != provider) continue;
         for (u32 j = i + 1; j < providers->count; ++j) providers->entries[j - 1] = providers->entries[j];
-        providers->entries[--providers->count] = {};
+        reset_value(&providers->entries[--providers->count]);
         return true;
     }
     return false;
@@ -489,7 +489,7 @@ bool append_index(Builder& b, u32 slot, const PluginIndex& index, Utf8View docum
                 u64{s.version_count + plugin.version_count} * sizeof(PluginCatalogVersionView)))
             return false;
         PluginCatalogEntryView& e = s.entries[s.entry_count];
-        e = {};
+        reset_value(&e);
         e.owner = plugin.owner_id;
         e.provider = slot;
         e.slug = plugin.slug; e.name = plugin.name; e.summary = plugin.summary; e.publisher = plugin.publisher;
@@ -507,7 +507,7 @@ bool append_index(Builder& b, u32 slot, const PluginIndex& index, Utf8View docum
         for (u32 v = 0; v < plugin.version_count; ++v) {
             const PluginIndexVersion& listed = index.versions[plugin.first_version + v];
             PluginCatalogVersionView& view = s.versions[s.version_count++];
-            view = {};
+            reset_value(&view);
             view.code = listed.version_code;
             view.released = listed.released;
             view.permissions = listed.permissions;
@@ -610,7 +610,7 @@ PluginCatalogSnapshot* plugin_catalog_snapshot_build(const PluginManagerPaths& p
         const PluginCatalogSource& source = sources.sources[i];
         const bool is_official = source.kind == PluginProviderKind::official;
         PluginCatalogProviderView& provider = s->providers[s->provider_count];
-        provider = {};
+        reset_value(&provider);
         provider.id = source.provider;
         provider.kind = source.kind;
         provider.enabled = true;

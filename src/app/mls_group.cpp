@@ -62,7 +62,7 @@ MlsStatus group_init(KdfSha256Workspace& kdf, MlsGroup* group, const MlsRatchetT
     group->active.tree = tree;
     group->active.context = parsed;
     group->active.tree_private = verified;
-    group->active.epoch = epoch;
+    copy_value(&group->active.epoch, epoch);
     group->active.transcript = transcript;
     group->active.tree_bytes = tree.serialized.count;
     group->active.context_bytes = parsed.serialized.count;
@@ -97,7 +97,7 @@ void mls_group_cancel_pending(MlsGroup* group) noexcept {
         return;
     secure_clear_bytes(&group->local, sizeof(group->local));
     clear_successor(&group->remote);
-    group->pending_message = {};
+    reset_value(&group->pending_message);
     group->pending_joiners = nullptr;
     group->pending_joiner_count = 0;
     group->pending_transition = 0;
@@ -216,7 +216,7 @@ MlsStatus mls_group_join_welcome(KdfSha256Workspace& kdf, MlsGroup* group, Const
     MlsTreeKemPrivate tree_private{};
     MlsTranscript transcript{};
     MlsWipe epoch_wipe{&epoch, sizeof(epoch)}, private_wipe{&tree_private, sizeof(tree_private)};
-    constexpr u8 zero[kMlsHashBytes]{};
+    static constexpr u8 zero[kMlsHashBytes]{};
     auto status = mls_group_info_parse(kdf, plaintext, external_sender, true, &info);
     if (status == MlsStatus::ok)
         status =

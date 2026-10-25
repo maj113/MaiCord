@@ -111,7 +111,7 @@ void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept {
             dave_frame_key_release(&data[i].key);
         secure_buffer_release(&epoch->storage);
     }
-    *epoch = {};
+    reset_value(epoch);
 }
 DaveEpochOpenResult dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Workspace& workspace,
                                             const DaveFrameView& view, u64 now, Slice<u8> scratch,

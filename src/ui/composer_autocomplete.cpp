@@ -240,7 +240,7 @@ ComposerAutocompleteSuggestion* append(ComposerAutocomplete* autocomplete, Utf8V
         return nullptr;
     }
     ComposerAutocompleteSuggestion* suggestion = &autocomplete->suggestions[autocomplete->count++];
-    *suggestion = {};
+    reset_value(suggestion);
     if (label.bytes > sizeof(suggestion->label_storage)) { --autocomplete->count; return nullptr; }
     copy_bytes(suggestion->label_storage, label.data, label.bytes);
     suggestion->label = {suggestion->label_storage, label.bytes};
@@ -697,7 +697,7 @@ void composer_autocomplete_release(ComposerAutocomplete* autocomplete) noexcept 
         return;
     }
     arena_release(&autocomplete->storage);
-    *autocomplete = ComposerAutocomplete{};
+    reset_value<ComposerAutocomplete>(autocomplete);
 }
 
 } // namespace maicord

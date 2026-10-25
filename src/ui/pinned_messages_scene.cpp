@@ -62,8 +62,8 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
     clear_bytes(s.targets, sizeof(s.targets));
     clear_bytes(s.rows, sizeof(s.rows));
     clear_bytes(s.unpin, sizeof(s.unpin));
-    s.body_owner = {};
-    s.retry = {};
+    reset_value(&s.body_owner);
+    reset_value(&s.retry);
     s.previous = s.next = {};
     s.first = s.count = 0;
     auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
@@ -186,7 +186,7 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
     if (s->active && !same_page) {
         s->scroll_dips = 0;
         if (s->focused.channel_id != content->channel_id)
-            s->focused = {};
+            reset_value(&s->focused);
         else if (s->focused.message_id)
             s->focused = first_message
                 ? UiPinnedMessagesTarget{UiPinnedMessagesAction::jump, content->channel_id, first_message}
@@ -230,7 +230,7 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
 void ui_pinned_messages_scene_release(UiPinnedMessagesScene* s) noexcept {
     if (!s) return;
     ui_fixed_widget_storage_release(&s->storage);
-    *s = {};
+    reset_value(s);
 }
 bool ui_pinned_messages_scene_contains(const UiPinnedMessagesScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.panel, x, y);

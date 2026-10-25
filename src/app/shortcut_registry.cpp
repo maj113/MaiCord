@@ -18,7 +18,7 @@ using G = ShortcutGroup;
 using S = ShortcutScope;
 constexpr u8 C = shortcut_ctrl, L = shortcut_alt, H = shortcut_shift;
 
-constexpr ShortcutDefinition kDefinitions[]{
+static constexpr ShortcutDefinition kDefinitions[]{
     {A::server_previous, G::navigation, S::global, utf8_literal("Navigate between servers"), {{VK_UP, C | L}, {}}},
     {A::server_next, G::navigation, S::global, utf8_literal("Navigate between servers"), {{VK_DOWN, C | L}, {}}},
     {A::channel_previous, G::navigation, S::global, utf8_literal("Navigate between channels"), {{VK_UP, L}, {}}},
@@ -57,7 +57,7 @@ constexpr ShortcutDefinition kDefinitions[]{
 constexpr u32 kDefinitionCount = sizeof(kDefinitions) / sizeof(kDefinitions[0]);
 static_assert(kDefinitionCount == static_cast<u32>(ShortcutAction::count) - 1);
 
-constexpr Utf8View kGroupLabels[]{utf8_literal("Navigation"), utf8_literal("Chat"), utf8_literal("Messages"),
+static constexpr Utf8View kGroupLabels[]{utf8_literal("Navigation"), utf8_literal("Chat"), utf8_literal("Messages"),
                                   utf8_literal("Voice"), utf8_literal("Miscellaneous")};
 static_assert(sizeof(kGroupLabels) / sizeof(kGroupLabels[0]) == static_cast<u32>(ShortcutGroup::count));
 
@@ -201,7 +201,7 @@ bool query_matches(Utf8View query, const Utf8View* texts, u32 count) noexcept {
     return words != 0;
 }
 
-constexpr u8 kMagic[8]{'M', 'A', 'I', 'K', 'E', 'Y', 'S', '1'};
+static constexpr u8 kMagic[8]{'M', 'A', 'I', 'K', 'E', 'Y', 'S', '1'};
 constexpr u32 kChecksumOffset = 24;
 u64 checksum(ConstSlice<u8> record) noexcept {
     const u64 hash = hash64_bytes(kHash64Seed, record.data, kChecksumOffset);
@@ -261,7 +261,7 @@ bool shortcut_scope_active(ShortcutScope scope, ShortcutContext context) noexcep
 }
 
 u32 shortcut_resolve(ShortcutContext context, ShortcutChord chord, Slice<ShortcutAction> output) noexcept {
-    constexpr ShortcutScope order[]{ShortcutScope::message, ShortcutScope::empty_composer, ShortcutScope::content,
+    static constexpr ShortcutScope order[]{ShortcutScope::message, ShortcutScope::empty_composer, ShortcutScope::content,
                                     ShortcutScope::global};
     u32 count = 0;
     if (!chord.key || !output.data)
@@ -303,7 +303,7 @@ u32 shortcut_key_label(u8 key, Slice<char> output) noexcept {
     const Utf8View name = named_key(key);
     if (name.bytes)
         return put(output, 0, name);
-    constexpr char hex[] = "0123456789ABCDEF";
+    static constexpr char hex[] = "0123456789ABCDEF";
     u32 at = put(output, 0, utf8_literal("Key 0x"));
     at = put_char(output, at, hex[key >> 4]);
     return put_char(output, at, hex[key & 15]);
@@ -467,7 +467,7 @@ bool custom_keybinds_remove(CustomKeybinds* keybinds, u32 index) noexcept {
         return false;
     for (u32 i = index + 1; i < keybinds->count; ++i)
         keybinds->items[i - 1] = keybinds->items[i];
-    keybinds->items[--keybinds->count] = {};
+    reset_value(&keybinds->items[--keybinds->count]);
     return true;
 }
 u32 custom_keybinds_find(const CustomKeybinds& keybinds, ShortcutChord chord) noexcept {

@@ -1,4 +1,5 @@
 #include "maicord/app/message_edit_runtime.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -17,7 +18,7 @@ bool message_edit_runtime_initialize(MessageEditRuntime* runtime) noexcept {
         runtime->saved_draft_storage.arena.base) {
         return false;
     }
-    *runtime = MessageEditRuntime{};
+    reset_value<MessageEditRuntime>(runtime);
     if (!stable_storage_initialize(
             &runtime->content_storage, kMessageComposerMaximumBytes, 0,
             sizeof(char), alignof(char)) ||
@@ -58,7 +59,7 @@ void message_edit_runtime_reset(MessageEditRuntime* runtime) noexcept {
     const StableStorage saved_draft_storage = runtime->saved_draft_storage;
     char* const content = runtime->content;
     char* const saved_draft = runtime->saved_draft;
-    *runtime = MessageEditRuntime{};
+    reset_value<MessageEditRuntime>(runtime);
     runtime->content_storage = content_storage;
     runtime->saved_draft_storage = saved_draft_storage;
     runtime->content = content;
@@ -74,7 +75,7 @@ void message_edit_runtime_release(MessageEditRuntime* runtime) noexcept {
     }
     stable_storage_release(&runtime->saved_draft_storage);
     stable_storage_release(&runtime->content_storage);
-    *runtime = MessageEditRuntime{};
+    reset_value<MessageEditRuntime>(runtime);
 }
 
 } // namespace maicord

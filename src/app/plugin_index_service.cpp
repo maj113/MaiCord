@@ -182,7 +182,7 @@ bool plugin_catalog_source_official(Utf8View repository, ConstSlice<const P256Ke
     copy_bytes(s.repository, repository.data, repository.bytes);
     s.repository_bytes = repository.bytes;
     if (!source_valid(s)) return false;
-    *output = s;
+    copy_value(output, s);
     return true;
 }
 
@@ -203,7 +203,7 @@ bool plugin_catalog_source_custom(const PluginProviderRecord& record, const P256
     s.host_bytes = record.host_bytes;
     s.path_bytes = record.path_bytes;
     if (!source_valid(s)) return false;
-    *output = s;
+    copy_value(output, s);
     return true;
 }
 

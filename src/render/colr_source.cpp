@@ -1,4 +1,5 @@
 #include "maicord/render/colr_source.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/truetype_outline.hpp"
 #include "maicord/core/byte_order.hpp"
 
@@ -24,7 +25,7 @@ bool clip_box(ColrNativeSource& s,u16 glyph,ColrRect* output) noexcept {
     ColrClip raw{},clip{};auto status=colr_clip(*s.font,glyph,&raw);
     if(status==SfntStatus::ok)status=colr_resolve_clip(*s.variation,raw,&clip);
     if(status!=SfntStatus::ok)return failed(s,status);
-    if(!clip.present){*output={};return true;}
+    if(!clip.present){reset_value(output);return true;}
     *output={distance(s,clip.minimum_x),-distance(s,clip.maximum_y),distance(s,clip.maximum_x),-distance(s,clip.minimum_y)};return true;
 }
 // Reduce in half-turn units before evaluating a small-domain Taylor series.
@@ -98,7 +99,7 @@ ColrMatrix transform(const ColrNativeSource& s,u32 format,const double* v) noexc
     return m;
 }
 bool resolve(ColrNativeSource& s,ColrSourceFrame& frame,const ColrPaint& raw,ColrPaintElement* out) noexcept {
-    if(!spend(s))return false;*out={};auto& p=out->paint;frame.child_count=0;
+    if(!spend(s))return false;reset_value(out);auto& p=out->paint;frame.child_count=0;
     frame.offset=raw.offset;frame.format=raw.format;
     if(frame.legacy) {
         if(raw.format==0){frame.first_layer=raw.first_layer;out->kind=ColrPaintKind::layers;frame.child_count=raw.child[0];p.layers.childCount=frame.child_count;return true;}
@@ -173,7 +174,7 @@ bool child(ColrNativeSource& s,u32 index,ColrPaintElement* out) noexcept {
     ColrPaint raw;
     if(parent.legacy) {
         ColrLegacyLayer layer{};const auto status=colr_legacy_layer(*s.font,parent.first_layer+index,&layer);if(status!=SfntStatus::ok)return failed(s,status);
-        raw={};raw.format=2;raw.glyph=layer.glyph;raw.palette=layer.palette;
+        reset_value(&raw);raw.format=2;raw.glyph=layer.glyph;raw.palette=layer.palette;
     } else {
         u32 offset=0;
         if(parent.format==1){const auto status=colr_layer_paint(*s.font,parent.first_layer+index,&offset);if(status!=SfntStatus::ok)return failed(s,status);}
@@ -220,12 +221,12 @@ u32 outline_capacity(void* context,u16 glyph) noexcept {
 }
 SfntStatus colr_source_begin(ColrNativeSource* source,u16 glyph,u32 work,ColrPaintElement* root,ColrRect* clip,ColrPaintSource* callbacks) noexcept {
     if(!source || !root || !clip || !callbacks)return SfntStatus::invalid_input;
-    auto& s=*source;*root={};*clip={};*callbacks={};s.status=SfntStatus::ok;s.depth=0;s.work=work;s.uses_foreground=false;
+    auto& s=*source;reset_value(root);reset_value(clip);reset_value(callbacks);s.status=SfntStatus::ok;s.depth=0;s.work=work;s.uses_foreground=false;
     if(!s.font || !s.variation || !s.frames.count || !s.frames.data || !s.outline_provider || !(s.inverse_em>0) || s.palette>=s.font->palette.palette_count)return s.status=SfntStatus::invalid_input;
     ColrSourceFrame frame{};ColrPaint raw;u32 offset=0;auto status=colr_base_paint(*s.font,glyph,&offset);
     if(status==SfntStatus::unsupported_sequence) {
         ColrLayerRange range{};status=colr_legacy_layers(*s.font,glyph,&range);
-        if(status==SfntStatus::ok){frame.legacy=true;raw={};raw.first_layer=range.first;raw.child[0]=range.count;}
+        if(status==SfntStatus::ok){frame.legacy=true;reset_value(&raw);raw.first_layer=range.first;raw.child[0]=range.count;}
     } else if(status==SfntStatus::ok)status=colr_paint_read(*s.font,offset,&raw);
     if(status!=SfntStatus::ok)return s.status=status;
     s.frames[0]=frame;

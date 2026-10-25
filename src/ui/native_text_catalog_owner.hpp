@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/text/font_catalog.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/gdi.hpp"
 namespace maicord {
@@ -21,7 +22,7 @@ struct SystemFontLocator {
         return realize&&locate&&(dc=CreateCompatibleDC(nullptr));
     }
     bool find(const LOGFONTW& description,File& file,u32* index,bool exact_name) noexcept {
-        file={};const HFONT font=CreateFontIndirectW(&description);if(!font)return false;const auto previous=SelectObject(dc,font);
+        reset_value(&file);const HFONT font=CreateFontIndirectW(&description);if(!font)return false;const auto previous=SelectObject(dc,font);
         struct Restore {HDC dc;HGDIOBJ previous;HFONT font;~Restore() noexcept {if(previous&&previous!=HGDI_ERROR)SelectObject(dc,previous);DeleteObject(font);}} restore{dc,previous,font};
         if(!previous||previous==HGDI_ERROR)return false;
         if(exact_name){wchar_t realized[LF_FACESIZE]{};

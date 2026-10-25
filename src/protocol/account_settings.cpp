@@ -289,8 +289,8 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         result.route_id = kAccountSessionsRouteId;
         if (r.operation == Op::session_logout) {
             result.method = RestMethod::post;
-            constexpr char head[] = "{\"session_id_hashes\":[\"";
-            constexpr char tail[] = "\"]}";
+            static constexpr char head[] = "{\"session_id_hashes\":[\"";
+            static constexpr char tail[] = "\"]}";
             if (body.count < sizeof(head) - 1 + r.payload.count + sizeof(tail) - 1)
                 return fail_capacity();
             write_literal(body.data, &at, head);
@@ -389,7 +389,7 @@ bool account_settings_decode_self(Utf8View body, Slice<u32> structurals, Account
     AccountSelfUser decoded{};
     if (!json_visit_root_object(body, document.structurals, 8, self_member, &decoded).ok() || !decoded.username_bytes)
         return false;
-    *user = decoded;
+    copy_value(user, decoded);
     return true;
 }
 
@@ -401,7 +401,7 @@ bool account_settings_decode_profile(Utf8View body, Slice<u32> structurals, Acco
     c.profile = &decoded;
     if (!json_visit_root_object(body, c.document.structurals, 8, profile_root, &c).ok())
         return false;
-    *profile = decoded;
+    copy_value(profile, decoded);
     return true;
 }
 

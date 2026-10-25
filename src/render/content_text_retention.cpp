@@ -1,4 +1,5 @@
 #include "maicord/render/content_text_retention.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/background_presentation.hpp"
 #include <stddef.h>
@@ -49,7 +50,7 @@ void content_text_retention_invalidate(ContentTextRetentionOwner* owner) noexcep
     if (owner->valid) {
         saturating_increment(owner->invalidations);
     }
-    owner->key = ContentTextRetentionKey{};
+    reset_value<ContentTextRetentionKey>(&owner->key);
     owner->valid = false;
     ++owner->generation;
 }
@@ -57,7 +58,7 @@ void content_text_retention_invalidate(ContentTextRetentionOwner* owner) noexcep
 void content_text_retention_reset(ContentTextRetentionOwner* owner) noexcept {
     if (owner) {
         const u32 generation = owner->generation + 1u;
-        *owner = ContentTextRetentionOwner{};
+        reset_value<ContentTextRetentionOwner>(owner);
         owner->generation = generation;
     }
 }

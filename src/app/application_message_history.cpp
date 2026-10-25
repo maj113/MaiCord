@@ -412,7 +412,7 @@ static void admit_details_request(u64 now) noexcept {
 }
 
 void application_message_history_reset_reaction_turn() noexcept {
-    reaction_primary_turn = {};
+    reset_value(&reaction_primary_turn);
 }
 static bool reaction_primary_yield() noexcept {
     auto& turn = reaction_primary_turn;
@@ -704,7 +704,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
             if (owner == MessageHistoryRequestOwner::attachment_refresh)
                 message_history_attachment_reset(&g_app.attachment_refresh);
             if (owner == MessageHistoryRequestOwner::reply_refresh)
-                g_app.reply_refresh = {};
+                reset_value(&g_app.reply_refresh);
             return true;
         }
         const u64 request_id = next_message_history_request_id();
@@ -744,7 +744,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
             application_search_navigation_history_submitted(channel_id, query.cursor, request_id);
     } else if (auto* entry = media_url_next(&g_app.media_urls, now_ms)) {
         if (!application_media_url_authorized(g_app, {entry->original, entry->original_bytes})) {
-            *entry = {};
+            reset_value(entry);
             return true;
         }
         // Resolving media must not starve sends, interactions, or channel history.
@@ -1161,7 +1161,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                     if (owner == MessageHistoryRequestOwner::attachment_refresh)
                         message_history_attachment_reset(&g_app.attachment_refresh);
                     if (owner == MessageHistoryRequestOwner::reply_refresh)
-                        g_app.reply_refresh = {};
+                        reset_value(&g_app.reply_refresh);
                     if (owner == MessageHistoryRequestOwner::message_jump)
                         g_app.pending_message_jump_channel_id = g_app.pending_message_jump_message_id = 0;
                 }

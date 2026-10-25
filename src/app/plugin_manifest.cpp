@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_manifest.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
 
@@ -73,7 +74,7 @@ bool decode(JsonValue value, char* target, u32 capacity, u32* count, bool requir
 }
 bool visit(void* context, JsonString key, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
-    constexpr Utf8View keys[]{utf8_literal("schema"), utf8_literal("owner_id"), utf8_literal("abi"),
+    static constexpr Utf8View keys[]{utf8_literal("schema"), utf8_literal("owner_id"), utf8_literal("abi"),
         utf8_literal("name"), utf8_literal("version"), utf8_literal("description"),
         utf8_literal("dll"), utf8_literal("sha256"), utf8_literal("permissions"), utf8_literal("min_host_abi"),
         utf8_literal("publisher")};
@@ -138,7 +139,7 @@ bool native_plugin_dll_name_valid(Utf8View name) noexcept {
         if (!stem && c == '.') stem = i;
     }
     const Utf8View base{name.data, stem};
-    constexpr Utf8View reserved[]{utf8_literal("con"), utf8_literal("prn"), utf8_literal("aux"), utf8_literal("nul")};
+    static constexpr Utf8View reserved[]{utf8_literal("con"), utf8_literal("prn"), utf8_literal("aux"), utf8_literal("nul")};
     for (auto word : reserved) {
         if (base.bytes != word.bytes) continue;
         bool match = true;
@@ -204,7 +205,7 @@ NativePluginManifestResult native_plugin_manifest_parse(Utf8View document, Nativ
     const auto read = json_visit_root_object(document, {indexes, scan.count}, 2, visit, &parse);
     if (!read.ok()) return {parse.error == NativePluginManifestError::none ? NativePluginManifestError::json : parse.error};
     if ((parse.seen & kRequiredFields) != kRequiredFields) return {NativePluginManifestError::missing_field};
-    *output = parse.candidate;
+    copy_value(output, parse.candidate);
     return {NativePluginManifestError::none};
 }
 NativePluginManifestResult native_plugin_manifest_write(const NativePluginManifest& manifest,

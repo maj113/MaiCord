@@ -1,4 +1,5 @@
 #include "maicord/app/mls_key_package.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/mls_reader.hpp"
@@ -130,7 +131,7 @@ MlsPackageCryptoResult check_package(KdfSha256Workspace& workspace, ConstSlice<u
     p256_release(&leaf);
     p256_release(&signing);
     if (result.ok()) {
-        *output = candidate;
+        copy_value(output, candidate);
         result.bytes = input.count;
         result.wire = wire;
     }

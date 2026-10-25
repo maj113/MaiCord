@@ -54,7 +54,7 @@ bool decode(Utf8View in, Slice<u8> out, u32* bytes) noexcept {
 struct Fields { JsonValue values[6]{}; u32 seen{}; };
 bool token_field(void* context, JsonString name, JsonValue value) noexcept {
     auto& f = *static_cast<Fields*>(context);
-    constexpr Utf8View names[]{utf8_literal("access_token"), utf8_literal("refresh_token"),
+    static constexpr Utf8View names[]{utf8_literal("access_token"), utf8_literal("refresh_token"),
         utf8_literal("expires_in"), utf8_literal("token_type"), utf8_literal("scope"), utf8_literal("error")};
     for (u32 i = 0; i < 6; ++i) if (json_name_is(name, names[i])) {
         if (f.seen & (1u << i)) return false;

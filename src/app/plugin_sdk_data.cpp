@@ -2,6 +2,7 @@
 // (mc.events@1), host-executed actions (mc.actions@1) and background effect
 // shaders (mc.fx@1).
 #include "plugin_sdk_internal.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {
@@ -309,7 +310,7 @@ NativePluginSdkBinding* action_binding(void* handle, u64 generation, u64 permiss
 // "name:id" custom emoji or a Unicode emoji.
 bool parse_emoji(mc_str emoji, u64* id, Utf8View* name) noexcept {
     *id = 0;
-    *name = {};
+    reset_value(name);
     if (!text_ok(emoji, 64, true)) return false;
     u32 colon = emoji.bytes;
     for (u32 i = 0; i < emoji.bytes; ++i)
@@ -656,7 +657,7 @@ bool native_plugin_sdk_event_push(NativePluginSdkRuntime* runtime, const NativeP
     copy_bytes(runtime->event_text + start + text_bytes, event.name.data, name_bytes);
     runtime->event_text_head = start + bytes;
     auto& record = runtime->events[runtime->event_head % kPluginSdkEventQueue];
-    record = {};
+    reset_value(&record);
     record.sequence = runtime->event_head;
     record.kind = event.kind;
     record.flags = event.flags & (MC_EVENT_OWN | MC_EVENT_BOT | MC_EVENT_BULK | MC_EVENT_CACHED | MC_EVENT_TEXT);
@@ -687,7 +688,7 @@ bool native_plugin_sdk_event_deliver(NativePluginSdkRuntime* runtime) noexcept {
             u32 count = 0, text_used = 0;
             if (binding->event_next < runtime->event_tail) {
                 auto& overflow = batch[count++];
-                overflow = {};
+                reset_value(&overflow);
                 overflow.size = sizeof(mc_event);
                 overflow.kind = MC_EVENT_OVERFLOW;
                 overflow.value = runtime->event_tail - binding->event_next;
@@ -706,7 +707,7 @@ bool native_plugin_sdk_event_deliver(NativePluginSdkRuntime* runtime) noexcept {
                 if (text_used + bytes > kPluginSdkInputBytes) break;
                 copy_bytes(runtime->input + text_used, runtime->event_text + record.text_offset, bytes);
                 auto& out = batch[count++];
-                out = {};
+                reset_value(&out);
                 out.size = sizeof(mc_event);
                 out.kind = record.kind;
                 out.sequence = record.sequence;
@@ -771,7 +772,7 @@ u32 native_plugin_sdk_effects(const NativePluginSdkRuntime& runtime, Slice<Nativ
 
 bool native_plugin_sdk_effect(const NativePluginSdkRuntime& runtime, u64 owner_id, u64 effect_id,
                               NativePluginSdkEffectView* output) noexcept {
-    if (output) *output = {};
+    if (output) reset_value(output);
     const auto* binding = binding_for(runtime, owner_id);
     if (!output || !binding || !usable(binding, runtime) || !permitted(*binding, MC_PERM_EFFECTS)) return false;
     for (const auto& effect : binding->effects)

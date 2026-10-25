@@ -1,4 +1,5 @@
 #include "maicord/ui/secure_text_store.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/gdi.hpp"
@@ -816,7 +817,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             !deferred_operations && text_edit_sink_cookie == advised_cookie && composition.revision == revision &&
             composition.active && !same_composition(next)) {
             next.revision = revision == ~0u ? 1 : revision + 1;
-            composition = next;
+            copy_value(&composition, next);
             notify_composition_change();
         }
         com_release(range);
@@ -976,7 +977,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             text_input_cancel(edit);
         }
         clear_composition();
-        edit = {};
+        reset_value(&edit);
         application_change_pending = false;
         observe();
         if (!deferred && thread_manager) destroy_context();
@@ -1021,7 +1022,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!output) {
             return false;
         }
-        *output = composition;
+        copy_value(output, composition);
         return true;
     }
 
@@ -1034,7 +1035,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         const bool ends_group = history_group_owned;
         history_group_owned = false;
         const u32 revision = composition.revision == ~0u ? 1 : composition.revision + 1;
-        composition = SecureTextComposition{};
+        reset_value<SecureTextComposition>(&composition);
         composition.revision = revision;
         if (ends_group) text_input_end_group(edit);
         // Publish the cleared owner before the external Release can reenter.
@@ -1209,7 +1210,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         u32 start = 0;
         u32 end = 0;
         if (!range_extent(range, &start, &end, target)) return false;
-        *next = {};
+        reset_value(next);
         next->start = start;
         next->end = end;
         next->active = true;
@@ -1231,7 +1232,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         const bool current = context == read_context && edit == target && !deferred_operations && composition.revision == revision;
         if (collected && current && !same_composition(next)) {
             next.revision = revision == ~0u ? 1 : revision + 1;
-            composition = next;
+            copy_value(&composition, next);
             *changed = true;
         }
         com_release(read_context);
@@ -1312,7 +1313,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!edit) {
             observed_revision = 0;
             observed_length = 0;
-            observed_selection = TextInputSelection{};
+            reset_value<TextInputSelection>(&observed_selection);
             return;
         }
         observed_revision = text_input_revision(edit);
@@ -1320,7 +1321,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             observed_length = 0;
         }
         if (text_input_selection(edit, &observed_selection) != TextInputResult::unchanged) {
-            observed_selection = TextInputSelection{};
+            reset_value<TextInputSelection>(&observed_selection);
         }
     }
 

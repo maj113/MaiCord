@@ -44,7 +44,7 @@ VoiceParticipant& ensure_user(VoiceParticipants& participants, u64 id) noexcept 
     if (at == participants.user_count || participants.users[at].user_id != id) {
         copy_bytes(participants.users + at + 1, participants.users + at,
                    (participants.user_count - at) * static_cast<u32>(sizeof(VoiceParticipant)));
-        participants.users[at] = {};
+        reset_value(&participants.users[at]);
         participants.users[at].user_id = id;
         ++participants.user_count;
     }
@@ -238,7 +238,7 @@ VoiceParticipantsResult voice_participants_event(VoiceParticipants* participants
         if (at < participants->user_count && participants->users[at].user_id == event.user_id) {
             copy_bytes(participants->users + at, participants->users + at + 1,
                        (--participants->user_count - at) * static_cast<u32>(sizeof(VoiceParticipant)));
-            participants->users[participants->user_count] = {};
+            reset_value(&participants->users[participants->user_count]);
         }
         u32 keep = 0;
         for (u32 i = 0; i != participants->source_count; ++i)
@@ -285,6 +285,6 @@ void voice_participants_release(VoiceParticipants* participants) noexcept {
         VirtualFree(participants->users, 0, MEM_RELEASE);
     if (participants->sources)
         VirtualFree(participants->sources, 0, MEM_RELEASE);
-    *participants = {};
+    reset_value(participants);
 }
 } // namespace maicord

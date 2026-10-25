@@ -174,7 +174,7 @@ bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     }
     overflow_release(store, store->records[slot]);
     const u16 generation = next_generation(store->records[slot].generation);
-    store->records[slot] = GuildMemberRecord{};
+    reset_value<GuildMemberRecord>(&store->records[slot]);
     store->records[slot].generation = generation;
     for (u32 index = order_index + 1; index < store->count; ++index) {
         store->order[index - 1] = store->order[index];
@@ -266,7 +266,7 @@ bool index_shown(const GuildMemberStore& store, u8 scope, u32 index) noexcept {
     return row_interest(store, list.guild_id, list.list_id, index) != 0;
 }
 void position_drop(GuildMemberStore* store, MemberListPosition* entry) noexcept {
-    *entry = {};
+    reset_value(entry);
     --store->positions.count;
 }
 void positions_clear(GuildMemberStore* store, u8 scope) noexcept {
@@ -441,12 +441,12 @@ bool guild_member_store_initialize(GuildMemberStore* store,
         order.count != records.count) {
         return false;
     }
-    *store = GuildMemberStore{};
+    reset_value<GuildMemberStore>(store);
     store->records = records.data;
     store->order = order.data;
     store->capacity = records.count;
     for (u32 index = 0; index < records.count; ++index) {
-        records[index] = GuildMemberRecord{};
+        reset_value<GuildMemberRecord>(&records[index]);
         order[index] = ~0u;
     }
     return true;
@@ -471,7 +471,7 @@ void guild_member_store_release(GuildMemberStore* store) noexcept {
         }
     }
     stable_storage_release(&store->role_overflow.storage);
-    store->role_overflow = {};
+    reset_value(&store->role_overflow);
 }
 
 void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
@@ -491,16 +491,16 @@ void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
     }
     for (auto& list : store->lists) {
         changed |= list.guild_id != 0;
-        list = {};
+        reset_value(&list);
     }
     for (auto& group : store->groups)
-        group = {};
+        reset_value(&group);
     for (auto& pin : store->pins)
-        pin = {};
+        reset_value(&pin);
     store->pin_count = 0;
-    store->visible = {};
+    reset_value(&store->visible);
     changed |= store->positions.count != 0;
-    store->positions = {};
+    reset_value(&store->positions);
     saturating_increment_if(changed, store->revision);
     saturating_increment_if(changed, store->mutations);
 }
@@ -613,7 +613,7 @@ GuildMemberStoreResult guild_member_store_upsert(
         store->order[order_index] = slot;
         ++store->count;
         const u16 generation = next_generation(record.generation);
-        record = GuildMemberRecord{};
+        reset_value<GuildMemberRecord>(&record);
         record.guild_id = guild_id;
         record.user_id = user_id;
         record.generation = generation;
@@ -818,7 +818,7 @@ bool guild_member_store_invalidate_list_range(GuildMemberStore* store, u64 guild
 
 void guild_member_store_clear_visible_range(GuildMemberStore* store) noexcept {
     if (store)
-        store->visible = {};
+        reset_value(&store->visible);
 }
 bool guild_member_store_set_visible_range(GuildMemberStore* store, u64 guild_id, u64 list_id,
                                                   u32 first, u32 last) noexcept {
@@ -914,7 +914,7 @@ void drop_scope(GuildMemberStore* store, u8 scope) noexcept {
     for (auto& group : store->groups)
         if (group.scope_slot == scope)
             group.resident = false;
-    list = {};
+    reset_value(&list);
     saturating_increment(store->revision);
 }
 // A header row at index displaces the member recorded there. True when a

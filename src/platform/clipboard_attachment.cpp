@@ -64,10 +64,10 @@ bool get(IDataObject* object, CLIPFORMAT format, LONG index, DWORD types, STGMED
     if (FAILED(object->GetData(&request, medium))) return false;
     if ((medium->tymed == TYMED_HGLOBAL && (types & TYMED_HGLOBAL) && medium->hGlobal) ||
         (medium->tymed == TYMED_ISTREAM && (types & TYMED_ISTREAM) && medium->pstm)) return true;
-    ReleaseStgMedium(medium); *medium = {}; return false;
+    ReleaseStgMedium(medium); reset_value(medium); return false;
 }
 bool available(IDataObject* object, CLIPFORMAT format, DWORD types = TYMED_HGLOBAL) noexcept {
-    constexpr DWORD kinds[]{TYMED_HGLOBAL, TYMED_ISTREAM};
+    static constexpr DWORD kinds[]{TYMED_HGLOBAL, TYMED_ISTREAM};
     for (const DWORD type : kinds) {
         FORMATETC request{format, nullptr, DVASPECT_CONTENT, -1, type};
         if ((types & type) && object->QueryGetData(&request) == S_OK) return true;
@@ -120,13 +120,13 @@ Content* content_create(DWORD* error) noexcept {
 UploadSource adopt_png(ClipboardPng* png, DWORD* error) noexcept {
     auto* content = content_create(error);
     if (!content) { clipboard_png_release(png); return {}; }
-    content->owned = png->data; content->memory = png->data; content->bytes = png->bytes; *png = {};
+    content->owned = png->data; content->memory = png->data; content->bytes = png->bytes; reset_value(png);
     return {content, &operations, content->bytes};
 }
 UploadSource adopt(STGMEDIUM* medium, u64 expected, u64 limit, DWORD* error) noexcept {
     auto* content = content_create(error);
     if (!content) return {};
-    content->medium = *medium; *medium = {};
+    content->medium = *medium; reset_value(medium);
     *error = ERROR_INVALID_DATA;
     u64 bytes = 0;
     if (content->medium.tymed == TYMED_HGLOBAL) {
@@ -238,7 +238,7 @@ DWORD convert_stream(IStream* stream, ClipboardPasteKind kind, u64 limit, Clipbo
         else if (kind != ClipboardPasteKind::png)
             error = clipboard_paste_png(kind, {buffer, static_cast<u32>(used)}, limit, png);
         else {
-            *png = {};
+            reset_value(png);
             const u64 bytes = clipboard_image_png_length({buffer, static_cast<u32>(used)});
             if (!bytes) error = ERROR_INVALID_DATA;
             else if (bytes > limit) error = ERROR_FILE_TOO_LARGE;
@@ -319,7 +319,7 @@ DWORD visit_object(IDataObject* object, DWORD sequence, u32 maximum, u64 limit, 
             if (!error) {
                 auto source = adopt_png(&png, &error);
                 if (source.context) {
-                    constexpr wchar_t name[] = L"image.png";
+                    static constexpr wchar_t name[] = L"image.png";
                     if (!visitor(context, {}, {name, 9}, source)) { upload_source_release(source); return ERROR_INVALID_DATA; }
                     *count = 1; return ERROR_SUCCESS;
                 }
@@ -374,7 +374,7 @@ void clipboard_attachment_release(ClipboardAttachmentData* input) noexcept {
     if (input && input->object) {
         LARGE_INTEGER zero{};
         input->object->Seek(zero, STREAM_SEEK_SET, nullptr);
-        CoReleaseMarshalData(input->object); input->object->Release(); *input = {};
+        CoReleaseMarshalData(input->object); input->object->Release(); reset_value(input);
     }
 }
 void clipboard_attachment_shutdown() noexcept { if (ole_initialized) { OleUninitialize(); ole_initialized = false; } }
@@ -384,7 +384,7 @@ DWORD clipboard_attachment_visit(ClipboardAttachmentData* input, u32 maximum, u6
     IDataObject* object = nullptr; *count = 0;
     const DWORD sequence = input->sequence;
     const HRESULT result = CoGetInterfaceAndReleaseStream(input->object, __uuidof(IDataObject), reinterpret_cast<void**>(&object));
-    *input = {};
+    reset_value(input);
     if (FAILED(result)) return ERROR_INVALID_DATA;
     const DWORD error = visit_object(object, sequence, maximum, limit, visitor, context, count);
     object->Release(); return error;

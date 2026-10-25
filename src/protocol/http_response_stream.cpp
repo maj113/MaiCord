@@ -1,4 +1,5 @@
 #include "maicord/protocol/http_response_stream.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord { namespace {
 HttpResponseStreamStep step(const HttpResponseStream& d, u32 accepted = 0) noexcept {
@@ -9,7 +10,7 @@ HttpResponseStreamStep fail(HttpResponseStream* d, HttpResponseStreamError error
     d->state = HttpResponseStreamState::failed;
     d->error = error;
     d->framing_error = framing;
-    d->pending = {};
+    reset_value(&d->pending);
     return step(*d, accepted);
 }
 HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
@@ -120,7 +121,7 @@ bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
     const bool from_head = expected == kHttpResponseLengthFromHead;
     if (from_head ? !maximum : expected > maximum)
         return false;
-    *d = {};
+    reset_value(d);
     d->expected_body_bytes = expected;
     d->maximum_body_bytes = maximum;
     d->maximum_header_bytes = maximum_header;
@@ -170,7 +171,7 @@ HttpResponseStreamStep http_response_stream_consume(HttpResponseStream* d, u32 b
         d->pending.data += bytes;
         d->pending.count -= bytes;
     }
-    if (!d->pending.count) d->pending = {};
+    if (!d->pending.count) reset_value(&d->pending);
     return pump(d, 0);
 }
 

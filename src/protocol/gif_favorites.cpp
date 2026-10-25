@@ -152,7 +152,7 @@ E value(const Wire& w, u32 p, u32 end, Entry& entry) noexcept {
     return E::none;
 }
 E entry(const Wire& w, u32 p, u32 end, Entry& result) noexcept {
-    result = {};
+    reset_value(&result);
     result.begin = p;
     result.end = end;
     while (p < end) {
@@ -380,7 +380,7 @@ void sort_records(Slice<GifFavoriteRecord> records) noexcept {
             const auto tmp = records[root];
             records[root] = records[child];
             records[child] = tmp;
-            root = child;
+            copy_value(&root, child);
         }
     };
     for (u32 i = records.count / 2; i; --i)
@@ -704,8 +704,8 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     prefix.number(18);
     prefix.number(counted.used);
     const u32 proto_bytes = prefix.used + counted.used;
-    constexpr char start[] = "{\"settings\":\"";
-    constexpr char middle[] = "\",\"required_data_version\":";
+    static constexpr char start[] = "{\"settings\":\"";
+    static constexpr char middle[] = "\",\"required_data_version\":";
     const u32 encoded_bytes = base64_encoded_size(proto_bytes);
     constexpr u32 start_bytes = static_cast<u32>(sizeof(start) - 1);
     constexpr u32 middle_bytes = static_cast<u32>(sizeof(middle) - 1);

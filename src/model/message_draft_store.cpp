@@ -118,7 +118,7 @@ void erase_index(MessageDraftStore* store, u32 index) noexcept {
     MessageDraftRecord& record = store->records[index];
     clear_bytes(store->text + record.text_offset, record.text_bytes);
     store->text_wasted += record.text_bytes;
-    record = MessageDraftRecord{};
+    reset_value<MessageDraftRecord>(&record);
     --store->count;
     ++store->deleted;
     ++store->revision;
@@ -130,13 +130,13 @@ bool initialize_store(MessageDraftStore* store, Slice<MessageDraftRecord> record
         !text.data || text.count == 0) {
         return false;
     }
-    *store = MessageDraftStore{};
+    reset_value<MessageDraftStore>(store);
     store->records = records.data;
     store->text = text.data;
     store->capacity = records.count;
     store->text_capacity = text.count;
     for (u32 index = 0; index < records.count; ++index) {
-        records[index] = MessageDraftRecord{};
+        reset_value<MessageDraftRecord>(&records[index]);
     }
     if (clear_text)
         clear_bytes(text.data, text.count);
@@ -251,7 +251,7 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
         return draft_error(MessageDraftStoreError::record_capacity);
     }
     MessageDraftRecord& record = store->records[index];
-    record = MessageDraftRecord{};
+    reset_value<MessageDraftRecord>(&record);
     record.channel_id = input.channel_id;
     record.touched = touch(store);
     record.reply_message_id = input.reply_message_id;
@@ -310,7 +310,7 @@ MessageDraftStoreResult message_draft_store_find(const MessageDraftStore& store,
 bool message_draft_store_snapshot(const MessageDraftStore& store, u64 channel_id,
                                   MessageDraftSnapshot* snapshot) noexcept {
     if (snapshot) {
-        *snapshot = MessageDraftSnapshot{};
+        reset_value<MessageDraftSnapshot>(snapshot);
     }
     const MessageDraftStoreResult found = message_draft_store_find(store, channel_id);
     if (!snapshot || !found.ok()) {

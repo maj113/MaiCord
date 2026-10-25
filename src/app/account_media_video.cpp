@@ -298,13 +298,13 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
         v.selection.identity.cache_generation =
             audio ? lane.media.audio_source.cache_generation : lane.media.mp4_generation;
         v.selection.identity.content_identity = content_identity;
-        v.commands = {};
+        reset_value(&v.commands);
         v.last_command = 0;
         v.ack_pending = false;
         v.frame_taken = false;
         v.stop_requested = false;
-        v.frame = {};
-        v.snapshot = {};
+        reset_value(&v.frame);
+        reset_value(&v.snapshot);
         v.snapshot.key = requested.key;
         v.snapshot.playback.identity = v.selection.identity;
         v.snapshot.selected = true;
@@ -509,7 +509,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
             if (account_video_session_acknowledge(&v.session, v.selection.identity, ack_epoch,
                                                   ack_serial)) {
                 AcquireSRWLockExclusive(&v.lock);
-                v.frame = {};
+                reset_value(&v.frame);
                 v.frame_taken = false;
                 ReleaseSRWLockExclusive(&v.lock);
             } else {
@@ -616,7 +616,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
         if (v.stop_requested)
             v.snapshot.playback.observed_command = v.last_command;
         v.snapshot.playback.release_pending = false;
-        v.frame = {};
+        reset_value(&v.frame);
         v.frame_taken = false;
         InterlockedExchange(&v.selected_lane, -1);
         InterlockedExchange(&lane->phase, static_cast<LONG>(stopping ? AccountMediaWorkerPhase::stopped

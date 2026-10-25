@@ -25,7 +25,7 @@ bool mention_confirmation_save(TextFormOwnerKey key, Utf8View) noexcept {
     // The draft changed or the channel went away: closing is the answer.
     if (!mention_confirmation_valid(key))
         return true;
-    mention_confirmation = {};
+    reset_value(&mention_confirmation);
     application_message_send_confirmed();
     return true;
 }
@@ -83,7 +83,7 @@ bool application_mention_confirmation_request(bool* opened) noexcept {
                                        true};
     request.accept_focused = true;
     if (!application_text_form_open(request)) {
-        mention_confirmation = {};
+        reset_value(&mention_confirmation);
         return true;
     }
     *opened = true;

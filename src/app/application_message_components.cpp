@@ -148,7 +148,7 @@ bool queue_component(const Resolved& message, u16 index, ConstSlice<Utf8View> va
     const auto& store = g_app.account_ui->message_rich_store;
     const auto& component = message.rich->components[index];
     auto& request = owner->request;
-    request = {};
+    reset_value(&request);
     ProtocolWriter data{{reinterpret_cast<u8*>(request.data), sizeof(request.data)}, 0};
     if (!message_interaction_write_component_data(component.type,
                                                   message_rich_store_string(store, component.custom_id), values,
@@ -327,7 +327,7 @@ bool modal_save(TextFormOwnerKey key, Utf8View text) noexcept {
     }
     copy_bytes(owner->values[owner->modal_step], text.data, text.bytes);
     owner->value_bytes[owner->modal_step] = text.bytes;
-    owner->modal_status = {};
+    reset_value(&owner->modal_status);
     owner->step_saved = true;
     return true;
 }
@@ -398,7 +398,7 @@ bool open_modal_step() noexcept {
     request.maximum_codepoints = field.max_length ? field.max_length : 4000u;
     request.maximum_bytes = minimum<u32>(kApplicationTextFormBytes, request.maximum_codepoints * 4u);
     request.single_line = field.style == MessageModalInputStyle::short_text;
-    owner->modal_status = {};
+    reset_value(&owner->modal_status);
     owner->form_open = application_text_form_open(request);
     if (!owner->form_open)
         owner->modal_active = false;
@@ -407,7 +407,7 @@ bool open_modal_step() noexcept {
 
 bool queue_modal_submit() noexcept {
     auto& request = owner->request;
-    request = {};
+    reset_value(&request);
     Utf8View values[kMessageModalMaximumFields];
     for (u32 i = 0; i < owner->modal.field_count; ++i)
         values[i] = {owner->values[i], owner->value_bytes[i]};
@@ -445,7 +445,7 @@ void open_modal(Utf8View body) noexcept {
         return;
     if (!modal.application_id)
         modal.application_id = owner->request.application_id;
-    owner->modal = modal;
+    copy_value(&owner->modal, modal);
     owner->modal_message_id = owner->message_id;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, modal.channel_id);
     owner->modal_guild_id = channel ? channel->guild_id : 0;
@@ -667,7 +667,7 @@ void application_age_gate_synchronize() noexcept {
     if (!g_app.account_ui)
         return;
     if (age_gate.account_scope != application_account_scope()) {
-        age_gate = {};
+        reset_value(&age_gate);
         age_gate.account_scope = application_account_scope();
     }
     const auto* channel = age_gate_channel();

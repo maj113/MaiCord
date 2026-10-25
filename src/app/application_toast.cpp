@@ -1,4 +1,5 @@
 #include "application_toast.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/layer_presentation.hpp"
@@ -84,8 +85,8 @@ void application_toast_release() noexcept {
     if (g_app.renderer.toast_scene == &g_app.toasts)
         g_app.renderer.toast_scene = nullptr;
     ui_toast_clear(&g_app.toasts);
-    g_app.toasts.text_owner = {};
-    g_host = {};
+    reset_value(&g_app.toasts.text_owner);
+    reset_value(&g_host);
 }
 
 } // namespace maicord::app_detail

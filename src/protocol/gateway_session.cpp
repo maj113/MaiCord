@@ -7,10 +7,9 @@
 namespace maicord {
 namespace {
 
-GatewaySessionEvent event(GatewaySessionEventKind kind) noexcept {
-    GatewaySessionEvent result{};
-    result.kind = kind;
-    return result;
+void event(GatewaySessionEvent* result, GatewaySessionEventKind kind) noexcept {
+    reset_value(result);
+    result->kind = kind;
 }
 
 // Turns a failed event decode into the session's error event.
@@ -23,11 +22,10 @@ bool event_decode_failed(GatewaySessionEvent& result, const GatewayEventDecodeRe
     return true;
 }
 
-GatewaySessionEvent session_error(GatewaySessionError error) noexcept {
-    GatewaySessionEvent result{};
-    result.error = error;
-    result.kind = GatewaySessionEventKind::error;
-    return result;
+void session_error(GatewaySessionEvent* result, GatewaySessionError error) noexcept {
+    reset_value(result);
+    result->error = error;
+    result->kind = GatewaySessionEventKind::error;
 }
 
 bool spill_disjoint(const GatewaySession& session, Slice<u8> spill) noexcept {
@@ -109,9 +107,10 @@ void consume_compressed(GatewaySession* session, u32 bytes) noexcept {
     }
 }
 
-GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View message, u32 heartbeat_jitter,
-                                            u64 now_ms) noexcept {
-    GatewaySessionEvent result{};
+void process_gateway_message(GatewaySession* session, Utf8View message, u32 heartbeat_jitter,
+                             u64 now_ms, GatewaySessionEvent* out) noexcept {
+    reset_value(out);
+    GatewaySessionEvent& result = *out;
     GatewayDecodeResult decoded =
         gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
     // The frame (or one persistent zlib flush) has already been consumed.
@@ -127,7 +126,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
             backed.data != session->structural_scratch.data || backed.count < required ||
             backed.count > kGatewaySessionMaximumStructuralCount) break;
         session->structural_scratch = backed;
-        result.envelope = {};
+        reset_value(&result.envelope);
         decoded = gateway_decode_envelope(message, backed, 64, &result.envelope);
     }
     if (!decoded.ok()) {
@@ -135,14 +134,14 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         result.error = GatewaySessionError::gateway_decode;
         result.gateway_error = decoded.error;
         result.scan_error = decoded.scan_error;
-        return result;
+        return;
     }
 
     if (result.envelope.opcode == 10) {
         const GatewayEventDecodeResult hello =
             gateway_decode_hello(result.envelope.data, session->structural_scratch, 16, &result.hello);
         if (event_decode_failed(result, hello)) {
-            return result;
+            return;
         }
         result.lifecycle_step =
             gateway_lifecycle_hello(&session->lifecycle, result.hello, heartbeat_jitter, now_ms);
@@ -161,7 +160,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         const GatewayEventDecodeResult invalid =
             gateway_decode_invalid_session(result.envelope.data, &resumable);
         if (event_decode_failed(result, invalid)) {
-            return result;
+            return;
         }
         result.lifecycle_step = gateway_lifecycle_invalid_session(&session->lifecycle, resumable);
         result.kind = GatewaySessionEventKind::invalid_session;
@@ -171,14 +170,14 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
             result.error = GatewaySessionError::gateway_decode;
             result.gateway_error = result.envelope.has_sequence ? GatewayDecodeError::invalid_event_name
                                                                 : GatewayDecodeError::invalid_sequence;
-            return result;
+            return;
         }
         result.lifecycle_step = gateway_lifecycle_dispatch(&session->lifecycle, result.envelope.sequence);
         if (json_string_equals_ascii(result.envelope.event_name, utf8_literal("READY"))) {
             const GatewayEventDecodeResult ready =
                 gateway_decode_ready(result.envelope.data, session->structural_scratch, 64, &result.ready);
             if (event_decode_failed(result, ready)) {
-                return result;
+                return;
             }
             result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle, true);
             result.kind = GatewaySessionEventKind::ready;
@@ -186,7 +185,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
             const GatewayEventDecodeResult resumed = gateway_decode_resumed(
                 result.envelope.data, session->structural_scratch, 16, &result.resumed);
             if (event_decode_failed(result, resumed)) {
-                return result;
+                return;
             }
             result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle, true);
             result.kind = GatewaySessionEventKind::resumed;
@@ -201,7 +200,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         result.kind = GatewaySessionEventKind::error;
         result.error = GatewaySessionError::lifecycle;
     }
-    return result;
+    return;
 }
 
 bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcept {
@@ -230,9 +229,9 @@ bool grow_session_output(void* opaque, u32 required, Slice<u8>* backed) noexcept
     *backed = candidate;
     return true;
 }
-GatewaySessionEvent process_compressed_message(
+void process_compressed_message(
     GatewaySession* session, u32 compressed_bytes,
-    u32 heartbeat_jitter, u64 now_ms) noexcept {
+    u32 heartbeat_jitter, u64 now_ms, GatewaySessionEvent* out) noexcept {
     const DeflateInputSpan span{session->compressed_storage.data,
                                 compressed_bytes};
     const ZlibInflateResult inflated = session->grow_output ? zlib_stream_inflate_flush_growing(
@@ -240,17 +239,16 @@ GatewaySessionEvent process_compressed_message(
         session->maximum_decoded_message_bytes, grow_session_output, session) :
         zlib_stream_inflate_flush(session->zlib_stream, {&span, 1}, session->message_storage);
     if (!inflated.ok()) {
-        GatewaySessionEvent result =
-            session_error(GatewaySessionError::compression);
-        result.compression_error = inflated.error;
-        return result;
+        session_error(out, GatewaySessionError::compression);
+        out->compression_error = inflated.error;
+        return;
     }
     consume_compressed(session, compressed_bytes);
-    return process_gateway_message(
+    process_gateway_message(
         session,
         Utf8View{reinterpret_cast<const char*>(session->message_storage.data),
                  inflated.output_bytes},
-        heartbeat_jitter, now_ms);
+        heartbeat_jitter, now_ms, out);
 }
 
 } // namespace
@@ -267,7 +265,7 @@ bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage
         maximum_message_bytes > message_storage.count) {
         return false;
     }
-    *session = GatewaySession{};
+    reset_value<GatewaySession>(session);
     if (!byte_queue_initialize(&session->input, input_storage)) {
         return false;
     }
@@ -335,71 +333,71 @@ bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> dec
     return true;
 }
 
-GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_jitter,
-                                         u64 now_ms) noexcept {
+void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32 heartbeat_jitter,
+                          u64 now_ms) noexcept {
     if (!session->opened) {
         const WebSocketHandshakeValidation handshake = websocket_validate_opening_response(
             byte_queue_readable(session->input),
             ConstSlice<u8>{session->client_key, kWebSocketClientKeyBytes}, session->maximum_header_bytes,
             session->maximum_header_fields);
         if (handshake.state == WebSocketHandshakeState::need_more) {
-            return event(GatewaySessionEventKind::need_input);
+            return event(out, GatewaySessionEventKind::need_input);
         }
         if (!handshake.ok()) {
-            GatewaySessionEvent result = session_error(GatewaySessionError::handshake);
-            result.http_error = handshake.http_error;
-            result.handshake_error = handshake.error;
-            return result;
+            session_error(out, GatewaySessionError::handshake);
+            out->http_error = handshake.http_error;
+            out->handshake_error = handshake.error;
+            return;
         }
         if (!byte_queue_consume(&session->input, handshake.header_bytes)) {
-            return session_error(GatewaySessionError::invalid_input);
+            return session_error(out, GatewaySessionError::invalid_input);
         }
         session->opened = true;
         const GatewayLifecycleStep connected =
             gateway_lifecycle_connected(&session->lifecycle, session->lifecycle.resume_available);
         if (!connected.ok()) {
-            return session_error(GatewaySessionError::lifecycle);
+            return session_error(out, GatewaySessionError::lifecycle);
         }
-        GatewaySessionEvent opened = event(GatewaySessionEventKind::opened);
-        opened.lifecycle_step = connected;
-        return opened;
+        event(out, GatewaySessionEventKind::opened);
+        out->lifecycle_step = connected;
+        return;
     }
 
     for (;;) {
         if (session->transport_compressed) {
             if (session->stream_remaining) {
-                if (!stream_frame_payload(session)) return session_error(GatewaySessionError::message_overflow);
-                if (session->stream_remaining) return event(GatewaySessionEventKind::need_input);
+                if (!stream_frame_payload(session)) return session_error(out, GatewaySessionError::message_overflow);
+                if (session->stream_remaining) return event(out, GatewaySessionEventKind::need_input);
                 continue;
             }
             // A payload ends at a message boundary whose bytes end in Z_SYNC_FLUSH.
             const u32 pending = session->message_tracker.fragmented ? 0 : complete_sync_flush_bytes(*session);
             if (pending != 0) {
                 return process_compressed_message(
-                    session, pending, heartbeat_jitter, now_ms);
+                    session, pending, heartbeat_jitter, now_ms, out);
             }
             // Binary data frames stream their payload; control and text frames
             // take the complete-frame path below.
             const auto header = websocket_parse_frame_header(byte_queue_readable(session->input),
                 session->maximum_compressed_bytes, WebSocketDirection::server_to_client);
-            if (header.state == WebSocketParseState::need_more) return event(GatewaySessionEventKind::need_input);
+            if (header.state == WebSocketParseState::need_more) return event(out, GatewaySessionEventKind::need_input);
             if (!header.ok()) {
-                auto result = session_error(GatewaySessionError::websocket);
-                result.websocket_error = header.error;
-                return result;
+                session_error(out, GatewaySessionError::websocket);
+                out->websocket_error = header.error;
+                return;
             }
             if (header.frame.opcode == WebSocketOpcode::binary || header.frame.opcode == WebSocketOpcode::continuation) {
                 const auto tracked = websocket_track_frame(&session->message_tracker, header.frame,
                                                            session->maximum_compressed_bytes);
                 if (!tracked.ok()) {
-                    auto result = session_error(GatewaySessionError::websocket);
-                    result.websocket_error = tracked.error;
-                    return result;
+                    session_error(out, GatewaySessionError::websocket);
+                    out->websocket_error = tracked.error;
+                    return;
                 }
                 if (tracked.message_opcode != WebSocketOpcode::binary)
-                    return session_error(GatewaySessionError::unexpected_encoding);
+                    return session_error(out, GatewaySessionError::unexpected_encoding);
                 if (!byte_queue_consume(&session->input, header.frame.header_bytes))
-                    return session_error(GatewaySessionError::invalid_input);
+                    return session_error(out, GatewaySessionError::invalid_input);
                 session->stream_remaining = static_cast<u32>(header.frame.payload_bytes);
                 continue;
             }
@@ -407,14 +405,15 @@ GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_
         const auto packet = websocket_read_message(&session->input, &session->message_tracker,
             session->wire_message_storage, &session->message_bytes, session->maximum_frame_payload_bytes,
             session->maximum_message_bytes);
-        if (packet.state == WebSocketReadState::need_input) return event(GatewaySessionEventKind::need_input);
+        if (packet.state == WebSocketReadState::need_input) return event(out, GatewaySessionEventKind::need_input);
         if (packet.state == WebSocketReadState::error) {
-            auto result = session_error(GatewaySessionError::websocket);
-            result.websocket_error = packet.error;
-            return result;
+            session_error(out, GatewaySessionError::websocket);
+            out->websocket_error = packet.error;
+            return;
         }
         if (packet.state == WebSocketReadState::control) {
-            GatewaySessionEvent result{};
+            reset_value(out);
+            GatewaySessionEvent& result = *out;
             result.control_payload = packet.payload;
             if (packet.opcode == WebSocketOpcode::ping) result.kind = GatewaySessionEventKind::ping;
             else if (packet.opcode == WebSocketOpcode::pong) result.kind = GatewaySessionEventKind::pong;
@@ -424,30 +423,35 @@ GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_
                     static_cast<u16>((static_cast<u16>(packet.payload[0]) << 8) | packet.payload[1]) : 0;
                 result.lifecycle_step = gateway_lifecycle_closed(&session->lifecycle, result.close_code);
             }
-            return result;
+            return;
         }
         const auto message = packet.payload;
         if (session->transport_compressed) {
             if (packet.opcode != WebSocketOpcode::binary) {
-                return session_error(
-                    GatewaySessionError::unexpected_encoding);
+                return session_error(out, GatewaySessionError::unexpected_encoding);
             }
             if (!append_compressed(session, message)) {
-                return session_error(GatewaySessionError::message_overflow);
+                return session_error(out, GatewaySessionError::message_overflow);
             }
             session->message_bytes = 0;
             continue;
         }
         if (packet.opcode != WebSocketOpcode::text) {
-            return session_error(GatewaySessionError::unsupported_binary);
+            return session_error(out, GatewaySessionError::unsupported_binary);
         }
 
-        GatewaySessionEvent result = process_gateway_message(
+        process_gateway_message(
             session, Utf8View{reinterpret_cast<const char*>(message.data), message.count}, heartbeat_jitter,
-            now_ms);
+            now_ms, out);
         session->message_bytes = 0;
-        return result;
+        return;
     }
+}
+
+GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_jitter, u64 now_ms) noexcept {
+    GatewaySessionEvent result;
+    gateway_session_next(&result, session, heartbeat_jitter, now_ms);
+    return result;
 }
 
 } // namespace maicord

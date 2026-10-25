@@ -1,4 +1,5 @@
 #include "maicord/media/vp8.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 
 #include "maicord/sys/intrin.hpp"
@@ -373,7 +374,7 @@ constexpr u8 kVp8DcQuantizer[128] = {
     126, 128, 130, 132, 134, 136, 138, 140, 143, 145, 148, 151, 154, 157,
 };
 
-constexpr u16 kVp8AcQuantizer[128] = {
+static constexpr u16 kVp8AcQuantizer[128] = {
     4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  20,  21,  22,
     23,  24,  25,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,
     42,  43,  44,  45,  46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,  57,  58,  60,  62,
@@ -383,7 +384,7 @@ constexpr u16 kVp8AcQuantizer[128] = {
     221, 225, 229, 234, 239, 245, 249, 254, 259, 264, 269, 274, 279, 284,
 };
 
-constexpr u8 kCoefficientBand[17] = {
+static constexpr u8 kCoefficientBand[17] = {
     0, 1, 2, 3, 6, 4, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7, 0,
 };
 constexpr u8 kCoefficientZigzag[16] = {
@@ -466,7 +467,7 @@ void parse_macroblock_mode(WindowReader* state, const Vp8ControlHeader& header, 
     WindowReader local = *state;
     WindowReader* const reader = &local;
     Vp8MacroblockMode& mode = *output;
-    mode = Vp8MacroblockMode{};
+    reset_value<Vp8MacroblockMode>(&mode);
     if (header.segmentation.update_map) {
         if (window_read(reader, header.segmentation.tree_probability[0]) == 0) {
             mode.segment_id = static_cast<u8>(window_read(reader, header.segmentation.tree_probability[1]));
@@ -577,7 +578,7 @@ __forceinline u32 read_large_coefficient(WindowReader* reader, const u8* probabi
                                                      : kCoefficientCategory6;
     // Extra magnitude bits of categories 3 to 6 (RFC 6386 section 13.2);
     // category 6 takes 11, not a 6-bit continuation of the pattern.
-    constexpr u8 kCategoryBitCount[] = {3, 4, 5, 11};
+    static constexpr u8 kCategoryBitCount[] = {3, 4, 5, 11};
     const u32 category_bits = kCategoryBitCount[category];
     u32 value = 0;
     for (u32 bit = 0; bit < category_bits; ++bit) {
@@ -805,7 +806,7 @@ bool vp8_bool_reader_initialize(Vp8BoolReader* reader, ConstSlice<u8> bytes) noe
     if (!reader) {
         return false;
     }
-    *reader = Vp8BoolReader{};
+    reset_value<Vp8BoolReader>(reader);
     reader->bytes = bytes;
     if (!bytes.data) {
         reader->error = Vp8BoolError::invalid_input;
@@ -832,7 +833,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
         !frame.remaining_data.data) {
         return {Vp8ControlError::invalid_input};
     }
-    *header = Vp8ControlHeader{};
+    reset_value<Vp8ControlHeader>(header);
     for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
         probabilities->coefficient[index] = kDefaultCoefficientProbability[index];
     }
@@ -1043,7 +1044,7 @@ Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& fr
     }
 
     for (u32 index = 0; index < 8; ++index) {
-        workspace->token_reader[index] = Vp8BoolReader{};
+        reset_value<Vp8BoolReader>(&workspace->token_reader[index]);
     }
     for (u32 index = 0; index < partition_count; ++index) {
         if (!vp8_bool_reader_initialize(&workspace->token_reader[index],
@@ -1052,15 +1053,15 @@ Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& fr
         }
     }
     for (u32 column = 0; column < columns; ++column) {
-        workspace->top_context[column] = Vp8TokenContext{};
+        reset_value<Vp8TokenContext>(&workspace->top_context[column]);
     }
-    workspace->left_context = Vp8TokenContext{};
+    reset_value<Vp8TokenContext>(&workspace->left_context);
     workspace->macroblock_count = 0;
     workspace->columns = static_cast<u16>(columns);
     workspace->rows = static_cast<u16>(rows);
 
     for (u32 macroblock_y = 0; macroblock_y < rows; ++macroblock_y) {
-        workspace->left_context = Vp8TokenContext{};
+        reset_value<Vp8TokenContext>(&workspace->left_context);
         Vp8BoolReader& partition = workspace->token_reader[macroblock_y & (partition_count - 1u)];
         WindowReader reader = to_window(partition);
         for (u32 macroblock_x = 0; macroblock_x < columns; ++macroblock_x) {
@@ -1087,7 +1088,7 @@ Vp8ParseResult parse_keyframe(ConstSlice<u8> payload, Vp8Keyframe* frame, u32 ma
     if (!frame || (!payload.data && payload.count != 0)) {
         return failure(Vp8Error::invalid_input);
     }
-    *frame = Vp8Keyframe{};
+    reset_value<Vp8Keyframe>(frame);
     if (payload.count > maximum_bytes) {
         return failure(Vp8Error::encoded_limit);
     }
@@ -1159,7 +1160,7 @@ Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const 
         header.macroblock_reader.bytes.data != frame.first_partition.data ||
         header.macroblock_reader.bytes.count != frame.first_partition.count)
         return {Vp8CoefficientError::invalid_input};
-    *parser = Vp8RowParser{};
+    reset_value<Vp8RowParser>(parser);
     parser->modes = header.macroblock_reader;
     for (u32 index = 0; index < partitions; ++index)
         if (!vp8_bool_reader_initialize(&parser->tokens[index], header.token_partitions[index].bytes))
@@ -1167,7 +1168,7 @@ Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const 
     parser->top_context = top_context.data;
     parser->above_modes = above_modes.data;
     for (u32 column = 0; column < columns; ++column)
-        parser->top_context[column] = Vp8TokenContext{};
+        reset_value<Vp8TokenContext>(&parser->top_context[column]);
     for (u32 index = 0; index < columns * 4u; ++index)
         parser->above_modes[index] = Vp8SubblockMode::dc;
     parser->columns = columns;
@@ -1197,7 +1198,7 @@ Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8Con
     from_window(mode_reader, &parser->modes);
     Vp8BoolReader& partition = parser->tokens[parser->row & (parser->partitions - 1u)];
     WindowReader reader = to_window(partition);
-    parser->left_context = Vp8TokenContext{};
+    reset_value<Vp8TokenContext>(&parser->left_context);
     for (u32 x = 0; x < parser->columns; ++x) {
         const auto decoded = decode_macroblock_tokens(&reader, header, probabilities, modes[x],
                                                       &parser->top_context[x], &parser->left_context,

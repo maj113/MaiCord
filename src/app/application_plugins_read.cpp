@@ -2,6 +2,7 @@
 // Everything here copies out of resident stores on the UI thread; nothing
 // fetches, allocates or keeps a view past the call.
 #include "application_plugins.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_friends.hpp"
 #include "application_profile.hpp"
@@ -809,7 +810,7 @@ void application_plugins_gateway(const GatewayClientEvent& event, ConstSlice<u8>
 }
 
 void application_plugins_read_install(NativePluginSdkRuntime& runtime) noexcept {
-    runtime.read = {};
+    reset_value(&runtime.read);
     runtime.read.context_info = read_context_info;
     runtime.read.guild = read_guild;
     runtime.read.channel = read_channel;

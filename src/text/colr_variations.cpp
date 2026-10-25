@@ -1,4 +1,5 @@
 #include "maicord/text/colr_variations.hpp"
+#include "maicord/core/memory.hpp"
 #include "variation_delta.hpp"
 
 namespace maicord {
@@ -37,7 +38,7 @@ void sift(Slice<ColrResolvedColorStop> stops,u32 root,u32 count) noexcept {
 }
 
 SfntStatus colr_variation_data_open(const ColrFont& font,ColrVariationData* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data)return SfntStatus::invalid_input;
     if(!font.variation_store)return SfntStatus::ok;
     ColrVariationData result{};
@@ -48,7 +49,7 @@ SfntStatus colr_variation_data_open(const ColrFont& font,ColrVariationData* outp
 }
 SfntStatus colr_variation_instance_prepare(const ColrVariationData& data,ConstSlice<double> coordinates,
                                           Slice<double> storage,ColrVariationInstance* output,u32 work,ColrVariationMode mode) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!data.present){output->mode=mode;return SfntStatus::ok;}
     ColrVariationInstance result{};
     const auto status=variation_instance_prepare(data.store,coordinates,storage,&result.instance,work,
@@ -57,7 +58,7 @@ SfntStatus colr_variation_instance_prepare(const ColrVariationData& data,ConstSl
     result.map=data.map;result.present=true;result.mode=mode;*output=result;return SfntStatus::ok;
 }
 SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const ColrPaint& paint,ColrPaintValues* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!paint.format || paint.format>32 || paint.value_count>6)return SfntStatus::invalid_input;
     ColrPaintValues result{};result.count=paint.value_count;
     VariationDeltaBlock block;
@@ -66,7 +67,7 @@ SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const
     if(base==2)fractional=1;
     else if(base==8)fractional=12;
     else if(base>=16 && base<=30) {
-        constexpr u8 masks[]{3,3,1,1,1,1,3,3};fractional=masks[(base-16)/2];
+        static constexpr u8 masks[]{3,3,1,1,1,1,3,3};fractional=masks[(base-16)/2];
     }
     for(u32 i=0;i<result.count;++i) {
         double delta=0;
@@ -78,7 +79,7 @@ SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const
     *output=result;return SfntStatus::ok;
 }
 SfntStatus colr_resolve_clip(const ColrVariationInstance& instance,const ColrClip& clip,ColrClip* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!clip.present){output->variation_index=0xffffffff;return SfntStatus::ok;}
     double values[]{clip.minimum_x,clip.minimum_y,clip.maximum_x,clip.maximum_y};
     VariationDeltaBlock block;

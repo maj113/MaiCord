@@ -117,7 +117,7 @@ PluginIndexAcceptanceResult plugin_index_acceptance_decode(ConstSlice<u8> record
         candidate.slots[i].present = slot[48] == 1;
     }
     if (!plugin_index_acceptance_valid(candidate)) return fail(RE::format);
-    *state = candidate;
+    copy_value(state, candidate);
     return {};
 }
 
@@ -156,7 +156,7 @@ PluginIndexAcceptanceResult plugin_index_acceptance_begin(ConstSlice<wchar_t> pa
     if (!result.ok()) return result;
     result = load(candidate.path, &candidate.state);
     candidate.record_present = result.ok();
-    if (result.error == RE::missing && allow_first_use) result = {};
+    if (result.error == RE::missing && allow_first_use) reset_value(&result);
     if (!result.ok()) { CloseHandle(candidate.lock); return result; }
     *transaction = candidate;
     return {};
@@ -190,12 +190,13 @@ PluginIndexAcceptanceResult plugin_index_acceptance_verify_commit(PluginIndexAcc
     // Check the disk snapshot again immediately before mutation.
     result = current(*transaction);
     if (!result.ok()) { clear_bytes(output, sizeof(*output)); return result; }
-    auto next = transaction->state;
+    PluginIndexAcceptanceState next;
+    copy_value(&next, transaction->state);
     next.slots[slot] = {provider, output->sequence, {}, true};
     copy_bytes(next.slots[slot].index_sha256, output->digest, 32);
     result = store(*transaction, next);
     if (!result.ok()) { clear_bytes(output, sizeof(*output)); return result; }
-    transaction->state = next;
+    copy_value(&transaction->state, next);
     transaction->record_present = true;
     return result;
 }
@@ -206,11 +207,12 @@ PluginIndexAcceptanceResult plugin_index_acceptance_forget(PluginIndexAcceptance
     if (!result.ok()) return result;
     const u32 slot = slot_of(transaction->state, provider);
     if (slot == kPluginIndexAcceptanceSlots || !transaction->state.slots[slot].present) return {};
-    auto next = transaction->state;
-    next.slots[slot] = {};
+    PluginIndexAcceptanceState next;
+    copy_value(&next, transaction->state);
+    reset_value(&next.slots[slot]);
     result = store(*transaction, next);
     if (!result.ok()) return result;
-    transaction->state = next;
+    copy_value(&transaction->state, next);
     transaction->record_present = true;
     return result;
 }

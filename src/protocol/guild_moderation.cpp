@@ -448,7 +448,7 @@ bool visit_result_item(void* opaque, u32, JsonValue value) noexcept {
             p.error = GuildModerationError::duplicate;
             return false;
         }
-    p.page->members[p.count++] = result.member;
+    copy_value(&p.page->members[p.count++], result.member);
     return true;
 }
 

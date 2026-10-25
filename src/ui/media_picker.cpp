@@ -532,7 +532,7 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     const u32 prior_count = reuse ? scene.cell_count : 0;
     if (prior_count)
         copy_bytes(prior, scene.projection->cells, prior_count * sizeof(*prior));
-    scene.pressed = {};
+    reset_value(&scene.pressed);
     scene.favorite_hovered = false;
     scene.footer_index = ~u32{0};
     scene.footer_title_bytes = 0;
@@ -1017,7 +1017,7 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
 void ui_media_picker_scene_cancel_capture(UiMediaPickerScene* scene) noexcept {
     if (!scene)
         return;
-    scene->pressed = {};
+    reset_value(&scene->pressed);
     ui_widget_manager_capture(&scene->widgets, ui_widget_invalid_handle());
 }
 void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
@@ -1043,7 +1043,7 @@ void ui_media_picker_scene_release(UiMediaPickerScene* scene) noexcept {
         VirtualFree(scene->tiles, 0, MEM_RELEASE);
     // Generations keep counting so stale targets from before stay fenced.
     const u32 generation = scene->generation;
-    *scene = {};
+    reset_value(scene);
     scene->generation = generation;
 }
 UiMediaPickerTarget ui_media_picker_scene_hit_test(const UiMediaPickerScene& scene, float x,

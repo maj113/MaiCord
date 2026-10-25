@@ -21,7 +21,7 @@ constexpr wchar_t kDownloadSuffix[] = L".download";
 bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
 // "<owner16>-<sha64>.dll", the installer's managed DLL name.
 void managed_leaf(u64 owner, const u8* sha256, wchar_t (&leaf)[86]) noexcept {
-    constexpr wchar_t digits[] = L"0123456789abcdef";
+    static constexpr wchar_t digits[] = L"0123456789abcdef";
     for (u32 i = 0; i < 16; ++i) leaf[i] = digits[(owner >> ((15 - i) * 4)) & 15];
     leaf[16] = L'-';
     for (u32 i = 0; i < 32; ++i) { leaf[17 + i * 2] = digits[sha256[i] >> 4]; leaf[18 + i * 2] = digits[sha256[i] & 15]; }
@@ -117,7 +117,7 @@ bool download_sink(void* context, ConstSlice<u8> bytes) noexcept {
 
 // ---- records -----------------------------------------------------------------------
 AcceptanceRecordResult load_journal(const PluginManagerPaths& paths, PluginJournal* journal) noexcept {
-    *journal = {};
+    reset_value(journal);
     const auto loaded = plugin_journal_load({paths.journal, paths.journal_count}, journal);
     return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
 }
@@ -146,7 +146,7 @@ Installed installed_manifest(const PluginManagerPaths& paths, u64 owner, PluginM
         const NativePluginCatalogEntry& entry = work->entries[i];
         if (entry.manifest.owner_id != owner) continue;
         if (entry.status != NativePluginCatalogError::none || result == Installed::present) { result = Installed::error; break; }
-        *manifest = entry.manifest;
+        copy_value(manifest, entry.manifest);
         result = Installed::present;
     }
     if (!native_plugin_catalog_release(&work->catalog).ok()) result = Installed::error;
@@ -337,7 +337,7 @@ PluginManagerResult settle_uninstall(const PluginManagerPaths& paths, const Plug
         PluginManagerState& state = work->state;
         const u32 index = static_cast<u32>(entry - state.entries);
         for (u32 i = index + 1; i < state.count; ++i) state.entries[i - 1] = state.entries[i];
-        state.entries[--state.count] = {};
+        reset_value(&state.entries[--state.count]);
         const auto saved = plugin_manager_state_save({paths.state, paths.state_count}, state);
         if (!saved.ok()) return record_failure(saved);
     }
@@ -353,7 +353,7 @@ PluginManagerResult settle_uninstall(const PluginManagerPaths& paths, const Plug
 }
 PluginManagerResult settle(const PluginManagerPaths& paths, const PluginJournal& journal, const PluginManagerFacts* facts, bool delete_data,
     bool recovering, PluginManagerWork* work, PluginManagerSettled* out) noexcept {
-    *out = {};
+    reset_value(out);
     out->operation = journal.operation;
     out->owner = journal.owner;
     if (journal.operation == Op::none) return failure(ME::none);
@@ -468,7 +468,7 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
     if (!synthesized.ok()) { r.error = ME::manifest; r.index_error = synthesized.error; return r; }
     UpdateLocation location{};
     if (!plugin_catalog_file_location(source, index, document, plugin, version, host.arch, &location)) return failure(ME::not_listed);
-    prepared->facts = {};
+    reset_value(&prepared->facts);
     const auto slug = plugin_index_text_decode(document, index.plugins[plugin].slug, {prepared->facts.slug, kPluginManagerSlugCapacity});
     prepared->facts.known = slug.ok();
     prepared->facts.max_host_abi = listed.max_host_abi;
@@ -596,7 +596,7 @@ PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const Plug
     if (!staged_saved.ok()) return abandon(paths, record_failure(staged_saved), journal);
     prepared->journal = journal;
     prepared->options.retain_previous = true;
-    prepared->facts = {};
+    reset_value(&prepared->facts);
     if (!prepared_manifest_path(paths, request.owner, prepared)) return abandon(paths, failure(ME::storage), journal);
     log_operation("staged", journal, 0);
     return failure(ME::none);
@@ -610,7 +610,7 @@ PluginManagerResult plugin_manager_prepare(const PluginManagerPaths& paths, cons
         (request.operation != Op::install && request.operation != Op::update && request.operation != Op::rollback) ||
         (request.approved_permissions & ~kNativePluginPermissionsAll) || (request.operation != Op::rollback && !transport.get))
         return failure(ME::invalid_input);
-    *prepared = {};
+    reset_value(prepared);
     auto r = begin(paths);
     if (!r.ok()) return r;
     return request.operation == Op::rollback
@@ -621,7 +621,7 @@ PluginManagerResult plugin_manager_prepare(const PluginManagerPaths& paths, cons
 PluginManagerResult plugin_manager_uninstall_prepare(const PluginManagerPaths& paths, u64 owner, PluginManagerWork* work,
     PluginManagerPrepared* prepared) noexcept {
     if (!work || !prepared || owner <= 1 || !paths.manager_count) return failure(ME::invalid_input);
-    *prepared = {};
+    reset_value(prepared);
     auto r = begin(paths);
     if (!r.ok()) return r;
     NativePluginManifest current{};
@@ -669,7 +669,7 @@ PluginManagerResult plugin_manager_finish(const PluginManagerPaths& paths, const
 
 PluginManagerResult plugin_manager_recover(const PluginManagerPaths& paths, PluginManagerWork* work, PluginManagerSettled* settled) noexcept {
     if (!work || !settled || !paths.manager_count) return failure(ME::invalid_input);
-    *settled = {};
+    reset_value(settled);
     PluginJournal journal{};
     const auto loaded = load_journal(paths, &journal);
     if (!loaded.ok()) return record_failure(loaded);

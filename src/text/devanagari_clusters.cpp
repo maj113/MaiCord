@@ -1,4 +1,5 @@
 #include "maicord/text/devanagari_clusters.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/indic_clusters.hpp"
 #include "devanagari_character.hpp"
 namespace maicord {
@@ -91,7 +92,7 @@ struct State {
     bool allow_consonant=false,allow_vowel=false,joined=false,after_matra=false,vowel_base=false,halant_before_join=false,halant_bindu=false,matra_nukta=false,matra_halant=false;
     u16 excluded_matras=0;
     void begin(SfntIndicProfile profile,Category c,u32 scalar,u8 form) noexcept {
-        *this={};if(c==Category::consonant||c==Category::vowel||c==Category::placeholder){phase=scalar==0xa0?Phase::space:Phase::base;allow_consonant=true;allow_vowel=profile==SfntIndicProfile::bengali?(scalar==0x9b0||scalar==0x9f0):profile!=SfntIndicProfile::gurmukhi&&profile!=SfntIndicProfile::telugu&&scalar==sfnt_indic_script(profile)->block_first+0x30u&&((profile!=SfntIndicProfile::kannada&&profile!=SfntIndicProfile::malayalam)||(form&sfnt_deva_reph));vowel_base=c==Category::vowel;}
+        reset_value(this);if(c==Category::consonant||c==Category::vowel||c==Category::placeholder){phase=scalar==0xa0?Phase::space:Phase::base;allow_consonant=true;allow_vowel=profile==SfntIndicProfile::bengali?(scalar==0x9b0||scalar==0x9f0):profile!=SfntIndicProfile::gurmukhi&&profile!=SfntIndicProfile::telugu&&scalar==sfnt_indic_script(profile)->block_first+0x30u&&((profile!=SfntIndicProfile::kannada&&profile!=SfntIndicProfile::malayalam)||(form&sfnt_deva_reph));vowel_base=c==Category::vowel;}
         else if(c==Category::joiner){phase=Phase::initial_join;allow_consonant=true;}
         else if(profile==SfntIndicProfile::malayalam&&scalar==0xd4e)phase=Phase::dot_reph;
         // Independent-vowel matra restrictions per script block. Gurmukhi IRI/URA are

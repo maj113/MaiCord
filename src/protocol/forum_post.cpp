@@ -378,7 +378,7 @@ struct AttachmentParse {
 };
 bool attachment_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<AttachmentParse*>(opaque);
-    const char* keys[]{"id",  "size",      "filename", "title",  "description", "content_type",
+    static constexpr const char* keys[]{"id",  "size",      "filename", "title",  "description", "content_type",
                        "url", "proxy_url", "width",    "height", "flags",       "ephemeral"};
     u32 index = 12;
     for (u32 at = 0; at < 12; ++at) {
@@ -474,7 +474,7 @@ bool attachment_item(void* opaque, u32 index, JsonValue value) noexcept {
     list.ids[index] = parse.value.id;
     ForumPostTextRange* ranges[]{&parse.value.filename,     &parse.value.title, &parse.value.description,
                                  &parse.value.content_type, &parse.value.url,   &parse.value.proxy_url};
-    constexpr u32 maxima[]{2048, 1024, 4096, 128, 4096, 4096};
+    static constexpr u32 maxima[]{2048, 1024, 4096, 128, 4096, 4096};
     // One reused small validation bank, never ten large per-file stack arrays.
     char decoded[4096];
     for (u32 at = 0; at < 6; ++at) {

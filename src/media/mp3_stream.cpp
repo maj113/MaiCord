@@ -1,4 +1,5 @@
 #include "maicord/media/mp3_stream.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 
@@ -35,9 +36,9 @@ Mp3Error frame(ConstSlice<u8> bytes, u32 offset, Frame* out) noexcept {
         return Mp3Error::malformed;
     if (!(h[2] >> 4))
         return Mp3Error::unsupported; // Free-format has no bounded header size.
-    constexpr u16 rates[]{44100, 48000, 32000};
-    constexpr u16 bitrates1[]{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
-    constexpr u16 bitrates2[]{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
+    static constexpr u16 rates[]{44100, 48000, 32000};
+    static constexpr u16 bitrates1[]{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
+    static constexpr u16 bitrates2[]{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
     Frame f{};
     f.version = static_cast<u8>((h[1] >> 3) & 3);
     f.rate = rates[(h[2] >> 2) & 3] >> (f.version == 3 ? 0 : f.version == 2 ? 1 : 2);
@@ -306,7 +307,7 @@ Mp3Error mp3_stream_build_index(const Mp3Stream& s, Mp3SeekIndex* output, Slice<
     result.frame_count = s.frame_count;
     // A cancelled rebuild may have partially overwritten caller checkpoints;
     // withdraw the old index authority before the first write.
-    *output = {};
+    reset_value(output);
     const u32 stride = (s.frame_count - 1) / bank.count + 1;
     u32 offset = s.audio_begin;
     u64 main_bytes = 0;
@@ -388,7 +389,7 @@ u32 mp3_decoder_storage_bytes() noexcept {
     return static_cast<u32>(sizeof(mp3dec_t));
 }
 Mp3Error mp3_decoder_initialize(Mp3Decoder* decoder, Slice<u8> storage, u32 rate, u32 channels) noexcept {
-    constexpr u32 rates[]{8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000};
+    static constexpr u32 rates[]{8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000};
     bool supported = false;
     for (u32 candidate : rates)
         supported = supported || candidate == rate;
@@ -453,6 +454,6 @@ Mp3DecodeResult mp3_decoder_decode(Mp3Decoder* decoder, ConstSlice<u8> packet, S
 }
 void mp3_decoder_release(Mp3Decoder* decoder) noexcept {
     if (decoder)
-        *decoder = {};
+        reset_value(decoder);
 }
 } // namespace maicord

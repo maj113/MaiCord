@@ -1,4 +1,5 @@
 #include "maicord/app/account_video_session.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/platform/aac_decoder.hpp"
 #include "maicord/platform/media_audio.hpp"
 #include "maicord/media/opus_decoder.hpp"
@@ -182,7 +183,7 @@ void set_pending(AccountVideoSession& s, bool* flag, bool value) noexcept {
     }
 }
 bool audio_window(AccountVideoSession& s, Workspace& w) noexcept {
-    w.demux = s.audio_metadata;
+    copy_value(&w.demux, s.audio_metadata);
     if (s.fragmented_audio) {
         if (mp4_fragment_audio_refresh(s.fragmented_audio) != Mp4DemuxError::none) return false;
         const auto& track = s.fragmented_audio->source->track;
@@ -438,7 +439,7 @@ bool drop_frame(AccountVideoSession& s) noexcept {
     }
     s.held = s.published = false;
     s.status.frame_pending = false;
-    s.held_frame = {};
+    reset_value(&s.held_frame);
     return true;
 }
 bool request_audio_state(AccountVideoSession& s) noexcept {
@@ -1169,7 +1170,7 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
     if (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0)
         return result(AccountVideoError::clock);
     const auto identity = id;
-    *s = {};
+    reset_value(s);
     s->video = video;
     s->lane_event = event;
     s->audio_metadata = audio;
@@ -1198,7 +1199,7 @@ AccountVideoResult account_video_session_initialize_fragment_audio(AccountVideoS
     if (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0)
         return result(AccountVideoError::clock);
     const auto identity = id;
-    *s = {};
+    reset_value(s);
     s->fragmented_audio = audio;
     s->lane_event = event;
     s->status.identity = identity;
@@ -1236,7 +1237,7 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
     if (kind == AccountPlaybackKind::mp4 && (!QueryPerformanceFrequency(frequency.native()) || frequency.QuadPart <= 0))
         return result(AccountVideoError::clock);
     const auto identity = id;
-    *s = {};
+    reset_value(s);
     s->encoded_metadata = metadata;
     s->lane_event = event;
     s->status.identity = identity;
@@ -1247,7 +1248,7 @@ AccountVideoResult account_video_session_initialize_audio(AccountVideoSession* s
     s->video_eof = true;
     if (kind == AccountPlaybackKind::mp4) {
         // No picture decoder: the AAC workspace and its sample window drive playback.
-        s->audio_metadata = metadata->m4a;
+        copy_value(&s->audio_metadata, metadata->m4a);
         s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
     }
     s->thread_id = GetCurrentThreadId();
@@ -1516,7 +1517,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
     if (!s)
         return result(AccountVideoError::invalid_input);
     if (!s->initialized && !s->workspace) {
-        *s = {};
+        reset_value(s);
         return result(AccountVideoError::none, 0, true, true);
     }
     if (!thread(*s))
@@ -1543,7 +1544,7 @@ AccountVideoResult account_video_session_release(AccountVideoSession* s, u32 tim
         if (!VirtualFree(s->workspace, 0, MEM_RELEASE))
             return result(AccountVideoError::release, GetLastError(), true);
     }
-    *s = {};
+    reset_value(s);
     return result(AccountVideoError::none, 0, true, true);
 }
 u32 account_video_session_owned_bytes(const AccountVideoSession* s) noexcept {

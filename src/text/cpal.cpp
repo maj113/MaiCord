@@ -1,11 +1,12 @@
 #include "color_internal.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 using namespace color_detail;
 
 SfntStatus cpal_open(const SfntFace& face,CpalFont* output) noexcept {
     if(!output)return SfntStatus::invalid_input;
-    *output={}; ConstSlice<u8> bytes{};
+    reset_value(output); ConstSlice<u8> bytes{};
     auto status=sfnt_table(face,sfnt_tag('C','P','A','L'),&bytes);
     if(status!=SfntStatus::ok)return status;
     if(!span(bytes,0,12))return SfntStatus::truncated;
@@ -34,7 +35,7 @@ SfntStatus cpal_open(const SfntFace& face,CpalFont* output) noexcept {
 
 SfntStatus cpal_color(const CpalFont& font,u16 palette,u16 entry,CpalColor* output) noexcept {
     if(!output)return SfntStatus::invalid_input;
-    *output={};
+    reset_value(output);
     if(!font.starts.data || !font.colors.data)return SfntStatus::invalid_input;
     if(palette>=font.palette_count)return SfntStatus::invalid_input;
     if(entry==0xffff)return SfntStatus::unsupported_sequence; // 0xFFFF selects the caller's foreground color.

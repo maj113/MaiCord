@@ -1,4 +1,5 @@
 #include "maicord/ui/widget_storage.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -30,7 +31,7 @@ bool ui_widget_storage_initialize(UiWidgetStorageOwner* storage, u32 reserved_ca
         initial_capacity > reserved_capacity || reserved_capacity > kInvalidUiWidgetSlot) {
         return false;
     }
-    *storage = UiWidgetStorageOwner{};
+    reset_value<UiWidgetStorageOwner>(storage);
     if (!stable_storage_initialize(&storage->widgets, reserved_capacity, 0, sizeof(UiWidget),
                                    alignof(UiWidget)) ||
         !stable_storage_initialize(&storage->layout_nodes, reserved_capacity, 0, sizeof(UiLayoutNode),
@@ -85,7 +86,7 @@ void ui_widget_storage_release(UiWidgetStorageOwner* storage) noexcept {
     }
     stable_storage_release(&storage->widgets);
     stable_storage_release(&storage->layout_nodes);
-    *storage = UiWidgetStorageOwner{};
+    reset_value<UiWidgetStorageOwner>(storage);
 }
 
 bool ui_virtual_row_storage_initialize(UiVirtualRowStorageOwner* storage, u32 reserved_capacity,
@@ -106,7 +107,7 @@ void ui_virtual_row_storage_release(UiVirtualRowStorageOwner* storage) noexcept 
         return;
     }
     stable_storage_release(&storage->rows);
-    *storage = UiVirtualRowStorageOwner{};
+    reset_value<UiVirtualRowStorageOwner>(storage);
 }
 
 bool ui_fixed_widget_storage_initialize(UiFixedWidgetStorageOwner* storage, u32 capacity, u32 sidecar_bytes,
@@ -124,7 +125,7 @@ bool ui_fixed_widget_storage_initialize(UiFixedWidgetStorageOwner* storage, u32 
         (sidecar_bytes != 0 && !append_storage_bytes(&reserve_bytes, sidecar_bytes, sidecar_alignment))) {
         return false;
     }
-    *storage = UiFixedWidgetStorageOwner{};
+    reset_value<UiFixedWidgetStorageOwner>(storage);
     if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024)) {
         return false;
     }
@@ -149,7 +150,7 @@ void ui_fixed_widget_storage_release(UiFixedWidgetStorageOwner* storage) noexcep
         return;
     }
     arena_release(&storage->arena);
-    *storage = UiFixedWidgetStorageOwner{};
+    reset_value<UiFixedWidgetStorageOwner>(storage);
 }
 
 } // namespace maicord

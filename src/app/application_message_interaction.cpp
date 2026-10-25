@@ -1,4 +1,5 @@
 #include "application_guild_community.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_toast.hpp"
 #include "application_content_input.hpp"
 #include "application_user_actions.hpp"
@@ -147,7 +148,7 @@ bool unread_popup_capture(UnreadContextKind kind, u64 id, bool enabled, u32 acti
     if (enabled &&
         !unread_context_capture(unread_source(kind, id, action == popup_action_retry_channel_unread), kind,
                                 id, &next, action)) {
-        unread_popup = {};
+        reset_value(&unread_popup);
         dismiss_popup();
         return false;
     }
@@ -178,7 +179,7 @@ bool clear_message_text_selection(bool rebuild) noexcept {
     const bool had_selection = g_app.message_text_selection.valid;
     const bool held = g_app.message_text_pointer_selection;
     g_app.message_text_pointer_selection = false;
-    g_app.message_text_selection = RendererMessageTextPositionHit{};
+    reset_value<RendererMessageTextPositionHit>(&g_app.message_text_selection);
     g_app.message_text_selection_anchor = 0;
     g_app.message_text_selection_caret = 0;
     renderer_clear_message_text_selection(&g_app.renderer);
@@ -322,8 +323,8 @@ bool dismiss_popup() noexcept {
     application_scoped_read_menu_clear();
     application_plugins_menu_dismissed();
     set_popup_owner(PopupOwnerKind::none);
-    thread_menu_scope = {};
-    creation_menu_scope = {};
+    reset_value(&thread_menu_scope);
+    reset_value(&creation_menu_scope);
     g_app.composer_autocomplete.count = 0;
     g_app.composer_autocomplete.kind = ComposerAutocompleteKind::none;
     // A dismissed '@' list stays closed until the draft changes again.
@@ -814,7 +815,7 @@ bool thread_actions_menu_open_impl(const ApplicationThreadActionTicket& ticket, 
              .ok())
         return false;
     application_plugins_menu_dismissed();
-    unread_popup = {};
+    reset_value(&unread_popup);
     thread_menu_scope = {host.ticket, true, true};
     set_popup_owner(PopupOwnerKind::channel);
     g_app.context_focus = &g_app.shell_scene.widgets;
@@ -1285,7 +1286,7 @@ bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         applied = queue_private_conversation(request.operation, request.target_id);
     } else if (action == popup_action_private_notice_close &&
                g_app.popup_owner_kind == PopupOwnerKind::private_notice) {
-        g_app.account_ui->private_conversation = {};
+        reset_value(&g_app.account_ui->private_conversation);
         applied = true;
     } else if (action == popup_action_copy_member_name &&
                g_app.popup_owner_kind == PopupOwnerKind::member) {

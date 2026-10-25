@@ -291,7 +291,7 @@ Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, Slice<cha
 } // namespace
 bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
                                 Slice<char> storage, UiPrivateHeaderActivity* output) noexcept {
-    *output = {};
+    reset_value(output);
     const auto* title = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_bar));
     const auto* label = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_label));
     const auto* channel = source.state ? chat_state_store_find_channel(*source.state, channel_id) : nullptr;

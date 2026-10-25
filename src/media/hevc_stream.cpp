@@ -251,8 +251,8 @@ HevcScanStatus hevc_stream_scan(HevcParameterSets* sets, HevcStreamScanner* scan
 void hevc_stream_reset(HevcStreamState* state) noexcept {
     if (!state)
         return;
-    state->references = {};
-    state->output = {};
+    reset_value(&state->references);
+    reset_value(&state->output);
     state->output.leased = 255;
     state->waiting = true;
     state->drain = false;
@@ -312,7 +312,7 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     H264OutputQueue pending = state->output;
     const bool discard = next.restart && header.no_output_prior && (header.idr || type <= 18);
     if (discard || next.reinitialize)
-        pending = {};
+        reset_value(&pending);
     pending.leased = 255;
     const u8 surface = h264_free_surface(pending, busy, capacity);
     if (surface == 255) {
@@ -331,7 +331,7 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     }
     if (next.restart && state->output.count) {
         if (discard) {
-            state->output = {};
+            reset_value(&state->output);
             state->output.leased = 255;
         } else
             state->drain = true;

@@ -20,7 +20,7 @@ void release_timing(D3D11BackgroundFxTiming& timing) noexcept {
     com_release(timing.disjoint);
     for (auto*& stamp : timing.stamps)
         com_release(stamp);
-    timing = {};
+    reset_value(&timing);
 }
 
 bool create_resources(D3D11BackgroundFxOwner* owner, ID3D11Device* device) noexcept {
@@ -150,7 +150,7 @@ HRESULT d3d11_background_fx_select_plugin(D3D11BackgroundFxOwner* owner, ID3D11D
             owner->plugin_owner_id = owner_id;
             owner->plugin_effect_id = effect_id;
             owner->plugin_time_base = owner->plugin_last_phase = phase_seconds;
-            owner->guard = {};
+            reset_value(&owner->guard);
         }
         updated = true;
     }
@@ -170,7 +170,7 @@ bool d3d11_background_fx_clear_plugin(D3D11BackgroundFxOwner* owner) noexcept {
     com_release(owner->plugin_shader);
     owner->plugin_owner_id = owner->plugin_effect_id = owner->plugin_code_hash = 0;
     owner->plugin_revision = 0;
-    owner->guard = {};
+    reset_value(&owner->guard);
     if (owner->source == BackgroundFxSource::plugin)
         owner->source = BackgroundFxSource::none;
     return true;
@@ -312,7 +312,7 @@ void d3d11_background_fx_release(D3D11BackgroundFxOwner* owner) noexcept {
     com_release(owner->constant_buffer);
     com_release(owner->builtin_shader);
     com_release(owner->vertex_shader);
-    *owner = {};
+    reset_value(owner);
 }
 
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_theme_publication.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -60,7 +61,7 @@ const Theme& application_theme() noexcept {
 void application_theme_release() noexcept {
     if (theme_publication.styles)
         VirtualFree(theme_publication.styles, 0, MEM_RELEASE);
-    theme_publication = {};
+    reset_value(&theme_publication);
 }
 
 bool application_request_frame() noexcept {

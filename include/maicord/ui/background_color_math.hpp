@@ -214,7 +214,7 @@ inline u16 background_theme_snap_angle(float angle) noexcept {
     if (!(angle >= 0))
         return 0;
     angle = minimum(angle, 360.f);
-    constexpr u16 targets[]{90, 180, 270};
+    static constexpr u16 targets[]{90, 180, 270};
     for (const u16 target : targets)
         if (angle >= target - 10 && angle <= target + 10)
             return target;
@@ -232,7 +232,7 @@ inline bool background_theme_randomized(const BackgroundTheme& draft, u32 seed,
                                         BackgroundTheme* output) noexcept {
     if (!output || !background_theme_valid(draft))
         return false;
-    constexpr u32 seeds[]{0x94e0cf, 0x9af0b1, 0x9a90ff, 0x9a53ff, 0xfda6e4, 0xffe6c0, 0xefb4aa,
+    static constexpr u32 seeds[]{0x94e0cf, 0x9af0b1, 0x9a90ff, 0x9a53ff, 0xfda6e4, 0xffe6c0, 0xefb4aa,
                           0x56b69f, 0x29c566, 0x5348ca, 0x6d24d4, 0xca48c8, 0xf0ae29, 0xdf4232};
     auto next = draft;
     for (auto& color : next.colors)

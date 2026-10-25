@@ -30,7 +30,7 @@ AccountPathsResult account_paths_build_slot(const wchar_t* local_application_dat
     AccountPaths& built = *paths;
     wchar_t* outputs[] = {built.application_directory, built.account_directory, built.profile, built.session,
                           built.drafts};
-    const wchar_t* files[] = {L"\\active.profile", L"\\active.session", L"\\active.drafts"};
+    static constexpr const wchar_t* files[] = {L"\\active.profile", L"\\active.session", L"\\active.drafts"};
     bool complete = data_path_build(local_application_data, built.application_directory, kCapacity, nullptr) &&
                     data_path_build(local_application_data, built.account_directory, kCapacity, accounts);
     for (u32 index = 0; complete && index < 3; ++index) {

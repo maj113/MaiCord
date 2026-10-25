@@ -74,7 +74,7 @@ void clear_observations(MessagePollStore& store, u64 id) noexcept {
         return;
     for (auto& item : store.owned->observations)
         if (item.message_id == id)
-            item = {};
+            reset_value(&item);
 }
 bool ensure_storage(MessagePollStore& store, u32 required) noexcept {
     if (!store.owned) {
@@ -123,7 +123,7 @@ bool prepare_text(MessagePollStore& store, u32 required, u64 replaced_id) noexce
         return false;
     const auto copy_string = [&](MessagePollString& value, u32& used) noexcept {
         if (!value.bytes) {
-            value = {};
+            reset_value(&value);
             return;
         }
         copy_bytes(next.base + used, store.text + value.offset, value.bytes);
@@ -181,7 +181,7 @@ bool message_poll_store_initialize_owned(MessagePollStore* store, u32 capacity, 
     if (!store || store->owned || !capacity || capacity > 65535 || !text_bytes ||
         text_bytes > 16 * 1024 * 1024)
         return false;
-    *store = {};
+    reset_value(store);
     store->capacity = capacity;
     store->text_capacity = text_bytes;
     return true;
@@ -195,7 +195,7 @@ void message_poll_store_release(MessagePollStore* store) noexcept {
             arena_release(&bank);
         VirtualFree(store->owned, 0, MEM_RELEASE);
     }
-    *store = {};
+    reset_value(store);
 }
 const MessagePollRecord* message_poll_store_find(const MessagePollStore& store, u64 id) noexcept {
     if (!id || !store.records)
@@ -258,7 +258,11 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
          (input.answer_counts.count && !input.answer_counts.data)))
         return failure(store, MessagePollStoreError::invalid_input);
 
-    MessagePollRecord next = old ? *old : MessagePollRecord{};
+    MessagePollRecord next;
+    if (old)
+        copy_value(&next, *old);
+    else
+        reset_value(&next);
     // An omitted layout_type is the default layout (1), the only one in use.
     if (!old)
         next.layout_type = 1;
@@ -302,7 +306,7 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
         if (old && old->answer_count != next.answer_count)
             content_changed = true;
         for (u32 i = next.answer_count; i < kGatewayMessagePollMaximumAnswers; ++i)
-            next.answers[i] = {};
+            reset_value(&next.answers[i]);
     } else {
         for (u32 i = 0; i < next.answer_count; ++i) {
             texts[i] = message_poll_store_string(*store, next.answers[i].text);
@@ -402,17 +406,17 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
     if (results_changed)
         advance(next.result_revision);
     if (!old) {
-        for (u32 i = store->count; i > at; --i)
-            store->records[i] = store->records[i - 1];
+        copy_bytes(&store->records[at + 1], &store->records[at],
+                   (store->count - at) * static_cast<u32>(sizeof(next)));
         ++store->count;
     }
-    store->records[at] = next;
+    copy_value(&store->records[at], next);
     if ((input.fields & gateway_message_poll_field_results) && !ignore_results)
         clear_observations(*store, id);
     else if (content_changed)
         for (auto& item : store->owned->observations)
             if (item.message_id == id && !answer(next, item.answer_id))
-                item = {};
+                reset_value(&item);
     if (content_changed || results_changed)
         advance(store->revision);
     return {store->records + at, MessagePollStoreError::none, content_changed || results_changed,
@@ -517,8 +521,8 @@ bool message_poll_store_delete(MessagePollStore* store, u64 id) noexcept {
     const u32 at = static_cast<u32>(poll - store->records);
     store->text_wasted += string_bytes(store->records[at]);
     clear_observations(*store, id);
-    for (u32 i = at + 1; i < store->count; ++i)
-        store->records[i - 1] = store->records[i];
+    copy_bytes(&store->records[at], &store->records[at + 1],
+               (store->count - at - 1) * static_cast<u32>(sizeof(store->records[0])));
     --store->count;
     advance(store->revision);
     advance(store->content_revision);
@@ -591,7 +595,7 @@ MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
                     return {MessagePollStoreError::capacity, 0, result.ignored, false};
                 for (u32 p = 0; p < store->count; ++p) {
                     auto& copy = candidate.records[p];
-                    copy = store->records[p];
+                    copy_value(&copy, store->records[p]);
                     copy.question =
                         write_string(candidate, message_poll_store_string(*store, copy.question));
                     for (u32 a = 0; a < copy.answer_count; ++a) {
@@ -630,7 +634,7 @@ MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
     advance(candidate.content_revision);
     auto retired = *store;
     *store = candidate;
-    candidate = {};
+    reset_value(&candidate);
     message_poll_store_release(&retired);
     result.changed = true;
     return result;

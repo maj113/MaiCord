@@ -78,7 +78,7 @@ MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, cons
                              MlsProposal* proposal, u32* consumed) noexcept {
     if (!input.data || !proposal || !consumed || !input.count || (sender && !sender->signature_key))
         return MlsStatus::invalid_argument;
-    *proposal = {};
+    reset_value(proposal);
     *consumed = 0;
     input.count = minimum(input.count, kMlsMaxProposalBytes);
     MlsReader reader{input};
@@ -156,7 +156,7 @@ void mls_proposal_cache_clear(MlsProposalCache* cache) noexcept {
         secure_clear_bytes(cache->storage, cache->storage_used);
     if (cache->entries)
         secure_clear_bytes(cache->entries, cache->entry_count * sizeof(MlsProposalCacheEntry));
-    *cache = {};
+    reset_value(cache);
 }
 MlsStatus mls_proposal_cache_apply(KdfSha256Workspace& kdf, MlsProposalCache* cache, ConstSlice<u8> input,
                                    const MlsExternalSender& sender, ConstSlice<u64> recognized) noexcept {

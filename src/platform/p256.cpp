@@ -24,7 +24,7 @@ ULONG magic(P256Kind kind, bool private_key) noexcept {
                : (private_key ? BCRYPT_ECDSA_PRIVATE_P256_MAGIC : BCRYPT_ECDSA_PUBLIC_P256_MAGIC);
 }
 bool scalar_valid(ConstSlice<u8> scalar) noexcept {
-    constexpr u8 order[]{0xff, 0xff, 0xff, 0xff, 0,    0,    0,    0,    0xff, 0xff, 0xff,
+    static constexpr u8 order[]{0xff, 0xff, 0xff, 0xff, 0,    0,    0,    0,    0xff, 0xff, 0xff,
                          0xff, 0xff, 0xff, 0xff, 0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17,
                          0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51};
     u32 borrow = 0, nonzero = 0;
@@ -118,7 +118,7 @@ void p256_release(P256Key* key) noexcept {
         return;
     if (key->handle)
         BCryptDestroyKey(key->handle);
-    *key = {};
+    reset_value(key);
 }
 P256Result p256_generate(P256Key* key, P256Kind kind) noexcept {
     if (!key || key->handle || !kind_valid(kind))

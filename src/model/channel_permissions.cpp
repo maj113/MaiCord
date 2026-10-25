@@ -1,4 +1,5 @@
 #include "maicord/model/chat_state.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/model/private_channel_store.hpp"
@@ -172,10 +173,10 @@ bool chat_state_store_bind_permissions(ChatStateStore* store, Slice<RoleRecord> 
     store->permission_reserve = nullptr;
     store->permission_reserve_context = nullptr;
     for (u32 index = 0; index < roles.count; ++index) {
-        roles[index] = RoleRecord{};
+        reset_value<RoleRecord>(&roles[index]);
     }
     for (u32 index = 0; index < overwrites.count; ++index) {
-        overwrites[index] = PermissionOverwriteRecord{};
+        reset_value<PermissionOverwriteRecord>(&overwrites[index]);
     }
     return true;
 }
@@ -632,7 +633,7 @@ void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) no
         }
     }
     for (u32 index = output; index < store->role_count; ++index) {
-        store->roles[index] = RoleRecord{};
+        reset_value<RoleRecord>(&store->roles[index]);
     }
     store->role_count = output;
 }
@@ -654,7 +655,7 @@ bool chat_state_store_remove_role(ChatStateStore* store, u64 guild_id, u64 role_
         store->roles[move - 1] = store->roles[move];
     }
     --store->role_count;
-    store->roles[store->role_count] = RoleRecord{};
+    reset_value<RoleRecord>(&store->roles[store->role_count]);
     return true;
 }
 
@@ -716,7 +717,7 @@ void chat_state_store_clear_channel_overwrites(ChatStateStore* store, u64 channe
         store->overwrites[index - count] = store->overwrites[index];
     }
     for (u32 index = store->overwrite_count - count; index < store->overwrite_count; ++index) {
-        store->overwrites[index] = PermissionOverwriteRecord{};
+        reset_value<PermissionOverwriteRecord>(&store->overwrites[index]);
     }
     store->overwrite_count -= count;
     for (u32 order = 0; order < store->channel_count; ++order) {

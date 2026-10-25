@@ -1,4 +1,5 @@
 #include "maicord/app/mls_group.hpp"
+#include "maicord/core/memory.hpp"
 #include "mls_wire.hpp"
 
 namespace maicord {
@@ -7,7 +8,7 @@ MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsH
     if (!offset || !ciphertext || !has_ciphertext || *offset > ciphertexts.count)
         return MlsStatus::invalid_argument;
     *has_ciphertext = false;
-    *ciphertext = {};
+    reset_value(ciphertext);
     if (*offset == ciphertexts.count)
         return MlsStatus::ok;
     MlsReader reader{{ciphertexts.data + *offset, ciphertexts.count - *offset}};
@@ -25,7 +26,7 @@ MlsStatus mls_update_path_node_next(ConstSlice<u8> nodes, u32* offset, MlsUpdate
     if (!offset || !node || !has_node || *offset > nodes.count)
         return MlsStatus::invalid_argument;
     *has_node = false;
-    *node = {};
+    reset_value(node);
     if (*offset == nodes.count)
         return MlsStatus::ok;
     MlsReader reader{{nodes.data + *offset, nodes.count - *offset}};
@@ -55,7 +56,7 @@ MlsStatus mls_update_path_parse(KdfSha256Workspace* kdf, ConstSlice<u8> input, c
     if (!input.data || !group_id || !path || !consumed || !input.count ||
         input.count > kMlsMaxUpdatePathBytes)
         return MlsStatus::invalid_argument;
-    *path = {};
+    reset_value(path);
     *consumed = 0;
     MlsUpdatePath candidate{};
     u32 leaf_bytes = 0;
@@ -109,7 +110,7 @@ MlsStatus edit_shape(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposa
 // The current node at index, or a synthesized blank past the encoded nodes.
 MlsStatus current_node(MlsTreeIterator& iterator, u32 encoded_count, u32 index,
                        MlsTreeNode* node) noexcept {
-    *node = {};
+    reset_value(node);
     node->index = index;
     if (index >= encoded_count)
         return MlsStatus::ok;
@@ -373,7 +374,7 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
     if (!written || !merged)
         return MlsStatus::invalid_argument;
     *written = 0;
-    *merged = {};
+    reset_value(merged);
     if (!tree.group_id || !tree.nodes.data || !tree.leaf_count || committer_leaf >= tree.leaf_count ||
         !path.leaf_node.data || !path.leaf_node.count || path.leaf_node.count > kMlsMaxLeafNodeBytes ||
         (!output.data && output.count))
@@ -482,7 +483,7 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
     if (status == MlsStatus::ok)
         status = mls_tree_validate(kdf, *merged, scratch);
     if (status != MlsStatus::ok) {
-        *merged = {};
+        reset_value(merged);
         return status;
     }
     *written = required;

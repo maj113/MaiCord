@@ -534,7 +534,7 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
         }
         saturating_increment(cache->misses);
     }
-    context->trace = MarkdownParseTrace{};
+    reset_value<MarkdownParseTrace>(&context->trace);
     saturating_accumulate(presentation->markdown_parses);
     const MessageMarkdownResult parsed =
         message_markdown_parse(source, text_output, scratch, span_output, options, semantic_output);
@@ -2859,7 +2859,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     row_measurement.content_height = 0.0f;
     row_measurement.forwarded = forwarded;
     row_measurement.rich_layout = row.rich_layout;
-    row_measurement.rich_item_layout = row.rich_item_layout;
+    copy_value(&row_measurement.rich_item_layout, row.rich_item_layout);
     row_measurement.content_present = content.bytes != 0;
     for (u32 index = 0; index < kGatewayMessageReactionMaximum; ++index) {
         row_measurement.reaction_widths[index] = row.reaction_widths[index];
@@ -2897,7 +2897,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     }
     if (rich && !replaced && record->content_availability == MessageContentAvailability::available &&
         message_rich_embed_suppresses_content(*rich_store, *rich, content)) {
-        content = Utf8View{};
+        reset_value<Utf8View>(&content);
         row_measurement.content_present = false;
     }
     if (!forwarded && rich && message_rich_has_header(*rich)) {
@@ -3371,7 +3371,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 // A pending interaction replaces the label with a spinner.
                 if (scene.interaction.pending && scene.interaction.message_id == record->id &&
                     scene.interaction.component_index == index)
-                    label = {};
+                    reset_value(&label);
             } else if (kind == MessageComponentKind::select) {
                 // Default options read as the current choice, else the placeholder.
                 color = ui_background_muted_text_color(theme);
@@ -3603,7 +3603,7 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
         byte_style_scratch.count == 0) {
         return false;
     }
-    *presentation = MessageTextPresentation{};
+    reset_value<MessageTextPresentation>(presentation);
     presentation->commands = commands;
     presentation->utf8 = utf8;
     presentation->styles = styles;
@@ -3626,7 +3626,7 @@ bool message_markdown_cache_initialize(MessageMarkdownCache* cache, Slice<Messag
     if (!cache || !entries.data || entries.count == 0 || (entries.count & (entries.count - 1u)) != 0 ||
         !arena.data || arena.count < 64 || arena.count % 8u != 0 || reinterpret_cast<usize>(arena.data) % 8u != 0)
         return false;
-    *cache = MessageMarkdownCache{};
+    reset_value<MessageMarkdownCache>(cache);
     cache->entries = entries.data;
     cache->arena = arena.data;
     cache->slot_count = entries.count;
@@ -3707,7 +3707,7 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->measurement_count = 0;
     presentation->markdown_entity_epoch =
         markdown_entity_epoch(state, users, presentation->guild_members, navigation);
-    presentation->rich = MessageTextRichMetrics{};
+    reset_value<MessageTextRichMetrics>(&presentation->rich);
     presentation->next_timestamp_update_unix_seconds = 0;
     presentation->projection_signature = 0;
     presentation->last_error = MessageTextPresentationError::none;

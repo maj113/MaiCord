@@ -90,7 +90,7 @@ u32 find_intent(const MessageReactionController& controller, const MessageReacti
 void erase_intent(MessageReactionController& controller, u32 index) noexcept {
     for (u32 candidate = index + 1; candidate < controller.count; ++candidate)
         controller.entries[candidate - 1] = controller.entries[candidate];
-    controller.entries[--controller.count] = {};
+    reset_value(&controller.entries[--controller.count]);
 }
 
 bool flight_matches(const MessageReactionController& controller,
@@ -163,17 +163,15 @@ MessageReactionProjection project_intent(const MessageReactionController& contro
     return projected;
 }
 
-MessageReactionOutcome make_outcome(const MessageReactionController& controller,
-                                    const MessageReactionIntent& intent,
-                                    MessageReactionOutcomeKind kind) noexcept {
-    MessageReactionOutcome result{};
-    result.target = intent.target;
-    result.source = intent.source;
-    result.serial = intent.serial;
-    result.kind = kind;
-    result.project = true;
-    result.projection = project_intent(controller, intent);
-    return result;
+void make_outcome(MessageReactionOutcome* result, const MessageReactionController& controller,
+                  const MessageReactionIntent& intent, MessageReactionOutcomeKind kind) noexcept {
+    reset_value(result);
+    copy_value(&result->target, intent.target);
+    result->source = intent.source;
+    result->serial = intent.serial;
+    result->kind = kind;
+    result->project = true;
+    result->projection = project_intent(controller, intent);
 }
 } // namespace
 bool message_reaction_target_equal(const MessageReactionTarget& left,
@@ -187,11 +185,11 @@ bool message_reaction_controller_initialize(MessageReactionController* controlle
     if (!controller || !storage.data || !storage.count || storage.count > kMessageReactionMaximumIntents ||
         !actor_valid(actor))
         return false;
-    *controller = {};
+    reset_value(controller);
     controller->entries = storage;
     controller->actor = actor;
     for (u32 index = 0; index < storage.count; ++index)
-        storage[index] = {};
+        reset_value(&storage[index]);
     return true;
 }
 
@@ -201,27 +199,27 @@ bool message_reaction_controller_grow_storage(MessageReactionController* control
         storage.count < controller->entries.count || storage.count > kMessageReactionMaximumIntents)
         return false;
     for (u32 index = controller->entries.count; index < storage.count; ++index)
-        storage[index] = {};
+        reset_value(&storage[index]);
     controller->entries = storage;
     return true;
 }
 
-MessageReactionOutcome message_reaction_controller_queue(MessageReactionController* controller,
-                                                         const MessageReactionTarget& target,
+void message_reaction_controller_queue(MessageReactionOutcome* out, MessageReactionController* controller,
+                                       const MessageReactionTarget& target,
                                                          MessageReactionSource source,
                                                          MessageReactionAuthority authority, bool desired,
                                                          u64 now_ms) noexcept {
-    MessageReactionOutcome invalid{};
+    reset_value(out);
     if (!controller || !actor_valid(controller->actor) || !target_valid(target, true) ||
         !source_valid(source) || !authority_valid(authority)) {
-        invalid.error = MessageReactionError::invalid_input;
-        return invalid;
+        out->error = MessageReactionError::invalid_input;
+        return;
     }
     const MessageReactionTarget copied_target = target;
     u32 index = find_intent(*controller, copied_target);
     if (controller->serial == ~u64{0}) {
-        invalid.error = MessageReactionError::serial_exhausted;
-        return invalid;
+        out->error = MessageReactionError::serial_exhausted;
+        return;
     }
     u32 reclaimed = 0;
     for (u32 candidate = 0; candidate < controller->count; ++candidate)
@@ -229,8 +227,8 @@ MessageReactionOutcome message_reaction_controller_queue(MessageReactionControll
             !source_equal(controller->entries[candidate].source, source))
             ++reclaimed;
     if (index == kMissingIndex && controller->count == controller->entries.count && !reclaimed) {
-        invalid.error = MessageReactionError::capacity;
-        return invalid;
+        out->error = MessageReactionError::capacity;
+        return;
     }
     // A source replacement is one barrier across normal/burst intents for this
     // emoji. Preflight capacity above precedes any retirement or projection.
@@ -252,7 +250,7 @@ MessageReactionOutcome message_reaction_controller_queue(MessageReactionControll
                 break;
             }
         index = controller->count++;
-        controller->entries[index] = {};
+        reset_value(&controller->entries[index]);
         controller->entries[index].authority = authority;
         controller->entries[index].mine_revision = controller->mine_revision;
         controller->entries[index].deadline_at_ms = add_time(now_ms, kMessageReactionIntentLifetimeMs);
@@ -267,16 +265,16 @@ MessageReactionOutcome message_reaction_controller_queue(MessageReactionControll
     intent.echo_matches = false;
     intent.serial = ++controller->serial;
     ++controller->revision;
-    const auto saved_intent = intent;
     if (desired == mine(intent.authority, intent.target.type) && !flight_matches(*controller, intent)) {
         if (was_awaiting_echo) {
             intent.awaiting_echo = true;
-            return make_outcome(*controller, intent, MessageReactionOutcomeKind::settled);
+            return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::settled);
         }
+        const auto saved_intent = intent;
         erase_intent(*controller, index);
-        return make_outcome(*controller, saved_intent, MessageReactionOutcomeKind::settled);
+        return make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::settled);
     }
-    return make_outcome(*controller, intent, MessageReactionOutcomeKind::queued);
+    return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::queued);
 }
 
 bool message_reaction_controller_project(const MessageReactionController& controller,
@@ -347,7 +345,7 @@ bool message_reaction_controller_admit(MessageReactionController* controller,
         now_ms >= controller->entries[index].deadline_at_ms ||
         send_due(*controller, controller->entries[index]) > now_ms)
         return false;
-    controller->flight = {};
+    reset_value(&controller->flight);
     controller->flight.intent = controller->entries[index];
     controller->flight.actor = controller->actor;
     controller->flight.ticket = {request_id, ++controller->generation, intent.serial};
@@ -357,8 +355,8 @@ bool message_reaction_controller_admit(MessageReactionController* controller,
     return true;
 }
 
-MessageReactionOutcome message_reaction_controller_complete(MessageReactionController* controller,
-                                                            MessageReactionTicket ticket,
+void message_reaction_controller_complete(MessageReactionOutcome* out, MessageReactionController* controller,
+                                          MessageReactionTicket ticket,
                                                             MessageReactionCompletion completion,
                                                             u64 now_ms, u64 retry_at_ms,
                                                             MessageReactionRetryScope scope) noexcept {
@@ -367,22 +365,22 @@ MessageReactionOutcome message_reaction_controller_complete(MessageReactionContr
          completion != MessageReactionCompletion::terminal) ||
         (scope != MessageReactionRetryScope::intent && scope != MessageReactionRetryScope::channel &&
          scope != MessageReactionRetryScope::global)) {
-        MessageReactionOutcome invalid{};
-        invalid.error = MessageReactionError::invalid_input;
-        return invalid;
+        reset_value(out);
+        out->error = MessageReactionError::invalid_input;
+        return;
     }
     if (!controller || !controller->flight.active || !ticket.request_id ||
         ticket.request_id != controller->flight.ticket.request_id ||
         ticket.generation != controller->flight.ticket.generation ||
         ticket.serial != controller->flight.ticket.serial)
-        return {};
+        return reset_value(out);
     const auto flight = controller->flight;
-    controller->flight = {};
+    reset_value(&controller->flight);
     ++controller->revision;
     if (!actor_equal(controller->actor, flight.actor)) {
-        auto result = make_outcome(*controller, flight.intent, MessageReactionOutcomeKind::retired);
-        result.project = false;
-        return result;
+        make_outcome(out, *controller, flight.intent, MessageReactionOutcomeKind::retired);
+        out->project = false;
+        return;
     }
     if (completion == MessageReactionCompletion::retry) {
         const u64 default_retry =
@@ -398,9 +396,9 @@ MessageReactionOutcome message_reaction_controller_complete(MessageReactionContr
     const u32 index = find_intent(*controller, flight.intent.target);
     if (flight.retired || index == kMissingIndex ||
         !source_equal(controller->entries[index].source, flight.intent.source)) {
-        auto result = make_outcome(*controller, flight.intent, MessageReactionOutcomeKind::retired);
-        result.project = false;
-        return result;
+        make_outcome(out, *controller, flight.intent, MessageReactionOutcomeKind::retired);
+        out->project = false;
+        return;
     }
     auto& intent = controller->entries[index];
     if (now_ms >= intent.deadline_at_ms) {
@@ -408,7 +406,7 @@ MessageReactionOutcome message_reaction_controller_complete(MessageReactionContr
         erase_intent(*controller, index);
         const bool achieved =
             mine(saved_intent.authority, saved_intent.target.type) == saved_intent.desired_mine;
-        return make_outcome(*controller, saved_intent,
+        return make_outcome(out, *controller, saved_intent,
                             achieved ? MessageReactionOutcomeKind::settled
                                      : MessageReactionOutcomeKind::expired);
     }
@@ -424,41 +422,41 @@ MessageReactionOutcome message_reaction_controller_complete(MessageReactionContr
         if (mine(intent.authority, intent.target.type) == intent.desired_mine) {
             if (flight.intent.desired_mine != intent.desired_mine) {
                 intent.due_at_ms = now_ms;
-                auto result = make_outcome(*controller, intent, MessageReactionOutcomeKind::retained);
-                result.authority_conflict = authority_conflict;
-                return result;
+                make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retained);
+                out->authority_conflict = authority_conflict;
+                return;
             }
             intent.awaiting_echo = !intent.echo_matches;
             const auto saved_intent = intent;
             if (!intent.awaiting_echo)
                 erase_intent(*controller, index);
-            auto result = make_outcome(*controller, saved_intent, MessageReactionOutcomeKind::settled);
-            result.authority_conflict = authority_conflict;
-            return result;
+            make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::settled);
+            out->authority_conflict = authority_conflict;
+            return;
         }
         intent.due_at_ms = now_ms;
-        auto result = make_outcome(*controller, intent, MessageReactionOutcomeKind::retained);
-        result.authority_conflict = authority_conflict;
-        return result;
+        make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retained);
+        out->authority_conflict = authority_conflict;
+        return;
     }
     if (intent.echo_matches && mine(intent.authority, intent.target.type) == intent.desired_mine) {
         const auto saved_intent = intent;
         erase_intent(*controller, index);
-        return make_outcome(*controller, saved_intent, MessageReactionOutcomeKind::settled);
+        return make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::settled);
     }
     if (completion == MessageReactionCompletion::retry && intent.retries < kMessageReactionMaximumRetries) {
         ++intent.retries;
         if (retry_at_ms > intent.due_at_ms)
             intent.due_at_ms = retry_at_ms;
-        return make_outcome(*controller, intent, MessageReactionOutcomeKind::retry);
+        return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retry);
     }
     if (intent.serial != flight.intent.serial) {
         intent.due_at_ms = now_ms;
-        return make_outcome(*controller, intent, MessageReactionOutcomeKind::retained);
+        return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retained);
     }
     const auto saved_intent = intent;
     erase_intent(*controller, index);
-    return make_outcome(*controller, saved_intent, MessageReactionOutcomeKind::failed);
+    return make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::failed);
 }
 
 bool message_reaction_controller_observe(MessageReactionController* controller,
@@ -632,8 +630,7 @@ bool message_reaction_controller_expire(MessageReactionController* controller, u
             ++controller->revision;
             const bool achieved =
                 mine(saved_intent.authority, saved_intent.target.type) == saved_intent.desired_mine;
-            *output =
-                make_outcome(*controller, saved_intent,
+            make_outcome(output, *controller, saved_intent,
                              saved_intent.awaiting_echo || achieved ? MessageReactionOutcomeKind::settled
                                                                     : MessageReactionOutcomeKind::expired);
             return true;
@@ -649,14 +646,34 @@ void message_reaction_controller_reset(MessageReactionController* controller,
     if (controller->flight.active)
         controller->flight.retired = true;
     for (u32 index = 0; index < controller->count; ++index)
-        controller->entries[index] = {};
+        reset_value(&controller->entries[index]);
     controller->count = 0;
     controller->actor = actor;
     if (different) {
         for (auto& entry : controller->cooldowns)
-            entry = {};
+            reset_value(&entry);
         controller->global_cooldown_ms = 0;
     }
     ++controller->revision;
 }
+MessageReactionOutcome message_reaction_controller_queue(MessageReactionController* controller,
+                                                         const MessageReactionTarget& target,
+                                                         MessageReactionSource source,
+                                                         MessageReactionAuthority authority, bool desired,
+                                                         u64 now_ms) noexcept {
+    MessageReactionOutcome result;
+    message_reaction_controller_queue(&result, controller, target, source, authority, desired, now_ms);
+    return result;
+}
+
+MessageReactionOutcome message_reaction_controller_complete(MessageReactionController* controller,
+                                                            MessageReactionTicket ticket,
+                                                            MessageReactionCompletion completion,
+                                                            u64 now_ms, u64 retry_at_ms,
+                                                            MessageReactionRetryScope scope) noexcept {
+    MessageReactionOutcome result;
+    message_reaction_controller_complete(&result, controller, ticket, completion, now_ms, retry_at_ms, scope);
+    return result;
+}
+
 } // namespace maicord

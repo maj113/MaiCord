@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/ui/geometry.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/theme.hpp"
 
 // Background effect pass: CPU-side policy shared by the renderer and the

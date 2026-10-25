@@ -53,7 +53,7 @@ struct Attribute { Utf8View name{}, value{}; };
 struct Element { Utf8View name{}, text{}; Attribute attributes[20]{}; u32 count{}; bool closing{}, empty{}; };
 struct Reader { Utf8View input; u32 at{}, tokens{}; };
 E next(Reader& r, Element& e) noexcept {
-    e = {};
+    reset_value(&e);
     if (++r.tokens > 4096) return E::capacity;
     const auto s = r.input;
     if (s.data[r.at] != '<') {
@@ -205,7 +205,7 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
             if (candidate.video && t.width && t.height && t.width <= 2048 && t.height <= 2048 && better(t, result.video, cap)) result.video = t;
             if (candidate.audio && t.bandwidth <= 192000 && (!result.audio.id.bytes || t.bandwidth > result.audio.bandwidth)) result.audio = t;
         }
-        candidate = {};
+        reset_value(&candidate);
     };
     while (reader.at < input.bytes) {
         const auto error = next(reader, element); if (error != E::none) return error;
@@ -248,7 +248,7 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
                 (adaptation_mime.bytes >= 6 && bytes_equal(adaptation_mime.data, "audio/", 6));
         } else if (kind == Tag::representation) {
             if (parent != Tag::adaptation || representations == 64) return E::malformed;
-            candidate = {}; auto& t = candidate.track; t.id = attribute(element, utf8_literal("id"));
+            reset_value(&candidate); auto& t = candidate.track; t.id = attribute(element, utf8_literal("id"));
             if (!identifier(t.id)) return E::malformed;
             for (u32 i = 0; i < representations; ++i) if (equal(ids[i], t.id)) return E::malformed;
             ids[representations++] = t.id;

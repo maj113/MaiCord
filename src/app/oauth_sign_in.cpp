@@ -74,7 +74,7 @@ void accept_client(Runtime& r) noexcept {
     r.client_deadline = earliest_deadline(r.deadline, deadline_after(GetTickCount64(), 5000));
 }
 void reply(Runtime& r) noexcept {
-    constexpr char text[] = "HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
+    static constexpr char text[] = "HTTP/1.1 200 OK\r\nConnection: close\r\nCache-Control: no-store\r\n"
         "Content-Type: text/plain; charset=utf-8\r\nReferrer-Policy: no-referrer\r\n"
         "Content-Security-Policy: default-src 'none'\r\n\r\nReturn to MaiCord to finish signing in.";
     u32 sent = 0;

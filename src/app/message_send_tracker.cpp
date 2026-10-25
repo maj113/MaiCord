@@ -1,4 +1,5 @@
 #include "maicord/app/message_send_tracker.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {
@@ -65,7 +66,7 @@ void finish_attempt(MessageSendTracker* tracker, MessageSendAttempt* attempt,
     if (tracker->active_count != 0) {
         --tracker->active_count;
     }
-    *attempt = MessageSendAttempt{};
+    reset_value<MessageSendAttempt>(attempt);
 }
 
 u64 next_nonce(MessageSendTracker* tracker, const MessageTimeline& timeline, u64 now_unix_ms) noexcept {
@@ -113,7 +114,7 @@ MessageSendObserveResult drop_attempt(MessageSendTracker* tracker, MessageTimeli
     if (tracker->active_count != 0) {
         --tracker->active_count;
     }
-    *attempt = MessageSendAttempt{};
+    reset_value<MessageSendAttempt>(attempt);
     return MessageSendObserveResult{invalidation, MessageSendTrackerError::none, false,
                                     invalidation.count != 0};
 }
@@ -124,7 +125,7 @@ bool message_send_tracker_initialize(MessageSendTracker* tracker) noexcept {
     if (!tracker) {
         return false;
     }
-    *tracker = MessageSendTracker{};
+    reset_value<MessageSendTracker>(tracker);
     tracker->initialized = true;
     return true;
 }
@@ -154,7 +155,7 @@ MessageSendBeginResult message_send_tracker_begin(MessageSendTracker* tracker, M
     if (!inserted.ok()) {
         return MessageSendBeginResult{0, inserted.invalidation, MessageSendTrackerError::timeline};
     }
-    *attempt = MessageSendAttempt{};
+    reset_value<MessageSendAttempt>(attempt);
     attempt->nonce = nonce;
     attempt->channel_id = channel_id;
     attempt->author_id = author_id;
@@ -362,7 +363,7 @@ bool message_send_tracker_take_completion(MessageSendTracker* tracker,
         return false;
     }
     *completion = tracker->completions[tracker->completion_read];
-    tracker->completions[tracker->completion_read] = MessageSendCompletion{};
+    reset_value<MessageSendCompletion>(&tracker->completions[tracker->completion_read]);
     tracker->completion_read = (tracker->completion_read + 1) % kMessageSendTrackerCapacity;
     --tracker->completion_count;
     return true;

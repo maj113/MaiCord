@@ -1,4 +1,5 @@
 #include "run_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/khmer_run.hpp"
 #include "maicord/text/khmer_shape_run.hpp"
 #include "maicord/text/khmer_plan.hpp"
@@ -9,7 +10,7 @@
 namespace maicord {
 SfntStatus native_khmer_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,
     Arena* state,Arena* scratch,NativeKhmerPlan* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     NativePlanSource source{};auto status=native_plan_source(store,run,independent,state,scratch,source);if(status!=SfntStatus::ok)return status;
     const auto& parent=*source.parent;const auto& font=*source.font;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};
@@ -49,7 +50,7 @@ SfntStatus native_khmer_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
 }
 SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPlan& prepared,Utf8View text,float em,
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
     if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
     if(!sfnt_trailing_spacing_valid(spacing))return SfntStatus::invalid_input;
@@ -66,7 +67,7 @@ SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPla
 }
 SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPlan& prepared,Utf8View text,float em,
     const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
         (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
     SfntShapeRunResult shaped{};const auto status=native_khmer_run(store,prepared,text,em,storage.shaping,&shaped,limits,rtl,spacing);

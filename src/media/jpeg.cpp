@@ -1,4 +1,5 @@
 #include "maicord/media/jpeg.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/byte_order.hpp"
 
@@ -362,7 +363,7 @@ bool icc_parametric_sane(u16 function, const float* parameters) noexcept {
     if (!(g > 0.0f) || g > 16.0f) {
         return false;
     }
-    constexpr u8 counts[5] = {1, 3, 4, 5, 7};
+    static constexpr u8 counts[5] = {1, 3, 4, 5, 7};
     for (u32 index = 0; index < counts[function]; ++index) {
         if (absolute(parameters[index]) > 16.0f) {
             return false;
@@ -397,7 +398,7 @@ IccParseOutcome parse_icc_curve(const IccScatter& scatter, const IccTag& tag, Jp
     if (reserved != 0) {
         return IccParseOutcome::malformed;
     }
-    *curve = JpegIccCurve{};
+    reset_value<JpegIccCurve>(curve);
     curve->a = 1.0f;
     if (type == kIccSignatureCurve) {
         u32 count = 0;
@@ -438,7 +439,7 @@ IccParseOutcome parse_icc_curve(const IccScatter& scatter, const IccTag& tag, Jp
     if (function_reserved != 0) {
         return IccParseOutcome::malformed;
     }
-    constexpr u8 parameter_counts[5] = {1, 3, 4, 5, 7};
+    static constexpr u8 parameter_counts[5] = {1, 3, 4, 5, 7};
     const u32 parameter_count = parameter_counts[function];
     if (12u + parameter_count * 4u > tag.bytes) {
         return IccParseOutcome::malformed;
@@ -478,7 +479,7 @@ IccParseOutcome parse_icc_curve(const IccScatter& scatter, const IccTag& tag, Jp
 }
 
 void set_xyz_to_linear_srgb(float matrix[9]) noexcept {
-    constexpr float from_xyz_to_srgb[9] = {
+    static constexpr float from_xyz_to_srgb[9] = {
         3.13411215f,   -1.61739242f,  -0.490633398f, -0.978787303f, 1.91627955f,
         0.0334547125f, 0.0719830394f, -0.228985846f, 1.40538514f,
     };
@@ -572,7 +573,7 @@ IccParseOutcome parse_icc_mft(const IccScatter& scatter, const IccTag& tag, u8 e
     }
 
     workspace->profile.entry_count = 0;
-    workspace->profile.lut = JpegIccLut{};
+    reset_value<JpegIccLut>(&workspace->profile.lut);
     JpegIccLut& lut = workspace->profile.lut;
     u32 cursor = tag.offset + data_offset;
     for (u32 channel = 0; channel < input_channels; ++channel) {
@@ -751,7 +752,7 @@ IccParseOutcome parse_icc_profile(const IccScatter& scatter, const JpegImage& im
         return IccParseOutcome::unsupported;
     }
 
-    constexpr u32 required_signatures[6] = {
+    static constexpr u32 required_signatures[6] = {
         kIccTagRedXyz, kIccTagGreenXyz, kIccTagBlueXyz, kIccTagRedTrc, kIccTagGreenTrc, kIccTagBlueTrc,
     };
     const IccTag* required[6]{};
@@ -842,7 +843,7 @@ bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* sy
     if (symbol_count == 0 || symbol_count > 256) {
         return false;
     }
-    *table = JpegHuffmanTable{};
+    reset_value<JpegHuffmanTable>(table);
     i32 code = 0;
     u32 symbol_offset = 0;
     for (u32 length = 0; length < 16; ++length) {
@@ -888,7 +889,7 @@ JpegError parse_quantization(ConstSlice<u8> encoded, u32 payload, u32 bytes, u8 
             return JpegError::quantization;
         }
         JpegQuantizationTable& table = tables->quantization[identifier];
-        table = JpegQuantizationTable{};
+        reset_value<JpegQuantizationTable>(&table);
         for (u32 index = 0; index < 64; ++index) {
             const u8 value = encoded[cursor++];
             if (value == 0) {
@@ -1060,7 +1061,7 @@ JpegError parse_scan_header(ConstSlice<u8> encoded, u32 payload, u32 bytes, cons
     if (image.component_count == 0 || bytes < 6) {
         return JpegError::order;
     }
-    *scan = JpegScan{};
+    reset_value<JpegScan>(scan);
     const u8 scan_components = encoded[payload];
     if (scan_components == 0 || scan_components > image.component_count ||
         bytes != 1u + static_cast<u32>(scan_components) * 2u + 3u ||
@@ -1927,10 +1928,10 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
     if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
         return parse_failure(result, JpegError::invalid_input);
     }
-    *image = JpegImage{};
+    reset_value<JpegImage>(image);
     image->orientation = JpegOrientation::top_left;
-    workspace->tables = JpegTables{};
-    workspace->icc.profile = JpegIccProfile{};
+    reset_value<JpegTables>(&workspace->tables);
+    reset_value<JpegIccProfile>(&workspace->icc.profile);
     workspace->icc.profile.entries = workspace->icc.entries;
     workspace->tables.icc = &workspace->icc;
     image->tables = &workspace->tables;
@@ -2502,7 +2503,7 @@ JpegParseResult jpeg_thumbnail_parse(ConstSlice<u8> encoded, u32 target_extent, 
                                      JpegWorkspace* workspace, JpegThumbnailLayout* layout) noexcept {
     if (!layout || !target_extent)
         return parse_failure({}, JpegError::invalid_input);
-    *layout = {};
+    reset_value(layout);
     JpegParseResult result = parse_jpeg(encoded, image, workspace, true);
     if (!result.ok())
         return result;

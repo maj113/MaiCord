@@ -85,8 +85,8 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
     PngParseResult result{};
     if (!image || !layout || !encoded.data || encoded.count > 0x7FFFFFFFu)
         return parse_failure(result, PngError::invalid_input);
-    *image = PngImage{};
-    *layout = PngStreamLayout{};
+    reset_value<PngImage>(image);
+    reset_value<PngStreamLayout>(layout);
     image->transparent_gray = image->transparent_red = image->transparent_green = image->transparent_blue = ~0u;
     if (encoded.count < sizeof(kPngSignature) + 12)
         return parse_failure(result, PngError::truncated);

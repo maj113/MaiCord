@@ -1,4 +1,5 @@
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/memory.hpp"
 #include "network_native.hpp"
 
 namespace maicord {
@@ -7,7 +8,7 @@ NetworkResult fail(NetworkError error, i32 native = WSAEINVAL) noexcept {
     return {native, error};
 }
 void operation(NetworkOperation* output, NetworkDatagram* owner, NetworkOperationKind kind) noexcept {
-    *output = {};
+    reset_value(output);
     output->owner = owner;
     output->generation = owner->generation;
     output->kind = kind;
@@ -42,7 +43,7 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
         return fail(NetworkError::completion_port_associate, static_cast<i32>(error));
     }
     const u32 generation = datagram->generation + 1;
-    *datagram = {};
+    reset_value(datagram);
     datagram->socket = socket;
     datagram->generation = generation;
     datagram->open = true;

@@ -1,4 +1,5 @@
 #include "maicord/text/font_metrics.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
@@ -15,7 +16,7 @@ SfntStatus varied(i32 base,u32 tag,const SfntMvar* mvar,ConstSlice<double> scala
 }
 SfntStatus sfnt_font_layout_metrics(const SfntFace& face,const SfntHorizontalMetrics& h,
     const SfntMvar* mvar,ConstSlice<double> scalars,SfntFontLayoutMetrics* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!h.units_per_em)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!h.units_per_em)return SfntStatus::invalid_input;
     ConstSlice<u8> os2{},post{};auto status=sfnt_table(face,sfnt_tag('O','S','/','2'),&os2);if(status!=SfntStatus::ok)return status;
     status=sfnt_table(face,sfnt_tag('p','o','s','t'),&post);if(status!=SfntStatus::ok)return status;
     if(os2.count<78||post.count<12)return SfntStatus::truncated;
@@ -48,7 +49,7 @@ SfntStatus sfnt_font_layout_metrics(const SfntFace& face,const SfntHorizontalMet
     return SfntStatus::ok;
 }
 SfntStatus sfnt_font_line_parts(const SfntFontLayoutMetrics& m,float em,SfntFontLineParts* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};u32 bits=0;copy_bytes(&bits,&em,4);
+    if(!output)return SfntStatus::invalid_input;reset_value(output);u32 bits=0;copy_bytes(&bits,&em,4);
     if(!m.units_per_em||!bits||bits>=0x7f800000u||em>65536)return SfntStatus::invalid_input;
     // Default layout rounds the product before dividing. Keep this order at
     // fractional heading sizes even under /fp:fast; double scaling differs.
@@ -58,13 +59,13 @@ SfntStatus sfnt_font_line_parts(const SfntFontLayoutMetrics& m,float em,SfntFont
     *output={_mm_cvtss_f32(baseline),_mm_cvtss_f32(descent)};return SfntStatus::ok;
 }
 SfntStatus sfnt_single_font_line(const SfntFontLayoutMetrics& m,float em,SfntSingleFontLine* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};SfntFontLineParts parts{};const auto status=sfnt_font_line_parts(m,em,&parts);if(status!=SfntStatus::ok)return status;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntFontLineParts parts{};const auto status=sfnt_font_line_parts(m,em,&parts);if(status!=SfntStatus::ok)return status;
     *output={_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(parts.baseline),_mm_set_ss(parts.descent))),parts.baseline};return SfntStatus::ok;
 }
 SfntStatus sfnt_simulate_metrics(const SfntDesignGlyphMetrics& base,u16 units,
     FontSimulation simulation,SfntDesignGlyphMetrics* output) noexcept {
     if(!output)return SfntStatus::invalid_input;
-    const auto input=base;*output={};
+    const auto input=base;reset_value(output);
     if(units<16||units>16384||static_cast<u8>(simulation)>3)return SfntStatus::invalid_input;
     const i64 width=static_cast<i64>(input.advance_width)-input.left_bearing-input.right_bearing;
     const i64 height=static_cast<i64>(input.advance_height)-input.top_bearing-input.bottom_bearing;

@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/protocol/gateway_commands.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway_events.hpp"
 #include "maicord/core/deadline.hpp"
 
@@ -75,7 +76,7 @@ inline bool gateway_member_request_admit(GatewayMemberRequestOwner* owner,
     if (gateway_guild_member_request_is_query(request)) {
         if (owner->query_current && owner->query.nonce == request.nonce)
             return gateway_member_request_equal(owner->query, request);
-        owner->query = request;
+        copy_value(&owner->query, request);
         owner->query_pending = true;
         owner->query_current = true;
         owner->query_sent_nonce = 0;
@@ -93,7 +94,7 @@ inline bool gateway_member_request_admit(GatewayMemberRequestOwner* owner,
                 return false;
         return true;
     }
-    owner->pending = request;
+    copy_value(&owner->pending, request);
     owner->occupied = true;
     owner->batch_current = true;
     owner->batch_sent_nonce = 0;
@@ -190,7 +191,7 @@ inline void gateway_member_request_complete(GatewayMemberRequestOwner* owner,
 inline void gateway_member_request_reset_connection(GatewayMemberRequestOwner* owner,
                                                     bool fresh_session) noexcept {
     if (fresh_session) {
-        *owner = {};
+        reset_value(owner);
         return;
     }
     gateway_member_request_cancel_batch(owner);

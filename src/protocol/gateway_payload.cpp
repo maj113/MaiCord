@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_payload.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -92,7 +93,7 @@ GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structura
         return GatewayDecodeResult{0, GatewayDecodeError::invalid_json, JsonScanError::none,
                                    JsonReadError::invalid_input};
     }
-    *output = GatewayEnvelope{};
+    reset_value<GatewayEnvelope>(output);
 
     const JsonScanResult scan = json_scan_structurals_avx1(input, structural_scratch);
     if (!scan.ok()) {

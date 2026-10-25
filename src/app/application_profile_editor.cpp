@@ -323,9 +323,9 @@ void release_picked(Picked& picked) noexcept {
     clear_bytes(picked.path, picked.path_units * static_cast<u32>(sizeof(wchar_t)));
     picked.data = nullptr;
     picked.bytes = picked.path_units = picked.description_bytes = 0;
-    picked.info = {};
-    picked.crop = {};
-    picked.request = {};
+    reset_value(&picked.info);
+    reset_value(&picked.crop);
+    reset_value(&picked.request);
     picked.instance = nullptr;
     picked.poll_at = 0;
     picked.admitted = picked.ready = picked.failed = false;
@@ -338,7 +338,7 @@ void move_picked(Picked& to, Picked& from) noexcept {
     from.data = nullptr;
     from.uri = nullptr;
     from.admitted = false;
-    from.request = {};
+    reset_value(&from.request);
     release_picked(from);
 }
 
@@ -350,7 +350,7 @@ void build_base() noexcept {
     auto& p = *owner;
     const auto& s = p.saved;
     auto& b = p.base;
-    b = {};
+    reset_value(&b);
     const bool guild = p.tab == ProfileEditorTab::guild;
     b.name = saved_name();
     b.pronouns = guild ? s.member_pronouns.view() : s.pronouns.view();
@@ -392,7 +392,7 @@ void discard() noexcept {
     load_editor(editor_bio, p.base.bio);
     release_picked(p.avatar);
     release_picked(p.banner);
-    p.draft = {};
+    reset_value(&p.draft);
     p.draft.theme[0] = p.base.theme[0];
     p.draft.theme[1] = p.base.theme[1];
     p.draft.accent = p.base.accent;
@@ -401,9 +401,9 @@ void discard() noexcept {
     const bool guild = p.tab == ProfileEditorTab::guild;
     assign(&p.decoration_asset, guild && p.saved.member_decoration_asset.bytes ? p.saved.member_decoration_asset.view()
                                                                                : p.saved.decoration_asset.view());
-    p.errors = {};
+    reset_value(&p.errors);
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
 }
 
 u32 effective_theme(u32* out) noexcept {
@@ -437,9 +437,9 @@ void compose_preview() noexcept {
         assign(&v.display_name, d.name.bytes ? d.name : v.username.view());
         assign(&v.pronouns, d.pronouns);
         assign(&v.bio, d.bio);
-        v.guild_bio = {};
-        v.guild_pronouns = {};
-        v.nickname = {};
+        reset_value(&v.guild_bio);
+        reset_value(&v.guild_pronouns);
+        reset_value(&v.nickname);
     } else {
         assign(&v.nickname, d.name);
         assign(&v.guild_pronouns, d.pronouns);
@@ -452,15 +452,15 @@ void compose_preview() noexcept {
             assign(&v.avatar, user_store_avatar_hash(*user));
     if (d.avatar == ProfileImageEdit::remove) {
         if (guild)
-            v.guild_appearance.avatar = {};
+            reset_value(&v.guild_appearance.avatar);
         else
-            v.avatar = {};
+            reset_value(&v.avatar);
     }
     if (d.banner == ProfileImageEdit::remove) {
         if (guild)
-            v.guild_banner = {};
+            reset_value(&v.guild_banner);
         else
-            v.banner = {};
+            reset_value(&v.banner);
     }
     u32 colors[2]{};
     const bool theme = effective_theme(colors) == 2;
@@ -508,8 +508,8 @@ bool layout_preview(UiRect anchor, UiRect visible) noexcept {
     compose_preview();
     auto& s = p.preview;
     s.presentation = ProfilePresentation::preview;
-    s.pending_avatar = {};
-    s.pending_banner = {};
+    reset_value(&s.pending_avatar);
+    reset_value(&s.pending_banner);
     if (p.draft.avatar == ProfileImageEdit::replace && p.avatar.ready)
         s.pending_avatar = {p.avatar.request.key, p.avatar.crop, true};
     if (p.draft.banner == ProfileImageEdit::replace && p.banner.ready)
@@ -552,7 +552,7 @@ bool request_preview(Picked& picked, FileSnapshot snapshot) noexcept {
     const u32 generation = ++owner->preview_serial | kLocalDraftPreviewThumbnailVariant;
     const auto key = media_asset_local_draft_preview(kPreviewIdBase | owner->preview_serial, generation,
                                                      format_of(picked.info.kind));
-    picked.request = {};
+    reset_value(&picked.request);
     picked.request.key = key;
     picked.request.snapshot = snapshot;
     picked.request.path = {picked.path, picked.path_units};
@@ -626,7 +626,7 @@ void build_items(Dialog kind) noexcept {
     p.item_selected = 0;
     // "None" leads ("Use Default" on a server tab with an account value).
     auto& none = p.items[p.item_count++];
-    none = {};
+    reset_value(&none);
     const auto type = kind == Dialog::decoration ? ProfileCollectibleType::avatar_decoration
                                                  : ProfileCollectibleType::profile_effect;
     const u64 current = current_sku(kind == Dialog::decoration);
@@ -635,7 +635,7 @@ void build_items(Dialog kind) noexcept {
         if (owned.type != type)
             continue;
         auto& item = p.items[p.item_count];
-        item = {};
+        reset_value(&item);
         item.sku = owned.sku;
         item.label = owned.label.view();
         item.owned = true;
@@ -697,7 +697,7 @@ bool palette_resolve(void*, u64 control, u32 choice, BackgroundTheme* out) noexc
         rgb = owner->draft.accent_set ? owner->draft.accent : owner->base.has_accent ? owner->base.accent : 0x41434A;
     else
         return false;
-    *out = {};
+    reset_value(out);
     out->colors[0] = out->colors[1] = rgb;
     out->color_count = 2;
     return true;
@@ -988,7 +988,7 @@ void apply_dialog() noexcept {
             p.draft.avatar = ProfileImageEdit::replace;
         else
             p.draft.banner = ProfileImageEdit::replace;
-        p.status = {};
+        reset_value(&p.status);
         close_dialog();
         return;
     }
@@ -1109,7 +1109,7 @@ void poll_picker() noexcept {
             FileSnapshot snapshot{};
             native_file_picker_snapshot(&p.picker, 0, &snapshot);
             if (read_image(p.picking, native_file_picker_path(&p.picker, 0), snapshot, &error)) {
-                p.status = {};
+                reset_value(&p.status);
                 pump_previews(clock_monotonic_milliseconds());
                 dialog_update();
             } else
@@ -1211,7 +1211,7 @@ bool color_save(TextFormOwnerKey key, Utf8View text) noexcept {
 }
 void color_closed(TextFormOwnerKey key) noexcept {
     const auto preview = g_color_preview;
-    g_color_preview = {};
+    reset_value(&g_color_preview);
     if (!preview.active || preview.applied || !color_valid(key))
         return;
     auto& d = owner->draft;
@@ -1251,7 +1251,7 @@ void edit_color(ColorSlot slot) noexcept {
     const auto& d = p.draft;
     g_color_preview = {true, false, d.accent_set, d.theme_set, d.theme_reset, d.accent, {d.theme[0], d.theme[1]}};
     if (!application_text_form_open(request))
-        g_color_preview = {};
+        reset_value(&g_color_preview);
 }
 
 bool guard() noexcept {
@@ -1290,8 +1290,8 @@ void select_tab(ProfileEditorTab tab) noexcept {
         if (const auto* guild = chat_state_store_find_guild(state(), p.guild_id))
             p.guild_generation = guild->generation;
     }
-    p.errors = {};
-    p.status = {};
+    reset_value(&p.errors);
+    reset_value(&p.status);
     p.failed = false;
     queue_fetch();
 }
@@ -1302,8 +1302,8 @@ void select_guild(u32 index) noexcept {
     p.guild_id = p.guild_ids[index];
     const auto* guild = chat_state_store_find_guild(state(), p.guild_id);
     p.guild_generation = guild ? guild->generation : 0;
-    p.errors = {};
-    p.status = {};
+    reset_value(&p.errors);
+    reset_value(&p.status);
     p.failed = false;
     queue_fetch();
 }
@@ -1337,12 +1337,12 @@ void save() noexcept {
     const auto draft = current_draft();
     if (!profile_editor_patches(p.tab, p.base, draft, gate(), &p.user_patch, &p.member_patch, &p.profile_patch)) {
         p.failed = true;
-        p.status = {};
+        reset_value(&p.status);
         return;
     }
-    p.errors = {};
+    reset_value(&p.errors);
     p.failed = false;
-    p.status = {};
+    reset_value(&p.status);
     p.saving = true;
     const bool account = p.tab == ProfileEditorTab::main ? p.user_patch.fields != 0 : p.member_patch.fields != 0;
     queue(account ? Op::save_account : Op::save_profile);
@@ -1426,7 +1426,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         else {
             p.draft.decoration_set = true;
             p.draft.decoration_sku = 0;
-            p.decoration_asset = {};
+            reset_value(&p.decoration_asset);
         }
         break;
     case control_effect:
@@ -1462,7 +1462,7 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     if (!owner || editor_of(control) == editor_count)
         return false;
     owner->failed = false;
-    owner->status = {};
+    reset_value(&owner->status);
     return true;
 }
 bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEdit** binding, bool* multiline) noexcept {
@@ -1590,13 +1590,13 @@ bool application_profile_editor_open(ProfileEditorTab tab, u64 guild_id) noexcep
     p.tab = tab;
     p.queued = p.failed = p.saving = false;
     p.op = Op::none;
-    p.status = {};
-    p.errors = {};
+    reset_value(&p.status);
+    reset_value(&p.errors);
     p.loaded = p.load_failed = false;
     p.dialog_kind = Dialog::none;
     p.collectibles_loaded = p.collectibles_failed = false;
     p.owned_count = 0;
-    p.effect = {};
+    reset_value(&p.effect);
     p.effect_loaded = p.effect_wanted = 0;
     collect_guilds();
     p.guild_id = guild_id ? guild_id : s.selected_guild_id;
@@ -1610,7 +1610,7 @@ bool application_profile_editor_open(ProfileEditorTab tab, u64 guild_id) noexcep
     release_picked(p.avatar);
     release_picked(p.banner);
     release_picked(p.staged);
-    p.draft = {};
+    reset_value(&p.draft);
     settings_layer_reset(&p.layer);
     if (!register_pages())
         return false;

@@ -1,4 +1,5 @@
 #include "application_thread_browser.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "rest_rate_retry.hpp"
 #include "application_state.hpp"
@@ -162,8 +163,8 @@ void invalidate(ApplicationThreadBrowser& value) noexcept {
     value.projected_permissions = ~u32{0};
 }
 void clear_capture(ApplicationThreadBrowser& value) noexcept {
-    value.pressed = {};
-    value.pressed_scope = {};
+    reset_value(&value.pressed);
+    reset_value(&value.pressed_scope);
     value.scrollbar_dragging = false;
     const bool captured = value.captured;
     value.captured = false;
@@ -233,7 +234,7 @@ void choose(ApplicationThreadBrowser& value, UiThreadBrowserTab tab, u32 page) n
     value.queued = tab != UiThreadBrowserTab::active || active_fetch_needed(value);
     value.active_requested = tab == UiThreadBrowserTab::active && value.queued;
     value.error = false;
-    value.status = {};
+    reset_value(&value.status);
     value.has_more = false;
     value.due = value.actor_floor;
     value.busy_count = 0;
@@ -386,7 +387,7 @@ void forum_remember(ForumState& forum, const ThreadBrowserPostPage& page) noexce
 void forum_card(ApplicationThreadBrowser& value, const ChannelRecord& row, u32 slot, u64 now_s) noexcept {
     auto& forum = *value.forum;
     auto& post = forum.posts[slot];
-    post = {};
+    reset_value(&post);
     post.thread_id = row.id;
     post.pinned = (row.flags & kThreadBrowserPinnedFlag) != 0;
     u64 created_ms = (row.id >> 22) + kSnowflakeEpochMilliseconds;
@@ -531,7 +532,7 @@ bool forum_submit_meta(ApplicationThreadBrowser& value, u64 id, u64 now) noexcep
 bool forum_meta_response(ApplicationThreadBrowser& value, const RestClientResponse& response, Utf8View body) noexcept {
     auto& forum = *value.forum;
     const auto flight = forum.meta_flight;
-    forum.meta_flight = {};
+    reset_value(&forum.meta_flight);
     const u64 retry_at = rest_rate_retry_deadline(response);
     if (actor_current(flight.scope) && retry_at)
         value.actor_floor = maximum(value.actor_floor, retry_at);
@@ -663,7 +664,7 @@ bool application_thread_browser_open(u64 parent_id) noexcept {
     if (GetCapture() == g_app.window) ReleaseCapture();
     application_composer_text_input_suspend();
     g_app.message_composer.focused = false;
-    g_app.message_action_bar = {};
+    reset_value(&g_app.message_action_bar);
     if (!repaint()) return false;
     g_app.context_focus = &value.scene.widgets;
     return true;
@@ -692,8 +693,8 @@ void application_thread_browser_release() noexcept {
     // A stopped/unloaded account has joined its worker before this teardown
     // boundary. Ordinary Close never uses this shortcut.
     if (!g_app.account.instance || (!g_app.account.status.running && !g_app.account.stop_failed)) {
-        browser_owner->flight = {};
-        if (browser_owner->forum) browser_owner->forum->meta_flight = {};
+        reset_value(&browser_owner->flight);
+        if (browser_owner->forum) reset_value(&browser_owner->forum->meta_flight);
     }
     if (!browser_owner->flight.active && !forum_meta_active(*browser_owner)) free_owner();
 }
@@ -728,7 +729,7 @@ bool application_thread_browser_synchronize() noexcept {
             value->active_requested = value->queued = true;
             value->active_offset = 0;
             value->active_loaded = false;
-            value->status = {};
+            reset_value(&value->status);
             ++value->revision;
         }
     }
@@ -818,7 +819,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
     auto& value = *browser_owner;
     auto flight = value.flight;
     flight.request.name = {flight.name, flight.request.name.bytes};
-    value.flight = {};
+    reset_value(&value.flight);
     const u64 now = clock_monotonic_milliseconds();
     if (actor_current(flight.scope) && (response.rate_limited || response.status_code == 429))
         value.actor_floor = maximum(value.actor_floor, maximum(response.retry_at_ms, deadline_after(now, maximum(response.rate.retry_after_ms, u64{50}))));
@@ -894,7 +895,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
             // tab keeps projecting Core. Further server pages are fetched in
             // order, bounded, before the listing counts as loaded.
             value.error = false;
-            value.status = {};
+            reset_value(&value.status);
             value.projected_channels = ~u32{0};
             if (flight.gateway_serial != value.gateway_serial && page.row_count && value.active_retries < 2) {
                 // A Gateway thread mutation raced this page, so none of its rows
@@ -911,7 +912,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
             value.has_page = true;
             value.has_more = page.has_more;
             value.error = false;
-            value.status = {};
+            reset_value(&value.status);
             value.publication = ++browser_publication;
             value.projected_channels = ~u32{0};
             ++value.revision;
@@ -1112,7 +1113,7 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
         const auto bar = ui_scrollbar_geometry(value->scene.body, value->scene.scroll_dips,
             ui_rect_height(value->scene.body) + ui_thread_browser_scene_scroll_maximum(value->scene));
         if (ui_scrollbar_track_hit(bar, x, y)) {
-            value->pressed = {};
+            reset_value(&value->pressed);
             value->scrollbar_dragging = ui_scrollbar_thumb_hit(bar, x, y);
             value->thumb_grab = y - bar.thumb.top;
             if (!value->scrollbar_dragging) application_thread_browser_scroll_to(value->scene.scroll_dips +

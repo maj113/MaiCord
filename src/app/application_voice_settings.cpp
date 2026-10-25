@@ -30,7 +30,7 @@ VoiceSettingsUi page{};
 void enumerate(DeviceList& list, bool capture) noexcept {
     list.count = voice_audio_devices(capture, {list.devices, kDevices});
     // "Default (name)" follows the Windows default; specific devices follow.
-    constexpr char prefix[] = "Default";
+    static constexpr char prefix[] = "Default";
     u32 at = 0;
     for (u32 i = 0; prefix[i]; ++i)
         list.default_label[at++] = prefix[i];

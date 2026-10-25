@@ -1,4 +1,5 @@
 #include "maicord/model/read_state.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -51,7 +52,7 @@ bool stage(ReadStateStore* reads, const ReadStateEntry& entry) noexcept {
 
 bool read_state_initialize(ReadStateStore* reads, Slice<ReadStateEntry> pending) noexcept {
     if (!reads || !pending.data || !pending.count || pending.count > 65'535) return false;
-    *reads = {}; reads->pending = pending; reads->backed_count = pending.count; return true;
+    reset_value(reads); reads->pending = pending; reads->backed_count = pending.count; return true;
 }
 bool read_state_set_reserve(ReadStateStore* reads, ReadStateReserve reserve,
     void* context) noexcept {

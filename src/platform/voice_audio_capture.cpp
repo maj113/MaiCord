@@ -276,7 +276,7 @@ u32 voice_audio_devices(bool capture, Slice<VoiceAudioDevice> output) noexcept {
                     ++length;
                 if (length < kVoiceDeviceIdCharacters) {
                     auto& entry = output[count];
-                    entry = {};
+                    reset_value(&entry);
                     copy_bytes(entry.id, id, length * static_cast<u32>(sizeof(wchar_t)));
                     char utf8[512];
                     const i32 bytes = WideCharToMultiByte(CP_UTF8, 0, name.pwszVal, -1, utf8, sizeof(utf8),
@@ -297,8 +297,8 @@ u32 voice_audio_devices(bool capture, Slice<VoiceAudioDevice> output) noexcept {
                         // Default first.
                         const VoiceAudioDevice moved = entry;
                         for (u32 k = count; k > 0; --k)
-                            output[k] = output[k - 1];
-                        output[0] = moved;
+                            copy_value(&output[k], output[k - 1]);
+                        copy_value(&output[0], moved);
                     }
                     ++count;
                 }

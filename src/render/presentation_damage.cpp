@@ -1,4 +1,5 @@
 #include "maicord/render/presentation_damage.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/render/media_atlas.hpp"
 
 namespace maicord {
@@ -46,7 +47,7 @@ void presentation_damage_reset(PresentationDamageTracker* tracker) noexcept {
     tracker->first_dirty_word =
         static_cast<u16>(kPresentationDamageMediaWordCapacity);
     tracker->last_dirty_word = 0;
-    tracker->pending = PresentationDamageRect{};
+    reset_value<PresentationDamageRect>(&tracker->pending);
     tracker->pending_valid = false;
     tracker->pending_full = false;
 }
@@ -163,7 +164,7 @@ void presentation_damage_commit(PresentationDamageTracker* tracker) noexcept {
             static_cast<u16>(kPresentationDamageMediaWordCapacity);
         tracker->last_dirty_word = 0;
     }
-    tracker->pending = PresentationDamageRect{};
+    reset_value<PresentationDamageRect>(&tracker->pending);
     tracker->pending_valid = false;
     tracker->pending_full = false;
 }

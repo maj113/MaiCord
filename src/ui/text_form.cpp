@@ -1,4 +1,5 @@
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/text_form.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/icon.hpp"
@@ -141,7 +142,7 @@ bool measure_label(void* opaque, const UiLayoutMeasureRequest& request, UiSize* 
     const auto element = static_cast<TextFormElement>(request.key - 1);
     const auto text = label(scene->content, element);
     if (!text.bytes) {
-        *size = {};
+        reset_value(size);
         *baseline = 0;
         return true;
     }
@@ -168,7 +169,7 @@ bool build(TextFormScene* scene) noexcept {
         element = ui_widget_invalid_handle();
     if (!ui_widget_manager_set_measure_callback(&scene->widgets, measure_label, scene))
         return false;
-    constexpr Utf8View names[] = {
+    static constexpr Utf8View names[] = {
         utf8_literal("TextForm"), utf8_literal("Panel"),   utf8_literal("Title"),   utf8_literal("Context"),
         utf8_literal("Choices"),  utf8_literal("Choice1"), utf8_literal("Choice2"), utf8_literal("Choice3"),
         utf8_literal("Choice4"),  utf8_literal("Label"),   utf8_literal("Edit"),    utf8_literal("SelectLabel"),
@@ -480,7 +481,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
                            metrics.form_field_padding + 8, metrics.form_field_padding + 8};
         const float button_width = panel->spec.style.width.value - panel->spec.style.padding.left -
                                    panel->spec.style.padding.right;
-        constexpr TextFormElement buttons[] = {TextFormElement::cancel, TextFormElement::accept};
+        static constexpr TextFormElement buttons[] = {TextFormElement::cancel, TextFormElement::accept};
         UiTextMeasureValue labels[2]{};
         float button_height = metrics.control_height + 4;
         for (u32 i = 0; i < 2; ++i) {
@@ -526,7 +527,7 @@ void text_form_release(TextFormScene* scene) noexcept {
     if (!scene)
         return;
     ui_fixed_widget_storage_release(&scene->storage);
-    *scene = {};
+    reset_value(scene);
 }
 UiRect text_form_swatch_box(const TextFormScene& scene) noexcept {
     const auto* node = text_form_node(scene, TextFormElement::edit);

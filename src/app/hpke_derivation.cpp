@@ -104,7 +104,7 @@ HpkeDerivationResult hpke_derive_key_pair(KdfSha256Workspace& workspace, ConstSl
     }
     if (result.ok()) {
         *output = candidate;
-        candidate = {};
+        reset_value(&candidate);
         result.bytes = 0;
     }
     p256_release(&candidate);
@@ -185,7 +185,7 @@ HpkeDerivationResult hpke_base_key_schedule(KdfSha256Workspace& workspace, Const
 }
 KdfResult hpke_info_hash(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> info,
                          Slice<u8> output) noexcept {
-    constexpr u8 prefix[]{'H', 'P', 'K', 'E', '-', 'v', '1', 'H', 'P', 'K', 'E', 0,   0x10,
+    static constexpr u8 prefix[]{'H', 'P', 'K', 'E', '-', 'v', '1', 'H', 'P', 'K', 'E', 0,   0x10,
                           0,   1,   0,   1,   'i', 'n', 'f', 'o', '_', 'h', 'a', 's', 'h'};
     return hmac_sha256_prefixed(workspace, {}, {prefix, sizeof(prefix)}, info, output);
 }
@@ -203,7 +203,7 @@ HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& work
             return {0, 0, HpkeDerivationError::invalid_input};
     // LabeledExtract("", "psk_id_hash", "") is constant for this Base suite.
     // Independently checked against RFC 9180's key_schedule_context vector.
-    constexpr u8 psk_id_hash[]{0xb8, 0x8d, 0x4e, 0x6d, 0x91, 0x75, 0x9e, 0x65, 0xe8, 0x7c, 0x47,
+    static constexpr u8 psk_id_hash[]{0xb8, 0x8d, 0x4e, 0x6d, 0x91, 0x75, 0x9e, 0x65, 0xe8, 0x7c, 0x47,
                                0x0e, 0x8b, 0x91, 0x41, 0x11, 0x3e, 0x9a, 0xd5, 0xf0, 0xc8, 0xce,
                                0xef, 0xc1, 0xe0, 0x88, 0xc8, 0x2e, 0x69, 0x80, 0x50, 0x07};
     u8 context[65]{}, secret[32];

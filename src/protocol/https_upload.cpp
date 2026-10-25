@@ -5,7 +5,7 @@
 namespace maicord {
 HttpsUploadUrl https_upload_parse_url(Utf8View url) noexcept {
     if (!url.data || url.bytes < 12 || url.bytes > kHttpsUploadMaximumUrlBytes) return {};
-    constexpr char prefix[] = "https://";
+    static constexpr char prefix[] = "https://";
     for (u32 i = 0; i < 8; ++i) if (url.data[i] != prefix[i]) return {};
     u32 end = 8;
     while (end < url.bytes && url.data[end] != '/') ++end;

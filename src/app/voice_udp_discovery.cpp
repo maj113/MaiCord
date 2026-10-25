@@ -1,4 +1,5 @@
 #include "maicord/app/voice_udp_discovery.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 #include "maicord/sys/winsock.hpp"
@@ -10,7 +11,7 @@ void finish(VoiceUdpDiscovery* discovery) noexcept {
         return;
     SecureZeroMemory(discovery->request, sizeof(discovery->request));
     SecureZeroMemory(discovery->response, sizeof(discovery->response));
-    discovery->external = {};
+    reset_value(&discovery->external);
     discovery->phase = VoiceUdpPhase::closed;
 }
 void fail(VoiceUdpDiscovery* discovery, VoiceUdpError error, u32 native) noexcept {
@@ -55,7 +56,7 @@ bool voice_udp_begin(VoiceUdpDiscovery* discovery, NetworkLoop* loop, const sock
     discovery->phase = VoiceUdpPhase::discovering;
     discovery->error = VoiceUdpError::none;
     discovery->native_error = 0;
-    discovery->external = {};
+    reset_value(&discovery->external);
     discovery->ssrc = ssrc;
     discovery->sent = discovery->received = false;
     discovery->deadline_ms = deadline_after(now_ms, 5000);

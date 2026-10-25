@@ -1,4 +1,5 @@
 #include "application_updates.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "maicord/app/update_https.hpp"
@@ -274,7 +275,7 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         case State::disabled:
             label.add(utf8_literal("Updates aren't configured for this build"));
             description.add(utf8_literal(" Download new versions manually."));
-            control->kind = UiSettingsControlKind::notice; control->action_label = {};
+            control->kind = UiSettingsControlKind::notice; reset_value(&control->action_label);
             break;
         case State::idle: label.add(utf8_literal("Check for updates")); break;
         case State::checking: label.add(utf8_literal("Checking for updates…")); break;
@@ -302,7 +303,7 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         if (busy) {
             // Work in progress reads as a status notice with the loading spinner.
             control->kind = UiSettingsControlKind::notice; control->checked = true;
-            control->action_label = {}; control->enabled = true;
+            reset_value(&control->action_label); control->enabled = true;
         }
         control->label = label.view(); control->description = description.view();
         return true;
@@ -310,9 +311,9 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
     case SettingBinding::update_problem:
         if (!failed) return false;
         control->kind = UiSettingsControlKind::notice;
-        control->label = {};
+        reset_value(&control->label);
         control->description = description.add(update_service_error_text(v.error));
-        control->action_label = {};
+        reset_value(&control->action_label);
         presentation->variant = UiSettingsVariant::critical;
         return control->description.bytes != 0;
     case SettingBinding::update_available: {
@@ -361,7 +362,7 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         text->chips[count++] = chips.add(utf8_literal("Signature verified"));
         control->label = label.view(); control->description = description.view();
         control->choices = {text->chips, count};
-        control->action_label = {};
+        reset_value(&control->action_label);
         control->enabled = true;
         return true;
     }
@@ -401,7 +402,7 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
 void application_updates_changelog_build(const ApplicationUpdatesView& v, const UpdateChangelog& log,
     ApplicationUpdatesChangelogRows* out) noexcept {
     if (!out) return;
-    out->count = 0; out->heading = {}; out->built = true;
+    out->count = 0; reset_value(&out->heading); out->built = true;
     out->built_revision = v.changelog_revision; out->built_own = v.own_version; out->built_offer = v.offer_version;
     out->bank = {out->text, sizeof(out->text), 0};
     out->preview = log.channel == UpdateChannel::preview;
@@ -421,7 +422,7 @@ void application_updates_changelog_build(const ApplicationUpdatesView& v, const 
         const auto& entry = log.entries[i];
         if (entry.version <= v.own_version) continue;
         auto& row = out->rows[out->count++];
-        row = {};
+        reset_value(&row);
         row.commit = out->preview;
         if (out->preview) {
             const auto source = update_changelog_text(log, entry);
@@ -462,7 +463,7 @@ bool application_updates_changelog_heading(const ApplicationUpdatesChangelogRows
     static const Utf8View date_column[]{utf8_literal("Date")};
     if (!rows.built || !rows.heading.bytes || !rows.count || !control) return false;
     control->label = rows.heading;
-    control->description = {};
+    reset_value(&control->description);
     control->kind = UiSettingsControlKind::category;
     if (rows.preview) control->choices = {date_column, 1};
     if (item)

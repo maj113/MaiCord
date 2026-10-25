@@ -114,7 +114,7 @@ float layout_relative(UiGuildCardScene& s, UiTextMeasureCache* cache) noexcept {
     s.name = s.tag_chip = s.tag_badge = s.tag_text = s.online_dot = s.online = s.members_dot = s.members = {};
     s.established = s.description = s.button = s.status_icon = s.status_title = s.status_text = {};
     for (auto& trait : s.traits)
-        trait = {};
+        reset_value(&trait);
     const float content = kW - 2 * kP;
     float y = s.icon.bottom + 12;
     if (s.phase == UiGuildCardPhase::loading) {

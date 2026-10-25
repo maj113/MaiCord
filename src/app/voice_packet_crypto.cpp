@@ -66,7 +66,7 @@ void voice_packet_release(VoicePacketCrypto* crypto) noexcept {
         return;
     aes_gcm_release(&crypto->aes);
     xchacha_release(&crypto->xchacha);
-    *crypto = {};
+    reset_value(crypto);
 }
 
 VoicePacketResult voice_packet_seal(VoicePacketCrypto& crypto, u64 generation, ConstSlice<u8> plaintext,

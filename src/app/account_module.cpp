@@ -1,4 +1,5 @@
 #include "maicord/app/account_user_social.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/embed_provider.hpp"
 #include "maicord/protocol/emoji_preferences.hpp"
 #include "maicord/protocol/gif_favorites.hpp"
@@ -400,7 +401,7 @@ AccountLoginStatus WINAPI module_login_start_remote_auth(void* instance) noexcep
             status.native_error = stopped.native_error;
             return status;
         }
-        runtime->coordinator = UserAuthCoordinator{};
+        reset_value<UserAuthCoordinator>(&runtime->coordinator);
         runtime->coordinator_started = false;
     }
     runtime->last_event = UserAuthCoordinatorEventKind::none;
@@ -1385,7 +1386,7 @@ bool WINAPI module_local_presence(void* instance, const GatewayLocalPresence* in
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime) {
         if (output)
-            *output = {};
+            reset_value(output);
         return false;
     }
     return gateway_client_local_presence(&runtime->coordinator.gateway, input, output);

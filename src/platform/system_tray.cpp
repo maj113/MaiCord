@@ -137,7 +137,7 @@ TrayPlan tray_plan(TrayModel* model, const TrayInput& input, bool available) noe
         return plan;
     if (!available) {
         plan.remove = model->shown;
-        *model = {};
+        reset_value(model);
         return plan;
     }
     plan.state = tray_icon_state(input);
@@ -150,7 +150,7 @@ TrayPlan tray_plan(TrayModel* model, const TrayInput& input, bool available) noe
 
 void tray_model_reset(TrayModel* model) noexcept {
     if (model)
-        *model = {};
+        reset_value(model);
 }
 
 u32 tray_menu_build(const TrayInput& input, TrayMenuItem* items, u32 capacity) noexcept {
@@ -276,7 +276,7 @@ HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalet
 bool system_tray_initialize(SystemTray* tray, HWND window, u32 callback_message) noexcept {
     if (!tray)
         return false;
-    *tray = {};
+    reset_value(tray);
     tray->window = window;
     tray->callback_message = callback_message;
     tray->created_message = RegisterWindowMessageW(L"TaskbarCreated");
@@ -381,7 +381,7 @@ void system_tray_release(SystemTray* tray) noexcept {
     }
     if (tray->icon)
         DestroyIcon(static_cast<HICON>(tray->icon));
-    *tray = {};
+    reset_value(tray);
 }
 
 } // namespace maicord

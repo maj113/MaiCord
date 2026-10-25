@@ -78,7 +78,7 @@ bool message_rich_attachment_spoiler(const MessageRichStore& store,
     if (attachment.flags & kGatewayAttachmentSpoilerFlag)
         return true;
     const Utf8View name = message_rich_store_string(store, attachment.filename);
-    constexpr char prefix[] = "SPOILER_";
+    static constexpr char prefix[] = "SPOILER_";
     if (name.bytes < sizeof(prefix) - 1u)
         return false;
     for (u32 i = 0; i + 1u < sizeof(prefix); ++i)

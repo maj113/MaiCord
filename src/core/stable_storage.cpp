@@ -1,4 +1,5 @@
 #include "maicord/core/stable_storage.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -28,7 +29,7 @@ bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
         !storage_bytes(reserved_capacity, element_bytes, &reserve_bytes)) {
         return false;
     }
-    *storage = StableStorage{};
+    reset_value<StableStorage>(storage);
     if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024)) {
         return false;
     }
@@ -120,7 +121,7 @@ void stable_storage_release(StableStorage* storage) noexcept {
         return;
     }
     arena_release(&storage->arena);
-    *storage = StableStorage{};
+    reset_value<StableStorage>(storage);
 }
 
 } // namespace maicord

@@ -136,7 +136,7 @@ bool layout(UiMessageForwardScene& s, bool force = false) noexcept {
             visible = ui_rect_has_area(ui_rect_intersection(r, s.body));
         }
         if (visible) { s.visible[i] = s.accepted[index]; s.row_rectangles[i] = r; ++s.count; }
-        else { s.visible[i] = {}; s.row_rectangles[i] = {}; }
+        else { reset_value(&s.visible[i]); reset_value(&s.row_rectangles[i]); }
         dirty |= rectangle(s, s.rows[i], visible ? ui_rect_intersection(r, s.body) : UiRect{}, s.body,
             visible, visible && row_target(s, index).action != UiMessageForwardAction::none, false);
     }
@@ -303,7 +303,7 @@ bool ui_message_forward_scene_update(UiMessageForwardScene* s, const UiMessageFo
 }
 void ui_message_forward_scene_release(UiMessageForwardScene* s) noexcept {
     if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage); *s = {};
+    ui_fixed_widget_storage_release(&s->storage); reset_value(s);
 }
 bool ui_message_forward_scene_contains(const UiMessageForwardScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.viewport, x, y);

@@ -1,4 +1,5 @@
 #include "maicord/text/paragraph_hits.hpp"
+#include "maicord/core/memory.hpp"
 #include "layout_float.hpp"
 namespace maicord {namespace {
 float sub(float a,float b) noexcept {return _mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(a),_mm_set_ss(b)));}
@@ -53,13 +54,13 @@ NativeParagraphHitMetric metric(const NativeParagraphHits& h,u32 c,u32 line) noe
 }
 }
 SfntStatus native_paragraph_hit_position(const NativeParagraphHits& h,u32 position,bool trailing,NativeParagraphHitMetric* out,float* x) noexcept {
-    if(!out||!x)return SfntStatus::invalid_input;*out={};*x=0;
+    if(!out||!x)return SfntStatus::invalid_input;reset_value(out);*x=0;
     if(!valid(h)||position>h.source_units)return SfntStatus::invalid_input;
     const u32 c=cluster_at(h,position);const u32 line=line_at(h,c);if(h.visual_runs.count&&c<h.clusters.count&&!run_for(h,c))return SfntStatus::invalid_input;
     *out=metric(h,c,line);*x=(trailing!=((out->bidi_level&1)!=0))?layout_add(out->left,out->width):out->left;return SfntStatus::ok;
 }
 SfntStatus native_paragraph_hit_point(const NativeParagraphHits& h,float x,float y,NativeParagraphHitPoint* out,u32* character) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};if(!valid(h)||!is_finite(x)||!is_finite(y))return SfntStatus::invalid_input;
+    if(!out)return SfntStatus::invalid_input;reset_value(out);if(!valid(h)||!is_finite(x)||!is_finite(y))return SfntStatus::invalid_input;
     u32 first=0,last=h.lines.count;while(first<last){const u32 middle=first+(last-first)/2;if(h.lines[middle].top<=y)first=middle+1;else last=middle;}
     const u32 line=first?first-1:0;const auto& l=h.lines[line];
     if(l.first_cluster>h.clusters.count||l.cluster_count>h.clusters.count-l.first_cluster)return SfntStatus::invalid_input;

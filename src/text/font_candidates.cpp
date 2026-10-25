@@ -1,4 +1,5 @@
 #include "maicord/text/font_candidates.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/font_names.hpp"
 #include "sfnt_read.hpp"
 namespace maicord {namespace {
@@ -34,7 +35,7 @@ SfntStatus stat_axes(const SfntFace& face,const FontAxes& axes) noexcept {
 }
 }
 SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!spend(work,1))return SfntStatus::resource_limit;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!spend(work,1))return SfntStatus::resource_limit;
     SfntFontAttributes attributes{};auto status=sfnt_font_attributes(face,&attributes);if(status!=SfntStatus::ok)return status;
     NativeFontCandidates result{};result.base={attributes.weight,static_cast<u8>(attributes.width),static_cast<u8>(attributes.selection&512?1:attributes.selection&1?2:0)};
     status=font_axes_open(face,&result.axes,work);if(status!=SfntStatus::ok)return status;
@@ -60,7 +61,7 @@ SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates
     result.count=static_cast<u32>(result.axes.instance_count)+(has_default?0u:1u);*output=result;return SfntStatus::ok;
 }
 SfntStatus native_font_candidate(const NativeFontCandidates& source,u32 index,NativeFontCandidate* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!source.count||index>=source.count)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!source.count||index>=source.count)return SfntStatus::invalid_input;
     const u32 named=index<source.axes.instance_count?index:default_named;NativeFontProperties p{};const auto status=properties(source,named,&p);if(status!=SfntStatus::ok)return status;
     *output={p,named};return SfntStatus::ok;
 }

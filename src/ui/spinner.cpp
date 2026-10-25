@@ -3,7 +3,7 @@
 namespace maicord {
 namespace {
 UiPoint circle_point(u32 phase) noexcept {
-    constexpr UiPoint quarter[]{{1, 0},
+    static constexpr UiPoint quarter[]{{1, 0},
                                 {.9807853f, .1950903f},
                                 {.9238795f, .3826834f},
                                 {.8314696f, .5555702f},

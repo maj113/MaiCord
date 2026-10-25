@@ -149,7 +149,7 @@ bool lottie(ConstSlice<u8> s) noexcept {
         ++at;
     if (at >= s.count || s[at] != '{' || !utf8_validate({reinterpret_cast<const char*>(s.data), s.count}).valid)
         return false;
-    constexpr char key[] = "\"layers\"";
+    static constexpr char key[] = "\"layers\"";
     for (u32 i = at; i + sizeof(key) - 1 <= s.count; ++i)
         if (s[i] == '"' && bytes_equal(s.data + i, key, sizeof(key) - 1))
             return true;
@@ -388,7 +388,7 @@ void guild_image_release(GuildImageBuffer* buffer) noexcept {
         secure_clear_bytes(buffer->data, buffer->capacity);
         release(buffer->data);
     }
-    *buffer = {};
+    reset_value(buffer);
 }
 
 GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> source, GuildImageBuffer* buffer,
@@ -398,8 +398,8 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
     if (!buffer || !prepared || profile >= GuildImageProfile::count || !byte_range_valid(source) || !source.count ||
         source.count > kGuildImageSourceMaximumBytes)
         return fail(info, GuildImageError::input);
-    *buffer = {};
-    *prepared = {};
+    reset_value(buffer);
+    reset_value(prepared);
     const GuildImageKind kind = guild_image_sniff(source);
     info.source_kind = kind;
     if (kind == GuildImageKind::none || (kind == GuildImageKind::lottie && profile != GuildImageProfile::sticker))

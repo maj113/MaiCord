@@ -24,7 +24,7 @@ bool arrays_field(void* opaque, JsonString name, JsonValue value) noexcept {
 
 bool gateway_guild_arrays_find(JsonValue guild, Slice<u32> scratch, GatewayGuildArrays* arrays) noexcept {
     if (!arrays || !scratch.data || scratch.count < 64 || guild.kind != JsonValueKind::object) return false;
-    *arrays = {};
+    reset_value(arrays);
     arrays->scheduled_events.kind = JsonValueKind::null_value;
     const auto scan = json_scan_structurals_avx1(guild.source, scratch);
     // The publishers' own visits use depths 64 (voice) and 32: the stricter one decides.

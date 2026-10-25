@@ -1,4 +1,5 @@
 #include "maicord/text/indic_plan.hpp"
+#include "maicord/core/memory.hpp"
 #include "layout_language.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord {namespace {
@@ -100,7 +101,7 @@ struct Builder {
 }
 SfntStatus sfnt_indic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntIndicProfile profile,bool independent,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,bool ordered_presentation) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};(void)independent;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);(void)independent;
     const auto* info=sfnt_indic_script(profile);const u32 script=info?info->tag:0;
     if(ordered_presentation&&(profile!=SfntIndicProfile::malayalam||layout.kind!=SfntLayoutKind::substitution))return SfntStatus::invalid_input;
     if(!script||!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
@@ -108,7 +109,7 @@ SfntStatus sfnt_indic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubs
 }
 SfntStatus sfnt_indic_form_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntIndicProfile profile,SfntIndicForm form,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};u8 stage=255;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);u8 stage=255;
     switch(form){case sfnt_deva_reph:stage=3;break;case sfnt_deva_half:stage=7;break;case sfnt_deva_pre:stage=5;break;
         case sfnt_deva_below:stage=6;break;case sfnt_deva_post:stage=8;break;default:return SfntStatus::invalid_input;}
     const auto* info=sfnt_indic_script(profile);const u32 script=info?info->tag:0;

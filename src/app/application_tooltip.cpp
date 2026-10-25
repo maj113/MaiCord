@@ -1,4 +1,5 @@
 #include "application_tooltip.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_caption.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
@@ -699,8 +700,8 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
          ui_rect_equal(owner.failed_anchor, target.anchor))) {
         ui_tooltip_clear(&owner.scene);
     } else {
-        owner.dismissed = {};
-        owner.failed = {};
+        reset_value(&owner.dismissed);
+        reset_value(&owner.failed);
         UiTooltipStyle style{};
         if (reaction) {
             style.maximum_width = 260;
@@ -756,8 +757,8 @@ void application_tooltip_clear() noexcept {
     const bool visible = owner.scene.visible;
     ui_tooltip_clear(&owner.scene);
     owner.pointer_valid = owner.keyboard = owner.pressed = false;
-    owner.dismissed = {};
-    owner.failed = {};
+    reset_value(&owner.dismissed);
+    reset_value(&owner.failed);
     if (visible) {
         application_repaint();
     }
@@ -823,7 +824,7 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     if (pointer) {
         owner->point = point;
         owner->pointer_valid = true;
-        owner->dismissed = {};
+        reset_value(&owner->dismissed);
     }
     if (keyboard && (wparam == VK_RETURN || wparam == VK_SPACE || wparam == VK_ESCAPE)) {
         application_reaction_tooltip_leave();

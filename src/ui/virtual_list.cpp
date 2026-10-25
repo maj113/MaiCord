@@ -1,4 +1,5 @@
 #include "maicord/ui/virtual_list.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 bool ui_scroll_reveal_units(u64 first, u64 extent, u64 total, u64 scroll_units,
@@ -75,7 +76,7 @@ void update_anchor_insert(UiScrollAnchor* anchor, u16 old_generation,
         return;
     }
     if (!anchor->valid || anchor->generation != old_generation) {
-        *anchor = UiScrollAnchor{};
+        reset_value<UiScrollAnchor>(anchor);
         return;
     }
     if (anchor->index >= index) {
@@ -90,12 +91,12 @@ void update_anchor_remove(UiScrollAnchor* anchor, u16 old_generation,
         return;
     }
     if (!anchor->valid || anchor->generation != old_generation) {
-        *anchor = UiScrollAnchor{};
+        reset_value<UiScrollAnchor>(anchor);
         return;
     }
     const u32 end = index + item_count;
     if (anchor->index >= index && anchor->index < end) {
-        *anchor = UiScrollAnchor{};
+        reset_value<UiScrollAnchor>(anchor);
         return;
     }
     if (anchor->index >= end) {
@@ -130,7 +131,7 @@ bool ui_variable_list_initialize(UiVariableList* list, Slice<u32> item_units,
         !valid_item_units(default_item_units)) {
         return false;
     }
-    *list = UiVariableList{};
+    reset_value<UiVariableList>(list);
     list->item_units = item_units.data;
     list->fenwick = fenwick.data;
     list->count = item_count;
@@ -199,7 +200,7 @@ bool ui_variable_list_capture_anchor(const UiVariableList& list, u64 scroll_unit
     if (!anchor || !list.item_units || !list.fenwick || list.count == 0 ||
         list.total_units == 0) {
         if (anchor) {
-            *anchor = UiScrollAnchor{};
+            reset_value<UiScrollAnchor>(anchor);
         }
         return false;
     }

@@ -31,7 +31,7 @@ __declspec(noinline) MessageSendBeginResult begin_attachment_send(MessageCompose
     ConstSlice<UploadedAttachment> attachments, ConstSlice<u64> sizes) noexcept {
     GatewayMessageAttachment local[kAttachmentUploadMaximumCount];
     for (u32 i = 0; i < attachments.count; ++i) {
-        local[i] = {};
+        reset_value(&local[i]);
         local[i].id = i + 1; local[i].filename = attachments[i].filename;
         local[i].description = attachments[i].description;
         local[i].size = sizes.count ? sizes[i] : 0;
@@ -60,7 +60,7 @@ __declspec(noinline) bool restore_request(MessageComposerController* controller,
         {controller->request_text + request.text_offset + request.text_bytes, request.attachment_bytes},
         {references, kAttachmentUploadMaximumCount}, &count, {sizes, kAttachmentUploadMaximumCount})) return false;
     for (u32 i = 0; i < count; ++i) {
-        local[i] = {}; local[i].id = i + 1; local[i].filename = references[i].filename;
+        reset_value(&local[i]); local[i].id = i + 1; local[i].filename = references[i].filename;
         local[i].description = references[i].description; local[i].size = sizes[i];
         local_voice(references[i], &local[i]);
     }
@@ -158,7 +158,7 @@ bool compact_requests(MessageComposerController* controller) noexcept {
 void erase_request(MessageComposerController* controller, MessageComposerRequest* request) noexcept {
     clear_bytes(controller->request_text + request->text_offset, request_storage_bytes(*request));
     controller->request_text_wasted += request_storage_bytes(*request);
-    *request = MessageComposerRequest{};
+    reset_value<MessageComposerRequest>(request);
     if (controller->request_count != 0) {
         --controller->request_count;
     }
@@ -211,7 +211,7 @@ bool initialize_controller(MessageComposerController* controller, MessageCompose
         request_text.count < kMessageComposerMaximumBytes) {
         return false;
     }
-    *controller = MessageComposerController{};
+    reset_value<MessageComposerController>(controller);
     controller->mention_reply_author = true;
     controller->composer = composer;
     controller->drafts = drafts;
@@ -221,7 +221,7 @@ bool initialize_controller(MessageComposerController* controller, MessageCompose
     if (clear_requests)
         clear_bytes(request_text.data, request_text.count);
     if (!message_send_tracker_initialize(&controller->sends)) {
-        *controller = MessageComposerController{};
+        reset_value<MessageComposerController>(controller);
         return false;
     }
     controller->initialized = true;
@@ -310,7 +310,7 @@ MessageComposerControllerResult message_composer_controller_set_reply(
 
 bool message_composer_controller_reply_snapshot(const MessageComposerController& controller,
     MessageComposerReplySnapshot* snapshot) noexcept {
-    if (snapshot) *snapshot = {};
+    if (snapshot) reset_value(snapshot);
     if (!snapshot || !controller_valid(&controller) || !controller.composer->channel_id) return false;
     *snapshot = {controller.composer->channel_id, controller.reply_message_id,
         controller.reply_revision, controller.mention_reply_author};
@@ -639,7 +639,7 @@ MessageComposerControllerResult message_composer_controller_queue_forward(
         now_unix_ms, now_monotonic_ms, false, {}, false);
     if (!begun.ok()) return controller_error(controller, tracker_error(begun.error));
     if (!++controller->request_sequence) ++controller->request_sequence;
-    *request = {};
+    reset_value(request);
     request->nonce = begun.nonce;
     request->channel_id = destination_channel_id;
     request->text_offset = controller->request_text_used;
@@ -677,13 +677,13 @@ MessageComposerControllerResult message_composer_controller_cancel_unsent(
 MessageComposerControllerResult message_composer_controller_prepare_submit(
     MessageComposerController* controller, u64 now_monotonic_ms, MessageComposerSubmit* submit) noexcept {
     const auto clear_submit = [submit]() noexcept {
-        submit->content = {};
+        reset_value(&submit->content);
         submit->nonce = submit->channel_id = submit->reply_message_id = 0;
         submit->attachment_count = 0;
         submit->sticker_count = 0;
         submit->mention_reply_author = false;
         submit->suppress_notifications = false;
-        submit->forward_reference = {};
+        reset_value(&submit->forward_reference);
     };
     if (submit)
         clear_submit();

@@ -1,4 +1,5 @@
 #include "maicord/ui/scroll_host.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 
 namespace maicord {
@@ -34,7 +35,7 @@ UiScrollEntry* acquire_entry(UiScrollHost* host, UiScrollBinding binding,
         if (!free)
             return nullptr;
         entry = free;
-        *entry = UiScrollEntry{};
+        reset_value<UiScrollEntry>(entry);
         entry->binding = binding;
         entry->position = entry->reported_position = range.offset;
         entry->origin = range.origin;
@@ -59,7 +60,7 @@ UiScrollDispatch write_immediate(UiScrollEntry* entry, const UiScrollRange& rang
     entry->position = target;
     UiScrollRange reported{};
     if (!entry->binding.read(entry->binding.context, entry->binding.key, &reported)) {
-        *entry = {};
+        reset_value(entry);
         return UiScrollDispatch::handled;
     }
     if (!valid(reported)) return UiScrollDispatch::failed;
@@ -297,6 +298,6 @@ bool ui_scroll_host_active(const UiScrollHost& host) noexcept {
 void ui_scroll_host_cancel(UiScrollHost* host) noexcept {
     if (host)
         for (auto& entry : host->entries)
-            entry = {};
+            reset_value(&entry);
 }
 } // namespace maicord

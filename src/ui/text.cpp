@@ -1,4 +1,5 @@
 #include "maicord/ui/text.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
@@ -117,7 +118,7 @@ bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<Tex
         runs.count == 0 || !clusters.data || clusters.count == 0) {
         return false;
     }
-    *text = ShapedText{};
+    reset_value<ShapedText>(text);
     text->glyphs = glyphs.data;
     text->runs = runs.data;
     text->clusters = clusters.data;
@@ -153,7 +154,7 @@ void shaped_text_reset(ShapedText* text) noexcept {
     }
     for (u32 index = 0; index < text->run_count; ++index) {
         if(text->runs[index].native_font)native_font_run_release(native_font_session_runs(text->native_fonts()),text->runs[index].native_face);
-        text->runs[index]={};
+        reset_value(&text->runs[index]);
     }
     auto* fonts=text->native_fonts();if(fonts&&!native_font_session_release(&fonts))log_write(LogLevel::error,"text","native_shaped_session_has_live_handles");text->set_native_fonts(fonts);
     text->glyph_count = 0;
@@ -172,10 +173,10 @@ TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family
     if (!system || !family_name || !family_name[0] || !locale_name || !layout_extent_valid(em_size)) {
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
     }
-    *system = TextSystem{};
+    reset_value<TextSystem>(system);
     u32 units=0;while(units<256&&family_name[units])++units;
     // Only en-US is supported; other locales are rejected.
-    constexpr wchar_t locale[]=L"en-us";u32 i=0;
+    static constexpr wchar_t locale[]=L"en-us";u32 i=0;
     while(locale[i]&&locale_name[i]&&(locale_name[i]|32)==locale[i])++i;
     if(!units||units==256||locale[i]||locale_name[i]||em_size>250000)
         return shape_result(TextShapeError::invalid_input,E_INVALIDARG);
@@ -209,7 +210,7 @@ bool glyph_outline_initialize(GlyphOutline* outline, Slice<GlyphPathCommand> com
     if (!outline || !commands.data || commands.count == 0) {
         return false;
     }
-    *outline = GlyphOutline{};
+    reset_value<GlyphOutline>(outline);
     outline->commands = commands.data;
     outline->capacity = commands.count;
     return true;
@@ -570,7 +571,7 @@ TextMeasureResult text_measure_utf8_styled(TextSystem* system, Utf8View source,
     TextNativeFallback fallback;
     for(u32 stage=0;stage<TextNativeFallback::stages;++stage){
         if(!fallback.build(*system,input,stage))continue;
-        native_measure={};
+        reset_value(&native_measure);
         if(native_measured(fallback.text)){log_native_fallback(stage+1,input.bytes);return native_measure;}
     }
     (void)native_text_candidate_take_output_failure(*system);

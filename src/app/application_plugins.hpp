@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/app/plugin_host.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/plugin_sdk.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/friends_scene.hpp"
@@ -267,7 +268,7 @@ inline void append_text(ApplicationPluginCatalogText& output, Utf8View value) no
 inline constexpr UINT kApplicationPluginCodePageUtf8 = 65001;
 inline constexpr DWORD kApplicationPluginInvalidCharsError = 0x80;
 inline void filename_text(ApplicationPluginCatalogText& output, const NativePluginCatalogEntry& entry) noexcept {
-    output = {};
+    reset_value(&output);
     for (u32 i = 0; i < entry.filename_characters && i < kNativePluginCatalogFilenameCapacity;) {
         const u32 width = entry.filename[i] >= 0xD800 && entry.filename[i] <= 0xDBFF &&
             i + 1 < entry.filename_characters && i + 1 < kNativePluginCatalogFilenameCapacity ? 2 : 1;
@@ -331,7 +332,7 @@ inline u32 application_plugins_catalog_project(const NativePluginCatalog* catalo
             exact = declared && identity_matches(*loaded[j].identity, entry.manifest);
             break;
         }
-        auto& label = text[i]; label = {};
+        auto& label = text[i]; reset_value(&label);
         const bool valid = entry.status == NativePluginCatalogError::none && native_plugin_manifest_valid(entry.manifest);
         Utf8View name{}, description{};
         if (valid) {

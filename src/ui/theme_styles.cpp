@@ -301,7 +301,7 @@ float ui_theme_contrast_ratio(Color foreground, Color background) noexcept {
 }
 u32 ui_theme_contrast_warnings(const Theme& theme, UiThemeContrastWarning* output, u32 capacity) noexcept {
     // WCAG AA: 4.5:1 for body text; 3:1 for secondary/large text and accents.
-    constexpr UiThemeContrastWarning pairs[]{
+    static constexpr UiThemeContrastWarning pairs[]{
         {UiThemeToken::text_normal, UiThemeToken::background_primary, 0, 4.5f},
         {UiThemeToken::text_normal, UiThemeToken::background_secondary, 0, 4.5f},
         {UiThemeToken::text_normal, UiThemeToken::background_floating, 0, 4.5f},
@@ -541,7 +541,7 @@ UiThemeStylesResult ui_theme_styles_apply(UiResolvedThemeStyles* output,
     if (changes & ui_theme_style_paint)
         candidate.paint_revision = advance(candidate.paint_revision);
     candidate.ready = true;
-    *output = candidate;
+    copy_value(output, candidate);
     return {UiThemeStylesError::none, changes};
 }
 #undef THEME_COLORS

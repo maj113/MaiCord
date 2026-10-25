@@ -1,4 +1,5 @@
 #include "maicord/ui/audio_controls.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
@@ -155,7 +156,7 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, UiRect bounds,
     if (state.has_duration)
         append_time(projection.time_text, projection.time_bytes, state.duration_ms);
     else {
-        constexpr char unknown[] = "--:--";
+        static constexpr char unknown[] = "--:--";
         for (u32 i = 0; i < 5; ++i)
             projection.time_text[projection.time_bytes++] = unknown[i];
     }
@@ -212,7 +213,7 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, UiRect bounds,
     for (auto& descriptor : projection.controls)
         if (!descriptor.enabled && descriptor.kind != UiAudioControlKind::label)
             descriptor.foreground = theme.text_secondary;
-    *out = projection;
+    copy_value(out, projection);
     return true;
 }
 const UiAudioControlDescriptor* ui_audio_controls_find(const UiAudioControlsProjection& projection,
@@ -279,7 +280,7 @@ bool ui_audio_controls_key(const UiAudioControlsProjection& projection, UiAudioK
                            UiAudioControl* focus, UiAudioAction* out) noexcept {
     if (!focus)
         return false;
-    constexpr UiAudioControl order[]{UiAudioControl::play_pause, UiAudioControl::seek, UiAudioControl::mute,
+    static constexpr UiAudioControl order[]{UiAudioControl::play_pause, UiAudioControl::seek, UiAudioControl::mute,
                                      UiAudioControl::volume, UiAudioControl::download};
     if (key == UiAudioKey::previous || key == UiAudioKey::next) {
         u32 cursor = 5;
@@ -293,7 +294,7 @@ bool ui_audio_controls_key(const UiAudioControlsProjection& projection, UiAudioK
             if (descriptor && descriptor->enabled) {
                 *focus = order[cursor];
                 if (out)
-                    *out = {};
+                    reset_value(out);
                 return true;
             }
         }
@@ -404,7 +405,7 @@ bool ui_audio_scene_project(UiAudioScene* scene, const UiAudioPlaybackState& sta
         static_cast<u32>(surface) > static_cast<u32>(UiAudioSourceSurface::forward) || !rectangle(clip) ||
         !ui_audio_controls_project(state, bounds, style, theme, &projection) ||
         !rectangle(ui_rect_overlap(projection.geometry.bounds, clip))) {
-        *scene = {};
+        reset_value(scene);
         return false;
     }
     const auto old_focus = scene->focus, old_hover = scene->hover, old_capture = scene->capture;
@@ -421,8 +422,8 @@ bool ui_audio_scene_project(UiAudioScene* scene, const UiAudioPlaybackState& sta
         preserve_capture =
             previous && current && ui_rect_equal(previous->bounds, current->bounds) && current->enabled;
     }
-    *scene = {};
-    scene->projection = projection;
+    reset_value(scene);
+    copy_value(&scene->projection, projection);
     scene->style = style;
     scene->clip = effective;
     scene->owner = owner;

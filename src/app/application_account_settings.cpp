@@ -86,7 +86,7 @@ void scope() noexcept {
     const u32 revision = g_owner.revision + 1;
     // The open page stays wanted: a page opened before READY loads once it lands.
     const u8 wanted = g_owner.wanted;
-    g_owner = {};
+    reset_value(&g_owner);
     g_owner.lifetime = lifetime;
     g_owner.revision = revision;
     g_owner.wanted = wanted;
@@ -222,7 +222,7 @@ bool current_session(const AccountSession& session) noexcept {
     return hash.bytes && hash.bytes == session.id_hash_bytes && bytes_equal(hash.data, session.id_hash, hash.bytes);
 }
 void build_session_row(Row& row, const AccountSession& session, bool current) noexcept {
-    row = {};
+    reset_value(&row);
     append(row, false, session.os_bytes ? view(session.os, session.os_bytes) : utf8_literal("Unknown device"));
     if (session.platform_bytes) {
         append(row, false, utf8_literal(" · "));
@@ -250,13 +250,13 @@ void build_session_row(Row& row, const AccountSession& session, bool current) no
 // The notice row for one page: loading, failure or the last mutation result.
 bool project_notice(SettingsPanel panel, u8 loads, UiSettingsControl* control,
                     UiSettingsControlPresentation* presentation) noexcept {
-    control->action_label = {};
+    reset_value(&control->action_label);
     if (mutation_pending()) {
         const Mutation pending = g_owner.inflight != Mutation::none ? g_owner.inflight : g_owner.queued;
         if (mutation_panel(pending) != panel)
             return false;
         control->label = utf8_literal("Working…");
-        control->description = {};
+        reset_value(&control->description);
         return true;
     }
     if (g_owner.status.bytes && g_owner.status_panel == panel) {
@@ -284,14 +284,14 @@ bool project_notice(SettingsPanel panel, u8 loads, UiSettingsControl* control,
     }
     if (g_owner.failed & loads) {
         control->label = utf8_literal("Couldn't load these details");
-        control->description = {};
+        reset_value(&control->description);
         control->action_label = utf8_literal("Try again");
         presentation->variant = UiSettingsVariant::critical;
         return true;
     }
     if ((g_owner.loaded & loads) != loads) {
         control->label = utf8_literal("Loading…");
-        control->description = {};
+        reset_value(&control->description);
         return true;
     }
     return false;
@@ -331,7 +331,7 @@ void application_account_settings_visible(SettingsPanel panel) noexcept {
     g_owner.failed &= ~wanted;
     g_owner.wanted |= wanted;
     if (g_owner.status_panel != panel)
-        g_owner.status = {};
+        reset_value(&g_owner.status);
     // Called while the settings host projects; it re-projects by itself.
     ++g_owner.revision;
 }
@@ -451,7 +451,7 @@ u32 application_account_settings_list(SettingBinding binding, Slice<UiSettingsCo
                     p.variant = UiSettingsVariant::critical;
             } else {
                 const auto& app = b->apps[i];
-                row = {};
+                reset_value(&row);
                 append(row, false, app.name_bytes ? view(app.name, app.name_bytes) : utf8_literal("Unknown app"));
                 append(row, true, view(app.scopes, app.scopes_bytes));
                 c = {settings_list_control_id(binding, i), view(row.label, row.label_bytes),
@@ -710,7 +710,7 @@ bool application_account_settings_response(const RestClientResponse& response, U
 void application_account_settings_release() noexcept {
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
-    g_owner = {};
+    reset_value(&g_owner);
     g_owner.lifetime = lifetime;
 }
 

@@ -103,7 +103,7 @@ bool message_forward_open(MessageForwardController* c, QuickSwitcherScope scope,
     source.preview_bytes = copy_text(source.preview, sizeof(source.preview), message_store_content(*store, handle));
     source.media_summary_bytes = copy_text(source.media_summary, sizeof(source.media_summary), media_summary);
     const u32 revision = c->revision;
-    *c = {}; c->source = source; c->scope = scope; c->initialized = c->caption_valid = true; c->revision = revision;
+    reset_value(c); c->source = source; c->scope = scope; c->initialized = c->caption_valid = true; c->revision = revision;
     changed(c);
     quick_switcher_synchronize(&c->candidates, scope, sources, {}, QuickSwitcherMode::forwarding, source.age_restricted);
     return true;
@@ -155,7 +155,7 @@ bool message_forward_remove(MessageForwardController* c, u64 channel_id) noexcep
     if (!c || !c->initialized || c->committed) return fail(c, MessageForwardError::busy);
     for (u32 i = 0; i < c->destination_count; ++i) if (c->destinations[i].row.target.channel_id == channel_id) {
         for (u32 j = i + 1; j < c->destination_count; ++j) c->destinations[j - 1] = c->destinations[j];
-        c->destinations[--c->destination_count] = {}; c->error = MessageForwardError::none; changed(c); return true;
+        reset_value(&c->destinations[--c->destination_count]); c->error = MessageForwardError::none; changed(c); return true;
     }
     return false;
 }
@@ -170,7 +170,7 @@ bool message_forward_toggle(MessageForwardController* c, QuickSwitcherScope scop
         return message_forward_remove(c, target.channel_id);
     if (!eligible(sources, target, source_age_restricted(sources, c->source))) return fail(c, MessageForwardError::destination_unavailable);
     if (c->destination_count == kMessageForwardMaximumDestinations) return fail(c, MessageForwardError::selection_limit);
-    auto& d = c->destinations[c->destination_count++]; d = {}; d.row = c->candidates.rows[index];
+    auto& d = c->destinations[c->destination_count++]; reset_value(&d); d.row = c->candidates.rows[index];
     c->error = MessageForwardError::none; changed(c); return true;
 }
 bool message_forward_set_caption(MessageForwardController* c, Utf8View caption) noexcept {

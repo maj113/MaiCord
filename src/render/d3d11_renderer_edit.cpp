@@ -1,4 +1,5 @@
 #include "d3d11_renderer_edit.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/popup_presentation.hpp"
@@ -72,7 +73,7 @@ UiEditGeometry d3d11_renderer_profile_edit_geometry(const D3D11Renderer& rendere
     return field_geometry(renderer.profile_edit_layout);
 }
 bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
-    renderer->media_picker_edit_geometry = {};
+    reset_value(&renderer->media_picker_edit_geometry);
     const auto* scene=renderer->settings_scene;
     const auto target=scene ? ui_settings_scene_focused(*scene) : UiSettingsTarget{};
     const auto* control=scene ? ui_settings_scene_control(*scene,target) : nullptr;

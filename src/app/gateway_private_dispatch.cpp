@@ -1,4 +1,5 @@
 #include "gateway_private_dispatch.hpp"
+#include "maicord/core/memory.hpp"
 #include "gateway_user_payload.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
@@ -67,7 +68,7 @@ GatewayClientDispatchRouteResult gateway_route_call(const GatewayEnvelope& envel
     event->state.record_count = !deleted && call.rung ? 1u : 0u;
     event->dispatch_kind = deleted ? GatewayClientDispatchKind::call_delete : GatewayClientDispatchKind::call_update;
     event->dispatch_payload_bytes = 0;
-    *payload = {};
+    reset_value(payload);
     return {};
 }
 GatewayClientDispatchRouteResult gateway_route_recipient(const GatewayEnvelope& envelope,

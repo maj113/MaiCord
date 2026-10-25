@@ -1,4 +1,5 @@
 #include "maicord/app/embed_resolver.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/progressive_video_fetch.hpp"
 #include "maicord/app/segmented_video_fetch.hpp"
 #include "maicord/protocol/dash_manifest.hpp"
@@ -56,7 +57,7 @@ struct ScratchLifetime {
 } // namespace
 bool youtube_bootstrap_feed(YoutubeBootstrap* s, ConstSlice<u8> input) noexcept {
     if (!s || s->complete || s->failed || (!input.data && input.count)) return false;
-    constexpr char upper[] = "\"VISITOR_DATA\"", camel[] = "\"visitorData\"";
+    static constexpr char upper[] = "\"VISITOR_DATA\"", camel[] = "\"visitorData\"";
     for (u32 i = 0; i < input.count; ++i) {
         const char c = static_cast<char>(input[i]);
         if (!s->phase) {
@@ -105,7 +106,7 @@ static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
     const auto prepared = transport_for(*r, transport);
     if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
     if (youtube && !r->bootstrap.complete) {
-        r->bootstrap = {};
+        reset_value(&r->bootstrap);
         const HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
             {utf8_literal("Cookie"), utf8_literal("SOCS=CAI")}};
         const UpdateHttpRequest request{UpdateHost::provider, utf8_literal("www.youtube.com"),
@@ -139,7 +140,7 @@ static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
     const HttpsHeader twitch_headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
         {utf8_literal("Content-Type"), utf8_literal("application/json")},
         {utf8_literal("Client-ID"), utf8_literal("b31o4btkqth5bzbvr9ub2ovr79umhh")}};
-    constexpr char path[] = "/youtubei/v1/player?prettyPrint=false";
+    static constexpr char path[] = "/youtubei/v1/player?prettyPrint=false";
     const UpdateHttpRequest request{UpdateHost::provider, tiktok ? utf8_literal("www.tiktok.com")
             : twitch ? utf8_literal("gql.twitch.tv") : spotify ? utf8_literal("open.spotify.com")
             : streamable ? utf8_literal("api.streamable.com") : twitter ? utf8_literal("cdn.syndication.twimg.com")

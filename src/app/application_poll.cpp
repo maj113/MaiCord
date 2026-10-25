@@ -1,4 +1,5 @@
 #include "application_poll.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_cursor.hpp"
 #include "application_account_logout.hpp"
 #include "application_account_presentation.hpp"
@@ -218,7 +219,7 @@ void clear_capture() noexcept {
         return;
     const bool captured = owner->captured;
     owner->captured = false;
-    owner->pressed = {};
+    reset_value(&owner->pressed);
     ui_poll_voters_scene_pointer(&owner->scene, UiPollPointerEvent::cancel, {});
     ui_poll_scene_pointer(&owner->card, UiPollPointerEvent::cancel, {});
     if (captured && GetCapture() == g_app.window)
@@ -598,7 +599,7 @@ bool queue_page(u32 answer, u32 page, u64 after) noexcept {
     clear_capture();
     owner->requested_page = page;
     owner->user_count = 0;
-    owner->status = {};
+    reset_value(&owner->status);
     owner->voters_active = true;
     owner->scene.scroll = 0;
     changed();
@@ -733,7 +734,7 @@ bool application_poll_open(const ApplicationPollSource& source) noexcept {
     owner->results = p->is_finalized || (initial.mine_known && initial.mine_mask);
     owner->voters_active = false;
     owner->user_count = owner->cursor_count = owner->cursor_first = owner->page = 0;
-    owner->status = {};
+    reset_value(&owner->status);
     owner->scene.active = false;
     const auto observed = poll_controller_observe(&owner->controller, snapshot(source, *p));
     cancel_retired();
@@ -783,7 +784,7 @@ bool application_poll_action(const ApplicationPollSource& source, const UiPollAc
         owner->selection = (owner->selection & bit) ? static_cast<u16>(owner->selection & ~bit)
                            : p->allow_multiselect ? static_cast<u16>(owner->selection | bit)
                                                   : bit;
-        owner->status = {};
+        reset_value(&owner->status);
         changed();
         return true;
     }
@@ -864,7 +865,7 @@ bool application_poll_voters(u32 answer, bool more) noexcept {
     // Cached first page: the inspector opens at once and no request is sent.
     auto& c = value.controller;
     if (c.pending_ready && c.pending.kind == PollControllerWorkKind::voters) {
-        c.pending = {};
+        reset_value(&c.pending);
         c.pending_ready = false;
     }
     if (c.flight.active && c.flight.command.kind == PollControllerWorkKind::voters)
@@ -880,7 +881,7 @@ bool application_poll_voters(u32 answer, bool more) noexcept {
     c.after_user_id = value.user_count ? value.pages[bank]->users[value.user_count - 1].id : 0;
     c.voters_more = cache->controller_more[slot];
     c.voters_failed = false;
-    value.status = {};
+    reset_value(&value.status);
     value.voters_active = true;
     value.scene.scroll = 0;
     changed();
@@ -903,7 +904,7 @@ void application_poll_voters_close() noexcept {
     renderer_bind_poll_voters_scene(&g_app.renderer, nullptr);
     auto& c = owner->controller;
     if (c.pending_ready && c.pending.kind == PollControllerWorkKind::voters) {
-        c.pending = {};
+        reset_value(&c.pending);
         c.pending_ready = false;
     }
     if (c.flight.active && c.flight.command.kind == PollControllerWorkKind::voters)
@@ -1029,7 +1030,7 @@ bool application_poll_submit(u64 id, u64 now) noexcept {
                 value.status = error_text(value.controller.last_error);
         } else {
             value.controller.pending_ready = false;
-            value.controller.pending = {};
+            reset_value(&value.controller.pending);
             value.controller.desired_active = false;
             if (command.kind == PollControllerWorkKind::vote)
                 value.controller.vote_phase = PollControllerVotePhase::failed;
@@ -1054,7 +1055,7 @@ bool application_poll_submit(u64 id, u64 now) noexcept {
     if (!p)
         value.controller.flight.retired = true;
     cancel_retired();
-    value.status = {};
+    reset_value(&value.status);
     changed();
     return true;
 }

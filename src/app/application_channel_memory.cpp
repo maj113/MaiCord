@@ -1,4 +1,5 @@
 #include "application_channel_memory.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 
 #include "maicord/core/log.hpp"
@@ -44,7 +45,7 @@ void write(u64 now_ms) noexcept {
 } // namespace
 
 void application_channel_memory_start(u64 profile_id) noexcept {
-    g_memory = {};
+    reset_value(&g_memory);
     if (!g_app.account_ui || !channel_memory_path(profile_id, g_memory.path, 512))
         return;
     g_memory.profile_id = profile_id;
@@ -63,7 +64,7 @@ void application_channel_memory_stop() noexcept {
     if (g_app.account_ui)
         observe(g_app.account_ui->chat_state, clock_monotonic_milliseconds());
     write(clock_monotonic_milliseconds());
-    g_memory = {};
+    reset_value(&g_memory);
 }
 
 void application_channel_memory_pump(u64 now_ms) noexcept {

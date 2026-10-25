@@ -1,4 +1,5 @@
 #include "maicord/protocol/voice_heartbeat.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {
@@ -22,7 +23,7 @@ void fail(VoiceHeartbeat* heartbeat, VoiceHeartbeatFailure failure) noexcept {
 void voice_heartbeat_stop(VoiceHeartbeat* heartbeat) noexcept {
     const u64 generation = heartbeat->generation;
     const u64 nonce = heartbeat->last_nonce;
-    *heartbeat = {};
+    reset_value(heartbeat);
     heartbeat->generation = generation;
     heartbeat->last_nonce = nonce;
 }

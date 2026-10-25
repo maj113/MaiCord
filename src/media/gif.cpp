@@ -29,13 +29,12 @@ GifParseResult fail(GifParseResult result, GifError error) noexcept {
     return result;
 }
 
-GifDecodeResult decode_fail(GifDecodeResult& result, GifError error) noexcept {
+void decode_fail(GifDecodeResult& result, GifError error) noexcept {
     result.error = error;
-    return result;
 }
 
 void initialize_image(GifImage* image, GifWorkspace* workspace) noexcept {
-    *image = GifImage{};
+    reset_value<GifImage>(image);
     image->frames = workspace->frames;
     image->frame_capacity = kGifFrameCapacity;
 }
@@ -219,8 +218,8 @@ GifError decode_lzw_linear(const u8* encoded, const GifFrame& frame, u32 palette
 void deinterlace_rows(u8* indices, u32 width, u32 height) noexcept {
     u16 source_of[kGifDimensionMaximum];
     u32 stream = 0;
-    constexpr u32 starts[4] = {0, 4, 2, 1};
-    constexpr u32 steps[4] = {8, 8, 4, 2};
+    static constexpr u32 starts[4] = {0, 4, 2, 1};
+    static constexpr u32 steps[4] = {8, 8, 4, 2};
     for (u32 pass = 0; pass < 4; ++pass) {
         for (u32 row = starts[pass]; row < height; row += steps[pass]) {
             source_of[row] = static_cast<u16>(stream++);
@@ -251,7 +250,7 @@ bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* pal
     if (!palette_bounds(encoded, offset, count)) {
         return false;
     }
-    *palette = GifPalette{};
+    reset_value<GifPalette>(palette);
     palette->count = static_cast<u16>(count);
     for (u32 index = 0; index < count; ++index) {
         const u8* color = encoded.data + offset + index * 3u;
@@ -406,7 +405,7 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
                 if (!skip_subblocks(encoded, &cursor, &result, nullptr)) {
                     return fail(result, GifError::truncated);
                 }
-                pending = PendingControl{};
+                reset_value<PendingControl>(&pending);
                 continue;
             }
             return fail(result, GifError::block);
@@ -468,7 +467,7 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
         if (image->frame_count == 0 && frame.dispose == GifDispose::previous) {
             frame.dispose = GifDispose::background;
         }
-        pending = PendingControl{};
+        reset_value<PendingControl>(&pending);
         if (cursor >= encoded.count) {
             return fail(result, GifError::truncated);
         }
@@ -500,9 +499,10 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
     return result;
 }
 
-GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
-                                        GifWorkspace* workspace, Slice<u8> indices) noexcept {
-    GifDecodeResult result{};
+void gif_decode_parsed_frame(GifDecodeResult* out, ConstSlice<u8> encoded, const GifImage& image,
+                             u32 frame_index, GifWorkspace* workspace, Slice<u8> indices) noexcept {
+    reset_value(out);
+    GifDecodeResult& result = *out;
     result.frame_index = frame_index;
     if (!workspace || image.frames != workspace->frames || (!encoded.data && encoded.count != 0) ||
         (!indices.data && indices.count != 0) || encoded.count > kGifEncodedMaximumBytes ||
@@ -510,8 +510,8 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
         image.frame_capacity > kGifFrameCapacity) {
         return decode_fail(result, GifError::invalid_input);
     }
-    const GifFrame frame = image.frames[frame_index];
-    result.frame = frame;
+    copy_value(&result.frame, image.frames[frame_index]);
+    const GifFrame& frame = result.frame;
     const u64 delay_us = static_cast<u64>(frame.delay_cs) * 10'000ull;
     result.duration_us = delay_us <= kGifShortFrameThresholdUs ? kGifShortFrameReplacementUs : delay_us;
     const u32 pixels = static_cast<u32>(frame.width) * frame.height;
@@ -547,6 +547,12 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
     if ((frame.flags & gif_frame_interlaced) != 0) {
         deinterlace_rows(indices.data, frame.width, frame.height);
     }
+}
+
+GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
+                                        GifWorkspace* workspace, Slice<u8> indices) noexcept {
+    GifDecodeResult result;
+    gif_decode_parsed_frame(&result, encoded, image, frame_index, workspace, indices);
     return result;
 }
 
@@ -559,7 +565,7 @@ GifDecodeResult gif_decode_frame(ConstSlice<u8> encoded, u32 frame_index, GifIma
         result.error = parsed.error;
         return result;
     }
-    result = gif_decode_parsed_frame(encoded, *image, frame_index, workspace, indices);
+    gif_decode_parsed_frame(&result, encoded, *image, frame_index, workspace, indices);
     result.parse = parsed;
     return result;
 }

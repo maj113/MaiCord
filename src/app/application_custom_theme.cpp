@@ -140,7 +140,7 @@ bool save(CustomThemeOwner& o) noexcept {
     return true;
 }
 Utf8View builtin_name(ClientTheme theme) noexcept {
-    constexpr Utf8View names[]{utf8_literal("Dark"),   utf8_literal("AMOLED"),
+    static constexpr Utf8View names[]{utf8_literal("Dark"),   utf8_literal("AMOLED"),
                                utf8_literal("Aurora"), utf8_literal("Sunset"),
                                utf8_literal("Ocean"),  utf8_literal("Custom gradient"),
                                utf8_literal("Light"),  utf8_literal("Custom light gradient")};
@@ -439,7 +439,7 @@ void application_custom_theme_poll() noexcept {
                     changed(*o);
                 }
             } else if (o->selecting) {
-                o->status = Utf8View{};
+                reset_value<Utf8View>(&o->status);
                 changed(*o);
             }
             o->selecting = false;
@@ -467,7 +467,7 @@ void application_custom_theme_poll() noexcept {
                 return;
             }
             o->applied = o->effective;
-            o->status = Utf8View{};
+            reset_value<Utf8View>(&o->status);
         } else if (completion.result.error != ClientThemeStorageError::missing)
             o->status =
                 utf8_literal("Couldn't load your saved theme. Using the default theme.");

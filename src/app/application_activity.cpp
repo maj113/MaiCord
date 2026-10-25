@@ -67,7 +67,7 @@ const PluginActivity* plugin_activity() noexcept {
 void reset() noexcept {
     const RegisteredGames games = g.games;
     const bool loaded = g.games_loaded;
-    g = {};
+    reset_value(&g);
     g.games = games;
     g.games_loaded = loaded;
 }
@@ -87,7 +87,7 @@ void load_games() noexcept {
         return;
     g.games_loaded = true;
     if (!registered_games_load(&g.games)) {
-        g.games = {};
+        reset_value(&g.games);
         log_write(LogLevel::warning, "activity", "registered_games_load_failed");
     }
 }
@@ -200,7 +200,7 @@ void application_activity_tick(u64 now_ms) noexcept {
     if (g.published_valid && gateway_local_presence_equal(g.published, local))
         return;
     if (g_app.account.api.local_presence(g_app.account.instance, &local, nullptr)) {
-        g.published = local;
+        copy_value(&g.published, local);
         g.published_valid = true;
         application_request_frame(); // Settings show the playing game.
     }
@@ -229,7 +229,7 @@ bool application_activity_set_plugin(u64 owner_id, const ApplicationPluginActivi
             slot = &candidate;
     if (!activity) {
         if (slot)
-            *slot = {};
+            reset_value(slot);
     } else {
         if (!activity->name.bytes || (activity->type != 0 && activity->type != 2 && activity->type != 3 &&
                                       activity->type != 5))
@@ -239,7 +239,7 @@ bool application_activity_set_plugin(u64 owner_id, const ApplicationPluginActivi
                 slot = &candidate;
         if (!slot)
             return false;
-        *slot = {};
+        reset_value(slot);
         slot->owner_id = owner_id;
         slot->sequence = ++g_plugin_activity_sequence;
         slot->type = activity->type;
@@ -332,7 +332,7 @@ bool application_activity_settings_project(SettingBinding binding, UiSettingsCon
             // A dropdown needs at least one option; with nothing running the
             // row is a plain hint.
             control->kind = UiSettingsControlKind::notice;
-            control->choices = {};
+            reset_value(&control->choices);
             control->description = utf8_literal("Open the game, then come back here to add it.");
             return true;
         }

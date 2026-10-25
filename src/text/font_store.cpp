@@ -1,4 +1,5 @@
 #include "maicord/text/font_store.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "font_path_stat.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -12,12 +13,12 @@ NativeFontFaceSlot* slot(const NativeFontStore& s,NativeFontHandle h) noexcept {
 void close(NativeFontFileSlot& f) noexcept {
     if(f.bytes.data)UnmapViewOfFile(f.bytes.data);
     if(f.file && f.file!=INVALID_HANDLE_VALUE)CloseHandle(f.file);
-    f={};
+    reset_value(&f);
 }
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
 }
 NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,u32 index,NativeFontHandle* output,NativeFontStoreGrow grow,void* context) noexcept {
-    if(output)*output={};
+    if(output)reset_value(output);
     if(!store||!valid(*store)||!path||!*path||!output)return result(NativeFontError::invalid_input);
     NativeFontFileSlot opened{};
     struct Cleanup {NativeFontFileSlot& f;~Cleanup() noexcept {close(f);}} cleanup{opened};
@@ -63,7 +64,7 @@ NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,
     if(status==SfntStatus::ok)status=font_geometry_open(face,&prepared.geometry);
     if(status==SfntStatus::ok)status=sfnt_cmap_open(face,&prepared.cmap);
     if(status!=SfntStatus::ok)return result(NativeFontError::font,status);
-    if(new_file){file_index=free_file;store->files[file_index]=opened;opened={};}
+    if(new_file){file_index=free_file;store->files[file_index]=opened;reset_value(&opened);}
     auto& target=store->faces[free_face];target.face=prepared;target.file_slot=file_index;target.references=1;++target.generation;
     ++store->files[file_index].faces;*output={free_face+1,target.generation};return result(NativeFontError::none);
 }
@@ -73,7 +74,7 @@ bool native_font_retain(NativeFontStore* s,NativeFontHandle h) noexcept {
 bool native_font_release(NativeFontStore* s,NativeFontHandle h) noexcept {
     if(!s)return false;auto* f=slot(*s,h);if(!f)return false;
     if(--f->references)return true;
-    auto& file=s->files[f->file_slot];const u32 generation=f->generation;*f={};f->generation=generation;
+    auto& file=s->files[f->file_slot];const u32 generation=f->generation;reset_value(f);f->generation=generation;
     if(!--file.faces)close(file);return true;
 }
 const NativeFontFace* native_font_get(const NativeFontStore& s,NativeFontHandle h) noexcept {

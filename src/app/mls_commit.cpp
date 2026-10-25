@@ -72,7 +72,7 @@ MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor
     if (!context.serialized.data || context.epoch == ~u64{0} || path.count > kMlsMaxUpdatePathBytes ||
         !message.data || !context_output.data)
         return MlsStatus::invalid_argument;
-    *authored = {};
+    reset_value(authored);
     bool path_required = false;
     auto status = validate_authored_proposals(context, sender_leaf, proposals, &path_required);
     if (status != MlsStatus::ok)
@@ -251,7 +251,7 @@ MlsStatus mls_commit_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const 
     if (!input.data || !commit || !sender.signature_key || !sender.membership_key || !input.count ||
         input.count > kMlsMaxCommitBytes || !context.serialized.data || !context.group_id_bytes)
         return MlsStatus::invalid_argument;
-    *commit = {};
+    reset_value(commit);
     MlsCommit candidate{};
     MlsReader reader{input};
     const auto version = reader.integer(2);
@@ -350,7 +350,7 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
         !buffers.merged_tree.data || !message.data || !buffers.next_context.data ||
         (!proposals.data && proposals.count) || (reinterpret_cast<usize>(buffers.scratch.data) & 3))
         return MlsStatus::invalid_argument;
-    *local = {};
+    reset_value(local);
     if (const auto status = check_current(kdf, current); status != MlsStatus::ok)
         return status;
     const u32 core = mls_commit_scratch_bytes(current.tree, proposals, false);
@@ -462,7 +462,7 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
         commit.group_id != current.context.group_id || commit.epoch != current.context.epoch ||
         (reinterpret_cast<usize>(buffers.scratch.data) & 3))
         return MlsStatus::invalid_argument;
-    *successor = {};
+    reset_value(successor);
     if (const auto status = check_current(kdf, current); status != MlsStatus::ok)
         return status;
     const u32 required = mls_commit_scratch_bytes(current.tree, proposals, false);

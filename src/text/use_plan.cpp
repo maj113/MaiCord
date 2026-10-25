@@ -1,4 +1,5 @@
 #include "maicord/text/use_plan.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/text/base.hpp"
 #include "layout_language.hpp"
@@ -124,7 +125,7 @@ template<bool khmer> struct Builder {
 };
 template<Profile profile> SfntStatus plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,bool modern=true) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
     Builder<profile==Profile::khmer> builder{layout,variations,independent,scratch,output,*result,work,modern,profile};
     const auto status=builder.run();result->operations=work-builder.work;return status;

@@ -1,4 +1,5 @@
 #include "maicord/ui/text_measure_cache.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -57,7 +58,7 @@ bool ui_text_measure_cache_initialize(UiTextMeasureCache* cache, Slice<UiTextMea
         storage.count % kUiTextMeasureCacheWays != 0 || !backend) {
         return false;
     }
-    *cache = UiTextMeasureCache{};
+    reset_value<UiTextMeasureCache>(cache);
     cache->storage = storage;
     cache->backend = backend;
     cache->backend_context = backend_context;

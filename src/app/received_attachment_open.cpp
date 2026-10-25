@@ -1,4 +1,5 @@
 #include "maicord/app/received_attachment_open.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/protocol/writer.hpp"
 
@@ -36,7 +37,7 @@ ReceivedAttachmentOpenResult resolve(ReceivedAttachmentOpen& intent, Utf8View so
     const auto url = media_url_resolve(resolver, source, now_ms, now_seconds, intent.force_refresh);
     if (url.bytes) {
         const bool valid = url_valid(intent.identity, url);
-        intent = {};
+        reset_value(&intent);
         if (!valid)
             return ReceivedAttachmentOpenResult::invalid;
         *output = url;
@@ -47,16 +48,16 @@ ReceivedAttachmentOpenResult resolve(ReceivedAttachmentOpen& intent, Utf8View so
         intent.pending = true;
         return ReceivedAttachmentOpenResult::pending;
     }
-    intent = {};
+    reset_value(&intent);
     return ReceivedAttachmentOpenResult::failed;
 }
 } // namespace
 ReceivedAttachmentOpenResult received_attachment_open_begin(
     ReceivedAttachmentOpen* intent, const ReceivedAttachmentOpenIdentity& id, Utf8View source,
     MediaUrlResolver* resolver, u64 now_ms, u64 now_seconds, Utf8View* output, bool force_refresh) noexcept {
-    if (output) *output = {};
+    if (output) reset_value(output);
     if (!intent) return ReceivedAttachmentOpenResult::invalid;
-    *intent = {};
+    reset_value(intent);
     if (!output || !resolver || !url_valid(id, source)) return ReceivedAttachmentOpenResult::invalid;
     intent->identity = id;
     intent->source_fingerprint = hash64_bytes(kHash64Seed, source.data, source.bytes);
@@ -80,16 +81,16 @@ ReceivedAttachmentOpenResult received_attachment_open_begin(
 ReceivedAttachmentOpenResult received_attachment_open_resume(
     ReceivedAttachmentOpen* intent, const ReceivedAttachmentOpenIdentity& id, Utf8View source,
     MediaUrlResolver* resolver, u64 now_ms, u64 now_seconds, Utf8View* output) noexcept {
-    if (output) *output = {};
+    if (output) reset_value(output);
     if (!intent || !output || !resolver) return ReceivedAttachmentOpenResult::invalid;
     if (!intent->pending) return ReceivedAttachmentOpenResult::none;
     if (!same(intent->identity, id) || !url_valid(id, source) ||
         intent->source_fingerprint != hash64_bytes(kHash64Seed, source.data, source.bytes)) {
-        *intent = {};
+        reset_value(intent);
         return ReceivedAttachmentOpenResult::stale;
     }
     if (intent->force_refresh && media_url_resolution_state(*resolver, source) == MediaUrlState::empty) {
-        *intent = {};
+        reset_value(intent);
         return ReceivedAttachmentOpenResult::failed;
     }
     return resolve(*intent, source, resolver, now_ms, now_seconds, output);

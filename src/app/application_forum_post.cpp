@@ -139,7 +139,7 @@ void forum_publish(ForumOwner& owner, ForumPhase phase, Utf8View status = {}, bo
 void forum_draft_changed(ForumOwner& owner) noexcept {
     if (owner.phase == ForumPhase::editing && owner.error) {
         owner.error = false;
-        owner.status = {};
+        reset_value(&owner.status);
     }
     ++owner.draft_revision;
     ++owner.revision;
@@ -463,7 +463,7 @@ bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) no
     owner.serial = ++forum_serial;
     owner.publication = ++forum_publication;
     owner.title_bytes = owner.body_bytes = owner.selected_count = 0;
-    owner.metadata = {};
+    reset_value(&owner.metadata);
     owner.metadata_ready = false;
     owner.known_created = 0;
     owner.known_media = false;
@@ -707,7 +707,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
         return false;
     }
     ForumFlight admitted{};
-    admitted.source = owner.source;
+    copy_value(&admitted.source, owner.source);
     admitted.request = request;
     admitted.id = id;
     admitted.serial = owner.serial;
@@ -787,7 +787,7 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
     } else if (flight.request.operation == ForumOperation::attachment_url) {
         flight.request.upload_filename = {flight.upload_filename, flight.request.upload_filename.bytes};
     }
-    owner.flight = {};
+    reset_value(&owner.flight);
     const auto now = clock_monotonic_milliseconds();
     const bool limited = response.rate_limited || response.status_code == 429;
     if (forum_actor_current(flight.source) && limited)

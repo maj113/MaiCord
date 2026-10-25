@@ -1,4 +1,5 @@
 #include "maicord/text/gpos_ligature_execute.hpp"
+#include "maicord/core/memory.hpp"
 #include "position_anchor.hpp"
 namespace maicord {namespace {
 bool integral(double value) noexcept {
@@ -13,7 +14,7 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
                                                   u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy policy,
                                                   SfntComponentAnchorPolicy component_policy,Slice<double> prefix,SfntLigatureExecution* out,
                                                   u64 work,SfntAnchorPointResolver resolver,void* context,SfntPositionApplication application) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};const u32 count=sfnt_glyph_count(glyphs);
+    if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || nominal.count<count || associations.count<count || positions.count<count || (count && (!nominal.data || !associations.data || !positions.data)) || (targets.count && !targets.data) || (prefix.count && !prefix.data) || static_cast<u8>(policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
     if(selected && start<end)end=start+1;

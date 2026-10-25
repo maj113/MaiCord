@@ -515,7 +515,7 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     }
     if (event->kind == GatewayClientEventKind::ready) {
         if (g_app.account_ui)
-            g_app.account_ui->author_hydration = {};
+            reset_value(&g_app.account_ui->author_hydration);
         thread_member_list_subscription_complete(&g_app.thread_member_list_subscription);
         if (g_app.account_ui && g_app.account_ui->member_list.authoritative &&
             g_app.account_ui->member_list.count)
@@ -532,16 +532,16 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
         // Discard ownership of old-session history results while still draining
         // their REST response normally. A same-channel restoration must not let
         // an old catchup completion clear the new READY's resync requirement.
-        g_app.message_catchup = {};
-        g_app.message_older = {};
-        g_app.attachment_refresh = {};
-        g_app.reply_refresh = {};
+        reset_value(&g_app.message_catchup);
+        reset_value(&g_app.message_older);
+        reset_value(&g_app.attachment_refresh);
+        reset_value(&g_app.reply_refresh);
     }
     if (event->kind == GatewayClientEventKind::ready || event->kind == GatewayClientEventKind::resumed) {
         application_trace_load_stage(event->kind == GatewayClientEventKind::ready
                                          ? "gateway_ready_received"
                                          : "gateway_resumed_received");
-        g_app.member_list_identity = {};
+        reset_value(&g_app.member_list_identity);
         // The official client rewrites its subscriptions on READY and RESUMED; a
         // fresh session keeps only the guild on screen.
         member_list_channel_memory_connection(
@@ -703,7 +703,7 @@ void application_prepare_account_stop() noexcept {
     g_app.context_focus = logout_focus;
     renderer_bind_focus_owner(&g_app.renderer, logout_focus);
     ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.member_list_identity = {};
+    reset_value(&g_app.member_list_identity);
     g_app.member_list_scene.restore_channel_id = 0;
     member_list_subscription_complete(&g_app.member_list_subscription);
     thread_member_list_subscription_complete(&g_app.thread_member_list_subscription);
@@ -803,7 +803,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     g_app.login.remote_restart_at_ms = 0;
     g_app.login.remote_user_bytes = 0;
     clear_bytes(g_app.login.remote_user, sizeof(g_app.login.remote_user));
-    g_app.login.qr_code = {};
+    reset_value(&g_app.login.qr_code);
     g_app.login.reset_mode = false;
     g_app.login.reset_retry = false;
     g_app.login.webauthn_post_epoch = 0;
@@ -1011,7 +1011,7 @@ void application_account_prestart_cancel() noexcept {
         application_account_stop_observed(stopped, true);
         application_account_module_release();
     }
-    early = {};
+    reset_value(&early);
 }
 
 bool application_account_prestart_pending() noexcept {
@@ -1022,7 +1022,7 @@ bool application_account_attach_if_present() noexcept {
     application_account_switch_initialize();
     AccountEarlyStart& early = g_early_start;
     if (early.failed) {
-        early = {};
+        reset_value(&early);
         return true;
     }
     if (early.instance) {
@@ -1042,7 +1042,7 @@ bool application_account_attach_if_present() noexcept {
         early.instance = nullptr;
         application_plugins_account_scope_invalidated();
         publish_started_account(early.paths, early.started);
-        early = {};
+        reset_value(&early);
         return true;
     }
     AccountPaths paths{};

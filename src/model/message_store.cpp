@@ -163,7 +163,7 @@ bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records,
         !order.data || order.count != records.count || !text.data || text.count == 0) {
         return false;
     }
-    *store = MessageStore{};
+    reset_value<MessageStore>(store);
     store->records = records.data;
     store->order = order.data;
     store->text = text.data;
@@ -171,7 +171,7 @@ bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records,
     store->text_capacity = text.count;
     store->text_committed = text.count;
     for (u32 index = 0; index < records.count; ++index) {
-        records[index] = MessageRecord{};
+        reset_value<MessageRecord>(&records[index]);
         order[index] = ~0u;
     }
     return true;
@@ -279,7 +279,7 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
     store->order[order_index] = slot;
     MessageRecord& record = store->records[slot];
     const u16 generation = next_generation(record.generation);
-    record = MessageRecord{};
+    reset_value<MessageRecord>(&record);
     record.id = input.id;
     assign_metadata(record, input);
     record.content_offset = store->text_used;

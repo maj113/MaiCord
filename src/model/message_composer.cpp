@@ -156,7 +156,7 @@ bool message_composer_initialize(MessageComposer* composer, Slice<char> storage)
         storage.count > kMessageComposerMaximumBytes) {
         return false;
     }
-    *composer = MessageComposer{};
+    reset_value<MessageComposer>(composer);
     composer->text = storage.data;
     composer->document_identity = 1;
     composer->capacity = storage.count;
@@ -171,7 +171,7 @@ bool message_composer_initialize_owned(MessageComposer* composer, u32 capacity) 
         capacity > kMessageComposerMaximumBytes) {
         return false;
     }
-    *composer = MessageComposer{};
+    reset_value<MessageComposer>(composer);
     if (!arena_initialize(&composer->owned_storage, capacity, 0, 4 * 1024)) {
         return false;
     }
@@ -179,7 +179,7 @@ bool message_composer_initialize_owned(MessageComposer* composer, u32 capacity) 
     composer->text = arena_allocate<char>(&composer->owned_storage, capacity);
     if (!composer->text) {
         arena_release(&composer->owned_storage);
-        *composer = MessageComposer{};
+        reset_value<MessageComposer>(composer);
         return false;
     }
     composer->capacity = capacity;
@@ -197,7 +197,7 @@ void message_composer_release(MessageComposer* composer) noexcept {
         arena_reset(&composer->owned_storage, ArenaRewindMode::erase);
         arena_release(&composer->owned_storage);
     }
-    *composer = MessageComposer{};
+    reset_value<MessageComposer>(composer);
 }
 bool message_composer_enable_history(MessageComposer* composer, u32 budget) noexcept {
     if (!composer || !composer->text) return false;
@@ -281,7 +281,7 @@ bool message_composer_refresh_borrowed(MessageComposer* composer, u32 bytes) noe
     while (composer->caret && composer->caret < bytes &&
            (static_cast<u8>(composer->text[composer->caret]) & 0xC0u) == 0x80u)
         --composer->caret;
-    composer->atomic_spans = {};
+    reset_value(&composer->atomic_spans);
     composer->atomic_revision = 0;
     composer->pending_high_surrogate = 0;
     composer->nonce = composer->retry_at_ms = 0;

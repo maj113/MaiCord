@@ -306,7 +306,7 @@ UserAuthDecodeResult classify_response(u16 status_code, Utf8View body, Slice<u32
                                        UserAuthResponse* output, bool recovery = false, u8 reset_mode = 0,
                                        u8 phone_mode = 0) noexcept {
     if (output) {
-        *output = UserAuthResponse{};
+        reset_value<UserAuthResponse>(output);
     }
     if (!output || status_code < 200 || status_code > 599 || !body.data || body.bytes == 0 ||
         !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0) {
@@ -793,7 +793,7 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     UserAuthResponse parsed{};
     const UserAuthDecodeResult classified =
         classify_response(status_code, body, structural_scratch, maximum_depth, &context, &parsed, false, reset_mode, phone_mode);
-    *output = UserAuthResponse{};
+    reset_value<UserAuthResponse>(output);
     if (!classified.ok())
         return classified;
 
@@ -1049,7 +1049,7 @@ UserAuthDecodeResult user_auth_decode_browser_handoff_response(u16 status_code, 
     Slice<u32> scratch, u32 maximum_depth, UserAuthResponseStorage storage, UserAuthResponse* output) noexcept {
     if (!reset_ranges_valid(body, scratch, storage, output))
         return decode_failure(UserAuthDecodeError::invalid_input);
-    *output = {};
+    reset_value(output);
     if (!body.data || !body.bytes || body.bytes > kUserAuthBrowserExchangeMaximumResponseBytes ||
         !scratch.data || !scratch.count || !maximum_depth || status_code < 200 || status_code > 599)
         return decode_failure(UserAuthDecodeError::invalid_input);
@@ -1100,7 +1100,7 @@ UserAuthDecodeResult user_auth_decode_phone_response(u16 status_code, Utf8View b
     if (!reset_ranges_valid(body, structural_scratch, storage, output))
         return decode_failure(UserAuthDecodeError::invalid_input);
     if (!verify && status_code >= 200 && status_code < 300 && !body.bytes) {
-        *output = {}; output->kind = UserAuthResponseKind::phone_code_sent;
+        reset_value(output); output->kind = UserAuthResponseKind::phone_code_sent;
         return decode_failure(UserAuthDecodeError::none);
     }
     return decode_response_impl(status_code, body, structural_scratch, maximum_depth, storage, output, 0, verify ? 2 : 1);
@@ -1110,7 +1110,7 @@ UserAuthDecodeResult user_auth_decode_recovery_response(u16 status_code, Utf8Vie
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output) noexcept {
     if (!output) return decode_failure(UserAuthDecodeError::invalid_input);
-    *output = {};
+    reset_value(output);
     if (status_code >= 200 && status_code < 300) {
         ResponseContext context{};
         UserAuthResponse parsed{};
@@ -1122,12 +1122,12 @@ UserAuthDecodeResult user_auth_decode_recovery_response(u16 status_code, Utf8Vie
         return result;
     }
     // Error/challenge schema is shared; recovery never copies an account token.
-    storage.token = {};
+    reset_value(&storage.token);
     const auto result = user_auth_decode_response(status_code, body, structural_scratch,
         maximum_depth, storage, output);
     if (!result.ok()) return result;
     if (output->kind != UserAuthResponseKind::rejected && output->kind != UserAuthResponseKind::captcha_required) {
-        *output = {};
+        reset_value(output);
         return decode_failure(UserAuthDecodeError::unexpected_response);
     }
     output->user_id = 0; output->has_user_id = false; output->mfa_capabilities = 0;

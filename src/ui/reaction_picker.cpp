@@ -55,7 +55,7 @@ bool storage_valid(const ReactionPickerModel* picker) noexcept {
 
 bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state,
                         MessageComposer* borrowed_search) noexcept {
-    *picker = ReactionPickerModel{};
+    reset_value<ReactionPickerModel>(picker);
     if (!arena_initialize(&picker->storage, kReactionPickerStorageBytes, 0, 4 * 1024)) {
         return false;
     }
@@ -79,7 +79,7 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
     picker->guild_count = 0;
     if (!picker->custom_order || !picker->guilds) {
         arena_release(&picker->storage);
-        *picker = ReactionPickerModel{};
+        reset_value<ReactionPickerModel>(picker);
         return false;
     }
     return true;
@@ -211,7 +211,7 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
         if (!valid || !count)
             continue;
         auto& target = picker->guilds[picker->guild_count++];
-        target = {};
+        reset_value(&target);
         target.id = guild->id;
         target.icon_variant = guild->icon_variant;
         target.custom_first = first;
@@ -461,7 +461,7 @@ void reaction_picker_release(ReactionPickerModel* picker) noexcept {
     if (picker->search && !picker->search_borrowed)
         message_composer_release(picker->search);
     arena_release(&picker->storage);
-    *picker = ReactionPickerModel{};
+    reset_value<ReactionPickerModel>(picker);
 }
 
 ReactionPickerResult reaction_picker_refresh_search(ReactionPickerModel* picker) noexcept {
@@ -498,7 +498,7 @@ ReactionPickerResult reaction_picker_toggle_section(ReactionPickerModel* picker,
 namespace {
 bool resolve_result(const ReactionPickerModel& picker, u32 result, ReactionPickerSelection* selection,
                     Utf8View* label) noexcept {
-    *selection = ReactionPickerSelection{};
+    reset_value<ReactionPickerSelection>(selection);
     if ((result & kReactionPickerCustomResult) != 0) {
         const auto* found = custom_emoji(picker, result & ~kReactionPickerCustomResult);
         if (!found) {

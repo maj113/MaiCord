@@ -1,4 +1,5 @@
 #include "maicord/ui/search_filter_context.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/ascii.hpp"
 
@@ -122,7 +123,7 @@ UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 c
         candidate.value_begin = value_begin;
         candidate.value_end = at;
         if (!decode(query, caret, candidate)) return {};
-        result = candidate;
+        copy_value(&result, candidate);
     }
     if (result.kind == UiSearchFilterKind::none) return {};
     const auto index = static_cast<u8>(result.kind);

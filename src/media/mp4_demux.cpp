@@ -1,4 +1,5 @@
 #include "maicord/media/mp4_demux.hpp"
+#include "maicord/core/memory.hpp"
 #include "mp4_demux_detail.hpp"
 #include "maicord/core/byte_range.hpp"
 
@@ -384,7 +385,7 @@ Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
         byte_ranges_overlap(encoded,{reinterpret_cast<const u8*>(demuxer),sizeof(*demuxer)})) {
         return Mp4DemuxError::invalid_input;
     }
-    *demuxer = Mp4Demuxer{};
+    reset_value<Mp4Demuxer>(demuxer);
     if (encoded.count>(availability.available?kMediaMaximumProgressiveVideoBytes:kMp4DemuxMaximumEncodedBytes))
         return Mp4DemuxError::unsupported;
     demuxer->encoded = encoded;
@@ -582,33 +583,33 @@ bool sample_key_less(i64 pts,u32 index,i64 bound_pts,u32 bound_index) noexcept {
 }
 
 Mp4DemuxError seek_sync(Mp4Demuxer* d,i64 target,Mp4SeekPoint* point,SyncClassifier classify) noexcept {
-    Mp4Demuxer scan=*d,selected{};mp4_demux_reset(&scan);
+    Mp4Demuxer scan,selected{};copy_value(&scan,*d);mp4_demux_reset(&scan);
     const Mp4SourceAvailability availability=scan.availability;
-    scan.availability={};
+    reset_value(&scan.availability);
     Mp4SeekPoint result{};bool found=false;
     if(!availability.available){
-        while(scan.sample_index<scan.sample_count){const auto before=scan;const auto unit=mp4_demux_next(&scan);
+        while(scan.sample_index<scan.sample_count){Mp4Demuxer before;copy_value(&before,scan);const auto unit=mp4_demux_next(&scan);
             if(!unit.ok())return unit.error;
             if(!unit.sync||unit.presentation_time_us_signed>target)continue;
             const auto kind=classify(unit.bytes,d->nal_length_bytes);
             if(kind==SyncKind::malformed)return Mp4DemuxError::malformed;
             if(kind==SyncKind::unsupported)return Mp4DemuxError::unsupported;
             if(kind==SyncKind::random_access&&(!found||unit.presentation_time_us_signed>=result.presentation_time_us)){
-                selected=before;result={unit.sample_index,unit.decode_time_us,unit.presentation_time_us_signed};found=true;}
+                copy_value(&selected,before);result={unit.sample_index,unit.decode_time_us,unit.presentation_time_us_signed};found=true;}
         }
     }else{
         // Payloads may be absent: classify only the best remaining candidate,
         // ordered by (pts, sample index) exactly as the complete scan selects.
         i64 bound_pts=0x7fffffffffffffffll;u32 bound_index=~0u;
         for(u32 attempt=0;attempt<64&&!found;++attempt){
-            Mp4Demuxer cursor=scan,best_before{};Mp4AccessUnit best{};bool any=false;
-            while(cursor.sample_index<cursor.sample_count){const auto before=cursor;const auto unit=mp4_demux_next(&cursor);
+            Mp4Demuxer cursor,best_before{};copy_value(&cursor,scan);Mp4AccessUnit best{};bool any=false;
+            while(cursor.sample_index<cursor.sample_count){Mp4Demuxer before;copy_value(&before,cursor);const auto unit=mp4_demux_next(&cursor);
                 if(!unit.ok())return unit.error;
                 if(!unit.sync||unit.presentation_time_us_signed>target||
                     !sample_key_less(unit.presentation_time_us_signed,unit.sample_index,bound_pts,bound_index))continue;
                 if(!any||!sample_key_less(unit.presentation_time_us_signed,unit.sample_index,
                                           best.presentation_time_us_signed,best.sample_index)){
-                    best=unit;best_before=before;any=true;}
+                    best=unit;copy_value(&best_before,before);any=true;}
             }
             if(!any)return Mp4DemuxError::unsupported;
             const u64 offset=static_cast<u64>(best.bytes.data-d->encoded.data);
@@ -617,13 +618,13 @@ Mp4DemuxError seek_sync(Mp4Demuxer* d,i64 target,Mp4SeekPoint* point,SyncClassif
             if(kind==SyncKind::malformed)return Mp4DemuxError::malformed;
             if(kind==SyncKind::unsupported)return Mp4DemuxError::unsupported;
             if(kind==SyncKind::random_access){
-                selected=best_before;result={best.sample_index,best.decode_time_us,best.presentation_time_us_signed};found=true;}
+                copy_value(&selected,best_before);result={best.sample_index,best.decode_time_us,best.presentation_time_us_signed};found=true;}
             bound_pts=best.presentation_time_us_signed;bound_index=best.sample_index;
         }
     }
     if(!found)return Mp4DemuxError::unsupported;
     selected.availability=availability;
-    *d=selected;*point=result;return Mp4DemuxError::none;
+    copy_value(d,selected);*point=result;return Mp4DemuxError::none;
 }
 
 } // namespace mp4_demux_detail
@@ -784,10 +785,10 @@ bool mp4_demux_available(const Mp4Demuxer& d,ConstSlice<u8> bytes) noexcept {
 }
 Mp4AccessUnit mp4_demux_next_ready(Mp4Demuxer* d) noexcept {
     if(!d)return mp4_demux_next(d);
-    Mp4Demuxer cursor=*d;
+    Mp4Demuxer cursor;copy_value(&cursor,*d);
     auto unit=mp4_demux_next(&cursor);
     if(unit.ok()&&!mp4_demux_available(*d,unit.bytes)){unit.error=Mp4DemuxError::data_pending;return unit;}
-    *d=cursor;
+    copy_value(d,cursor);
     return unit;
 }
 

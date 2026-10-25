@@ -1,4 +1,5 @@
 #include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/list_navigation.hpp"
@@ -190,7 +191,7 @@ bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget
         !layout_storage.data) {
         return false;
     }
-    *scene = GuildRailScene{};
+    reset_value<GuildRailScene>(scene);
     scene->rows = row_storage;
     scene->root = ui_widget_invalid_handle();
     return ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage);
@@ -324,7 +325,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         GuildRailIndicator indicator{};
         for (u32 k = 0; k < kept; ++k)
             if (indicator_ids[k] == source.id)
-                indicator = indicators[k];
+                copy_value(&indicator, indicators[k]);
         scene->rows[local] = GuildRailRowWidget{source, added.handle, index, indicator, reveal};
     });
     if (!added_all) {

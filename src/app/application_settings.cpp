@@ -582,7 +582,7 @@ void project(ApplicationSettings& settings) noexcept {
         for (u32 i = 0; i < kSettingsSearchPage; ++i) {
             if (settings.content[i].controls.count)
                 changed[i] = true;
-            settings.content[i].controls = {};
+            reset_value(&settings.content[i].controls);
             settings.content[i].presentation = nullptr;
             settings.content[i].meters = nullptr;
             settings.content[i].avatar_media = nullptr;
@@ -762,7 +762,7 @@ UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, Utf8View
         return media;
     }
     // "embed/avatars/{n}.png", as the profile card requests it.
-    constexpr char prefix[] = "embed/avatars/";
+    static constexpr char prefix[] = "embed/avatars/";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
     const u32 index = discriminator ? discriminator % 5u : static_cast<u32>((user_id >> 22) % 6u);
     copy_bytes(media.hash, prefix, prefix_bytes);
@@ -770,7 +770,7 @@ UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, Utf8View
     copy_bytes(media.hash + prefix_bytes + 1, ".png", 4);
     media.hash_bytes = static_cast<u8>(prefix_bytes + 5);
     char url[64];
-    constexpr char host[] = "https://cdn.discordapp.com/";
+    static constexpr char host[] = "https://cdn.discordapp.com/";
     copy_bytes(url, host, sizeof(host) - 1);
     copy_bytes(url + sizeof(host) - 1, media.hash, media.hash_bytes);
     media.key = media_asset_embed(hash64_bytes(kHash64Seed, url, sizeof(host) - 1 + media.hash_bytes), 1, 0,
@@ -812,7 +812,7 @@ void finish_signed_out() noexcept {
     if (!g_signed_out.ending)
         return;
     const bool release = g_signed_out.created_runtime && !g_app.account.instance && g_app.login.visible;
-    g_signed_out = {};
+    reset_value(&g_signed_out);
     if (release)
         application_release_account_ui(g_app);
     if (!application_login_view_suspend(false))
@@ -985,13 +985,13 @@ bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) no
 }
 void close_choice() noexcept {
     if (g_app.settings)
-        g_app.settings->choice = {};
+        reset_value(&g_app.settings->choice);
     if (g_app.popup_owner_kind != PopupOwnerKind::settings_choice)
         return;
     const u32 count = minimum(g_app.popup_scene.item_count, g_app.popup_scene.items.count);
     popup_scene_close(&g_app.popup_scene);
     for (u32 index = 0; index < count; ++index)
-        g_app.popup_scene.items[index] = {};
+        reset_value(&g_app.popup_scene.items[index]);
     g_app.popup_owner_kind = PopupOwnerKind::none;
     g_app.renderer.retained_presentation.valid = false;
 }
@@ -1639,7 +1639,7 @@ void application_settings_cancel_pointer() noexcept {
     }
     release_slider_theme(*settings);
     close_choice();
-    settings->pressed = {};
+    reset_value(&settings->pressed);
     settings->pressed_plugin = false;
     settings->slider_dragging = false;
     settings->search_selecting = false;
@@ -1785,7 +1785,7 @@ void application_media_auth_poll() noexcept {
 void application_media_auth_shutdown() noexcept {
     auto& account = g_spotify_account;
     if (oauth_sign_in_stop(&account.sign_in, 1000)) {
-        account.checked = false; account.saved = false; account.message = {};
+        account.checked = false; account.saved = false; reset_value(&account.message);
         account.stopping = false;
     }
 }
@@ -1912,7 +1912,7 @@ void application_settings_close(bool restore_focus) noexcept {
     const bool composer = settings->previous_composer_focus;
     if (GetCapture() == g_app.window)
         ReleaseCapture();
-    settings->pressed = {};
+    reset_value(&settings->pressed);
     settings->notifications_active = false;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
@@ -1997,7 +1997,7 @@ bool application_settings_synchronize() noexcept {
         return true;
     if (g_signed_out.active && !g_app.login.visible) {
         // Signed in while Settings was open: the account owns the runtime now.
-        g_signed_out = {};
+        reset_value(&g_signed_out);
         ui_settings_scene_set_presentation(&settings->scene, UiSettingsPresentation::modal);
         if (!application_login_view_suspend(false))
             log_write(LogLevel::warning, "ui", "login_view_resume_failed");
@@ -2098,11 +2098,11 @@ void application_settings_plugin_catalog_unbind() noexcept {
     if (!g_app.settings)
         return;
     auto& settings = *g_app.settings;
-    settings.pressed = {};
+    reset_value(&settings.pressed);
     settings.pressed_plugin = false;
     for (auto& control : settings.controls)
-        control = {};
-    settings.content[kPluginsPage - 1].controls = {};
+        reset_value(&control);
+    reset_value(&settings.content[kPluginsPage - 1].controls);
     ++settings.content[kPluginsPage - 1].revision;
 }
 bool application_settings_plugin_catalog_reopen() noexcept {
@@ -2497,7 +2497,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 search_point(*settings, x, y, true);
             else if (message == WM_LBUTTONUP) {
                 settings->search_selecting = false;
-                settings->pressed = {};
+                reset_value(&settings->pressed);
                 ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {});
                 if (GetCapture() == g_app.window)
                     ReleaseCapture();
@@ -2619,9 +2619,9 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 hit.kind == UiSettingsTargetKind::control && hit.page.owner_id != kNativeSettingsOwner;
             if (settings->pressed_plugin &&
                 !native_plugin_host_settings_token(&settings->plugins, hit.page, &settings->pressed_token).ok())
-                settings->pressed = {};
+                reset_value(&settings->pressed);
             if (GetCapture() != g_app.window) {
-                settings->pressed = {};
+                reset_value(&settings->pressed);
                 if (ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {}).changed)
                     application_request_frame();
             }
@@ -2632,7 +2632,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             const u32 revision = settings->pressed_revision;
             const u64 catalog_revision = settings->pressed_catalog_revision;
             const u64 serial = settings->pressed_account_serial, profile = settings->pressed_profile;
-            settings->pressed = {};
+            reset_value(&settings->pressed);
             settings->pressed_plugin = false;
             if (GetCapture() == g_app.window)
                 ReleaseCapture();

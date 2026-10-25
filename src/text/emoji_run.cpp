@@ -1,4 +1,5 @@
 #include "maicord/text/emoji_run.hpp"
+#include "maicord/core/memory.hpp"
 #include "run_profile.hpp"
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/base.hpp"
@@ -48,7 +49,7 @@ SfntStatus finish_controls(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u
 }
 }
 SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,Arena* state,Arena* scratch,NativeEmojiPlan* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     NativePlanSource source{};auto status=native_plan_source(store,run,false,state,scratch,source);if(status!=SfntStatus::ok)return status;
     const auto* parent=source.parent;const auto* instance=source.instance;const auto* font=source.font;
     ArenaScope saved_state{state,arena_mark(state)},saved_scratch{scratch,arena_mark(scratch)};NativeEmojiPlan plan{};plan.run=run;plan.cmap=&font->cmap;
@@ -58,7 +59,7 @@ SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }
 SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPlan& prepared,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool coverage,bool rtl,bool arabic) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};u32 em_bits=0;copy_bytes(&em_bits,&em,4);const auto* parent=native_run_plan_get(store,prepared.run);
+    if(!out)return SfntStatus::invalid_input;reset_value(out);u32 em_bits=0;copy_bytes(&em_bits,&em,4);const auto* parent=native_run_plan_get(store,prepared.run);
     if(!parent||!prepared.cmap||!valid(prepared.substitution_roots)||!valid(prepared.positioning_roots)||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||!valid(s.mapped)||!valid(s.glyphs)||!valid(s.placements)||!valid(s.character_glyphs)||
        !valid(s.shaping.advances)||!valid(s.shaping.targets))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;u32 mapped=0,units=0,boundaries=0;bool controls=false,simple=true;u16 misses[4]{};u32 cached=0,next_miss=0;u64 proof_work=limits.stage_work;

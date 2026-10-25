@@ -1,4 +1,5 @@
 #include "maicord/app/animation_visual_runtime.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {
@@ -24,7 +25,7 @@ bool animation_visual_runtime_initialize(
         runtime->buckets.arena.base || runtime->visual_storage.arena.base) {
         return false;
     }
-    *runtime = AnimationVisualRuntime{};
+    reset_value<AnimationVisualRuntime>(runtime);
     if (!stable_storage_initialize(
             &runtime->entries, kAnimationVisualMaximumCapacity,
             kAnimationVisualInitialCapacity, sizeof(AnimationTimelineEntry),
@@ -116,10 +117,10 @@ void animation_visual_runtime_reset(AnimationVisualRuntime* runtime) noexcept {
     }
     animation_timeline_reset(&runtime->timeline);
     for (u32 index = 0; index < runtime->visual_storage.capacity; ++index) {
-        runtime->visuals[index] = AnimationVisualState{};
+        reset_value<AnimationVisualState>(&runtime->visuals[index]);
     }
     for (u32 index = 0; index < kAnimationPendingAdvanceCapacity; ++index) {
-        runtime->pending_advances[index] = AnimationFrameAdvance{};
+        reset_value<AnimationFrameAdvance>(&runtime->pending_advances[index]);
     }
     runtime->pending_advance_count = 0;
 }
@@ -131,7 +132,7 @@ void animation_visual_runtime_release(AnimationVisualRuntime* runtime) noexcept 
     stable_storage_release(&runtime->visual_storage);
     stable_storage_release(&runtime->buckets);
     stable_storage_release(&runtime->entries);
-    *runtime = AnimationVisualRuntime{};
+    reset_value<AnimationVisualRuntime>(runtime);
 }
 
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "application_private_channel.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_private_conversation.hpp"
 #include "application_quick_switcher.hpp"
 #include "application_text_form.hpp"
@@ -44,7 +45,7 @@ bool scope_current() noexcept {
     const u64 self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
     if (g_private.account != account || g_private.profile != profile || g_private.self != self) {
         const u64 serial = g_private.form_serial;
-        g_private = {};
+        reset_value(&g_private);
         g_private.account = account;
         g_private.profile = profile;
         g_private.self = self;
@@ -118,7 +119,7 @@ bool application_private_channel_submit(u64 request_id, u64 now_ms) noexcept {
     const auto kind = c.request.kind;
     if (kind != PrivateChannelActionKind::create && kind != PrivateChannelActionKind::ignore_requests &&
         !private_channel_member_count(state(), c.request.channel_id)) {
-        c = {};
+        reset_value(&c);
         return false;
     }
     const auto submitted = g_app.account.api.private_channel(g_app.account.instance, &c.request, request_id);
@@ -150,7 +151,7 @@ bool application_private_channel_response(const RestClientResponse& response, Ut
         log_u64(LogLevel::warning, "private", "group_action_http_status", g_private.controller.status_code);
         // Ringing is best effort: the call itself is already joined or declined.
         if (kind == PrivateChannelActionKind::ring || kind == PrivateChannelActionKind::stop_ringing) {
-            g_private.controller = {};
+            reset_value(&g_private.controller);
             return true;
         }
         return application_private_channel_present_error();
@@ -289,7 +290,7 @@ bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shif
     if ((action == popup_action_private_call_join || action == popup_action_private_call_decline) &&
         g_app.popup_owner_kind == PopupOwnerKind::private_notice) {
         const u64 call = scope_current() ? g_private.prompt.channel_id : 0;
-        g_private.prompt = {};
+        reset_value(&g_private.prompt);
         if (!call || call != owner_id) {
             *applied = false;
             return true;
@@ -302,7 +303,7 @@ bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shif
     }
     if (action == popup_action_private_notice_dismiss && g_app.popup_owner_kind == PopupOwnerKind::private_notice) {
         if (scope_current() && g_private.controller.phase == PrivateChannelActionPhase::failed)
-            g_private.controller = {};
+            reset_value(&g_private.controller);
         *applied = true;
         return true;
     }

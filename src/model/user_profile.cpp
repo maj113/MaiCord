@@ -146,7 +146,7 @@ void user_appearance_expand(const UserAppearanceRecord& r, UserAppearance* outpu
     if (!output)
         return;
     UserAppearance& a = *output;
-    a = {};
+    reset_value(&a);
     a.user_id = r.user_id;
     a.guild_id = r.guild_id;
     a.public_flags = r.public_flags;
@@ -281,7 +281,7 @@ void user_appearance_release(UserAppearanceStore* s) noexcept {
         return;
     stable_storage_release(&s->records);
     stable_storage_release(&s->order);
-    *s = {};
+    reset_value(s);
 }
 
 namespace {
@@ -382,7 +382,7 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
     a.user_id = user;
     a.guild_id = guild;
     if (!input.count) {
-        *output = a;
+        copy_value(output, a);
         return true;
     }
     AppearanceReader r{input};
@@ -441,7 +441,7 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
         return false;
     if (consumed)
         *consumed = r.used;
-    *output = a;
+    copy_value(output, a);
     return true;
 }
 } // namespace

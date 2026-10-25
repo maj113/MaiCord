@@ -1,4 +1,5 @@
 #include "application_inbox.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_downloads.hpp"
 #include "application_surface_motion.hpp"
 
@@ -47,7 +48,7 @@ void application_surface_motion_owner_retire(ApplicationSurfaceMotionOwner* owne
         return;
     auto& slot = owner->slots[static_cast<u32>(surface)];
     ui_motion_transition_cancel(&slot.motion);
-    slot.key = {};
+    reset_value(&slot.key);
 }
 
 float application_surface_motion_update(ApplicationSurfaceMotionOwner* owner, RendererLayerSurface surface,

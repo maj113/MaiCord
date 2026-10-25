@@ -1,4 +1,5 @@
 #include "maicord/app/account_action_captcha.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/rest.hpp"
 
 namespace maicord {
@@ -119,7 +120,7 @@ CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestCl
         erase(captcha);
         rest_client_arm_headers(primary, 0, {});
         rest_client_arm_headers(details, 0, {});
-        captcha->status = {};
+        reset_value(&captcha->status);
         return captcha->status;
     }
     return refused(captcha, CaptchaBridgeError::invalid_input);
@@ -133,6 +134,6 @@ void account_action_captcha_release(AccountActionCaptcha* captcha, RestClient* p
     rest_client_arm_headers(primary, 0, {});
     rest_client_arm_headers(details, 0, {});
     captcha_challenge_release(&captcha->challenge);
-    *captcha = {};
+    reset_value(captcha);
 }
 } // namespace maicord

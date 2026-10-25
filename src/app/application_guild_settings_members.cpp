@@ -91,7 +91,7 @@ u64 preset_after(u64 now, const DatePreset& preset) noexcept {
         month += 12;
         --year;
     }
-    constexpr u32 lengths[]{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    static constexpr u32 lengths[]{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     const u32 length = lengths[month - 1] + (month == 2 && leap ? 1 : 0);
     if (day > length)
@@ -617,7 +617,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
             repaint();
         } else if (p.selected_count && bulk_allowed() &&
                    application_member_moderation_bulk_ban(p.guild_id, {p.selected, p.selected_count})) {
-            p.bulk_notice = {};
+            reset_value(&p.bulk_notice);
             repaint();
         }
         return;
@@ -758,7 +758,7 @@ bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQu
     q.signals = p.filter_signals;
     guild_member_search_plan(p.search, &q);
     *query = q;
-    *request = {};
+    reset_value(request);
     request->operation = GuildModerationOperation::members_search;
     request->guild_id = p.guild_id;
     request->search = query;
@@ -865,7 +865,7 @@ void members_release() noexcept {
         VirtualFree(p.search_bank, 0, MEM_RELEASE);
     }
     p.search_bank = nullptr;
-    p.search = {};
+    reset_value(&p.search);
     p.selected_count = 0;
 }
 

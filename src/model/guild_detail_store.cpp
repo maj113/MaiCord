@@ -134,7 +134,7 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
         if (store->count >= store->capacity)
             return false;
         record = &store->records[store->count++];
-        *record = {};
+        reset_value(record);
         record->guild_id = input.guild_id;
         record->text_offset = store->text_used;
     }
@@ -225,7 +225,7 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
     }
     if (needed > store->text_capacity - store->text_used && names.count) {
         needed -= names.count;
-        names = {};
+        reset_value(&names);
         name_count = 0;
         keep_names = false;
         record->known = static_cast<u16>(record->known & ~guild_detail_features);
@@ -237,7 +237,7 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
     }
     if (needed > store->text_capacity - store->text_used && description.bytes) {
         needed -= description.bytes;
-        description = {};
+        reset_value(&description);
         record->known = static_cast<u16>(record->known & ~guild_detail_description);
     }
     if (needed > store->text_capacity - store->text_used)

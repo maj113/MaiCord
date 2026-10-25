@@ -22,7 +22,7 @@ void finish(VoiceSocket* socket) noexcept {
     if (socket->session.scratch.data)
         secure_clear_bytes(socket->session.scratch.data, socket->session.scratch.count * sizeof(u32));
     stable_storage_release(&socket->json_storage);
-    socket->session = {};
+    reset_value(&socket->session);
     socket->session.heartbeat = heartbeat;
     if (socket->storage.data) {
         // TLS already erased its regions after drain, and session_clear erased
@@ -30,9 +30,9 @@ void finish(VoiceSocket* socket) noexcept {
         // entire allocation a second time.
         secure_clear_bytes(socket->output.data, socket->output.count);
         VirtualFree(socket->storage.data, 0, MEM_RELEASE);
-        socket->storage = {};
+        reset_value(&socket->storage);
     }
-    socket->output = {};
+    reset_value(&socket->output);
     socket->sending = VoiceSocketOutput::none;
     socket->output_bytes = 0;
     socket->handler = nullptr;
@@ -193,7 +193,7 @@ bool voice_socket_begin(VoiceSocket* socket, NetworkLoop* loop, const GatewayEnd
     if (total > ~u32{0})
         return false;
     socket->error = VoiceSocketError::none;
-    socket->tls_event = {};
+    reset_value(&socket->tls_event);
     socket->stop_requested = socket->pending_pong = socket->pending_close = false;
     socket->peer_closed = false;
     socket->resume = resume;

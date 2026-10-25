@@ -127,7 +127,7 @@ UiBannerNotice application_account_connection_notice(Slice<char> scratch) noexce
         // The retry time is fixed text, so the card never ticks.
         const u64 now = clock_monotonic_milliseconds(), unix_now = clock_unix_milliseconds();
         const u64 at = (unix_now + (g_reconnect.retry_at_ms > now ? g_reconnect.retry_at_ms - now : 0)) / 1000;
-        constexpr char prefix[] = "You can keep reading. MaiCord will try again at ";
+        static constexpr char prefix[] = "You can keep reading. MaiCord will try again at ";
         constexpr u32 prefix_bytes = sizeof(prefix) - 1;
         if (scratch.count > prefix_bytes + 2) {
             const auto time = format_timestamp_local(at, 'T', unix_now / 1000,

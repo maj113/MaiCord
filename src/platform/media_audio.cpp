@@ -1,4 +1,5 @@
 #include "maicord/platform/media_audio.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
@@ -346,11 +347,11 @@ MediaAudioStatus media_audio_status(const MediaAudio* owner) noexcept {
     AcquireSRWLockExclusive(&r->lock);notify_locked(*r);auto status=r->status;r->wake_pending=false;ReleaseSRWLockExclusive(&r->lock);return status;
 }
 MediaAudioResult media_audio_release(MediaAudio* owner,u32 timeout) noexcept {
-    if(!owner)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);if(!r){*owner={};return {};}
+    if(!owner)return fail(Error::invalid_input);auto* r=static_cast<Runtime*>(owner->runtime);if(!r){reset_value(owner);return {};}
     if(r->thread){AcquireSRWLockExclusive(&r->lock);r->stopping=true;r->desired_play=false;
         const bool signaled=SetEvent(r->stop)!=0;const DWORD error=signaled?0:GetLastError();ReleaseSRWLockExclusive(&r->lock);
         if(!signaled)return fail(Error::event,error);const DWORD wait=WaitForSingleObject(r->thread,timeout);
         if(wait!=WAIT_OBJECT_0)return fail(wait==WAIT_TIMEOUT?Error::join_pending:Error::wait,wait==WAIT_TIMEOUT?WAIT_TIMEOUT:GetLastError());}
-    const auto result=free_runtime(*owner);if(result.ok())*owner={};return result;
+    const auto result=free_runtime(*owner);if(result.ok())reset_value(owner);return result;
 }
 } // namespace maicord

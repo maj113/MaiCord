@@ -148,7 +148,7 @@ void store_mentions(u32 count) noexcept {
         if (duplicate)
             continue;
         auto& row = inbox->mentions[inbox->mention_count++];
-        row = {};
+        reset_value(&row);
         row.message_id = message.id;
         row.channel_id = message.channel_id;
         row.author_id = message.author_id;
@@ -348,7 +348,7 @@ void restart_mentions() noexcept {
     ++inbox->revision;
 }
 void release_capture() noexcept {
-    inbox->pressed = {};
+    reset_value(&inbox->pressed);
     const bool captured = inbox->captured || inbox->thumb_dragging;
     inbox->captured = false;
     inbox->thumb_dragging = false;
@@ -494,7 +494,7 @@ void application_inbox_trim() noexcept {
     inbox = nullptr;
 }
 void application_inbox_release() noexcept {
-    retained = {};
+    reset_value(&retained);
     application_inbox_close();
     if (!inbox)
         return;

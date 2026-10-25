@@ -1,4 +1,5 @@
 #include "maicord/ui/message_rich_layout.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/embed_provider.hpp"
@@ -463,7 +464,7 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
     if (!selection) {
         return false;
     }
-    *selection = MessageRichEmbedMediaSelection{};
+    reset_value<MessageRichEmbedMediaSelection>(selection);
     if (!g_display.embed_media)
         return false;
     // Media order: gifv plays its video; any other embed with a
@@ -494,7 +495,7 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
 bool message_rich_embed_playback_select(const MessageRichStore& store, const MessageRichEmbed& embed,
                                        MessageRichEmbedMediaSelection* out) noexcept {
     if (!out) return false;
-    *out = {};
+    reset_value(out);
     if (!g_display.embed_media || embed.type == GatewayMessageEmbedType::gifv) return false;
     if (const auto queue_url = youtube_queue_url(store,embed); queue_url.bytes) {
         embed_playback_poster(store, embed, out);
@@ -535,7 +536,7 @@ bool message_rich_embed_playback_select(const MessageRichStore& store, const Mes
     const auto locator = embed_video_locator(url);
     if (embed.video.proxy_url.bytes || !locator.id.bytes ||
         !embed.thumbnail.width || !embed.thumbnail.height || !embed_media_valid(embed.thumbnail)) {
-        *out = {};
+        reset_value(out);
         return false;
     }
     *out = {&embed.video, url, {}, MediaEmbedResource::video, MediaAttachmentFormat::mp4, true, true};
@@ -589,7 +590,7 @@ static bool embed_icon_rect(bool present, const float* tops, u32 index, float ex
                             UiRect* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     if (index >= kGatewayMessageEmbedMaximum || !present || !(tops[index] > 0.0f))
         return false;
     const float left = content.left + kMessageEmbedContentInset;
@@ -705,7 +706,7 @@ bool message_rich_embed_gallery(const MessageRichStore& store, const MessageRich
                                 MessageRichEmbedGallery* out) noexcept {
     if (!out)
         return false;
-    *out = {};
+    reset_value(out);
     if (host >= rich.embed_count || !g_display.embed_media || !rich.embeds[host].url.bytes ||
         message_rich_embed_merge_host(store, rich, host) != host)
         return false;
@@ -721,7 +722,7 @@ bool message_rich_embed_gallery(const MessageRichStore& store, const MessageRich
         }
     // A gifv or any video plays instead of the images.
     if (!merged || first.type == GatewayMessageEmbedType::gifv || embed_media_valid(first.video)) {
-        *out = {};
+        reset_value(out);
         return false;
     }
     return true;
@@ -773,7 +774,7 @@ bool message_rich_embed_gallery_place(const MessageRichStore& store, const Messa
                                       MessageRichEmbedGalleryPlace* out) noexcept {
     if (!out)
         return false;
-    *out = {};
+    reset_value(out);
     const u32 host = message_rich_embed_merge_host(store, rich, index);
     MessageRichEmbedGallery gallery{};
     if (!message_rich_embed_gallery(store, rich, host, &gallery))

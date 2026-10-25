@@ -1,10 +1,11 @@
 #include "color_internal.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 using namespace color_detail;
 namespace {
 SfntStatus records(ConstSlice<u8> bytes,u32 offset,u32 count,u32 stride,ConstSlice<u8>* output) noexcept {
-    if(!count){*output={};return SfntStatus::ok;}
+    if(!count){reset_value(output);return SfntStatus::ok;}
     if(!offset || offset>bytes.count || count>(bytes.count-offset)/stride)return SfntStatus::truncated;
     *output=view(bytes,offset,count*stride);return SfntStatus::ok;
 }
@@ -17,7 +18,7 @@ u32 find_glyph(ConstSlice<u8> records,u32 stride,u16 glyph) noexcept {
 
 SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
     if(!output)return SfntStatus::invalid_input;
-    *output={};ColrFont result{};
+    reset_value(output);ColrFont result{};
     auto status=sfnt_table(face,sfnt_tag('C','O','L','R'),&result.table);
     if(status!=SfntStatus::ok)return status;
     status=cpal_open(face,&result.palette);if(status!=SfntStatus::ok)return status;
@@ -77,7 +78,7 @@ SfntStatus colr_base_paint(const ColrFont& font,u16 glyph,u32* offset) noexcept 
     return reference(font.table,font.base_list,r32(font.bases_v1,i*6+2),1,offset);
 }
 SfntStatus colr_legacy_layers(const ColrFont& font,u16 glyph,ColrLayerRange* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data)return SfntStatus::invalid_input;
     if(glyph>=font.glyph_count)return SfntStatus::glyph_out_of_range;
     const u32 i=find_glyph(font.bases_v0,6,glyph);
@@ -87,7 +88,7 @@ SfntStatus colr_legacy_layers(const ColrFont& font,u16 glyph,ColrLayerRange* out
     *output={first,count};return SfntStatus::ok;
 }
 SfntStatus colr_legacy_layer(const ColrFont& font,u32 index,ColrLegacyLayer* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!font.table.data || index>=font.layers_v0.count/4)return SfntStatus::invalid_input;
     const u16 glyph=r16(font.layers_v0,index*4),palette=r16(font.layers_v0,index*4+2);
     if(glyph>=font.glyph_count || !palette_valid(font,palette))return SfntStatus::malformed;
@@ -99,7 +100,7 @@ SfntStatus colr_layer_paint(const ColrFont& font,u32 index,u32* offset) noexcept
     return reference(font.table,font.layer_list,r32(font.layers_v1,index*4),1,offset);
 }
 SfntStatus colr_clip(const ColrFont& font,u16 glyph,ColrClip* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};output->variation_index=0xffffffff;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);output->variation_index=0xffffffff;
     if(!font.table.data)return SfntStatus::invalid_input;
     if(glyph>=font.glyph_count)return SfntStatus::glyph_out_of_range;
     u32 low=0,high=font.clips.count/7;

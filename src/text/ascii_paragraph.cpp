@@ -1,4 +1,5 @@
 #include "maicord/text/ascii_paragraph.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/text/unicode.hpp"
 #include "layout_float.hpp"
@@ -32,7 +33,7 @@ float tab(float pen,float stop) noexcept {
 bool native_ascii_break_after(Utf8View text,u32 at) noexcept {return (!text.bytes||text.data)&&at<=text.bytes&&opportunity(text,at);}
 SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,float width,float extent,
     float box,float sign_width,bool force,ConstSlice<float> tabs,NativeLineTrimCut* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if((clusters.count&&!clusters.data)||(tabs.count&&!tabs.data)||!is_finite(width)||width<0||!is_finite(extent)||extent<0||
         !is_finite(box)||box<=0||!is_finite(sign_width)||sign_width<0)return SfntStatus::invalid_input;
     u32 tab_count=0;
@@ -65,7 +66,7 @@ SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,floa
 }
 SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore& store,NativeRunPlanHandle plan,Utf8View input,bool independent,float em,
     const NativeAsciiParagraphStorage& s,NativeParagraphShape* output,float trailing_spacing) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(input.bytes>65535)return SfntStatus::resource_limit;
     if((input.bytes&&!input.data)||input.bytes>s.source_glyphs.count||(input.bytes&&!s.source_glyphs.data))return SfntStatus::invalid_input;
     for(u32 i=0;i<input.bytes;++i){const u8 c=static_cast<u8>(input.data[i]);if((c<32&&c!=9&&c!=10&&c!=13)||c>126)return SfntStatus::unsupported_sequence;}
@@ -94,8 +95,8 @@ SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore& store,NativeRu
 namespace {
 SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeParagraphCluster> clusters,
     ConstSlice<SfntPlacement> placements,float width,float stop,bool wrap,Slice<NativeParagraphRun> runs,NativeParagraphLayout* output,NativeParagraphHitStorage* hits,ConstSlice<SfntFontLineParts> styles,Slice<NativeParagraphLine> lines,NativeParagraphLineSink sink,float trimming_height,Slice<NativeParagraphLineFit> fit) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
-    if(hits){if(!hits->output)return SfntStatus::invalid_input;*hits->output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
+    if(hits){if(!hits->output)return SfntStatus::invalid_input;reset_value(&(*hits->output));
         if((hits->clusters.count&&!hits->clusters.data)||(hits->lines.count&&!hits->lines.data)||(hits->advances.count&&!hits->advances.data))return SfntStatus::invalid_input;}
     if(!is_finite(trimming_height)||trimming_height<0||(trimming_height&&hits))return SfntStatus::invalid_input;
     if(clusters.count!=shape.cluster_count||placements.count!=shape.glyph_count||(clusters.count&&!clusters.data)||(placements.count&&!placements.data)||(runs.count&&!runs.data)||!is_finite(width)||width<=0||!is_finite(stop)||stop<=0||!is_finite(shape.vertical.height)||shape.vertical.height<=0||!is_finite(shape.vertical.baseline))return SfntStatus::invalid_input;
@@ -215,7 +216,7 @@ SfntStatus native_prepared_paragraph_layout(const NativeParagraphShape& shape,Co
 }
 SfntStatus native_prepared_styled_paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeParagraphCluster> clusters,
     ConstSlice<SfntPlacement> placements,ConstSlice<SfntFontLineParts> styles,float width,float stop,bool wrap,Slice<NativeParagraphRun> runs,NativeParagraphLayout* output,Slice<NativeParagraphLine> lines,NativeParagraphHitStorage* hits,NativeParagraphLineSink sink,float trimming_height,Slice<NativeParagraphLineFit> fit) noexcept {
-    if(!styles.count){if(output)*output={};return SfntStatus::invalid_input;}
+    if(!styles.count){if(output)reset_value(output);return SfntStatus::invalid_input;}
     return paragraph_layout(shape,clusters,placements,width,stop,wrap,runs,output,hits,styles,lines,sink,trimming_height,fit);
 }
 }

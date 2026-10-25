@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/thread_header.hpp"
@@ -172,7 +173,7 @@ void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene
     }
     renderer->settings_scene = scene;
     if (scene && scene->active) {
-        renderer->friends_search_geometry = {};
+        reset_value(&renderer->friends_search_geometry);
         text_edit_layout_invalidate(&renderer->composer_layout);
     }
     renderer->interaction_text_settings_revision = ~(scene ? scene->revision : 0u);
@@ -197,7 +198,7 @@ void renderer_bind_friends_scene(D3D11Renderer* renderer, const UiFriendsScene* 
     if (!renderer || renderer->friends_scene == scene)
         return;
     renderer->friends_scene = scene;
-    renderer->friends_search_geometry = {};
+    reset_value(&renderer->friends_search_geometry);
     text_edit_layout_invalidate(&renderer->composer_layout);
     renderer->interaction_text_friends_revision = ~(scene ? scene->revision : 0u);
     renderer->retained_presentation.valid = false;
@@ -207,7 +208,7 @@ void renderer_bind_friends_requests_scene(D3D11Renderer* renderer, const UiFrien
     if (!renderer || renderer->friends_requests_scene == scene)
         return;
     renderer->friends_requests_scene = scene;
-    renderer->friends_search_geometry = {};
+    reset_value(&renderer->friends_search_geometry);
     text_edit_layout_invalidate(&renderer->composer_layout);
     renderer->interaction_text_friends_requests_revision = ~(scene ? scene->revision : 0u);
     renderer->retained_presentation.valid = false;

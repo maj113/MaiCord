@@ -1,4 +1,5 @@
 #include "run_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/indic_run_plan.hpp"
 #include "maicord/text/devanagari_forms.hpp"
 #include "maicord/text/unicode.hpp"
@@ -31,7 +32,7 @@ SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variat
 }
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,SfntIndicProfile profile,
     Arena* state,Arena* scratch,SfntShapeStorage probe,NativeIndicPlan* output,Slice<u8> form_output,SfntShapeLimits limits) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     const auto* info=sfnt_indic_script(profile);
     if(!info||(form_output.count&&(form_output.count!=128||!form_output.data)))return SfntStatus::invalid_input;
     NativePlanSource source{};auto status=native_plan_source(store,run,false,state,scratch,source);if(status!=SfntStatus::ok)return status;

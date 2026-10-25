@@ -257,7 +257,7 @@ bool synchronize_shell_widget_scenes() noexcept {
         message_viewport, message_viewport);
     message_viewport.top = minimum(message_viewport.bottom, message_viewport.top + thread_height);
     if (!selected_readable)
-        message_viewport = {};
+        reset_value(&message_viewport);
     if (header_revision != g_app.thread_header.revision)
         content_text_retention_invalidate(&g_app.renderer.content_text_retention);
     char reply_label_storage[256]{};

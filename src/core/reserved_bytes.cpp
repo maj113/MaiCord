@@ -1,4 +1,5 @@
 #include "maicord/core/reserved_bytes.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -48,7 +49,7 @@ void reserved_bytes_release(ReservedBytes* bytes) noexcept {
         return;
     if (bytes->base)
         VirtualFree(bytes->base, 0, MEM_RELEASE);
-    *bytes = ReservedBytes{};
+    reset_value<ReservedBytes>(bytes);
 }
 
 } // namespace maicord

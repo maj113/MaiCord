@@ -1,4 +1,5 @@
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/stage_instance_store.hpp"
 #include "maicord/model/voice_channel_info_store.hpp"
@@ -54,7 +55,7 @@ bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
         return false;
     }
     if (channel_is_private(channel.type)) {
-        *key = {};
+        reset_value(key);
         const auto* metadata = state.private_channels ? private_channel_store_find(*state.private_channels, channel.id) : nullptr;
         key->group_id = ~private_channel_recency(channel.id, channel.last_message_id);
         key->base_id = ~(metadata ? metadata->sort_sequence : 0ull);
@@ -86,7 +87,7 @@ bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
     const bool thread = channel.type == 10 || channel.type == 11 || channel.type == 12;
     const ChannelRecord* base = thread && parent && parent->type != 4 ? parent : &channel;
     // Uncategorized channels share one group and sort like a category's own.
-    *key = ChannelSortKey{};
+    reset_value<ChannelSortKey>(key);
     key->group_rank = category ? 1 : 0;
     key->group_id = category ? category->id : 0;
     key->group_position = category ? category->position : 0;
@@ -358,7 +359,7 @@ bool initialize_view(NavigationView* view, Slice<GuildViewRow> guild_rows,
         (sparse && (view->guild_count || view->channel_count))) {
         return false;
     }
-    *view = NavigationView{};
+    reset_value<NavigationView>(view);
     view->guild_rows = guild_rows.data;
     view->channel_rows = channel_rows.data;
     view->channel_scratch = channel_scratch.data;
@@ -369,12 +370,12 @@ bool initialize_view(NavigationView* view, Slice<GuildViewRow> guild_rows,
     view->channel_visibility_capacity = channel_visibility_scratch.count;
     if (sparse) return true;
     for (u32 index = 0; index < guild_rows.count; ++index) {
-        guild_rows[index] = GuildViewRow{};
+        reset_value<GuildViewRow>(&guild_rows[index]);
     }
     for (u32 index = 0; index < channel_rows.count; ++index) {
-        channel_rows[index] = ChannelViewRow{};
+        reset_value<ChannelViewRow>(&channel_rows[index]);
         channel_scratch[index] = 0xFFFF;
-        channel_sort_keys[index] = ChannelSortKey{};
+        reset_value<ChannelSortKey>(&channel_sort_keys[index]);
     }
     for (u32 index = 0; index < channel_visibility_scratch.count; ++index) {
         channel_visibility_scratch[index] = 0;
@@ -625,10 +626,10 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     }
     channel_count += lead;
     for (u32 order = guild_rows; order < view->guild_count; ++order) {
-        view->guild_rows[order] = GuildViewRow{};
+        reset_value<GuildViewRow>(&view->guild_rows[order]);
     }
     for (u32 order = channel_count; order < view->channel_count; ++order) {
-        view->channel_rows[order] = ChannelViewRow{};
+        reset_value<ChannelViewRow>(&view->channel_rows[order]);
     }
 
     view->guild_count = guild_rows;

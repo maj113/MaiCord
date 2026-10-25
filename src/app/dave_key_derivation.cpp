@@ -10,7 +10,7 @@ KdfResult mls_expand_label(KdfSha256Workspace& workspace, ConstSlice<u8> secret,
                            ConstSlice<u8> context, Slice<u8> output) noexcept {
     if (label.count > 0x3fffffff - 8 || context.count > 0x3fffffff || output.count > 255 * 32)
         return {0, 0, KdfError::invalid_input};
-    constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};
+    static constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};
     u8 header[6]{static_cast<u8>(output.count >> 8), static_cast<u8>(output.count)}, context_length[4];
     const u32 header_bytes = 2 + mls_vector_length(label.count + 8, header + 2);
     const u32 context_length_bytes = mls_vector_length(context.count, context_length);
@@ -36,7 +36,7 @@ KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, 
             return {0, 0, KdfError::invalid_input};
     if (byte_ranges_overlap(key_prefix, next_prefix))
         return {0, 0, KdfError::invalid_input};
-    constexpr u8 key_label[]{'k', 'e', 'y'}, secret_label[]{'s', 'e', 'c', 'r', 'e', 't'};
+    static constexpr u8 key_label[]{'k', 'e', 'y'}, secret_label[]{'s', 'e', 'c', 'r', 'e', 't'};
     u8 context[4], derived_key[16], next[32];
     for (u32 i = 0; i != 4; ++i)
         context[i] = static_cast<u8>(generation >> (24 - i * 8));

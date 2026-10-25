@@ -352,7 +352,7 @@ void aes_gcm64_release(AesGcm64Key* key) noexcept {
     if (key->handle)
         BCryptDestroyKey(key->handle);
     secure_buffer_release(&key->storage);
-    *key = {};
+    reset_value(key);
 }
 AeadResult aes_gcm64_encrypt(const AesGcm64Key& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                              ConstSlice<u8> plaintext, Slice<u8> ciphertext, Slice<u8> tag) noexcept {

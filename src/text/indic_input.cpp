@@ -1,4 +1,5 @@
 #include "maicord/text/tamil_input.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/unicode.hpp"
 namespace maicord {namespace {
 u32 split_extra(const SfntIndicScript& info,u32 scalar) noexcept {
@@ -9,7 +10,7 @@ u32 split_extra(const SfntIndicScript& info,u32 scalar) noexcept {
 }
 SfntStatus sfnt_indic_expand_cluster(SfntIndicProfile profile,ConstSlice<u32> input,Slice<SfntIndicInputScalar> output,
     SfntIndicInputResult* result,u64 work,u32 extra_limit) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto* info=sfnt_indic_script(profile);
     if(!info||(input.count&&!input.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;

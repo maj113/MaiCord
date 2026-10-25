@@ -1,4 +1,5 @@
 #include "application_scrolling.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "application_account_presentation.hpp"
 #include "application_message_history.hpp"
@@ -96,8 +97,8 @@ bool application_message_jump_to_present() noexcept {
     if (channel_id && message_history_jump_to_present(&g_app.message_catchup, &g_app.message_older,
                                                       &g_app.message_pump, channel_id,
                                                       kMessageHistoryRequestLimit)) {
-        g_app.attachment_refresh = AttachmentRefresh{};
-        g_app.reply_refresh = ReplyReferenceRefresh{};
+        reset_value<AttachmentRefresh>(&g_app.attachment_refresh);
+        reset_value<ReplyReferenceRefresh>(&g_app.reply_refresh);
         g_app.message_scene.dirty = true;
         if (g_app.window && refresh_account_text(true))
             application_request_frame();

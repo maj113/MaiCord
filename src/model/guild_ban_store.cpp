@@ -19,7 +19,7 @@ u32 lower_bound(const GuildBanStore& store, u64 user_id) noexcept {
 }
 
 void assign(GuildBanRecord* record, u64 user_id, Utf8View name, Utf8View reason) noexcept {
-    *record = {};
+    reset_value(record);
     record->user_id = user_id;
     record->name_bytes = static_cast<u16>(minimum<u32>(name.bytes, kGuildAdminUsernameBytes));
     record->reason_bytes = static_cast<u16>(minimum<u32>(reason.bytes, kGuildAdminReasonBytes));
@@ -31,7 +31,7 @@ bool insert(GuildBanStore* store, u32 at, u64 user_id, Utf8View name, Utf8View r
     if (store->count >= store->capacity)
         return false;
     for (u32 i = store->count; i > at; --i)
-        store->records[i] = store->records[i - 1];
+        copy_value(&store->records[i], store->records[i - 1]);
     assign(&store->records[at], user_id, name, reason);
     ++store->count;
     return true;
@@ -105,7 +105,7 @@ bool guild_ban_store_apply_remove(GuildBanStore* store, u64 guild_id, u64 user_i
     if (at >= store->count || store->records[at].user_id != user_id)
         return true;
     for (u32 i = at + 1; i < store->count; ++i)
-        store->records[i - 1] = store->records[i];
+        copy_value(&store->records[i - 1], store->records[i]);
     --store->count;
     secure_clear_bytes(&store->records[store->count], sizeof(GuildBanRecord));
     saturating_increment(store->revision);

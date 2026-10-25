@@ -126,12 +126,12 @@ void text_edit_history_begin(TextEditHistoryState* edit, u32 start, u32 removed,
     } else finish_run();
     while (history->count > history->cursor) {
         auto& entry = record(*history, --history->count);
-        erase(*history, entry); history->tail = entry.offset; entry = {};
+        erase(*history, entry); history->tail = entry.offset; reset_value(&entry);
     }
     const u32 required = removed + inserted;
     while (history->count && (history->count == kHistorySteps || required > history->payload.capacity - history->used)) {
         auto& first = record(*history, 0);
-        erase(*history, first); first = {};
+        erase(*history, first); reset_value(&first);
         history->head = (history->head + 1) % kHistorySteps;
         --history->count; --history->cursor;
     }

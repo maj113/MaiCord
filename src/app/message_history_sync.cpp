@@ -1,4 +1,5 @@
 #include "maicord/app/message_history_sync.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
@@ -691,7 +692,7 @@ MessageHistoryApplyResult message_history_refresh_attachment(
 
 void message_history_attachment_reset(AttachmentRefresh* refresh) noexcept {
     if (refresh) {
-        *refresh = AttachmentRefresh{};
+        reset_value<AttachmentRefresh>(refresh);
     }
 }
 
@@ -815,12 +816,12 @@ bool message_history_jump_settle(MessageHistoryCatchup* catchup, MessageHistoryO
     MessageTimeline& timeline = *pump->timeline;
     // Browsing stays ready (older paging, attachment and reply refreshes): a
     // detached window waits paused for the reader to approach its bottom.
-    *catchup = MessageHistoryCatchup{};
+    reset_value<MessageHistoryCatchup>(catchup);
     catchup->channel_id = channel_id;
     catchup->deferred_mark = timeline.deferred;
     catchup->incremental = edges.more_after;
     catchup->state = edges.more_after ? MessageHistoryCatchupState::paused : MessageHistoryCatchupState::complete;
-    *older = MessageHistoryOlder{};
+    reset_value<MessageHistoryOlder>(older);
     older->channel_id = channel_id;
     if (!edges.more_before && page.count) {
         older->cursor_before = page[page.count - 1].id;
@@ -846,7 +847,7 @@ bool message_history_jump_to_present(MessageHistoryCatchup* catchup, MessageHist
     // (catch-up request_required, older idle) and is discarded as stale.
     if (!message_timeline_reset(&timeline) || !message_timeline_set_scroll(&timeline, 0, true))
         return false;
-    *older = MessageHistoryOlder{};
+    reset_value<MessageHistoryOlder>(older);
     pump->catchup_required = true;
     timeline.newer_refetch_required = true;
     return message_history_catchup_begin(catchup, pump, channel_id, request_limit);
@@ -989,7 +990,7 @@ bool message_history_catchup_begin(MessageHistoryCatchup* catchup, MessageEventP
         (!pump->catchup_required && !pump->timeline->newer_refetch_required)) {
         return false;
     }
-    *catchup = MessageHistoryCatchup{};
+    reset_value<MessageHistoryCatchup>(catchup);
     catchup->incremental = !pump->timeline->follow_bottom;
     catchup->channel_id = channel_id;
     catchup->deferred_mark = pump->timeline->deferred;

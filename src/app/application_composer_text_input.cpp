@@ -347,12 +347,12 @@ void application_composer_text_input_suspend() noexcept {
     cancel_native_groups(input->target);
     secure_text_store_unbind(&input->store);
     secure_text_store_detach(&input->store);
-    input->target = {};
-    input->composition = {};
+    reset_value(&input->target);
+    reset_value(&input->composition);
     input->dirty = false;
     input->busy = busy;
     input->geometry_valid = false;
-    g_app.message_composer_scene.composition = {};
+    reset_value(&g_app.message_composer_scene.composition);
     ++g_app.message_composer_scene.composition_revision;
 }
 void application_composer_text_input_release() noexcept {

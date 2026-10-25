@@ -311,12 +311,12 @@ void destroy(NativeFilePicker* picker) noexcept {
     }
     if (picker->thread) CloseHandle(picker->thread);
     if (picker->notification) CloseHandle(picker->notification);
-    *picker = {};
+    reset_value(picker);
 }
 NativeFilePickerError initialize(NativeFilePicker* picker, u32 maximum_files) noexcept {
     if (!picker || picker->runtime || picker->thread || picker->notification || !maximum_files ||
         maximum_files > kNativeFilePickerMaximumFiles) return NativeFilePickerError::invalid_input;
-    *picker = {};
+    reset_value(picker);
     auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, sizeof(Runtime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!runtime) return NativeFilePickerError::memory;
     picker->runtime = runtime; runtime->maximum_files = maximum_files;
@@ -394,7 +394,7 @@ NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, HW
     return NativeFilePickerError::none;
 }
 bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFileSaveSelection* output) noexcept {
-    if (output) *output = {};
+    if (output) reset_value(output);
     if (!output || !picker || !picker->runtime || native_file_picker_status(picker).phase != NativeFilePickerPhase::complete ||
         !native_file_picker_status(picker).ok()) return false;
     const auto* runtime = static_cast<const Runtime*>(picker->runtime);
@@ -418,8 +418,8 @@ NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker
     auto* runtime = static_cast<Runtime*>(picker->runtime); runtime->clipboard = *input;
     runtime->maximum_bytes = maximum_bytes;
     picker->thread = CreateThread(nullptr, 256 * 1024, clipboard_worker, picker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    if (!picker->thread) { runtime->clipboard = {}; destroy(picker); return NativeFilePickerError::thread; }
-    *input = {}; return NativeFilePickerError::none;
+    if (!picker->thread) { reset_value(&runtime->clipboard); destroy(picker); return NativeFilePickerError::thread; }
+    reset_value(input); return NativeFilePickerError::none;
 }
 ConstSlice<wchar_t> native_file_picker_filename(const NativeFilePicker* picker, u32 index) noexcept {
     const auto status = native_file_picker_status(picker);

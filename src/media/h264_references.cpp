@@ -1,4 +1,5 @@
 #include "maicord/media/h264_references.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -8,7 +9,7 @@ i32 number(const H264Reference& picture, u32 frame, u32 modulus) noexcept {
 }
 void erase(H264ReferenceState* state, u32 index) noexcept {
     for (u32 i = index + 1; i < state->count; ++i) state->pictures[i - 1] = state->pictures[i];
-    state->pictures[--state->count] = {};
+    reset_value(&state->pictures[--state->count]);
 }
 i32 short_index(const H264ReferenceState& state, i32 target, u32 frame, u32 modulus) noexcept {
     for (u32 i = 0; i < state.count; ++i)
@@ -23,7 +24,7 @@ i32 long_index(const H264ReferenceState& state, u8 target) noexcept {
     return -1;
 }
 void clear_references(H264ReferenceState* state) noexcept {
-    for (u32 i = 0; i < state->count; ++i) state->pictures[i] = {};
+    for (u32 i = 0; i < state->count; ++i) reset_value(&state->pictures[i]);
     state->count = 0; state->max_long_term_plus1 = 0;
 }
 

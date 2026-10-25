@@ -1,4 +1,5 @@
 #include "maicord/app/voice_playback.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/voice_mixer.hpp"
 #include "maicord/app/soundboard_audio.hpp"
 #include "maicord/core/time.hpp"
@@ -147,7 +148,7 @@ bool voice_playback_initialize(VoicePlayback* playback) noexcept {
     playback->mix = reinterpret_cast<i32*>(block + mix_offset(decoder_bytes));
     playback->stream_count = 0;
     playback->decoder_bytes = decoder_bytes;
-    playback->stats = {};
+    reset_value(&playback->stats);
     ReleaseSRWLockExclusive(playback->lock.native());
     return true;
 }

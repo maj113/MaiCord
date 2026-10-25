@@ -1,4 +1,5 @@
 #include "maicord/app/account_logout_stop.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -18,7 +19,7 @@ bool joined_result(AccountLogoutStopOwner* owner, AccountHostStopResult* result)
         return false;
     if (result)
         *result = owner->result;
-    *owner = {};
+    reset_value(owner);
     return true;
 }
 } // namespace
@@ -36,7 +37,7 @@ AccountLogoutStopStartResult account_logout_stop_start(
                                        STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!thread) {
         const u32 error = GetLastError();
-        *owner = {};
+        reset_value(owner);
         return {error, AccountLogoutStopStartError::thread_create};
     }
     owner->thread = thread;

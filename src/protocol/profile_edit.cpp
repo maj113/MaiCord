@@ -350,7 +350,7 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
                                  ProfileEditSaved* p) noexcept {
     if (!user)
         return false;
-    *p = {};
+    reset_value(p);
     const auto scan = json_scan_structurals_avx1(body, structurals);
     if (!scan.ok())
         return false;
@@ -498,7 +498,7 @@ bool message_item(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& c = *static_cast<ErrorContext*>(opaque);
-    constexpr Utf8View names[] = {utf8_literal("global_name"), utf8_literal("nick"),   utf8_literal("pronouns"),
+    static constexpr Utf8View names[] = {utf8_literal("global_name"), utf8_literal("nick"),   utf8_literal("pronouns"),
                                   utf8_literal("avatar"),      utf8_literal("banner"), utf8_literal("bio")};
     u32 slot = static_cast<u32>(ProfileEditErrorField::misc);
     if (json_string_equals_ascii(key, utf8_literal("username"))) {
@@ -533,7 +533,7 @@ bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
 } // namespace
 
 bool profile_edit_decode_errors(Utf8View body, Slice<u32> structurals, ProfileEditErrors* output) noexcept {
-    *output = {};
+    reset_value(output);
     const auto scan = json_scan_structurals_avx1(body, structurals);
     if (!scan.ok())
         return false;

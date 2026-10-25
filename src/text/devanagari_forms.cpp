@@ -1,9 +1,10 @@
 #include "maicord/text/devanagari_forms.hpp"
+#include "maicord/core/memory.hpp"
 namespace maicord {
 SfntStatus sfnt_devanagari_probe_form(const SfntGsubProgram& program,ConstSlice<SfntLookupStep> steps,
     u16 consonant,u16 halant,SfntDevanagariForm form,Slice<SfntComponentGlyph> glyphs,
     SfntGsubExecutionScratch scratch,SfntDevanagariFormResult* result,SfntGsubExecutionLimits limits) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};bool reverse=false;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);bool reverse=false;
     switch(form){case sfnt_deva_reph:case sfnt_deva_half:break;
         case sfnt_deva_pre:case sfnt_deva_below:case sfnt_deva_post:reverse=true;break;default:return SfntStatus::invalid_input;}
     if((steps.count&&!steps.data)||(glyphs.count&&!glyphs.data)||!program.glyph_limit||program.glyph_limit>65536||

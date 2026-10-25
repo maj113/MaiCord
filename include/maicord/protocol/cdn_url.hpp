@@ -56,7 +56,7 @@ enum class CdnHost : u8 {
 inline constexpr char kActivityArtHost[] = "i.scdn.co";
 // An activity art target: "/image/" and 1-64 ASCII letters or digits.
 constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {
-    constexpr char prefix[] = "/image/";
+    static constexpr char prefix[] = "/image/";
     constexpr u32 prefix_bytes = sizeof(prefix) - 1;
     if (!target.data || target.count <= prefix_bytes || target.count > prefix_bytes + 64)
         return false;

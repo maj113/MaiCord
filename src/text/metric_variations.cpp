@@ -1,10 +1,11 @@
 #include "maicord/text/metric_variations.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 namespace maicord {namespace {
 using namespace sfnt_read;
 }
 SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!span(table,0,20))return SfntStatus::truncated;
     if(r16(table,0)!=1 || r16(table,2)!=0)return SfntStatus::unsupported;
     const u32 store=r32(table,4),map=r32(table,8);
@@ -15,7 +16,7 @@ SfntStatus sfnt_hvar_open(ConstSlice<u8> table,SfntHvar* output,u32 work,u32* us
     *output=result;return SfntStatus::ok;
 }
 SfntStatus sfnt_mvar_open(ConstSlice<u8> table,SfntMvar* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!span(table,0,12))return SfntStatus::truncated;if(r16(table,0)!=1)return SfntStatus::unsupported;
     const u16 stride=r16(table,6),count=r16(table,8),store=r16(table,10);
     // Windows accepts an empty MVAR with zero stride. There are no records to

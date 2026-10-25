@@ -12,7 +12,7 @@ DaveWelcomeResult failure(DaveWelcomeError error, i32 status = 0, MlsDecodeResul
 }
 KdfResult welcome_key_nonce(KdfSha256Workspace& workspace, ConstSlice<u8> joiner, u8* key,
                             u8* nonce) noexcept {
-    constexpr u8 zero[32]{};
+    static constexpr u8 zero[32]{};
     u8 member[32]{}, welcome[32]{};
     auto result = hkdf_sha256_extract(workspace, joiner, {zero, 32}, {member, 32});
     if (result.ok())

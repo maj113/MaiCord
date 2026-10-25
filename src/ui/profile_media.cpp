@@ -69,7 +69,7 @@ bool pending_media(const ProfilePendingImage& image, UiRect target, UiRect mask,
     result.mask = mask;
     result.mask_radius = radius;
     result.clip = clip;
-    *out = result;
+    copy_value(out, result);
     return true;
 }
 } // namespace
@@ -87,9 +87,9 @@ bool guild_badge_media(bool enabled, u64 guild_id, Utf8View badge, UiRect rectan
     result.key = media_asset_embed(hash64_bytes(kHash64Seed, result.url.data, result.url.bytes), 1, 0,
         MediaEmbedResource::image, MediaAttachmentFormat::png, false, MediaResolutionTier::px512);
     result.key.kind = MediaAssetKind::profile_image;
-    result.rectangle = rectangle;
+    copy_value(&result.rectangle, rectangle);
     result.clip = clip;
-    *out = result;
+    copy_value(out, result);
     return true;
 }
 } // namespace
@@ -124,7 +124,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         if (!a || !a->status_emoji_id)
             return false;
         result.key = media_asset_custom_emoji(a->status_emoji_id, a->emoji_animated);
-        *out = result;
+        copy_value(out, result);
         return true;
     }
     if (part.media == ProfileMediaKind::avatar && scene.pending_avatar.active)
@@ -163,7 +163,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.key = media_asset_embed(hash64_bytes(kHash64Seed, result.url.data, result.url.bytes), 1, 0,
                                        MediaEmbedResource::image, format, false, MediaResolutionTier::px512);
         result.key.kind = MediaAssetKind::profile_image;
-        *out = result;
+        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     auto& url = result.url;
@@ -183,7 +183,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
                                        MediaEmbedResource::image, MediaAttachmentFormat::png, false,
                                        MediaResolutionTier::px512);
         result.key.kind = MediaAssetKind::profile_image;
-        *out = result;
+        copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
     if (part.media == ProfileMediaKind::member_guild) {
@@ -298,7 +298,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     // (profile_scene_card_mask), so its top corners follow the card's.
     if (part.media == ProfileMediaKind::banner)
         result.clip = ui_rect_intersection(result.clip, result.rectangle);
-    *out = result;
+    copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
 bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer, ProfileMedia* out,
@@ -329,7 +329,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         result.rectangle = {label_rect.left, label_rect.top + 16, label_rect.left + 16,
                             label_rect.top + 32};
         result.key = media_asset_custom_emoji(a->status_emoji_id, a->emoji_animated);
-        *out = result;
+        copy_value(out, result);
         return true;
     }
     auto& url = result.url;
@@ -406,7 +406,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
     result.key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
                                    MediaEmbedResource::image, format, animated, MediaResolutionTier::px512);
     result.key.kind = MediaAssetKind::profile_image;
-    *out = result;
+    copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
 bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, MemberAvatarMedia* out,
@@ -508,7 +508,7 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
     result.key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
                                    MediaEmbedResource::image, format, animated, MediaResolutionTier::px512);
     result.key.kind = MediaAssetKind::profile_image;
-    *out = result;
+    copy_value(out, result);
     return true;
 }
 } // namespace maicord

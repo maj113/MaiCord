@@ -1,4 +1,5 @@
 #include "maicord/text/tt_outline.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/font_geometry.hpp"
 #include "sfnt_read.hpp"
 namespace maicord {namespace {
@@ -8,13 +9,13 @@ template<class T> bool room(Slice<T> array,u32 count) noexcept {return array.cou
 SfntStatus optional(const SfntFace& f,u32 tag,ConstSlice<u8>* bytes) noexcept {const auto s=sfnt_table(f,tag,bytes);return s==SfntStatus::missing_table?SfntStatus::ok:s;}
 bool fixed(float value,i32* out) noexcept {const double v=static_cast<double>(value)*64;if(!(v>=-2147483648.0 && v<=2147483647.0))return false;*out=static_cast<i32>(v);return static_cast<double>(*out)==v;}
 TtGraphicsState glyph_state(TtGraphicsState state) noexcept {
-    const u32 control=state.instruction_control;if(control&2)state={};state.instruction_control=control;
+    const u32 control=state.instruction_control;if(control&2)reset_value(&state);state.instruction_control=control;
     state.projection_x=state.freedom_x=state.dual_x=16384;state.projection_y=state.freedom_y=state.dual_y=0;
     state.rp[0]=state.rp[1]=state.rp[2]=0;state.zp[0]=state.zp[1]=state.zp[2]=1;state.loop=1;return state;
 }
 }
 SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};ConstSlice<u8> maxp{},cvt{};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> maxp{},cvt{};
     auto status=sfnt_table(face,sfnt_tag('m','a','x','p'),&maxp);if(status!=SfntStatus::ok)return status;
     status=optional(face,sfnt_tag('c','v','t',' '),&cvt);if(status!=SfntStatus::ok)return status;
     if(maxp.count<32)return SfntStatus::truncated;if(byte_load_be32(maxp.data)!=0x10000 || cvt.count%2)return SfntStatus::malformed;
@@ -22,7 +23,7 @@ SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* o
 }
 SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter s,TtOutlineInstance* output,TtExecution* execution,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(output)*output={};if(execution)*execution={};if(!output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};
+    if(output)reset_value(output);if(execution)reset_value(execution);if(!output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};
     if(!geometry.face.file.data)return SfntStatus::invalid_input;
     if(geometry.kind!=FontGeometryKind::truetype)return SfntStatus::unsupported;
     const auto& face=geometry.face;result.font=geometry.outline.truetype;auto status=SfntStatus::ok;
@@ -39,18 +40,18 @@ SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter s,TtOut
     // Some required fonts declare zero stack while prep sets scan controls.
     // Use the bounded caller-provided preparation stack; glyph execution still
     // uses the declared capacity stored in the prepared instance below.
-    s.storage.count=storage;s.cvt.count=values;s.functions.count=functions;s.twilight.count=twilight;s.glyph={};s.contour_ends={};s.units_per_em=result.font.metrics.units_per_em;s.graphics={};s.stack_count=0;
+    s.storage.count=storage;s.cvt.count=values;s.functions.count=functions;s.twilight.count=twilight;reset_value(&s.glyph);reset_value(&s.contour_ends);s.units_per_em=result.font.metrics.units_per_em;reset_value(&s.graphics);s.stack_count=0;
     for(u32 i=0;i<values;++i)s.cvt[i]=static_cast<i16>(byte_load_be16(cvt.data+i*2))*64;
-    for(u32 i=0;i<storage;++i)s.storage[i]=0;for(u32 i=0;i<functions;++i)s.functions[i]={};for(u32 i=0;i<twilight;++i)s.twilight[i]={};
+    for(u32 i=0;i<storage;++i)s.storage[i]=0;for(u32 i=0;i<functions;++i)reset_value(&s.functions[i]);for(u32 i=0;i<twilight;++i)reset_value(&s.twilight[i]);
     status=tt_execute(&s,fpgm,TtPhase::font,execution,work);work-=execution->operations;if(status!=SfntStatus::ok)return status;
-    s.graphics={};s.stack_count=0;for(u32 i=0;i<twilight;++i)s.twilight[i]={};
+    reset_value(&s.graphics);s.stack_count=0;for(u32 i=0;i<twilight;++i)reset_value(&s.twilight[i]);
     status=tt_execute(&s,prep,TtPhase::prep,execution,work);work-=execution->operations;
     // Windows disables glyph programs after prep calls an undefined function
     // (including Mongolian Baiti's absent fpgm), which differs from an absent but
     // unused font program. The partial graphics state is discarded; unsupported
     // opcodes and exhausted resources stay errors, so missing engine support
     // cannot select raw outlines.
-    if(status==SfntStatus::malformed&&execution->missing_function){s.graphics={};s.graphics.instruction_control=1;result.prep_recovered_missing_function=true;}
+    if(status==SfntStatus::malformed&&execution->missing_function){reset_value(&s.graphics);s.graphics.instruction_control=1;result.prep_recovered_missing_function=true;}
     else if(status!=SfntStatus::ok)return status;
     if(vertical.data && !(s.graphics.instruction_control&1)){
         result.reject_glyph_programs=true;s.graphics.instruction_control|=1;
@@ -60,7 +61,7 @@ SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter s,TtOut
     result.ascender=static_cast<i16>(byte_load_be16(os2.data+68));result.descender=static_cast<i16>(byte_load_be16(os2.data+70));*output=result;return SfntStatus::ok;
 }
 SfntStatus tt_outline_begin(TtOutlineContext* context,const SfntTrueType& font,u32* work) noexcept {
-    if(!context||!context->instance||!work)return SfntStatus::invalid_input;context->execution={};const auto& instance=*context->instance;auto& s=context->scratch;
+    if(!context||!context->instance||!work)return SfntStatus::invalid_input;reset_value(&context->execution);const auto& instance=*context->instance;auto& s=context->scratch;
     if(font.glyf.data!=instance.font.glyf.data || font.glyf.count!=instance.font.glyf.count || font.loca.data!=instance.font.loca.data || font.loca.count!=instance.font.loca.count || font.loca_stride!=instance.font.loca_stride || font.bearing_equals_minimum!=instance.font.bearing_equals_minimum || font.metrics.table.data!=instance.font.metrics.table.data || font.metrics.table.count!=instance.font.metrics.table.count || font.metrics.glyph_count!=instance.font.metrics.glyph_count || font.metrics.long_metrics!=instance.font.metrics.long_metrics || font.metrics.units_per_em!=instance.font.metrics.units_per_em)return SfntStatus::invalid_input;
     if(!room(s.stack,instance.stack_capacity)||!room(s.storage,instance.storage.count)||!room(s.cvt,instance.cvt.count)||!room(s.twilight,instance.twilight.count))return SfntStatus::output_too_small;
     if((s.storage.data && s.storage.data==instance.storage.data)||(s.cvt.data && s.cvt.data==instance.cvt.data)||(s.twilight.data && s.twilight.data==instance.twilight.data))return SfntStatus::invalid_input;

@@ -1,4 +1,5 @@
 #include "maicord/app/reaction_viewer_controller.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
@@ -59,7 +60,7 @@ bool reaction_viewer_controller_initialize(ReactionViewerController* controller,
     if (!controller || !viewer || !page_users.data || page_users.count < kReactionUsersMaximumPage) {
         return false;
     }
-    *controller = ReactionViewerController{};
+    reset_value<ReactionViewerController>(controller);
     controller->viewer = viewer;
     controller->page_users = page_users.data;
     controller->page_user_capacity = page_users.count;

@@ -1,4 +1,5 @@
 #include "maicord/model/notification_sound_policy.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 NotificationSoundDecision notification_selected_sound_admission(const NotificationSelectedSoundInput& i) noexcept {
@@ -78,6 +79,6 @@ NotificationSoundInvocation notification_sound_throttle_timer(NotificationSoundT
 bool notification_sound_throttle_deadline(const NotificationSoundThrottle& s,u64* out) noexcept {
     if(!out||!s.timer_active)return false;*out=s.deadline_ms;return true;
 }
-void notification_sound_throttle_cancel(NotificationSoundThrottle* s) noexcept {if(s){const u64 generation=s->generation;*s={};s->generation=generation;}}
-void notification_sound_throttle_generation(NotificationSoundThrottle* s,u64 generation) noexcept {if(s){*s={};s->generation=generation;}}
+void notification_sound_throttle_cancel(NotificationSoundThrottle* s) noexcept {if(s){const u64 generation=s->generation;reset_value(s);s->generation=generation;}}
+void notification_sound_throttle_generation(NotificationSoundThrottle* s,u64 generation) noexcept {if(s){reset_value(s);s->generation=generation;}}
 } // namespace maicord

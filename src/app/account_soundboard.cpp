@@ -180,7 +180,7 @@ bool consume(void* context, const CdnClientResponse& response, ConstSlice<u8> bo
 
 void drop_pending(AccountSoundboard* s, u32 index) noexcept {
     s->pending[index] = s->pending[--s->pending_count];
-    s->pending[s->pending_count] = {};
+    reset_value(&s->pending[s->pending_count]);
 }
 
 bool ensure_preview(AccountSoundboard* s, u64 now_ms) noexcept {
@@ -220,7 +220,7 @@ void start_ready(AccountSoundboard* s, u64 now_ms) noexcept {
 void fill_status(AccountSoundboard* s, SoundboardAudioStatus* status) noexcept {
     if (!status)
         return;
-    *status = {};
+    reset_value(status);
     status->fetching_sound_id = s->fetch_request_id ? s->fetch_sound_id : 0;
     status->failed_sound_id = s->failed_sound_id;
     status->active_voices = soundboard_mixer_active(&s->mixer);

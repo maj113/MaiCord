@@ -51,7 +51,7 @@ bool load(const GuildFolderSettings& settings, Tree* tree) noexcept {
 
 // Compact settings in display order; empty folders vanish.
 E store(const Tree& tree, GuildFolderSettings* output) noexcept {
-    *output = {};
+    reset_value(output);
     for (u32 n = 0; n < tree.count; ++n) {
         const auto& slot = tree.slots[tree.order[n]];
         if (!slot.count)
@@ -289,7 +289,7 @@ GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFold
                 return E::input;
             remove_guild(&tree, node, index);
             auto& slot = tree.slots[tree.order[target_node]];
-            slot.record = {};
+            reset_value(&slot.record);
             slot.record.id = new_folder_id;
             slot.record.has_id = true;
             if (!insert_guild(&tree, target_node, slot.count, source.id))

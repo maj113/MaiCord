@@ -1,4 +1,5 @@
 #include "maicord/render/colr_paint.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/shader_bytecode.hpp"
 
@@ -253,6 +254,6 @@ void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
     com_release(g->uav);
     com_release(g->view);
     com_release(g->texture);
-    *g = {};
+    reset_value(g);
 }
 } // namespace maicord

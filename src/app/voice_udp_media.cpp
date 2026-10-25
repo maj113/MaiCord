@@ -69,7 +69,7 @@ bool voice_udp_media_begin(VoiceUdpMedia* media, VoiceUdpDiscovery* discovery, V
         byte_ranges_overlap({receive_buffer.data, receive_buffer.count},
                             {send_buffer.data, send_buffer.count}))
         return false;
-    *media = {};
+    reset_value(media);
     media->discovery = discovery;
     media->crypto = crypto;
     media->generation = generation;

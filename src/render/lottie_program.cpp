@@ -1291,7 +1291,7 @@ bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float
                                   float* source_width) noexcept {
     if (!timing || !acquire || !encoded.data || !encoded.count || encoded.count > kLottieMaximumBytes)
         return false;
-    *timing = {};
+    reset_value(timing);
     ScannedJson source;
     if (!source.read(encoded) || !timing_from_index(source.json, timing) || frame_index >= timing->frames)
         return false;

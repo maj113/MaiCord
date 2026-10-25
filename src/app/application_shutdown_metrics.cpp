@@ -57,7 +57,7 @@ bool startup_probe_profile_marked() noexcept {
         !((count >= 3 && local[1] == L':' && (local[2] == L'\\' || local[2] == L'/')) ||
           (count >= 2 && local[0] == L'\\' && local[1] == L'\\')))
         return false;
-    constexpr wchar_t marker[] = L"\\.maicord-test-profile";
+    static constexpr wchar_t marker[] = L"\\.maicord-test-profile";
     for (u32 i = 0; i < sizeof(marker) / sizeof(marker[0]); ++i)
         local[count + i] = marker[i];
     const DWORD attributes = GetFileAttributesW(local);

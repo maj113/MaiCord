@@ -272,7 +272,7 @@ void release_owner() noexcept {
     stable_storage_release(&owner->storage);
     VirtualFree(owner, 0, MEM_RELEASE);
     owner = nullptr;
-    g_app.message_reaction = {};
+    reset_value(&g_app.message_reaction);
 }
 bool ensure_owner(MessageReactionActor current) noexcept {
     if (owner)
@@ -332,7 +332,7 @@ void track(u64 emoji, Utf8View glyph) noexcept {
                                                            : reaction_emoji_unicode(static_cast<u16>(index)));
 }
 void mirror() noexcept {
-    g_app.message_reaction = {};
+    reset_value(&g_app.message_reaction);
     if (!owner)
         return;
     MessageReactionIntent intent{};
@@ -446,9 +446,10 @@ ApplicationMessageReactionEnqueueResult queue(u64 id, u64 emoji, Utf8View text, 
     }
     const auto before = owner->controller;
     const auto prior = exists ? before.entries[prior_index] : MessageReactionIntent{};
-    const auto outcome = message_reaction_controller_queue(&owner->controller, target,
-                                                           {handle, record->revision, channel->generation},
-                                                           a, desired, clock_monotonic_milliseconds());
+    MessageReactionOutcome outcome;
+    message_reaction_controller_queue(&outcome, &owner->controller, target,
+                                      {handle, record->revision, channel->generation}, a, desired,
+                                      clock_monotonic_milliseconds());
     if (!outcome.ok())
         return outcome.error == MessageReactionError::capacity
                    ? ApplicationMessageReactionEnqueueResult::capacity
@@ -561,7 +562,7 @@ Utf8View application_message_reaction_status(u64 message_id, bool* error) noexce
 
 void reset_message_reaction() noexcept {
     if (!owner) {
-        g_app.message_reaction = {};
+        reset_value(&g_app.message_reaction);
         return;
     }
     if (same_actor(actor(), owner->controller.actor)) {
@@ -580,7 +581,7 @@ void reset_message_reaction() noexcept {
     }
     message_reaction_controller_reset(&owner->controller, {});
     owner->closing = true;
-    owner->status = {};
+    reset_value(&owner->status);
     cancel_flight();
     mirror();
 }
@@ -595,7 +596,7 @@ static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
         if (!owner->closing) {
             message_reaction_controller_reset(&owner->controller, {});
             owner->closing = true;
-            owner->status = {};
+            reset_value(&owner->status);
             cancel_flight();
             publish(false);
         }
@@ -700,7 +701,7 @@ static bool synchronize_reactions(u64 snapshot_channel, u64 snapshot_message,
             used = controller.entries[i].target.channel_id == source.channel &&
                    controller.entries[i].target.message_id == source.message;
         if (!used)
-            source = {};
+            reset_value(&source);
         else if (source.channel == owner->resident_channel) {
             MessageReactionTarget target{};
             target.channel_id = source.channel;
@@ -795,8 +796,9 @@ bool application_message_reaction_response(const RestClientResponse& response) n
                             : rate || server ? MessageReactionCompletion::retry
                                              : MessageReactionCompletion::terminal;
     const u64 retry = rate ? response.retry_at_ms : now + 500 * (flight.intent.retries + 1);
-    const auto outcome = message_reaction_controller_complete(
-        &owner->controller, flight.ticket, completion, now, retry,
+    MessageReactionOutcome outcome;
+    message_reaction_controller_complete(
+        &outcome, &owner->controller, flight.ticket, completion, now, retry,
         rate ? response.global_rate_limit ? MessageReactionRetryScope::global
                                           : MessageReactionRetryScope::channel
              : MessageReactionRetryScope::intent);
@@ -1023,7 +1025,7 @@ void application_message_reaction_message_deleted(u64 channel_id, u64 message_id
     if (owner->controller.flight.retired)
         cancel_flight();
     if (owner->status.channel == channel_id && owner->status.message == message_id)
-        owner->status = {};
+        reset_value(&owner->status);
     mirror();
     if (changed)
         publish();

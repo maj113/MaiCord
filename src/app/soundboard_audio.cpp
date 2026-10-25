@@ -1,4 +1,5 @@
 #include "maicord/app/soundboard_audio.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/media/mp3_stream.hpp"
 #include "maicord/media/ogg_opus.hpp"
@@ -303,7 +304,7 @@ void soundboard_clip_release(SoundboardClip* clip) noexcept {
 void soundboard_cache_initialize(SoundboardCache* cache, u32 budget_bytes) noexcept {
     if (!cache)
         return;
-    *cache = {};
+    reset_value(cache);
     cache->budget_bytes = budget_bytes;
 }
 
@@ -419,7 +420,7 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
         if (voice.position >= voice.clip->frames) {
             finished[finished_count++] = voice.clip;
             mixer->voices[v] = mixer->voices[--mixer->count];
-            mixer->voices[mixer->count] = {};
+            reset_value(&mixer->voices[mixer->count]);
         } else
             ++v;
     }
@@ -448,7 +449,7 @@ void soundboard_mixer_stop(SoundboardMixer* mixer, u64 user_id) noexcept {
         if (!user_id || mixer->voices[v].user_id == user_id) {
             stopped[count++] = mixer->voices[v].clip;
             mixer->voices[v] = mixer->voices[--mixer->count];
-            mixer->voices[mixer->count] = {};
+            reset_value(&mixer->voices[mixer->count]);
         } else
             ++v;
     }

@@ -216,7 +216,7 @@ BrowserSignInWriteResult browser_sign_in_write_key(ConstSlice<u8> random, Slice<
     if (!random.data || random.count != 16 || !byte_range_valid(random) || !destination(output) ||
         byte_ranges_overlap(random, {output.data, output.count})) return {0, BrowserSignInError::invalid_input};
     if (output.count < kBrowserSignInKeyBytes) return {kBrowserSignInKeyBytes, BrowserSignInError::capacity};
-    constexpr char digits[] = "0123456789abcdef"; u32 cursor = 0;
+    static constexpr char digits[] = "0123456789abcdef"; u32 cursor = 0;
     for (u32 i = 0; i < 16; ++i) {
         if (i == 4 || i == 6 || i == 8 || i == 10) output[cursor++] = '-';
         const u8 byte = i == 6 ? static_cast<u8>((random[i] & 15u) | 0x40u) :
@@ -228,7 +228,7 @@ BrowserSignInWriteResult browser_sign_in_write_key(ConstSlice<u8> random, Slice<
 BrowserSignInWriteResult browser_sign_in_write_url(u16 port, Utf8View key, Slice<u8> output) noexcept {
     if (!port_valid(port) || !key_valid(key) || !destination(output, key)) return {0, BrowserSignInError::invalid_input};
     // Nested internal redirect: no arbitrary scheme, origin, callback or path.
-    constexpr char prefix[] = "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D";
+    static constexpr char prefix[] = "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D";
     const u32 required = sizeof(prefix) - 1 + 4 + sizeof("%26key%3D") - 1 + key.bytes;
     if (output.count < required) return {required, BrowserSignInError::capacity};
     u32 cursor = 0; write_literal(output.data, &cursor, prefix); cursor += decimal_write(output.data + cursor, port);
@@ -250,14 +250,14 @@ BrowserSignInWriteResult browser_sign_in_write_response(const BrowserSignInReque
     if (!destination(output, request.nonce.encoded) ||
         byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(&request), sizeof(request)})) return {0, BrowserSignInError::invalid_input};
     if (request.kind == BrowserSignInRequestKind::redirect) {
-        constexpr char response[] = "HTTP/1.1 301 Moved Permanently\r\nLocation: https://discord.com/handoff?done=true\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        static constexpr char response[] = "HTTP/1.1 301 Moved Permanently\r\nLocation: https://discord.com/handoff?done=true\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         if (output.count < sizeof(response) - 1) return {sizeof(response) - 1, BrowserSignInError::capacity};
         copy_bytes(output.data, response, sizeof(response) - 1); return {sizeof(response) - 1, BrowserSignInError::none};
     }
     if (request.kind == BrowserSignInRequestKind::preflight) {
-        constexpr char head[] = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: https://discord.com\r\nAccess-Control-Allow-Methods: POST\r\nAccess-Control-Allow-Headers: Content-Type\r\nVary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers\r\nCache-Control: no-store\r\n";
-        constexpr char network[] = "Access-Control-Allow-Private-Network: true\r\n";
-        constexpr char tail[] = "Content-Length: 0\r\nConnection: close\r\n\r\n";
+        static constexpr char head[] = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: https://discord.com\r\nAccess-Control-Allow-Methods: POST\r\nAccess-Control-Allow-Headers: Content-Type\r\nVary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers\r\nCache-Control: no-store\r\n";
+        static constexpr char network[] = "Access-Control-Allow-Private-Network: true\r\n";
+        static constexpr char tail[] = "Content-Length: 0\r\nConnection: close\r\n\r\n";
         const u32 required = sizeof(head) + sizeof(tail) - 2 + (request.private_network ? sizeof(network) - 1 : 0);
         if (output.count < required) return {required, BrowserSignInError::capacity};
         u32 cursor = 0; write_literal(output.data, &cursor, head); if (request.private_network) write_literal(output.data, &cursor, network); write_literal(output.data, &cursor, tail);
@@ -270,7 +270,7 @@ BrowserSignInWriteResult browser_sign_in_write_response(const BrowserSignInReque
     if (!decoded.ok() || !decoded.bytes || !encoded_string({nonce, decoded.bytes}, true, &encoded)) { secure_clear_bytes(nonce, sizeof(nonce)); return {0, BrowserSignInError::invalid_input}; }
     // The reply echoes cmd and nonce; the handler returns nothing, so data and evt are null.
     const u32 body_bytes = sizeof("{\"cmd\":\"BROWSER_HANDOFF\",\"data\":null,\"evt\":null,\"nonce\":}") - 1 + encoded.bytes;
-    constexpr char head[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: https://discord.com\r\nVary: Origin\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ";
+    static constexpr char head[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: https://discord.com\r\nVary: Origin\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ";
     u8 length[10]; const u32 length_bytes = decimal_write(length, body_bytes);
     const u32 required = sizeof(head) - 1 + length_bytes + 4 + body_bytes;
     if (output.count < required) { secure_clear_bytes(nonce, sizeof(nonce)); return {required, BrowserSignInError::capacity}; }

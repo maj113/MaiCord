@@ -1,4 +1,5 @@
 #include "maicord/text/run_plan.hpp"
+#include "maicord/core/memory.hpp"
 #include "run_profile.hpp"
 #include "maicord/text/metric_variations.hpp"
 #include "maicord/text/nominal_participation.hpp"
@@ -138,7 +139,7 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
 }
 NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontInstanceHandle instance,
     Arena* scratch,NativeRunPlanHandle* output,u32 work,usize limit,u32 simulations,NativeRunPlanKind kind) noexcept {
-    if(output)*output={};if(!store||!store->instances||!store->slots.data||!store->slots.count||!scratch||!scratch->base||!output||simulations>3||static_cast<u8>(kind)>1)
+    if(output)reset_value(output);if(!store||!store->instances||!store->slots.data||!store->slots.count||!scratch||!scratch->base||!output||simulations>3||static_cast<u8>(kind)>1)
         return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* font=native_font_instance_get(*store->instances,instance);if(!font)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     const auto* face=native_font_get(*store->instances->fonts,font->face);if(!face)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
@@ -172,8 +173,8 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
     else{arena_reset(scratch);const auto status=prepare(*font,*face,*data,state,*scratch,work,limit,store->substitutions);if(status!=SfntStatus::ok)return failure(status);}
     DWORD old=0;if(!VirtualProtect(state.base,state.committed,PAGE_READONLY,&old))return {NativeFontError::io,SfntStatus::ok,GetLastError()};
     if(!bold&&!native_font_instance_retain(store->instances,instance))return {NativeFontError::capacity,SfntStatus::resource_limit,0};
-    auto& p=store->slots[available];p.instance=instance;p.state=state;state={};p.references=1;++p.generation;
-    substitutions.keep=true;parent={};*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};
+    auto& p=store->slots[available];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
+    substitutions.keep=true;reset_value(&parent);*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }
 const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeRunPlanHandle h,bool independent) noexcept {
     auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->plans[independent?1:0]:nullptr;
@@ -189,7 +190,7 @@ const SfntFontLayoutMetrics* native_run_plan_metrics(const NativeRunPlanStore& s
 }
 bool native_run_plan_release(NativeRunPlanStore* store,NativeRunPlanHandle h) noexcept {
     if(!store)return false;auto* p=slot(*store,h);if(!p)return false;if(--p->references)return true;
-    const auto instance=p->instance;const auto parent=reinterpret_cast<const PlanData*>(p->state.base)->parent;const u32 generation=p->generation;arena_release(&p->state);*p={};p->generation=generation;
+    const auto instance=p->instance;const auto parent=reinterpret_cast<const PlanData*>(p->state.base)->parent;const u32 generation=p->generation;arena_release(&p->state);reset_value(p);p->generation=generation;
     const bool released=parent.slot?native_run_plan_release(store,parent):native_font_instance_release(store->instances,instance);
     bool live=false;for(u32 i=0;i<store->slots.count;++i)live=live||store->slots[i].references!=0;
     if(!live)release_substitutions(store->substitutions);return released;

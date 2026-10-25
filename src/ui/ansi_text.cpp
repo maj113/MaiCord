@@ -1,4 +1,5 @@
 #include "maicord/ui/ansi_text.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/text.hpp"
 
 namespace maicord {
@@ -77,7 +78,7 @@ struct AnsiStack {
     void reset() noexcept {
         size = 0;
         truncated = false;
-        current = AnsiState{};
+        reset_value<AnsiState>(&current);
     }
 };
 
@@ -210,7 +211,7 @@ bool channel_byte(const char* data, u32 begin, u32 end, u32* value) noexcept {
         return true;
     if (digits > 309)
         return false;
-    constexpr char maximum[] = "17976931348623158";
+    static constexpr char maximum[] = "17976931348623158";
     for (u32 i = 0; i < sizeof(maximum) - 1u; ++i) {
         if (data[begin + i] != maximum[i])
             return data[begin + i] < maximum[i];
@@ -460,7 +461,7 @@ u8 ansi_nearest_fixed_color(u32 red, u32 green, u32 blue) noexcept {
 
 Color ansi_palette_color(const Theme& theme, u8 index) noexcept {
     using Member = Color UiTheme_ansi_tokens::*;
-    constexpr Member palette[16]{
+    static constexpr Member palette[16]{
         &UiTheme_ansi_tokens::black,          &UiTheme_ansi_tokens::red,
         &UiTheme_ansi_tokens::green,          &UiTheme_ansi_tokens::yellow,
         &UiTheme_ansi_tokens::blue,           &UiTheme_ansi_tokens::magenta,

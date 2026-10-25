@@ -1,4 +1,5 @@
 #include "maicord/render/animation_frame_cache.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -128,7 +129,7 @@ void erase_bucket(AnimationFrameCache* cache, u32 bucket) noexcept {
 
 void erase_entry(AnimationFrameCache* cache, u32 slot,
                  u32 bucket) noexcept {
-    cache->entries[slot] = AnimationFrameCacheEntry{};
+    reset_value<AnimationFrameCacheEntry>(&cache->entries[slot]);
     erase_bucket(cache, bucket);
     cache->free_cursor = slot;
     --cache->entry_count;
@@ -194,7 +195,7 @@ bool animation_frame_cache_initialize(
         allocations.count != entries.count) {
         return false;
     }
-    *cache = AnimationFrameCache{};
+    reset_value<AnimationFrameCache>(cache);
     if (!glyph_atlas_initialize(&cache->allocations, width, height, padding,
                                 allocations, rows)) {
         return false;
@@ -204,7 +205,7 @@ bool animation_frame_cache_initialize(
     cache->entry_capacity = entries.count;
     cache->bucket_capacity = buckets.count;
     for (u32 index = 0; index < entries.count; ++index) {
-        entries[index] = AnimationFrameCacheEntry{};
+        reset_value<AnimationFrameCacheEntry>(&entries[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
         buckets[index] = kEmptyBucket;
@@ -241,8 +242,8 @@ bool animation_frame_cache_grow_storage(
 
     const u32 previous_capacity = cache->entry_capacity;
     for (u32 index = previous_capacity; index < entries.count; ++index) {
-        entries[index] = AnimationFrameCacheEntry{};
-        allocations[index] = GlyphAtlasEntry{};
+        reset_value<AnimationFrameCacheEntry>(&entries[index]);
+        reset_value<GlyphAtlasEntry>(&allocations[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
         buckets[index] = kEmptyBucket;
@@ -269,7 +270,7 @@ void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept {
     }
     glyph_atlas_reset(&cache->allocations);
     for (u32 index = 0; index < cache->entry_capacity; ++index) {
-        cache->entries[index] = AnimationFrameCacheEntry{};
+        reset_value<AnimationFrameCacheEntry>(&cache->entries[index]);
     }
     for (u32 index = 0; index < cache->bucket_capacity; ++index) {
         cache->buckets[index] = kEmptyBucket;
@@ -365,7 +366,7 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
     }
 
     AnimationFrameCacheEntry& entry = cache->entries[slot];
-    entry = AnimationFrameCacheEntry{};
+    reset_value<AnimationFrameCacheEntry>(&entry);
     entry.key = descriptor.key;
     entry.home_bucket = home_bucket;
     entry.duration_us = descriptor.duration_us;
@@ -379,7 +380,7 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
         if (bucket != 0xFFFFFFFFu) {
             erase_bucket(cache, bucket);
         }
-        entry = AnimationFrameCacheEntry{};
+        reset_value<AnimationFrameCacheEntry>(&entry);
         ++cache->counters.rejected;
         return failure(AnimationFrameCacheError::corrupt_state);
     }

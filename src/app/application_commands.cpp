@@ -1,4 +1,5 @@
 #include "maicord/app/command_autocomplete.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_commands.hpp"
 #include "application_state.hpp"
 #include "application_composer.hpp"
@@ -431,7 +432,7 @@ bool render() noexcept {
 }
 } // namespace
 void application_commands_composer(MessageComposerProjectionContext* projection) noexcept {
-    projection->command = {};
+    reset_value(&projection->command);
     if (!commands || !commands->selected.command || g_app.message_edit.editor_active)
         return;
     const auto& c = *commands;
@@ -458,7 +459,7 @@ bool application_commands_sync(bool* handled) noexcept {
     if (!g_app.account_ui || !input.bytes || input.data[0] != '/' || g_app.message_edit.editor_active) {
         close_popup();
         if (commands) {
-            commands->selected = {};
+            reset_value(&commands->selected);
             commands->revision = 0;
         }
         return true;
@@ -489,7 +490,7 @@ bool application_commands_sync(bool* handled) noexcept {
         c.channel = g_app.message_composer.channel_id;
         c.guild = guild;
         c.queued = false;
-        c.selected = {};
+        reset_value(&c.selected);
         c.filter_app = 0;
         c.revision = 0;
     }
@@ -501,13 +502,13 @@ bool application_commands_sync(bool* handled) noexcept {
         const auto name = c.selected.command->name;
         if (input.bytes < name.bytes + 1 || !utf8_equal({input.data + 1, name.bytes}, name) ||
             (input.bytes > name.bytes + 1 && !command_space(input.data[name.bytes + 1])))
-            c.selected = {};
+            reset_value(&c.selected);
     }
     const bool changed = c.revision != g_app.message_composer.revision;
     if (!c.selected.command)
-        c.focused_option = {};
+        reset_value(&c.focused_option);
     if (changed) {
-        c.focused_option = {};
+        reset_value(&c.focused_option);
         const u32 arguments_start = c.selected.command ? c.selected.command->name.bytes + 1 : 0;
         CommandArgumentFocus focus{};
         if (c.selected.command && c.accepted_revision != g_app.message_composer.revision &&
@@ -526,7 +527,7 @@ bool application_commands_sync(bool* handled) noexcept {
         c.revision = g_app.message_composer.revision;
         ++c.generation;
         c.keyboard_row = c.selected.command ? 1 : 0;
-        c.error = {};
+        reset_value(&c.error);
         if (c.focused_option.source.bytes)
             c.offset = 0;
         if (!c.selected.command && !project({input.data + 1, input.bytes - 1}))
@@ -556,8 +557,8 @@ bool application_commands_activate(u32 action) noexcept {
     const u32 text_revision = g_app.message_composer.text_revision;
     MessageComposerResult edit_result = MessageComposerResult::unchanged;
     if (action == clear_selection && c.selected.command) {
-        c.selected = {};
-        c.focused_option = {};
+        reset_value(&c.selected);
+        reset_value(&c.focused_option);
         c.choice_count = c.option_count = 0;
         command_autocomplete_cancel(&c.autocomplete);
         c.offset = c.rail_offset = 0;
@@ -596,7 +597,7 @@ bool application_commands_activate(u32 action) noexcept {
             edit_result = message_composer_replace_range(&g_app.message_composer, c.value_begin,
                                                          c.value_end, {insertion, writer.used});
         c.accepted_revision = g_app.message_composer.revision;
-        c.focused_option = {};
+        reset_value(&c.focused_option);
         c.choice_count = 0;
         c.offset = 0;
     } else if (action >= option_base) {
@@ -644,7 +645,7 @@ bool application_commands_activate(u32 action) noexcept {
         if (n > c.app_count)
             return true;
         c.filter_app = n ? c.apps[n - 1]->id : 0;
-        c.selected = {};
+        reset_value(&c.selected);
         c.revision = 0;
     } else if (action >= choose_base && action - choose_base < c.count) {
         c.selected = c.entries[action - choose_base];
@@ -699,7 +700,7 @@ bool application_commands_send(bool* handled) noexcept {
     c.send_guild = c.guild;
     c.nonce = next_nonce();
     command_autocomplete_cancel(&c.autocomplete);
-    c.error = {};
+    reset_value(&c.error);
     close_popup();
     return refresh_message_composer_ui();
 }
@@ -818,7 +819,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
                 c.submitted_document == g_app.message_composer.document_identity &&
                 c.submitted_revision == g_app.message_composer.text_revision) {
                 const auto cleared = message_composer_clear(&g_app.message_composer);
-                c.selected = {};
+                reset_value(&c.selected);
                 close_popup();
                 ++c.generation;
                 return composer_apply_result(cleared, true);
@@ -842,7 +843,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
             c.loaded[c.requested_slot] = true;
             if (response.transport_ok() && response.status_code == 200) {
                 if (c.selected.index == &c.index[c.requested_slot])
-                    c.selected = {};
+                    reset_value(&c.selected);
                 if (!command_index_decode(body,
                                           {g_app.account_ui->message_history_page_structurals,
                                            kMessageHistoryPageStructuralCount},
@@ -979,8 +980,8 @@ void application_commands_invalidate_guild(u64 guild_id) noexcept {
         c.indexing_retry = false;
     }
     if (c.selected.index == &c.index[0]) {
-        c.selected = {};
-        c.focused_option = {};
+        reset_value(&c.selected);
+        reset_value(&c.focused_option);
         c.choice_count = c.option_count = 0;
         command_autocomplete_cancel(&c.autocomplete);
     }
@@ -988,7 +989,7 @@ void application_commands_invalidate_guild(u64 guild_id) noexcept {
     // post-drain UI refresh, while making the stale commands unselectable now.
     if (c.index[0].storage.base)
         c.retired_index_storage = c.index[0].storage;
-    c.index[0] = {};
+    reset_value(&c.index[0]);
     arena_release(&c.projection);
     c.entries = nullptr;
     c.apps = nullptr;
@@ -1073,7 +1074,7 @@ bool bind_context_channel() noexcept {
         if (c.guild != guild || !guild) {
             c.loaded[0] = false;
             if (c.selected.index == &c.index[0])
-                c.selected = {};
+                reset_value(&c.selected);
             command_index_release(&c.index[0]);
             c.attempts[0] = 0;
             if (!project({}))

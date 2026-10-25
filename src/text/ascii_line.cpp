@@ -1,9 +1,10 @@
 #include "maicord/text/ascii_line.hpp"
+#include "maicord/core/memory.hpp"
 #include "layout_float.hpp"
 namespace maicord {
 SfntStatus native_ascii_line(const NativeRunPlanStore& store,NativeRunPlanHandle handle,
     Utf8View input,bool independent,float em,const NativeAsciiLineStorage& s,NativeAsciiLineResult* output,SfntShapeLimits limits,float trailing_spacing) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(s.clusters.count&&!s.clusters.data)return SfntStatus::invalid_input;
     NativeAsciiLineResult line{};auto status=native_ascii_run(store,handle,input,independent,em,s.run,&line.run,limits);
     if(status!=SfntStatus::ok)return status;
@@ -36,7 +37,7 @@ SfntStatus native_ascii_line(const NativeRunPlanStore& store,NativeRunPlanHandle
 }
 SfntStatus native_ascii_line_position(ConstSlice<NativeLineCluster> clusters,const NativeAsciiLineResult& line,
     u32 position,bool trailing,NativeLinePosition* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(clusters.count!=line.cluster_count||(clusters.count&&!clusters.data)||position>line.run.source_units)return SfntStatus::invalid_input;
     if(position==line.run.source_units){*output={position,0,line.caret_end,line.caret_end,0};return SfntStatus::ok;}
     u32 first=0,last=clusters.count;while(first<last){const u32 middle=first+(last-first)/2;

@@ -211,7 +211,7 @@ CdnResponseResult response_failure(CdnHttpError error, u16 status = 0) noexcept 
 // "bytes first-last/length" with a known length; no unsatisfied or multipart form.
 bool parse_content_range(ConstSlice<u8> value, u64* first, u64* last, u64* length) noexcept {
     value = http_trim_ows(value);
-    constexpr char unit[] = "bytes ";
+    static constexpr char unit[] = "bytes ";
     constexpr u32 unit_bytes = sizeof(unit) - 1;
     if (value.count <= unit_bytes ||
         !slice_equal_case({value.data, unit_bytes}, {reinterpret_cast<const u8*>(unit), unit_bytes}))
@@ -307,7 +307,7 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
     CdnHost target_host = current_host;
     ConstSlice<u8> target = location;
     if (location[0] != '/') {
-        constexpr char scheme[] = "https://";
+        static constexpr char scheme[] = "https://";
         constexpr u32 scheme_bytes = sizeof(scheme) - 1;
         if (location.count <= scheme_bytes ||
             !slice_equal_case(ConstSlice<u8>{location.data, scheme_bytes},
@@ -328,7 +328,7 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
             if (slice_equal_case(authority, {reinterpret_cast<const u8*>(name.data), name.bytes}))
                 parsed_host = current_host;
         }
-        constexpr CdnHost allowed_hosts[] = {CdnHost::cdn, CdnHost::media,
+        static constexpr CdnHost allowed_hosts[] = {CdnHost::cdn, CdnHost::media,
                                              CdnHost::images_ext_1,
                                              CdnHost::images_ext_2};
         for (CdnHost candidate : allowed_hosts) {

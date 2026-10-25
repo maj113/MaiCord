@@ -109,7 +109,7 @@ void reset() noexcept {
     secure_clear_bytes(moderation.text, sizeof(moderation.text));
     moderation.user_count = 0;
     const u64 menu_guild = moderation.menu_guild_id, menu_user = moderation.menu_user_id;
-    moderation = {};
+    reset_value(&moderation);
     moderation.menu_guild_id = menu_guild;
     moderation.menu_user_id = menu_user;
 }
@@ -211,7 +211,7 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
     moderation.text_bytes = text.bytes;
     moderation.step = Step::queued;
     moderation.retry_at = 0;
-    moderation.status = {};
+    reset_value(&moderation.status);
     changed();
     return false;
 }
@@ -259,7 +259,7 @@ bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 s
     moderation.choice = kModerationBanDeleteChoices[select];
     moderation.step = Step::queued;
     moderation.retry_at = 0;
-    moderation.status = {};
+    reset_value(&moderation.status);
     changed();
     return true;
 }

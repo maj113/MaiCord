@@ -1,4 +1,5 @@
 #include "application_plugins.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_plugin_browser.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_plugin_settings_projection.hpp"
@@ -32,7 +33,7 @@ const NativePluginPreference* loaded_identity(const ApplicationPlugins& plugins,
 }
 void capture_loaded_identity(ApplicationPlugins& plugins, u32 slot, const NativePluginManifest& manifest) noexcept {
     auto& identity = plugins.loaded_identities[slot];
-    identity = {};
+    reset_value(&identity);
     identity.owner_id = manifest.owner_id;
     identity.abi_version = manifest.abi_version;
     identity.dll_bytes = manifest.dll_bytes;
@@ -174,7 +175,7 @@ void application_plugins_poll() noexcept {
                     plugins->status=started==NativePluginBundleInstallError::none?
                         utf8_literal("Installing plugin…"):
                         utf8_literal("Couldn't install the plugin. Check its manifest.");
-                }else plugins->status=Utf8View{};
+                }else reset_value<Utf8View>(&plugins->status);
                 plugins->picker_consumed=true;
             }
             if(!native_file_picker_release(&plugins->picker,0)){
@@ -258,7 +259,7 @@ bool application_plugins_unload(u32 index) noexcept {
     plugins->status = result.ok() ? utf8_literal("Plugin unloaded.") : error_text(result);
     if (result.ok()) {
         plugins->label_bytes[index] = 0;
-        plugins->loaded_identities[index] = {};
+        reset_value(&plugins->loaded_identities[index]);
         plugins->loaded_identity_generations[index] = 0;
     }
     else report_error(result);

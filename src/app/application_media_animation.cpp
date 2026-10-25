@@ -1,4 +1,5 @@
 #include "application_media_pump.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_media_picker.hpp"
 #include "application_composer_preview.hpp"
 #include "application_video.hpp"
@@ -43,7 +44,7 @@ void application_media_posters_presented(Application& application, bool succeede
         application.account.status.profile_id != pending.profile ||
         application.plugin_account_scope_serial != pending.account_scope ||
         !application.account.api.media_local_preview) {
-        pending = {};
+        reset_value(&pending);
         return;
     }
     if (!succeeded || before == after)
@@ -54,7 +55,7 @@ void application_media_posters_presented(Application& application, bool succeede
         application.account.instance != pending.instance || !application.account.status.running ||
         application.account.status.profile_id != pending.profile ||
         application.plugin_account_scope_serial != pending.account_scope)
-        pending = {};
+        reset_value(&pending);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::animated_webp_frame_kind(
@@ -73,7 +74,7 @@ __declspec(noinline) bool ApplicationMediaPump::animation_frame_cache_descriptor
         frame.canvas_height == 0 || frame.frame_index >= frame.frame_count) {
         return false;
     }
-    *descriptor = AnimationFrameCacheDescriptor{};
+    reset_value<AnimationFrameCacheDescriptor>(descriptor);
     descriptor->key = AnimationFrameCacheKey{frame.key, frame.frame_index, frame.cache_generation, 0};
     descriptor->key.content_identity = frame.content_identity;
     descriptor->duration_us = frame.duration_us;
@@ -304,7 +305,7 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
             return MediaFrameUploadResult::failed;
         }
         AnimationVisualState& visual = application.animations.visuals[published.slot];
-        visual = AnimationVisualState{};
+        reset_value<AnimationVisualState>(&visual);
         visual.key = frame.key;
         if (frame.kind == AccountMediaFrameKind::apng_scanlines) {
             visual.frame.apng = frame.apng_frame;
@@ -360,7 +361,7 @@ __declspec(noinline) void ApplicationMediaPump::release_animation_visual(MediaAs
                                                                          u32 generation) noexcept {
     AnimationVisualState* visual = find_animation_visual(key, generation);
     if (visual) {
-        *visual = AnimationVisualState{};
+        reset_value<AnimationVisualState>(visual);
     }
     animation_timeline_release(&application.animations.timeline, key, generation);
     for (u32 index = 0; index < application.animations.pending_advance_count;) {
@@ -585,8 +586,7 @@ ApplicationMediaPump::remove_pending_animation(u32 index) noexcept {
         application.animations.pending_advances[index] =
             application.animations.pending_advances[application.animations.pending_advance_count];
     }
-    application.animations.pending_advances[application.animations.pending_advance_count] =
-        AnimationFrameAdvance{};
+    reset_value<AnimationFrameAdvance>(&application.animations.pending_advances[application.animations.pending_advance_count]);
     return removed;
 }
 

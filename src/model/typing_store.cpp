@@ -1,4 +1,5 @@
 #include "maicord/model/typing_store.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -31,7 +32,7 @@ void remove_record(TypingStore* store, u32 index) noexcept {
         store->records[cursor - 1] = store->records[cursor];
     }
     --store->count;
-    store->records[store->count] = TypingRecord{};
+    reset_value<TypingRecord>(&store->records[store->count]);
 }
 
 void clear_local_controller(TypingStore* store) noexcept {
@@ -49,10 +50,10 @@ bool typing_store_initialize(TypingStore* store,
     if (!store || !records.data || records.count == 0 || records.count > kTypingRecordCapacity) {
         return false;
     }
-    *store = TypingStore{};
+    reset_value<TypingStore>(store);
     store->records = records;
     for (u32 index = 0; index < records.count; ++index) {
-        records[index] = TypingRecord{};
+        reset_value<TypingRecord>(&records[index]);
     }
     return true;
 }
@@ -63,7 +64,7 @@ bool typing_store_reset(TypingStore* store) noexcept {
     }
     const bool changed = store->count != 0;
     for (u32 index = 0; index < store->count; ++index) {
-        store->records[index] = TypingRecord{};
+        reset_value<TypingRecord>(&store->records[index]);
     }
     store->count = 0;
     clear_local_controller(store);

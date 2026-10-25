@@ -1,4 +1,5 @@
 #include "maicord/ui/unread_context.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/permission_bits.hpp"
@@ -60,7 +61,7 @@ const ShellNavigationRowWidget* channel_row(const UnreadContextSource& source, u
 } // namespace
 static bool resolve_target(UnreadContextSource source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target) noexcept {
-    if (target) *target = {};
+    if (target) reset_value(target);
     if (!target || !id || !valid_source(source)) return false;
     UnreadContextTarget value{}; value.source = source; value.id = id; value.kind = kind;
     const ChannelRecord* channel = nullptr;
@@ -92,7 +93,7 @@ bool unread_context_available(UnreadContextSource source, UnreadContextKind kind
 }
 bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target, u32 action) noexcept {
-    if (target) *target = {};
+    if (target) reset_value(target);
     if (!target || !source.popup || !source.popup->active || source.popup->kind != PopupKind::context_menu ||
         source.popup->owner_id != id || source.popup->item_count > source.popup->items.count ||
         (source.popup->item_count && !source.popup->items.data) || !resolve_target(source, kind, id, target)) return false;
@@ -100,7 +101,7 @@ bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind, 
         bool enabled = false;
         for (u32 i = 0; i < source.popup->item_count; ++i)
             enabled |= source.popup->items[i].action == action && (source.popup->items[i].flags & popup_item_enabled);
-        if (!enabled) { *target = {}; return false; }
+        if (!enabled) { reset_value(target); return false; }
     }
     target->action = action;
     target->popup_opens = source.popup->opens; target->popup_generation = source.popup->widgets.generation;

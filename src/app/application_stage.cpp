@@ -112,7 +112,7 @@ bool enqueue(StageRequest request) noexcept {
     if (stage.count == kQueueCapacity || !stage_request_valid(request))
         return false;
     auto& slot = stage.queue[(stage.head + stage.count) % kQueueCapacity];
-    slot = {};
+    reset_value(&slot);
     if (request.topic.bytes) {
         copy_bytes(slot.topic, request.topic.data, request.topic.bytes);
         request.topic = {slot.topic, request.topic.bytes};
@@ -179,11 +179,11 @@ ApplicationTextFormProgress form_progress(TextFormOwnerKey key) noexcept {
 }
 void form_closed(TextFormOwnerKey key) noexcept {
     if (key.scope == stage.form.serial)
-        stage.form = {};
+        reset_value(&stage.form);
 }
 // Binds a fresh form owner to the channel.
 void begin_form(const ChannelRecord& channel) noexcept {
-    stage.form = {};
+    reset_value(&stage.form);
     stage.form.serial = ++stage.form_serial ? stage.form_serial : ++stage.form_serial;
     stage.form.channel_id = channel.id;
     stage.form.guild_id = channel.guild_id;
@@ -211,7 +211,7 @@ bool open_topic_form(const ChannelRecord& channel, bool start) noexcept {
     request.single_line = true;
     if (application_text_form_open(request))
         return true;
-    stage.form = {};
+    reset_value(&stage.form);
     return false;
 }
 // End stage confirmation.
@@ -238,7 +238,7 @@ bool open_end_confirmation(const ChannelRecord& channel) noexcept {
     request.danger = true;
     if (application_text_form_open(request))
         return true;
-    stage.form = {};
+    reset_value(&stage.form);
     return false;
 }
 } // namespace

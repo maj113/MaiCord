@@ -1,4 +1,5 @@
 #include "maicord/core/arena.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -110,7 +111,7 @@ void arena_release(Arena* arena) noexcept {
     if (arena->base) {
         VirtualFree(arena->base, 0, MEM_RELEASE);
     }
-    *arena = Arena{};
+    reset_value<Arena>(arena);
 }
 
 void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {

@@ -163,7 +163,7 @@ void ui_unread_banner_clear(UiUnreadBannerScene* scene) noexcept {
         return;
     const u32 revision = scene->revision + 1;
     const auto style = scene->style;
-    *scene = {};
+    reset_value(scene);
     scene->style = style;
     scene->revision = revision;
 }
@@ -295,7 +295,7 @@ void ui_unread_banner_occluders(const UiUnreadBannerScene& scene, UiRect (&occlu
         occluders[1] = ui_rect_intersection(scene.pill, scene.viewport);
     for (auto& occluder : occluders)
         if (!ui_rect_has_area(occluder))
-            occluder = UiRect{};
+            reset_value<UiRect>(&occluder);
 }
 
 UiUnreadBannerAction ui_unread_banner_hit_test(const UiUnreadBannerScene& scene, float x, float y) noexcept {

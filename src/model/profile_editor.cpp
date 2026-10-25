@@ -1,4 +1,5 @@
 #include "maicord/model/profile_editor.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/color_hex.hpp"
 
 namespace maicord {
@@ -128,11 +129,11 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
                             ProfilePatch* profile) noexcept {
     if (!profile || (tab == ProfileEditorTab::main ? !user : !member))
         return false;
-    *profile = {};
+    reset_value(profile);
     if (user)
-        *user = {};
+        reset_value(user);
     if (member)
-        *member = {};
+        reset_value(member);
     if (!profile_editor_changes_allowed(tab, base, draft, gate))
         return false;
     const u16 changed = profile_editor_changes(tab, base, draft);

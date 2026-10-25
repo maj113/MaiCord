@@ -75,7 +75,7 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     const Layout l = layout();
     if (!l.total)
         return VoiceMessageRecorderError::encoder;
-    *r = {};
+    reset_value(r);
     // Reserved and committed once for the longest recording; pages fault in
     // as the stream grows and nothing is allocated per frame.
     r->block = static_cast<u8*>(VirtualAlloc(nullptr, l.total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -189,7 +189,7 @@ void voice_message_recorder_release(VoiceMessageRecorder* r) noexcept {
         VirtualFree(r->block, 0, MEM_RELEASE);
     }
     const auto error = r->error;
-    *r = {};
+    reset_value(r);
     r->error = error;
 }
 } // namespace maicord

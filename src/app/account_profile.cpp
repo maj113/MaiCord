@@ -222,7 +222,7 @@ void account_profile_release(AccountProfile* profile) noexcept {
         return;
     }
     secure_buffer_release(&profile->credential);
-    *profile = AccountProfile{};
+    reset_value<AccountProfile>(profile);
 }
 
 } // namespace maicord

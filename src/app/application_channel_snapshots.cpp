@@ -1,4 +1,5 @@
 #include "application_channel_snapshots.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "application_channel_authority.hpp"
 #include "application_state.hpp"
@@ -83,7 +84,7 @@ bool application_channel_snapshot_restore(u64 channel_id) noexcept {
         return false;
     }
     if (restored.older_exhausted) {
-        g_app.message_older = MessageHistoryOlder{};
+        reset_value<MessageHistoryOlder>(&g_app.message_older);
         g_app.message_older.channel_id = channel_id;
         g_app.message_older.cursor_before = restored.older_cursor;
         g_app.message_older.state = MessageHistoryOlderState::exhausted;
@@ -93,7 +94,7 @@ bool application_channel_snapshot_restore(u64 channel_id) noexcept {
 
 void application_channel_snapshots_reset() noexcept {
     message_snapshot_cache_release(&g_snapshots);
-    g_prefetch = ChannelPrefetch{};
+    reset_value<ChannelPrefetch>(&g_prefetch);
     g_active_missed = false;
 }
 

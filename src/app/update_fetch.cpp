@@ -28,7 +28,7 @@ bool alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <=
 bool target_byte(u8 c) noexcept {
     // RFC 3986 path/query characters; percent-encoding passes through as-is.
     if (alnum(static_cast<char>(c))) return true;
-    constexpr char allowed[] = "-._~!$&'()*+,;=:@/?%";
+    static constexpr char allowed[] = "-._~!$&'()*+,;=:@/?%";
     for (char a : allowed) if (a && c == static_cast<u8>(a)) return true;
     return false;
 }

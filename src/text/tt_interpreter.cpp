@@ -1,4 +1,5 @@
 #include "maicord/text/tt_interpreter.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "tt_math.hpp"
 namespace maicord {namespace {
@@ -213,7 +214,7 @@ struct Machine {
 };
 }
 SfntStatus tt_execute(TtInterpreter* state,ConstSlice<u8> program,TtPhase phase,TtExecution* result,u32 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!state || !valid(program) || !state->units_per_em || state->stack_count>state->stack.count || (state->stack.count && !state->stack.data) || (state->storage.count && !state->storage.data) || (state->cvt.count && !state->cvt.data) || (state->functions.count && !state->functions.data) || (state->frames.count && !state->frames.data) || (state->glyph.count && !state->glyph.data) || (state->twilight.count && !state->twilight.data) || (state->contour_ends.count && !state->contour_ends.data))return SfntStatus::invalid_input;
     if(phase==TtPhase::glyph && (state->graphics.instruction_control&1))return SfntStatus::ok;
     Machine machine{*state,*result,phase,work,0,program,0};const auto status=machine.run();

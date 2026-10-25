@@ -1,4 +1,5 @@
 #include "application_message_mutation_notice.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 
 namespace maicord::app_detail {
@@ -43,9 +44,9 @@ ApplicationMessageMutationScope* request(ApplicationMessageMutationKind kind, u6
 }
 void clear_shown() noexcept {
     auto& value = g_app.message_mutation_notice;
-    value.shown = {};
+    reset_value(&value.shown);
     value.phase = ApplicationMessageMutationNoticePhase::empty;
-    value.rejection = {};
+    reset_value(&value.rejection);
     value.status_code = 0;
     value.transport_failed = false;
     value.navigation_stage = ApplicationMessageNavigationStage::idle;
@@ -154,7 +155,7 @@ void application_message_mutation_notice_failed(ApplicationMessageMutationKind k
     value.navigation_stage = kind == ApplicationMessageMutationKind::navigate_message
                                  ? ApplicationMessageNavigationStage::error
                                  : ApplicationMessageNavigationStage::idle;
-    *owner = {};
+    reset_value(owner);
 }
 void application_message_mutation_notice_succeeded(ApplicationMessageMutationKind kind, u64 channel_id,
                                                    u64 message_id) noexcept {
@@ -162,7 +163,7 @@ void application_message_mutation_notice_succeeded(ApplicationMessageMutationKin
         auto& value = g_app.message_mutation_notice;
         if (value.kind == kind && equal(value.shown, *owner))
             clear_shown();
-        *owner = {};
+        reset_value(owner);
     }
 }
 Utf8View application_message_mutation_notice_text() noexcept {
@@ -226,7 +227,7 @@ void application_message_mutation_notice_clear(ApplicationMessageMutationKind ki
                (!message_id || owner.message_id == message_id);
     };
     if (matches(value.requests[index(kind)]))
-        value.requests[index(kind)] = {};
+        reset_value(&value.requests[index(kind)]);
     if (value.kind == kind && matches(value.shown))
         clear_shown();
 }

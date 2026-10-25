@@ -1,4 +1,5 @@
 #include "maicord/ui/transition.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -141,7 +142,7 @@ bool ui_motion_style_valid(const UiMotionStyle& style) noexcept {
 void ui_motion_transition_reset(UiMotionTransition* transition, UiMotionScope scope, float value) noexcept {
     if (!transition)
         return;
-    *transition = {};
+    reset_value(transition);
     if (motion_scope_valid(scope)) {
         transition->scope = scope;
         transition->value = transition->from = transition->target = normalized(value);
@@ -149,7 +150,7 @@ void ui_motion_transition_reset(UiMotionTransition* transition, UiMotionScope sc
 }
 void ui_motion_transition_cancel(UiMotionTransition* transition) noexcept {
     if (transition)
-        *transition = {};
+        reset_value(transition);
 }
 
 bool ui_motion_transition_tick(UiMotionTransition* transition, UiMotionScope scope, float requested,

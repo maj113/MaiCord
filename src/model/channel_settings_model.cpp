@@ -1,4 +1,5 @@
 #include "maicord/model/channel_settings_model.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -116,7 +117,7 @@ bool channel_settings_decode(Utf8View body, ChannelSettingsDraft* output) noexce
     if (!parsed.ok() || parse.failed || (parse.seen & required) != required ||
         !channel_settings_supported(parse.value.type))
         return false;
-    *output = parse.value;
+    copy_value(output, parse.value);
     return true;
 }
 

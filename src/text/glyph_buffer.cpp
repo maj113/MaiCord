@@ -1,4 +1,5 @@
 #include "maicord/text/glyph_buffer.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {namespace {
 bool aligned(const void* p) noexcept {return (reinterpret_cast<usize>(p)&(alignof(SfntGsubGlyph)-1))==0;}
@@ -21,7 +22,7 @@ bool sfnt_glyph_view_valid(const SfntGlyphView& v) noexcept {
     return v.record_size>=sizeof(SfntGsubGlyph) && v.record_size%alignof(SfntGsubGlyph)==0 && (!v.prefix_count || (v.prefix && aligned(v.prefix))) && (!v.suffix_count || (v.suffix && aligned(v.suffix))) && static_cast<u64>(v.prefix_count)+v.suffix_count<=0xffffffffu;
 }
 SfntStatus sfnt_glyph_buffer_open(Slice<u8> storage,u32 record_size,u32 initial_count,SfntGlyphBuffer* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(record_size<sizeof(SfntGsubGlyph) || record_size%alignof(SfntGsubGlyph) || (storage.count && (!storage.data || !aligned(storage.data))))return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(record_size<sizeof(SfntGsubGlyph) || record_size%alignof(SfntGsubGlyph) || (storage.count && (!storage.data || !aligned(storage.data))))return SfntStatus::invalid_input;
     const u32 capacity=storage.count/record_size;if(initial_count>capacity)return SfntStatus::output_too_small;*output={storage,record_size,capacity,initial_count,capacity};return SfntStatus::ok;
 }
 SfntGlyphView sfnt_glyph_buffer_view(const SfntGlyphBuffer& b) noexcept {return {reinterpret_cast<const SfntGsubGlyph*>(b.storage.data),reinterpret_cast<const SfntGsubGlyph*>(slot(b,b.gap_end)),b.gap_begin,b.capacity-b.gap_end,b.record_size};}
@@ -29,7 +30,7 @@ SfntStatus sfnt_glyph_buffer_seek(SfntGlyphBuffer* b,u32 at,u64 work) noexcept {
     if(!b || !valid(*b) || at>count(*b))return SfntStatus::invalid_input;if(distance(*b,at)>work)return SfntStatus::resource_limit;seek(*b,at);return SfntStatus::ok;
 }
 SfntStatus sfnt_glyph_buffer_replace(SfntGlyphBuffer* b,u32 start,ConstSlice<u32> consumed,ConstSlice<u8> replacements,SfntGlyphEdit* output,u64 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!b || !valid(*b) || (consumed.count && !consumed.data) || (replacements.count && !replacements.data) || replacements.count%b->record_size)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!b || !valid(*b) || (consumed.count && !consumed.data) || (replacements.count && !replacements.data) || replacements.count%b->record_size)return SfntStatus::invalid_input;
     const u32 before=count(*b),inserted=replacements.count/b->record_size;if(start>before || consumed.count>before || (consumed.count && (start==before || consumed.data[0]!=start)))return SfntStatus::invalid_input;
     if(overlap(consumed.data,static_cast<u64>(consumed.count)*sizeof(u32),b->storage.data,b->storage.count) || overlap(replacements.data,replacements.count,b->storage.data,b->storage.count))return SfntStatus::invalid_input;
     if(consumed.count>work)return SfntStatus::resource_limit;

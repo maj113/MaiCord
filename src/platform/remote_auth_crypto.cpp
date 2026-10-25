@@ -135,7 +135,7 @@ RemoteAuthCryptoResult remote_auth_crypto_export_spki(const RemoteAuthCrypto& cr
     const u32 rsa_bytes = der_object_bytes(rsa_content);
     const u32 bit_string_content = 1u + rsa_bytes;
     const u32 bit_string_bytes = der_object_bytes(bit_string_content);
-    constexpr u8 algorithm_identifier[] = {0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86,
+    static constexpr u8 algorithm_identifier[] = {0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86,
                                            0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00};
     const u32 outer_content = sizeof(algorithm_identifier) + bit_string_bytes;
     const u32 required = der_object_bytes(outer_content);

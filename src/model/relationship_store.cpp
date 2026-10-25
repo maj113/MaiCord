@@ -1,4 +1,5 @@
 #include "maicord/model/relationship_store.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
 namespace maicord {
@@ -36,7 +37,7 @@ bool relationship_store_initialize(RelationshipStore* store, Slice<RelationshipR
             {reinterpret_cast<const u8*>(records.data), records.count * static_cast<u32>(sizeof(*records.data))})) return false;
     const u32 revision = store->revision;
     *store = {records, 0, revision};
-    for (u32 i = 0; i < records.count; ++i) records[i] = {};
+    for (u32 i = 0; i < records.count; ++i) reset_value(&records[i]);
     return true;
 }
 const RelationshipRecord* relationship_store_find(const RelationshipStore& store, u64 id) noexcept {
@@ -65,7 +66,7 @@ RelationshipStoreResult relationship_store_remove(RelationshipStore* store, u64 
     const u32 index = lower(*store, id);
     if (index == store->count || store->records[index].user_id != id) return result(RelationshipStoreError::none);
     for (u32 i = index + 1; i < store->count; ++i) store->records[i - 1] = store->records[i];
-    store->records[--store->count] = {};
+    reset_value(&store->records[--store->count]);
     saturating_increment(store->revision);
     return result(RelationshipStoreError::none, true);
 }
@@ -87,7 +88,7 @@ RelationshipStoreResult relationship_store_replace(RelationshipStore* store, Con
     if (unchanged) return result(RelationshipStoreError::none);
     const u32 previous = store->count;
     for (u32 i = 0; i < sorted.count; ++i) store->records[i] = sorted[i];
-    for (u32 i = sorted.count; i < previous; ++i) store->records[i] = {};
+    for (u32 i = sorted.count; i < previous; ++i) reset_value(&store->records[i]);
     store->count = sorted.count;
     saturating_increment(store->revision);
     return result(RelationshipStoreError::none, true);

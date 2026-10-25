@@ -1,4 +1,5 @@
 #include "maicord/text/sinhala_input.hpp"
+#include "maicord/core/memory.hpp"
 #include "use_character.hpp"
 namespace maicord {
 using C=SinhalaCategory;
@@ -90,7 +91,7 @@ SfntStatus sfnt_sinhala_cluster_boundaries(ConstSlice<u32> input,Slice<u8> outpu
     return SfntStatus::ok;
 }
 SfntStatus sfnt_sinhala_expand_cluster(ConstSlice<u32> input,Slice<SfntSinhalaInputScalar> output,SfntSinhalaInputResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntSinhalaInputScalar)))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;
     u64 count=input.count,units=0;

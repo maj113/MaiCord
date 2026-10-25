@@ -171,7 +171,7 @@ void root_suffix(const UpdateGenerationTransaction& t, const wchar_t* name, wcha
     for (u32 i = 0;; ++i) { path[n + i] = name[i]; if (!name[i]) break; }
 }
 void generation_name(const u8* digest, wchar_t* output) noexcept {
-    constexpr wchar_t digits[]{L"0123456789abcdef"};
+    static constexpr wchar_t digits[]{L"0123456789abcdef"};
     output[0] = L'g'; output[1] = L'-';
     for (u32 i = 0; i < 32; ++i) { output[2 + i * 2] = digits[digest[i] >> 4]; output[3 + i * 2] = digits[digest[i] & 15]; }
     output[66] = 0;
@@ -377,54 +377,58 @@ UpdateGenerationResult update_generation_prepare(const UpdateGenerationState& s,
     if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || s.previous.present || bytes_zero(transaction.bytes, 16) ||
         !update_package_descriptor_valid(package) || bytes_equal(package.document_sha256, s.active.package.document_sha256, 32))
         return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::prepared; n.transaction = transaction; n.candidate = {package, true}; *out = n; return {};
+    copy_value(out, s); auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::prepared; n.transaction = transaction;
+    copy_value(&n.candidate.package, package); n.candidate.present = true; return {};
 }
 UpdateGenerationResult update_generation_activate(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::prepared) return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.phase = UpdateGenerationPhase::pending; n.previous = s.active; n.active = s.candidate; n.candidate = {}; *out = n; return {};
+    // Copy order keeps an aliased output correct.
+    copy_value(out, s); auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::pending;
+    copy_value(&n.previous, s.active); copy_value(&n.active, s.candidate); reset_value(&n.candidate); return {};
 }
 UpdateGenerationResult update_generation_acknowledge(const UpdateGenerationState& s, const UpdateGenerationIdentity& transaction,
     ConstSlice<u8> digest, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::pending || !identity(s.transaction, transaction) ||
         !digest.data || digest.count != 32 || !bytes_equal(digest.data, s.active.package.document_sha256, 32)) return fail(UpdateGenerationError::identity);
-    *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::acknowledged; return {};
+    copy_value(out, s); auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::acknowledged; return {};
 }
 UpdateGenerationResult update_generation_rollback(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || (s.phase != UpdateGenerationPhase::pending && s.phase != UpdateGenerationPhase::prepared)) return fail(UpdateGenerationError::state);
     const bool pending = s.phase == UpdateGenerationPhase::pending;
-    *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::rollback;
-    if (pending) { n.candidate = n.active; n.active = n.previous; n.previous = {}; }
+    copy_value(out, s); auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::rollback;
+    if (pending) { copy_value(&n.candidate, n.active); copy_value(&n.active, n.previous); reset_value(&n.previous); }
     return {};
 }
 UpdateGenerationResult update_generation_finish(const UpdateGenerationState& s, bool disposed, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || (s.phase != UpdateGenerationPhase::acknowledged && s.phase != UpdateGenerationPhase::rollback) ||
         (s.phase == UpdateGenerationPhase::rollback && (!disposed || s.disposal.target != UpdateGenerationDisposalTarget::candidate)))
         return fail(UpdateGenerationError::state);
-    *out = s; auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::stable; n.transaction = {}; n.candidate = {}; n.disposal = {}; return {};
+    copy_value(out, s); auto& n = *out; ++n.sequence; n.phase = UpdateGenerationPhase::stable; reset_value(&n.transaction); reset_value(&n.candidate); reset_value(&n.disposal); return {};
 }
 UpdateGenerationResult update_generation_forget_previous(const UpdateGenerationState& s, bool disposed, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || !s.previous.present || !disposed ||
         s.disposal.target != UpdateGenerationDisposalTarget::previous) return fail(UpdateGenerationError::state);
-    *out = s; auto& n = *out; ++n.sequence; n.previous = {}; n.disposal = {}; return {};
+    copy_value(out, s); auto& n = *out; ++n.sequence; reset_value(&n.previous); reset_value(&n.disposal); return {};
 }
 UpdateGenerationResult update_generation_revert(const UpdateGenerationState& s, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.phase != UpdateGenerationPhase::stable || !s.previous.present ||
         s.disposal.target != UpdateGenerationDisposalTarget::none) return fail(UpdateGenerationError::state);
-    auto n = s; ++n.sequence; n.active = s.previous; n.previous = s.active; *out = n; return {};
+    UpdateGenerationReference previous; copy_value(&previous, s.previous);
+    copy_value(out, s); auto& n = *out; ++n.sequence; copy_value(&n.previous, s.active); copy_value(&n.active, previous); return {};
 }
 UpdateGenerationResult update_generation_disposal_begin(const UpdateGenerationState& s,
     const UpdateGenerationDisposalIntent& intent, UpdateGenerationState* out) noexcept {
     if (!next(s, out) || s.sequence >= ~u64{0} - 1 || s.disposal.target != UpdateGenerationDisposalTarget::none)
         return fail(UpdateGenerationError::state);
     // The resulting state checks the target, its phase and its file count.
-    auto n = s; ++n.sequence; n.disposal = intent;
+    UpdateGenerationState n; copy_value(&n, s); ++n.sequence; n.disposal = intent;
     if (!valid_state(n)) return fail(UpdateGenerationError::state);
-    *out = n; return {};
+    copy_value(out, n); return {};
 }
 UpdateGenerationResult update_generation_recovery(const UpdateGenerationState& s, UpdateGenerationRecovery* out) noexcept {
     if (!out || !valid_state(s)) return fail(UpdateGenerationError::state);
     if (s.disposal.target == UpdateGenerationDisposalTarget::previous) { *out = UpdateGenerationRecovery::discard_previous; return {}; }
-    constexpr UpdateGenerationRecovery plans[]{UpdateGenerationRecovery::launch_active, UpdateGenerationRecovery::retain_prepared,
+    static constexpr UpdateGenerationRecovery plans[]{UpdateGenerationRecovery::launch_active, UpdateGenerationRecovery::retain_prepared,
         UpdateGenerationRecovery::roll_back, UpdateGenerationRecovery::finish_acknowledgement, UpdateGenerationRecovery::discard_candidate};
     *out = plans[static_cast<u32>(s.phase)]; return {};
 }
@@ -434,7 +438,7 @@ UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment&
     if (!t || t->gate || t->ancestor_count || t->record_owner || t->record_temporary || t->validation_owner || t->inventory_owner || !e.explicitly_enrolled ||
         bytes_zero(e.installation.bytes, 16) || bytes_zero(e.publisher_inventory_sha256, 32)) return fail(UpdateGenerationError::enrollment);
     if (!path_valid(e.root, &count) || !e.ancestors.data || e.ancestors.count != count) return fail(UpdateGenerationError::path);
-    t->state = {}; t->record_present = false; t->provisioning_admitted = false;
+    reset_value(&t->state); t->record_present = false; t->provisioning_admitted = false;
     wchar_t drive[4]{e.root[0], L':', L'\\', 0};
     if (GetDriveTypeW(drive) != DRIVE_FIXED) return fail(UpdateGenerationError::path, ERROR_NOT_SUPPORTED);
     t->root_characters = e.root.count; for (u32 i = 0; i < e.root.count; ++i) t->root[i] = e.root[i]; t->root[e.root.count] = 0;
@@ -564,7 +568,7 @@ UpdateGenerationResult update_generation_select(UpdateGenerationTransaction* t, 
     DWORD native = 0;
     if (!a.verify_installed(a.context, t, t->state.active.package, &native)) return fail(UpdateGenerationError::authenticity, native);
     result = update_generation_validate(t); if (!result.ok()) return result;
-    *out = t->state.active.package; return {};
+    copy_value(out, t->state.active.package); return {};
 }
 UpdateGenerationResult update_generation_release(UpdateGenerationTransaction* t) noexcept {
     if (!t) return fail(UpdateGenerationError::invalid_input);
@@ -583,7 +587,7 @@ UpdateGenerationResult update_generation_release(UpdateGenerationTransaction* t)
         if (!CloseHandle(t->ancestors[i])) return fail(UpdateGenerationError::release, GetLastError());
         t->ancestors[i] = nullptr; --t->ancestor_count;
     }
-    *t = {};
+    reset_value(t);
     return {};
 }
 UpdateGenerationResult update_generation_directory_open(UpdateGenerationTransaction* t, ConstSlice<u8> digest,
@@ -650,7 +654,7 @@ UpdateGenerationResult update_generation_disposal_directory_open(UpdateGeneratio
     if (!result.ok()) {
         if (result.error == UpdateGenerationError::open && (result.native_error == ERROR_FILE_NOT_FOUND || result.native_error == ERROR_PATH_NOT_FOUND)) {
             result = update_generation_validate(t); if (!result.ok()) return result;
-            *out = {}; *absent = true; return {};
+            reset_value(out); *absent = true; return {};
         }
         return result;
     }

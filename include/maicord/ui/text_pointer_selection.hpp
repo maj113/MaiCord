@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/utf.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 
@@ -45,7 +46,7 @@ inline u8 ui_click_tracker_press(UiClickTracker* tracker, const void* owner, flo
 // Keyboard input, focus loss and presses elsewhere end a click sequence.
 inline void ui_click_tracker_reset(UiClickTracker* tracker) noexcept {
     if (tracker)
-        *tracker = UiClickTracker{};
+        reset_value<UiClickTracker>(tracker);
 }
 
 enum class UiTextSelectionUnit : u8 { character, word, line };

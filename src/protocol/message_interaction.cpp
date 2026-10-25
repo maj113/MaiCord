@@ -1,4 +1,5 @@
 #include "maicord/protocol/message_interaction.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/json_ids.hpp"
@@ -23,7 +24,7 @@ struct Pool {
 bool decode_string(JsonValue value, Pool* pool, Utf8View* output, u32 maximum = 0xFFFFu) noexcept {
     JsonString text{};
     if (value.kind == JsonValueKind::null_value) {
-        *output = {};
+        reset_value(output);
         return true;
     }
     if (!json_value_as_string(value, &text))
@@ -34,7 +35,7 @@ bool decode_string(JsonValue value, Pool* pool, Utf8View* output, u32 maximum = 
         bytes > pool->bytes.count - pool->used)
         return false;
     if (!bytes) {
-        *output = {};
+        reset_value(output);
         return true;
     }
     const auto decoded = json_string_decode_utf8(text, {pool->bytes.data + pool->used, bytes});
@@ -145,7 +146,7 @@ bool add_field(ModalContext* context, const MessageModalField& field) noexcept {
 }
 
 bool parse_input(ModalContext* context, JsonValue value, InputContext* output) noexcept {
-    *output = InputContext{};
+    reset_value<InputContext>(output);
     output->modal = context;
     output->field.required = true; // The API's default for text inputs
     output->field.max_length = 4000;
@@ -334,7 +335,7 @@ bool message_modal_decode(Utf8View json, Slice<u32> structurals, Slice<char> poo
              .ok() ||
         (!modal.field_count && !modal.unsupported))
         return false;
-    *output = modal;
+    copy_value(output, modal);
     return true;
 }
 

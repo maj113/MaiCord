@@ -175,7 +175,7 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
         const Utf8View filename = message_attachment_drafts_filename(&state->drafts, ids[i]);
         const auto preview = application_composer_preview_view(ids[i]);
         auto& tile = state->tiles[state->tile_count++];
-        tile = {};
+        reset_value(&tile);
         tile.id = ids[i];
         tile.filename = filename;
         tile.bytes = record->source.bytes;
@@ -193,7 +193,7 @@ MessageComposerAttachmentInput application_attachment_input() noexcept {
     if (preparing(state, g_app.account_ui->active_channel_id) &&
         state->tile_count < kUiComposerAttachmentMaximum) {
         auto& tile = state->tiles[state->tile_count++];
-        tile = {};
+        reset_value(&tile);
         tile.id = kPreparingTileId;
         tile.phase = UiComposerAttachmentPhase::preparing;
         tile.filename = state->picker_cancel_requested ? utf8_literal("Cancelling…") : utf8_literal("Preparing files…");

@@ -1,4 +1,5 @@
 #include "maicord/text/gsub_execute.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "gsub_validated.hpp"
 #include "maicord/sys/intrin.hpp"
@@ -7,7 +8,7 @@ namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
 inline bool spend(u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
 SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequirements* req) noexcept {
-    *req={};if(lookup.type<=4)return SfntStatus::ok;
+    reset_value(req);if(lookup.type<=4)return SfntStatus::ok;
     if(lookup.type==5 || lookup.type==6)return sfnt_context_requirements(bytes,lookup.type==5?SfntContextKind::sequence:SfntContextKind::chained,req);
     if(lookup.type==8)return sfnt_gsub_reverse_requirements(bytes,&req->coverages);
     return SfntStatus::unsupported;
@@ -26,7 +27,7 @@ struct LookupBuilder {
         SfntGsubExecutableLookup& dest,bool ignore_empty,bool ignore_unreachable) noexcept {
         SfntStatus s;
         if(lookup.subtable_count>storage.subtables.count-subat)return SfntStatus::output_too_small;
-        dest={};dest.type=lookup.type;dest.subtables={storage.subtables.data?storage.subtables.data+subat:nullptr,lookup.subtable_count};
+        reset_value(&dest);dest.type=lookup.type;dest.subtables={storage.subtables.data?storage.subtables.data+subat:nullptr,lookup.subtable_count};
         s=sfnt_lookup_filter_prepare(gdef,lookup.flags,lookup.mark_set,&dest.filter);if(s!=SfntStatus::ok)return s;
         if((lookup.flags>>8) && !(lookup.flags&0x18) && !gdef.mark_classes.format)return SfntStatus::missing_table;
         for(u16 j=0;j<lookup.subtable_count;++j){ConstSlice<u8> bytes{};s=sfnt_lookup_subtable(lookup,j,&bytes);if(s!=SfntStatus::ok)return s;SfntContextRequirements need{};s=inspect(lookup,bytes,&need);if(s!=SfntStatus::ok)return s;
@@ -45,7 +46,7 @@ struct LookupBuilder {
                 // therefore proves whether any real glyph can reach this rule.
                 u16 first=0;if(retry==SfntStatus::ok&&candidate.coverage.covered_count&&
                     sfnt_coverage_glyph(candidate.coverage,0,&first)==SfntStatus::ok&&first>=limit){
-                    candidate.coverage={};candidate.glyph_limit=limit;sub.basic=candidate;s=SfntStatus::ok;}
+                    reset_value(&candidate.coverage);candidate.glyph_limit=limit;sub.basic=candidate;s=SfntStatus::ok;}
             }
             if(s!=SfntStatus::ok)return s;covat+=need.coverages;classat+=need.classes;
             sfnt_lookup_bounds_add(dest.bounds,lookup.type<=4?sub.basic.coverage:lookup.type==8?sub.reverse.coverages[0]:sfnt_context_first_coverage(sub.context));
@@ -227,7 +228,7 @@ struct Executor {
 };
 }
 SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout& layout,u16 index,SfntGsubProgramRequirements* output,u32 budget) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
     if(!budget)return SfntStatus::resource_limit;
     SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;
     SfntGsubProgramRequirements result{1,0,0,0};u64 work=budget-1;
@@ -235,7 +236,7 @@ SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout& layout,u16 index,Sfnt
 }
 SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const SfntGdef& gdef,u32 limit,
     SfntGsubLookupStorage storage,SfntGsubExecutableLookup* output,u32 subwork,u32 budget,bool ignore_empty,bool ignore_unreachable) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(layout.kind!=SfntLayoutKind::substitution||!limit||limit>65536||(gdef.table.data&&gdef.glyph_limit!=limit)||
        !valid(storage.subtables)||!valid(storage.coverages)||!valid(storage.classes))return SfntStatus::invalid_input;
     if(!budget)return SfntStatus::resource_limit;
@@ -246,7 +247,7 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     if(s==SfntStatus::ok)*output=result;return s;
 }
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!buffer || lookup>=program.lookups.count || !sfnt_gsub_directory_valid(program) || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.rebased) || !valid(scratch.consumed) || !valid(scratch.replacements) || !valid(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || lookup>=program.lookups.count || !sfnt_gsub_directory_valid(program) || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.rebased) || !valid(scratch.consumed) || !valid(scratch.replacements) || !valid(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
     const SfntGsubExecutableLookup* root=nullptr;const auto prepared=sfnt_gsub_lookup_prepare(program,lookup,&root);if(prepared!=SfntStatus::ok)return prepared;
     const auto s=sfnt_glyph_buffer_seek(buffer,buffer->gap_begin,0);if(s!=SfntStatus::ok)return s;
     const auto view=sfnt_glyph_buffer_view(*buffer);if(start>end || end>sfnt_glyph_count(view))return SfntStatus::invalid_input;
@@ -262,7 +263,7 @@ SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,Sf
     output->operations+=count;return status;
 }
 SfntStatus sfnt_gsub_execute_validated_lookup(const SfntGsubProgram& program,const SfntGsubExecutableLookup& lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
-    *output={};output->input_end=end;
+    reset_value(output);output->input_end=end;
     Executor e{program,*buffer,scratch,*output,limits.operations,limits.match_work,alternate,clusters,components,mask};const auto status=e.run(lookup,start);output->operations=limits.operations-e.work;return status;
 }
 }

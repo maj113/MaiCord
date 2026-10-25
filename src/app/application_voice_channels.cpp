@@ -229,13 +229,13 @@ ApplicationTextFormProgress form_progress(TextFormOwnerKey key) noexcept {
 }
 void form_closed(TextFormOwnerKey key) noexcept {
     if (key.scope == vc.form.serial)
-        vc.form = {};
+        reset_value(&vc.form);
 }
 bool open_status_form(u64 channel_id) noexcept {
     const auto* channel = voice_channel(channel_id);
     if (!channel || g_app.text_form)
         return false;
-    vc.form = {};
+    reset_value(&vc.form);
     vc.form.serial = ++vc.form_serial ? vc.form_serial : ++vc.form_serial;
     vc.form.channel_id = channel->id;
     vc.form.guild_id = channel->guild_id;
@@ -257,7 +257,7 @@ bool open_status_form(u64 channel_id) noexcept {
     request.single_line = true;
     if (application_text_form_open(request))
         return true;
-    vc.form = {};
+    reset_value(&vc.form);
     return false;
 }
 } // namespace

@@ -1,4 +1,5 @@
 #include "maicord/text/clusters.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "maicord/sys/intrin.hpp"
 
@@ -32,7 +33,7 @@ u32 sfnt_cluster_map_words(u32 count) noexcept {
     u32 result=0;while(count){count=word_count(count);result+=count;if(count==1)break;}return result;
 }
 SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64> storage,SfntClusterMap* output,u64 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};const u32 words=sfnt_cluster_map_words(text_count);
+    if(!output)return SfntStatus::invalid_input;reset_value(output);const u32 words=sfnt_cluster_map_words(text_count);
     if((starts.count && !starts.data) || (storage.count && (!storage.data || (reinterpret_cast<usize>(storage.data)&7))))return SfntStatus::invalid_input;
     if(words>storage.count)return SfntStatus::output_too_small;
     if(static_cast<u64>(words)*3+starts.count>work)return SfntStatus::resource_limit;
@@ -55,7 +56,7 @@ SfntStatus sfnt_cluster_map_find(const SfntClusterMap& map,u32 source,u32* first
     const u32 next=source+1==map.text_count?absent:find(map,source+1,true);*end=next==absent?map.text_count:next;return SfntStatus::ok;
 }
 SfntStatus sfnt_cluster_map_plan(const SfntClusterMap& map,u32 first,u32 last,SfntClusterMerge* output,u64 work,u64* used) noexcept {
-    if(used)*used=0;if(!output)return SfntStatus::invalid_input;*output={};if(first>last || last>=map.text_count)return SfntStatus::invalid_input;
+    if(used)*used=0;if(!output)return SfntStatus::invalid_input;reset_value(output);if(first>last || last>=map.text_count)return SfntStatus::invalid_input;
     SfntClusterMerge plan{first,last,0};u64 charged=0;const u32 search_cost=map.levels*2+2;
     if(first!=last){u32 at=first+1;for(;;){if(search_cost>work-charged){if(used)*used=charged;return SfntStatus::resource_limit;}charged+=search_cost;
             const u32 found=find(map,at,true);plan.commit_work+=search_cost;if(found==absent || found>last)break;

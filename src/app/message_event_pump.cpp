@@ -1,4 +1,5 @@
 #include "maicord/model/user_activity.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/app/user_store_dispatch.hpp"
 #include "maicord/app/member_list_channel_binding.hpp"
@@ -747,7 +748,7 @@ bool message_event_pump_initialize(MessageEventPump* pump, MessageTimeline* time
         return false;
     }
     reserved_bytes_release(&pump->large_payload);
-    *pump = MessageEventPump{};
+    reset_value<MessageEventPump>(pump);
     pump->timeline = timeline;
     pump->payload_scratch = payload_scratch;
     pump->bulk_id_scratch = bulk_id_scratch;
@@ -757,7 +758,7 @@ bool message_event_pump_initialize(MessageEventPump* pump, MessageTimeline* time
 
 void message_event_pump_reset(MessageEventPump* pump) noexcept {
     reserved_bytes_release(&pump->large_payload);
-    *pump = MessageEventPump{};
+    reset_value<MessageEventPump>(pump);
 }
 
 void message_event_pump_set_view_active(MessageEventPump* pump, bool view_active) noexcept {
@@ -1763,7 +1764,7 @@ MessageEventPumpDrainResult message_event_pump_drain(MessageEventPump* pump, voi
              reserved_bytes_initialize(&pump->large_payload, kGatewayClientGuildRecordCapacity)) &&
             reserved_bytes_commit(&pump->large_payload, popped.payload_bytes)) {
             payload = {pump->large_payload.base, pump->large_payload.committed};
-            event = {};
+            reset_value(&event);
             popped = pop(source, &event, payload);
         }
         // Only the record that needed it keeps the large pages committed.

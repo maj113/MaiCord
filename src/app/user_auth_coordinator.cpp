@@ -330,7 +330,7 @@ RestClientSubmitResult submit_prepared(UserAuthCoordinator* coordinator,
     runtime->active_generation = next_state.generation;
     runtime->active_request_id = request_id;
     runtime->active_operation = operation;
-    coordinator->state = UserAuthCoordinatorResult{};
+    reset_value<UserAuthCoordinatorResult>(&coordinator->state);
     coordinator->state.generation = next_state.generation;
     coordinator->state.request_id = request_id;
     coordinator->state.phase = coordinator_phase(next_state.phase);
@@ -632,7 +632,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     UserAuthCoordinator* coordinator = context->coordinator;
     UserAuthCoordinatorRuntime* runtime = runtime_of(coordinator);
     UserAuthCoordinatorEvent& event = *context->event;
-    event = UserAuthCoordinatorEvent{};
+    reset_value<UserAuthCoordinatorEvent>(&event);
     // All operations, including same-generation SMS send, require the current
     // accepted request before response metadata or protected storage is touched.
     if (!runtime->active_request_id || transport_response.request_id != runtime->active_request_id ||
@@ -677,7 +677,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     if (runtime->active_operation == UserAuthOperation::mfa_sms_send &&
         transport_response.status_code >= 200 && transport_response.status_code < 300) {
         event.kind = UserAuthCoordinatorEventKind::sms_code_sent;
-        coordinator->state = UserAuthCoordinatorResult{};
+        reset_value<UserAuthCoordinatorResult>(&coordinator->state);
         coordinator->state.generation = runtime->flow.generation;
         coordinator->state.request_id = transport_response.request_id;
         coordinator->state.http_status = transport_response.status_code;
@@ -794,7 +794,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     retain_decoded(runtime, decoded, prior_phase);
     event.response = decoded;
     event.kind = event_kind(decoded.kind);
-    coordinator->state = UserAuthCoordinatorResult{};
+    reset_value<UserAuthCoordinatorResult>(&coordinator->state);
     coordinator->state.generation = runtime->flow.generation;
     coordinator->state.request_id = transport_response.request_id;
     coordinator->state.http_status = transport_response.status_code;
@@ -841,7 +841,7 @@ static UserAuthCoordinatorResult start_coordinator(UserAuthCoordinator* coordina
     if (!coordinator || bytes == 0 || coordinator->runtime || coordinator->transport.worker.thread) {
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     }
-    *coordinator = UserAuthCoordinator{};
+    reset_value<UserAuthCoordinator>(coordinator);
     coordinator->runtime = VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!coordinator->runtime) {
         return fail(coordinator, UserAuthCoordinatorError::memory, thread_last_error());
@@ -1298,7 +1298,7 @@ UserAuthCoordinatorResult user_auth_coordinator_pump(UserAuthCoordinator* coordi
     if (!runtime || !event || runtime->transport_stopped) {
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     }
-    *event = UserAuthCoordinatorEvent{};
+    reset_value<UserAuthCoordinatorEvent>(event);
     if (coordinator->state.phase == UserAuthCoordinatorPhase::stopping ||
         coordinator->state.phase == UserAuthCoordinatorPhase::failed) return coordinator->state;
     const RestClientResult transport = rest_client_status(&coordinator->transport);
@@ -1439,7 +1439,7 @@ UserAuthCoordinatorResult user_auth_coordinator_take_profile(UserAuthCoordinator
         return fail(coordinator, UserAuthCoordinatorError::profile, assigned.native_error);
     }
     profile->credential = token;
-    token = SecureBuffer{};
+    reset_value<SecureBuffer>(&token);
     profile->metadata = AccountProfileMetadata{profile_id};
     clear_secret(runtime, kTokenOffset, kTokenCapacity);
     runtime->token_bytes = 0;
@@ -1514,7 +1514,7 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
         stopped.http_status = 429;
         stopped.retry_at_ms = coordinator->state.retry_at_ms;
     }
-    *coordinator = UserAuthCoordinator{};
+    reset_value<UserAuthCoordinator>(coordinator);
     coordinator->state = stopped;
     return stopped;
 }

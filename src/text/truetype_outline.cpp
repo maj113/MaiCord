@@ -1,4 +1,5 @@
 #include "maicord/text/truetype_outline.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/tt_orientation.hpp"
 #include "maicord/text/tt_bold_points.hpp"
 #include "maicord/text/tt_outline.hpp"
@@ -40,7 +41,7 @@ struct Reader {
 void reset(GlyphOutline* out) noexcept {
     auto* commands = out->commands;
     const u32 capacity = out->capacity;
-    *out = {};
+    reset_value(out);
     out->commands = commands; out->capacity = capacity; out->fill_rule = GlyphFillRule::winding;
 }
 
@@ -72,7 +73,7 @@ struct Decoder {
     }
 
     SfntStatus simple(ConstSlice<u8> data, u32 contours,ConstSlice<u8>* program) noexcept {
-        *program={};
+        reset_value(program);
         if (!contours) {if(data.count==10)return SfntStatus::ok;if(data.count<12)return SfntStatus::truncated;const u32 n=be16(data.data+10);if(n>data.count-12)return SfntStatus::truncated;*program={data.data+12,n};return SfntStatus::ok;}
         if (contours > (data.count - 10u) / 2u) return SfntStatus::truncated;
         const u32 points = be16(data.data + 10 + (contours - 1) * 2) + 1u;
@@ -363,7 +364,7 @@ u32 sfnt_truetype_outline_capacity(const SfntTrueType& font,u16 glyph) noexcept 
 
 SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allow_variations) noexcept {
     if (!font) return SfntStatus::invalid_input;
-    *font = {};
+    reset_value(font);
     if (face.version == sfnt_tag('O','T','T','O')) return SfntStatus::unsupported;
     ConstSlice<u8> gvar{};
     const auto variation = sfnt_table(face, sfnt_tag('g','v','a','r'), &gvar);

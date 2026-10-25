@@ -93,8 +93,8 @@ void cancel_submitted(ApplicationPinnedMessages& value) noexcept {
     }
 }
 void clear_capture(ApplicationPinnedMessages& value) noexcept {
-    value.pressed = {};
-    value.pressed_scope = {};
+    reset_value(&value.pressed);
+    reset_value(&value.pressed_scope);
     value.scrollbar_dragging = false;
     const bool captured = value.captured;
     value.captured = false;
@@ -280,7 +280,7 @@ bool application_pinned_messages_toggle() noexcept {
     }
     application_composer_text_input_suspend();
     g_app.message_composer.focused = false;
-    g_app.message_action_bar = {};
+    reset_value(&g_app.message_action_bar);
     value->panel = true;
     value->permission_revision = g_app.account_ui->chat_state.permission_mutations;
     value->source.resolve = resolve;
@@ -450,7 +450,7 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
             }
         }
     }
-    value->submitted = {};
+    reset_value(&value->submitted);
     value->submitted_cancelled = false;
     if (decoded.ok() && completion.kind == PinnedMessageCompletionKind::success &&
         value->controller.phase == PinnedMessagePhase::ready) {
@@ -478,7 +478,7 @@ bool application_pinned_messages_action(u64 message_id, bool pin, bool confirm) 
     }
     application_composer_text_input_suspend();
     g_app.message_composer.focused = false;
-    g_app.message_action_bar = {};
+    reset_value(&g_app.message_action_bar);
     value->confirmation = {value->controller.scope.account_scope, value->controller.scope.channel_id, message_id};
     value->confirmation_pin = pin;
     if (!confirm) return pinned_message_controller_mutate(&value->controller, message_id, pin) && repaint();
@@ -566,7 +566,7 @@ bool application_pinned_messages_window_message(UINT message, WPARAM, LPARAM lpa
             ui_rect_height(value->scene.body) + ui_pinned_messages_scene_scroll_maximum(value->scene));
         value->pressed = ui_pinned_messages_scene_hit_test(value->scene, x, y);
         if (ui_scrollbar_track_hit(bar, x, y)) {
-            value->pressed = {};
+            reset_value(&value->pressed);
             value->scrollbar_dragging = ui_scrollbar_thumb_hit(bar, x, y);
             value->thumb_grab = y - bar.thumb.top;
             if (!value->scrollbar_dragging) application_pinned_messages_scroll_to(value->scene.scroll_dips +

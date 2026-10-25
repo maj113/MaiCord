@@ -64,7 +64,7 @@ HpkeResult install(HpkeContext* context, KdfSha256Workspace& workspace, ConstSli
             // Explicit ownership transfer: no key handle survives in both owners.
             HpkeContext previous = *context;
             *context = candidate;
-            candidate = {};
+            reset_value(&candidate);
             hpke_release(&previous);
             result.bytes = 0;
         }
@@ -126,7 +126,7 @@ void hpke_release(HpkeContext* context) noexcept {
     if (!context)
         return;
     aes_gcm_release(&context->cipher);
-    *context = {};
+    reset_value(context);
 }
 bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept {
     return byte_ranges_overlap(span, object_bytes(context)) ||

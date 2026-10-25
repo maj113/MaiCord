@@ -9,7 +9,7 @@ __declspec(noinline) RestClientSubmitResult submit_batch(
     const auto written = write_bulk_message_ack_body(entries, {body, sizeof(body)});
     if (!written.ok())
         return {RestClientSubmitError::invalid_input};
-    constexpr char target[] = "/api/v10/read-states/ack-bulk";
+    static constexpr char target[] = "/api/v10/read-states/ack-bulk";
     return rest_client_submit(
         primary, {reinterpret_cast<const u8*>(target), sizeof(target) - 1},
         {body, written.bytes},

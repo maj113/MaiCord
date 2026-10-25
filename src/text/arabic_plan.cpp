@@ -1,4 +1,5 @@
 #include "maicord/text/arabic_plan.hpp"
+#include "maicord/core/memory.hpp"
 #include "layout_language.hpp"
 #include "maicord/text/base.hpp"
 
@@ -52,7 +53,7 @@ struct Builder {
         if(!write)result.lookup_count=emitted;return SfntStatus::ok;
     }
     SfntStatus run(bool independent) noexcept {
-        constexpr u32 scripts[]{sfnt_tag('a','r','a','b'),sfnt_tag('D','F','L','T'),sfnt_tag('l','a','t','n')};
+        static constexpr u32 scripts[]{sfnt_tag('a','r','a','b'),sfnt_tag('D','F','L','T'),sfnt_tag('l','a','t','n')};
         SfntLanguageSelection selection{};u64 remaining=work;auto s=sfnt_layout_select_language_prepared(layout,{scripts,3},sfnt_tag('E','N','G',' '),selection,remaining);work=remaining;result.script_tag=selection.script_tag;
         if(s==SfntStatus::missing_table)return SfntStatus::ok;if(s!=SfntStatus::ok)return s;
         result.language_found=true;result.language_tag=selection.language_tag;const auto& selected=selection.language;
@@ -74,7 +75,7 @@ struct Builder {
 }
 SfntStatus sfnt_arabic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!layout.table.data || static_cast<u8>(layout.kind)>1 || (scratch.count && !scratch.data) || (output.count && !output.data))return SfntStatus::invalid_input;
     Builder builder{layout,variations,scratch,output,*result,work};const auto s=builder.run(independent);result->operations=work-builder.work;return s;
 }

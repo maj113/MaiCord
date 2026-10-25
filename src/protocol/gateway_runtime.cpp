@@ -11,7 +11,7 @@ u32 scale_inclusive(u32 random, u32 maximum_value) noexcept {
 }
 
 bool has_wss_scheme(const char* value, u32 bytes) noexcept {
-    constexpr char scheme[] = "wss://";
+    static constexpr char scheme[] = "wss://";
     if (bytes <= sizeof(scheme) - 1) {
         return false;
     }
@@ -95,7 +95,7 @@ GatewayReconnectDelay gateway_reconnect_next(GatewayReconnectBackoff* backoff, u
 }
 
 void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept {
-    *backoff = GatewayReconnectBackoff{};
+    reset_value<GatewayReconnectBackoff>(backoff);
 }
 
 u32 gateway_invalid_session_delay(u32 random) noexcept {
@@ -155,7 +155,7 @@ GatewayOutboundStep gateway_outbound_take(GatewayOutboundQueue* queue, u64 now_m
 }
 
 void gateway_outbound_reset(GatewayOutboundQueue* queue) noexcept {
-    *queue = GatewayOutboundQueue{};
+    reset_value<GatewayOutboundQueue>(queue);
 }
 
 } // namespace maicord

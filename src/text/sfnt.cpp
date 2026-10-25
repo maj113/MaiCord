@@ -1,4 +1,5 @@
 #include "maicord/text/sfnt.hpp"
+#include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
 
 namespace maicord {
@@ -6,7 +7,7 @@ using namespace sfnt_read;
 
 SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_index, SfntFace* face) noexcept {
     if (!face) return SfntStatus::invalid_input;
-    *face = {};
+    reset_value(face);
     if (!bytes.data) return SfntStatus::invalid_input;
     if (!span(bytes, 0, 12)) return SfntStatus::truncated;
     u32 offset = 0, faces = 1;
@@ -48,7 +49,7 @@ SfntStatus sfnt_open(ConstSlice<u8> bytes, u32 face_index, SfntFace* face) noexc
 
 SfntStatus sfnt_table(const SfntFace& face, u32 tag, ConstSlice<u8>* table) noexcept {
     if (!table) return SfntStatus::invalid_input;
-    *table = {};
+    reset_value(table);
     if (!face.file.data || !face.directory.data || !face.directory.count ||
         face.directory.count % 16u) return SfntStatus::invalid_input;
     u32 low = 0, high = face.directory.count / 16u;
@@ -86,7 +87,7 @@ SfntStatus sfnt_glyph_count(const SfntFace& face, u16* count) noexcept {
 SfntStatus sfnt_horizontal_metrics_open(const SfntFace& face,
                                          SfntHorizontalMetrics* metrics) noexcept {
     if (!metrics) return SfntStatus::invalid_input;
-    *metrics = {};
+    reset_value(metrics);
     u16 glyphs = 0;
     auto status = sfnt_glyph_count(face, &glyphs);
     if (status != SfntStatus::ok) return status;
@@ -112,7 +113,7 @@ SfntStatus sfnt_horizontal_metrics_open(const SfntFace& face,
 SfntStatus sfnt_horizontal_metrics(const SfntHorizontalMetrics& metrics, u16 glyph,
                                     SfntGlyphMetrics* output) noexcept {
     if (!output) return SfntStatus::invalid_input;
-    *output = {};
+    reset_value(output);
     if (!metrics.table.data || !metrics.long_metrics ||
         metrics.long_metrics > metrics.glyph_count) return SfntStatus::invalid_input;
     if (glyph >= metrics.glyph_count) return SfntStatus::glyph_out_of_range;

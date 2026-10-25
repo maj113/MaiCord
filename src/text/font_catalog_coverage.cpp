@@ -1,4 +1,5 @@
 #include "maicord/text/font_catalog_coverage.hpp"
+#include "maicord/core/memory.hpp"
 namespace maicord {namespace {
 NativeFontResult invalid() noexcept{return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};}
 bool valid(const NativeFontCoverageCache* c) noexcept{return c&&c->session&&c->slots.data&&c->slots.count&&c->slots.count<=64;}
@@ -10,7 +11,7 @@ u32 tick(NativeFontCoverageCache& c) noexcept {
     }return ++c.clock;
 }
 NativeFontResult lookup(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,u32 candidate,NativeFontHandle* output,bool refresh=false,NativeFontHandle ready={}) noexcept {
-    *output={};if(!valid(c))return invalid();NativeFontCatalogEntry entry{};auto result=native_font_catalog_entry(catalog,candidate,&entry);if(!result.ok())return result;
+    reset_value(output);if(!valid(c))return invalid();NativeFontCatalogEntry entry{};auto result=native_font_catalog_entry(catalog,candidate,&entry);if(!result.ok())return result;
     const u32 face=catalog.candidates[candidate].face;auto* fonts=native_font_session_fonts(c->session);u32 victim=0xffffffffu;
     for(u32 i=0;i<c->slots.count;++i){auto& slot=c->slots[i];
         if(slot.handle.slot&&slot.catalog==&catalog&&slot.face==face){
@@ -19,7 +20,7 @@ NativeFontResult lookup(NativeFontCoverageCache* c,const NativeFontCatalog& cata
         if(victim==0xffffffffu||(!slot.handle.slot&&c->slots[victim].handle.slot)||(slot.handle.slot&&c->slots[victim].handle.slot&&slot.stamp<c->slots[victim].stamp))victim=i;
     }
     auto& slot=c->slots[victim];if(slot.handle.slot){if(!native_font_release(fonts,slot.handle))return invalid();
-        if(slot.catalog!=&catalog||slot.face!=face)++c->evictions;slot={};}
+        if(slot.catalog!=&catalog||slot.face!=face)++c->evictions;reset_value(&slot);}
     NativeFontHandle handle=ready;
     if(ready.slot){if(!native_font_retain(fonts,ready))return invalid();}
     else {result=native_font_session_face(c->session,reinterpret_cast<const wchar_t*>(entry.path.data),entry.face_index,&handle);if(!result.ok())return result;}
@@ -38,8 +39,8 @@ bool native_font_coverage_reset(NativeFontCoverageCache* c) noexcept {
     if(okay)c->clock=0;return okay;
 }
 bool native_font_coverage_release(NativeFontCoverageCache* c) noexcept {
-    if(!c)return false;if(!c->session){*c={};return true;}
-    if(!native_font_coverage_reset(c)||!native_font_session_release(&c->session))return false;*c={};return true;
+    if(!c)return false;if(!c->session){reset_value(c);return true;}
+    if(!native_font_coverage_reset(c)||!native_font_session_release(&c->session))return false;reset_value(c);return true;
 }
 NativeFontResult native_font_coverage_probe(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,u32 candidate,u32 scalar,bool* output,const NativeFontFace** borrowed) noexcept {
     if(borrowed)*borrowed=nullptr;
@@ -49,7 +50,7 @@ NativeFontResult native_font_coverage_probe(NativeFontCoverageCache* c,const Nat
     const auto status=sfnt_cmap_glyph(font->cmap,scalar,0,&glyph);if(status!=SfntStatus::ok)return {NativeFontError::font,status,0};*output=glyph!=0;if(borrowed)*borrowed=font;return {};
 }
 NativeFontResult native_font_coverage_acquire(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,u32 candidate,NativeFontHandle* output,bool refresh) noexcept {
-    if(output)*output={};if(!output)return invalid();NativeFontHandle handle{};auto result=lookup(c,catalog,candidate,&handle,refresh);if(!result.ok())return result;
+    if(output)reset_value(output);if(!output)return invalid();NativeFontHandle handle{};auto result=lookup(c,catalog,candidate,&handle,refresh);if(!result.ok())return result;
     if(!native_font_retain(native_font_session_fonts(c->session),handle))return {NativeFontError::capacity,SfntStatus::resource_limit,0};*output=handle;return {};
 }
 NativeFontResult native_font_coverage_remember(NativeFontCoverageCache* c,const NativeFontCatalog& catalog,u32 candidate,NativeFontHandle ready) noexcept {

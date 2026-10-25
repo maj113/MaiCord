@@ -1,4 +1,5 @@
 #include "maicord/media/mp4_fragment.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
 
@@ -304,7 +305,7 @@ Mp4DemuxError mp4_fragment_initialize(ConstSlice<u8> prefix, u64 source_offset, 
     if (ungrouped_samples > value.count) return E::malformed;
     value.duration = value.decode_time - value.first_time;
     mp4_fragment_reset(&value);
-    *output = value;
+    copy_value(output, value);
     return E::none;
 }
 } // namespace maicord

@@ -2,6 +2,7 @@
 // SDK's items and the target's identity; dispatch dismisses the borrowing
 // popup, revalidates the copy and only then enters the plugin.
 #include "application_plugins.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "application_friends.hpp"
@@ -222,7 +223,7 @@ NativePluginSdkMenuContext context_for(const ApplicationPluginMenu& menu, const 
     }
     return context;
 }
-void clear() noexcept { g_menu = {}; }
+void clear() noexcept { reset_value(&g_menu); }
 } // namespace
 
 const ApplicationPluginMenu& application_plugins_menu_state() noexcept { return g_menu; }

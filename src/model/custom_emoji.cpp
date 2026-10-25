@@ -172,7 +172,7 @@ void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) n
         }
     }
     for (u32 index = output; index < store->emoji_count; ++index) {
-        store->emojis[index] = CustomEmojiRecord{};
+        reset_value<CustomEmojiRecord>(&store->emojis[index]);
     }
     store->emoji_count = output;
 
@@ -231,7 +231,7 @@ bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
     for (u32 index = 0; index < emojis.count; ++index) {
         const CustomEmojiInput& input = emojis[index];
         CustomEmojiRecord& record = store->emojis[store->emoji_count++];
-        record = CustomEmojiRecord{};
+        reset_value<CustomEmojiRecord>(&record);
         record.id = input.id;
         record.guild_id = guild_id;
         record.role_offset = store->emoji_role_count;

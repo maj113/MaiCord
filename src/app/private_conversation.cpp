@@ -1,4 +1,5 @@
 #include "maicord/app/private_conversation.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/model/private_channel_store.hpp"
@@ -29,7 +30,7 @@ bool private_conversation_begin(PrivateConversationRequest* request, const ChatS
     const auto* channel = chat_state_store_find_channel(state, target_id);
     if (operation == PrivateConversationOperation::open) { if (target_id == state.self_user_id) return false; }
     else if (operation != PrivateConversationOperation::close || !channel || channel->type != 1) return false;
-    *request = {};
+    reset_value(request);
     request->target_id = target_id;
     request->operation = operation;
     request->phase = PrivateConversationPhase::queued;
@@ -46,7 +47,7 @@ bool private_conversation_validate_target(PrivateConversationRequest* request, c
     if (request->operation == PrivateConversationOperation::open) return state.self_user_id && request->target_id != state.self_user_id;
     const auto* channel = chat_state_store_find_channel(state, request->target_id);
     if (channel && channel->type == 1 && channel->generation == request->channel_generation) return true;
-    *request = {};
+    reset_value(request);
     return false;
 }
 bool private_conversation_accept(PrivateConversationRequest* request, ChatStateStore* state, UserStore* users,
@@ -95,7 +96,7 @@ bool private_conversation_accept(PrivateConversationRequest* request, ChatStateS
             if (!chat_state_store_select_channel(state, event.state.id).ok()) return fail(PrivateConversationError::response);
         }
     }
-    *request = {};
+    reset_value(request);
     return true;
 }
 }

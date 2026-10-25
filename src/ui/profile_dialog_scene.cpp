@@ -1,4 +1,5 @@
 #include "maicord/ui/profile_dialog_scene.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/surface_elevation.hpp"
@@ -297,7 +298,7 @@ bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogCont
         s->grid_scroll = 0;
     } else
         ui_widget_manager_reset(&s->widgets);
-    s->content = content;
+    copy_value(&s->content, content);
     s->viewport = viewport;
     s->part_count = 0;
     auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
@@ -323,7 +324,7 @@ void ui_profile_dialog_close(UiProfileDialogScene* s) noexcept {
     if (!s || !s->active)
         return;
     s->active = false;
-    s->content = {};
+    reset_value(&s->content);
     s->part_count = 0;
     ui_widget_manager_focus(&s->widgets, ui_widget_invalid_handle());
     ++s->revision;
@@ -368,14 +369,16 @@ bool ui_profile_dialog_scroll(UiProfileDialogScene* s, float delta) noexcept {
     if (next == s->grid_scroll)
         return true;
     s->grid_scroll = next;
-    const auto content = s->content;
+    // A copy: the update replaces s->content from it.
+    UiProfileDialogContent content;
+    copy_value(&content, s->content);
     return ui_profile_dialog_update(s, content, s->viewport);
 }
 
 bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMedia* out) noexcept {
     if (!s.active || !out)
         return false;
-    *out = {};
+    reset_value(out);
     const auto& c = s.content;
     if (crop(s)) {
         if (index > 1 || !c.image_ready || !media_asset_key_valid(c.image))
@@ -423,7 +426,7 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
             const auto& item = c.items[part.source];
             ProfileMedia media{};
             media.key = item.key;
-            media.url = item.url;
+            copy_value(&media.url, item.url);
             media.clip = clip;
             if (decoration) {
                 const float cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f;
@@ -456,7 +459,7 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
         if (has_decoration && cursor++ == index) {
             const auto& item = c.items[c.selected];
             ProfileMedia media{};
-            media.key = item.key;
+            copy_value(&media.key, item.key);
             media.url = item.url;
             media.rectangle = decoration_rect(avatar);
             media.clip = clip;

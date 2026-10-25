@@ -176,7 +176,7 @@ const wchar_t* host_wide(CdnHost host) noexcept {
 void erase_command(CdnClientRuntime* runtime) noexcept {
     secure_clear_bytes(runtime->request_target, kCdnMaximumTargetBytes);
     secure_clear_bytes(runtime->conditional_etag, kCdnMaximumEtagBytes);
-    runtime->command = CdnClientCommand{};
+    reset_value<CdnClientCommand>(&runtime->command);
 }
 
 void trim_consumed_response(CdnClientRuntime* runtime) noexcept {
@@ -199,15 +199,15 @@ void erase_response(CdnClientRuntime* runtime) noexcept {
     // The buffers hold only public request metadata and image bytes and the next decoder
     // initialization overwrites the lengths, so they are not cleared per response. Shutdown
     // still erases the whole allocation because it also holds TLS state.
-    runtime->response = HttpResponseDecoder{};
-    runtime->response_step = HttpResponseDecoderStep{};
-    runtime->policy = CdnResponseResult{};
+    reset_value<HttpResponseDecoder>(&runtime->response);
+    reset_value<HttpResponseDecoderStep>(&runtime->response_step);
+    reset_value<CdnResponseResult>(&runtime->policy);
 }
 
 // Hands the request slot back after the caller has taken (or consumed) the response.
 void recycle_request(CdnClient* client, CdnClientRuntime* runtime) noexcept {
     erase_response(runtime);
-    runtime->completed = CdnClientResponse{};
+    reset_value<CdnClientResponse>(&runtime->completed);
     runtime->request_started_counter = 0;
     runtime->redirects = 0;
     ResetEvent(client->response_event);
@@ -270,7 +270,7 @@ void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
     }
     if (cancelled) {
         erase_response(runtime);
-        response = CdnClientResponse{};
+        reset_value<CdnClientResponse>(&response);
         response.error = CdnClientError::cancelled;
         response.native_error = ERROR_OPERATION_ABORTED;
         response.reused_connection = runtime->logical_reused_connection;
@@ -282,7 +282,7 @@ void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
             clock_microseconds(runtime->clock, runtime->request_started_counter, clock_now());
     }
     response.request_id = runtime->command.request_id;
-    response.requested_range = runtime->command.range;
+    copy_value(&response.requested_range, runtime->command.range);
     runtime->completed = response;
     runtime->deadline_ms = 0;
     secure_clear_bytes(runtime->request_head, kRequestHeadBytes);
@@ -492,8 +492,8 @@ TlsStreamEvent begin_http_send(CdnClient* client, CdnClientRuntime* runtime) noe
     runtime->request_bytes = written.bytes;
     runtime->committed_bytes = 0;
     runtime->response_callback_failed = false;
-    runtime->response_step = HttpResponseDecoderStep{};
-    runtime->policy = CdnResponseResult{};
+    reset_value<HttpResponseDecoderStep>(&runtime->response_step);
+    reset_value<CdnResponseResult>(&runtime->policy);
     publish_phase(client, CdnClientPhase::sending);
     const ConstSlice<u8> request{runtime->request_head, written.bytes};
     return tls_stream_start_write(&runtime->transport, ConstSlice<ConstSlice<u8>>{&request, 1},
@@ -776,7 +776,7 @@ CdnClientResult cdn_client_start(CdnClient* client, u32 response_capacity) noexc
         invalid.error = CdnClientError::invalid_input;
         return invalid;
     }
-    *client = CdnClient{};
+    reset_value<CdnClient>(client);
     client->runtime = VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE);
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(CdnClientError::memory));
@@ -980,7 +980,7 @@ CdnClientTakeResult cdn_client_take_response(CdnClient* client,
     }
     copy_bytes(body_output.data, runtime->response_body, runtime->completed.body_bytes);
     trim_consumed_response(runtime);
-    *response = runtime->completed;
+    copy_value(response, runtime->completed);
     const u32 body_bytes = runtime->completed.body_bytes;
     recycle_request(client, runtime);
     return CdnClientTakeResult{body_bytes, CdnClientTakeError::none};
@@ -1033,7 +1033,7 @@ CdnClientResult cdn_client_stop(CdnClient* client, u32 timeout_ms) noexcept {
         CloseHandle(client->response_event);
     }
     destroy_client_storage(client);
-    *client = CdnClient{};
+    reset_value<CdnClient>(client);
     value.phase = value.error == CdnClientError::none ? CdnClientPhase::stopped : CdnClientPhase::failed;
     return value;
 }

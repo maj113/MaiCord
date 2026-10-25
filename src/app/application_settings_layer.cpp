@@ -1,4 +1,5 @@
 #include "application_settings_layer.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
@@ -110,8 +111,8 @@ bool focused_editor(SettingsLayer* layer, MessageComposer** model, BoundedEdit**
     return true;
 }
 float keyframe_shift(float t) noexcept {
-    constexpr float at[]{0, .1f, .3f, .5f, .7f, .9f, 1};
-    constexpr float value[]{0, -1, 1, -1, 1, -.6f, 0};
+    static constexpr float at[]{0, .1f, .3f, .5f, .7f, .9f, 1};
+    static constexpr float value[]{0, -1, 1, -1, 1, -.6f, 0};
     for (u32 i = 1; i < 7; ++i)
         if (t <= at[i]) {
             const float f = (t - at[i - 1]) / (at[i] - at[i - 1]);
@@ -217,7 +218,7 @@ bool choose_pointer(SettingsLayer* layer, UINT message, float x, float y) noexce
 void settings_layer_reset(SettingsLayer* layer) noexcept {
     auto* scene = layer->scene;
     const auto* hooks = layer->hooks;
-    *layer = {};
+    reset_value(layer);
     layer->scene = scene;
     layer->hooks = hooks;
 }
@@ -400,7 +401,7 @@ void settings_layer_cancel_pointer(SettingsLayer* layer) noexcept {
         layer->dragging = layer->drag_armed = false;
         ui_settings_scene_set_drag(layer->scene, 0, 0, false);
     }
-    layer->pressed = {};
+    reset_value(&layer->pressed);
     if (layer->scene->active)
         ui_button_pointer(&layer->scene->widgets, UiButtonPointerEvent::cancel, {});
     if (GetCapture() == g_app.window)
@@ -616,7 +617,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             ui_settings_scene_set_drag(scene, 0, 0, false);
             application_request_frame();
         }
-        layer->pressed = {};
+        reset_value(&layer->pressed);
         ui_button_pointer(&scene->widgets, UiButtonPointerEvent::cancel, {});
         if (message != WM_CAPTURECHANGED && GetCapture() == g_app.window)
             ReleaseCapture();
@@ -695,7 +696,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                 dispatch(layer, activation, true, false);
             if (message == WM_LBUTTONUP) {
                 layer->slider_dragging = false;
-                layer->pressed = {};
+                reset_value(&layer->pressed);
                 if (GetCapture() == g_app.window)
                     ReleaseCapture();
             }
@@ -826,7 +827,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             SetCapture(g_app.window);
         } else if (message == WM_LBUTTONUP) {
             const auto pressed = layer->pressed;
-            layer->pressed = {};
+            reset_value(&layer->pressed);
             if (GetCapture() == g_app.window)
                 ReleaseCapture();
             if (!pointer.activate || !ui_settings_target_equal(pressed, target))

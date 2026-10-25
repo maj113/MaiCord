@@ -290,7 +290,7 @@ MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
                               (session.receiver_count + 1) * static_cast<u32>(sizeof(DaveReceiver))))
                 return MlsStatus::buffer_too_small;
             receiver = &list[session.receiver_count];
-            *receiver = {};
+            reset_value(receiver);
             receiver->user_id = node.leaf.user_id;
             if (dave_receive_sender_initialize(&receiver->sender, identity, now_ms) !=
                 DaveSenderError::none)
@@ -327,7 +327,7 @@ void reset_group(DaveSession& session) noexcept {
 }
 void drop_key_package(DaveSession& session) noexcept {
     dave_key_package_release(&session.package);
-    session.package_view = {};
+    reset_value(&session.package_view);
     session.key_package_ready = false;
 }
 MlsStatus prepare_leaf(DaveSession& session) noexcept {
@@ -343,7 +343,7 @@ MlsStatus dave_session_initialize(DaveSession* session, u64 group_id, u64 self_u
     if (!session || session->initialized || session->arena || !group_id || !self_user_id ||
         !call_generation || protocol_version > kDaveProtocolVersion)
         return MlsStatus::invalid_argument;
-    *session = {};
+    reset_value(session);
     session->arena = static_cast<u8*>(VirtualAlloc(nullptr, kLayout.total, MEM_RESERVE, PAGE_NOACCESS));
     if (!session->arena)
         return MlsStatus::buffer_too_small;
@@ -421,7 +421,7 @@ MlsStatus dave_session_set_external_sender(DaveSession* session, ConstSlice<u8> 
 MlsStatus dave_session_key_package(DaveSession* session, ConstSlice<u8>* output) noexcept {
     if (!output)
         return MlsStatus::invalid_argument;
-    *output = {};
+    reset_value(output);
     if (!session || !session->initialized || !session->protocol_version || !session->signing_key.handle)
         return MlsStatus::state_conflict;
     drop_key_package(*session);
@@ -451,7 +451,7 @@ MlsStatus dave_session_proposals(DaveSession* session, ConstSlice<u8> input, Con
                                  ConstSlice<u8>* output, u32* commit_bytes) noexcept {
     if (!output || !commit_bytes)
         return MlsStatus::invalid_argument;
-    *output = {};
+    reset_value(output);
     *commit_bytes = 0;
     if (!session || !session->initialized || !input.data || !input.count ||
         session->group_state == DaveGroupState::none || !session->group.initialized)

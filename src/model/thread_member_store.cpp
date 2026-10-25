@@ -1,4 +1,5 @@
 #include "maicord/model/thread_member_store.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/base.hpp"
 #include "maicord/core/heap_sort.hpp"
 
@@ -34,7 +35,7 @@ bool thread_member_store_initialize(ThreadMemberStore* store, Slice<u64> first, 
     const usize a = reinterpret_cast<usize>(first.data), b = reinterpret_cast<usize>(second.data);
     const usize bytes = static_cast<usize>(first.count) * sizeof(u64);
     if ((a < b ? b - a : a - b) < bytes) return false;
-    *store = {}; store->banks[0] = first; store->banks[1] = second; return true;
+    reset_value(store); store->banks[0] = first; store->banks[1] = second; return true;
 }
 bool thread_member_store_set_reserve(ThreadMemberStore* store,
     ThreadMemberReserve callback, void* context) noexcept {

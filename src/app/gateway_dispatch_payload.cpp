@@ -24,7 +24,7 @@ bool unpack_text_range(ConstSlice<u8> payload, u32 transient_bytes, GatewayClien
     if (range.reserved != 0 || transient_bytes > payload.count) {
         return false;
     }
-    *value = Utf8View{};
+    reset_value<Utf8View>(value);
     if (range.bytes == 0) {
         return range.offset == 0;
     }
@@ -54,7 +54,7 @@ bool unpack_embed_media(ConstSlice<u8> payload, u32 text_limit,
         (source.state & ~3u) != 0) {
         return false;
     }
-    *destination = GatewayMessageEmbedMedia{};
+    reset_value<GatewayMessageEmbedMedia>(destination);
     destination->width = source.width;
     destination->height = source.height;
     destination->flags = source.flags;
@@ -283,7 +283,7 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice
         !message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
         return false;
     }
-    *message = GatewayMessageEvent{};
+    reset_value<GatewayMessageEvent>(message);
     message->id = event.message.id;
     message->nonce = event.message.nonce;
     message->channel_id = event.message.channel_id;
@@ -442,7 +442,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
             return false;
         }
         GatewayMessageReaction& destination = rich_scratch.reactions[index];
-        destination = GatewayMessageReaction{};
+        reset_value<GatewayMessageReaction>(&destination);
         destination.emoji_id = packed.emoji_id;
         destination.count = packed.count;
         destination.normal_count = packed.normal_count;
@@ -463,7 +463,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
             return false;
         }
         GatewayMessageAttachment& destination = rich_scratch.attachments[index];
-        destination = GatewayMessageAttachment{};
+        reset_value<GatewayMessageAttachment>(&destination);
         destination.id = packed.id;
         destination.size = packed.size;
         destination.width = packed.width;
@@ -495,7 +495,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
             return false;
         }
         GatewayMessageEmbed& destination = rich_scratch.embeds[index];
-        destination = GatewayMessageEmbed{};
+        reset_value<GatewayMessageEmbed>(&destination);
         destination.color = packed.color;
         destination.field_begin = packed.field_begin;
         destination.field_count = packed.field_count;
@@ -526,7 +526,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
             return false;
         }
         GatewayMessageEmbedField& destination = rich_scratch.embed_fields[index];
-        destination = GatewayMessageEmbedField{};
+        reset_value<GatewayMessageEmbedField>(&destination);
         destination.embed_index = packed.embed_index;
         destination.inline_field = (packed.flags & 1u) != 0;
         if (!unpack_text_range(payload, role_offset, packed.name, &destination.name) ||
@@ -542,7 +542,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
             return false;
         }
         GatewayMessageSticker& destination = rich_scratch.stickers[index];
-        destination = GatewayMessageSticker{};
+        reset_value<GatewayMessageSticker>(&destination);
         destination.id = packed.id;
         destination.format_type = packed.format_type;
         if (!unpack_text_range(payload, role_offset, packed.name, &destination.name)) {
@@ -558,7 +558,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
             return false;
         }
         GatewayMessageComponent& destination = rich_scratch.components[index];
-        destination = GatewayMessageComponent{};
+        reset_value<GatewayMessageComponent>(&destination);
         destination.id = packed.id;
         destination.parent = packed.parent;
         destination.order = packed.order;
@@ -949,7 +949,7 @@ bool gateway_client_event_as_message_reaction(const GatewayClientEvent& event, C
          (event.reaction.user_id != 0 || event.reaction.emoji_id != 0 || payload.count != 0))) {
         return false;
     }
-    *reaction = GatewayMessageReactionEvent{};
+    reset_value<GatewayMessageReactionEvent>(reaction);
     reaction->message_id = event.reaction.message_id;
     reaction->channel_id = event.reaction.channel_id;
     reaction->user_id = event.reaction.user_id;

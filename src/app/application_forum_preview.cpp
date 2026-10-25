@@ -89,7 +89,7 @@ void retire(PreviewEntry& entry, u64 now) noexcept {
     entry.retired = true;
     entry.ready = false;
     if (!entry.admitted || !actor_current(entry) || !g_app.account.api.media_local_preview) {
-        entry = {};
+        reset_value(&entry);
         return;
     }
     AccountMediaLocalPreviewRequest exact{};
@@ -101,7 +101,7 @@ void retire(PreviewEntry& entry, u64 now) noexcept {
     if (result.state == AccountMediaRequestState::pending)
         entry.poll_at = deadline_after(now, 100);
     else
-        entry = {};
+        reset_value(&entry);
 }
 } // namespace
 ApplicationForumPreview application_forum_preview_view(const ApplicationForumPostTicket& ticket,
@@ -150,7 +150,7 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
                 continue;
             if (!actor_current(entry)) {
                 changed();
-                entry = {};
+                reset_value(&entry);
                 continue;
             }
             if (!source_current(entry)) {
@@ -192,7 +192,7 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
                 continue;
             const auto kind = format(row.filename);
             const auto key = media_asset_local_draft_preview(row.id, ++next_generation, kind);
-            *entry = {};
+            reset_value(entry);
             changed();
             entry->occupied = true;
             entry->ticket = post.ticket;

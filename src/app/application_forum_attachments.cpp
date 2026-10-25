@@ -260,7 +260,7 @@ bool application_forum_attachments_url_candidate(const ApplicationForumPostTicke
         if (!row.occupied || row.phase != MessageAttachmentDraftPhase::waiting_url || row.retry_at_ms > now) continue;
         const u64 id = (u64{row.generation} << 32) | (slot + 1);
         if (row.source.bytes > application_attachment_limit(ticket.parent_id)) { failed(owner, id, MessageAttachmentDraftFailure::size_limit); continue; }
-        *output = {}; output->parent_id = ticket.parent_id; output->guild_id = owner.guild;
+        reset_value(output); output->parent_id = ticket.parent_id; output->guild_id = owner.guild;
         output->operation = ForumPostOperation::attachment_url;
         output->upload_filename = message_attachment_drafts_filename(&owner.drafts, id);
         output->upload_bytes = row.source.bytes; output->upload_id = static_cast<u32>(id);

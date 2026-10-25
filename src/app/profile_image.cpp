@@ -109,7 +109,7 @@ void scan_image_chunks(ConstSlice<u8> s, u64 at, u64 end, WebpParts* p) noexcept
 }
 
 bool webp_parts(ConstSlice<u8> s, WebpParts* p) noexcept {
-    *p = {};
+    reset_value(p);
     if (s.count < 20 || tag(s.data) != fourcc('R', 'I', 'F', 'F') || tag(s.data + 8) != fourcc('W', 'E', 'B', 'P'))
         return false;
     const u64 end = minimum<u64>(8ull + byte_load_le32(s.data + 4), s.count);
@@ -186,7 +186,7 @@ u32 png_frames(ConstSlice<u8> s) noexcept {
 }
 
 ProfileImageError inspect(ConstSlice<u8> s, Source* src) noexcept {
-    *src = {};
+    reset_value(src);
     src->orientation = 1;
     if (!byte_range_valid(s) || !s.count)
         return ProfileImageError::input;
@@ -509,8 +509,8 @@ ProfileImageError decode_gif_still(ConstSlice<u8> s, const Plan& plan, Reduce* d
     u8* base = memory.allocate(pixels + first.width * 4ull);
     if (!base)
         return ProfileImageError::memory;
-    const auto decoded =
-        gif_decode_parsed_frame(s, image, 0, workspace, {base, static_cast<u32>(pixels)});
+    GifDecodeResult decoded;
+    gif_decode_parsed_frame(&decoded, s, image, 0, workspace, {base, static_cast<u32>(pixels)});
     if (!decoded.ok())
         return ProfileImageError::decode;
     const GifFrame& f = decoded.frame;
@@ -967,7 +967,8 @@ ProfileImageError crop_gif(ConstSlice<u8> s, const ImageCropOutput& crop, GuildI
         w.byte(0);
     }
     for (u32 i = 0; i < image.frame_count && !w.overflow; ++i) {
-        const auto decoded = gif_decode_parsed_frame(s, image, i, workspace, {indices, static_cast<u32>(canvas)});
+        GifDecodeResult decoded;
+        gif_decode_parsed_frame(&decoded, s, image, i, workspace, {indices, static_cast<u32>(canvas)});
         if (!decoded.ok())
             return ProfileImageError::decode;
         const GifFrame& f = decoded.frame;
@@ -1061,7 +1062,7 @@ ProfileImageInfo profile_image_crop(ConstSlice<u8> source, const ImageCropOutput
                                     GuildImageBuffer* output) noexcept {
     if (!output)
         return fail({}, ProfileImageError::input);
-    *output = {};
+    reset_value(output);
     Source src{};
     const ProfileImageError error = inspect(source, &src);
     if (error != ProfileImageError::none) {

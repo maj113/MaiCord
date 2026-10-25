@@ -97,7 +97,7 @@ bool progress(ApplicationTextForm* form, bool* changed, bool* complete) noexcept
                 secure_text_store_unbind(&form->store);
                 secure_edit_cancel_composition(&form->edit);
             }
-            form->composition = {};
+            reset_value(&form->composition);
             if (form->scene.active && form->can_cancel)
                 text_form_focus(&form->scene, TextFormElement::cancel);
         }
@@ -255,7 +255,7 @@ void changed(void* opaque) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
     if (form != g_app.text_form || form->refreshing || !form->editable)
         return;
-    form->status = {};
+    reset_value(&form->status);
     form->error = false;
     form->typed = true;
     check_text(form);
@@ -307,7 +307,7 @@ bool activate(ApplicationTextForm* form, TextFormElement element) noexcept {
             form->choice_selected = at;
             form->typed = false;
             secure_edit_assign(&form->edit, {});
-            form->status = {};
+            reset_value(&form->status);
             refresh(form);
             if (at == form->request.choice_editor)
                 focus_field(form, TextFormElement::edit);
@@ -462,7 +462,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
             renderer_release_login_form_text(&g_app.renderer);
         return false;
     }
-    form->request = request;
+    copy_value(&form->request, request);
     if (request.login_owner) {
         auto* measurement = reinterpret_cast<LoginFormMeasureStorage*>(form + 1);
         if (!ui_text_measure_cache_initialize(
@@ -518,7 +518,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
             form->blink_ms = 500;
         form->caret_visible = true;
     }
-    form->request.initial = {};
+    reset_value(&form->request.initial);
     const auto discard = [&]() noexcept {
         text_form_release(&form->scene);
         if (!request.confirmation_only)
@@ -880,7 +880,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         if (!form->request.confirmation_only) {
             secure_text_store_set_window_focus(&form->store, false);
             secure_text_store_unbind(&form->store);
-            form->composition = {};
+            reset_value(&form->composition);
             secure_edit_cancel_composition(&form->edit);
         }
         form->caret_visible = false;
@@ -910,7 +910,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         ui_button_keyboard_cancel(&form->keyboard);
         if (message == WM_CANCELMODE && !form->request.confirmation_only) {
             secure_text_store_unbind(&form->store);
-            form->composition = {};
+            reset_value(&form->composition);
             secure_edit_cancel_composition(&form->edit);
             if (form->editable && text_form_focused(form->scene) == TextFormElement::edit) {
                 secure_text_store_bind(&form->store, &form->edit, SecureTextInputScope::text);

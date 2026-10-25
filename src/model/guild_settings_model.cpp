@@ -110,13 +110,13 @@ bool guild_settings_can_set_mfa(const GuildSettingsAccess& access) noexcept {
 }
 
 u32 guild_emoji_slots(u8 premium_tier, u64 features) noexcept {
-    constexpr u32 slots[]{50, 100, 150, 250};
+    static constexpr u32 slots[]{50, 100, 150, 250};
     const u32 tier = slots[premium_tier < 4 ? premium_tier : 3];
     return (features & guild_feature_more_emoji) ? maximum(tier, 200u) : tier;
 }
 
 u32 guild_sticker_slots(u8 premium_tier, u64 features) noexcept {
-    constexpr u32 slots[]{5, 15, 30, 60};
+    static constexpr u32 slots[]{5, 15, 30, 60};
     const u8 tier = premium_tier < 4 ? premium_tier : 3;
     return (features & guild_feature_more_stickers) && tier == 3 ? 120u : slots[tier];
 }
@@ -691,7 +691,7 @@ bool guild_engagement_patch(const GuildEngagementDraft& baseline, const GuildEng
 void guild_engagement_widget_patch(const GuildEngagementDraft& draft, GuildSettingsPatch* patch) noexcept {
     if (!patch)
         return;
-    *patch = {};
+    reset_value(patch);
     patch->fields = guild_settings_patch_widget;
     patch->widget_enabled = draft.widget_enabled;
     patch->widget_channel_id = draft.widget_channel_id;

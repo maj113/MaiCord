@@ -1,4 +1,5 @@
 #include "run_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/text/alphabetic_run.hpp"
 #include "maicord/text/lookup_plan.hpp"
 #include "lookup_plan_finish.hpp"
@@ -12,7 +13,7 @@ void native_profile_shape_plan(SfntShapePlan& output,const SfntShapePlan& parent
 }
 SfntStatus native_plan_source(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,const Arena* state,
     const Arena* scratch,NativePlanSource& output) noexcept {
-    output={};output.parent=native_run_plan_get(store,run,independent);
+    reset_value(&output);output.parent=native_run_plan_get(store,run,independent);
     if(!output.parent||!state||!scratch||!state->base||!scratch->base||state==scratch||state->base==scratch->base||
        !store.instances||!store.instances->fonts)return SfntStatus::invalid_input;
     output.instance=native_font_instance_get(*store.instances,store.slots[run.slot-1].instance);
@@ -20,13 +21,13 @@ SfntStatus native_plan_source(const NativeRunPlanStore& store,NativeRunPlanHandl
     return output.font?SfntStatus::ok:SfntStatus::invalid_input;
 }
 SfntStatus native_layout_open(const NativeFontFace& font,u32 kind,SfntLayout& layout) noexcept {
-    layout={};ConstSlice<u8> bytes{};
+    reset_value(&layout);ConstSlice<u8> bytes{};
     const auto status=sfnt_table(font.geometry.face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
     return status!=SfntStatus::ok?status:sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout);
 }
 SfntStatus native_layout_variations(const NativeFontInstance& instance,const SfntLayout& layout,Arena& scratch,
     SfntFeatureSubstitutions& output,u32 work) noexcept {
-    output={};if(!layout.variations)return SfntStatus::ok;
+    reset_value(&output);if(!layout.variations)return SfntStatus::ok;
     const auto coordinates=instance.geometry.variation?instance.geometry.variation->coordinates:ConstSlice<double>{};
     if(coordinates.count>work)return SfntStatus::resource_limit;
     auto fixed=take<i16>(scratch,coordinates.count);if(!filled(fixed))return SfntStatus::output_too_small;
@@ -57,7 +58,7 @@ SfntStatus native_positioning_prepare(const NativeFontFace& font,const SfntShape
     saved_state.keep=true;*output=program;return SfntStatus::ok;
 }
 SfntStatus native_lookup_roots_prepare(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,u32 script,bool independent,Arena& state,Arena& scratch,ConstSlice<u16>& out,u32 work) noexcept {
-    out={};
+    reset_value(&out);
     const u32 words=(static_cast<u32>(layout.lookup_count)+63)/64;auto* bits=words?arena_allocate<u64>(&scratch,words):nullptr;
     if(words&&!bits)return SfntStatus::output_too_small;SfntLookupPlanResult result{};
     const auto select=[&](Slice<u16> output) noexcept {return script?sfnt_alphabetic_lookup_plan(layout,variations,script,independent,{bits,words},output,&result,work):
@@ -84,7 +85,7 @@ SfntStatus native_profile_roots_prepare(const NativeFontInstance& instance,const
     saved_state.keep=true;substitution=selected[0];positioning=selected[1];return SfntStatus::ok;
 }
 SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,u32 script,bool independent,Arena* state,Arena* scratch,NativeAlphabeticPlan* out,u32 work) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};
+    if(!out)return SfntStatus::invalid_input;reset_value(out);
     if(script&&script!=sfnt_tag('l','a','t','n')&&!sfnt_alphabetic_script_supported(script))return SfntStatus::invalid_input;
     NativePlanSource source{};const auto found=native_plan_source(store,run,independent,state,scratch,source);if(found!=SfntStatus::ok)return found;
     const auto* parent=source.parent;const auto* instance=source.instance;const auto* font=source.font;

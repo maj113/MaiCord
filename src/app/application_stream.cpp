@@ -1,4 +1,5 @@
 #include "application_stream.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "application_call.hpp"
 #include "application_composer.hpp"
@@ -85,7 +86,7 @@ bool submit(const GatewayStreamKey& key) noexcept {
     stream.requested = key;
     stream.requested_ms = now_ms();
     stream.ended_ms = 0;
-    stream.pending = {};
+    reset_value(&stream.pending);
     application_repaint();
     return true;
 }
@@ -98,10 +99,10 @@ bool card_blocked() noexcept {
 // keep_hover: the pointer moved on to another live user, whose card follows.
 void close_card(bool keep_hover = false) noexcept {
     if (!keep_hover) {
-        stream.hover_key = {};
+        reset_value(&stream.hover_key);
         stream.hover_since_ms = 0;
     }
-    stream.card_key = {};
+    reset_value(&stream.card_key);
     stream.leave_ms = 0;
     stream.card_pressed = false;
     if (stream.card.active) {
@@ -187,7 +188,7 @@ bool menu_open() noexcept {
 }
 void release_press() noexcept {
     stream.card_pressed = false;
-    stream.press_key = {};
+    reset_value(&stream.press_key);
     ui_stream_card_set_pressed(&stream.card, false);
     if (stream.captured) {
         stream.captured = false;
@@ -223,7 +224,7 @@ bool application_stream_watch(const GatewayStreamKey& key) noexcept {
         stream.pending = key;
         stream.pending_ms = now_ms();
         if (!application_voice_join(key.guild_id, key.channel_id)) {
-            stream.pending = {};
+            reset_value(&stream.pending);
             return false;
         }
     }
@@ -240,7 +241,7 @@ bool application_stream_stop() noexcept {
         host.api.stream_watch(host.instance, nullptr);
     stream.requested = stream.pending = {};
     stream.ended_ms = 0;
-    stream.view = {};
+    reset_value(&stream.view);
     application_repaint();
     return active;
 }
@@ -360,12 +361,12 @@ void application_stream_pump() noexcept {
         if (in_channel(stream.pending.channel_id))
             submit(stream.pending);
         if (valid(stream.pending) && now - stream.pending_ms >= kJoinGraceMs)
-            stream.pending = {};
+            reset_value(&stream.pending);
     }
     // Leaving (or moving out of) the channel stops watching; the worker has
     // already ended the stream there.
     if (valid(stream.requested) && !in_channel(stream.requested.channel_id))
-        stream.requested = {};
+        reset_value(&stream.requested);
     auto view = stream_watch_view(stream.snapshot, stream.requested, stream.requested_ms, now);
     if (!valid(stream.requested) && valid(stream.pending)) {
         view.key = stream.pending;
@@ -376,17 +377,17 @@ void application_stream_pump() noexcept {
         // The streamer left before STREAM_DELETE: stop watching, drop the tile.
         if (host.instance && host.api.stream_watch)
             host.api.stream_watch(host.instance, nullptr);
-        stream.requested = {};
+        reset_value(&stream.requested);
         stream.ended_ms = 0;
-        view = {};
+        reset_value(&view);
     } else if (view.state == StreamWatchState::ended) {
         if (!stream.ended_ms)
             stream.ended_ms = now;
         // The streamer stopping is not an error: the tile leaves the grid. Any
         // other notice lingers too once its streamer has left the channel.
         if ((gone || view.notice == StreamWatchNotice::ended) && now - stream.ended_ms >= kEndedLingerMs) {
-            stream.requested = {};
-            view = {};
+            reset_value(&stream.requested);
+            reset_value(&view);
         }
     } else
         stream.ended_ms = 0;
@@ -432,7 +433,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
         }
         return false;
     case WM_MOUSELEAVE:
-        stream.hover_key = {};
+        reset_value(&stream.hover_key);
         if (stream.card.active && !stream.leave_ms)
             stream.leave_ms = now_ms();
         if (ui_stream_card_set_hover(&stream.card, -1e7f, -1e7f))
@@ -485,7 +486,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
                 stream.leave_ms = now; // Another streamer: this card yields.
             application_request_frame();
         } else {
-            stream.hover_key = {};
+            reset_value(&stream.hover_key);
             if (stream.card.active && !stream.leave_ms) {
                 stream.leave_ms = now;
                 application_request_frame();
@@ -631,8 +632,8 @@ void application_stream_release() noexcept {
     close_card();
     release_press();
     stream_preview_clear(&stream.previews);
-    stream.snapshot = {};
-    stream.view = {};
+    reset_value(&stream.snapshot);
+    reset_value(&stream.view);
     stream.requested = stream.pending = {};
     stream.menu_tile = 0;
     stream.volume = 0;

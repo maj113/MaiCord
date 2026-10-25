@@ -1,4 +1,5 @@
 #include "application_plugin_browser.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_link_trust.hpp"
 #include "application_plugin_browser_projection.hpp"
 #include "application_plugins_runtime.hpp"
@@ -264,7 +265,7 @@ void finished() noexcept {
         if (!g_op.cancelled) set_status(utf8_literal("The plugin change didn't finish. Nothing changed."), true);
         return;
     }
-    if (removed && g_revoked.owner == g_op.owner) g_revoked = {};
+    if (removed && g_revoked.owner == g_op.owner) reset_value(&g_revoked);
     set_status(removed ? utf8_literal("Plugin uninstalled.") : g_op.op == Op::install ? utf8_literal("Plugin installed.")
                : g_op.op == Op::rollback ? utf8_literal("Plugin rolled back.") : utf8_literal("Plugin updated."));
     if (g_op.downgrade) {
@@ -344,7 +345,7 @@ void dialog_closed(TextFormOwnerKey key) noexcept {
     if ((kind == DialogKind::address || kind == DialogKind::add_provider || kind == DialogKind::trust_key) && !g_ui->keep_probe)
         g_op.cancel_probe = true;
     if (kind == DialogKind::update_all && !g_ui->accepted) g_op.queue_count = 0;
-    g_ui->pending = {};
+    reset_value(&g_ui->pending);
 }
 bool dialog_accept(TextFormOwnerKey key, bool checked) noexcept;
 bool open_dialog(DialogKind kind, bool progress) noexcept {
@@ -382,7 +383,7 @@ bool address_save(TextFormOwnerKey key, Utf8View text) noexcept {
 }
 bool open_address_form() noexcept {
     if (!g_ui || g_app.text_form || busy()) return false;
-    g_ui->pending = {};
+    reset_value(&g_ui->pending);
     g_ui->pending.kind = DialogKind::address;
     g_ui->form_status_bytes = 0;
     g_ui->form_busy = g_ui->form_complete = false;
@@ -419,7 +420,7 @@ bool search_save(TextFormOwnerKey key, Utf8View text) noexcept {
 }
 bool open_search_form() noexcept {
     if (!g_ui || g_app.text_form) return false;
-    g_ui->pending = {};
+    reset_value(&g_ui->pending);
     g_ui->pending.kind = DialogKind::search;
     ApplicationTextFormRequest request{};
     request.title = utf8_literal("Search plugins");
@@ -534,7 +535,7 @@ bool open_install(u32 index, u32 version, DialogKind kind) noexcept {
     facts.downgrade_from = local && local->installed_code > v.code ? local->installed_code : 0;
     facts.update_from = local && local->installed_code < v.code ? local->installed_code : 0;
     plugin_browser_install_dialog(facts, &g_ui->dialog);
-    g_ui->pending = {};
+    reset_value(&g_ui->pending);
     g_ui->pending.op = local ? Op::update : Op::install;
     g_ui->pending.owner = e->owner;
     g_ui->pending.provider = provider.id;
@@ -554,7 +555,7 @@ bool update_entry(u32 index) noexcept {
     if (e->update.outcome == PluginUpdateOutcome::review) {
         char name[kNativePluginNameCapacity];
         plugin_browser_review_dialog({name, decode(*s, *e, e->name, name, sizeof(name))}, v.code, e->update.permissions, &g_ui->dialog);
-        g_ui->pending = {};
+        reset_value(&g_ui->pending);
         g_ui->pending.owner = e->owner;
         g_ui->pending.provider = provider.id;
         g_ui->pending.version_code = v.code;
@@ -577,7 +578,7 @@ bool uninstall_owner(u64 owner) noexcept {
     if (local) { bytes = local->name_bytes; copy_bytes(name, local->name, bytes); }
     else if (g_revoked.owner == owner) { bytes = g_revoked.name_bytes; copy_bytes(name, g_revoked.name, bytes); }
     plugin_browser_uninstall_dialog(bytes ? Utf8View{name, bytes} : utf8_literal("this plugin"), &g_ui->dialog);
-    g_ui->pending = {};
+    reset_value(&g_ui->pending);
     g_ui->pending.owner = owner;
     g_ui->pending.provider = local ? local->provider : 0;
     return open_dialog(DialogKind::uninstall, false);
@@ -605,7 +606,7 @@ bool detail_action(Action action) noexcept {
         char name[kNativePluginNameCapacity];
         plugin_browser_rollback_dialog({name, decode(*s, *e, e->name, name, sizeof(name))}, local->previous_code, local->installed_code,
             &g_ui->dialog);
-        g_ui->pending = {};
+        reset_value(&g_ui->pending);
         g_ui->pending.op = Op::rollback;
         g_ui->pending.owner = e->owner;
         g_ui->pending.provider = s->providers[e->provider].id;
@@ -645,7 +646,7 @@ bool update_all() noexcept {
         if (index != ~0u) entries[count++] = index;
     }
     plugin_browser_update_all_dialog(*s, {entries, count}, &g_ui->dialog);
-    g_ui->pending = {};
+    reset_value(&g_ui->pending);
     return open_dialog(DialogKind::update_all, false);
 }
 bool provider_action(u32 slot, u32 choice) noexcept {
@@ -666,7 +667,7 @@ bool provider_action(u32 slot, u32 choice) noexcept {
         for (u32 i = 0; i < s->installed_count; ++i) installed += s->installed[i].has_state && s->installed[i].provider == provider.id ? 1u : 0u;
         plugin_browser_remove_provider_dialog(provider.name_bytes ? Utf8View{provider.name, provider.name_bytes}
                                                                   : Utf8View{provider.host, provider.host_bytes}, installed, &g_ui->dialog);
-        g_ui->pending = {};
+        reset_value(&g_ui->pending);
         g_ui->pending.provider = provider.id;
         return open_dialog(DialogKind::remove_provider, false);
     }
@@ -674,7 +675,7 @@ bool provider_action(u32 slot, u32 choice) noexcept {
         cmd.kind = Kind::probe_key;
         cmd.provider = provider.id;
         if (busy() || !command(cmd)) return false;
-        g_ui->pending = {};
+        reset_value(&g_ui->pending);
         g_ui->pending.kind = DialogKind::trust_key;
         g_ui->form_complete = false;
         set_status(utf8_literal("Checking the provider's new key\xE2\x80\xA6"));
@@ -773,7 +774,7 @@ void application_plugin_browser_poll() noexcept {
     refresh();
 }
 void application_plugin_browser_startup() noexcept {
-    g_gate = {};
+    reset_value(&g_gate);
     auto* paths = static_cast<PluginManagerPaths*>(VirtualAlloc(nullptr, sizeof(PluginManagerPaths), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     auto* work = static_cast<PluginManagerWork*>(VirtualAlloc(nullptr, sizeof(PluginManagerWork), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     wchar_t base[kPluginManagerBaseMaximumCharacters + 1];

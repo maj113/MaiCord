@@ -595,9 +595,9 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
     AcquireSRWLockExclusive(&runtime->voice_lock);
     const bool changed = !(snapshot == runtime->voice_snapshot) || !(video == runtime->voice_video_snapshot) ||
                          !(stream == runtime->stream_snapshot);
-    runtime->voice_snapshot = snapshot;
-    runtime->voice_video_snapshot = video;
-    runtime->stream_snapshot = stream;
+    copy_value(&runtime->voice_snapshot, snapshot);
+    copy_value(&runtime->voice_video_snapshot, video);
+    copy_value(&runtime->stream_snapshot, stream);
     ReleaseSRWLockExclusive(&runtime->voice_lock);
     if (changed && client->notification_event)
         SetEvent(client->notification_event);
@@ -614,7 +614,7 @@ void reset_voice(GatewayClient* client, GatewayClientRuntime* runtime) noexcept 
     AcquireSRWLockExclusive(&runtime->voice_lock);
     runtime->voice_request_pending = false;
     runtime->stream_request_pending = false;
-    runtime->desired_voice = {};
+    reset_value(&runtime->desired_voice);
     runtime->video_unwanted_count = 0;
     runtime->video_unwanted_dirty = false;
     runtime->stream_unwanted_owner = 0;
@@ -695,7 +695,7 @@ bool publish_ready_projection(void* opaque, const GatewayClientEvent& event,
         // child has passed its typed route. Preflight cannot change state.
         InterlockedExchange(&binding.client->required_action, static_cast<LONG>(binding.required_action));
         binding.runtime->self_user_id = event.state.id;
-        binding.runtime->reaction_batch = {};
+        reset_value(&binding.runtime->reaction_batch);
         reset_voice(binding.client, binding.runtime);
     }
     return publish_event_payload(binding.client, binding.runtime, event, payload);
@@ -754,7 +754,7 @@ void release_resolver(GatewayClientRuntime* runtime) noexcept {
 }
 
 void clear_resume(GatewayClientRuntime* runtime) noexcept {
-    runtime->reaction_batch = {};
+    reset_value(&runtime->reaction_batch);
     AcquireSRWLockExclusive(&runtime->resume_lock);
     gateway_resume_clear(&runtime->resume);
     runtime->resume_user_id = 0;
@@ -1405,7 +1405,7 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
     GatewayGuildSubscription subscription{};
     u32 revision = 0;
     AcquireSRWLockShared(&runtime->subscription_lock);
-    subscription = runtime->desired_subscription;
+    copy_value(&subscription, runtime->desired_subscription);
     revision = runtime->subscription_revision;
     ReleaseSRWLockShared(&runtime->subscription_lock);
     if (revision == 0 || revision == runtime->sent_subscription_revision) {
@@ -1823,8 +1823,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
         // Reuse the owner's deadline field during bounded envelope rescans;
         // no index growth can extend this absolute budget.
         runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
-        const GatewaySessionEvent event =
-            gateway_session_next(&runtime->session, runtime->heartbeat_jitter, now_ms);
+        GatewaySessionEvent event;
+        gateway_session_next(&event, &runtime->session, runtime->heartbeat_jitter, now_ms);
         runtime->mailbox_deadline_ms = 0;
         if (event.kind == GatewaySessionEventKind::need_input) {
             return PlaintextDrive::receive;
@@ -2227,7 +2227,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 if (!publish_event_payload(client, runtime, dispatch, ConstSlice<u8>{}))
                     return resume_reconnect(client, runtime, now_ms);
                 if (reaction_batch)
-                    runtime->reaction_batch = {};
+                    reset_value(&runtime->reaction_batch);
                 // A joined guild that cannot be projected is still listed,
                 // as unavailable, instead of silently missing.
                 GatewayClientEvent placeholder{};
@@ -2725,7 +2725,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
                   !gateway_user_client_configuration_validate(*user_configuration)))) {
         return invalid_input_result();
     }
-    *client = GatewayClient{};
+    reset_value<GatewayClient>(client);
     const u32 allocation_bytes =
         user ? kGatewayUserClientRuntimeBytes : static_cast<u32>(sizeof(GatewayClientRuntime));
     client->runtime = VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -2818,7 +2818,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
             CloseHandle(client->notification_event);
             CloseHandle(client->state_event);
             release_runtime_allocation(client);
-            *client = GatewayClient{};
+            reset_value<GatewayClient>(client);
             return invalid_input_result();
         }
         runtime->authenticated = true;
@@ -2862,7 +2862,7 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
         gateway_endpoint, session && session->has_resume ? &session->resume : nullptr,
         session && session->has_resume ? session->self_user_id : 0);
     if (!profile->credential.data) {
-        *profile = AccountProfile{};
+        reset_value<AccountProfile>(profile);
     }
     return started;
 }
@@ -2936,7 +2936,7 @@ GatewayClientResult stop_client(GatewayClient* client, u32 timeout_milliseconds,
         }
         release_runtime_allocation(client);
     }
-    *client = GatewayClient{};
+    reset_value<GatewayClient>(client);
     value.phase =
         value.error == GatewayClientError::none ? GatewayClientPhase::stopped : GatewayClientPhase::failed;
     return value;
@@ -3078,7 +3078,7 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
         return false;
     }
     AcquireSRWLockExclusive(&runtime->subscription_lock);
-    runtime->desired_subscription = subscription;
+    copy_value(&runtime->desired_subscription, subscription);
     ++runtime->subscription_revision;
     if (runtime->subscription_revision == 0) {
         runtime->subscription_revision = 1;
@@ -3172,7 +3172,7 @@ RestClientSubmitResult submit_self_settings_locked(GatewayClientRuntime* runtime
                                                    SelfStatusSettingsOperation operation,
                                                    ConstSlice<u8> body, u64 request_id) noexcept {
     const bool update = operation == SelfStatusSettingsOperation::update;
-    constexpr char target[] = "/api/v10/users/@me/settings-proto/1";
+    static constexpr char target[] = "/api/v10/users/@me/settings-proto/1";
     const RestClientRequest rest_request{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
                                          body,
                                          {0x5354415455535052ull, 0,
@@ -3325,7 +3325,7 @@ bool gateway_client_self_status_complete(GatewayClient* client, u64 profile, u64
 bool gateway_client_custom_status_snapshot(const GatewayClient* client, SelfCustomStatus* output) noexcept {
     if (!output)
         return false;
-    *output = {};
+    reset_value(output);
     auto* runtime = user_runtime(client);
     if (!runtime)
         return false;
@@ -3350,7 +3350,7 @@ RestClientSubmitResult gateway_client_custom_status_submit(GatewayClient* client
 bool gateway_client_local_presence(GatewayClient* client, const GatewayLocalPresence* input,
                                    GatewayActivitySharing* output) noexcept {
     if (output)
-        *output = {};
+        reset_value(output);
     auto* runtime = user_runtime(client);
     if (!runtime || (input && !gateway_local_presence_valid(*input)))
         return false;
@@ -3358,7 +3358,7 @@ bool gateway_client_local_presence(GatewayClient* client, const GatewayLocalPres
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     auto& owner = runtime->self_status;
     if (input && !gateway_local_presence_equal(runtime->local_presence, *input)) {
-        runtime->local_presence = *input;
+        copy_value(&runtime->local_presence, *input);
         if (++owner.revision == 0)
             owner.revision = 1;
         changed = true;
@@ -3448,7 +3448,7 @@ u32 gateway_self_status_test_destroy(GatewayClient* client) noexcept {
     }
     SecureZeroMemory(runtime, kGatewayUserClientRuntimeBytes);
     VirtualFree(runtime, 0, MEM_RELEASE);
-    *client = {};
+    reset_value(client);
     self_status_test_submit = nullptr;
     return wiped;
 }
@@ -3517,7 +3517,7 @@ bool gateway_client_voice_video_snapshot(const GatewayClient* client,
     if (!runtime || !output)
         return false;
     AcquireSRWLockShared(&runtime->voice_lock);
-    *output = runtime->voice_video_snapshot;
+    copy_value(output, runtime->voice_video_snapshot);
     ReleaseSRWLockShared(&runtime->voice_lock);
     return true;
 }

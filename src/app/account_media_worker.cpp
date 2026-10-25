@@ -703,7 +703,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
     if (retry && retry_now_ms < retry->retry_at_ms)
         return retry_wait_until(retry->retry_at_ms);
     if (retry) {
-        *retry = AccountMediaWorkerRetry{};
+        reset_value<AccountMediaWorkerRetry>(retry);
     }
     reclaim_leased_lanes(worker);
 
@@ -1433,7 +1433,7 @@ void account_media_worker_expire_retries(AccountMediaWorker* worker, u64 now_ms)
     // Visible work is retried when requested again; invisible failures must not spin the wait loop.
     for (auto& retry : worker->retries) {
         if (retry.retry_at_ms && retry.retry_at_ms <= now_ms)
-            retry = {};
+            reset_value(&retry);
     }
 }
 

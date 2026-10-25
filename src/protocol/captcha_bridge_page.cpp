@@ -38,7 +38,7 @@ struct Writer {
         raw(digits, decimal_write(digits, value));
     }
     void json(Utf8View value) noexcept {
-        constexpr char hex[] = "0123456789abcdef";
+        static constexpr char hex[] = "0123456789abcdef";
         raw("\"", 1);
         for (u32 i = 0; i < value.bytes; ++i) {
             const u8 c = static_cast<u8>(value.data[i]);
@@ -104,7 +104,7 @@ Utf8View cstring(const char* value) noexcept {
     return {value, bytes};
 }
 
-constexpr char kPageHead[] =
+static constexpr char kPageHead[] =
     "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
     "<meta name=\"referrer\" content=\"no-referrer\"><title>MaiCord verification</title><style>"
@@ -358,7 +358,7 @@ CaptchaBridgeWriteResult captcha_bridge_write_hex(ConstSlice<u8> random, Slice<u
         !byte_range_valid({output.data, output.count}) || byte_ranges_overlap(random, {output.data, output.count}))
         return {0, CaptchaBridgeProtocolError::invalid_input};
     if (output.count < 32) return {32, CaptchaBridgeProtocolError::capacity};
-    constexpr char digits[] = "0123456789abcdef";
+    static constexpr char digits[] = "0123456789abcdef";
     for (u32 i = 0; i < 16; ++i) {
         output[i * 2] = static_cast<u8>(digits[random[i] >> 4]);
         output[i * 2 + 1] = static_cast<u8>(digits[random[i] & 15]);
@@ -411,7 +411,7 @@ CaptchaBridgeWriteResult captcha_bridge_write_response(CaptchaBridgeResponse res
         out.literal("HTTP/1.1 204 No Content\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\n"
                     "X-Content-Type-Options: nosniff\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     } else {
-        constexpr char body[] = "This verification link has already been used or has expired. Return to MaiCord.";
+        static constexpr char body[] = "This verification link has already been used or has expired. Return to MaiCord.";
         out.literal("HTTP/1.1 410 Gone\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n"
                     "Referrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n"
                     "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nContent-Length: ");

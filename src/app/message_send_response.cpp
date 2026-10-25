@@ -1,4 +1,5 @@
 #include "maicord/app/message_send_response.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/app/message_history_sync.hpp"
 #include "maicord/app/rest_client.hpp"
 
@@ -36,7 +37,7 @@ MessageSendResponseResult message_send_accept_response(MessageComposerController
         result.message = message_composer_controller_observe_response(controller, nonce, message, active_channel_id);
     }
     // Role IDs used during this transaction must not escape as stack views.
-    message.mention_roles = {};
+    reset_value(&message.mention_roles);
     return result;
 }
 Utf8View message_send_rejection_system_notice(ApiRejection rejection) noexcept {

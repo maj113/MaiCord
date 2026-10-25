@@ -1,4 +1,5 @@
 #include "maicord/model/message_search.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -23,8 +24,8 @@ bool message_search_begin(MessageSearchController* controller, u64 account_id,
         return false;
     }
     const u64 generation = controller->token.generation + 1;
-    *controller = {};
-    controller->query = query;
+    reset_value(controller);
+    copy_value(&controller->query, query);
     controller->token = {account_id, query.scope_id, generation, 0};
     controller->state = MessageSearchState::ready_to_submit;
     return true;

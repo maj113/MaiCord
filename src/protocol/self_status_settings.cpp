@@ -115,7 +115,7 @@ E decode(const Wire& w, Slice<u8> output, SelfStatusSettingsProjection* result) 
     return E::none;
 }
 bool custom_message(const Wire& w, u32 p, u32 end, SelfCustomStatus& out) noexcept {
-    out = {};
+    reset_value(&out);
     out.present = true;
     while (p < end) {
         u32 f = 0, t = 0;
@@ -272,7 +272,7 @@ GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observ
 bool self_status_settings_read_custom(ConstSlice<u8> group, SelfCustomStatus* output) noexcept {
     if (!byte_range_valid(group))
         return false;
-    *output = {};
+    reset_value(output);
     const Wire w{group, {}, group.count};
     u32 p = 0;
     SelfCustomStatus last{};
@@ -293,7 +293,7 @@ bool self_status_settings_read_custom(ConstSlice<u8> group, SelfCustomStatus* ou
         p = stop;
     }
     if (found)
-        *output = last;
+        copy_value(output, last);
     return true;
 }
 bool self_custom_status_active(const SelfCustomStatus& status, u64 unix_now_ms) noexcept {
@@ -478,7 +478,7 @@ bool self_custom_status_build(Utf8View emoji, Utf8View text, SelfCustomStatusCle
         result.created_at_ms = now;
         result.expires_at_ms = self_custom_status_expiry(clear, now, local_ms_of_day);
     }
-    *output = result;
+    copy_value(output, result);
     return true;
 }
 } // namespace maicord

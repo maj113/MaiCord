@@ -275,7 +275,7 @@ bool title_image(const D3D11Renderer& renderer, const RendererCaption& caption, 
 bool append_title(D3D11Renderer* renderer, RendererCaption* caption, UiCaptionBarLayout* layout, Color color,
                   u32* count, UiRect* image) noexcept {
     *count = 0;
-    *image = {};
+    reset_value(image);
     if (!caption->title_bytes || !renderer->glyph_text.ready)
         return true;
     MediaAtlasResult resident_image{};
@@ -348,7 +348,7 @@ void release_tooltip_pixels(D3D11Renderer* renderer, RendererCaption* caption) n
                                       dips(renderer->height, renderer->dpi)};
     if (!presentation_damage_add(&renderer->presentation_damage, rectangle, clip))
         presentation_damage_invalidate_full(&renderer->presentation_damage);
-    caption->tooltip_pixels = {};
+    reset_value(&caption->tooltip_pixels);
 }
 
 // The hovered part's name in a tooltip below the bar, inside the window.
@@ -361,7 +361,7 @@ bool append_tooltip(D3D11Renderer* renderer, RendererCaption* caption, const The
     const UiRect anchor = ui_caption_bar_part_rect(layout, part);
     if (!ui_caption_bar_part_tooltip(part) || !label.bytes || !ui_rect_has_area(anchor) ||
         !renderer->glyph_text.ready) {
-        caption->tooltip_pixels = {};
+        reset_value(&caption->tooltip_pixels);
         return true;
     }
     const UiTooltipStyle style{};
@@ -738,7 +738,7 @@ void d3d11_renderer_caption_presented(D3D11Renderer* renderer) noexcept {
 
 void d3d11_renderer_caption_begin_scrim(D3D11Renderer* renderer) noexcept {
     if (renderer->caption)
-        renderer->caption->scrim = {};
+        reset_value(&renderer->caption->scrim);
 }
 
 void d3d11_renderer_caption_note_scrim(D3D11Renderer* renderer, Color color, float opacity) noexcept {

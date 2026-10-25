@@ -36,7 +36,7 @@ MlsStatus mls_leaf_parse(KdfSha256Workspace* kdf, ConstSlice<u8> input, u8 expec
     if (!leaf || !consumed || !input.data || !input.count || expected_source > 3 || (kdf && !group_id))
         return MlsStatus::invalid_argument;
     *consumed = 0;
-    *leaf = {};
+    reset_value(leaf);
     input.count = minimum(input.count, kMlsMaxLeafNodeBytes);
     MlsLeafView view{};
     if (!mls_leaf_decode_prefix(input, &view).ok())
@@ -82,7 +82,7 @@ MlsStatus mls_leaf_write(KdfSha256Workspace& kdf, const P256Key& signing, const 
     if (!p256_export_public(signing, {signature_public, kMlsPointBytes}).ok())
         return MlsStatus::crypto_failure;
     mls_store_be64(user_id, identity);
-    const u8 one[]{0, 1}, two[]{0, 2};
+    static constexpr u8 one[]{0, 1}, two[]{0, 2};
     MlsLeafView view{};
     view.encryption_key = {encryption_public, kMlsPointBytes};
     view.signature_key = {signature_public, kMlsPointBytes};
@@ -125,7 +125,7 @@ MlsStatus mls_parent_node_parse(ConstSlice<u8> input, u32 leaf_count, MlsParentN
                                 u32* consumed) noexcept {
     if (!parent || !consumed || !input.data || !input.count)
         return MlsStatus::invalid_argument;
-    *parent = {};
+    reset_value(parent);
     *consumed = 0;
     MlsReader reader{input};
     MlsParentNode candidate{};
@@ -157,7 +157,7 @@ MlsStatus mls_tree_next(MlsTreeIterator& iterator, MlsTreeNode* node, bool* has_
     if (!node || !has_node)
         return MlsStatus::invalid_argument;
     *has_node = false;
-    *node = {};
+    reset_value(node);
     if (iterator.offset == iterator.nodes.count)
         return iterator.node_count == ~u32{0} || iterator.index == iterator.node_count
                    ? MlsStatus::ok
@@ -205,7 +205,7 @@ MlsStatus mls_ratchet_tree_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, 
                                  bool verify, MlsRatchetTree* tree) noexcept {
     if (!input.data || !group_id || !tree || !input.count || input.count > kMlsMaxRatchetTreeBytes)
         return MlsStatus::invalid_argument;
-    *tree = {};
+    reset_value(tree);
     MlsReader reader{input};
     const auto nodes = reader.vector();
     if (!mls_done(reader))
@@ -273,7 +273,7 @@ MlsStatus mls_tree_index_init(MlsTreeIndex* index, const MlsRatchetTree& tree, S
     if (!index || !tree.node_count || tree.node_count > 0x3fffffffu || !scratch.data ||
         scratch.count < mls_tree_index_bytes(tree) || (reinterpret_cast<usize>(scratch.data) & 3))
         return MlsStatus::invalid_argument;
-    *index = {};
+    reset_value(index);
     auto* offsets = reinterpret_cast<u32*>(scratch.data);
     for (u32 i = 0; i != tree.node_count; ++i)
         offsets[i] = ~u32{0};
@@ -297,7 +297,7 @@ MlsStatus mls_tree_index_init(MlsTreeIndex* index, const MlsRatchetTree& tree, S
 MlsStatus mls_tree_index_node(const MlsTreeIndex& index, u32 node_index, MlsTreeNode* node) noexcept {
     if (!index.tree || !index.offsets || !node || node_index >= index.tree->node_count)
         return MlsStatus::invalid_argument;
-    *node = {};
+    reset_value(node);
     node->index = node_index;
     const u32 offset = index.offsets[node_index];
     if (offset == ~u32{0})
@@ -363,7 +363,7 @@ bool subtree_span(const MlsRatchetTree& tree, u32 root, u32* first, u32* last) n
 MlsStatus logical_next(const MlsRatchetTree& tree, MlsTreeIterator& iterator, u32 index,
                        MlsTreeNode* node) noexcept {
     if (index >= tree.encoded_node_count) {
-        *node = {};
+        reset_value(node);
         node->index = index;
         return MlsStatus::ok;
     }

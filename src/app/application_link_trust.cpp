@@ -31,7 +31,7 @@ LinkTrustStore* current_store() noexcept {
         return nullptr;
     if (trust_profile != profile) {
         wchar_t path[512]{};
-        trust = {};
+        reset_value(&trust);
         if (link_trust_path(profile, path, 512) && !link_trust_load_file(path, &trust))
             log_write(LogLevel::warning, "links", "trusted_links_unreadable");
         trust_profile = profile;

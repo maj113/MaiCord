@@ -1,4 +1,5 @@
 #include "application_message_forward.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
 #include "application_cursor.hpp"
@@ -85,7 +86,7 @@ bool resolve_row(void* opaque, u32 index, UiMessageForwardRow* out) noexcept {
 }
 void revoke_capture(ApplicationMessageForward& q) noexcept {
     g_app.message_forward_pointer_tail = g_app.message_forward_pointer_tail || q.captured;
-    q.pressed = {}; q.captured = q.dragging = false;
+    reset_value(&q.pressed); q.captured = q.dragging = false;
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
     if (GetCapture() == g_app.window) ReleaseCapture();
 }
@@ -247,7 +248,7 @@ bool application_message_forward_synchronize() noexcept {
             q->controller.scope.profile_key == scope().profile_key && q->controller.scope.self_user_id == scope().self_user_id)
             message_forward_cancel_pending(&q->controller, &g_app.account_ui->message_composer_controller);
         application_message_forward_close();
-        q->controller = {};
+        reset_value(&q->controller);
         message_composer_reset(&q->edit, 0, false); message_composer_reset(&q->caption, 0, false);
         return true;
     }
@@ -258,7 +259,7 @@ bool application_message_forward_synchronize() noexcept {
     if (!q->active) return true;
     if (q->controller.candidates.revision != previous) revoke_capture(*q);
     q->source = {q, q->controller.candidates.count, q->controller.candidates.revision, resolve_row, source_current};
-    q->content = {};
+    reset_value(&q->content);
     q->content.edit = {message_composer_text(q->edit), q->edit.anchor, q->edit.caret, !q->controller.committed,
         q->focused && !q->caption_focused, q->caret_visible};
     q->content.caption = {message_composer_text(q->caption), q->caption.anchor, q->caption.caret, !q->controller.committed,

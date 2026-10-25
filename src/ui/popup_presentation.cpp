@@ -1,4 +1,5 @@
 #include "maicord/ui/popup_presentation.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/presence.hpp"
@@ -404,7 +405,7 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
 PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& scene, u32 index,
                                                               PopupMediaCommand* command) noexcept {
     if (command) {
-        *command = PopupMediaCommand{};
+        reset_value<PopupMediaCommand>(command);
     }
     if (!command || !scene.active || index >= scene.item_count || index >= scene.items.count) {
         return PopupMediaPresentationStatus::invalid;

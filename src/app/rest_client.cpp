@@ -158,7 +158,7 @@ bool endpoint_gate_release(RestEndpointGate* gate, RestEndpointLease* lease, u64
     if (!lease)
         return false;
     auto* entry = endpoint_entry(gate, *lease);
-    *lease = {};
+    reset_value(lease);
     if (!entry)
         return false;
     --entry->in_flight;
@@ -688,7 +688,7 @@ void erase_command(RestClientRuntime* runtime, bool erase_body = true) noexcept 
         secure_clear_bytes(runtime->extra_headers, runtime->command.extra_headers_bytes);
     if (runtime->command.multipart_boundary_bytes != 0)
         secure_clear_bytes(runtime->multipart_boundary, runtime->command.multipart_boundary_bytes);
-    runtime->command = RestClientCommand{};
+    reset_value<RestClientCommand>(&runtime->command);
 }
 
 void erase_response_storage(RestClientRuntime* runtime) noexcept {
@@ -696,7 +696,7 @@ void erase_response_storage(RestClientRuntime* runtime) noexcept {
     if (runtime->response.http.body_bytes != 0) {
         secure_clear_bytes(runtime->response_body, runtime->response.http.body_bytes);
     }
-    runtime->response = RestResponse{};
+    reset_value<RestResponse>(&runtime->response);
 }
 
 void release_decompression(RestClientRuntime* runtime) noexcept {
@@ -736,8 +736,8 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime,
     if (body_bytes != 0) {
         secure_clear_bytes(runtime->response_body, body_bytes);
     }
-    runtime->response = RestResponse{};
-    runtime->completed = RestClientResponse{};
+    reset_value<RestResponse>(&runtime->response);
+    reset_value<RestClientResponse>(&runtime->completed);
     const auto logout = InterlockedCompareExchange64(&runtime->logout_request_id, 0, 0);
     if (logout && InterlockedCompareExchange64(&runtime->logout_reservation_id, 0, 0) == logout) {
         InterlockedExchange64(&runtime->logout_reservation_id, 0);
@@ -745,7 +745,7 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime,
         runtime->logout_cancelled = false;
     }
     InterlockedExchange64(&runtime->logout_request_id, 0);
-    runtime->transaction = RestTransaction{};
+    reset_value<RestTransaction>(&runtime->transaction);
     release_extended_body(runtime);
     ResetEvent(client->response_event);
     InterlockedExchange64(&client->current_request_id, 0);
@@ -803,7 +803,7 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
     if (cancelled) {
         rest_transaction_cancel(&runtime->transaction);
         erase_response_storage(runtime);
-        response = RestClientResponse{};
+        reset_value<RestClientResponse>(&response);
         response.error = RestClientError::cancelled;
         response.native_error = ERROR_OPERATION_ABORTED;
         response.reused_connection = runtime->transaction.reused_connection;
@@ -992,7 +992,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
             endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms,
                                   invalid_endpoint);
             rate_changed(runtime);
-            runtime->transaction = {};
+            reset_value(&runtime->transaction);
             runtime->rate_wait_until_ms = reset;
             runtime->waiting_for_peer = false;
             deferred = true;
@@ -1040,7 +1040,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     }
     runtime->write_commit_failed = false;
     runtime->response_callback_failed = false;
-    runtime->response_step = RestResponseStep{};
+    reset_value<RestResponseStep>(&runtime->response_step);
     InterlockedIncrement64(&client->requests);
     if (runtime->transaction.reused_connection) {
         InterlockedIncrement64(&client->reused_requests);
@@ -1405,7 +1405,7 @@ void activate_request(RestClient* client, RestClientRuntime* runtime, NetworkLoo
         runtime->trace_phase = RestClientPhase::queued;
         runtime->first_byte_counter = runtime->receive_counter = 0;
         runtime->request_started_counter = 0;
-        runtime->transaction = RestTransaction{};
+        reset_value<RestTransaction>(&runtime->transaction);
         publish_request_error(client, runtime, RestClientError::cancelled, ERROR_OPERATION_ABORTED);
         return;
     }
@@ -1426,7 +1426,7 @@ void activate_request(RestClient* client, RestClientRuntime* runtime, NetworkLoo
                                                    runtime->request_started_counter));
         g_trace(line.text);
     }
-    runtime->transaction = RestTransaction{};
+    reset_value<RestTransaction>(&runtime->transaction);
     acquire_request(client, runtime, loop, now_ms);
 }
 
@@ -1603,7 +1603,7 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
                 return invalid_result();
         }
     }
-    *client = RestClient{};
+    reset_value<RestClient>(client);
     client->runtime = VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(RestClientError::memory));
@@ -1684,7 +1684,7 @@ bool rest_transaction_acquire(RestTransaction* transaction, u64 request_id,
         transaction->phase != RestTransactionPhase::idle) {
         return false;
     }
-    *transaction = RestTransaction{};
+    reset_value<RestTransaction>(transaction);
     transaction->lease = lease;
     transaction->request_id = request_id;
     transaction->deadline_ms = deadline_ms;
@@ -1938,7 +1938,7 @@ RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
 RestClientSubmitResult rest_client_submit_user_settings(
     RestClient* client, const RestClientRequest& request,
     u32 response_capacity) noexcept {
-    constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
+    static constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
     const auto* runtime = client ? static_cast<const RestClientRuntime*>(client->runtime) : nullptr;
     if (!runtime || runtime->authorization != RestAuthorization::normal_user ||
         runtime->user_auth_mode || response_capacity < kRestClientMinimumResponseBytes ||
@@ -2231,7 +2231,7 @@ static void capture_user_auth_stop_receipt(RestClient* client, RestClientRespons
 static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
                                     RestClientResponse* receipt) noexcept {
     if (receipt)
-        *receipt = {};
+        reset_value(receipt);
     if (!client || !client->worker.thread)
         return invalid_result();
     if (client->shared) {
@@ -2258,7 +2258,7 @@ static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
         CloseHandle(client->response_event);
     }
     destroy_client_storage(client, nullptr);
-    *client = RestClient{};
+    reset_value<RestClient>(client);
     value.phase = value.error == RestClientError::none ? RestClientPhase::stopped : RestClientPhase::failed;
     return value;
 }

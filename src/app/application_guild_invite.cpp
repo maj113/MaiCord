@@ -1,4 +1,5 @@
 #include "application_guild_community.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_guild_invite.hpp"
 #include "application_link_trust.hpp"
 #include "application_action_captcha.hpp"
@@ -204,7 +205,7 @@ bool application_guild_invite_open(Utf8View code) noexcept {
     if (!g_app.account_ui || !g_app.account.instance || !g_app.account.api.guild_invite ||
         !guild_invite_code_valid(code.data, code.bytes) || g_app.text_form)
         return false;
-    g_invite = {};
+    reset_value(&g_invite);
     g_invite.scope = g_app.plugin_account_scope_serial;
     g_invite.code_bytes = static_cast<u8>(code.bytes);
     copy_bytes(g_invite.code, code.data, code.bytes);
@@ -223,7 +224,7 @@ bool application_guild_invite_open(Utf8View code) noexcept {
     request.closed = form_closed;
     g_invite.dialog = true;
     if (!application_text_form_open(request)) {
-        g_invite = {};
+        reset_value(&g_invite);
         return false;
     }
     pump_message_history();
@@ -293,7 +294,7 @@ bool application_guild_invite_response(const RestClientResponse& response, Utf8V
     switch (outcome) {
     case GuildInviteOutcome::resolved:
         if (!accept || decoded.guild_id == g_invite.invite.guild_id || !g_invite.invite.guild_id)
-            g_invite.invite = decoded;
+            copy_value(&g_invite.invite, decoded);
         publish(accept ? InviteState::awaiting_guild : InviteState::resolved);
         break;
     case GuildInviteOutcome::unknown:
@@ -341,7 +342,7 @@ void application_guild_invite_synchronize() noexcept {
 }
 
 void application_guild_invite_release() noexcept {
-    g_invite = {};
+    reset_value(&g_invite);
 }
 
 } // namespace maicord::app_detail

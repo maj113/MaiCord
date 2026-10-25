@@ -29,7 +29,7 @@ KdfResult framed_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, Const
         return result;
     if (output.count < 32)
         return {0, 0, KdfError::output_capacity};
-    constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};
+    static constexpr u8 prefix[]{'M', 'L', 'S', ' ', '1', '.', '0', ' '};
     u8 label_length[4], content_length[4], digest[32];
     const u32 nl = mls_vector_length(label.count + (sign ? 8 : 0), label_length);
     const u32 nc = mls_vector_length(a.count + b.count, content_length);

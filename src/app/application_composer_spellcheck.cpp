@@ -1,4 +1,5 @@
 #include "application_composer_spellcheck.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 #include "maicord/platform/spell_checker.hpp"
 
@@ -48,8 +49,8 @@ void application_composer_spellcheck_tick(u64 now_ms) noexcept {
 }
 
 void application_composer_spellcheck_release() noexcept {
-    g_app.message_composer_scene.spelling = {};
-    g_app.composer_spellcheck.backend = {};
+    reset_value(&g_app.message_composer_scene.spelling);
+    reset_value(&g_app.composer_spellcheck.backend);
     g_app.composer_spellcheck.span_count = 0;
     spell_checker_release(&g_checker);
 }

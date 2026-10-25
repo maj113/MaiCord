@@ -1,4 +1,5 @@
 #include "maicord/protocol/websocket_frame.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -185,7 +186,7 @@ WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, con
         const WebSocketOpcode message_opcode = tracker->opcode;
         if (frame.final) {
             const u64 message_bytes = tracker->message_bytes;
-            *tracker = WebSocketMessageTracker{};
+            reset_value<WebSocketMessageTracker>(tracker);
             return WebSocketMessageStep{message_bytes, message_opcode, WebSocketError::none,
                                         WebSocketMessageState::message_complete};
         }

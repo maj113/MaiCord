@@ -1,4 +1,5 @@
 #include "maicord/protocol/message_history.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord {
@@ -107,7 +108,7 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
         if (fallback.ok()) {
             core.fields &= ~kMessageHistoryRichFieldMask;
             core.forwarding_features &= static_cast<u8>(~gateway_message_forwarding_poll);
-            core.poll = {};
+            reset_value(&core.poll);
             message = core;
             decoded = fallback;
             ++context->degraded;
@@ -139,8 +140,8 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
     }
     // Role IDs were validated during decoding; this temporary role array
     // cannot escape the per-message visitor as a borrowed page view.
-    message.mention_roles = {};
-    context->messages[index] = message;
+    reset_value(&message.mention_roles);
+    copy_value(&context->messages[index], message);
     context->page.oldest_id = message.id;
     context->page.count = index + 1;
     context->page.content_bytes += message.content.bytes;

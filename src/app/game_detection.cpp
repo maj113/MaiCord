@@ -144,7 +144,7 @@ bool registered_games_remove(RegisteredGames* games, u32 index) noexcept {
         return false;
     for (u32 i = index; i + 1 < games->count; ++i)
         games->items[i] = games->items[i + 1];
-    games->items[--games->count] = {};
+    reset_value(&games->items[--games->count]);
     return true;
 }
 GameDetectionMatch game_detection_match(const RegisteredGames& custom, ConstSlice<DetectableGame> builtin,
@@ -260,7 +260,7 @@ bool registered_games_decode(ConstSlice<u8> input, RegisteredGames* output) noex
 bool registered_games_load(RegisteredGames* games) noexcept {
     if (!games)
         return false;
-    *games = {};
+    reset_value(games);
     wchar_t path[kAccountProfileMaximumPathCharacters]{};
     if (!data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin").ok())
         return false;

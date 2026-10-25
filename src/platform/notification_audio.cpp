@@ -1,4 +1,5 @@
 #include "maicord/platform/notification_audio.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -87,7 +88,7 @@ u32 notification_audio_mixer_played_rate(NotificationAudioMixer* m,u32 padding,u
     if(!m||!rate_valid(rate)||padding>submitted(*m,rate)-consumed(*m,rate))return 0;
     consumed(*m,rate)=submitted(*m,rate)-padding;u32 kept=0;
     for(u32 i=0;i<m->count;++i)if(m->voices[i].clip.sample_rate!=rate||m->voices[i].start+m->voices[i].clip.samples.count/2+m->voices[i].clip.silence_frames>consumed(*m,rate))m->voices[kept++]=m->voices[i];
-    const u32 retired=m->count-kept;for(u32 i=kept;i<m->count;++i)m->voices[i]={};m->count=kept;return retired;
+    const u32 retired=m->count-kept;for(u32 i=kept;i<m->count;++i)reset_value(&m->voices[i]);m->count=kept;return retired;
 }
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer* m,u32 rate) noexcept {if(m&&rate_valid(rate))submitted(*m,rate)=consumed(*m,rate);}
 
@@ -254,7 +255,7 @@ void admit_requests(Runtime& r) noexcept {
         NotificationAudioRequest request{};
         AcquireSRWLockExclusive(&r.lock);
         if(!r.count||r.stopping||r.status.desired_epoch!=r.mixer.epoch){ReleaseSRWLockExclusive(&r.lock);break;}
-        request=r.requests[r.head];r.requests[r.head]={};r.head=(r.head+1)%kNotificationAudioQueueCapacity;--r.count;
+        request=r.requests[r.head];reset_value(&r.requests[r.head]);r.head=(r.head+1)%kNotificationAudioQueueCapacity;--r.count;
         ReleaseSRWLockExclusive(&r.lock);
         NotificationAudioClip clip{};float gain{};
         const bool live=current(r,request.epoch);
@@ -292,7 +293,7 @@ HRESULT render_audio(Runtime& r,Engine& e,u32 rate) noexcept {
 }
 DWORD WINAPI worker_main(void* pointer) noexcept {
     auto& r=*static_cast<Runtime*>(pointer);Engine engines[2]{};
-    constexpr u32 rates[]{kNotificationAudioRate,kNotificationAudioAlternateRate};
+    static constexpr u32 rates[]{kNotificationAudioRate,kNotificationAudioAlternateRate};
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
     const HRESULT apartment=fixture_hooks.initialize?fixture_hooks.initialize(fixture_hooks.context):E_UNEXPECTED;
 #else
@@ -396,7 +397,7 @@ NotificationAudioResult notification_audio_submit(NotificationAudio* owner,const
     else if(r.count==kNotificationAudioQueueCapacity)result=fail(NotificationAudioError::full_queue);
     else if(r.reserved==kNotificationAudioVoiceCapacity)result=fail(NotificationAudioError::full_voices);
     else {r.requests[(r.head+r.count)%kNotificationAudioQueueCapacity]=request;++r.count;++r.reserved;
-        if(!SetEvent(r.command)){--r.count;--r.reserved;r.requests[(r.head+r.count)%kNotificationAudioQueueCapacity]={};result=fail(NotificationAudioError::event,thread_last_error());}
+        if(!SetEvent(r.command)){--r.count;--r.reserved;reset_value(&r.requests[(r.head+r.count)%kNotificationAudioQueueCapacity]);result=fail(NotificationAudioError::event,thread_last_error());}
         else {add(r.status.accepted);notify_locked(r);}
     }
     ReleaseSRWLockExclusive(&r.lock);return result;
@@ -423,14 +424,14 @@ NotificationAudioStatus notification_audio_status(const NotificationAudio* owner
 }
 NotificationAudioResult notification_audio_release(NotificationAudio* owner,u32 timeout) noexcept {
     if(!owner)return fail(NotificationAudioError::invalid_input);
-    auto* r=static_cast<Runtime*>(owner->runtime);if(!r){*owner={};return {};}
+    auto* r=static_cast<Runtime*>(owner->runtime);if(!r){reset_value(owner);return {};}
     AcquireSRWLockExclusive(&r->lock);r->stopping=true;r->status.enabled=false;owner->enabled=false;
     const bool signaled=SetEvent(r->stop)!=0;const u32 signal_error=signaled?0:thread_last_error();ReleaseSRWLockExclusive(&r->lock);
     if(!signaled)return fail(NotificationAudioError::event,signal_error);
     const DWORD wait=WaitForSingleObject(r->thread,timeout);
     if(wait!=WAIT_OBJECT_0)return fail(wait==WAIT_TIMEOUT?NotificationAudioError::join_pending:NotificationAudioError::wait,
         wait==WAIT_TIMEOUT?WAIT_TIMEOUT:thread_last_error());
-    free_runtime(r);*owner={};return {};
+    free_runtime(r);reset_value(owner);return {};
 }
 u32 notification_audio_owned_handles(const NotificationAudio* owner) noexcept {
     auto* r=owner?static_cast<Runtime*>(owner->runtime):nullptr;if(!r)return 0;

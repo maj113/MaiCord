@@ -1,4 +1,5 @@
 #include "maicord/text/myanmar_input.hpp"
+#include "maicord/core/memory.hpp"
 #include "myanmar_character.hpp"
 namespace maicord {namespace {
 enum class Phase:u8 {closed,kinzi,base,halant,asat,medial,vowel,pwo,tone};
@@ -102,7 +103,7 @@ SfntStatus sfnt_myanmar_cluster_boundaries(ConstSlice<u32> input,Slice<u8> outpu
     return SfntStatus::ok;
 }
 SfntStatus sfnt_myanmar_prepare_input(ConstSlice<u32> input,Slice<SfntIndicInputScalar> output,SfntIndicInputResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((input.count&&!input.data)||(output.count&&!output.data)||
        byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntIndicInputScalar)))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*64>work)return SfntStatus::resource_limit;

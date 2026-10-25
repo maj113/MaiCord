@@ -299,7 +299,7 @@ void queue(Op op) noexcept {
     owner->op = op;
     owner->queued = true;
     owner->failed = false;
-    owner->status = {};
+    reset_value(&owner->status);
     owner->retry_at = 0;
     pump_message_history();
 }
@@ -310,7 +310,7 @@ void enter(u32 node_id) noexcept {
     if (!node || p.path_count == kReportMaximumBreadcrumbs)
         return;
     p.path[p.path_count++] = node_id;
-    p.status = {};
+    reset_value(&p.status);
     p.failed = false;
     if (node->auto_submit)
         p.phase = Phase::confirm;
@@ -475,7 +475,7 @@ bool application_report_open(const ApplicationReportTarget& target) noexcept {
     p.phase = Phase::loading;
     p.path_count = 0;
     p.answer_count = 0;
-    p.status = {};
+    reset_value(&p.status);
     p.failed = false;
     capture_preview();
     const auto title = message ? utf8_literal("Report message") : utf8_literal("Report user");
@@ -672,7 +672,7 @@ bool application_report_response(const RestClientResponse& response, Utf8View bo
     if (ok) {
         p.phase = Phase::done;
         p.failed = false;
-        p.status = {};
+        reset_value(&p.status);
         if (report_menu_node(p.menu, p.menu.success_node_id) && p.path_count < kReportMaximumBreadcrumbs)
             p.path[p.path_count++] = p.menu.success_node_id;
         else

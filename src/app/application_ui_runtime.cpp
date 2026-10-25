@@ -1,4 +1,5 @@
 #include "application_dm_profile.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_invite_cards.hpp"
 #include "application_message_components.hpp"
 #include "application_shortcuts.hpp"
@@ -272,9 +273,9 @@ void application_release_account_ui(Application& application) noexcept {
         application_theme_editor_release();
         application_settings_release();
     }
-    application.message_rejection = {};
+    reset_value(&application.message_rejection);
     application.message_rejection_channel_id = 0;
-    application.message_mutation_notice = {};
+    reset_value(&application.message_mutation_notice);
     if (&application == &g_app) {
         application_profile_release();
         application_dm_profile_release();
@@ -303,7 +304,7 @@ void application_release_account_ui(Application& application) noexcept {
     application.message_composer_pointer_selection = false;
     ui_widget_manager_capture(&application.message_composer_scene.widgets, ui_widget_invalid_handle());
     application.message_text_pointer_selection = false;
-    application.message_text_selection = RendererMessageTextPositionHit{};
+    reset_value<RendererMessageTextPositionHit>(&application.message_text_selection);
     application.message_text_selection_anchor = 0;
     application.message_text_selection_caret = 0;
     renderer_clear_message_text_selection(&application.renderer);
@@ -324,16 +325,16 @@ void application_release_account_ui(Application& application) noexcept {
                             0.0f);
     shell_navigation_scene_update(&application.shell_navigation_scene, nullptr,
                                   application.shell_navigation_scene.viewport, 0.0f);
-    application.message_catchup = MessageHistoryCatchup{};
-    application.message_older = MessageHistoryOlder{};
+    reset_value<MessageHistoryCatchup>(&application.message_catchup);
+    reset_value<MessageHistoryOlder>(&application.message_older);
     application.message_history_request_owner = MessageHistoryRequestOwner::none;
     application.details_request_owner = MessageHistoryRequestOwner::none;
     application.primary_request_id = 0;
     application.details_request_id = 0;
-    application.attachment_refresh = AttachmentRefresh{};
-    application.reply_refresh = ReplyReferenceRefresh{};
-    application.media_urls = MediaUrlResolver{};
-    application.message_delete = MessageDeleteRequest{};
+    reset_value<AttachmentRefresh>(&application.attachment_refresh);
+    reset_value<ReplyReferenceRefresh>(&application.reply_refresh);
+    reset_value<MediaUrlResolver>(&application.media_urls);
+    reset_value<MessageDeleteRequest>(&application.message_delete);
     message_edit_runtime_release(&application.message_edit);
     if (&application == &g_app) {
         application_thread_actions_release();
@@ -341,7 +342,7 @@ void application_release_account_ui(Application& application) noexcept {
         application_message_history_reset_reaction_turn();
     } else {
         // The demand-backed reaction owner belongs only to the global host.
-        application.message_reaction = MessageReactionRequest{};
+        reset_value<MessageReactionRequest>(&application.message_reaction);
     }
     application_commands_release();
     composer_autocomplete_release(&application.composer_autocomplete);

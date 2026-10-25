@@ -57,7 +57,7 @@ template <typename Scene> float avatar_height(const Scene& scene, bool grouped) 
     return grouped ? 0.0f : compact(scene) ? content_height(scene) : metrics(scene).message_avatar;
 }
 template <typename Scene> float group_top(const Scene& scene) noexcept {
-    constexpr float spacing[]{0.0f, 0.0f, 4.0f, 8.0f, 16.0f, 24.0f};
+    static constexpr float spacing[]{0.0f, 0.0f, 4.0f, 8.0f, 16.0f, 24.0f};
     const u8 code = display(scene).group_spacing;
     if (code && code < 6)
         return spacing[code] + 1.0f;
@@ -748,7 +748,7 @@ bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcep
         // Group headers/divider height do not change body wrapping. Preserve
         // the existing text/rich measurements when only read state changes.
         if (cached->signature != key) {
-            *cached = {};
+            reset_value(cached);
             cached->signature = key;
             cached->content_height = content_height(scene);
             cached->items = message_rich_estimate_item_layout(rich_store, rich, width, scene->theme_styles);
@@ -979,7 +979,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
     const MessageSceneRichLayout estimated_rich =
         rich ? message_rich_aggregate_layout(*rich, estimated_items, width) : MessageSceneRichLayout{};
     if (text_identity_changed) {
-        row->rich_layout = estimated_rich;
+        copy_value(&row->rich_layout, estimated_rich);
         row->rich_item_layout = estimated_items;
         row->measured_width = width;
         row->measured_reply_height = 0.0f;
@@ -992,7 +992,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
                                               : 0.0f;
         }
     } else if (!row->rich_layout_measured) {
-        row->rich_layout = estimated_rich;
+        copy_value(&row->rich_layout, estimated_rich);
         row->rich_item_layout = estimated_items;
     }
     if (cached)
@@ -1024,7 +1024,7 @@ void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
     const u32 overlap_end = minimum(old_end, new_end);
     if (overlap_first >= overlap_end) {
         for (u32 local = 0; local < count; ++local) {
-            scene->rows[local] = MessageSceneRowWidget{};
+            reset_value<MessageSceneRowWidget>(&scene->rows[local]);
         }
         return;
     }
@@ -1033,19 +1033,19 @@ void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
     const u32 destination_end = overlap_end - first;
     if (first >= old_first) {
         for (u32 source = overlap_first; source < overlap_end; ++source) {
-            scene->rows[source - first] = scene->rows[source - old_first];
+            copy_value(&scene->rows[source - first], scene->rows[source - old_first]);
         }
     } else {
         for (u32 source = overlap_end; source != overlap_first; --source) {
             const u32 source_index = source - 1u;
-            scene->rows[source_index - first] = scene->rows[source_index - old_first];
+            copy_value(&scene->rows[source_index - first], scene->rows[source_index - old_first]);
         }
     }
     for (u32 local = 0; local < destination_first; ++local) {
-        scene->rows[local] = MessageSceneRowWidget{};
+        reset_value<MessageSceneRowWidget>(&scene->rows[local]);
     }
     for (u32 local = destination_end; local < count; ++local) {
-        scene->rows[local] = MessageSceneRowWidget{};
+        reset_value<MessageSceneRowWidget>(&scene->rows[local]);
     }
 }
 
@@ -1149,7 +1149,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         if (cached && cached->signature == key)
             message_scene_detail::restore_measurement(&child, *cached);
         else if (cached) {
-            *cached = {};
+            reset_value(cached);
             cached->signature = key;
             message_scene_detail::retain_measurement(scene, child);
         }
@@ -1181,7 +1181,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         child.content = child_content.handle;
         if (!message_rich_widgets_build(&scene->widgets, frame.handle, child_id, snapshot, &child))
             return false;
-        scene->snapshot_rows[row.snapshot_slot] = child;
+        copy_value(&scene->snapshot_rows[row.snapshot_slot], child);
     }
     InviteLink invites[kMessageInviteCardMaximum];
     const u32 invite_count =
@@ -1189,7 +1189,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     if (!message_rich_widgets_build(&scene->widgets, body.handle, id, rich, &row, invite_count)) {
         return false;
     }
-    scene->rows[local] = row;
+    copy_value(&scene->rows[local], row);
     return apply_row_specs(scene, &scene->rows[local]);
 }
 
@@ -1203,7 +1203,7 @@ bool message_scene_initialize(MessageScene* scene, MessageTimeline* timeline,
         widget_storage.count == 0 || layout_storage.count == 0) {
         return false;
     }
-    *scene = MessageScene{};
+    reset_value<MessageScene>(scene);
     scene->rows = row_storage;
     scene->timeline = timeline;
     scene->root = ui_widget_invalid_handle();
@@ -1446,7 +1446,7 @@ void message_scene_release(MessageScene* scene) noexcept {
         stable_storage_release(&scene->owned_rows);
     }
     stable_storage_release(&scene->owned_measurements);
-    *scene = MessageScene{};
+    reset_value<MessageScene>(scene);
 }
 
 bool message_scene_reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
@@ -1701,7 +1701,7 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
     if (!intro || kind == MessageSceneIntroKind::none || (!name.data && name.bytes) ||
         (!username.data && username.bytes))
         return false;
-    *intro = MessageSceneIntro{};
+    reset_value<MessageSceneIntro>(intro);
     intro->kind = kind;
     intro->channel_id = channel_id;
     intro->locked = locked;
@@ -1772,7 +1772,7 @@ bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro
     if (intro && intro->kind != MessageSceneIntroKind::none &&
         intro->header_bytes + intro->subtitle_bytes + intro->description_bytes <= kMessageSceneIntroTextBytes &&
         intro->description_span_count <= kMessageSceneIntroSpanMaximum)
-        next = *intro;
+        copy_value(&next, *intro);
     u64 signature = hash_mix(kHash64Seed, static_cast<u64>(next.kind) | (u64{next.locked} << 8));
     signature = hash_mix(signature, next.user_id);
     signature = hash_mix(signature, next.channel_id);
@@ -1785,7 +1785,7 @@ bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro
     scene->intro_measure = measure;
     if (signature == scene->intro_signature)
         return false;
-    scene->intro = next;
+    copy_value(&scene->intro, next);
     scene->intro_signature = signature;
     scene->intro_header_style = {0, next.header_bytes, text_style_bold, text_size_xxl, {}};
     scene->intro_subtitle_style = {0, next.subtitle_bytes, text_style_bold, text_size_lg, {}};
@@ -1800,7 +1800,7 @@ bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro
 bool message_scene_intro_geometry(const MessageScene& scene, MessageSceneIntroGeometry* geometry) noexcept {
     if (!geometry)
         return false;
-    *geometry = {};
+    reset_value(geometry);
     const UiRect area = intro_area(scene);
     if (!ui_rect_has_area(area))
         return false;
@@ -2105,7 +2105,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                                  !message_rich_item_layout_equal(row->rich_item_layout, measured_items);
     row->measured_reply_height = measured_reply;
     row->measured_content_height = measured_content;
-    row->rich_layout = measured_rich;
+    copy_value(&row->rich_layout, measured_rich);
     row->rich_item_layout = measured_items;
     row->rich_layout_measured = row->rich_layout_measured || rich_layout != nullptr;
     row->measured_width = available_text_width(scene, scene->viewport);
@@ -2194,7 +2194,7 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
                !message_rich_item_layout_equal(child->rich_item_layout, items);
     child->measured_content_height = content;
     child->rich_layout = layout;
-    child->rich_item_layout = items;
+    copy_value(&child->rich_item_layout, items);
     child->rich_layout_measured = rich_layout != nullptr || child->rich_layout_measured;
     child->text_measured = true;
     message_scene_detail::retain_measurement(scene, *child);

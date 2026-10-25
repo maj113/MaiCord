@@ -1,4 +1,5 @@
 #include "maicord/render/glyph_atlas_gpu.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/render/shader_bytecode.hpp"
 
@@ -63,7 +64,7 @@ GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, ID3D11Device*
         command_capacity > 65'535) {
         return gpu_error(GlyphAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    *gpu = GlyphAtlasGpu{};
+    reset_value<GlyphAtlasGpu>(gpu);
     gpu->width = width;
     gpu->height = height;
     gpu->command_capacity = static_cast<u16>(command_capacity);

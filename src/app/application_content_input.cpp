@@ -1,4 +1,5 @@
 #include "application_account_reconnect.hpp"
+#include "maicord/core/memory.hpp"
 #include "application_channel_memory.hpp"
 #include "application_guild_community.hpp"
 #include "application_guild_menu.hpp"
@@ -420,7 +421,7 @@ void application_received_attachment_pump() noexcept {
     const auto identity = received_attachment_open.identity;
     Utf8View source{}, ready{};
     if (!received_attachment_source(identity, &source)) {
-        received_attachment_open = {};
+        reset_value(&received_attachment_open);
         received_attachment_status = ReceivedAttachmentOpenResult::stale;
         publish_received_attachment_notice(received_attachment_status, identity, false);
         return;

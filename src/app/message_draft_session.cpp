@@ -1,4 +1,5 @@
 #include "maicord/app/message_draft_session.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/app/message_draft_persistence.hpp"
 #include "maicord/core/log.hpp"
@@ -47,7 +48,7 @@ DWORD WINAPI draft_writer_main(void* context) noexcept {
         AcquireSRWLockExclusive(writer->lock.native());
         const bool ready = writer->job_ready;
         MessageDraftImage image = writer->image;
-        writer->image = MessageDraftImage{};
+        reset_value<MessageDraftImage>(&writer->image);
         ReleaseSRWLockExclusive(writer->lock.native());
         if (!ready) continue;
         // The UI thread does not touch path while a job is outstanding.
@@ -219,7 +220,7 @@ bool message_draft_session_configure(MessageDraftSession& session, MessageDraftS
         // A missing or invalid store for another profile must not retain the
         // previous profile's text or reply targets.
         if (!message_draft_store_reset(&drafts)) return false;
-        session = {};
+        reset_value(&session);
     }
     for (u32 index = 0; index <= characters; ++index) {
         session.path[index] = path[index];

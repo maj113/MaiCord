@@ -46,7 +46,7 @@ const InviteCardEntry* invite_card_cache_touch(InviteCardCache* cache, Utf8View 
     }
     if (!slot)
         return nullptr;
-    *slot = InviteCardEntry{};
+    reset_value<InviteCardEntry>(slot);
     copy_bytes(slot->code, code.data, code.bytes);
     slot->code_bytes = static_cast<u8>(code.bytes);
     slot->state = InviteCardState::queued;
@@ -81,7 +81,7 @@ bool invite_card_cache_complete(InviteCardCache* cache, Utf8View code, GuildInvi
     case GuildInviteOutcome::resolved:
         if (!invite)
             return false;
-        entry->invite = *invite;
+        copy_value(&entry->invite, *invite);
         entry->state = InviteCardState::resolved;
         break;
     case GuildInviteOutcome::unknown:
@@ -101,7 +101,7 @@ void invite_card_cache_clear(InviteCardCache* cache) noexcept {
     if (!cache)
         return;
     const u32 revision = cache->revision + 1u;
-    *cache = {};
+    reset_value(cache);
     cache->revision = revision;
 }
 
