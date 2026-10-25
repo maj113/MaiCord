@@ -38,7 +38,7 @@ Utf8View endpoint_query(GatewayEndpointPolicy policy) noexcept {
     case GatewayEndpointPolicy::application_v10_json:
         return utf8_literal("?v=10&encoding=json");
     case GatewayEndpointPolicy::user_v9_json_zlib_stream:
-        return utf8_literal("?v=9&encoding=json&compress=zlib-stream");
+        return utf8_literal("?encoding=json&v=9&compress=zlib-stream"); // The web client's order.
     case GatewayEndpointPolicy::voice_v9_json:
         return utf8_literal("?v=9");
     default:

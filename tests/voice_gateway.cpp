@@ -100,7 +100,7 @@ void test_voice_gateway(void (*check)(bool, const char*) noexcept) noexcept {
                                              GatewayEndpointPolicy::user_v9_json_zlib_stream,
                                              &main) == GatewayEndpointError::none &&
               equal({main.target, main.target_bytes},
-                    utf8_literal("/?v=9&encoding=json&compress=zlib-stream")),
+                    utf8_literal("/?encoding=json&v=9&compress=zlib-stream")),
           "voice endpoint policy does not change the authenticated main Gateway policy");
 
     u32 scratch[128]{};

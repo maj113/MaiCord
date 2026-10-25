@@ -1,6 +1,7 @@
 #include "maicord/protocol/websocket_handshake.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/protocol/client_user_agent.hpp"
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord {
@@ -95,24 +96,6 @@ bool valid_client_key(ConstSlice<u8> key) noexcept {
     return result.ok() && result.bytes == kWebSocketNonceBytes;
 }
 
-bool valid_origin(ConstSlice<u8> origin) noexcept {
-    static constexpr char prefix[] = "https://";
-    if (!origin.data || origin.count <= sizeof(prefix) - 1 || origin.count > 255) {
-        return false;
-    }
-    for (u32 index = 0; index < sizeof(prefix) - 1; ++index) {
-        if (origin[index] != static_cast<u8>(prefix[index])) {
-            return false;
-        }
-    }
-    for (u32 index = sizeof(prefix) - 1; index < origin.count; ++index) {
-        if (origin[index] < 0x21 || origin[index] > 0x7E || origin[index] == '/' || origin[index] == '?' ||
-            origin[index] == '#') {
-            return false;
-        }
-    }
-    return true;
-}
 
 bool equal_bytes(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
     if (left.count != right.count) {
@@ -227,11 +210,12 @@ WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key
     return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
 }
 
-namespace {
-// Writes the opening request; origin, when given, adds an Origin header.
-WebSocketHandshakeWriteResult write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
-                                                    ConstSlice<u8> client_key, const ConstSlice<u8>* origin,
-                                                    Slice<u8> output) noexcept {
+// Discord's clients open every WebSocket (Gateway, voice, remote auth) from
+// the https://discord.com page, so the request carries the headers and order
+// Chromium sends for it. Extensions are not offered.
+WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
+                                                              ConstSlice<u8> client_key,
+                                                              Slice<u8> output) noexcept {
     if (!output.data || !valid_client_key(client_key)) {
         return WebSocketHandshakeWriteResult{0, output.data ? WebSocketHandshakeError::invalid_client_key
                                                             : WebSocketHandshakeError::invalid_input};
@@ -242,51 +226,25 @@ WebSocketHandshakeWriteResult write_opening_request(ConstSlice<u8> target, Const
     if (!valid_host(host)) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_host};
     }
-    if (origin && !valid_origin(*origin)) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_origin};
-    }
-
-    constexpr u32 fixed_bytes =
-        sizeof("GET  HTTP/1.1\r\nHost: \r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-               "Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n") -
-        1;
-    constexpr u32 origin_bytes = sizeof("Origin: \r\n") - 1;
-    const u64 required = static_cast<u64>(fixed_bytes) + target.count + host.count + client_key.count +
-                         (origin ? static_cast<u64>(origin_bytes) + origin->count : 0);
-    if (required > output.count) {
+    static constexpr char middle[] = "\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\n"
+                                     "User-Agent: ";
+    static constexpr char after_agent[] = "\r\nUpgrade: websocket\r\nOrigin: https://discord.com\r\n"
+                                          "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ";
+    constexpr u32 fixed_bytes = sizeof("GET  HTTP/1.1\r\nHost: ") - 1 + sizeof(middle) - 1 +
+                                sizeof(kClientUserAgent) - 1 + sizeof(after_agent) - 1 + sizeof("\r\n\r\n") - 1;
+    if (u64{fixed_bytes} + target.count + host.count + client_key.count > output.count) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
     }
-
     ProtocolWriter writer{output, 0};
     const bool written =
         protocol_writer_append_literal(&writer, "GET ") && protocol_writer_append_bytes(&writer, target) &&
         protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
-        protocol_writer_append_bytes(&writer, host) &&
-        protocol_writer_append_literal(&writer, "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                                                "Sec-WebSocket-Key: ") &&
-        protocol_writer_append_bytes(&writer, client_key) &&
-        protocol_writer_append_literal(&writer, "\r\nSec-WebSocket-Version: 13\r\n") &&
-        (!origin || (protocol_writer_append_literal(&writer, "Origin: ") &&
-                     protocol_writer_append_bytes(&writer, *origin) &&
-                     protocol_writer_append_literal(&writer, "\r\n"))) &&
-        protocol_writer_append_literal(&writer, "\r\n");
+        protocol_writer_append_bytes(&writer, host) && protocol_writer_append_literal(&writer, middle) &&
+        protocol_writer_append_literal(&writer, kClientUserAgent) &&
+        protocol_writer_append_literal(&writer, after_agent) &&
+        protocol_writer_append_bytes(&writer, client_key) && protocol_writer_append_literal(&writer, "\r\n\r\n");
     return written ? WebSocketHandshakeWriteResult{writer.used, WebSocketHandshakeError::none}
                    : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
-}
-} // namespace
-
-WebSocketHandshakeWriteResult websocket_write_opening_request_with_origin(ConstSlice<u8> target,
-                                                                          ConstSlice<u8> host,
-                                                                          ConstSlice<u8> client_key,
-                                                                          ConstSlice<u8> origin,
-                                                                          Slice<u8> output) noexcept {
-    return write_opening_request(target, host, client_key, &origin, output);
-}
-
-WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
-                                                              ConstSlice<u8> client_key,
-                                                              Slice<u8> output) noexcept {
-    return write_opening_request(target, host, client_key, nullptr, output);
 }
 
 WebSocketHandshakeValidation websocket_validate_opening_response(ConstSlice<u8> response,

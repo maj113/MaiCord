@@ -701,6 +701,10 @@ void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept 
     writer.literal("\r\nUser-Agent: ");
     writer.literal(kClientUserAgent);
     writer.literal("\r\nAccept: application/json\r\n");
+    // The client's page origin, which Chromium sends on same-origin requests
+    // other than GET and HEAD.
+    if (request.user_headers && request.method != RestMethod::get && request.method != RestMethod::head)
+        writer.literal("Origin: https://discord.com\r\n");
     if (request.accept_gzip)
         writer.literal("Accept-Encoding: gzip\r\n");
     if (request.authorization != RestAuthorization::none) {

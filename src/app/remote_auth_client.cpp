@@ -469,9 +469,9 @@ bool open_websocket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
         *native_error = static_cast<u32>(random.platform_status);
         return false;
     }
-    const WebSocketHandshakeWriteResult written = websocket_write_opening_request_with_origin(
-        bytes("/?v=2"), bytes(kRemoteAuthHost), ConstSlice<u8>{client_key, encoded.bytes},
-        bytes("https://discord.com"), Slice<u8>{request, static_cast<u32>(sizeof(request))});
+    const WebSocketHandshakeWriteResult written =
+        websocket_write_opening_request(bytes("/?v=2"), bytes(kRemoteAuthHost), ConstSlice<u8>{client_key, encoded.bytes},
+                                        Slice<u8>{request, static_cast<u32>(sizeof(request))});
     if (!written.ok() || !send_tls(client, runtime, ConstSlice<u8>{request, written.bytes}, native_error)) {
         SecureZeroMemory(client_key, sizeof(client_key));
         SecureZeroMemory(request, sizeof(request));

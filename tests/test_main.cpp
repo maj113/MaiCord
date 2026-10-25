@@ -16,6 +16,8 @@
 #include "maicord/app/login_mfa_policy.hpp"
 #include "maicord/app/member_list_channel_binding.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/protocol/client_user_agent.hpp"
+#include "maicord/protocol/writer.hpp"
 #include "maicord/app/user_auth_coordinator.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/ui/message_action_bar.hpp"
@@ -21773,7 +21775,7 @@ void test_gateway_endpoint() noexcept {
                                            &endpoint) == GatewayEndpointError::none &&
             endpoint.policy == GatewayEndpointPolicy::user_v9_json_zlib_stream &&
             bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(endpoint.target), endpoint.target_bytes},
-                        byte_literal("/socket?v=9&encoding=json&compress=zlib-stream")) &&
+                        byte_literal("/socket?encoding=json&v=9&compress=zlib-stream")) &&
             gateway_endpoint_validate(endpoint),
         "gateway_endpoint_user_v9_zlib_policy");
     expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg"),
@@ -22102,14 +22104,14 @@ void test_user_auth_protocol() noexcept {
             header_count(bytes, byte_literal("\r\nAccept-Language: sl-SI\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nX-Discord-Timezone: Europe/Ljubljana\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nAuthorization:")) == 0 &&
-            header_count(bytes, byte_literal("\r\nOrigin:")) == 0 &&
+            header_count(bytes, byte_literal("\r\nOrigin: https://discord.com\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nReferer:")) == 0 &&
             header_count(bytes, byte_literal("\r\nX-Fingerprint:")) == 0 &&
             header_count(bytes, byte_literal("\r\nX-Captcha-Key: solution\r\n")) ==
                 (captcha.key.bytes ? 1u : 0u) && head.bytes >= 4 &&
             maicord::bytes_equal(output + head.bytes - 4, "\r\n\r\n", 4);
     }
-    expect(metadata_operations, "user_auth_all_operations_attach_metadata_without_authorization_or_browser_headers");
+    expect(metadata_operations, "user_auth_all_operations_attach_metadata_and_page_origin_without_authorization");
 
     const auto metadata_head = user_auth_write_request_head(UserAuthOperation::password, 32,
         {}, {output, sizeof(output)}, &metadata);
@@ -23427,30 +23429,22 @@ void test_websocket_handshake() noexcept {
 
     const ConstSlice<u8> target = byte_literal("/gateway?v=10&encoding=json");
     const ConstSlice<u8> host = byte_literal("gateway.discord.gg");
-    const ConstSlice<u8> expected_request =
-        byte_literal("GET /gateway?v=10&encoding=json HTTP/1.1\r\nHost: gateway.discord.gg\r\nUpgrade: "
-                     "websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                     "Sec-WebSocket-Version: 13\r\n\r\n");
+    // Chromium's request for a WebSocket opened by the https://discord.com page.
+    u8 expected_storage[512]{};
+    ProtocolWriter expected_writer{{expected_storage, static_cast<u32>(sizeof(expected_storage))}, 0};
+    protocol_writer_append_literal(&expected_writer,
+                                   "GET /gateway?v=10&encoding=json HTTP/1.1\r\nHost: gateway.discord.gg\r\n"
+                                   "Connection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nUser-Agent: ");
+    protocol_writer_append_literal(&expected_writer, kClientUserAgent);
+    protocol_writer_append_literal(&expected_writer, "\r\nUpgrade: websocket\r\nOrigin: https://discord.com\r\n"
+                                                     "Sec-WebSocket-Version: 13\r\n"
+                                                     "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+    const ConstSlice<u8> expected_request{expected_storage, expected_writer.used};
     u8 request_storage[512]{};
     const WebSocketHandshakeWriteResult request = websocket_write_opening_request(
         target, host, expected_key, Slice<u8>{request_storage, static_cast<u32>(sizeof(request_storage))});
     expect(request.ok() && bytes_equal(ConstSlice<u8>{request_storage, request.bytes}, expected_request),
-           "websocket_handshake_request");
-    const ConstSlice<u8> expected_origin_request =
-        byte_literal("GET /gateway?v=10&encoding=json HTTP/1.1\r\nHost: gateway.discord.gg\r\nUpgrade: "
-                     "websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                     "Sec-WebSocket-Version: 13\r\nOrigin: https://discord.com\r\n\r\n");
-    const WebSocketHandshakeWriteResult origin_request = websocket_write_opening_request_with_origin(
-        target, host, expected_key, byte_literal("https://discord.com"),
-        Slice<u8>{request_storage, static_cast<u32>(sizeof(request_storage))});
-    expect(
-        origin_request.ok() &&
-            bytes_equal(ConstSlice<u8>{request_storage, origin_request.bytes}, expected_origin_request) &&
-            websocket_write_opening_request_with_origin(target, host, expected_key,
-                                                        byte_literal("https://discord.com/Injected"),
-                                                        Slice<u8>{request_storage, 512})
-                    .error == WebSocketHandshakeError::invalid_origin,
-        "websocket_handshake_origin_header");
+           "websocket_handshake_browser_request");
     expect(websocket_write_opening_request(target, host, expected_key,
                                            Slice<u8>{request_storage, expected_request.count - 1})
                    .error == WebSocketHandshakeError::output_too_small,
@@ -23853,6 +23847,24 @@ void test_rest() noexcept {
                                         "Content-Length: 4\r\n"
                                         "Connection: close\r\n\r\n")),
            "rest_authenticated_json_request_head");
+
+    // The client page origin goes on user requests other than GET and HEAD.
+    const RestUserRequestHeaders page{byte_literal("e30="), utf8_literal("en-US"), {}};
+    RestRequestHead user_head{byte_literal("/api/v9/channels/7/messages"), byte_literal("user.token"), 0,
+                              RestMethod::get, RestAuthorization::normal_user, false, false};
+    user_head.user_headers = &page;
+    const auto origin_count = [&](RestMethod method) noexcept {
+        user_head.method = method;
+        const auto written = write_rest_request_head(user_head, Slice<u8>{request_output, 512});
+        u32 count = 0;
+        constexpr char origin[] = "\r\nOrigin: https://discord.com\r\n";
+        for (u32 at = 0; written.ok() && at + sizeof(origin) - 1 <= written.bytes; ++at)
+            count += maicord::bytes_equal(request_output + at, origin, sizeof(origin) - 1) ? 1u : 0u;
+        return written.ok() ? count : ~0u;
+    };
+    expect(origin_count(RestMethod::get) == 0 && origin_count(RestMethod::head) == 0 &&
+               origin_count(RestMethod::delete_method) == 1 && origin_count(RestMethod::patch) == 1,
+           "rest_user_page_origin_on_non_get_requests");
 
     u8 atomic_output[16]{};
     for (u32 index = 0; index < 16; ++index) {
