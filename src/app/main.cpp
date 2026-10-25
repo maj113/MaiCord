@@ -775,12 +775,13 @@ int application_run() noexcept {
     application_tooltip_release();
     application_unread_banner_release();
     application_toast_release();
-    application_guild_folders_release();
     application_guild_invite_release();
     application_taskbar_attention_release();
     application_composer_spellcheck_release();
     application_desktop_release();
+    // The account's final startup shell records the folder layout.
     application_stop_account();
+    application_guild_folders_release();
     application_account_logout_release();
     application_notifications_release(&g_app);
     application_voice_message_release();
