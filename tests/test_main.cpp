@@ -22067,33 +22067,33 @@ void test_user_auth_protocol() noexcept {
     const ConstSlice<u8> expected_auth_head =
         byte_literal("POST /api/v9/auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
-                     "Accept: application/json\r\n"
-                     "Content-Type: application/json\r\n"
-                     "Content-Length: 123\r\n"
                      "Connection: keep-alive\r\n"
+                     "Content-Length: 123\r\n"
                      "X-Captcha-Key: solution\r\n"
                      "X-Captcha-Rqtoken: request-token\r\n"
-                     "X-Captcha-Session-Id: session-7\r\n\r\n");
+                     "X-Captcha-Session-Id: session-7\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                     "Content-Type: application/json\r\n"
+                     "Accept: */*\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_head =
         byte_literal("POST /api/v9/users/@me/remote-auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
-                     "Accept: application/json\r\n"
-                     "Content-Type: application/json\r\n"
+                     "Connection: keep-alive\r\n"
                      "Content-Length: 32\r\n"
-                     "Connection: keep-alive\r\n\r\n");
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                     "Content-Type: application/json\r\n"
+                     "Accept: */*\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_captcha_head =
         byte_literal("POST /api/v9/users/@me/remote-auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
-                     "Accept: application/json\r\n"
-                     "Content-Type: application/json\r\n"
-                     "Content-Length: 32\r\n"
                      "Connection: keep-alive\r\n"
+                     "Content-Length: 32\r\n"
                      "X-Captcha-Key: solution\r\n"
                      "X-Captcha-Rqtoken: request-token\r\n"
-                     "X-Captcha-Session-Id: session-7\r\n\r\n");
+                     "X-Captcha-Session-Id: session-7\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                     "Content-Type: application/json\r\n"
+                     "Accept: */*\r\n\r\n");
     written = user_auth_write_request_head(UserAuthOperation::password, 123,
                                            UserAuthCaptchaHeaders{utf8_literal("solution"),
                                                                   utf8_literal("request-token"),
@@ -22155,18 +22155,20 @@ void test_user_auth_protocol() noexcept {
         metadata_operations = metadata_operations && head.ok() && head.bytes >= target.bytes + 5 &&
             maicord::bytes_equal(output, "POST ", 5) &&
             maicord::bytes_equal(output + 5, target.data, target.bytes) &&
-            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\nAccept-Language: "
-                                             "sl,en-GB;q=0.9\r\nX-Discord-Locale: en-GB\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\nX-Discord-Locale: en-GB\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nAccept-Language: sl,en-GB;q=0.9\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nsec-ch-ua-platform: \"Windows\"\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nSec-Fetch-Site: same-origin\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nX-Discord-Timezone: Europe/Ljubljana\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nAuthorization:")) == 0 &&
             header_count(bytes, byte_literal("\r\nOrigin: https://discord.com\r\n")) == 1 &&
-            header_count(bytes, byte_literal("\r\nReferer:")) == 0 &&
+            header_count(bytes, byte_literal("\r\nReferer: https://discord.com/login\r\n")) == 1 &&
             header_count(bytes, byte_literal("\r\nX-Fingerprint:")) == 0 &&
             header_count(bytes, byte_literal("\r\nX-Captcha-Key: solution\r\n")) ==
                 (captcha.key.bytes ? 1u : 0u) && head.bytes >= 4 &&
             maicord::bytes_equal(output + head.bytes - 4, "\r\n\r\n", 4);
     }
-    expect(metadata_operations, "user_auth_all_operations_attach_metadata_and_page_origin_without_authorization");
+    expect(metadata_operations, "user_auth_all_operations_attach_metadata_and_login_page_without_authorization");
 
     const auto metadata_head = user_auth_write_request_head(UserAuthOperation::password, 32,
         {}, {output, sizeof(output)}, &metadata);
@@ -23922,7 +23924,7 @@ void test_http1() noexcept {
 }
 
 void test_rest() noexcept {
-    u8 request_output[512]{};
+    u8 request_output[1024]{};
     const RestRequestWriteResult get =
         write_rest_request_head(RestRequestHead{byte_literal("/api/v10/gateway"),
                                                 {},
@@ -23936,9 +23938,9 @@ void test_rest() noexcept {
                bytes_equal(ConstSlice<u8>{request_output, get.bytes},
                            byte_literal("GET /api/v10/gateway HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
+                                        "Connection: keep-alive\r\n"
                                         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
-                                        "Accept: application/json\r\n"
-                                        "Connection: keep-alive\r\n\r\n")),
+                                        "Accept: */*\r\n\r\n")),
            "rest_get_request_head");
 
     const RestRequestWriteResult post = write_rest_request_head(
@@ -23949,13 +23951,107 @@ void test_rest() noexcept {
                bytes_equal(ConstSlice<u8>{request_output, post.bytes},
                            byte_literal("POST /api/v10/channels/7/messages HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
-                                        "Accept: application/json\r\n"
-                                        "Authorization: Bearer secret.token\r\n"
-                                        "Content-Type: application/json\r\n"
+                                        "Connection: close\r\n"
                                         "Content-Length: 4\r\n"
-                                        "Connection: close\r\n\r\n")),
+                                        "Authorization: Bearer secret.token\r\n"
+                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                        "Content-Type: application/json\r\n"
+                                        "Accept: */*\r\n\r\n")),
            "rest_authenticated_json_request_head");
+
+    // The page's XMLHttpRequests: Chromium's field order with its client
+    // hints, fetch metadata, Referer and the jar's cookies.
+    {
+        const RestUserRequestHeaders user{byte_literal("e30="), utf8_literal("en-US"),
+                                          utf8_literal("Europe/Ljubljana"), utf8_literal("en-US,en;q=0.9")};
+        RestRequestHead page{byte_literal("/api/v9/users/@me"), byte_literal("user.token"), 0, RestMethod::get,
+                             RestAuthorization::normal_user, false, false, &user, true};
+        page.cookie = byte_literal("__dcfduid=visitor; _cfuvid=session");
+        static u8 page_output[2048];
+        auto page_written = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)});
+        expect(page_written.ok() &&
+                   bytes_equal(ConstSlice<u8>{page_output, page_written.bytes},
+                               byte_literal("GET /api/v9/users/@me HTTP/1.1\r\n"
+                                            "Host: discord.com\r\n"
+                                            "Connection: keep-alive\r\n"
+                                            "sec-ch-ua: \"Not/A)Brand\";v=\"99\", \"Chromium\";v=\"148\"\r\n"
+                                            "sec-ch-ua-mobile: ?0\r\n"
+                                            "sec-ch-ua-platform: \"Windows\"\r\n"
+                                            "Authorization: user.token\r\n"
+                                            "X-Super-Properties: e30=\r\n"
+                                            "X-Discord-Locale: en-US\r\n"
+                                            "X-Discord-Timezone: Europe/Ljubljana\r\n"
+                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                            "Accept: */*\r\n"
+                                            "Sec-Fetch-Site: same-origin\r\n"
+                                            "Sec-Fetch-Mode: cors\r\n"
+                                            "Sec-Fetch-Dest: empty\r\n"
+                                            "Referer: https://discord.com/channels/@me\r\n"
+                                            "Accept-Encoding: gzip\r\n"
+                                            "Accept-Language: en-US,en;q=0.9\r\n"
+                                            "Cookie: __dcfduid=visitor; _cfuvid=session\r\n\r\n")),
+               "rest_page_get_request_head");
+        page.target = byte_literal("/api/v9/channels/7/messages");
+        page.method = RestMethod::post;
+        page.json_body = true;
+        page.content_length = 2;
+        page.extra_headers = byte_literal("X-Context-Properties: e30=\r\n");
+        page_written = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)});
+        expect(page_written.ok() &&
+                   bytes_equal(ConstSlice<u8>{page_output, page_written.bytes},
+                               byte_literal("POST /api/v9/channels/7/messages HTTP/1.1\r\n"
+                                            "Host: discord.com\r\n"
+                                            "Connection: keep-alive\r\n"
+                                            "Content-Length: 2\r\n"
+                                            "sec-ch-ua: \"Not/A)Brand\";v=\"99\", \"Chromium\";v=\"148\"\r\n"
+                                            "sec-ch-ua-mobile: ?0\r\n"
+                                            "sec-ch-ua-platform: \"Windows\"\r\n"
+                                            "Authorization: user.token\r\n"
+                                            "X-Super-Properties: e30=\r\n"
+                                            "X-Discord-Locale: en-US\r\n"
+                                            "X-Discord-Timezone: Europe/Ljubljana\r\n"
+                                            "X-Context-Properties: e30=\r\n"
+                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                            "Content-Type: application/json\r\n"
+                                            "Accept: */*\r\n"
+                                            "Origin: https://discord.com\r\n"
+                                            "Sec-Fetch-Site: same-origin\r\n"
+                                            "Sec-Fetch-Mode: cors\r\n"
+                                            "Sec-Fetch-Dest: empty\r\n"
+                                            "Referer: https://discord.com/channels/@me\r\n"
+                                            "Accept-Encoding: gzip\r\n"
+                                            "Accept-Language: en-US,en;q=0.9\r\n"
+                                            "Cookie: __dcfduid=visitor; _cfuvid=session\r\n\r\n")) &&
+                   page_written.extra_headers_end ==
+                       byte_literal("POST /api/v9/channels/7/messages HTTP/1.1\r\nHost: discord.com\r\n"
+                                    "Connection: keep-alive\r\nContent-Length: 2\r\n"
+                                    "sec-ch-ua: \"Not/A)Brand\";v=\"99\", \"Chromium\";v=\"148\"\r\n"
+                                    "sec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n"
+                                    "Authorization: user.token\r\nX-Super-Properties: e30=\r\n"
+                                    "X-Discord-Locale: en-US\r\nX-Discord-Timezone: Europe/Ljubljana\r\n"
+                                    "X-Context-Properties: e30=\r\n")
+                           .count,
+               "rest_page_post_request_head");
+        page.cookie = byte_literal("a=1\r\nInjected: yes");
+        const bool injected = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)}).error ==
+                              RestRequestError::invalid_input;
+        expect(injected && write_rest_request_head(RestRequestHead{byte_literal("/api/v10/gateway"), {}, 0,
+                                                                   RestMethod::get, RestAuthorization::none,
+                                                                   false, false, nullptr, false, {}, {}, {},
+                                                                   false, byte_literal("a=1")},
+                                                   Slice<u8>{page_output, sizeof(page_output)})
+                                       .error == RestRequestError::invalid_input,
+               "rest_cookie_header_guards");
+        // The GREASE brand, its version and the order all follow the major
+        // version (Electron 28/Chrome 120 and Chrome 124 Chromium builds).
+        constexpr ClientBrandList chrome120 = client_brand_list("120.0.6099.291");
+        constexpr ClientBrandList chrome124 = client_brand_list("124.0.6367.243");
+        expect(bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(chrome120.text), chrome120.bytes},
+                           byte_literal(R"("Not_A Brand";v="8", "Chromium";v="120")")) &&
+                   bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(chrome124.text), chrome124.bytes},
+                               byte_literal(R"("Not-A.Brand";v="99", "Chromium";v="124")")),
+               "rest_client_hint_brand_list_follows_major_version");
+    }
 
     // The client page origin goes on user requests other than GET and HEAD.
     const RestUserRequestHeaders page{byte_literal("e30="), utf8_literal("en-US"), {}};
@@ -23964,7 +24060,7 @@ void test_rest() noexcept {
     user_head.user_headers = &page;
     const auto origin_count = [&](RestMethod method) noexcept {
         user_head.method = method;
-        const auto written = write_rest_request_head(user_head, Slice<u8>{request_output, 512});
+        const auto written = write_rest_request_head(user_head, Slice<u8>{request_output, 1024});
         u32 count = 0;
         constexpr char origin[] = "\r\nOrigin: https://discord.com\r\n";
         for (u32 at = 0; written.ok() && at + sizeof(origin) - 1 <= written.bytes; ++at)

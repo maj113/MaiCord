@@ -723,7 +723,7 @@ void test_reason_and_head() noexcept {
         const auto bodyless = write_rest_request_head(request, {head, sizeof(head)});
         const bool zero = method == RestMethod::post || method == RestMethod::put;
         lengths = lengths && bodyless.ok() && !has(bodyless, "Content-Type") &&
-                  has(bodyless, "\r\nContent-Length: 0\r\nConnection: ") == zero &&
+                  has(bodyless, "\r\nConnection: keep-alive\r\nContent-Length: 0\r\n") == zero &&
                   (zero || !has(bodyless, "Content-Length"));
     }
     check(lengths, "request head: bodyless POST/PUT send Content-Length: 0 and never a Content-Type");

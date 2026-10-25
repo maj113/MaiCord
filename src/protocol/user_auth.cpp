@@ -765,11 +765,11 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
         return UserAuthWriteResult{base.bytes, UserAuthWriteError::none};
     }
 
-    const u32 insertion = base.bytes - 2;
+    // The CAPTCHA answer joins the page's other X- headers.
+    const u32 insertion = base.extra_headers_end;
+    copy_bytes(output.data + insertion + captcha_bytes, output.data + insertion, base.bytes - insertion);
     const u32 added_bytes =
         user_auth_write_captcha_headers(captcha, Slice<u8>{output.data + insertion, captcha_bytes}).bytes;
-    output.data[insertion + added_bytes] = '\r';
-    output.data[insertion + added_bytes + 1] = '\n';
     return UserAuthWriteResult{base.bytes + added_bytes, UserAuthWriteError::none};
 }
 

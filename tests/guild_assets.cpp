@@ -390,7 +390,7 @@ void test_protocol() noexcept {
             line[line_bytes++] = c;
     copy_bytes(line + line_bytes, boundary, sizeof(boundary));
     line_bytes += sizeof(boundary);
-    for (char c : "\r\nContent-Length: 123\r\n")
+    for (char c : "\r\nAccept: */*\r\n")
         if (c)
             line[line_bytes++] = c;
     bool found = false;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/byte_queue.hpp"
+#include "maicord/protocol/cookie_jar.hpp"
 #include "maicord/protocol/http1.hpp"
 
 namespace maicord {
@@ -73,6 +74,9 @@ struct RestRequestHead {
     // An empty reason still sends "X-Audit-Log-Reason: " with no value (a null
     // reason sends nothing). Never on GET.
     bool send_empty_audit_reason = false;
+    // The Cookie header value (cookie_jar_header); empty sends none. Only on
+    // requests with user_headers.
+    ConstSlice<u8> cookie{};
 };
 
 // RFC 2046 boundary restricted to [A-Za-z0-9_-], 1..70 bytes.
@@ -90,6 +94,8 @@ enum class RestRequestError : u8 {
 struct RestRequestWriteResult {
     u32 bytes;
     RestRequestError error;
+    // Where the extra headers end: further per-request X- headers go here.
+    u32 extra_headers_end;
 
     constexpr bool ok() const noexcept {
         return error == RestRequestError::none;
@@ -115,8 +121,13 @@ bool rest_extra_headers_valid(ConstSlice<u8> headers) noexcept;
 // does not fit or the value is invalid. The output is unchanged on failure.
 u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSlice<u8> value) noexcept;
 
-// Writes one complete Discord HTTP/1.1 request head for discord.com. Capacity
-// is checked before any byte (including a credential) is copied to output.
+// Writes one complete Discord HTTP/1.1 request head for discord.com, in
+// Chromium's field order. Requests with user_headers are the https://discord.com
+// page's XMLHttpRequests: they also carry the client hints, fetch metadata,
+// Origin (other than on GET and HEAD) and the page as Referer, the app's
+// https://discord.com/channels/@me for a normal user and
+// https://discord.com/login before sign-in. Capacity is checked before any
+// byte (including a credential) is copied to output.
 // The caller owns secure erasure of the plaintext output after TLS framing.
 RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
                                                Slice<u8> output) noexcept;

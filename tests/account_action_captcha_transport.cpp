@@ -76,8 +76,8 @@ void retry() noexcept {
         {head, sizeof(head)});
     check(written.ok() && contains({head, written.bytes}, utf8_literal("\r\nX-Captcha-Rqtoken: rq.abc\r\n")) &&
               contains({head, written.bytes}, utf8_literal("X-Context-Properties: eyJ4IjoxfQ==\r\nX-Captcha-Key")) &&
-              contains({head, written.bytes}, utf8_literal("X-Captcha-Session-Id: 3f2a\r\nContent-Type")),
-          "action captcha: headers reach the wire head before the body headers");
+              contains({head, written.bytes}, utf8_literal("X-Captcha-Session-Id: 3f2a\r\nUser-Agent")),
+          "action captcha: headers reach the wire head with the page's X- headers, before User-Agent");
     p.drain();
     check(p.send(777).ok() && !p.headers().count, "action captcha: a solution is never replayed twice");
     p.drain();

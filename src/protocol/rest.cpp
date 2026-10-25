@@ -687,27 +687,37 @@ bool rest_multipart_boundary_valid(ConstSlice<u8> boundary) noexcept {
 }
 
 namespace {
-// The request head for a request write_rest_request_head validated. An empty
-// POST or PUT body is declared with Content-Length: 0; other bodyless methods
-// send no length.
-void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
+// The request head for a request write_rest_request_head validated, in the
+// order Chromium's network stack sends an XMLHttpRequest: Host, Connection and
+// the body length first, then the page's fields (client hints and the
+// headers Discord sets), User-Agent, Content-Type, Accept, Origin, the fetch
+// metadata and Referer, then Accept-Encoding, Accept-Language and Cookie. An
+// empty POST or PUT body is declared with Content-Length: 0; other bodyless
+// methods send no length. Returns where the extra headers end.
+u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     const char* const method = method_literal(request.method);
-    const bool empty_length =
-        !request.json_body && (request.method == RestMethod::post || request.method == RestMethod::put);
+    const RestUserRequestHeaders* const page = request.user_headers;
     writer.raw(method, literal_bytes(method));
     writer.literal(" ");
     writer.bytes(request.target);
     writer.literal(" HTTP/1.1\r\nHost: ");
     writer.literal(kApiHost);
-    writer.literal("\r\nUser-Agent: ");
-    writer.literal(kClientUserAgent);
-    writer.literal("\r\nAccept: application/json\r\n");
-    // The client's page origin, which Chromium sends on same-origin requests
-    // other than GET and HEAD.
-    if (request.user_headers && request.method != RestMethod::get && request.method != RestMethod::head)
-        writer.literal("Origin: https://discord.com\r\n");
-    if (request.accept_gzip)
-        writer.literal("Accept-Encoding: gzip\r\n");
+    if (request.close_connection)
+        writer.literal("\r\nConnection: close\r\n");
+    else
+        writer.literal("\r\nConnection: keep-alive\r\n");
+    if (request.json_body) {
+        writer.literal("Content-Length: ");
+        writer.number(request.content_length);
+        writer.literal("\r\n");
+    } else if (request.method == RestMethod::post || request.method == RestMethod::put) {
+        writer.literal("Content-Length: 0\r\n");
+    }
+    if (page) {
+        writer.literal("sec-ch-ua: ");
+        writer.raw(kClientBrandList.text, kClientBrandList.bytes);
+        writer.literal("\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n");
+    }
     if (request.authorization != RestAuthorization::none) {
         if (request.authorization == RestAuthorization::bearer)
             writer.literal("Authorization: Bearer ");
@@ -716,22 +726,16 @@ void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept 
         writer.bytes(request.token);
         writer.literal("\r\n");
     }
-    if (const RestUserRequestHeaders* user = request.user_headers) {
+    if (page) {
         // In the order the desktop client sets them.
         writer.literal("X-Super-Properties: ");
-        writer.bytes(user->super_properties);
+        writer.bytes(page->super_properties);
+        writer.literal("\r\nX-Discord-Locale: ");
+        writer.raw(page->locale.data, page->locale.bytes);
         writer.literal("\r\n");
-        if (user->accept_language.bytes) {
-            writer.literal("Accept-Language: ");
-            writer.raw(user->accept_language.data, user->accept_language.bytes);
-            writer.literal("\r\n");
-        }
-        writer.literal("X-Discord-Locale: ");
-        writer.raw(user->locale.data, user->locale.bytes);
-        writer.literal("\r\n");
-        if (user->timezone.bytes) {
+        if (page->timezone.bytes) {
             writer.literal("X-Discord-Timezone: ");
-            writer.raw(user->timezone.data, user->timezone.bytes);
+            writer.raw(page->timezone.data, page->timezone.bytes);
             writer.literal("\r\n");
         }
     }
@@ -741,8 +745,10 @@ void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept 
         writer.literal("\r\n");
     }
     writer.bytes(request.extra_headers);
-    if (empty_length)
-        writer.literal("Content-Length: 0\r\n");
+    const u32 extra_headers_end = static_cast<u32>(writer.at);
+    writer.literal("User-Agent: ");
+    writer.literal(kClientUserAgent);
+    writer.literal("\r\n");
     if (request.json_body) {
         if (request.multipart_boundary.count) {
             writer.literal("Content-Type: multipart/form-data; boundary=");
@@ -751,14 +757,45 @@ void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept 
         } else {
             writer.literal("Content-Type: application/json\r\n");
         }
-        writer.literal("Content-Length: ");
-        writer.number(request.content_length);
+    }
+    // XMLHttpRequest's default; Discord's HTTP wrapper sets no Accept.
+    writer.literal("Accept: */*\r\n");
+    if (page) {
+        // Chromium sends the page origin on same-origin requests other than
+        // GET and HEAD. The page sets no referrer policy, so the default
+        // strict-origin-when-cross-origin sends its whole URL.
+        if (request.method != RestMethod::get && request.method != RestMethod::head)
+            writer.literal("Origin: https://discord.com\r\n");
+        writer.literal("Sec-Fetch-Site: same-origin\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Dest: empty\r\n");
+        if (request.authorization == RestAuthorization::normal_user)
+            writer.literal("Referer: https://discord.com/channels/@me\r\n");
+        else
+            writer.literal("Referer: https://discord.com/login\r\n");
+    }
+    if (request.accept_gzip)
+        writer.literal("Accept-Encoding: gzip\r\n");
+    if (page && page->accept_language.bytes) {
+        writer.literal("Accept-Language: ");
+        writer.raw(page->accept_language.data, page->accept_language.bytes);
         writer.literal("\r\n");
     }
-    if (request.close_connection)
-        writer.literal("Connection: close\r\n\r\n");
-    else
-        writer.literal("Connection: keep-alive\r\n\r\n");
+    if (request.cookie.count) {
+        writer.literal("Cookie: ");
+        writer.bytes(request.cookie);
+        writer.literal("\r\n");
+    }
+    writer.literal("\r\n");
+    return extra_headers_end;
+}
+
+// A Cookie value: no control characters other than tab.
+bool valid_cookie_header(ConstSlice<u8> cookie) noexcept {
+    if ((!cookie.data && cookie.count) || cookie.count > kCookieHeaderMaximumBytes)
+        return false;
+    for (u32 i = 0; i < cookie.count; ++i)
+        if ((cookie[i] < 0x20 && cookie[i] != '\t') || cookie[i] == 0x7F)
+            return false;
+    return true;
 }
 } // namespace
 
@@ -781,7 +818,8 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         (!request.json_body && request.content_length != 0) ||
         !rest_audit_reason_valid(request.audit_reason) ||
         (request.send_empty_audit_reason && request.method == RestMethod::get) ||
-        !rest_extra_headers_valid(request.extra_headers)) {
+        !rest_extra_headers_valid(request.extra_headers) ||
+        (request.cookie.count && !request.user_headers) || !valid_cookie_header(request.cookie)) {
         return RestRequestWriteResult{0, RestRequestError::invalid_input};
     }
     if (!valid_target(request.target)) {
@@ -799,8 +837,8 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
     }
     const u32 required = static_cast<u32>(writer.at);
     writer = Writer{output.data, 0};
-    emit_request_head(writer, request);
-    return RestRequestWriteResult{required, RestRequestError::none};
+    const u32 extra_headers_end = emit_request_head(writer, request);
+    return RestRequestWriteResult{required, RestRequestError::none, extra_headers_end};
 }
 
 RestHeadResult parse_rest_response_head(ConstSlice<u8> input, u32 maximum_header_bytes,

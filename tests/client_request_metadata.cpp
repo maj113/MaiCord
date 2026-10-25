@@ -277,9 +277,9 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
     auto view = Utf8View{reinterpret_cast<const char*>(output), written.bytes};
     check(
         written.ok() &&
-            contains(view, utf8_literal("X-Super-Properties: e30=\r\nAccept-Language: de,en-US;q=0.9"
-                                        "\r\nX-Discord-Locale: de\r\nX-Discord-Timezone: "
-                                        "Europe/Berlin\r\n")),
+            contains(view, utf8_literal("X-Super-Properties: e30=\r\nX-Discord-Locale: de\r\n"
+                                        "X-Discord-Timezone: Europe/Berlin\r\n")) &&
+            contains(view, utf8_literal("\r\nAccept-Language: de,en-US;q=0.9\r\n")),
         "authenticated request carries the languages, interface locale and IANA timezone in client order");
     const auto exact = write_rest_request_head(request, {output, written.bytes});
     for (auto& byte : output)
