@@ -1465,6 +1465,11 @@ maicord_test(MaiCordZstdStreamTests ENTRY maicord_zstd_stream_entry
     LIBS maicord_core maicord_compression kernel32
     BUNDLE MaiCordCoreUnitTests
     TEST maicord_zstd_stream)
+maicord_test(MaiCordEtfTranscodeTests ENTRY maicord_etf_transcode_entry
+    SOURCES tests/etf_transcode.cpp src/protocol/etf.cpp
+    LIBS maicord_core kernel32
+    BUNDLE MaiCordCoreUnitTests
+    TEST maicord_etf_transcode)
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry
     SOURCES tests/byte_order_test.cpp
     LIBS maicord_core kernel32

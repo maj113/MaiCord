@@ -185,6 +185,7 @@ maicord_library(maicord_protocol
     src/protocol/twitch_playback.cpp
     src/protocol/cookie_jar.cpp
     src/protocol/gateway_qos_token.cpp
+    src/protocol/etf.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)
