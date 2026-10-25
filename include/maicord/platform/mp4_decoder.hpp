@@ -8,7 +8,8 @@ struct ID3D11Device;
 
 namespace maicord {
 
-inline constexpr u32 kMp4DecodeMaximumDimension = 2'048;
+// Attachments decode up to the live-stream limit (gpu_video_frame_visible_valid).
+inline constexpr u32 kMp4DecodeMaximumDimension = 4'096;
 enum class Mp4FrameVisibility : u8 { invalid, before, visible, after };
 struct Mp4FrameInterval { Mp4FrameVisibility visibility;u64 visible_duration_us; };
 // Pure checked classification shared by mp4_frame_interval and the test fixtures. Keep

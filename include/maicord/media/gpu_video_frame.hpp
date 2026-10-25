@@ -41,6 +41,12 @@ inline constexpr u64 kGpuVideoCodedPixels = u64{4096} * 2368;
 constexpr bool gpu_video_frame_visible_valid(u32 width, u32 height) noexcept {
     return width && height && width <= 4096 && height <= 4096 && u64{width} * height <= kGpuVideoVisiblePixels;
 }
+// VUI matrix_coefficients: BT.709 (1) and BT.601 (5, 6) as signalled; an
+// unspecified, reserved or unsupported matrix is guessed from the height the
+// way browsers do (HD sources BT.709, SD BT.601).
+constexpr bool video_matrix_bt709(u8 matrix, u32 height) noexcept {
+    return matrix == 1 || (matrix != 5 && matrix != 6 && height >= 720);
+}
 // Decoder slices a live stream keeps beyond its DPB: the newest presented
 // picture and one held by a reader (zero-copy presentation).
 inline constexpr u8 kVideoStreamPresentationSurfaces = 2;

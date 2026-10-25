@@ -354,9 +354,8 @@ HRESULT gpu_stream_submit_slices(GpuStream* stream, u8 surface, ConstSlice<u8> p
 
 void gpu_stream_set_format(GpuStream* stream, u32 crop_x, u32 crop_y, u32 width, u32 height, u8 matrix,
                            bool full_range, u32 sar_width, u32 sar_height) noexcept {
-    // Unspecified matrix: HD camera/screen encoders use BT.709, SD BT.601.
-    const bool bt709 = matrix == 1 || (matrix == 2 && height >= 720);
-    stream->frame = {stream->surfaces.texture, 0, crop_x, crop_y, width, height, bt709, full_range, 0, {}};
+    stream->frame = {stream->surfaces.texture, 0, crop_x, crop_y, width, height,
+                     video_matrix_bt709(matrix, height), full_range, 0, {}};
     const auto extent = video_display_extent(width, height, sar_width, sar_height);
     stream->display_width = extent.width;
     stream->display_height = extent.height;

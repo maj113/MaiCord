@@ -53,5 +53,11 @@ void test_video_frame_bounds(void (*check)(bool, const char*) noexcept) noexcept
                   gpu_video_frame_geometry_valid(frame, 1920, 1088),
               "video_frame_rotated_output_extent");
     }
+    // A reserved matrix (255, written by some screen recorders) plays like an
+    // unspecified one instead of failing the video.
+    check(video_matrix_bt709(1, 480) && !video_matrix_bt709(5, 1080) && !video_matrix_bt709(6, 1080) &&
+              video_matrix_bt709(2, 720) && !video_matrix_bt709(2, 719) && video_matrix_bt709(255, 1380) &&
+              !video_matrix_bt709(255, 480) && video_matrix_bt709(9, 2160),
+          "video_frame_matrix_signalled_or_guessed_from_height");
 }
 } // namespace maicord

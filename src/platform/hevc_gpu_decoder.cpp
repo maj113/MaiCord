@@ -398,8 +398,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         (a.profile != 1 || !surface_extent.width || !a.max_buffering || a.max_buffering > 15 ||
          a.max_reorder > 15 || a.log2_min_cb_minus3 > 3 || !a.width || !a.height ||
          a.crop_x > a.coded_width || a.width > a.coded_width - a.crop_x || a.crop_y > a.coded_height ||
-         a.height > a.coded_height - a.crop_y ||
-         (a.matrix != 1 && a.matrix != 2 && a.matrix != 5 && a.matrix != 6))) {
+         a.height > a.coded_height - a.crop_y)) {
         handle->parse_error = H264Error::unsupported;
         result = E_INVALIDARG;
     }
@@ -461,8 +460,8 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         handle->demux_error = demux;
         return false;
     }
-    s->frame = {s->surfaces.texture, 0, a.crop_x, a.crop_y, a.width, a.height, a.matrix == 1, a.full_range,
-                s->demux.rotation, {}};
+    s->frame = {s->surfaces.texture, 0, a.crop_x, a.crop_y, a.width, a.height,
+                video_matrix_bt709(a.matrix, a.height), a.full_range, s->demux.rotation, {}};
     return true;
 }
 

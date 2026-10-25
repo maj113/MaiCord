@@ -31,10 +31,9 @@ bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 req
         return false;
     }
     decoder->hevc = hevc_container_present(encoded);
-    const u32 maximum_dimension = decoder->hevc ? 4096u : kMp4DecodeMaximumDimension;
     if (!video_device || !encoded.data || !encoded.count ||
-        ((requested_width == 0) != (requested_height == 0)) || requested_width > maximum_dimension ||
-        requested_height > maximum_dimension)
+        ((requested_width == 0) != (requested_height == 0)) || requested_width > kMp4DecodeMaximumDimension ||
+        requested_height > kMp4DecodeMaximumDimension)
         return false;
     ID3D11DeviceContext* context = nullptr;
     video_device->GetImmediateContext(&context);

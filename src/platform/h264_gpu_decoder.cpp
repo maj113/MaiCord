@@ -254,13 +254,10 @@ static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID
         if (!s->display.width) probe->parse_error = H264Error::unsupported;
     }
     if (probe->parse_error == H264Error::none &&
-        (s->picture.sps.width > kMp4DecodeMaximumDimension ||
-         s->picture.sps.height > kMp4DecodeMaximumDimension ||
+        (!gpu_video_frame_visible_valid(s->picture.sps.width, s->picture.sps.height) ||
          s->picture.sps.coded_width > kMp4DecodeMaximumDimension + 32u ||
          s->picture.sps.coded_height > kMp4DecodeMaximumDimension + 32u ||
-         s->picture.sps.transform_bypass ||
-         (s->picture.sps.matrix != 1 && s->picture.sps.matrix != 2 &&
-          s->picture.sps.matrix != 5 && s->picture.sps.matrix != 6)))
+         s->picture.sps.transform_bypass))
         probe->parse_error = H264Error::unsupported;
     HRESULT status = probe->parse_error == H264Error::none ? S_OK : E_INVALIDARG;
     if (SUCCEEDED(status)) status = device->QueryInterface(__uuidof(ID3D11VideoDevice), reinterpret_cast<void**>(&s->device));
@@ -312,7 +309,7 @@ static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID
         return false;
     }
     s->frame = {s->surfaces.texture, 0, a.crop_x, a.crop_y, a.width, a.height,
-        a.matrix == 1, a.full_range, s->demux.rotation, {}};
+        video_matrix_bt709(a.matrix, a.height), a.full_range, s->demux.rotation, {}};
     return true;
 }
 bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
