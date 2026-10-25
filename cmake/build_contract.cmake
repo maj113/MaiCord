@@ -106,6 +106,17 @@ target_compile_options(maicord_compile_contract INTERFACE
     "$<$<COMPILE_LANGUAGE:CXX>:/O2;/Ob$<IF:$<BOOL:$<TARGET_PROPERTY:MAICORD_INLINE_ANY>>,2,1>>"
     $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:/GL>)
 
+
+# tools/build.ps1 -AnalysisLog: MSVC code analysis reports C6xxx warnings (not
+# errors) and writes one SARIF log per source into the directory.
+set(MAICORD_ANALYSIS_LOG "" CACHE PATH "MSVC code analysis SARIF directory (empty: off)")
+if(MAICORD_ANALYSIS_LOG)
+    file(TO_NATIVE_PATH "${MAICORD_ANALYSIS_LOG}/" maicord_analysis_log)
+    file(MAKE_DIRECTORY "${MAICORD_ANALYSIS_LOG}")
+    target_compile_options(maicord_compile_contract INTERFACE
+        "$<$<COMPILE_LANGUAGE:CXX>:/analyze;/analyze:WX-;/analyze:quiet;/analyze:log:format:sarif;/analyze:log;${maicord_analysis_log}>")
+endif()
+
 add_library(maicord_runtime OBJECT
     src/core/runtime_x64.asm)
 target_link_libraries(maicord_runtime PRIVATE maicord_compile_contract)

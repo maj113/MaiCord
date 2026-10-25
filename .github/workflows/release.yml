@@ -2,10 +2,12 @@ name: Release
 
 # Push a vMAJOR.MINOR.PATCH tag to publish a stable release; it advances the
 # stable and preview channels. Preview builds come from master (ci.yml).
-# Releases are immutable once published, so every asset goes onto a draft that
-# is then published. The channel manifests and changelogs clients poll live
-# outside releases, on GitHub Pages (https://<owner>.github.io/<repo>/updates/),
-# deployed from the update-channels branch. See tools/release/README.md.
+# Releases are immutable once published, so every asset goes onto a draft.
+# Static analysis (analysis.yml) runs beside the build; the draft is published
+# only if it passes and is deleted (the tag stays) if it fails. The channel
+# manifests and changelogs clients poll live outside releases, on GitHub Pages
+# (https://<owner>.github.io/<repo>/updates/), deployed from the
+# update-channels branch. See tools/release/README.md.
 on:
   push:
     tags: ["v*.*.*"]
@@ -20,16 +22,16 @@ concurrency:
 
 jobs:
   release:
-    name: Build, sign and publish
+    name: Build, sign and draft
     runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
     timeout-minutes: 120
     environment: release
     permissions:
-      contents: write     # draft, assets and publish; the update-channels branch
+      contents: write     # draft and assets
       id-token: write     # Sigstore identity for build provenance
       attestations: write
     outputs:
-      deploy: ${{ steps.channels.outputs.deploy }}
+      published: ${{ steps.existing.outputs.published }}
     env:
       TAG: ${{ github.ref_name }}
       GH_REPO: ${{ github.repository }}
@@ -122,8 +124,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # A published release cannot change. A rerun after publishing skips
-      # straight to the channels, which take their manifests from the release.
+      # A published release cannot change. A rerun after publishing skips the
+      # draft; publish still updates the channels from the published release.
       - name: Check for an existing release
         id: existing
         shell: powershell
@@ -143,7 +145,7 @@ jobs:
         with:
           subject-checksums: ${{ env.DIST }}/SHA256SUMS.txt
 
-      - name: Publish GitHub Release
+      - name: Draft GitHub Release
         if: steps.existing.outputs.published != 'true'
         shell: powershell
         env:
@@ -160,8 +162,52 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           gh release upload $env:TAG @assets
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Private repository notice
+        if: env.PUBLIC_REPOSITORY != 'true'
+        shell: powershell
+        run: |
+          Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
+
+  analysis:
+    name: Static analysis
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/analysis.yml
+
+  publish:
+    name: Publish
+    needs: [release, analysis]
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write     # publish; the update-channels branch
+    outputs:
+      deploy: ${{ steps.channels.outputs.deploy }}
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Publish GitHub Release
+        if: needs.release.outputs.published != 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           gh release edit $env:TAG --draft=false --latest
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          exit $LASTEXITCODE
 
       # The channels advance only to manifests attached to the published
       # release, so they always name a package that is downloadable. The
@@ -186,16 +232,33 @@ jobs:
           ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish $published `
             -Message "Publish $env:TAG to the update channels" -AlwaysDeploy
 
-      - name: Private repository notice
-        if: env.PUBLIC_REPOSITORY != 'true'
-        shell: powershell
+  # Failed analysis: the draft is deleted so nothing half-checked ships; the tag
+  # stays for a rerun once the findings are fixed or accepted into a baseline.
+  discard:
+    name: Discard the draft
+    needs: [release, analysis]
+    if: always() && needs.release.result == 'success' && needs.release.outputs.published != 'true' && needs.analysis.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Delete the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
-          Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release delete "$TAG" --yes
+          fi
+          echo "::error::Static analysis failed; the $TAG draft was discarded."
+          exit 1
 
   pages:
     name: Pages
-    needs: release
-    if: needs.release.outputs.deploy == 'true'
+    needs: publish
+    if: needs.publish.outputs.deploy == 'true'
     permissions:
       contents: read
       pages: write

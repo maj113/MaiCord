@@ -35,6 +35,8 @@ param(
     [switch]$StartupProbe,
     # Print shipping PE sections and linker-map code extents before cleanup.
     [switch]$SizeReport,
+    # Compile with MSVC code analysis; one SARIF log per source goes to this directory.
+    [string]$AnalysisLog = '',
     [hashtable]$PerfArguments = @{}
 )
 
@@ -120,7 +122,7 @@ try {
     }
     $on = { param($value) if ($value) { 'ON' } else { 'OFF' } }
     Invoke-Configure @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
-        "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)",
+        "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)", "-DMAICORD_ANALYSIS_LOG=$AnalysisLog",
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",
         "-DMAICORD_TEST_PREBUILT_CLIENT=$(& $on $SkipClient)", "-DMAICORD_TEST_TIMEOUT_SCALE=$TestTimeoutScale",
         "-DMAICORD_TEST_PROFILE_DIRECTORY=$(if ($Test) { $testProfile })", "-DMAICORD_TEST_PROFILE_NAMES=$($TestNames -join ';')")

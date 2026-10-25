@@ -1,0 +1,94 @@
+name: Static analysis
+
+# CodeQL and MSVC code analysis of the shipping client. Findings go to code
+# scanning; a job fails only on gated findings that its baseline in
+# tools/analysis does not list, which holds back a release (release.yml).
+# Record accepted findings with: python tools/analysis/sarif_gate.py check
+# ... --write-baseline (see the gate steps below for the arguments).
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions: {}
+
+jobs:
+  msvc:
+    name: MSVC code analysis
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      # C6011/C28182 (possible null pointer) cannot follow the arena and slice
+      # invariants; C28251/C6553 compare the SDK-free headers' missing SAL.
+      IGNORED: C6011 C28182 C28251 C6553
+      GATED: C6001 C6101 C6200 C6201 C6282 C6297 C6385 C6386
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+      - name: Build with code analysis
+        shell: powershell
+        run: ./tools/build.ps1 -AnalysisLog "$env:RUNNER_TEMP\msvc-analysis"
+      - name: Merge the logs
+        shell: powershell
+        run: |
+          python -B tools/analysis/sarif_gate.py merge --input "$env:RUNNER_TEMP\msvc-analysis" `
+            --ignore $env:IGNORED.Split(' ') --output "$env:RUNNER_TEMP\msvc.sarif"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: ${{ runner.temp }}/msvc.sarif
+          category: msvc-analysis
+      - name: Gate on new findings
+        shell: powershell
+        run: |
+          python -B tools/analysis/sarif_gate.py check --input "$env:RUNNER_TEMP\msvc-analysis" `
+            --ignore $env:IGNORED.Split(' ') --rules $env:GATED.Split(' ') --baseline tools/analysis/msvc-baseline.json
+          exit $LASTEXITCODE
+
+  codeql:
+    name: CodeQL
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: c-cpp
+          build-mode: manual
+          queries: security-extended
+      - name: Build
+        shell: powershell
+        run: ./tools/build.ps1
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: codeql
+          output: ${{ runner.temp }}/codeql
+      # High and critical security severity (7.0 and up) holds back a release.
+      - name: Gate on new findings
+        shell: powershell
+        run: |
+          python -B tools/analysis/sarif_gate.py check --input "$env:RUNNER_TEMP\codeql" `
+            --min-severity 7.0 --baseline tools/analysis/codeql-baseline.json
+          exit $LASTEXITCODE
