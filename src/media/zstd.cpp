@@ -1,6 +1,7 @@
 #include "maicord/media/zstd.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {
@@ -502,14 +503,24 @@ bool sequence_table(u32 mode, const u8* source, u32 size, u32* consumed, const Z
     return true;
 }
 
+__forceinline void copy16(u8* output, const u8* from) noexcept {
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(output), _mm_loadu_si128(reinterpret_cast<const __m128i*>(from)));
+}
+// Writes may run up to 16 bytes past the match: the block's output has the
+// literal guard behind it. A chunk never reads bytes it has not written yet
+// once the offset is at least its width.
 __forceinline void copy_match(u8* output, u32 offset, u32 length) noexcept {
     const u8* from = output - offset;
-    if (offset >= length) {
-        copy_bytes(output, from, length);
-        return;
+    if (offset >= 16) {
+        for (u32 i = 0; i < length; i += 16)
+            copy16(output + i, from + i);
+    } else if (offset >= 8) {
+        for (u32 i = 0; i < length; i += 8)
+            *reinterpret_cast<u64 __unaligned*>(output + i) = *reinterpret_cast<const u64 __unaligned*>(from + i);
+    } else {
+        for (u32 i = 0; i < length; ++i)
+            output[i] = from[i];
     }
-    for (u32 i = 0; i < length; ++i)
-        output[i] = from[i];
 }
 
 // RFC 8878 3.1.1.3.2 and 3.1.1.4, decoding and executing each sequence in turn.
@@ -604,7 +615,11 @@ bool decode_sequences(ZstdStreamDecoder* d, const u8* source, u32 size, Literals
             }
             if (literal_length > static_cast<u32>(lit_end - lit) || literal_length > static_cast<u32>(end - op))
                 return false;
-            copy_bytes(op, lit, literal_length);
+            // Short runs copy 16 bytes when that many literals remain.
+            if (literal_length <= 16 && lit_end - lit >= 16)
+                copy16(op, lit);
+            else
+                copy_bytes(op, lit, literal_length);
             op += literal_length;
             lit += literal_length;
             if (match_length > static_cast<u32>(end - op) || !offset || offset > d->window_bytes ||
