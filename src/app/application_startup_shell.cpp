@@ -236,9 +236,9 @@ void application_startup_shell_ready() noexcept {
     // A selection READY moved has already reset the timeline. A shown channel
     // READY no longer lets this account read loses its page at once.
     const u64 channel = ui.active_channel_id;
+    MessageHistoryCatchup& catchup = g_app.message_catchup;
     if (!channel || channel != g_owner->shown_channel_id)
         return;
-    MessageHistoryCatchup& catchup = g_app.message_catchup;
     if (!application_channel_readable(g_app, channel)) {
         reset_value(&catchup);
         reset_value(&g_app.message_older);
@@ -247,20 +247,19 @@ void application_startup_shell_ready() noexcept {
             log_write(LogLevel::error, "shell", "startup_page_clear_failed");
         return;
     }
-    // READY asks for a full resync of retained history. The page shown before
-    // READY came from this session's handshake, as a held startup page would:
-    // when the restoration kept its channel, fetch only what is newer. A full
-    // page leaves its catch-up waiting for the next one.
-    const bool page_settled = catchup.state == MessageHistoryCatchupState::complete ||
-                              catchup.state == MessageHistoryCatchupState::request_required ||
-                              catchup.state == MessageHistoryCatchupState::paused ||
-                              catchup.state == MessageHistoryCatchupState::waiting_retry;
+    // READY asks for a full resync of retained history and drops the old
+    // catch-up. The page shown before READY came from this session's
+    // handshake, as a held startup page would: when the restoration kept its
+    // channel, fetch only what is newer.
     if (channel == state.selected_channel_id && !state.restore_channel_id &&
         ui.observed_selection_revision == state.selection_revision && g_app.message_view.store.count &&
-        catchup.channel_id == channel && page_settled) {
+        catchup.state == MessageHistoryCatchupState::idle) {
         g_app.message_pump.catchup_required = true;
         if (!message_history_catchup_begin(&catchup, &g_app.message_pump, channel, kMessageHistoryRequestLimit))
             log_write(LogLevel::info, "shell", "startup_page_resynced");
+        TraceRecord kept("startup_page_kept");
+        kept.field("newer_only", catchup.cursor_after ? u64{1} : u64{0});
+        kept.write("load_trace");
     }
 }
 

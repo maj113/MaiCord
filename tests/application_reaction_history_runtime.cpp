@@ -684,6 +684,8 @@ void startup_shell_page(AccountUiRuntime& ui) noexcept {
           "startup shell page: Enter before READY sends nothing");
 
     g_app.account.status.running = true;
+    // READY drops the old catch-up and asks for a resync.
+    reset_value(&g_app.message_catchup);
     g_app.message_pump.resync_required = true;
     application_startup_shell_ready();
     check(!g_app.startup_shell_provisional && message_store_find(view.store, 1002).ok() &&
@@ -705,9 +707,11 @@ void startup_shell_page(AccountUiRuntime& ui) noexcept {
     receipt(1, 200, kStartupPage);
     check(pump_message_history() && message_store_find(view.store, 1002).ok(),
           "startup shell page: page applied before READY");
-    // A full page leaves its catch-up waiting for the next one.
+    // A full page leaves its catch-up waiting for the next one; READY then
+    // drops the catch-up and asks for a resync.
     g_app.message_catchup.state = MessageHistoryCatchupState::request_required;
     g_app.account.status.running = true;
+    reset_value(&g_app.message_catchup);
     g_app.message_pump.resync_required = true;
     application_startup_shell_ready();
     admissions = history_admissions;
