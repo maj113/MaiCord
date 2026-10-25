@@ -14,6 +14,9 @@ namespace {
 bool folded(Utf8View value, const char* literal) noexcept {
     return http_ascii_equal_case_insensitive({reinterpret_cast<const u8*>(value.data), value.bytes}, literal);
 }
+static_assert(static_cast<u8>(CaptchaBridgeProtocolError::capacity) == static_cast<u8>(HttpRequestError::capacity) &&
+              static_cast<u8>(CaptchaBridgeProtocolError::http) == static_cast<u8>(HttpRequestError::http) &&
+              static_cast<u8>(CaptchaBridgeProtocolError::framing) == static_cast<u8>(HttpRequestError::framing));
 bool port_valid(u16 port) noexcept { return port >= 1024; }
 
 // Appends when room remains and always counts, so one routine both measures
@@ -241,68 +244,28 @@ CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 
         return reject(CaptchaBridgeProtocolError::invalid_input);
     if (input.count > kCaptchaBridgeMaximumHeaderBytes + kCaptchaBridgeMaximumBodyBytes)
         return reject(CaptchaBridgeProtocolError::capacity);
-    u32 head_bytes = 0;
-    for (u32 i = 0; i < input.count; ++i) {
-        if (input[i] == '\n' && (!i || input[i - 1] != '\r')) return reject(CaptchaBridgeProtocolError::http);
-        if (i + 3 < input.count && input[i] == '\r' && input[i + 1] == '\n' && input[i + 2] == '\r' && input[i + 3] == '\n') {
-            head_bytes = i + 4; break;
-        }
-    }
-    if (!head_bytes)
-        return input.count >= kCaptchaBridgeMaximumHeaderBytes ? reject(CaptchaBridgeProtocolError::capacity) : CaptchaBridgeParseResult{};
-    if (head_bytes > kCaptchaBridgeMaximumHeaderBytes) return reject(CaptchaBridgeProtocolError::capacity);
-    const char* text = reinterpret_cast<const char*>(input.data);
-    u32 line_end = 0;
-    while (line_end + 1 < head_bytes && !(text[line_end] == '\r' && text[line_end + 1] == '\n')) ++line_end;
-    u32 method_end = 0; while (method_end < line_end && text[method_end] != ' ') ++method_end;
-    u32 target_end = method_end + 1; while (target_end < line_end && text[target_end] != ' ') ++target_end;
-    if (!method_end || method_end >= line_end || target_end <= method_end + 1 || target_end >= line_end ||
-        !utf8_equal({text + target_end + 1, line_end - target_end - 1}, utf8_literal("HTTP/1.1")))
-        return reject(CaptchaBridgeProtocolError::http);
-    const Utf8View method{text, method_end}, target{text + method_end + 1, target_end - method_end - 1};
+    HttpRequestHead head;
+    const HttpRequestError scanned = http_parse_request_line(input, kCaptchaBridgeMaximumHeaderBytes, &head);
+    if (scanned == HttpRequestError::need_input) return {};
+    if (scanned != HttpRequestError::none) return reject(static_cast<CaptchaBridgeProtocolError>(scanned));
+    const char* text = head.text;
+    const u32 head_bytes = head.head_bytes;
+    const Utf8View method = head.method, target = head.target;
     const bool get = utf8_equal(method, utf8_literal("GET")), post = utf8_equal(method, utf8_literal("POST"));
     if (!get && !post) return reject(CaptchaBridgeProtocolError::route);
     // Exact route shape; the secret comparison happens after header validation.
     if (target.bytes != 3 + kCaptchaBridgeStateBytes || target.data[0] != '/' || target.data[1] != (get ? 'c' : 's') ||
         target.data[2] != '/' || !captcha_bridge_hex_valid({target.data + 3, kCaptchaBridgeStateBytes}, kCaptchaBridgeStateBytes))
         return reject(CaptchaBridgeProtocolError::route);
-    Utf8View host{}, origin{}, content_type{}, fetch_site{}, fetch_dest{};
-    u32 length = 0, fields = 0, seen = 0;
-    u32 cursor = line_end + 2;
-    while (cursor < head_bytes - 2) {
-        const u32 begin = cursor;
-        while (cursor + 1 < head_bytes && !(text[cursor] == '\r' && text[cursor + 1] == '\n')) ++cursor;
-        const u32 end = cursor; cursor += 2;
-        if (++fields > 64 || begin == end || text[begin] == ' ' || text[begin] == '\t') return reject(CaptchaBridgeProtocolError::http);
-        u32 colon = begin; while (colon < end && text[colon] != ':') ++colon;
-        if (colon == begin || colon == end) return reject(CaptchaBridgeProtocolError::http);
-        for (u32 i = begin; i < colon; ++i)
-            if (!ascii_is_alnum(text[i]) && text[i] != '-') return reject(CaptchaBridgeProtocolError::http);
-        for (u32 i = colon + 1; i < end; ++i)
-            if ((static_cast<u8>(text[i]) < 0x20 && text[i] != '\t') || text[i] == 0x7f) return reject(CaptchaBridgeProtocolError::http);
-        const Utf8View name{text + begin, colon - begin}, value = http_trim_ows({text + colon + 1, end - colon - 1});
-        if (folded(name, "transfer-encoding") || folded(name, "expect") || folded(name, "cookie") ||
-            folded(name, "authorization") || folded(name, "access-control-request-method"))
-            return reject(CaptchaBridgeProtocolError::framing);
-        const u32 bit = folded(name, "host") ? 1u : folded(name, "origin") ? 2u : folded(name, "content-length") ? 4u :
-            folded(name, "content-type") ? 8u : folded(name, "sec-fetch-site") ? 16u : folded(name, "sec-fetch-dest") ? 32u : 0u;
-        if (bit & seen) return reject(CaptchaBridgeProtocolError::framing);
-        seen |= bit;
-        if (bit == 1) host = value;
-        else if (bit == 2) origin = value;
-        else if (bit == 8) content_type = value;
-        else if (bit == 16) fetch_site = value;
-        else if (bit == 32) fetch_dest = value;
-        else if (bit == 4) {
-            if (!value.bytes) return reject(CaptchaBridgeProtocolError::framing);
-            for (u32 i = 0; i < value.bytes; ++i) {
-                const char c = value.data[i];
-                if (c < '0' || c > '9' || length > kCaptchaBridgeMaximumBodyBytes) return reject(CaptchaBridgeProtocolError::framing);
-                length = length * 10 + static_cast<u32>(c - '0');
-            }
-            if (length > kCaptchaBridgeMaximumBodyBytes) return reject(CaptchaBridgeProtocolError::capacity);
-        }
-    }
+    static constexpr char kFields[] = "host\0origin\0content-type\0sec-fetch-site\0sec-fetch-dest\0"
+        "transfer-encoding\0expect\0cookie\0authorization\0access-control-request-method\0";
+    HttpRequestFields fields{};
+    const HttpRequestError framed = http_parse_request_fields(head, kFields, 5, kCaptchaBridgeMaximumBodyBytes, &fields);
+    if (framed != HttpRequestError::none) return reject(static_cast<CaptchaBridgeProtocolError>(framed));
+    const Utf8View host = fields.values[0], origin = fields.values[1], content_type = fields.values[2],
+        fetch_site = fields.values[3], fetch_dest = fields.values[4];
+    const bool has_origin = (fields.seen & 2) != 0, has_site = (fields.seen & 8) != 0, has_dest = (fields.seen & 16) != 0;
+    const u32 length = fields.content_length;
     u8 expected[32]; u32 expected_bytes = 0;
     {
         Writer out{expected, sizeof(expected), 0, false};
@@ -314,16 +277,16 @@ CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 
     if (!utf8_equal(host, own_host)) return reject(CaptchaBridgeProtocolError::host);
     if (get) {
         // A top-level navigation from the shell; never a subresource or frame.
-        if ((seen & 2) && !utf8_equal(origin, own_origin)) return reject(CaptchaBridgeProtocolError::origin);
-        if ((seen & 16) && !utf8_equal(fetch_site, utf8_literal("none")) && !utf8_equal(fetch_site, utf8_literal("same-origin")))
+        if (has_origin && !utf8_equal(origin, own_origin)) return reject(CaptchaBridgeProtocolError::origin);
+        if (has_site && !utf8_equal(fetch_site, utf8_literal("none")) && !utf8_equal(fetch_site, utf8_literal("same-origin")))
             return reject(CaptchaBridgeProtocolError::fetch_metadata);
-        if ((seen & 32) && !utf8_equal(fetch_dest, utf8_literal("document"))) return reject(CaptchaBridgeProtocolError::fetch_metadata);
+        if (has_dest && !utf8_equal(fetch_dest, utf8_literal("document"))) return reject(CaptchaBridgeProtocolError::fetch_metadata);
         if (length) return reject(CaptchaBridgeProtocolError::framing);
     } else {
-        if (!(seen & 2) || !utf8_equal(origin, own_origin)) return reject(CaptchaBridgeProtocolError::origin);
-        if ((seen & 16) && !utf8_equal(fetch_site, utf8_literal("same-origin"))) return reject(CaptchaBridgeProtocolError::fetch_metadata);
-        if ((seen & 32) && !utf8_equal(fetch_dest, utf8_literal("empty"))) return reject(CaptchaBridgeProtocolError::fetch_metadata);
-        if (!(seen & 4) || !length ||
+        if (!has_origin || !utf8_equal(origin, own_origin)) return reject(CaptchaBridgeProtocolError::origin);
+        if (has_site && !utf8_equal(fetch_site, utf8_literal("same-origin"))) return reject(CaptchaBridgeProtocolError::fetch_metadata);
+        if (has_dest && !utf8_equal(fetch_dest, utf8_literal("empty"))) return reject(CaptchaBridgeProtocolError::fetch_metadata);
+        if (!fields.has_content_length || !length ||
             !(folded(content_type, "application/json") || folded(content_type, "application/json; charset=utf-8") ||
               folded(content_type, "application/json;charset=utf-8")))
             return reject(CaptchaBridgeProtocolError::framing);

@@ -102,18 +102,11 @@ bool valid_token(ConstSlice<u8> token) noexcept {
 }
 
 bool parse_u32(ConstSlice<u8> value, u32* output) noexcept {
-    if (!value.data || value.count == 0) {
+    u64 parsed = 0;
+    if (!value.data || !decimal_parse_padded(value, &parsed) || parsed > ~u32{0}) {
         return false;
     }
-    u32 result = 0;
-    for (u32 index = 0; index < value.count; ++index) {
-        const u8 digit = value[index];
-        if (digit < '0' || digit > '9' || result > (~0u - static_cast<u32>(digit - '0')) / 10u) {
-            return false;
-        }
-        result = result * 10u + static_cast<u32>(digit - '0');
-    }
-    *output = result;
+    *output = static_cast<u32>(parsed);
     return true;
 }
 
@@ -122,16 +115,11 @@ bool parse_decimal_milliseconds(ConstSlice<u8> value, u64* output) noexcept {
         return false;
     }
     u32 offset = 0;
-    u64 seconds = 0;
     while (offset < value.count && value[offset] >= '0' && value[offset] <= '9') {
-        const u64 digit = static_cast<u64>(value[offset] - '0');
-        if (seconds > (~0ull - digit) / 10ull) {
-            return false;
-        }
-        seconds = seconds * 10ull + digit;
         ++offset;
     }
-    if (offset == 0) {
+    u64 seconds = 0;
+    if (!decimal_parse_padded(ConstSlice<u8>{value.data, offset}, &seconds)) {
         return false;
     }
     u64 fractional_ms = 0;
@@ -788,16 +776,6 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     writer.literal("\r\n");
     return extra_headers_end;
 }
-
-// A Cookie value: no control characters other than tab.
-bool valid_cookie_header(ConstSlice<u8> cookie) noexcept {
-    if ((!cookie.data && cookie.count) || cookie.count > kCookieHeaderMaximumBytes)
-        return false;
-    for (u32 i = 0; i < cookie.count; ++i)
-        if ((cookie[i] < 0x20 && cookie[i] != '\t') || cookie[i] == 0x7F)
-            return false;
-    return true;
-}
 } // namespace
 
 RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
@@ -820,7 +798,8 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         !rest_audit_reason_valid(request.audit_reason) ||
         (request.send_empty_audit_reason && request.method == RestMethod::get) ||
         !rest_extra_headers_valid(request.extra_headers) ||
-        (request.cookie.count && !request.user_headers) || !valid_cookie_header(request.cookie)) {
+        (request.cookie.count && !request.user_headers) || request.cookie.count > kCookieHeaderMaximumBytes ||
+        !http_field_value_valid(request.cookie)) {
         return RestRequestWriteResult{0, RestRequestError::invalid_input};
     }
     if (!valid_target(request.target)) {

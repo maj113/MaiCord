@@ -15,7 +15,7 @@ maicord_test(MaiCordRemoteAuthCancellationTests ENTRY maicord_remote_auth_cancel
 maicord_test(MaiCordAccountLoginHandoffTests ENTRY maicord_account_login_handoff_entry
     SOURCES tests/account_login_handoff.cpp tests/account_login_remote_fixture.cpp
         src/app/account_profile_promotion.cpp src/app/remote_auth_ticket_exchange.cpp
-        src/app/captcha_challenge.cpp src/app/remote_auth_handshake.cpp src/app/captcha_bridge.cpp
+        src/app/captcha_challenge.cpp src/app/remote_auth_handshake.cpp src/app/captcha_bridge.cpp src/app/loopback_server.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 secur32 bcrypt crypt32
     INCLUDES src/app
     TIMEOUT 15

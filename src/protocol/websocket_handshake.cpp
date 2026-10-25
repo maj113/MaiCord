@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/client_user_agent.hpp"
+#include "maicord/protocol/http1.hpp"
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord {
@@ -210,19 +211,6 @@ WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key
     return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
 }
 
-namespace {
-// A header value: no control characters other than tab.
-bool valid_field_value(ConstSlice<u8> value) noexcept {
-    if (!value.data && value.count)
-        return false;
-    for (u32 index = 0; index < value.count; ++index)
-        if ((value[index] < 0x20 && value[index] != '\t') || value[index] == 0x7F)
-            return false;
-    return true;
-}
-
-} // namespace
-
 // Discord's clients open every WebSocket (Gateway, voice, remote auth) from
 // the https://discord.com page, so the request carries the headers and order
 // Chromium sends for it. Extensions are not offered.
@@ -240,7 +228,7 @@ WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> tar
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_host};
     }
     const WebSocketPageFields fields = page ? *page : WebSocketPageFields{};
-    if (!valid_field_value(fields.accept_language) || !valid_field_value(fields.cookie)) {
+    if (!http_field_value_valid(fields.accept_language) || !http_field_value_valid(fields.cookie)) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
     }
     static constexpr char middle[] = "\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\n"

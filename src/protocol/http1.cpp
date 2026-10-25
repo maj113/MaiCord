@@ -1,6 +1,7 @@
 #include "maicord/protocol/http1.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
@@ -61,17 +62,6 @@ bool token_character(u8 value) noexcept {
     }
 }
 
-bool field_value_valid(ConstSlice<u8> value) noexcept {
-    for (u32 index = 0; index < value.count; ++index) {
-        const u8 current = value[index];
-        if (current == '\t' || (current >= 0x20 && current != 0x7F)) {
-            continue;
-        }
-        return false;
-    }
-    return true;
-}
-
 HttpError validate_field_line(ConstSlice<u8> line, u32* colon_offset) noexcept {
     if (line.count == 0 || line[0] == ' ' || line[0] == '\t') {
         return HttpError::invalid_field_name;
@@ -86,7 +76,7 @@ HttpError validate_field_line(ConstSlice<u8> line, u32* colon_offset) noexcept {
     if (colon == 0 || colon == line.count) {
         return HttpError::invalid_field_name;
     }
-    if (!field_value_valid(ConstSlice<u8>{line.data + colon + 1, line.count - colon - 1})) {
+    if (!http_field_value_valid(ConstSlice<u8>{line.data + colon + 1, line.count - colon - 1})) {
         return HttpError::invalid_field_value;
     }
     *colon_offset = colon;
@@ -159,7 +149,7 @@ bool parse_status_line(ConstSlice<u8> line, HttpResponseHead* head, HttpError* e
         *error = HttpError::unsupported_version;
         return false;
     }
-    if (line.count > 13 && !field_value_valid(ConstSlice<u8>{line.data + 13, line.count - 13})) {
+    if (line.count > 13 && !http_field_value_valid(ConstSlice<u8>{line.data + 13, line.count - 13})) {
         *error = HttpError::invalid_status_line;
         return false;
     }
@@ -370,6 +360,128 @@ Utf8View http_trim_ows(Utf8View value) noexcept {
     const ConstSlice<u8> trimmed =
         http_trim_ows(ConstSlice<u8>{reinterpret_cast<const u8*>(value.data), value.bytes});
     return {reinterpret_cast<const char*>(trimmed.data), trimmed.count};
+}
+
+bool http_field_value_valid(ConstSlice<u8> value) noexcept {
+    if (!value.data && value.count != 0) {
+        return false;
+    }
+    for (u32 index = 0; index < value.count; ++index) {
+        const u8 current = value[index];
+        if (current != '\t' && (current < 0x20 || current == 0x7F)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+HttpRequestError http_parse_request_line(ConstSlice<u8> input, u32 maximum_head_bytes,
+                                         HttpRequestHead* head) noexcept {
+    u32 head_bytes = 0;
+    for (u32 i = 0; i < input.count; ++i) {
+        if (input[i] == '\n' && (!i || input[i - 1] != '\r')) {
+            return HttpRequestError::http;
+        }
+        if (i + 3 < input.count && input[i] == '\r' && input[i + 1] == '\n' && input[i + 2] == '\r' &&
+            input[i + 3] == '\n') {
+            head_bytes = i + 4;
+            break;
+        }
+    }
+    if (!head_bytes) {
+        return input.count >= maximum_head_bytes ? HttpRequestError::capacity : HttpRequestError::need_input;
+    }
+    if (head_bytes > maximum_head_bytes) {
+        return HttpRequestError::capacity;
+    }
+    const char* text = reinterpret_cast<const char*>(input.data);
+    u32 line_end = 0;
+    while (line_end + 1 < head_bytes && !(text[line_end] == '\r' && text[line_end + 1] == '\n')) {
+        ++line_end;
+    }
+    u32 method_end = 0;
+    while (method_end < line_end && text[method_end] != ' ') {
+        ++method_end;
+    }
+    u32 target_end = method_end + 1;
+    while (target_end < line_end && text[target_end] != ' ') {
+        ++target_end;
+    }
+    if (!method_end || method_end >= line_end || target_end <= method_end + 1 || target_end >= line_end ||
+        !utf8_equal({text + target_end + 1, line_end - target_end - 1}, utf8_literal("HTTP/1.1"))) {
+        return HttpRequestError::http;
+    }
+    *head = {text, head_bytes, line_end + 2, {text, method_end}, {text + method_end + 1, target_end - method_end - 1}};
+    return HttpRequestError::none;
+}
+
+HttpRequestError http_parse_request_fields(const HttpRequestHead& head, const char* names, u32 wanted,
+                                           u32 maximum_body_bytes, HttpRequestFields* fields) noexcept {
+    const char* text = head.text;
+    u32 cursor = head.fields_begin, count = 0;
+    while (cursor < head.head_bytes - 2) {
+        const u32 begin = cursor;
+        while (cursor + 1 < head.head_bytes && !(text[cursor] == '\r' && text[cursor + 1] == '\n')) {
+            ++cursor;
+        }
+        const u32 end = cursor;
+        cursor += 2;
+        if (++count > 64 || begin == end || text[begin] == ' ' || text[begin] == '\t') {
+            return HttpRequestError::http;
+        }
+        u32 colon = begin;
+        while (colon < end && text[colon] != ':') {
+            ++colon;
+        }
+        if (colon == begin || colon == end) {
+            return HttpRequestError::http;
+        }
+        for (u32 i = begin; i < colon; ++i) {
+            if (!ascii_is_alnum(text[i]) && text[i] != '-') {
+                return HttpRequestError::http;
+            }
+        }
+        const ConstSlice<u8> raw{reinterpret_cast<const u8*>(text + colon + 1), end - colon - 1};
+        if (!http_field_value_valid(raw)) {
+            return HttpRequestError::http;
+        }
+        const ConstSlice<u8> name{reinterpret_cast<const u8*>(text + begin), colon - begin};
+        const ConstSlice<u8> value = http_trim_ows(raw);
+        if (case_equal(name, "content-length", 14)) {
+            if (fields->has_content_length || !value.count) {
+                return HttpRequestError::framing;
+            }
+            fields->has_content_length = true;
+            for (u32 i = 0; i < value.count; ++i) {
+                if (value[i] < '0' || value[i] > '9') {
+                    return HttpRequestError::framing;
+                }
+                fields->content_length = fields->content_length * 10 + (value[i] - '0');
+                if (fields->content_length > maximum_body_bytes) {
+                    return HttpRequestError::capacity;
+                }
+            }
+            continue;
+        }
+        u32 index = 0;
+        const char* candidate = names;
+        for (; *candidate; ++index) {
+            const u32 bytes = c_string_length(candidate);
+            if (case_equal(name, candidate, bytes)) {
+                break;
+            }
+            candidate += bytes + 1;
+        }
+        if (!*candidate) {
+            continue;
+        }
+        if (index >= wanted || (fields->seen & (1u << index))) {
+            return HttpRequestError::framing;
+        }
+        fields->seen |= 1u << index;
+        fields->values[index] = {reinterpret_cast<const char*>(value.data), value.count};
+    }
+    return HttpRequestError::none;
 }
 
 HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header_bytes, u32 maximum_fields,

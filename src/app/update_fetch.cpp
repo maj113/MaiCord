@@ -2,6 +2,7 @@
 #include "maicord/app/update_log.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/protocol/http1.hpp"
 
 namespace maicord {
 namespace {
@@ -19,10 +20,8 @@ struct Writer {
 Utf8View as_text(ConstSlice<u8> bytes) noexcept { return {reinterpret_cast<const char*>(bytes.data), bytes.count}; }
 bool equal_case(ConstSlice<u8> a, Utf8View b) noexcept { return ascii_equal_ignore_case(as_text(a), b); }
 bool decimal(ConstSlice<u8> text, u64* value) noexcept {
-    u32 at = 0, end = text.count;
-    while (at < end && (text[at] == ' ' || text[at] == '\t')) ++at;
-    while (end > at && (text[end - 1] == ' ' || text[end - 1] == '\t')) --end;
-    return end - at <= 19 && decimal_parse({as_text(text).data + at, end - at}, value);
+    text = http_trim_ows(text);
+    return text.count <= 19 && decimal_parse(as_text(text), value);
 }
 bool target_byte(u8 c) noexcept {
     // RFC 3986 path/query characters; percent-encoding passes through as-is.

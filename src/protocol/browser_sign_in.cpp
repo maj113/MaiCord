@@ -15,6 +15,9 @@ constexpr Utf8View kCallback = utf8_literal("https://discord.com/handoff?done=tr
 bool folded(Utf8View value, const char* literal) noexcept {
     return http_ascii_equal_case_insensitive({reinterpret_cast<const u8*>(value.data), value.bytes}, literal);
 }
+static_assert(static_cast<u8>(BrowserSignInError::capacity) == static_cast<u8>(HttpRequestError::capacity) &&
+              static_cast<u8>(BrowserSignInError::http) == static_cast<u8>(HttpRequestError::http) &&
+              static_cast<u8>(BrowserSignInError::framing) == static_cast<u8>(HttpRequestError::framing));
 bool port_valid(u16 port) noexcept {
     return port >= kBrowserSignInFirstPort && port < kBrowserSignInFirstPort + kBrowserSignInPortCount;
 }
@@ -103,64 +106,29 @@ BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16
         byte_ranges_overlap(input, decoded) || byte_ranges_overlap(input, index) || byte_ranges_overlap(decoded, index))
         return reject(BrowserSignInError::invalid_input);
     if (input.count > kBrowserSignInMaximumHeaderBytes + kBrowserSignInMaximumBodyBytes) return reject(BrowserSignInError::capacity);
-    u32 head_bytes = 0;
-    for (u32 i = 0; i < input.count; ++i) {
-        if (input[i] == '\n' && (!i || input[i - 1] != '\r')) return reject(BrowserSignInError::http);
-        if (i + 3 < input.count && input[i] == '\r' && input[i + 1] == '\n' && input[i + 2] == '\r' && input[i + 3] == '\n') { head_bytes = i + 4; break; }
-    }
-    if (!head_bytes) return input.count >= kBrowserSignInMaximumHeaderBytes ? reject(BrowserSignInError::capacity) : BrowserSignInParseResult{};
-    if (head_bytes > kBrowserSignInMaximumHeaderBytes) return reject(BrowserSignInError::capacity);
-    const char* text = reinterpret_cast<const char*>(input.data);
-    u32 line_end = 0;
-    while (line_end + 1 < head_bytes && !(text[line_end] == '\r' && text[line_end + 1] == '\n')) ++line_end;
-    u32 method_end = 0; while (method_end < line_end && text[method_end] != ' ') ++method_end;
-    u32 target_end = method_end + 1; while (target_end < line_end && text[target_end] != ' ') ++target_end;
-    if (!method_end || method_end >= line_end || target_end <= method_end + 1 || target_end >= line_end ||
-        !utf8_equal({text + target_end + 1, line_end - target_end - 1}, utf8_literal("HTTP/1.1"))) return reject(BrowserSignInError::http);
-    const Utf8View method{text, method_end}, target{text + method_end + 1, target_end - method_end - 1};
+    HttpRequestHead head;
+    const HttpRequestError scanned = http_parse_request_line(input, kBrowserSignInMaximumHeaderBytes, &head);
+    if (scanned == HttpRequestError::need_input) return {};
+    if (scanned != HttpRequestError::none) return reject(static_cast<BrowserSignInError>(scanned));
+    const char* text = head.text;
+    const u32 head_bytes = head.head_bytes;
+    const Utf8View method = head.method, target = head.target;
     const bool post = utf8_equal(method, utf8_literal("POST")), options = utf8_equal(method, utf8_literal("OPTIONS")), get = utf8_equal(method, utf8_literal("GET"));
     if (!post && !options && !get) return reject(BrowserSignInError::route);
     for (u32 i = 0; i < target.bytes; ++i) if (static_cast<u8>(target.data[i]) <= 0x20 || static_cast<u8>(target.data[i]) >= 0x7f) return reject(BrowserSignInError::route);
-    Utf8View host{}, origin{}, content_type{}, request_method{}, request_headers{}, private_network{};
-    u32 length = 0, fields = 0, seen = 0;
-    u32 cursor = line_end + 2;
-    while (cursor < head_bytes - 2) {
-        const u32 begin = cursor; while (cursor + 1 < head_bytes && !(text[cursor] == '\r' && text[cursor + 1] == '\n')) ++cursor;
-        const u32 end = cursor; cursor += 2;
-        if (++fields > 64 || begin == end || text[begin] == ' ' || text[begin] == '\t') return reject(BrowserSignInError::http);
-        u32 colon = begin; while (colon < end && text[colon] != ':') ++colon;
-        if (colon == begin || colon == end) return reject(BrowserSignInError::http);
-        for (u32 i = begin; i < colon; ++i) {
-            const char c = text[i];
-            if (!(ascii_is_alnum(c) || c == '-')) return reject(BrowserSignInError::http);
-        }
-        for (u32 i = colon + 1; i < end; ++i) if ((static_cast<u8>(text[i]) < 0x20 && text[i] != '\t') || text[i] == 0x7f) return reject(BrowserSignInError::http);
-        const Utf8View name{text + begin, colon - begin}, value = http_trim_ows({text + colon + 1, end - colon - 1});
-        u32 bit = folded(name, "host") ? 1u : folded(name, "origin") ? 2u : folded(name, "content-length") ? 4u :
-            folded(name, "content-type") ? 8u : folded(name, "access-control-request-method") ? 16u :
-            folded(name, "access-control-request-headers") ? 32u : folded(name, "access-control-request-private-network") ? 64u : 0u;
-        if (folded(name, "transfer-encoding") || folded(name, "expect") || folded(name, "authorization") || folded(name, "cookie")) return reject(BrowserSignInError::framing);
-        if (bit && (seen & bit)) return reject(BrowserSignInError::framing);
-        seen |= bit;
-        if (bit == 1) host = value;
-        else if (bit == 2) origin = value;
-        else if (bit == 4) {
-            if (!value.bytes) return reject(BrowserSignInError::framing);
-            for (u32 i = 0; i < value.bytes; ++i) {
-                const char c = value.data[i]; if (c < '0' || c > '9' || length > kBrowserSignInMaximumBodyBytes / 10) return reject(BrowserSignInError::framing);
-                length = length * 10 + static_cast<u32>(c - '0');
-                if (length > kBrowserSignInMaximumBodyBytes) return reject(BrowserSignInError::capacity);
-            }
-        } else if (bit == 8) content_type = value;
-        else if (bit == 16) request_method = value;
-        else if (bit == 32) request_headers = value;
-        else if (bit == 64) private_network = value;
-    }
+    static constexpr char kFields[] = "host\0origin\0content-type\0access-control-request-method\0access-control-request-headers\0"
+        "access-control-request-private-network\0transfer-encoding\0expect\0authorization\0cookie\0";
+    HttpRequestFields fields{};
+    const HttpRequestError framed = http_parse_request_fields(head, kFields, 6, kBrowserSignInMaximumBodyBytes, &fields);
+    if (framed != HttpRequestError::none) return reject(static_cast<BrowserSignInError>(framed));
+    const Utf8View host = fields.values[0], origin = fields.values[1], content_type = fields.values[2],
+        request_method = fields.values[3], request_headers = fields.values[4], private_network = fields.values[5];
+    const u32 length = fields.content_length;
     u8 expected_host[32]; u32 host_bytes = 0;
     write_literal(expected_host, &host_bytes, "127.0.0.1:"); host_bytes += decimal_write(expected_host + host_bytes, port);
     if (!utf8_equal(host, {reinterpret_cast<const char*>(expected_host), host_bytes})) return reject(BrowserSignInError::host);
     if ((post || options || origin.bytes) && !utf8_equal(origin, kOrigin)) return reject(BrowserSignInError::origin);
-    if (post && (!(seen & 4) || !length ||
+    if (post && (!fields.has_content_length || !length ||
         !(folded(content_type, "application/json") || folded(content_type, "application/json; charset=utf-8")))) return reject(BrowserSignInError::framing);
     if (!post && length) return reject(BrowserSignInError::framing);
     const u32 total = head_bytes + length;

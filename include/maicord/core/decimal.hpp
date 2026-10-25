@@ -64,6 +64,17 @@ constexpr bool decimal_parse(Utf8View text, u64* value) noexcept {
     return true;
 }
 
+// As decimal_parse, with any number of leading zeros.
+__declspec(noinline) constexpr bool decimal_parse_padded(Utf8View text, u64* value) noexcept {
+    u32 zeros = 0;
+    while (zeros + 1 < text.bytes && text.data[zeros] == '0')
+        ++zeros;
+    return decimal_parse({text.data + zeros, text.bytes - zeros}, value);
+}
+inline bool decimal_parse_padded(ConstSlice<u8> text, u64* value) noexcept {
+    return decimal_parse_padded(Utf8View{reinterpret_cast<const char*>(text.data), text.count}, value);
+}
+
 // A canonical snowflake: nonzero decimal without leading zeros.
 constexpr bool snowflake_parse(Utf8View text, u64* value) noexcept {
     return text.bytes != 0 && text.data[0] != '0' && decimal_parse(text, value);

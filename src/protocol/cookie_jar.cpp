@@ -46,12 +46,10 @@ Utf8View trim(Utf8View text) noexcept {
 
 // Chromium rejects control characters other than tab in names and values.
 bool cookie_octets(Utf8View text) noexcept {
-    for (u32 i = 0; i < text.bytes; ++i) {
-        const u8 c = static_cast<u8>(text.data[i]);
-        if ((c < 0x20 && c != '\t') || c == 0x7F || c == ';')
+    for (u32 i = 0; i < text.bytes; ++i)
+        if (text.data[i] == ';')
             return false;
-    }
-    return true;
+    return http_field_value_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
 }
 
 bool equal_ignore_case(Utf8View text, const char* literal) noexcept {

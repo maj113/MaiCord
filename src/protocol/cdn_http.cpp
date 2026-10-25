@@ -1,5 +1,6 @@
 #include "maicord/protocol/cdn_http.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
@@ -57,31 +58,12 @@ bool slice_equal_case(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
     return true;
 }
 
-bool parse_decimal(ConstSlice<u8> value, u64* result) noexcept {
-    if (value.count == 0) {
-        return false;
-    }
-    u64 parsed = 0;
-    for (u32 index = 0; index < value.count; ++index) {
-        if (value[index] < '0' || value[index] > '9') {
-            return false;
-        }
-        const u64 digit = value[index] - '0';
-        if (parsed > (~0ull - digit) / 10) {
-            return false;
-        }
-        parsed = parsed * 10 + digit;
-    }
-    *result = parsed;
-    return true;
-}
-
 bool parse_delta_seconds(ConstSlice<u8> value, u64* result) noexcept {
     value = http_trim_ows(value);
     if (value.count >= 2 && value[0] == '"' && value[value.count - 1] == '"') {
         value = ConstSlice<u8>{value.data + 1, value.count - 2};
     }
-    return parse_decimal(value, result);
+    return decimal_parse_padded(value, result);
 }
 
 bool name_equal(ConstSlice<u8> name, const char* literal) noexcept {
@@ -185,7 +167,7 @@ bool response_field_visitor(void* context, HttpField field) noexcept {
         fields->has_content_range = true;
         fields->content_range = field.value;
     } else if (name_equal(field.name, "age")) {
-        if (fields->has_age || !parse_decimal(field.value, &fields->age)) {
+        if (fields->has_age || !decimal_parse_padded(field.value, &fields->age)) {
             fields->error =
                 fields->has_age ? CdnHttpError::duplicate_field : CdnHttpError::invalid_age;
             return false;
@@ -223,9 +205,9 @@ bool parse_content_range(ConstSlice<u8> value, u64* first, u64* last, u64* lengt
         ++slash;
     if (dash >= value.count || slash >= value.count)
         return false;
-    return parse_decimal({value.data + unit_bytes, dash - unit_bytes}, first) &&
-           parse_decimal({value.data + dash + 1, slash - dash - 1}, last) &&
-           parse_decimal({value.data + slash + 1, value.count - slash - 1}, length) && *first <= *last &&
+    return decimal_parse_padded({value.data + unit_bytes, dash - unit_bytes}, first) &&
+           decimal_parse_padded({value.data + dash + 1, slash - dash - 1}, last) &&
+           decimal_parse_padded({value.data + slash + 1, value.count - slash - 1}, length) && *first <= *last &&
            *last < *length;
 }
 

@@ -1,6 +1,7 @@
 #include "maicord/protocol/hls_playlist.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -9,20 +10,10 @@ namespace {
 using E = HlsPlaylistError;
 bool equal(Utf8View a, Utf8View b) noexcept { return utf8_equal(a, b); }
 bool prefix(Utf8View a, Utf8View b) noexcept { return utf8_starts_with(a, b); }
-bool number(Utf8View s, u64* output) noexcept {
-    if (!s.bytes) return false;
-    u64 value = 0;
-    for (u32 i = 0; i < s.bytes; ++i) {
-        const u32 digit = static_cast<u8>(s.data[i]) - '0';
-        if (digit > 9 || value > (~u64{0} - digit) / 10) return false;
-        value = value * 10 + digit;
-    }
-    *output = value; return true;
-}
 bool duration(Utf8View s, u32* output) noexcept {
     u32 at = 0; while (at < s.bytes && ascii_is_digit(s.data[at])) ++at;
     u64 seconds{};
-    if (!number({s.data, at}, &seconds) || seconds > 600) return false;
+    if (!decimal_parse_padded({s.data, at}, &seconds) || seconds > 600) return false;
     u32 fraction = 0, digits = 0;
     if (at < s.bytes && s.data[at] == '.') {
         ++at;
@@ -242,7 +233,7 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
             for (u32 i = 0; i < fields_count; ++i) {
                 const auto& f = fields[i]; u64 n{};
                 if (equal(f.name, utf8_literal("BANDWIDTH"))) {
-                    if (f.quoted || !number(f.value, &n) || !n || n > ~u32{0}) return E::malformed;
+                    if (f.quoted || !decimal_parse_padded(f.value, &n) || !n || n > ~u32{0}) return E::malformed;
                     candidate.bandwidth = static_cast<u32>(n);
                 } else if (equal(f.name, utf8_literal("CODECS"))) {
                     if (!f.quoted) return E::malformed;
@@ -250,8 +241,8 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
                 } else if (equal(f.name, utf8_literal("RESOLUTION"))) {
                     u32 at = 0; while (at < f.value.bytes && f.value.data[at] != 'x') ++at;
                     u64 width{}, height{};
-                    if (f.quoted || at == f.value.bytes || !number({f.value.data, at}, &width) ||
-                        !number({f.value.data + at + 1, f.value.bytes - at - 1}, &height) || !width || !height ||
+                    if (f.quoted || at == f.value.bytes || !decimal_parse_padded({f.value.data, at}, &width) ||
+                        !decimal_parse_padded({f.value.data + at + 1, f.value.bytes - at - 1}, &height) || !width || !height ||
                         width > 65535 || height > 65535) return E::malformed;
                     candidate.width = static_cast<u16>(width); candidate.height = static_cast<u16>(height);
                 } else if (equal(f.name, utf8_literal("AUDIO"))) {
@@ -277,7 +268,7 @@ HlsPlaylistError hls_master_playlist(Utf8View input, u16 maximum_height, HlsMast
                        (!value.audio.uri.bytes || candidate.bandwidth > value.audio.bandwidth)) value.audio = candidate;
         } else if (prefix(line, utf8_literal("#EXT-X-VERSION:"))) {
             u64 n{};
-            if (version || !number({line.data + 15, line.bytes - 15}, &n) || !n || n > 10) return E::malformed;
+            if (version || !decimal_parse_padded({line.data + 15, line.bytes - 15}, &n) || !n || n > 10) return E::malformed;
             version = true;
         } else if (equal(line, utf8_literal("#EXTM3U")) || prefix(line, utf8_literal("#EXTINF:")) ||
             prefix(line, utf8_literal("#EXT-X-MAP:")) || equal(line, utf8_literal("#EXT-X-ENDLIST"))) return E::malformed;
@@ -359,7 +350,7 @@ HlsPlaylistError hls_media_playlist(Utf8View input, HlsMediaPlaylist* output, Hl
             bool parsed = false;
             for (u32 i = 0; i < 4; ++i) if (prefix(line, numeric[i])) {
                 u64 n{};
-                if ((seen & (1u << i)) || !number({line.data + numeric[i].bytes, line.bytes - numeric[i].bytes}, &n)) return E::malformed;
+                if ((seen & (1u << i)) || !decimal_parse_padded({line.data + numeric[i].bytes, line.bytes - numeric[i].bytes}, &n)) return E::malformed;
                 seen |= 1u << i; parsed = true;
                 if (!i) { if (!n || n > 10) return E::unsupported; version = n; }
                 else if (i == 1) { if (!n || n > 600) return E::unsupported; value.target_seconds = static_cast<u32>(n); }

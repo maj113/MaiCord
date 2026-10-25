@@ -148,6 +148,18 @@ void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr Utf8View body_oversize = utf8_literal("POST /rpc?v=1 HTTP/1.1\r\nHost: 127.0.0.1:6463\r\nOrigin: https://discord.com\r\nContent-Type: application/json\r\nContent-Length: 8193\r\n\r\n");
     copy_bytes(input, body_oversize.data, body_oversize.bytes);
     check(parse(body_oversize.bytes).error == BrowserSignInError::capacity, "oversized body is rejected from its declared length without a body allocation");
+    constexpr Utf8View bad_lengths[] = {
+        utf8_literal("POST /rpc?v=1 HTTP/1.1\r\nHost: 127.0.0.1:6463\r\nOrigin: https://discord.com\r\nContent-Type: application/json\r\nContent-Length: 12x\r\n\r\n"),
+        utf8_literal("POST /rpc?v=1 HTTP/1.1\r\nHost: 127.0.0.1:6463\r\nOrigin: https://discord.com\r\nContent-Type: application/json\r\nContent-Length:  \r\n\r\n"),
+        utf8_literal("POST /rpc?v=1 HTTP/1.1\r\nHost: 127.0.0.1:6463\r\nOrigin: https://discord.com\r\nContent-Type: application/json\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\n{}"),
+    };
+    for (Utf8View head : bad_lengths) {
+        copy_bytes(input, head.data, head.bytes);
+        check(parse(head.bytes).error == BrowserSignInError::framing, "non-numeric, empty and repeated Content-Length are framing errors");
+    }
+    constexpr Utf8View huge_length = utf8_literal("POST /rpc?v=1 HTTP/1.1\r\nHost: 127.0.0.1:6463\r\nOrigin: https://discord.com\r\nContent-Type: application/json\r\nContent-Length: 99999999999\r\n\r\n");
+    copy_bytes(input, huge_length.data, huge_length.bytes);
+    check(parse(huge_length.bytes).error == BrowserSignInError::capacity, "a Content-Length too large for any body is rejected without overflow");
     // Nested escaping can exceed the exchange body cap even below the decoded
     // token limit. Preflight must preserve both candidate and output.
     memset(large + token_begin, '\x01', kBrowserSignInMaximumTokenBytes);

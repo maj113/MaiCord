@@ -1,5 +1,6 @@
 #include "maicord/protocol/dash_manifest.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -10,16 +11,6 @@ constexpr u32 maximum_bytes = 64 * 1024, maximum_segments = 8192;
 bool equal(Utf8View a, Utf8View b) noexcept { return utf8_equal(a, b); }
 bool name_char(char c) noexcept { return ascii_is_alnum(c) || c == '_' || c == '-' || c == '.' || c == ':'; }
 bool name_start(char c) noexcept { return (ascii_is_alnum(c) && !ascii_is_digit(c)) || c == '_'; }
-bool number(Utf8View s, u64* out) noexcept {
-    if (!s.bytes) return false;
-    u64 value = 0;
-    for (u32 i = 0; i < s.bytes; ++i) {
-        const u32 digit = static_cast<u8>(s.data[i]) - '0';
-        if (digit > 9 || value > (~u64{0} - digit) / 10) return false;
-        value = value * 10 + digit;
-    }
-    *out = value; return true;
-}
 bool duration(Utf8View s, u64* out, bool allow_zero = false) noexcept {
     if (s.bytes < 4 || s.data[0] != 'P' || s.data[1] != 'T') return false;
     u64 total = 0; u32 at = 2, previous = 3601;
@@ -27,7 +18,7 @@ bool duration(Utf8View s, u64* out, bool allow_zero = false) noexcept {
         const u32 start = at;
         while (at < s.bytes && ascii_is_digit(s.data[at])) ++at;
         u64 whole{}, fraction = 0; u32 fraction_digits = 0;
-        if (!number({s.data + start, at - start}, &whole) || whole > 86400) return false;
+        if (!decimal_parse_padded({s.data + start, at - start}, &whole) || whole > 86400) return false;
         if (at < s.bytes && s.data[at] == '.') {
             ++at;
             while (at < s.bytes && ascii_is_digit(s.data[at])) {
@@ -151,7 +142,7 @@ u32 path(const DashTrack& t, u32 index, bool init, u8* output) noexcept {
             if (init || ++numbers != 1 || token.bytes < 6 || !bytes_equal(token.data, "Number", 6)) return 0;
             u64 width = 0;
             if (token.bytes != 6 && (token.bytes < 10 || token.data[6] != '%' || token.data[7] != '0' ||
-                token.data[token.bytes - 1] != 'd' || !number({token.data + 8, token.bytes - 9}, &width) ||
+                token.data[token.bytes - 1] != 'd' || !decimal_parse_padded({token.data + 8, token.bytes - 9}, &width) ||
                 !width || width > 10)) return 0;
             for (u32 i = digit_count; i < width; ++i) put('0');
             for (u32 i = digit_count; i-- > 0;) put(digits[i]);
@@ -169,7 +160,7 @@ Tag tag(Utf8View name) noexcept {
 struct Candidate { DashTrack track{}; bool video{}, audio{}, has_template{}; };
 bool unsigned_attribute(const Element& e, Utf8View name, u32* value) noexcept {
     const auto s = attribute(e, name); if (!s.data) return true;
-    u64 n{}; if (!number(s, &n) || n > ~u32{0}) return false;
+    u64 n{}; if (!decimal_parse_padded(s, &n) || n > ~u32{0}) return false;
     *value = static_cast<u32>(n); return true;
 }
 bool better(const DashTrack& a, const DashTrack& b, u16 cap) noexcept {
@@ -276,10 +267,10 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
             t.initialization = attribute(element, utf8_literal("initialization")); t.media = attribute(element, utf8_literal("media"));
             if (!unsigned_attribute(element, utf8_literal("timescale"), &t.timescale) || !t.timescale || t.timescale > 1000000000 ||
                 !unsigned_attribute(element, utf8_literal("startNumber"), &t.start_number) ||
-                !number(attribute(element, utf8_literal("duration")), &t.segment_duration) || !t.segment_duration ||
+                !decimal_parse_padded(attribute(element, utf8_literal("duration")), &t.segment_duration) || !t.segment_duration ||
                 t.segment_duration > u64{86400} * t.timescale) return E::malformed;
             const auto offset = attribute(element, utf8_literal("presentationTimeOffset"));
-            u64 value{}; if (offset.data && (!number(offset, &value) || value)) return E::unsupported;
+            u64 value{}; if (offset.data && (!decimal_parse_padded(offset, &value) || value)) return E::unsupported;
             const u64 ticks = result.duration_us / 1000000 * t.timescale +
                 (result.duration_us % 1000000 * t.timescale + 999999) / 1000000;
             const u64 count = (ticks + t.segment_duration - 1) / t.segment_duration;

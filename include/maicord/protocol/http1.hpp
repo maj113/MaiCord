@@ -84,6 +84,35 @@ bool http_ascii_equal_case_insensitive(ConstSlice<u8> value, const char* literal
 // Strips optional whitespace (spaces and tabs) from both ends of a field value.
 ConstSlice<u8> http_trim_ows(ConstSlice<u8> value) noexcept;
 Utf8View http_trim_ows(Utf8View value) noexcept;
+// True when value holds no control characters other than tab.
+bool http_field_value_valid(ConstSlice<u8> value) noexcept;
+
+// Server side of a strict HTTP/1.1 request head: CRLF-only lines, one
+// "METHOD target HTTP/1.1" request line and unfolded fields. The result
+// codes are numerically the capacity/http/framing members of the loopback
+// servers' error enums.
+enum class HttpRequestError : u8 { none, need_input, capacity, http, framing };
+struct HttpRequestHead {
+    const char* text;
+    u32 head_bytes, fields_begin;
+    Utf8View method, target;
+};
+// Waits (need_input) for a complete head; capacity when the head would exceed
+// maximum_head_bytes.
+HttpRequestError http_parse_request_line(ConstSlice<u8> input, u32 maximum_head_bytes,
+                                         HttpRequestHead* head) noexcept;
+struct HttpRequestFields {
+    Utf8View values[8];  // trimmed value of the i-th wanted name
+    u32 seen;            // bit i: that name was present
+    u32 content_length;
+    bool has_content_length;
+};
+// names holds NUL-terminated lowercase field names: the first `wanted` are
+// recorded (a repeat is framing), the rest are forbidden (framing). Names
+// end with an extra NUL; at most 64 fields; a Content-Length above
+// maximum_body_bytes is capacity. Zero `fields` first.
+HttpRequestError http_parse_request_fields(const HttpRequestHead& head, const char* names, u32 wanted,
+                                           u32 maximum_body_bytes, HttpRequestFields* fields) noexcept;
 
 enum class HttpChunkState : u8 {
     size,

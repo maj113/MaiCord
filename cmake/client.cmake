@@ -338,7 +338,7 @@ maicord_compact_sources(
         src/app/user_client_configuration.cpp src/app/remote_auth_client.cpp
         src/app/remote_auth_handshake.cpp src/app/remote_auth_ticket_exchange.cpp
         src/platform/remote_auth_crypto.cpp src/app/captcha_bridge.cpp src/app/captcha_challenge.cpp
-        src/app/account_action_captcha.cpp src/app/browser_sign_in_receiver.cpp src/app/browser_login.cpp
+        src/app/account_action_captcha.cpp src/app/browser_sign_in_receiver.cpp src/app/loopback_server.cpp src/app/browser_login.cpp
         src/app/account_session_store.cpp src/app/account_profile.cpp
         src/app/account_profile_promotion.cpp src/app/account_logout.cpp
         src/app/account_guild_admin.cpp src/app/account_forum_post.cpp src/app/account_gif_favorites.cpp
