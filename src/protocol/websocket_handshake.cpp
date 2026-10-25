@@ -210,12 +210,25 @@ WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key
     return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
 }
 
+namespace {
+// A header value: no control characters other than tab.
+bool valid_field_value(ConstSlice<u8> value) noexcept {
+    if (!value.data && value.count)
+        return false;
+    for (u32 index = 0; index < value.count; ++index)
+        if ((value[index] < 0x20 && value[index] != '\t') || value[index] == 0x7F)
+            return false;
+    return true;
+}
+
+} // namespace
+
 // Discord's clients open every WebSocket (Gateway, voice, remote auth) from
 // the https://discord.com page, so the request carries the headers and order
 // Chromium sends for it. Extensions are not offered.
 WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
-                                                              ConstSlice<u8> client_key,
-                                                              Slice<u8> output) noexcept {
+                                                              ConstSlice<u8> client_key, Slice<u8> output,
+                                                              const WebSocketPageFields* page) noexcept {
     if (!output.data || !valid_client_key(client_key)) {
         return WebSocketHandshakeWriteResult{0, output.data ? WebSocketHandshakeError::invalid_client_key
                                                             : WebSocketHandshakeError::invalid_input};
@@ -226,23 +239,45 @@ WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> tar
     if (!valid_host(host)) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_host};
     }
+    const WebSocketPageFields fields = page ? *page : WebSocketPageFields{};
+    if (!valid_field_value(fields.accept_language) || !valid_field_value(fields.cookie)) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
+    }
     static constexpr char middle[] = "\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\n"
                                      "User-Agent: ";
+    // Chromium's network stack adds its default encodings and the profile's
+    // languages and cookies, then the key last.
     static constexpr char after_agent[] = "\r\nUpgrade: websocket\r\nOrigin: https://discord.com\r\n"
-                                          "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ";
+                                          "Sec-WebSocket-Version: 13\r\nAccept-Encoding: gzip, deflate, br, zstd\r\n";
+    static constexpr char language[] = "Accept-Language: ";
+    static constexpr char cookie[] = "Cookie: ";
+    static constexpr char key[] = "Sec-WebSocket-Key: ";
     constexpr u32 fixed_bytes = sizeof("GET  HTTP/1.1\r\nHost: ") - 1 + sizeof(middle) - 1 +
-                                sizeof(kClientUserAgent) - 1 + sizeof(after_agent) - 1 + sizeof("\r\n\r\n") - 1;
-    if (u64{fixed_bytes} + target.count + host.count + client_key.count > output.count) {
+                                sizeof(kClientUserAgent) - 1 + sizeof(after_agent) - 1 + sizeof(key) - 1 +
+                                sizeof("\r\n\r\n") - 1;
+    const u64 language_bytes = fields.accept_language.count ? sizeof(language) - 1 + fields.accept_language.count + 2 : 0;
+    const u64 cookie_bytes = fields.cookie.count ? sizeof(cookie) - 1 + fields.cookie.count + 2 : 0;
+    if (u64{fixed_bytes} + target.count + host.count + client_key.count + language_bytes + cookie_bytes >
+        output.count) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
     }
     ProtocolWriter writer{output, 0};
-    const bool written =
+    bool written =
         protocol_writer_append_literal(&writer, "GET ") && protocol_writer_append_bytes(&writer, target) &&
         protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
         protocol_writer_append_bytes(&writer, host) && protocol_writer_append_literal(&writer, middle) &&
         protocol_writer_append_literal(&writer, kClientUserAgent) &&
-        protocol_writer_append_literal(&writer, after_agent) &&
-        protocol_writer_append_bytes(&writer, client_key) && protocol_writer_append_literal(&writer, "\r\n\r\n");
+        protocol_writer_append_literal(&writer, after_agent);
+    if (written && fields.accept_language.count)
+        written = protocol_writer_append_literal(&writer, language) &&
+                  protocol_writer_append_bytes(&writer, fields.accept_language) &&
+                  protocol_writer_append_literal(&writer, "\r\n");
+    if (written && fields.cookie.count)
+        written = protocol_writer_append_literal(&writer, cookie) &&
+                  protocol_writer_append_bytes(&writer, fields.cookie) &&
+                  protocol_writer_append_literal(&writer, "\r\n");
+    written = written && protocol_writer_append_literal(&writer, key) &&
+              protocol_writer_append_bytes(&writer, client_key) && protocol_writer_append_literal(&writer, "\r\n\r\n");
     return written ? WebSocketHandshakeWriteResult{writer.used, WebSocketHandshakeError::none}
                    : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
 }

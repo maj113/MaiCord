@@ -56,11 +56,19 @@ struct WebSocketHandshakeValidation {
 WebSocketHandshakeWriteResult websocket_encode_client_key(ConstSlice<u8> nonce, Slice<u8> output) noexcept;
 WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key,
                                                        Slice<u8> output) noexcept;
-// The browser opening request: Origin https://discord.com and the client
-// User-Agent, in Chromium's header order.
+// What Chromium adds from the page's profile: its Accept-Language and the
+// Cookie value for the WebSocket's host. Empty fields are omitted.
+struct WebSocketPageFields {
+    ConstSlice<u8> accept_language;
+    ConstSlice<u8> cookie;
+};
+
+// The browser opening request: Origin https://discord.com, the client
+// User-Agent and Chromium's Accept-Encoding, in Chromium's header order.
+// permessage-deflate is not offered: its compressed frames are not handled.
 WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
-                                                              ConstSlice<u8> client_key,
-                                                              Slice<u8> output) noexcept;
+                                                              ConstSlice<u8> client_key, Slice<u8> output,
+                                                              const WebSocketPageFields* page = nullptr) noexcept;
 WebSocketHandshakeValidation websocket_validate_opening_response(ConstSlice<u8> response,
                                                                  ConstSlice<u8> client_key,
                                                                  u32 maximum_header_bytes,

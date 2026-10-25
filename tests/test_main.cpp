@@ -23549,6 +23549,7 @@ void test_websocket_handshake() noexcept {
     protocol_writer_append_literal(&expected_writer, kClientUserAgent);
     protocol_writer_append_literal(&expected_writer, "\r\nUpgrade: websocket\r\nOrigin: https://discord.com\r\n"
                                                      "Sec-WebSocket-Version: 13\r\n"
+                                                     "Accept-Encoding: gzip, deflate, br, zstd\r\n"
                                                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
     const ConstSlice<u8> expected_request{expected_storage, expected_writer.used};
     u8 request_storage[512]{};
@@ -23560,6 +23561,39 @@ void test_websocket_handshake() noexcept {
                                            Slice<u8>{request_storage, expected_request.count - 1})
                    .error == WebSocketHandshakeError::output_too_small,
            "websocket_handshake_request_bound");
+    {
+        const WebSocketPageFields page{byte_literal("en-US,en;q=0.9"), byte_literal("__cf_bm=bot")};
+        u8 page_storage[640]{};
+        u8 expected_page[640]{};
+        const auto page_request = websocket_write_opening_request(
+            byte_literal("/?encoding=json&v=9&compress=zlib-stream"), host, expected_key,
+            Slice<u8>{page_storage, static_cast<u32>(sizeof(page_storage))}, &page);
+        ProtocolWriter page_expected{{expected_page, static_cast<u32>(sizeof(expected_page))}, 0};
+        protocol_writer_append_literal(&page_expected,
+                                       "GET /?encoding=json&v=9&compress=zlib-stream HTTP/1.1\r\n"
+                                       "Host: gateway.discord.gg\r\nConnection: Upgrade\r\nPragma: no-cache\r\n"
+                                       "Cache-Control: no-cache\r\nUser-Agent: ");
+        protocol_writer_append_literal(&page_expected, kClientUserAgent);
+        protocol_writer_append_literal(&page_expected, "\r\nUpgrade: websocket\r\nOrigin: https://discord.com\r\n"
+                                                       "Sec-WebSocket-Version: 13\r\n"
+                                                       "Accept-Encoding: gzip, deflate, br, zstd\r\n"
+                                                       "Accept-Language: en-US,en;q=0.9\r\n"
+                                                       "Cookie: __cf_bm=bot\r\n"
+                                                       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n");
+        const WebSocketPageFields injected{{}, byte_literal("a=1\r\nInjected: yes")};
+        expect(page_request.ok() &&
+                   bytes_equal(ConstSlice<u8>{page_storage, page_request.bytes},
+                               ConstSlice<u8>{expected_page, page_expected.used}) &&
+                   websocket_write_opening_request(byte_literal("/?encoding=json&v=9&compress=zlib-stream"), host,
+                                                   expected_key, Slice<u8>{page_storage, page_request.bytes - 1},
+                                                   &page)
+                           .error == WebSocketHandshakeError::output_too_small &&
+                   websocket_write_opening_request(target, host, expected_key,
+                                                   Slice<u8>{page_storage, static_cast<u32>(sizeof(page_storage))},
+                                                   &injected)
+                           .error == WebSocketHandshakeError::invalid_input,
+               "websocket_handshake_page_languages_and_cookies");
+    }
     expect(websocket_write_opening_request(byte_literal("https://gateway.discord.gg/"), host, expected_key,
                                            Slice<u8>{request_storage, 512})
                    .error == WebSocketHandshakeError::invalid_target,
