@@ -729,7 +729,11 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                 break;
             }
             const auto r = flag.rectangle;
-            if (!queue_media_quad(renderer, allocation, r, flag.clip, false,
+            // Message rows clip to themselves; the viewport bounds their flags.
+            const UiRect clip = renderer->message_scene && flag.owner.manager == &renderer->message_scene->widgets
+                                    ? ui_rect_intersection(flag.clip, renderer->message_scene->viewport)
+                                    : flag.clip;
+            if (!queue_media_quad(renderer, allocation, r, clip, false,
                                   first))
                 return false;
             first = false;

@@ -655,6 +655,14 @@ struct D3D11Renderer {
     // overlay-only rebuild, the shell and messages). An upload leaves them
     // where the glyph ring already holds them and writes only the rest.
     u32 text_stable_quads, text_stable_serial, text_shell_serial, text_message_serial;
+    // The message glyphs were rastered from projection build text_message_builds,
+    // which had then scrolled text_message_shift_base DIPs; scroll steps since
+    // moved them text_message_shift_px device pixels. Shiftable when every
+    // message batch draws under the viewport scissor and none carries effects.
+    u32 text_message_builds;
+    i32 text_message_shift_px;
+    float text_message_shift_base;
+    bool text_message_shiftable;
     // Scroll positions of the shell's lists when the shell was last rastered.
     u64 text_shell_scroll_key;
     // The channel list's part of it: unchanged while only the members moved.
@@ -687,7 +695,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120728);
+static_assert(sizeof(D3D11Renderer) == 120744);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

@@ -387,7 +387,8 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
         const MessageTextSemantic& semantic = storage.content_semantics[region.semantic_index];
         if (semantic.reserved & kRendererSearchSemanticFlag)
             continue;
-        if (semantic.message_id != 0 && semantic.kind == MessageMarkdownSemanticKind::regional_flag &&
+        // Message rows clip to themselves: only the visible timeline takes hits.
+        if (semantic.message_id != 0 &&
             !renderer_message_view_hit_test(renderer, client_x_pixels, client_y_pixels))
             continue;
         return MessageTextHit{semantic.message_id,
@@ -406,7 +407,8 @@ RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Rend
                                                                        i32 client_y_pixels) noexcept {
     const MessageTextPresentation* presentation = renderer.message_text;
     if (!presentation || !renderer.message_scene || !renderer.message_scene->active ||
-        !ui_rect_has_area(renderer.message_scene->viewport)) {
+        !ui_rect_has_area(renderer.message_scene->viewport) ||
+        !renderer_message_view_hit_test(renderer, client_x_pixels, client_y_pixels)) {
         return RendererMessageTextPositionHit{};
     }
     return message_position_hit_test(&renderer.message_hit_test, *presentation,

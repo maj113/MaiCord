@@ -35,6 +35,19 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
         if (!scene.ok()) {
             return result(MessageTextCoordinatorError::scene, passes, scene.error);
         }
+        MessageTextPresentation& presentation = *request.presentation;
+        if (pass == 0 && request.scroll_refresh && scene.scroll_only && presentation.active &&
+            presentation.shift_layout_passes && presentation.shift_layout_passes + 1 == request.scene->layout_passes &&
+            (!presentation.next_timestamp_update_unix_seconds ||
+             request.now_unix_seconds < presentation.next_timestamp_update_unix_seconds)) {
+            message_text_presentation_shift(&presentation, scene.scroll_shift);
+            presentation.shift_layout_passes = request.scene->layout_passes;
+            presentation.scroll_moving = request.scroll_moving;
+            if (!request.finalize(request.finalize_context, *request.theme))
+                return result(MessageTextCoordinatorError::finalization, passes);
+            return result(MessageTextCoordinatorError::none, passes, MessageSceneError::none,
+                          MessageTextPresentationError::none, true);
+        }
         const MessageTextPresentationResult projected = message_text_presentation_build(
             request.presentation, *request.scene, *request.state, request.users, *request.navigation,
             *request.theme, request.now_unix_seconds);
@@ -81,7 +94,7 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
                 static_cast<u8>((scene.changed ? message_text_coordinator_scene_changed : 0u) |
                                 (command_changed ? message_text_coordinator_command_changed : 0u) |
                                 (layout_changed ? message_text_coordinator_layout_changed : 0u) |
-                                (request.scene->dirty ? message_text_coordinator_scene_dirty : 0u) |
+                                (message_scene_pending(*request.scene) ? message_text_coordinator_scene_dirty : 0u) |
                                 (projection_fixed ? message_text_coordinator_projection_fixed : 0u));
             request.trace->count = passes;
         }

@@ -864,6 +864,7 @@ void clear_materialization(MessageScene* scene) noexcept {
     scene->snapshot_count = 0;
     scene->active = false;
     scene->dirty = false;
+    scene->scroll_dirty = false;
 }
 
 u64 focused_message(const MessageScene& scene) noexcept {
@@ -1886,7 +1887,23 @@ MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) no
                                      kMessageSceneOverscanRows);
     if (scene->result_cards)
         range.count = minimum(range.count, scene->result_card_style.materialized_rows);
-    if (!scene->owns_rows && scene->active && scene->dirty) {
+    const UiVariableList& list = *scene->timeline->list;
+    if (scene->owns_rows && !scene->result_cards && scene->active && !scene->dirty && scene->count &&
+        scene->first + scene->count <= list.count && scene->source_count == message_scene_source_count(*scene) &&
+        scene->observed_structural_updates == list.structural_updates) {
+        // Scrolling keeps the materialized rows while they still reach half the
+        // preparation margin past both viewport edges, so most scroll steps
+        // move the same rows instead of rebuilding them.
+        const u64 scroll = scene->timeline->scroll_units;
+        const u64 half_margin = ui_extent_units(kMessageScenePreparationMarginDips * 0.5f);
+        const u64 begin = ui_variable_list_prefix_units(list, scene->first);
+        const u64 end = ui_variable_list_prefix_units(list, scene->first + scene->count);
+        if ((scene->first == 0 || begin + half_margin <= scroll) &&
+            (scene->first + scene->count == list.count || end >= scroll + viewport_units + half_margin))
+            range = UiVariableRange{scene->first, scene->count,
+                                    static_cast<i64>(begin) - static_cast<i64>(scroll)};
+    }
+    if (!scene->owns_rows && scene->active && message_scene_pending(*scene)) {
         const u32 retained_end = scene->first + scene->count;
         const u32 desired_end = range.first + range.count;
         const u32 union_first = minimum(scene->first, range.first);
@@ -1975,6 +1992,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) no
         // Paint-only rich metadata (such as an embed RGB color) must refresh
         // retained geometry without invalidating its measured text/layout.
         scene->observed_rich_updated = rich_updated;
+        scene->scroll_dirty = false;
         saturating_increment_if(paint_changed, scene->data_updates);
         return MessageSceneResult{MessageSceneError::none, range.first, range.count, paint_changed};
     }
@@ -1999,12 +2017,22 @@ MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) no
     scene->observed_structural_updates = scene->timeline->list->structural_updates;
     scene->observed_scroll_units = scene->timeline->scroll_units;
     scene->dirty = false;
+    scene->scroll_dirty = false;
     if (scene->focused_message_id != 0) {
         message_scene_focus_message(scene, scene->focused_message_id);
     }
-    return MessageSceneResult{MessageSceneError::none, range.first, range.count,
+    const float rows_origin = laid_out.top - local_scroll;
+    const bool scroll_only = retained && scroll_changed && !viewport_changed && !data_changed &&
+                             !observed_change && !was_dirty && !paint_changed;
+    const float scroll_shift = rows_origin - scene->rows_origin_dips;
+    scene->rows_origin_dips = rows_origin;
+    return MessageSceneResult{MessageSceneError::none,
+                              range.first,
+                              range.count,
                               !retained || viewport_changed || data_changed || observed_change ||
-                                  scroll_changed || was_dirty || paint_changed};
+                                  scroll_changed || was_dirty || paint_changed,
+                              scroll_only,
+                              scroll_only ? scroll_shift : 0.0f};
 }
 
 bool message_scene_scroll_by(MessageScene* scene, i64 delta_units, u64 bottom_tolerance_units,
@@ -2013,7 +2041,7 @@ bool message_scene_scroll_by(MessageScene* scene, i64 delta_units, u64 bottom_to
         !message_timeline_scroll_by(scene->timeline, delta_units, bottom_tolerance_units, changed)) {
         return false;
     }
-    scene->dirty = scene->dirty || *changed;
+    scene->scroll_dirty = scene->scroll_dirty || *changed;
     return true;
 }
 
@@ -2022,7 +2050,7 @@ bool message_scene_scroll_to_start(MessageScene* scene, bool* changed) noexcept 
         !message_timeline_scroll_to_start(scene->timeline, changed)) {
         return false;
     }
-    scene->dirty = scene->dirty || *changed;
+    scene->scroll_dirty = scene->scroll_dirty || *changed;
     return true;
 }
 
@@ -2031,7 +2059,7 @@ bool message_scene_scroll_to_bottom(MessageScene* scene, bool* changed) noexcept
         !message_timeline_scroll_to_bottom(scene->timeline, changed)) {
         return false;
     }
-    scene->dirty = scene->dirty || *changed;
+    scene->scroll_dirty = scene->scroll_dirty || *changed;
     return true;
 }
 

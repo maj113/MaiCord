@@ -2345,7 +2345,7 @@ bool append_intro(MessageTextPresentation* presentation, const MessageScene& sce
     MessageSceneIntroGeometry geometry{};
     if (scene.content_gated || !message_scene_intro_geometry(scene, &geometry))
         return true;
-    const UiRect clip = ui_rect_intersection(scene.viewport, geometry.area);
+    const UiRect clip = geometry.area;
     if (!ui_rect_has_area(clip))
         return true;
     const UiWidgetReference owner{&scene.widgets, scene.root};
@@ -2799,11 +2799,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         return fail(presentation, MessageTextPresentationError::layout);
     }
 
-    const UiRect visible_row_clip = ui_rect_intersection(scene.viewport, row_layout->rectangle);
-    // Overscan rows are measured before they cross the viewport edge, so keep a
-    // positive offscreen clip for shaping and measurement. The renderer rejects
-    // commands whose clip misses the message viewport: they never become paint.
-    const UiRect row_clip = ui_rect_has_area(visible_row_clip) ? visible_row_clip : row_layout->rectangle;
+    // Rows clip to their own rectangle, never the viewport: overscan rows are
+    // measured before they scroll in, and a scrolled projection stays exact.
+    // The renderer limits paint to the viewport.
+    const UiRect row_clip = row_layout->rectangle;
     const float text_left = content_layout->content_rectangle.left;
     const float text_width = ui_rect_width(content_layout->content_rectangle);
     // Transient zero-area rows are valid retained states. They must not poison
@@ -3710,6 +3709,9 @@ MessageTextPresentationResult message_text_presentation_build(
     reset_value<MessageTextRichMetrics>(&presentation->rich);
     presentation->next_timestamp_update_unix_seconds = 0;
     presentation->projection_signature = 0;
+    presentation->shift_layout_passes = 0;
+    presentation->scroll_shift_dips = 0.0f;
+    presentation->scroll_moving = false;
     presentation->last_error = MessageTextPresentationError::none;
     presentation->active = false;
     if (!append_intro(presentation, scene, theme)) {
@@ -3740,8 +3742,20 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->failure_operation = MessageTextPresentationOperation::none;
     presentation->failure_flow_error = UiTextFlowError::none;
     presentation->projection_signature = message_text_presentation_projection_signature(*presentation);
+    presentation->shift_layout_passes = scene.layout_passes;
     saturating_accumulate(presentation->builds);
     return result(*presentation, MessageTextPresentationError::none);
+}
+
+void message_text_presentation_shift(MessageTextPresentation* presentation, float shift) noexcept {
+    for (u32 index = 0; index < presentation->command_count; ++index) {
+        MessageTextCommand& command = presentation->commands[index];
+        command.rectangle.top += shift;
+        command.rectangle.bottom += shift;
+        command.clip.top += shift;
+        command.clip.bottom += shift;
+    }
+    presentation->scroll_shift_dips += shift;
 }
 
 bool message_text_presentation_measure(MessageTextPresentation* presentation, UiTextMeasureCache* cache,
@@ -3888,6 +3902,8 @@ bool message_text_presentation_set_hover(MessageTextPresentation* presentation, 
                (has_hover && (presentation->hovered_message_id != hit.message_id ||
                               presentation->hovered_source_offset != hit.source_offset ||
                               presentation->hovered_kind != hit.kind));
+    if (*changed)
+        presentation->shift_layout_passes = 0;
     presentation->has_hover = has_hover;
     presentation->hovered_message_id = has_hover ? hit.message_id : 0;
     presentation->hovered_source_offset = has_hover ? hit.source_offset : 0;
@@ -4029,6 +4045,7 @@ bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentat
             presentation->spoiler_reveals[index] =
                 presentation->spoiler_reveals[presentation->spoiler_reveal_count - 1];
             --presentation->spoiler_reveal_count;
+            presentation->shift_layout_passes = 0;
             *changed = true;
             return true;
         }
@@ -4041,6 +4058,7 @@ bool message_text_presentation_toggle_spoiler(MessageTextPresentation* presentat
         presentation->spoiler_reveals[slot] = reveal;
         presentation->spoiler_reveal_cursor = (slot + 1) % presentation->spoiler_reveals.count;
     }
+    presentation->shift_layout_passes = 0;
     *changed = true;
     return true;
 }

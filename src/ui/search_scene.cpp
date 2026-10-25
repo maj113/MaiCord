@@ -1397,7 +1397,7 @@ bool ui_search_scene_refresh_rich(UiSearchScene* s) noexcept {
         return !rich_enabled(*s);
     auto& p = *s->rich_projection;
     if (p.height_updates == scene->timeline->list->height_updates &&
-        p.layout_passes == scene->layout_passes && !scene->dirty)
+        p.layout_passes == scene->layout_passes && !message_scene_pending(*scene))
         return true;
     if (!message_scene_update(scene, rich_viewport(*s)).ok())
         return false;

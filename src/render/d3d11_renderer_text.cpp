@@ -269,10 +269,10 @@ bool append_text_batch(RendererTextStorage* storage, const UiRect* clip, u32 fir
     if (count == 0) {
         return true;
     }
-    // A row/control scissor does no work when all its ink is inside it. Use
-    // the shared clip so adjacent runs can occupy one batch.
+    // A row/control scissor does no work when all its ink is inside it: only
+    // the shared clip still bounds it, so adjacent runs can occupy one batch.
     if (batch_clip && !ui_rect_equal(*clip, *batch_clip)) {
-        const UiRect bounds = ui_rect_intersection(*clip, *batch_clip);
+        const UiRect bounds = *clip;
         u32 i = first_quad;
         for (; i < storage->quad_count; ++i) {
             const auto& q = storage->quads[i];
@@ -2032,6 +2032,65 @@ ShellStaticMarks shell_static_marks(const RendererTextShellPrefix& prefix) noexc
             prefix.static_valid};
 }
 
+// While a scroll runs, message rows within this distance of the viewport are
+// rastered so its steps can move their glyphs; moving further rasters again.
+// Other builds raster only the viewport.
+constexpr float kMessageTextRasterMarginDips = 256.0f;
+
+// Scroll steps move the projection's commands without rebuilding it. Move the
+// glyphs rastered from them by the same whole device pixels, or drop them so
+// the build rasters the moved commands.
+void sync_message_scroll(D3D11Renderer* renderer) noexcept {
+    const MessageTextPresentation& presentation = *renderer->message_text;
+    RendererTextStorage* storage = renderer->content_text;
+    auto& prefix = renderer->content_text_prefix;
+    if (prefix.storage != storage || prefix.build_serial != storage->rebuilds)
+        return;
+    const float scale = static_cast<float>(renderer->dpi) / 96.0f;
+    const float moved = presentation.scroll_shift_dips - renderer->text_message_shift_base;
+    const bool same_build = presentation.builds == renderer->text_message_builds;
+    if (same_build ? moved == 0.0f && renderer->text_message_shift_px == 0 : renderer->text_message_shift_px == 0)
+        return;
+    const i32 target = static_cast<i32>(moved * scale + (moved < 0 ? -0.5f : 0.5f));
+    if (same_build && presentation.scroll_moving && target == renderer->text_message_shift_px)
+        return;
+    const auto& shell = prefix.shell;
+    // A settled scroll rasters at its exact position: whole-pixel moves round
+    // each line's baseline differently than rastering there would.
+    if (!same_build || !presentation.scroll_moving || !renderer->text_message_shiftable ||
+        shell.storage != storage || shell.build_serial != storage->rebuilds ||
+        !(moved <= kMessageTextRasterMarginDips) || !(moved >= -kMessageTextRasterMarginDips)) {
+        // The build below rasters the messages again over the retained shell.
+        prefix.storage = nullptr;
+        renderer->content_text_retention.key.message_signature = ~presentation.projection_signature;
+        renderer->text_message_shift_px = 0;
+        return;
+    }
+    const float shift = static_cast<float>(target - renderer->text_message_shift_px) / scale;
+    for (u32 i = shell.quads; i < prefix.quads; ++i) {
+        storage->quads[i].top += shift;
+        storage->quads[i].bottom += shift;
+    }
+    for (u32 i = shell.hits; i < prefix.hits; ++i) {
+        storage->content_hit_regions[i].top += shift;
+        storage->content_hit_regions[i].bottom += shift;
+    }
+    for (u32 i = shell.inline_flags; i < prefix.inline_flags; ++i) {
+        RendererInlineFlag& flag = renderer->inline_media.flags[i];
+        flag.rectangle.top += shift;
+        flag.rectangle.bottom += shift;
+        flag.clip.top += shift;
+        flag.clip.bottom += shift;
+    }
+    renderer->text_message_shift_px = target;
+    // A new stream: the shell's glyphs stay where the glyph ring holds them,
+    // the moved messages are written again.
+    prefix.build_serial = prefix.shell.build_serial = ++storage->rebuilds;
+    renderer->text_message_serial = storage->rebuilds;
+    renderer->text_stable_quads = shell.quads;
+    renderer->text_stable_serial = renderer->text_shell_serial;
+}
+
 bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* atlas_invalidated,
                              bool* storage_modified, bool* prefix_reused, bool include_messages) noexcept {
     const bool login_form = d3d11_renderer_login_form_text(*renderer);
@@ -2330,16 +2389,19 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
             storage->batch_capacity = storage->batch_count;
         }
         if (include_messages) {
+            // Text projection also contains offscreen overscan commands so
+            // their real heights are known before scrolling reveals them. Only
+            // those visible, or near the viewport while scrolling, are shaped
+            // and uploaded.
+            const UiRect viewport = renderer->message_scene ? renderer->message_scene->viewport : UiRect{};
+            const float margin = presentation->scroll_moving ? kMessageTextRasterMarginDips : 0.0f;
+            const UiRect band{viewport.left, viewport.top - margin, viewport.right, viewport.bottom + margin};
+            const u32 first_batch = storage->batch_count;
+            const u32 effects = renderer->text_effect_count;
             for (u32 index = 0; index < presentation->command_count; ++index) {
                 const MessageTextCommand& command = presentation->commands[index];
-                // Text projection also contains offscreen overscan commands so
-                // their real heights are known before scrolling reveals them.
-                // They are measured, but their glyphs are not shaped or
-                // uploaded for this frame.
-                if (renderer->message_scene && !ui_rect_has_area(ui_rect_intersection(
-                                                   command.clip, renderer->message_scene->viewport))) {
+                if (renderer->message_scene && !ui_rect_has_area(ui_rect_intersection(command.clip, band)))
                     continue;
-                }
                 if (!append_message_text_command(renderer, presentation, command, index, theme,
                                                  atlas_invalidated) ||
                     *atlas_invalidated) {
@@ -2348,6 +2410,17 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                     return false;
                 }
             }
+            // Row clips extend past the viewport; it bounds every message batch.
+            bool viewport_only = effects == renderer->text_effect_count;
+            for (u32 index = first_batch; renderer->message_scene && index < storage->batch_count; ++index) {
+                UiRect& clip = storage->batches[index].clip;
+                viewport_only = viewport_only && ui_rect_equal(clip, viewport);
+                clip = ui_rect_intersection(clip, viewport);
+            }
+            renderer->text_message_builds = presentation->builds;
+            renderer->text_message_shift_base = presentation->scroll_shift_dips;
+            renderer->text_message_shift_px = 0;
+            renderer->text_message_shiftable = viewport_only && presentation->scroll_moving;
         }
         storage->quad_capacity = full_quad_capacity;
         storage->batch_capacity = full_batch_capacity;
@@ -2701,6 +2774,8 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
         reset_value(&renderer->friends_search_geometry);
     if (settings_active || login_form)
         text_edit_layout_invalidate(&renderer->composer_layout);
+    if (include_messages)
+        sync_message_scroll(renderer);
     for (u32 attempt = 0; attempt < 8; ++attempt) {
         bool atlas_invalidated = false;
         bool storage_modified = false;

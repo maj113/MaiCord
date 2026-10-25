@@ -24,9 +24,10 @@
 
 namespace maicord::app_detail {
 namespace {
-// A moved message viewport takes the scroll-only account refresh.
-bool refresh_scrolled_projection(bool messages_changed) noexcept {
-    return messages_changed ? refresh_account_scroll() && application_request_frame()
+// A moved message viewport takes the scroll-only account refresh; a step of a
+// continuing animation may move message glyphs by whole pixels.
+bool refresh_scrolled_projection(bool messages_changed, bool scroll_moving = false) noexcept {
+    return messages_changed ? refresh_account_scroll(scroll_moving) && application_request_frame()
                             : refresh_retained_projection(false);
 }
 bool finish_immediate_scroll(bool messages_changed) noexcept {
@@ -287,6 +288,18 @@ void update_scrollbar_hover(float x, float y) noexcept {
     }
 }
 
+namespace {
+// Whether the message timeline's wheel animation continues after this step.
+bool messages_animating() noexcept {
+    if (g_app.scroll_host.immediate)
+        return false;
+    for (const auto& entry : g_app.scroll_host.entries)
+        if (entry.animation.active && entry.binding.read == read_surface && entry.binding.key == messages)
+            return true;
+    return false;
+}
+} // namespace
+
 bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
     const u64 message_scroll_before = g_app.message_view.timeline.scroll_units;
     POINT pixel{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
@@ -521,6 +534,7 @@ bool tick_smooth_scrolls(u64 now_us) noexcept {
         return refresh_reaction_viewer_presentation();
     if (application_thread_browser_active())
         return application_thread_browser_refresh_after_scroll();
-    return refresh_scrolled_projection(g_app.message_view.timeline.scroll_units != message_scroll_before);
+    return refresh_scrolled_projection(g_app.message_view.timeline.scroll_units != message_scroll_before,
+                                       messages_animating());
 }
 } // namespace maicord::app_detail

@@ -69,6 +69,10 @@ struct MessageSceneResult {
     u32 first;
     u32 count;
     bool changed;
+    // Only the scroll position moved: the same rows, data and viewport, laid
+    // out scroll_shift DIPs from where the previous update put them.
+    bool scroll_only;
+    float scroll_shift;
 
     constexpr bool ok() const noexcept {
         return error == MessageSceneError::none;
@@ -243,6 +247,9 @@ struct MessageScene {
     bool unread_cursor_known;
     bool active;
     bool dirty;
+    // A scroll moved the timeline since the last update; kept apart from dirty
+    // so an update can tell a pure scroll from other changes.
+    bool scroll_dirty;
     bool owns_rows;
     MessageResultCardStyle result_card_style;
     u32 result_card_revision;
@@ -275,6 +282,8 @@ struct MessageScene {
     // against its bottom edge. The leading gap is lead_dips.
     bool bottom_anchored;
     float lead_dips;
+    // Where the last layout put the top of the first materialized row.
+    float rows_origin_dips;
     MessageSceneIntro intro;
     UiTextMeasureCache* intro_measure;
     u64 intro_signature;
@@ -374,6 +383,10 @@ bool message_scene_set_source_order(MessageScene*, ConstSlice<MessageHandle>, u3
 MessageHandle message_scene_source_handle(const MessageScene&, u32 source_index) noexcept;
 u32 message_scene_source_count(const MessageScene&) noexcept;
 MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) noexcept;
+// Whether an update has a change to apply, a scroll included.
+constexpr bool message_scene_pending(const MessageScene& scene) noexcept {
+    return scene.dirty || scene.scroll_dirty;
+}
 // Cursor projection owns no read-state model. Unknown clears the decoration;
 // known zero marks the first authoritative resident in this channel.
 // Returns true when the tint changed; a zero id or level clears it.

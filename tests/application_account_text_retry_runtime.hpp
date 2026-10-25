@@ -53,7 +53,7 @@ bool synchronize_shell_widget_scenes() noexcept {
 bool refresh_active_autocomplete() noexcept {
     return true;
 }
-bool rebuild_account_text_cache() noexcept {
+bool rebuild_account_text_cache(bool, bool) noexcept {
     auto& count = account_text_retry_runtime_test::attempts;
     ++count;
     if (account_text_retry_runtime_test::reject)

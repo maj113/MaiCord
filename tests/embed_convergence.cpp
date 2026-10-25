@@ -6,6 +6,7 @@
 #include "maicord/ui/text_flow_layout.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -254,6 +255,38 @@ void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept 
     check(image_scrolling, "image_reply_reaction_text_converges_at_fractional_scroll_origins");
     check(image_scrolling && separated, "image_reply_body_text_stays_above_the_attachment");
     check(image_scrolling && image_steady, "image_metrics_stay_stable_after_resize_theme_and_metadata_changes");
+    // A scroll step over unchanged rows moves the projection instead of
+    // rebuilding it, and the moved commands equal a rebuild at that position.
+    MessageTextCoordinatorRequest step = request;
+    step.scroll_refresh = step.scroll_moving = true;
+    const auto close_to = [](float a, float b) noexcept { return a - b < 0.001f && b - a < 0.001f; };
+    bool moved = false;
+    bool shifted = image_scrolling && message_timeline_scroll_to_start(&f.timeline, &moved) &&
+                   message_timeline_scroll_by(&f.timeline, 60'000, 0, &moved) &&
+                   message_text_coordinator_converge(request).ok();
+    const u32 builds = f.presentation.builds, rows = f.scene.rebuilds;
+    shifted = shifted && message_scene_scroll_by(&f.scene, 1'237, 0, &moved) && moved;
+    const auto stepped = message_text_coordinator_converge(step);
+    shifted = shifted && stepped.ok() && stepped.finalized && stepped.passes == 1 &&
+              f.presentation.builds == builds && f.scene.rebuilds == rows && f.presentation.scroll_moving &&
+              close_to(f.presentation.scroll_shift_dips, -ui_signed_extent_dips(1'237));
+    static MessageTextCommand moved_commands[256];
+    const u32 moved_count = f.presentation.command_count;
+    for (u32 i = 0; i < moved_count; ++i)
+        moved_commands[i] = f.commands[i];
+    f.presentation.shift_layout_passes = 0;
+    shifted = shifted && message_text_coordinator_converge(request).ok() && f.presentation.builds != builds &&
+              f.presentation.command_count == moved_count;
+    const auto same = [&](const UiRect& a, const UiRect& b) noexcept {
+        return close_to(a.left, b.left) && close_to(a.top, b.top) && close_to(a.right, b.right) && close_to(a.bottom, b.bottom);
+    };
+    for (u32 i = 0; shifted && i < moved_count; ++i) {
+        const auto& a = moved_commands[i];
+        const auto& b = f.commands[i];
+        shifted = a.text.bytes == b.text.bytes && bytes_equal(a.text.data, b.text.data, a.text.bytes) &&
+                  same(a.rectangle, b.rectangle) && same(a.clip, b.clip);
+    }
+    check(shifted, "scroll_step_moves_the_projection_exactly_as_a_rebuild_places_it");
     message_scene_release(&f.scene);
     text_system_release(&text_system);
 }

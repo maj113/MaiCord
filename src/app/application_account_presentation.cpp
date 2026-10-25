@@ -571,7 +571,7 @@ bool synchronize_shell_layout() noexcept {
     return false;
 }
 
-bool rebuild_account_text_cache() noexcept {
+bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcept {
     if (!g_app.account_ui) {
         return true;
     }
@@ -590,7 +590,10 @@ bool rebuild_account_text_cache() noexcept {
         g_app.account.status.required_action == AccountRequirement::none;
     if (!application_poll_synchronize())
         return false;
-    ui.message_text.reveal_spoilers = application_user_settings_reveal_spoilers(ui.active_channel_id);
+    const bool reveal_spoilers = application_user_settings_reveal_spoilers(ui.active_channel_id);
+    if (ui.message_text.reveal_spoilers != reveal_spoilers)
+        ui.message_text.shift_layout_passes = 0;
+    ui.message_text.reveal_spoilers = reveal_spoilers;
     if (!g_app.message_scene.active) {
         return message_action_bar_synchronize(&g_app.message_action_bar, g_app.message_scene) &&
                renderer_rebuild_content_text(&g_app.renderer, application_theme());
@@ -610,7 +613,7 @@ bool rebuild_account_text_cache() noexcept {
                        renderer_rebuild_content_text(static_cast<D3D11Renderer*>(opaque), theme);
             },
             &g_app.renderer, clock_unix_milliseconds() / 1'000,
-            renderer_text_measure_revision(g_app.renderer), &trace});
+            renderer_text_measure_revision(g_app.renderer), &trace, scroll_refresh, scroll_moving});
     if (!coordinated.ok()) {
         log_u64(LogLevel::error, "ui", "message_text_coordinator_error",
                 static_cast<u64>(coordinated.error));
@@ -864,7 +867,7 @@ bool refresh_account_text(bool force) noexcept {
 // A message-viewport move with every account source current needs only the
 // message scene, its text projection and renderer text. Shell scenes, typing
 // expiry, composer height and member projections keep unchanged inputs.
-bool refresh_account_scroll() noexcept {
+bool refresh_account_scroll(bool scroll_moving) noexcept {
     if (!g_app.account_ui || !g_app.message_scene.active || application_settings_active() ||
         application_friends_active())
         return refresh_account_text(true);
@@ -877,7 +880,7 @@ bool refresh_account_scroll() noexcept {
     // projection takes the full path, which owns retry backoff.
     auto& shell = g_app.renderer.content_text_prefix.shell;
     shell.scroll_hint = true;
-    const bool rebuilt = rebuild_account_text_cache();
+    const bool rebuilt = rebuild_account_text_cache(true, scroll_moving);
     shell.scroll_hint = false;
     return rebuilt || refresh_account_text(true);
 }

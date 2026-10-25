@@ -60,6 +60,12 @@ struct MessageTextCoordinatorRequest {
     u64 now_unix_seconds;
     u16 backend_revision;
     MessageTextCoordinatorTrace* trace;
+    // A scroll refresh over otherwise current sources: when the scene only
+    // scrolled, move the existing projection instead of rebuilding and
+    // measuring it. scroll_moving: the animation continues, so its glyphs may
+    // move by whole pixels instead of being rastered at the new position.
+    bool scroll_refresh;
+    bool scroll_moving;
 };
 
 struct MessageTextCoordinatorResult {

@@ -276,6 +276,10 @@ struct MessageTextPresentation {
     MessageTextRichMetrics rich;
     u64 next_timestamp_update_unix_seconds;
     u64 projection_signature;
+    // The scene layout pass the commands describe (zero: none or changed since)
+    // and how far scrolls have moved them since this build.
+    u32 shift_layout_passes;
+    float scroll_shift_dips;
     u64 hovered_message_id;
     u32 hovered_source_offset;
     // Where the next measurement-history lookup starts (see append_command).
@@ -284,6 +288,7 @@ struct MessageTextPresentation {
     bool has_hover;
     bool active;
     bool reveal_spoilers; // Chat setting: spoiler text renders revealed
+    bool scroll_moving;   // The last move was a step of a continuing scroll
     MessageTextPresentationError last_error;
     u64 failure_message_id;
     u32 failure_source_index;
@@ -313,6 +318,10 @@ MessageTextPresentationResult message_text_presentation_build(
     MessageTextPresentation* presentation, const MessageScene& scene, const ChatStateStore& state,
     const UserStore* users, const NavigationView& navigation, const Theme& theme,
     u64 now_unix_seconds) noexcept;
+
+// Moves every command by a scroll of the scene it was built from. Rows are
+// clipped to their own rectangles, so a moved projection equals a rebuilt one.
+void message_text_presentation_shift(MessageTextPresentation* presentation, float shift) noexcept;
 
 bool message_text_presentation_apply_measurements(MessageScene* scene,
                                                   const MessageTextPresentation& presentation,

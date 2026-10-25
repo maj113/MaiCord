@@ -2432,7 +2432,7 @@ bool application_search_synchronize() noexcept {
         if (!presentation || !scene)
             return false;
         const u64 now_seconds = clock_unix_milliseconds() / 1000;
-        const bool changed = !presentation->active || scene->dirty ||
+        const bool changed = !presentation->active || message_scene_pending(*scene) ||
                              s->text_owner->input_signature != search_text_signature(*s, *scene) ||
                              (presentation->next_timestamp_update_unix_seconds &&
                               now_seconds >= presentation->next_timestamp_update_unix_seconds);

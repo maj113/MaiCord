@@ -529,7 +529,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         const TimelineInputs timeline(&stamp);
         const MessageScene& scene = *renderer.message_scene;
         s.push(scene.active)
-            .push(scene.dirty)
+            .push(message_scene_pending(scene))
             .push(scene.focused_message_id)
             .push(scene.observed_scroll_units)
             .push(scene.first)
