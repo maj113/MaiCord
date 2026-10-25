@@ -21829,13 +21829,20 @@ void test_gateway_endpoint() noexcept {
 
     expect(
         gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg/socket?old=1"),
-                                           GatewayEndpointPolicy::user_v9_json_zlib_stream,
+                                           GatewayEndpointPolicy::user_v9_etf_zstd_stream,
                                            &endpoint) == GatewayEndpointError::none &&
-            endpoint.policy == GatewayEndpointPolicy::user_v9_json_zlib_stream &&
+            endpoint.policy == GatewayEndpointPolicy::user_v9_etf_zstd_stream &&
             bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(endpoint.target), endpoint.target_bytes},
-                        byte_literal("/socket?encoding=json&v=9&compress=zlib-stream")) &&
+                        byte_literal("/socket?encoding=etf&v=9&compress=zstd-stream")) &&
             gateway_endpoint_validate(endpoint),
-        "gateway_endpoint_user_v9_zlib_policy");
+        "gateway_endpoint_user_v9_etf_zstd_policy_path");
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway-us-east1-b.discord.gg"),
+                                              GatewayEndpointPolicy::user_v9_etf_zstd_stream,
+                                              &endpoint) == GatewayEndpointError::none &&
+               bytes_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(endpoint.target), endpoint.target_bytes},
+                           byte_literal("/?encoding=etf&v=9&compress=zstd-stream")) &&
+               gateway_endpoint_validate(endpoint),
+           "gateway_endpoint_user_v9_etf_zstd_policy");
     expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg"),
                                               static_cast<GatewayEndpointPolicy>(0xFF),
                                               &endpoint) == GatewayEndpointError::invalid_input,
@@ -26299,10 +26306,10 @@ void test_gateway_client_contract() noexcept {
     expect(gateway_user_client_configuration_validate(configuration) &&
                !gateway_user_client_configuration_validate(invalid_configuration) &&
                gateway_endpoint_parse_with_policy(utf8_literal("wss://127.0.0.1:1"),
-                                                  GatewayEndpointPolicy::user_v9_json_zlib_stream,
+                                                  GatewayEndpointPolicy::user_v9_etf_zstd_stream,
                                                   &endpoint) == GatewayEndpointError::none &&
                gateway_client_user_runtime_bytes() >=
-                   gateway_client_runtime_bytes() + sizeof(ZlibStreamInflater),
+                   gateway_client_runtime_bytes() + sizeof(ZstdStreamDecoder),
            "gateway_client_user_configuration_and_runtime_contract");
 
     GatewayClient client{};

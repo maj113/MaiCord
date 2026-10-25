@@ -1221,7 +1221,8 @@ struct GatewayUserSessionSnapshot {
 // no Identify or credential-bearing payload.
 GatewayClientResult gateway_client_start(GatewayClient* client) noexcept;
 // Normal-user path. A successful start consumes the complete normal_user
-// profile and binds the WebSocket to the v9/json/zlib-stream endpoint policy.
+// profile and binds the WebSocket to the v9 ETF zstd-stream endpoint policy;
+// commands go out as ETF.
 // Invalid or failed synchronous startup leaves the profile unchanged.
 GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProfile* profile,
                                               const GatewayUserClientConfiguration* configuration,

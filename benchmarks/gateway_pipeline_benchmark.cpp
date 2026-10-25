@@ -1,5 +1,5 @@
 // Offline replay of the account module's Gateway receive path: WebSocket
-// framing, zlib-stream inflate, envelope scan/decode, READY projection,
+// framing, zstd-stream decompression, ETF transcoding, envelope scan/decode, READY projection,
 // dispatch routing and mailbox publication, drained by a consumer thread
 // through the module's own pop. Synthetic, captured-shape payloads only; no
 // socket, TLS session, token or profile is used.
@@ -7,9 +7,9 @@
 //   MaiCordGatewayPipelineBenchmark.exe emit <raw-file> large|small
 //       writes the deterministic fixture ([u8 phase][u32 bytes][json]...)
 //   MaiCordGatewayPipelineBenchmark.exe replay <compressed-file> <runs> large|small
-//       replays the zlib-stream chunks ([u8 phase][u32 raw][u32 bytes][z]...)
-//       produced from that fixture with one shared deflate context and a
-//       Z_SYNC_FLUSH per payload (tools/benchmark_gateway_pipeline.ps1).
+//       replays the zstd-stream chunks ([u8 phase][u32 etf][u32 bytes][z]...):
+//       the fixture's payloads as the Gateway's ETF terms, compressed with one
+//       shared context and a flush per payload (tools/benchmark_gateway_pipeline.ps1).
 #include "../src/app/gateway_client.cpp"
 #include "maicord/protocol/writer.hpp"
 #include <psapi.h>
@@ -843,7 +843,9 @@ bool start_runtime() noexcept {
         !stable_storage_initialize(&runtime->ready_record_index, kStructuralCount, kInitialStructuralCount,
                                    sizeof(u32), alignof(u32)) ||
         !reserved_bytes_initialize(&runtime->ready_staging, kReadyStagingBytes) ||
-        !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes))
+        !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes) ||
+        !stable_storage_initialize(&runtime->zstd_storage, kZstdStorageBytes, kZstdInitialStorageBytes, sizeof(u8),
+                                   alignof(u8)))
         return false;
     client.state_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     client.notification_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -967,7 +969,7 @@ bool replay_once(PhaseTotals (&totals)[kPhases], u64* committed_peak) noexcept {
         t.messages += messages;
     }
     const u64 committed = runtime->decoded_message.arena.committed + runtime->structural_scratch.arena.committed +
-                          runtime->ready_record_index.arena.committed;
+                          runtime->ready_record_index.arena.committed + runtime->zstd_storage.arena.committed;
     if (committed > *committed_peak) *committed_peak = committed;
     WriteRelease(&consumer.stop, 1);
     SetEvent(client.notification_event);
@@ -989,35 +991,42 @@ bool replay_once(PhaseTotals (&totals)[kPhases], u64* committed_peak) noexcept {
 }
 
 // Stage microbenchmarks on the same payloads (single thread, no mailbox).
-ZlibStreamInflater inflater;
+ZstdStreamDecoder decompressor;
+u8* stream_storage;
+constexpr u32 kStreamStorageBytes = 64u * 1024u * 1024u;
 u8* decoded;
 u32 decoded_offsets[kMaximumMessages + 1];
 u32* index_storage;
 constexpr u32 kIndexCount = kGatewaySessionMaximumStructuralCount;
 
-struct InflateTotals {
-    u64 cycles[3];
-    u64 blocks, literals, copies;
+struct DecodeTotals {
+    u64 decompress[3], transcode[3];
+    u64 blocks, etf_bytes;
 };
-bool stage_inflate(InflateTotals* totals) noexcept {
+bool stage_decode(DecodeTotals* totals) noexcept {
     const HANDLE self = GetCurrentThread();
-    zlib_stream_initialize(&inflater);
+    if (!zstd_stream_initialize(&decompressor, {stream_storage, kStreamStorageBytes}, kStreamStorageBytes, nullptr,
+                                nullptr))
+        return false;
     u32 cursor = 0;
     for (u32 i = 0; i < chunk_count; ++i) {
-        const DeflateInputSpan span{chunks[i].data, chunks[i].bytes};
+        ConstSlice<u8> etf{};
         const u64 before = thread_cycles(self);
-        const auto result = zlib_stream_inflate_flush(&inflater, {&span, 1},
-                                                      {decoded + cursor, kFixtureBytes - cursor});
-        totals->cycles[chunks[i].phase] += thread_cycles(self) - before;
-        if (!result.ok() || result.output_bytes != chunks[i].raw_bytes) return false;
+        const auto result = zstd_stream_decompress(&decompressor, {chunks[i].data, chunks[i].bytes},
+                                                   kGatewaySessionMaximumDecodedMessageBytes, &etf);
+        const u64 middle = thread_cycles(self);
+        Slice<u8> output{decoded + cursor, kFixtureBytes - cursor};
+        const auto json = etf_to_json(etf, &output, output.count, nullptr, nullptr);
+        totals->decompress[chunks[i].phase] += middle - before;
+        totals->transcode[chunks[i].phase] += thread_cycles(self) - middle;
+        if (!result.ok() || etf.count != chunks[i].raw_bytes || !json.ok()) return false;
         totals->blocks += result.blocks;
-        totals->literals += result.literals;
-        totals->copies += result.copies;
+        totals->etf_bytes += etf.count;
         decoded_offsets[i] = cursor;
-        cursor += result.output_bytes;
+        cursor += json.bytes;
     }
     decoded_offsets[chunk_count] = cursor;
-    zlib_stream_clear(&inflater);
+    zstd_stream_clear(&decompressor);
     return true;
 }
 
@@ -1069,7 +1078,7 @@ int replay(const wchar_t* path, u32 runs, bool profile) noexcept {
         if (chunk.bytes > file_bytes - cursor) return 4;
         chunk.data = file + cursor;
         cursor += chunk.bytes;
-        if (chunk.raw_bytes != fixture.messages[chunk_count].bytes || chunk.phase != fixture.messages[chunk_count].phase)
+        if (chunk.phase != fixture.messages[chunk_count].phase)
             return 5;
         ++chunk_count;
     }
@@ -1078,7 +1087,7 @@ int replay(const wchar_t* path, u32 runs, bool profile) noexcept {
     u64 largest_compressed = 0;
     for (u32 i = 0; i < chunk_count; ++i) largest_compressed = maximum<u64>(largest_compressed, chunks[i].bytes);
     Line("fixture").field("messages", chunk_count).field("ready_bytes", fixture.messages[0].bytes)
-        .field("ready_compressed", chunks[0].bytes).field("supplemental_bytes", fixture.messages[1].bytes)
+        .field("ready_etf", chunks[0].raw_bytes).field("ready_compressed", chunks[0].bytes).field("supplemental_bytes", fixture.messages[1].bytes)
         .field("supplemental_compressed", chunks[1].bytes).field("raw_total", fixture.used)
         .field("largest_compressed", largest_compressed).field("presence", fixture.kinds[0])
         .field("typing", fixture.kinds[1]).field("message_create", fixture.kinds[2])
@@ -1091,13 +1100,15 @@ int replay(const wchar_t* path, u32 runs, bool profile) noexcept {
         .field("stream", sizeof(GatewayStreamSession)).field("event", sizeof(GatewayClientEvent))
         .field("user", sizeof(GatewayUserRuntime)).emit();
     decoded = static_cast<u8*>(VirtualAlloc(nullptr, kFixtureBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    stream_storage =
+        static_cast<u8*>(VirtualAlloc(nullptr, kStreamStorageBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     index_storage = static_cast<u32*>(VirtualAlloc(nullptr, kIndexCount * sizeof(u32), MEM_RESERVE | MEM_COMMIT,
                                                    PAGE_READWRITE));
-    if (!decoded || !index_storage) return 7;
-    InflateTotals inflated{};
+    if (!decoded || !index_storage || !stream_storage) return 7;
+    DecodeTotals decoded_totals{};
     u64 scan_cycles = 0, envelope_cycles = 0, structurals = 0, scan_minimum = ~0ull, envelope_minimum = ~0ull;
     for (u32 run = 0; run < runs; ++run) {
-        if (!stage_inflate(&inflated)) return 8;
+        if (!stage_decode(&decoded_totals)) return 8;
         u64 scan = 0, envelope = 0;
         if (!stage_scan(&scan, &structurals)) return 9;
         if (!stage_envelope(&envelope)) return 10;
@@ -1106,14 +1117,16 @@ int replay(const wchar_t* path, u32 runs, bool profile) noexcept {
         scan_minimum = minimum(scan_minimum, scan);
         envelope_minimum = minimum(envelope_minimum, envelope);
     }
-    if (!bytes_equal(decoded, fixture.data, fixture.used)) return 11;
-    Line("stage").field("name", "inflate")
-        .field("kcycles_per_run", (inflated.cycles[0] + inflated.cycles[1] + inflated.cycles[2]) / runs / 1000)
-        .field("ready_kcycles", inflated.cycles[0] / runs / 1000)
-        .field("supplemental_kcycles", inflated.cycles[1] / runs / 1000)
-        .field("burst_kcycles", inflated.cycles[2] / runs / 1000).field("decoded_bytes", fixture.used)
-        .field("blocks", inflated.blocks / runs).field("literals", inflated.literals / runs)
-        .field("copies", inflated.copies / runs).emit();
+    const auto& d = decoded_totals;
+    Line("stage").field("name", "zstd")
+        .field("kcycles_per_run", (d.decompress[0] + d.decompress[1] + d.decompress[2]) / runs / 1000)
+        .field("ready_kcycles", d.decompress[0] / runs / 1000).field("supplemental_kcycles", d.decompress[1] / runs / 1000)
+        .field("burst_kcycles", d.decompress[2] / runs / 1000).field("etf_bytes", d.etf_bytes / runs)
+        .field("blocks", d.blocks / runs).emit();
+    Line("stage").field("name", "etf")
+        .field("kcycles_per_run", (d.transcode[0] + d.transcode[1] + d.transcode[2]) / runs / 1000)
+        .field("ready_kcycles", d.transcode[0] / runs / 1000).field("supplemental_kcycles", d.transcode[1] / runs / 1000)
+        .field("burst_kcycles", d.transcode[2] / runs / 1000).field("json_bytes", decoded_offsets[chunk_count]).emit();
     Line("stage").field("name", "scan").field("kcycles_per_run", scan_cycles / runs / 1000)
         .field("min_kcycles", scan_minimum / 1000)
         .field("structurals", structurals).emit();

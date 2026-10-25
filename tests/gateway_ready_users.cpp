@@ -5,6 +5,7 @@
 #include "maicord/model/user_profile.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "fixtures/gateway_growth.hpp"
+#include "fixtures/gateway_growth_etf.hpp"
 #include "fixtures/oversized_guild.hpp"
 
 #include "maicord/sys/winsock.hpp"
@@ -448,8 +449,12 @@ void release_message() noexcept {
     if (runtime.decoded_message.arena.base)
         SecureZeroMemory(runtime.decoded_message.arena.base, runtime.decoded_message.arena.committed);
     stable_storage_release(&runtime.decoded_message);
+    if (runtime.zstd_storage.arena.base)
+        SecureZeroMemory(runtime.zstd_storage.arena.base, runtime.zstd_storage.arena.committed);
+    stable_storage_release(&runtime.zstd_storage);
 }
 
+// A reserve below the stream's initial storage also pins the stream storage.
 bool growing_session(u32 reserve = kGatewaySessionMaximumDecodedMessageBytes) noexcept {
     release_message();
     runtime.stopping = false;
@@ -457,16 +462,20 @@ bool growing_session(u32 reserve = kGatewaySessionMaximumDecodedMessageBytes) no
     runtime.identity = GatewayClientIdentity::normal_user;
     runtime.user = &growth_user;
     const u8 key[kWebSocketClientKeyBytes]{};
+    const u32 stream_reserve = reserve < kZstdInitialStorageBytes ? kZstdInitialStorageBytes : kZstdStorageBytes;
     return fresh_index() && stable_storage_initialize(&runtime.decoded_message, reserve,
-        kInitialDecodedMessageBytes, sizeof(u8), alignof(u8)) && initialize_session(&runtime, key);
+        kInitialDecodedMessageBytes, sizeof(u8), alignof(u8)) &&
+        stable_storage_initialize(&runtime.zstd_storage, stream_reserve, kZstdInitialStorageBytes, sizeof(u8),
+        alignof(u8)) && initialize_session(&runtime, key);
 }
 
-bool compressed_packet(ConstSlice<u8> bytes, u32 first = 0) noexcept {
+// One zstd-stream message; `first` sends only its first bytes as an unfinished
+// frame, and `rest` the remainder as the final continuation.
+bool compressed_packet(ConstSlice<u8> bytes, u32 first = 0, bool rest = false) noexcept {
     if (!bytes.data || !bytes.count || bytes.count > sizeof(output) - 4) return false;
-    // Separate server binary frames exercise accumulation before Z_SYNC_FLUSH.
     const u32 part = first ? first : bytes.count;
     if (part > bytes.count) return false;
-    output[0] = 0x82;
+    output[0] = first ? 0x02 : rest ? 0x80 : 0x82;
     const u32 header = part <= 125 ? 2 : 4;
     if (header == 2) output[1] = static_cast<u8>(part);
     else {
@@ -484,26 +493,28 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
     auto* base = runtime.decoded_message.arena.base;
     runtime.session.opened = true;
     runtime.session.lifecycle.phase = GatewayLifecyclePhase::awaiting_hello;
-    check(compressed_packet({kGatewayGrowthHello, sizeof(kGatewayGrowthHello)}), "Gateway compressed HELLO accepted");
+    check(compressed_packet({kGatewayGrowthHelloEtf, sizeof(kGatewayGrowthHelloEtf)}), "Gateway compressed HELLO accepted");
     auto received = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(received.kind == GatewaySessionEventKind::hello && runtime.decoded_message.arena.committed == 4096 &&
         runtime.structural_scratch.arena.committed == 4096, "Gateway HELLO retains two one-page startup prefixes");
     runtime.session.lifecycle.phase = GatewayLifecyclePhase::awaiting_session;
-    check(compressed_packet({kGatewayGrowthReady, sizeof(kGatewayGrowthReady)}, 17), "Gateway first READY compressed chunk accepted");
+    check(compressed_packet({kGatewayGrowthReadyEtf, sizeof(kGatewayGrowthReadyEtf)}, 17), "Gateway first READY compressed chunk accepted");
     check(gateway_session_next(&runtime.session, 0, GetTickCount64()).kind == GatewaySessionEventKind::need_input &&
-        runtime.session.compressed_bytes == 17, "Gateway partial flush waits without decoding or growing output");
-    check(compressed_packet({kGatewayGrowthReady + 17, sizeof(kGatewayGrowthReady) - 17}), "Gateway remaining READY compressed chunk accepted");
+        runtime.session.compressed_bytes == 17, "Gateway partial message waits without decoding or growing output");
+    check(compressed_packet({kGatewayGrowthReadyEtf + 17, sizeof(kGatewayGrowthReadyEtf) - 17}, 0, true),
+        "Gateway remaining READY compressed chunk accepted");
     received = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(received.kind == GatewaySessionEventKind::ready && received.envelope.data.source.bytes > 128 * 1024 &&
-        runtime.decoded_message.arena.base == base && runtime.decoded_message.capacity == 512 * 1024 &&
-        runtime.structural_scratch.capacity == 128 * 1024 && !growth_user.inflater.failed && !runtime.session.compressed_bytes,
+        runtime.decoded_message.arena.base == base && runtime.decoded_message.capacity >= kGatewayGrowthReadyOutputBytes &&
+        runtime.decoded_message.capacity < 2 * kGatewayGrowthReadyOutputBytes &&
+        runtime.structural_scratch.capacity == 128 * 1024 && !growth_user.zstd.failed && !runtime.session.compressed_bytes,
         "Gateway actual compressed READY expands beyond 128 KiB and scans large dense tail once with stable banks");
     const u32 committed = static_cast<u32>(runtime.decoded_message.arena.committed);
-    check(compressed_packet({kGatewayGrowthFollow, sizeof(kGatewayGrowthFollow)}), "Gateway dictionary continuation frame accepted");
+    check(compressed_packet({kGatewayGrowthFollowEtf, sizeof(kGatewayGrowthFollowEtf)}), "Gateway dictionary continuation frame accepted");
     received = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(received.kind == GatewaySessionEventKind::dispatch && received.envelope.sequence == 12 &&
-        runtime.decoded_message.arena.committed == committed && !growth_user.inflater.failed,
-        "Gateway dictionary continuation preserves flush history and message backing high-water mark");
+        runtime.decoded_message.arena.committed == committed && !growth_user.zstd.failed,
+        "Gateway stream continuation keeps the window and the message backing high-water mark");
     // Below the 1 MiB trim threshold the banks keep their high-water mark.
     trim_message_banks(&runtime);
     check(runtime.decoded_message.arena.committed == committed && runtime.session.message_storage.data == base,
@@ -525,14 +536,14 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.session.lifecycle.phase = GatewayLifecyclePhase::ready;
         runtime.session.lifecycle.has_sequence = true;
         runtime.session.lifecycle.last_sequence = 7;
-        check(compressed_packet({kGatewayGrowthBound, sizeof(kGatewayGrowthBound)}), "Gateway growth boundary failure frame accepted");
+        check(compressed_packet({kGatewayGrowthBoundEtf, sizeof(kGatewayGrowthBoundEtf)}), "Gateway growth boundary failure frame accepted");
         if (mode == 0) SetEvent(runtime.mailbox_cancel);
         if (mode == 1) runtime.mailbox_deadline_ms = GetTickCount64();
         received = gateway_session_next(&runtime.session, 0, GetTickCount64());
         ResetEvent(runtime.mailbox_cancel);
         runtime.mailbox_deadline_ms = 0;
         check(received.kind == GatewaySessionEventKind::error && received.error == GatewaySessionError::compression &&
-            received.compression_error == ZlibInflateError::output_capacity && growth_user.inflater.failed &&
+            received.zstd_error == ZstdError::output_capacity && growth_user.zstd.failed &&
             runtime.decoded_message.arena.committed == 4096 && runtime.session.lifecycle.last_sequence == 7,
             "Gateway cancellation deadline or denied reserve fails at write boundary without dispatch or checkpoint mutation");
     }
@@ -542,14 +553,14 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.session.lifecycle.phase = GatewayLifecyclePhase::ready;
         runtime.session.lifecycle.has_sequence = true;
         runtime.session.lifecycle.last_sequence = 7;
-        const ConstSlice<u8> bytes = excess ? ConstSlice<u8>{kGatewayGrowthExcessIndex, sizeof(kGatewayGrowthExcessIndex)} :
-            ConstSlice<u8>{kGatewayGrowthExactIndex, sizeof(kGatewayGrowthExactIndex)};
+        const ConstSlice<u8> bytes = excess ? ConstSlice<u8>{kGatewayGrowthExcessIndexEtf, sizeof(kGatewayGrowthExcessIndexEtf)} :
+            ConstSlice<u8>{kGatewayGrowthExactIndexEtf, sizeof(kGatewayGrowthExactIndexEtf)};
         check(compressed_packet(bytes), "Gateway compressed structural boundary frame accepted within wire bound");
         received = gateway_session_next(&runtime.session, 0, GetTickCount64());
         // Past 1M offsets the index doubles once more instead of failing.
         const u32 capacity = excess ? 2 * 1024 * 1024 : 1024 * 1024;
         check(runtime.structural_scratch.capacity == capacity &&
-            runtime.structural_scratch.arena.committed == capacity * sizeof(u32) && !growth_user.inflater.failed &&
+            runtime.structural_scratch.arena.committed == capacity * sizeof(u32) && !growth_user.zstd.failed &&
             received.kind == GatewaySessionEventKind::dispatch && runtime.session.lifecycle.last_sequence == 99,
             "Gateway 1M and 1M+1 offset frames both dispatch, committing only the index each needs");
         const auto* index_base = main_index_view(&runtime).data;
@@ -564,7 +575,9 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
     bool wiped = true;
     for (u32 i = 0; wiped && i < runtime.decoded_message.arena.committed; ++i)
         wiped = runtime.decoded_message.arena.base[i] == 0;
-    check(wiped && !growth_user.inflater.initialized, "Gateway reconnect clears committed decoded bytes and persistent dictionary");
+    for (u32 i = 0; wiped && i < runtime.zstd_storage.arena.committed; ++i)
+        wiped = runtime.zstd_storage.arena.base[i] == 0;
+    check(wiped && !growth_user.zstd.initialized, "Gateway reconnect clears committed decoded bytes and the stream window");
     release_message();
     runtime.user = nullptr;
     check(fresh_index(), "Gateway decoded fixtures restore index baseline");

@@ -97,10 +97,10 @@ void test_voice_gateway(void (*check)(bool, const char*) noexcept) noexcept {
     }
     GatewayEndpoint main{};
     check(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg"),
-                                             GatewayEndpointPolicy::user_v9_json_zlib_stream,
+                                             GatewayEndpointPolicy::user_v9_etf_zstd_stream,
                                              &main) == GatewayEndpointError::none &&
               equal({main.target, main.target_bytes},
-                    utf8_literal("/?encoding=json&v=9&compress=zlib-stream")),
+                    utf8_literal("/?encoding=etf&v=9&compress=zstd-stream")),
           "voice endpoint policy does not change the authenticated main Gateway policy");
 
     u32 scratch[128]{};

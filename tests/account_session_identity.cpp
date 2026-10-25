@@ -137,7 +137,7 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
     GatewayEndpoint endpoint{};
     const bool endpoint_ready =
         gateway_endpoint_parse_with_policy(utf8_literal("wss://127.0.0.1:1"),
-                                           GatewayEndpointPolicy::user_v9_json_zlib_stream,
+                                           GatewayEndpointPolicy::user_v9_etf_zstd_stream,
                                            &endpoint) == GatewayEndpointError::none;
     for (u32 i = 0; i < 2; ++i) {
         const auto& saved = i == 0 ? restored : legacy;

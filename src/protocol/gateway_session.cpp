@@ -206,6 +206,12 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
 bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcept {
     if (session.structural_scratch.count > ~0u / sizeof(u32)) return false;
     const ConstSlice<u8> output{candidate.data, candidate.count};
+    const ConstSlice<u8> decoder =
+        session.zlib_stream ? ConstSlice<u8>{reinterpret_cast<const u8*>(session.zlib_stream), sizeof(*session.zlib_stream)}
+                            : ConstSlice<u8>{reinterpret_cast<const u8*>(session.zstd_stream), sizeof(*session.zstd_stream)};
+    const ConstSlice<u8> zstd_storage = session.zstd_stream
+        ? ConstSlice<u8>{session.zstd_stream->storage.data, session.zstd_stream->maximum_storage}
+        : ConstSlice<u8>{reinterpret_cast<const u8*>(&session), sizeof(session)};
     const ConstSlice<u8> others[]{
         {session.input.data, session.input.capacity},
         {session.compressed_storage.data, session.compressed_storage.count},
@@ -213,7 +219,7 @@ bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcep
         {reinterpret_cast<const u8*>(session.structural_scratch.data),
             static_cast<u32>(session.structural_scratch.count * sizeof(u32))},
         {reinterpret_cast<const u8*>(&session), sizeof(session)},
-        {reinterpret_cast<const u8*>(session.zlib_stream), sizeof(*session.zlib_stream)}};
+        decoder, zstd_storage};
     if (!output.data || !output.count || !byte_range_valid(output)) return false;
     for (const auto other : others)
         if (!byte_range_valid(other) || byte_ranges_overlap(output, other)) return false;
@@ -229,6 +235,33 @@ bool grow_session_output(void* opaque, u32 required, Slice<u8>* backed) noexcept
     *backed = candidate;
     return true;
 }
+// One complete zstd-stream message: decompress, then transcode the term.
+void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now_ms,
+                          GatewaySessionEvent* out) noexcept {
+    const u32 compressed_bytes = session->compressed_bytes;
+    session->compressed_message_ready = false;
+    ConstSlice<u8> etf{};
+    const ZstdDecodeResult decoded =
+        zstd_stream_decompress(session->zstd_stream, {session->compressed_storage.data, compressed_bytes},
+                               session->maximum_decoded_message_bytes, &etf);
+    if (!decoded.ok()) {
+        session_error(out, GatewaySessionError::compression);
+        out->zstd_error = decoded.error;
+        return;
+    }
+    consume_compressed(session, compressed_bytes);
+    const EtfResult json = etf_to_json(etf, &session->message_storage, session->maximum_decoded_message_bytes,
+                                       session->grow_output ? grow_session_output : nullptr, session);
+    if (!json.ok()) {
+        session_error(out, GatewaySessionError::etf);
+        out->etf_error = json.error;
+        return;
+    }
+    process_gateway_message(session,
+                            Utf8View{reinterpret_cast<const char*>(session->message_storage.data), json.bytes},
+                            heartbeat_jitter, now_ms, out);
+}
+
 void process_compressed_message(
     GatewaySession* session, u32 compressed_bytes,
     u32 heartbeat_jitter, u64 now_ms, GatewaySessionEvent* out) noexcept {
@@ -307,6 +340,20 @@ bool gateway_session_enable_zlib_stream(
     return true;
 }
 
+bool gateway_session_enable_zstd_etf(GatewaySession* session, ZstdStreamDecoder* decoder,
+                                     Slice<u8> compressed_storage) noexcept {
+    if (session->opened || session->transport_compressed || !decoder || !decoder->initialized || decoder->failed ||
+        !compressed_storage.data || compressed_storage.count == 0 || session->message_bytes != 0 ||
+        session->compressed_bytes != 0)
+        return false;
+    session->zstd_stream = decoder;
+    session->compressed_storage = compressed_storage;
+    session->inline_compressed_storage = compressed_storage;
+    session->maximum_compressed_bytes = compressed_storage.count;
+    session->transport_compressed = true;
+    return true;
+}
+
 bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maximum_compressed_bytes,
     GatewaySessionGrowCompressed grow, void* context) noexcept {
     if (session->opened || !session->transport_compressed || session->grow_compressed || !grow ||
@@ -321,7 +368,7 @@ bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maxim
 
 bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> decoded_output,
     u32 maximum_decoded_bytes, ZlibStreamGrowOutput grow, void* context) noexcept {
-    if (session->opened || !session->transport_compressed || !session->zlib_stream ||
+    if (session->opened || !session->transport_compressed || (!session->zlib_stream && !session->zstd_stream) ||
         session->grow_output || !grow || maximum_decoded_bytes < decoded_output.count ||
         maximum_decoded_bytes > kGatewaySessionMaximumDecodedMessageBytes)
         return false;
@@ -374,8 +421,15 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
                 if (session->stream_remaining) return event(out, GatewaySessionEventKind::need_input);
                 continue;
             }
-            // A payload ends at a message boundary whose bytes end in Z_SYNC_FLUSH.
-            const u32 pending = session->message_tracker.fragmented ? 0 : complete_sync_flush_bytes(*session);
+            // A zstd-stream payload is one whole message; a zlib-stream one ends
+            // at a message boundary whose bytes end in Z_SYNC_FLUSH.
+            if (session->zstd_stream) {
+                if (session->compressed_message_ready)
+                    return process_zstd_message(session, heartbeat_jitter, now_ms, out);
+            }
+            const u32 pending = session->message_tracker.fragmented || session->zstd_stream
+                                    ? 0
+                                    : complete_sync_flush_bytes(*session);
             if (pending != 0) {
                 return process_compressed_message(
                     session, pending, heartbeat_jitter, now_ms, out);
@@ -402,6 +456,7 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
                     return session_error(out, GatewaySessionError::unexpected_encoding);
                 if (!byte_queue_consume(&session->input, header.frame.header_bytes))
                     return session_error(out, GatewaySessionError::invalid_input);
+                session->compressed_message_ready = tracked.state == WebSocketMessageState::message_complete;
                 session->stream_remaining = static_cast<u32>(header.frame.payload_bytes);
                 continue;
             }

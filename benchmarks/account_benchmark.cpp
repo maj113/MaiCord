@@ -227,7 +227,7 @@ u32 run() noexcept {
     begin = clock_now();
     for (u32 iteration = 0; iteration < kMetadataIterations; ++iteration) {
         if (gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg"),
-                                               GatewayEndpointPolicy::user_v9_json_zlib_stream,
+                                               GatewayEndpointPolicy::user_v9_etf_zstd_stream,
                                                &endpoint) != GatewayEndpointError::none) {
             return 6;
         }
@@ -420,8 +420,8 @@ u32 run() noexcept {
     write_u64(gateway_client_user_runtime_bytes());
     write_text(" bytes\r\naccount_gateway_session_inline_bytes=");
     write_u64(sizeof(GatewaySession));
-    write_text(" bytes\r\naccount_gateway_zlib_stream_bytes=");
-    write_u64(sizeof(ZlibStreamInflater));
+    write_text(" bytes\r\naccount_gateway_zstd_stream_bytes=");
+    write_u64(sizeof(ZstdStreamDecoder));
     write_text(" bytes\r\naccount_user_rest_runtime_bytes=");
     write_u64(rest_client_user_runtime_bytes(kRestClientMinimumResponseBytes));
     write_text(" bytes\r\naccount_user_auth_runtime_bytes=");

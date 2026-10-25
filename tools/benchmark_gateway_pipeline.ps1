@@ -9,13 +9,18 @@ param(
     [ValidateSet('large', 'small')]
     [string[]]$Preset = @('small', 'large'),
     # Samples the producer thread in-process and prints its hottest functions per phase.
-    [switch]$Profile
+    [switch]$Profile,
+    # The compressor's level and window; Discord's frames declare a 64 KiB window.
+    [int]$ZstdLevel = 6,
+    [ValidateRange(10, 23)]
+    [int]$ZstdWindowLog = 16
 )
 
 # Builds the opt-in Gateway pipeline benchmark inside the single Release cache
-# under the shared build mutex, emits its synthetic fixture, compresses it as
-# one zlib-stream (shared context, Z_SYNC_FLUSH per payload, as the Gateway
-# does), replays it and removes the binary, objects and fixture files.
+# under the shared build mutex, emits its synthetic fixture, encodes each
+# payload as the Gateway's ETF term and compresses them as one zstd-stream
+# (shared context, a flush per payload), replays it and removes the binary,
+# objects and fixture files.
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
 $cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
@@ -26,19 +31,65 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ('maicord-gateway-pipeline-' + [gui
 . (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
 $python = (Get-Command python -ErrorAction Stop).Source
 $compress = @'
-import json, struct, sys, zlib
+import json, struct, sys
+from compression.zstd import ZstdCompressor, CompressionParameter as P
+
+# The Gateway's term layout: atom keys, nil/true/false atoms, binaries for
+# strings, integers by size, snowflake strings as 64-bit integers.
+def term(value, out):
+    if value is None:
+        out += b'\x64\x00\x03nil'
+    elif value is True:
+        out += b'\x64\x00\x04true'
+    elif value is False:
+        out += b'\x64\x00\x05false'
+    elif isinstance(value, int):
+        if 0 <= value <= 255:
+            out += struct.pack('>BB', 97, value)
+        elif -2**31 <= value < 2**31:
+            out += struct.pack('>Bi', 98, value)
+        else:
+            magnitude = abs(value)
+            digits = magnitude.to_bytes((magnitude.bit_length() + 7) // 8, 'little')
+            out += struct.pack('>BBB', 110, len(digits), 1 if value < 0 else 0) + digits
+    elif isinstance(value, float):
+        out += struct.pack('>Bd', 70, value)
+    elif isinstance(value, str):
+        if len(value) >= 17 and value.isdigit() and value[0] != '0' and int(value) < 2**64:
+            term(int(value), out)
+        else:
+            data = value.encode('utf-8', 'surrogatepass')
+            out += struct.pack('>BI', 109, len(data)) + data
+    elif isinstance(value, list):
+        if not value:
+            out += b'\x6a'
+        else:
+            out += struct.pack('>BI', 108, len(value))
+            for item in value:
+                term(item, out)
+            out += b'\x6a'
+    elif isinstance(value, dict):
+        out += struct.pack('>BI', 116, len(value))
+        for key, item in value.items():
+            data = key.encode('latin-1')
+            out += struct.pack('>BH', 100, len(data)) + data
+            term(item, out)
+    else:
+        raise TypeError(type(value))
+
 raw = open(sys.argv[1], 'rb').read()
 out = bytearray()
-stream = zlib.compressobj()
+stream = ZstdCompressor(options={P.compression_level: int(sys.argv[3]), P.window_log: int(sys.argv[4])})
 cursor = 0
 while cursor < len(raw):
     phase = raw[cursor]
     size = struct.unpack_from('<I', raw, cursor + 1)[0]
     payload = raw[cursor + 5:cursor + 5 + size]
     cursor += 5 + size
-    json.loads(payload)
-    chunk = stream.compress(payload) + stream.flush(zlib.Z_SYNC_FLUSH)
-    out += struct.pack('<BII', phase, size, len(chunk)) + chunk
+    etf = bytearray(b'\x83')
+    term(json.loads(payload), etf)
+    chunk = stream.compress(bytes(etf), mode=ZstdCompressor.FLUSH_BLOCK)
+    out += struct.pack('<BII', phase, len(etf), len(chunk)) + chunk
 open(sys.argv[2], 'wb').write(out)
 '@
 $resolve = @'
@@ -106,7 +157,7 @@ try {
         Write-Host "preset=$name"
         & $binary emit $raw $name
         if ($LASTEXITCODE -ne 0) { throw "Fixture emission failed with code $LASTEXITCODE." }
-        & $python -I $script $raw $compressed
+        & $python -I $script $raw $compressed $ZstdLevel $ZstdWindowLog
         if ($LASTEXITCODE -ne 0) { throw 'Fixture compression failed.' }
         for ($sample = 1; $sample -le $Samples; $sample++) {
             if ($Profile) {

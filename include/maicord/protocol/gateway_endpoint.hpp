@@ -21,7 +21,7 @@ enum class GatewayEndpointError : u8 {
 
 enum class GatewayEndpointPolicy : u8 {
     application_v10_json,
-    user_v9_json_zlib_stream,
+    user_v9_etf_zstd_stream,
     voice_v9_json,
 };
 

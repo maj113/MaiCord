@@ -16,6 +16,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/random.hpp"
 #include "maicord/platform/tls_client.hpp"
+#include "maicord/protocol/etf.hpp"
 #include "maicord/protocol/gateway_endpoint.hpp"
 #include "maicord/protocol/gateway_qos_token.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
@@ -73,6 +74,13 @@ inline constexpr u64 kPhaseTimeoutMs = 15'000;
 // Typed READY records are far smaller than the decoded READY; a larger
 // projection routes twice instead of staging.
 inline constexpr u32 kReadyStagingBytes = 16u * 1024u * 1024u;
+// zstd-stream storage: the window plus one message's ETF, growing for a
+// large READY and trimmed back afterwards.
+inline constexpr u32 kZstdInitialStorageBytes = 384u * 1024u;
+inline constexpr u32 kZstdStorageBytes =
+    kGatewaySessionMaximumDecodedMessageBytes + kZstdMaximumWindowBytes + kZstdMessageSlackBytes;
+// An ETF command: binaries and integers outgrow their JSON text by at most 2.5x.
+inline constexpr u32 kEtfCommandBytes = 12u * 1024u;
 // The desktop client's connect reasons once its app skeleton has mounted,
 // which it has by any identify after the launch's fast-connect one.
 inline constexpr char kGatewayConnectReasons[] = "AppSkeleton";
@@ -227,12 +235,14 @@ struct GatewayClientRuntime {
     u8 session_input[kSessionInputBytes];
     StableStorage structural_scratch;
     StableStorage decoded_message;
+    StableStorage zstd_storage;
     StableStorage ready_record_index;
     union {
         u8 plain_output[kPlainOutputBytes];
         u32 ready_object_scratch[kPlainOutputBytes / sizeof(u32)];
     };
     u8 gateway_payload[4096];
+    u8 gateway_etf[kEtfCommandBytes];
     u8 record_output[kRecordOutputBytes];
 };
 
@@ -242,7 +252,7 @@ template <u32 Capacity> struct GatewayUserTextStorage {
 };
 
 struct GatewayUserRuntime {
-    ZlibStreamInflater inflater;
+    ZstdStreamDecoder zstd;
     // READY's QoS data, re-encoded for later identifies' qos_token.
     u8 qos_derived[kGatewayQosDerivedMaximumBytes];
     u32 qos_derived_bytes;
@@ -305,6 +315,17 @@ bool grow_main_index(void* context, u32 required, Slice<u32>* backed) noexcept {
     return true;
 }
 
+Slice<u8> zstd_storage_view(GatewayClientRuntime* runtime) noexcept {
+    return {stable_storage_data<u8>(runtime->zstd_storage), runtime->zstd_storage.capacity};
+}
+bool grow_zstd_storage(void* context, u32 required, Slice<u8>* backed) noexcept {
+    auto* runtime = static_cast<GatewayClientRuntime*>(context);
+    if (!growth_allowed(runtime) || !stable_storage_grow(&runtime->zstd_storage, required))
+        return false;
+    *backed = zstd_storage_view(runtime);
+    return true;
+}
+
 bool grow_compressed_message(void* context, u32 required, Slice<u8>* backed) noexcept {
     auto* runtime = static_cast<GatewayClientRuntime*>(context);
     if (!required) {
@@ -342,6 +363,14 @@ void trim_message_banks(GatewayClientRuntime* runtime) noexcept {
         runtime->session.structural_scratch = main_index_view(runtime);
     if (runtime->ready_record_index.capacity > kInitialStructuralCount)
         stable_storage_shrink(&runtime->ready_record_index, kInitialStructuralCount);
+    // The window moves to the front; the pages past it and the next message's room are returned.
+    if (runtime->user && runtime->session.zstd_stream == &runtime->user->zstd &&
+        runtime->zstd_storage.capacity > 4 * kZstdInitialStorageBytes) {
+        const u32 keep = zstd_stream_compact(&runtime->user->zstd);
+        const u32 target = maximum(kZstdInitialStorageBytes, keep + kZstdMessageSlackBytes);
+        if (stable_storage_shrink(&runtime->zstd_storage, target))
+            zstd_stream_set_storage(&runtime->user->zstd, zstd_storage_view(runtime));
+    }
 }
 
 void release_main_index(GatewayClientRuntime* runtime) noexcept {
@@ -361,6 +390,9 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
     if (runtime->decoded_message.arena.base)
         SecureZeroMemory(runtime->decoded_message.arena.base, runtime->decoded_message.arena.committed);
     stable_storage_release(&runtime->decoded_message);
+    if (runtime->zstd_storage.arena.base)
+        SecureZeroMemory(runtime->zstd_storage.arena.base, runtime->zstd_storage.arena.committed);
+    stable_storage_release(&runtime->zstd_storage);
     if (runtime->ready_record_index.arena.base)
         SecureZeroMemory(runtime->ready_record_index.arena.base,
                          runtime->ready_record_index.arena.committed);
@@ -375,7 +407,7 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
 }
 
 GatewayEndpointPolicy endpoint_policy(GatewayClientIdentity identity) noexcept {
-    return identity == GatewayClientIdentity::normal_user ? GatewayEndpointPolicy::user_v9_json_zlib_stream
+    return identity == GatewayClientIdentity::normal_user ? GatewayEndpointPolicy::user_v9_etf_zstd_stream
                                                           : GatewayEndpointPolicy::application_v10_json;
 }
 
@@ -918,7 +950,9 @@ void clear_user_transport(GatewayClientRuntime* runtime) noexcept {
     if (!is_user(runtime)) {
         return;
     }
-    zlib_stream_clear(&runtime->user->inflater);
+    zstd_stream_clear(&runtime->user->zstd);
+    if (runtime->zstd_storage.arena.base)
+        SecureZeroMemory(runtime->zstd_storage.arena.base, runtime->zstd_storage.arena.committed);
     SecureZeroMemory(runtime->handshake_output, kHandshakeBytes);
     if (runtime->decoded_message.arena.base)
         SecureZeroMemory(runtime->decoded_message.arena.base, runtime->decoded_message.arena.committed);
@@ -1374,8 +1408,10 @@ bool initialize_session(GatewayClientRuntime* runtime,
     runtime->session.grow_index_context = runtime;
     runtime->session.cookies = endpoint_cookies(runtime, &runtime->session.cookie_request);
     return !is_user(runtime) ||
-           (gateway_session_enable_zlib_stream(&runtime->session, &runtime->user->inflater,
-                                               {runtime->handshake_output, kMessageBytes}) &&
+           (zstd_stream_initialize(&runtime->user->zstd, zstd_storage_view(runtime), kZstdStorageBytes,
+                                   grow_zstd_storage, runtime) &&
+            gateway_session_enable_zstd_etf(&runtime->session, &runtime->user->zstd,
+                                            {runtime->handshake_output, kMessageBytes}) &&
             gateway_session_enable_output_growth(&runtime->session, decoded_message_view(runtime),
                                                  kGatewaySessionMaximumDecodedMessageBytes,
                                                  grow_decoded_message, runtime) &&
@@ -1499,19 +1535,35 @@ enum class OutboundDrive : u8 {
     failed,
 };
 
-// Frames and sends the command written to gateway_payload; the plaintext copies are erased.
+// Frames and sends the command written to gateway_payload (as ETF on the user
+// Gateway); the plaintext copies are erased.
 OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommandWriteResult command,
                                    SendPurpose purpose) noexcept {
     if (!command.ok() || command.bytes == 0 || command.bytes > sizeof(runtime->gateway_payload)) {
         return OutboundDrive::failed;
     }
+    ConstSlice<u8> payload{runtime->gateway_payload, command.bytes};
+    WebSocketOpcode opcode = WebSocketOpcode::text;
+    if (is_user(runtime)) {
+        const EtfResult packed =
+            etf_from_json({reinterpret_cast<const char*>(runtime->gateway_payload), command.bytes},
+                          {runtime->gateway_etf, kEtfCommandBytes});
+        SecureZeroMemory(runtime->gateway_payload, command.bytes);
+        if (!packed.ok()) {
+            SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
+            return OutboundDrive::failed;
+        }
+        payload = {runtime->gateway_etf, packed.bytes};
+        opcode = WebSocketOpcode::binary;
+    }
     u32 masking_key = 0;
     if (!secure_random_u32(&masking_key).ok()) {
+        SecureZeroMemory(const_cast<u8*>(payload.data), payload.count);
         return OutboundDrive::failed;
     }
     const WebSocketWriteResult framed = websocket_write_client_frame(
-        WebSocketOpcode::text, true, ConstSlice<u8>{runtime->gateway_payload, command.bytes}, masking_key,
-        Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+        opcode, true, payload, masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
+    SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
     if (!framed.ok()) {
         SecureZeroMemory(runtime->gateway_payload, command.bytes);
         return OutboundDrive::failed;
@@ -3004,7 +3056,9 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         (user && !stable_storage_initialize(&runtime->ready_record_index, kStructuralCount,
                                             kInitialStructuralCount, sizeof(u32), alignof(u32))) ||
         (user && !reserved_bytes_initialize(&runtime->ready_staging, kReadyStagingBytes)) ||
-        (user && !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes))) {
+        (user && !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes)) ||
+        (user && !stable_storage_initialize(&runtime->zstd_storage, kZstdStorageBytes, kZstdInitialStorageBytes,
+                                            sizeof(u8), alignof(u8)))) {
         return fail_start(client, GatewayClientError::memory, thread_last_error());
     }
     if (user) {
