@@ -7,6 +7,7 @@
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/protocol/guild_folders.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/user_store.hpp"
 
@@ -165,6 +166,23 @@ void test_startup_shell(void (*check)(bool, const char*) noexcept) noexcept {
               shell->authors[0].user_id == 5 && shell->authors[0].role_color == 0xFF0000 &&
               utf8_equal(startup_shell_text(*shell, shell->status_text), utf8_literal("Busy")),
           "startup shell: capture holds the visible channels, the account and the page's authors");
+    // Guilds follow the rail's layout, so a full table keeps the rows on screen.
+    auto* rail = static_cast<GuildFolderSettings*>(
+        VirtualAlloc(nullptr, sizeof(GuildFolderSettings), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (rail) {
+        rail->present = true;
+        rail->positions[0] = 21;
+        rail->positions[1] = 22;
+        rail->positions[2] = 20;
+        rail->position_count = 3;
+        StartupShellStores ordered = source->view();
+        ordered.folders = rail;
+        startup_shell_capture(ordered, &messages, decoded);
+        VirtualFree(rail, 0, MEM_RELEASE);
+    }
+    check(rail && decoded->guild_count == 3 && decoded->guilds[0].id == 21 && decoded->guilds[1].id == 22 &&
+              decoded->guilds[2].id == 20,
+          "startup shell: guilds are recorded in rail order");
 
     // Encode/decode round trip, byte for byte.
     const u32 encoded = startup_shell_encode(*shell, {plaintext, kStartupShellPlaintextBytes});

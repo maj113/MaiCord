@@ -27,6 +27,15 @@ struct Section {
     u32 element, count, capacity;
 };
 constexpr u32 kSections = 9;
+// A shell at every capacity still fits one plaintext buffer.
+static_assert(__builtin_offsetof(StartupShell, guilds) + kStartupShellGuildCapacity * sizeof(StartupShellGuild) +
+                  kStartupShellChannelCapacity * sizeof(StartupShellChannel) +
+                  kStartupShellConversationCapacity * sizeof(StartupShellConversation) +
+                  (kStartupShellRecipientCapacity + kStartupShellExpandedCapacity) * sizeof(u64) +
+                  kStartupShellUserCapacity * sizeof(StartupShellUser) +
+                  kStartupShellAuthorCapacity * sizeof(StartupShellAuthor) + kStartupShellFolderBytes +
+                  kStartupShellTextBytes <=
+              kStartupShellPlaintextBytes);
 void sections(StartupShell& s, Section* out) noexcept {
     out[0] = {s.guilds, sizeof(StartupShellGuild), s.guild_count, kStartupShellGuildCapacity};
     out[1] = {s.channels, sizeof(StartupShellChannel), s.channel_count, kStartupShellChannelCapacity};

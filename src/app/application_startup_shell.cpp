@@ -124,7 +124,7 @@ bool capture(StartupShellOwner& owner) noexcept {
     StartupShell& shell = *owner.shell;
     shell.profile_id = owner.profile_id;
     shell.saved_unix_ms = clock_unix_milliseconds();
-    startup_shell_capture({&ui.chat_state, &ui.user_store, &ui.guild_member_store},
+    startup_shell_capture({&ui.chat_state, &ui.user_store, &ui.guild_member_store, ui.navigation_view.guild_folders},
                           ui.active_channel_id == ui.chat_state.selected_channel_id ? &g_app.message_view.store
                                                                                      : nullptr,
                           &shell);

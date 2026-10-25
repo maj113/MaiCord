@@ -2,6 +2,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/model/guild_display_order.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/private_channel_store.hpp"
@@ -77,13 +78,16 @@ void capture_channels(StartupShell* shell, const ChatStateStore& state) noexcept
         if (const ChannelRecord* channel = id ? chat_state_store_find_channel(state, id) : nullptr;
             channel && channel->guild_id == shell->guild_id && chat_state_store_channel_visible(state, *channel))
             add_channel(shell, state, *channel);
-    for (u32 order = 0; order < state.channel_count; ++order) {
-        const ChannelRecord& channel = state.channels[state.channel_order[order]];
-        if (channel.guild_id != shell->guild_id || !chat_state_store_channel_visible(state, channel) ||
-            (channel_is_thread(channel.type) && !thread_shown(channel)))
-            continue;
-        add_channel(shell, state, channel);
-    }
+    // Channels before threads: a full table drops threads first.
+    for (u32 pass = 0; pass < 2; ++pass)
+        for (u32 order = 0; order < state.channel_count; ++order) {
+            const ChannelRecord& channel = state.channels[state.channel_order[order]];
+            const bool thread = channel_is_thread(channel.type);
+            if (thread != (pass == 1) || channel.guild_id != shell->guild_id ||
+                !chat_state_store_channel_visible(state, channel) || (thread && !thread_shown(channel)))
+                continue;
+            add_channel(shell, state, channel);
+        }
 }
 
 u64 conversation_recency(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
@@ -197,8 +201,15 @@ void startup_shell_capture(const StartupShellStores& stores, const MessageStore*
             !startup_shell_add_text(shell, status->status_emoji.view(), &s.status_emoji))
             s.status_text = s.status_emoji = {};
     }
-    for (u32 order = 0; order < state.guild_count && s.guild_count < kStartupShellGuildCapacity; ++order) {
-        const GuildRecord& guild = state.guilds[state.guild_order[order]];
+    // Rail order, so a full table keeps the rows on screen.
+    constexpr u32 kRail = 1024;
+    GuildDisplayEntry rail[kRail];
+    const u32 rows = guild_display_order_build(stores.folders, state, {rail, kRail});
+    for (u32 row = 0; row < rows && s.guild_count < kStartupShellGuildCapacity; ++row) {
+        const GuildRecord* found = chat_state_store_find_guild(state, rail[row].guild_id);
+        if (!found)
+            continue;
+        const GuildRecord& guild = *found;
         StartupShellGuild& out = s.guilds[s.guild_count];
         out.id = guild.id;
         out.flags = static_cast<u8>((guild.unavailable ? startup_shell_guild_unavailable : 0) |

@@ -6,6 +6,7 @@
 namespace maicord {
 
 struct ChatStateStore;
+struct GuildFolderSettings;
 struct GuildMemberStore;
 struct MessageStore;
 struct UserStore;
@@ -16,17 +17,19 @@ struct UserStore;
 // Names, asset hashes and permissions only: no message content, unread or
 // mention counts, presence or member lists.
 inline constexpr u32 kStartupShellVersion = 1;
-inline constexpr u32 kStartupShellGuildCapacity = 256;
-inline constexpr u32 kStartupShellChannelCapacity = 640;
+// Only what the first frames can show: rows past these are offscreen and
+// arrive with READY.
+inline constexpr u32 kStartupShellGuildCapacity = 128;
+inline constexpr u32 kStartupShellChannelCapacity = 256;
 inline constexpr u32 kStartupShellConversationCapacity = 64;
-inline constexpr u32 kStartupShellRecipientCapacity = 512;
+inline constexpr u32 kStartupShellRecipientCapacity = 128;
 inline constexpr u32 kStartupShellConversationRecipients = 16;
-inline constexpr u32 kStartupShellUserCapacity = 384;
+inline constexpr u32 kStartupShellUserCapacity = 128;
 inline constexpr u32 kStartupShellAuthorCapacity = 64;
 inline constexpr u32 kStartupShellExpandedCapacity = 64;
-inline constexpr u32 kStartupShellFolderBytes = 16 * 1024;
-inline constexpr u32 kStartupShellTextBytes = 96 * 1024;
-inline constexpr u32 kStartupShellPlaintextBytes = 192 * 1024;
+inline constexpr u32 kStartupShellFolderBytes = 4 * 1024;
+inline constexpr u32 kStartupShellTextBytes = 32 * 1024;
+inline constexpr u32 kStartupShellPlaintextBytes = 64 * 1024;
 inline constexpr u32 kStartupShellWrappedKeyBytes = 1024;
 inline constexpr u32 kStartupShellFileBytes = 64 + kStartupShellWrappedKeyBytes + kStartupShellPlaintextBytes;
 inline constexpr u64 kStartupShellMaximumAgeMs = 7ull * 24 * 60 * 60 * 1000;
@@ -168,8 +171,10 @@ struct StartupShellStores {
     ChatStateStore* state;
     UserStore* users;
     GuildMemberStore* members;
+    // The rail's layout; guilds are recorded in its display order.
+    const GuildFolderSettings* folders = nullptr;
 };
-// Records the live stores: every guild, the selected server's visible
+// Records the live stores: the guilds in rail order, the selected server's visible
 // channels or (on Home) the newest conversations, the account and the
 // authors of the newest resident messages of the selected channel. The
 // caller sets profile_id, saved_unix_ms, the folders and expanded_folders.
