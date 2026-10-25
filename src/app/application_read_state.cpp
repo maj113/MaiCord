@@ -404,7 +404,8 @@ void application_read_state_activity() noexcept {
     g_app.read_last_activity_ms = clock_monotonic_milliseconds();
 }
 bool application_read_state_eligible() noexcept {
-    if (!g_app.account_ui || !g_app.account.instance || !g_app.window)
+    // A startup shell's channel is acknowledged once READY has its read state.
+    if (!g_app.account_ui || !g_app.account.instance || !g_app.window || g_app.startup_shell_provisional)
         return false;
     if ((application_downloads_active() ||
          (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) ||

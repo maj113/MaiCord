@@ -7,6 +7,8 @@
 #include "application_stage.hpp"
 #include "application_channel_memory.hpp"
 #include "application_startup_history.hpp"
+#include "application_startup_shell.hpp"
+#include "application_channel_session.hpp"
 #include "application_voice_channels.hpp"
 #include "application_soundboard.hpp"
 #include "application_action_captcha.hpp"
@@ -102,7 +104,7 @@ void log_member_source_binding(const GatewayClientEvent& event) noexcept {
 namespace {
 bool author_hydration_visible() noexcept {
     return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed &&
-           !g_app.login.visible && !application_friends_active() &&
+           !g_app.login.visible && !g_app.startup_shell_provisional && !application_friends_active() &&
            !renderer_settings_hides_shell(g_app.renderer) && g_app.message_scene.active &&
            ui_rect_has_area(g_app.message_scene.viewport);
 }
@@ -724,6 +726,7 @@ void application_prepare_account_stop() noexcept {
     application_message_forward_release();
     application_quick_switcher_release();
     application_channel_overview_release();
+    application_startup_shell_stop();
     application_channel_memory_stop();
     if (g_app.account_ui) {
         AccountUiRuntime& ui = *g_app.account_ui;
@@ -832,7 +835,7 @@ bool application_account_return_to_login(bool rejected) noexcept {
     if (rejected) {
         AccountPaths paths{};
         if (account_paths_resolve(&paths).ok()) {
-            const wchar_t* invalidated[] = {paths.profile, paths.session};
+            const wchar_t* invalidated[] = {paths.profile, paths.session, paths.shell};
             for (const auto* path : invalidated)
                 if (!DeleteFileW(path) && !win32_error_is_missing_file(thread_last_error()))
                     log_write(LogLevel::warning, "auth", "invalidated_session_removal_failed");
@@ -945,6 +948,16 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
     }
     application_channel_memory_start(started.status.profile_id);
     application_startup_history_attach();
+    // The previous session's shell replaces the restoring view until READY.
+    if (application_startup_shell_apply()) {
+        g_app.login.visible = false;
+        g_app.login.status = RendererLoginStatus::idle;
+        if (!application_synchronize_login_view() || !synchronize_navigation_view() ||
+            !synchronize_selected_channel() || !synchronize_shell_layout() || !refresh_account_text(true))
+            log_write(LogLevel::warning, "shell", "startup_shell_present_failed");
+        application_trace_load_stage("startup_shell_released");
+        MAICORD_PERF_MARK("startup_shell_released");
+    }
     log_u64(LogLevel::info, "account", "profile_id", started.status.profile_id);
     log_u64(LogLevel::info, "account", "module_runtime_bytes", host.api.runtime_bytes());
     log_u64(LogLevel::info, "account", "ui_runtime_bytes", sizeof(AccountUiRuntime));
@@ -981,6 +994,7 @@ bool application_account_restart() noexcept {
                                          started.status.profile_id, clock_monotonic_milliseconds()))
         log_write(LogLevel::warning, "draft", "persistence_configuration_failed");
     application_channel_memory_start(started.status.profile_id);
+    application_startup_shell_begin(paths, started.status.profile_id);
     log_write(LogLevel::info, "account", "session_restarted");
     return true;
 }
@@ -1008,6 +1022,7 @@ bool application_account_prestart() noexcept {
         return false;
     }
     application_startup_history_begin(early.started.status.profile_id);
+    application_startup_shell_begin(early.paths, early.started.status.profile_id);
     early.instance = g_app.account.instance;
     g_app.account.instance = nullptr;
     early.failed = false;
@@ -1024,6 +1039,7 @@ void application_account_prestart_cancel() noexcept {
         application_account_module_release();
     }
     application_startup_history_reset();
+    application_startup_shell_stop();
     reset_value(&early);
 }
 
@@ -1103,6 +1119,7 @@ bool application_account_attach_if_present() noexcept {
         return true;
     }
     application_startup_history_begin(started.status.profile_id);
+    application_startup_shell_begin(paths, started.status.profile_id);
     publish_started_account(paths, started);
     return true;
 }

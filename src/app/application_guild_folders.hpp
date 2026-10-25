@@ -42,5 +42,10 @@ bool application_guild_folders_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_guild_folders_owns_response(u64 request_id) noexcept;
 bool application_guild_folders_response(const RestClientResponse&, Utf8View body) noexcept;
 u64 application_guild_folders_request_wake() noexcept;
+// Startup shell: the shown layout as an encoded GuildFolders message (0
+// without one) and the open folders; restore shows them until READY's layout
+// replaces the layout (false for a malformed message).
+u32 application_guild_folders_capture(Slice<u8> group, Slice<u64> expanded, u32* expanded_count) noexcept;
+bool application_guild_folders_restore(ConstSlice<u8> group, ConstSlice<u64> expanded) noexcept;
 void application_guild_folders_release() noexcept;
 } // namespace maicord::app_detail

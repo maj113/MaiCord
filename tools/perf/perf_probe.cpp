@@ -1176,8 +1176,9 @@ bool due(u64 interval_ms) noexcept {
     return true;
 }
 
+// READY's state, not a startup shell drawn before it.
 bool shell_ready() noexcept {
-    return g_app.account_ui && !g_app.login.visible &&
+    return g_app.account_ui && !g_app.login.visible && !g_app.startup_shell_provisional &&
            g_app.account_ui->chat_state.guild_count >= kPerfGuilds;
 }
 

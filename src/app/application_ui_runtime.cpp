@@ -313,6 +313,7 @@ void application_release_account_ui(Application& application) noexcept {
     }
     message_composer_scene_set_caret_visible(&application.message_composer_scene, false);
     message_event_pump_reset(&application.message_pump);
+    application.startup_shell_provisional = false;
     if (&application == &g_app) {
         application_channel_snapshots_reset();
         application_startup_history_reset();

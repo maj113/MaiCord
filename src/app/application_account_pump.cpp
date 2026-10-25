@@ -23,6 +23,7 @@
 #include "application_friends.hpp"
 #include "application_channel_memory.hpp"
 #include "application_channel_session.hpp"
+#include "application_startup_shell.hpp"
 #include "application_media.hpp"
 #include "application_message_history.hpp"
 #include "application_message_reaction.hpp"
@@ -272,6 +273,9 @@ GatewayClientPopResult pop_browser_gateway(void* opaque, GatewayClientEvent* eve
     drain.navigation_message_receipt = false;
     if (!popped.ok() || !event)
         return popped;
+    // A startup shell saved for another account must not reject READY's.
+    if (event->kind == GatewayClientEventKind::ready && application_startup_shell_gateway_ready(event->state.id))
+        drain.navigation_self = 0;
     drain.poll_sequence = event->sequence;
     drain.poll_has_sequence = event->has_sequence;
     drain.poll_batched = event->kind == GatewayClientEventKind::dispatch &&
@@ -569,6 +573,7 @@ bool drain_account_events() noexcept {
     if (g_sync.instance != host.instance)
         g_sync = {host.instance};
     bool repaint = false;
+    bool ready_applied = false;
     for (u32 source_index = 0; source_index < host.status.gateway_sources; ++source_index) {
         void* source = host.api.gateway_source(host.instance, source_index);
         if (!source) {
@@ -594,6 +599,7 @@ bool drain_account_events() noexcept {
             log_write(LogLevel::error, "account", "private_state_incomplete");
         }
         repaint = repaint || drained.repaint;
+        ready_applied = ready_applied || drained.ready_applied;
         if (drained.apply_failures)
             log_skipped_events(source_index, drained);
         if (g_app.message_pump.hydration_skipped != hydration_skipped)
@@ -665,6 +671,13 @@ bool drain_account_events() noexcept {
         return drain_failed("navigation_sync_failed");
     if (!synchronize_selected_channel())
         return drain_failed("selected_channel_sync_failed");
+    // A startup shell ends with READY's selection settled; collapsed
+    // categories it brings back rebuild the channel list.
+    if (ready_applied) {
+        application_startup_shell_ready();
+        if (!synchronize_navigation_view())
+            return drain_failed("navigation_sync_failed");
+    }
     const u32 thread_revision = application_thread_actions_publication_revision();
     application_thread_actions_synchronize();
     // Feature surfaces are presentation: a failure degrades the surface, never
@@ -746,6 +759,7 @@ bool application_pump_account() noexcept {
     AccountUiRuntime& ui = *g_app.account_ui;
     message_draft_session_persist(ui.message_draft_session, ui.message_drafts, now_ms, false);
     application_channel_memory_pump(now_ms);
+    application_startup_shell_pump(now_ms);
     u32 observations = 0;
     const AccountModuleStatus status =
         account_host_pump(&host, now_ms, clock_unix_milliseconds(), &observations);
@@ -799,7 +813,9 @@ bool application_pump_account() noexcept {
         application_request_frame();
     if (!present_private_conversation_error() || !application_private_channel_present_error())
         log_write(LogLevel::warning, "private", "error_presentation_failed");
-    if (status.running && g_app.login.status == RendererLoginStatus::restoring_session) {
+    // A startup shell released the view before READY; the plugins wait for it.
+    if (status.running && (g_app.login.status == RendererLoginStatus::restoring_session ||
+                           application_startup_shell_take_release())) {
         application_trace_load_stage("authenticated_shell_released");
         g_app.login.visible = false;
         g_app.login.status = RendererLoginStatus::idle;

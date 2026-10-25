@@ -452,6 +452,10 @@ struct Application {
     bool message_composer_pointer_selection;
     bool message_text_pointer_selection;
     bool member_pane_visible;
+    // The previous session's shell is on screen and READY has not replaced it
+    // yet (application_startup_shell.hpp): no sends, read acknowledgements or
+    // member requests.
+    bool startup_shell_provisional;
     float channel_pane_width;
     float member_pane_width;
     // Width when the active splitter drag began (Escape restores it).

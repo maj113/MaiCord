@@ -333,6 +333,29 @@ u64 application_guild_folders_request_wake() noexcept {
     return g_folders->retry_at_ms ? g_folders->retry_at_ms : 1;
 }
 
+u32 application_guild_folders_capture(Slice<u8> group, Slice<u64> expanded, u32* expanded_count) noexcept {
+    *expanded_count = 0;
+    if (!g_folders || g_folders->ui != g_app.account_ui ||
+        g_folders->account_serial != g_app.plugin_account_scope_serial)
+        return 0;
+    const u32 count = minimum(g_folders->expanded_count, expanded.count);
+    copy_bytes(expanded.data, g_folders->expanded, count * static_cast<u32>(sizeof(u64)));
+    *expanded_count = count;
+    return g_folders->settings.present ? guild_folders_encode(g_folders->settings, group) : 0;
+}
+
+bool application_guild_folders_restore(ConstSlice<u8> group, ConstSlice<u64> expanded) noexcept {
+    auto* folders = owner();
+    if (!folders || (group.count && guild_folders_decode(group, &folders->server) != GuildFoldersError::none))
+        return false;
+    folders->server.present = group.count != 0;
+    copy_settings(folders->settings, folders->server);
+    folders->expanded_count = minimum<u32>(expanded.count, kGuildFoldersMaximumFolders);
+    copy_bytes(folders->expanded, expanded.data, folders->expanded_count * static_cast<u32>(sizeof(u64)));
+    invalidate(*folders);
+    return true;
+}
+
 void application_guild_folders_release() noexcept {
     if (!g_folders)
         return;

@@ -82,6 +82,8 @@ bool application_message_send_confirmed() noexcept {
 
 bool queue_message_send() noexcept {
     if (g_app.account.status.required_action != AccountRequirement::none) return true;
+    // Before READY the text stays in the composer; READY confirms the right to send.
+    if (g_app.startup_shell_provisional) return true;
     if (application_composer_text_input_composing()) return true;
     if (g_app.message_edit.editor_active) {
         return queue_message_edit();

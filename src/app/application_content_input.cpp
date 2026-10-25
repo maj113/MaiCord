@@ -338,11 +338,16 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
     const bool leaving_home = guild && state.home_selected;
     const bool was_browser = application_thread_browser_active();
     const ChannelMemoryEntry recalled = guild ? application_channel_memory_recall(id) : ChannelMemoryEntry{};
-    const auto selected = home ? chat_state_store_select_home(&g_app.account_ui->chat_state)
-                          : guild
-                              ? chat_state_store_select_guild(&g_app.account_ui->chat_state, id, recalled.channel_id,
-                                                              recalled.parent_id)
-                              : chat_state_store_select_channel(&g_app.account_ui->chat_state, id);
+    auto selected = home ? chat_state_store_select_home(&g_app.account_ui->chat_state)
+                    : guild
+                        ? chat_state_store_select_guild(&g_app.account_ui->chat_state, id, recalled.channel_id,
+                                                        recalled.parent_id)
+                        : chat_state_store_select_channel(&g_app.account_ui->chat_state, id);
+    // Before READY a server outside the startup shell has no channels yet: it
+    // shows loading and READY lands on its remembered channel.
+    if (guild && selected.error == ChatStateSelectionError::not_selectable && g_app.startup_shell_provisional)
+        selected = chat_state_store_select_pending_guild(&g_app.account_ui->chat_state, id,
+                                                         recalled.channel_id ? recalled.channel_id : recalled.parent_id);
     if (!selected.ok()) {
         log_u64(LogLevel::warning, "ui", "navigation_selection_error", static_cast<u64>(selected.error));
         return true;

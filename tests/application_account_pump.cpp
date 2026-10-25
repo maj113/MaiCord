@@ -69,6 +69,17 @@ u64 application_channel_prefetch_next_wake() noexcept {
 u64 application_startup_history_next_wake() noexcept {
     return 0;
 }
+bool application_startup_shell_gateway_ready(u64) noexcept {
+    return false;
+}
+void application_startup_shell_ready() noexcept {}
+bool application_startup_shell_take_release() noexcept {
+    return false;
+}
+void application_startup_shell_pump(u64) noexcept {}
+u64 application_startup_shell_next_wake() noexcept {
+    return 0;
+}
 void application_channel_snapshots_reset() noexcept {}
 void application_channel_snapshots_observe(void*, const GatewayClientEvent&, ConstSlice<u8>,
                                            MessageContentAvailability) noexcept {}
