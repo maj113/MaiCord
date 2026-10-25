@@ -2,21 +2,14 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace forum_account_test {
 u32 failures;
-struct Capture {
-    RestClient* client;
-    RestRouteKey route;
-    u64 id, active_id;
-    u32 submissions, cancellations, target_bytes, body_bytes;
-    u8 target[kRestClientMaximumTargetBytes], body[kForumPostMaximumBodyBytes];
-    bool json, safe, published;
-    RestClientSubmitError error;
-} capture;
+RestCapture capture;
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
@@ -30,7 +23,7 @@ void transport() noexcept {
     request.guild_id = 10;
     request.operation = ForumPostOperation::parent_metadata;
     check(account_forum_post_submit(&details, &request, 101).ok() && capture.safe &&
-              capture.client == &details && capture.id == 101 &&
+              capture.client == &details && capture.request_id == 101 &&
               capture.route.route_id == kForumPostRouteId && capture.route.major_key == 20 &&
               capture.route.major == RestMajorParameter::channel &&
               capture.route.method == RestMethod::get && !capture.json && !capture.body_bytes &&
@@ -200,38 +193,9 @@ void transport() noexcept {
           "forum account: published receipt remains available for exact drain");
 }
 } // namespace forum_account_test
-RestClientSubmitResult rest_client_submit(RestClient* rest,
-                                          const RestClientRequest& request) noexcept {
-    auto& c = forum_account_test::capture;
-    ++c.submissions;
-    c.client = rest;
-    c.route = request.route;
-    c.id = request.request_id;
-    c.target_bytes = request.target.count;
-    c.body_bytes = request.body.count;
-    c.json = request.json_body;
-    c.safe = request.target.data && c.target_bytes <= sizeof(c.target) && c.body_bytes <= sizeof(c.body) &&
-             (!c.body_bytes || request.body.data) && !request.identity_response &&
-             request.timeout_ms == kRestClientDefaultTimeoutMs &&
-             (request.json_body || (!request.body.count && !request.body.data));
-    if (!c.safe)
-        return {RestClientSubmitError::invalid_input};
-    copy_bytes(c.target, request.target.data, c.target_bytes);
-    if (c.body_bytes)
-        copy_bytes(c.body, request.body.data, c.body_bytes);
-    return {c.error};
-}
-bool rest_client_cancel(RestClient* rest, u64 id) noexcept {
-    auto& c = forum_account_test::capture;
-    ++c.cancellations;
-    c.client = rest;
-    if (id != c.active_id || c.published)
-        return false;
-    c.active_id = 0;
-    return true;
-}
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_forum_post_test_entry() noexcept {
+    maicord::rest_install_capture(maicord::forum_account_test::capture);
     maicord::forum_account_test::transport();
     ExitProcess(maicord::forum_account_test::failures ? 1 : 0);
 }

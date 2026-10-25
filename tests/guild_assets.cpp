@@ -6,6 +6,7 @@
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/guild_admin.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -756,7 +757,7 @@ RestClientSubmitResult record(const RestClientRequest& request, bool large) noex
 }
 } // namespace
 
-RestClientSubmitResult rest_client_submit(RestClient*,
+static RestClientSubmitResult submit_stub(RestClient*,
                                           const RestClientRequest& request) noexcept {
     // The ordinary entry keeps its ceiling; larger bodies must use the large one.
     if (request.body.count > kRestClientMaximumRequestBodyBytes)
@@ -764,19 +765,19 @@ RestClientSubmitResult rest_client_submit(RestClient*,
     return record(request, false);
 }
 
-RestClientSubmitResult rest_client_submit_large(RestClient*,
+static RestClientSubmitResult submit_large_stub(RestClient*,
                                                 const RestClientRequest& request) noexcept {
     if (request.body.count > kRestClientMaximumLargeRequestBodyBytes)
         return {RestClientSubmitError::body_capacity};
     return record(request, true);
 }
 
-bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
+static bool cancel_stub(RestClient*, u64 request_id) noexcept {
     ++guild_assets_test::capture.cancellations;
     return request_id == 212;
 }
 
-RestClientSubmitResult rest_client_submit_large_owned(
+static RestClientSubmitResult submit_large_owned_stub(
     RestClient* client, const RestClientRequest& request, u8** body_owner) noexcept {
     if (!body_owner || !*body_owner || *body_owner != request.body.data)
         return {RestClientSubmitError::invalid_input};
@@ -787,6 +788,10 @@ RestClientSubmitResult rest_client_submit_large_owned(
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_guild_assets_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub,
+        .submit_large = maicord::submit_large_stub,
+        .submit_large_owned = maicord::submit_large_owned_stub,
+        .cancel = maicord::cancel_stub});
     using namespace maicord::guild_assets_test;
     test_protocol();
     test_images();

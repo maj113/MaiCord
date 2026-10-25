@@ -37,6 +37,7 @@ include(cmake/test_support.cmake)
 get_property(maicord_production_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 enable_testing()
 include(cmake/test_registry.cmake)
+maicord_finish_test_bundles()
 maicord_copy_fonts(MaiCordUiProbe MaiCordMessageLinkUiProbe MaiCordComposerUiProbe MaiCordAccountLogoutUiProbe
     MaiCordScopedReadUiProbe MaiCordFontCatalogTests)
 

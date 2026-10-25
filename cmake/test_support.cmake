@@ -1,26 +1,47 @@
 # Helpers for the temporary test configuration (cmake/tests.cmake).
 
-# maicord_test(<target> <maicord_program arguments>... [USES_CLIENT <target>...]
+# maicord_test(<target> <maicord_program arguments>... [BUNDLE <bundle>] [USES_CLIENT <target>...]
 #              [<test properties>] [TEST <name> [<argument>...]]...)
 # A test executable or fixture (see maicord_program) and the CTest cases that
 # run it. USES_CLIENT, the test properties and the TEST rows come last; they
-# are passed to maicord_test_uses_client() and maicord_add_tests().
+# are passed to maicord_test_uses_client() and maicord_add_tests(). BUNDLE
+# links the sources into the shared executable <bundle> instead (see
+# maicord_test_bundle_member); <target> then only names the test, unless
+# STANDALONE also builds it on its own for the tools that run it directly.
 function(maicord_test target)
     set(program)
     set(client)
     set(tests)
+    set(bundle)
     set(part program)
+    set(bundle_name FALSE)
+    set(standalone FALSE)
     foreach(word IN LISTS ARGN)
-        if(NOT part STREQUAL "tests" AND word MATCHES
+        if(bundle_name)
+            set(bundle "${word}")
+            set(bundle_name FALSE)
+            continue()
+        elseif(NOT part STREQUAL "tests" AND word MATCHES
                 "^(TEST|TIMEOUT|COST|LABELS|RESOURCE_LOCK|ENVIRONMENT|ENV|WORKING_DIRECTORY|PASS_REGULAR_EXPRESSION)$")
             set(part tests)
         elseif(part STREQUAL "program" AND word STREQUAL "USES_CLIENT")
             set(part client)
             continue()
+        elseif(part STREQUAL "program" AND word STREQUAL "BUNDLE")
+            set(bundle_name TRUE)
+            continue()
+        elseif(part STREQUAL "program" AND word STREQUAL "STANDALONE")
+            set(standalone TRUE)
+            continue()
         endif()
         list(APPEND ${part} "${word}")
     endforeach()
-    maicord_program(${target} ${program})
+    if(bundle)
+        maicord_test_bundle_member(${bundle} ${target} ${program})
+    endif()
+    if(NOT bundle OR standalone)
+        maicord_program(${target} ${program})
+    endif()
     if(client)
         maicord_test_uses_client(${target} ${client})
     endif()
@@ -45,6 +66,12 @@ function(maicord_add_tests target)
     list(SUBLIST ARGN ${first} -1 rows)
     cmake_parse_arguments(ARG "" "TIMEOUT;COST;WORKING_DIRECTORY;PASS_REGULAR_EXPRESSION"
         "LABELS;RESOURCE_LOCK;ENVIRONMENT;ENV" ${options})
+    get_property(bundle GLOBAL PROPERTY MAICORD_BUNDLE_OF_${target})
+    if(bundle)
+        get_property(entry GLOBAL PROPERTY MAICORD_BUNDLE_ENTRY_${target})
+        list(APPEND ARG_ENVIRONMENT MAICORD_TEST_ENTRY=${entry})
+        set(target ${bundle})
+    endif()
     set(command ${target})
     if(ARG_ENV)
         set(command "${CMAKE_COMMAND}" -E env ${ARG_ENV} "$<TARGET_FILE:${target}>")
@@ -69,6 +96,105 @@ function(maicord_add_tests target)
         else()
             list(APPEND arguments "${word}")
         endif()
+    endforeach()
+endfunction()
+
+# maicord_test_bundle_member(<bundle> <target> ENTRY <symbol> SOURCES <file>...
+#     [LIBS <library>...] [INCLUDES <dir>...])
+# Adds a test to the executable <bundle>, which maicord_finish_test_bundles()
+# creates once the registry is complete. The bundle runs the member whose
+# entry symbol MAICORD_TEST_ENTRY names, which maicord_add_tests(<target>)
+# sets for each case. Members must not define symbols the others or the
+# libraries define, and need no DEFINES, OPTIONS or DEPENDS of their own.
+function(maicord_test_bundle_member bundle target)
+    cmake_parse_arguments(PARSE_ARGV 2 ARG "" "ENTRY" "SOURCES;LIBS;INCLUDES")
+    if(ARG_UNPARSED_ARGUMENTS OR NOT ARG_ENTRY OR NOT ARG_SOURCES)
+        message(FATAL_ERROR "maicord_test_bundle_member(${bundle} ${target}): needs ENTRY and SOURCES; "
+            "unexpected: ${ARG_UNPARSED_ARGUMENTS}")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY MAICORD_TEST_BUNDLES ${bundle})
+    set_property(GLOBAL PROPERTY MAICORD_BUNDLE_OF_${target} ${bundle})
+    set_property(GLOBAL PROPERTY MAICORD_BUNDLE_ENTRY_${target} ${ARG_ENTRY})
+    set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_ENTRIES_${bundle} ${ARG_ENTRY})
+    set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_SOURCES_${bundle} ${ARG_SOURCES})
+    if(ARG_LIBS)
+        set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_LIBS_${bundle} ${ARG_LIBS})
+    endif()
+    if(ARG_INCLUDES)
+        set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_INCLUDES_${bundle} ${ARG_INCLUDES})
+    endif()
+endfunction()
+
+# maicord_finish_test_bundles(): creates every bundle executable with a
+# generated /ENTRY that calls the member selected by MAICORD_TEST_ENTRY.
+function(maicord_finish_test_bundles)
+    get_property(bundles GLOBAL PROPERTY MAICORD_TEST_BUNDLES)
+    list(REMOVE_DUPLICATES bundles)
+    string(ASCII 10 newline)
+    foreach(bundle IN LISTS bundles)
+        foreach(kind IN ITEMS ENTRIES SOURCES LIBS INCLUDES)
+            get_property(${kind} GLOBAL PROPERTY MAICORD_BUNDLE_${kind}_${bundle})
+            list(REMOVE_DUPLICATES ${kind})
+        endforeach()
+        set(declarations)
+        set(table)
+        foreach(entry IN LISTS ENTRIES)
+            string(APPEND declarations "unsigned ${entry}();${newline}")
+            string(APPEND table "    {L\"${entry}\", ${entry}},${newline}")
+        endforeach()
+        set(dispatcher "${CMAKE_CURRENT_BINARY_DIR}/test_bundles/${bundle}.cpp")
+        file(CONFIGURE OUTPUT "${dispatcher}" CONTENT [=[
+#include "maicord/core/win32_kernel.hpp"
+
+extern "C" {
+@declarations@}
+
+namespace {
+struct Entry {
+    const wchar_t* name;
+    unsigned (*run)();
+};
+constexpr Entry entries[]{
+@table@};
+} // namespace
+
+// Runs the member test whose entry symbol MAICORD_TEST_ENTRY names; any other
+// value lists the members.
+extern "C" __declspec(noreturn) void WINAPI maicord_test_bundle_entry() noexcept {
+    wchar_t name[128];
+    const DWORD length = GetEnvironmentVariableW(L"MAICORD_TEST_ENTRY", name, 128);
+    if (length != 0 && length < 128) {
+        for (const Entry& entry : entries) {
+            const wchar_t* a = entry.name;
+            const wchar_t* b = name;
+            while (*a && *a == *b) {
+                ++a;
+                ++b;
+            }
+            if (*a == *b)
+                ExitProcess(entry.run());
+        }
+    }
+    for (const Entry& entry : entries) {
+        char line[160];
+        unsigned used = 0;
+        for (; entry.name[used] && used < 150; ++used)
+            line[used] = static_cast<char>(entry.name[used]);
+        line[used++] = '\n';
+        DWORD written = 0;
+        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, used, &written, nullptr);
+    }
+    ExitProcess(2);
+}
+]=] @ONLY)
+        set(arguments ENTRY maicord_test_bundle_entry SOURCES "${dispatcher}" ${SOURCES})
+        if(LIBS)
+            list(APPEND arguments LIBS ${LIBS})
+        endif()
+        if(INCLUDES)
+            list(APPEND arguments INCLUDES ${INCLUDES})
+        endif()
+        maicord_program(${bundle} ${arguments})
     endforeach()
 endfunction()
 

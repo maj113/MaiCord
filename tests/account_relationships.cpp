@@ -2,6 +2,7 @@
 #include "maicord/app/account_message_ack.hpp"
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/account_download.hpp"
@@ -326,7 +327,7 @@ static void test_message_ack_transport() noexcept {
 // Only this executable supplies the transport seam. Production account DLL
 // links the real submit implementation and retains its authentication, scheduler,
 // mutation-lease, bounded mailbox and completion-response behavior.
-RestClientSubmitResult rest_client_submit(RestClient* client,
+static RestClientSubmitResult submit_stub(RestClient* client,
                                           const RestClientRequest& request) noexcept {
     auto& capture = relationship_account_test::submitted;
     ++capture.calls;
@@ -353,6 +354,7 @@ RestClientSubmitResult rest_client_submit(RestClient* client,
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_friends_account_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub});
     using namespace maicord::relationship_account_test;
     test_transport();
     test_message_ack_transport();

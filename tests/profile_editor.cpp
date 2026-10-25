@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/profile_editor.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -442,7 +443,7 @@ void test_decode() noexcept {
 
 } // namespace profile_editor_test
 
-RestClientSubmitResult rest_client_submit(RestClient*,
+static RestClientSubmitResult submit_stub(RestClient*,
                                           const RestClientRequest& request) noexcept {
     auto& c = profile_editor_test::capture;
     ++c.submissions;
@@ -458,7 +459,7 @@ RestClientSubmitResult rest_client_submit(RestClient*,
     copy_bytes(c.body, request.body.data, request.body.count);
     return {RestClientSubmitError::none};
 }
-RestClientSubmitResult rest_client_submit_large(RestClient*,
+static RestClientSubmitResult submit_large_stub(RestClient*,
                                                 const RestClientRequest& request) noexcept {
     auto& c = profile_editor_test::capture;
     ++c.large_submissions;
@@ -471,13 +472,16 @@ RestClientSubmitResult rest_client_submit_large(RestClient*,
     c.body_bytes = request.body.count;
     return {RestClientSubmitError::none};
 }
-bool rest_client_cancel(RestClient*, u64) noexcept {
+static bool cancel_stub(RestClient*, u64) noexcept {
     return true;
 }
 
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_profile_editor_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub,
+        .submit_large = maicord::submit_large_stub,
+        .cancel = maicord::cancel_stub});
     using namespace maicord::profile_editor_test;
     test_protocol();
     test_transport();

@@ -1,4 +1,5 @@
 #include "maicord/app/account_message_search.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -116,7 +117,7 @@ void run() noexcept {
 } // namespace search_transport_test
 
 // Test-only transport seam. Shipping DLL links the real authenticated owner.
-RestClientSubmitResult rest_client_submit(RestClient* client, const RestClientRequest& request) noexcept {
+static RestClientSubmitResult submit_stub(RestClient* client, const RestClientRequest& request) noexcept {
     using namespace search_transport_test;
     ++submissions;
     captured_client = client;
@@ -137,7 +138,7 @@ RestClientSubmitResult rest_client_submit(RestClient* client, const RestClientRe
     return {submit_error};
 }
 
-bool rest_client_cancel(RestClient* client, u64 id) noexcept {
+static bool cancel_stub(RestClient* client, u64 id) noexcept {
     using namespace search_transport_test;
     ++cancellations;
     captured_client = client;
@@ -148,6 +149,7 @@ bool rest_client_cancel(RestClient* client, u64 id) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_message_search_test_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub, .cancel = maicord::cancel_stub});
     maicord::search_transport_test::run();
     constexpr char pass[] = "PASS search account transport\n";
     constexpr char fail[] = "FAIL search account transport\n";

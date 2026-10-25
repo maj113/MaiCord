@@ -2,22 +2,14 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_creation_account_test {
 u32 failures;
-struct Capture {
-    RestClient* client;
-    RestRouteKey route;
-    u64 request_id, active_id;
-    u32 submissions, cancellations, target_bytes, body_bytes;
-    u8 target[kRestClientMaximumTargetBytes];
-    u8 body[kThreadCreationMaximumBodyBytes];
-    bool json, safe, published;
-    RestClientSubmitError error;
-} capture;
+RestCapture capture;
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
@@ -114,37 +106,9 @@ void transport() noexcept {
           "thread creation: published receipt remains available to normal drain");
 }
 } // namespace thread_creation_account_test
-RestClientSubmitResult rest_client_submit(RestClient* rest, const RestClientRequest& request) noexcept {
-    auto& c = thread_creation_account_test::capture;
-    ++c.submissions;
-    c.client = rest;
-    c.route = request.route;
-    c.request_id = request.request_id;
-    c.target_bytes = request.target.count;
-    c.body_bytes = request.body.count;
-    c.json = request.json_body;
-    c.safe = request.target.data && c.target_bytes <= sizeof(c.target) && c.body_bytes <= sizeof(c.body) &&
-             (!c.body_bytes || request.body.data) && !request.identity_response &&
-             request.timeout_ms == kRestClientDefaultTimeoutMs &&
-             (request.json_body || (!request.body.count && !request.body.data));
-    if (!c.safe)
-        return {RestClientSubmitError::invalid_input};
-    copy_bytes(c.target, request.target.data, c.target_bytes);
-    if (c.body_bytes)
-        copy_bytes(c.body, request.body.data, c.body_bytes);
-    return {c.error};
-}
-bool rest_client_cancel(RestClient* rest, u64 id) noexcept {
-    auto& c = thread_creation_account_test::capture;
-    ++c.cancellations;
-    c.client = rest;
-    if (id != c.active_id || c.published)
-        return false;
-    c.active_id = 0;
-    return true;
-}
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_creation_test_entry() noexcept {
+    maicord::rest_install_capture(maicord::thread_creation_account_test::capture);
     maicord::thread_creation_account_test::transport();
     ExitProcess(maicord::thread_creation_account_test::failures ? 1 : 0);
 }

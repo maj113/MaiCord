@@ -1,6 +1,7 @@
 #include "maicord/app/account_user_social.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -222,7 +223,7 @@ void test_rejections() noexcept {
 }
 } // namespace user_social_account_test
 
-RestClientSubmitResult rest_client_submit(RestClient*,
+static RestClientSubmitResult submit_stub(RestClient*,
                                           const RestClientRequest& request) noexcept {
     auto& c = user_social_account_test::capture;
     ++c.submissions;
@@ -239,13 +240,14 @@ RestClientSubmitResult rest_client_submit(RestClient*,
     return {c.result};
 }
 
-bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
+static bool cancel_stub(RestClient*, u64 request_id) noexcept {
     ++user_social_account_test::capture.cancellations;
     return request_id == 5;
 }
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_user_social_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub, .cancel = maicord::cancel_stub});
     using namespace maicord::user_social_account_test;
     test_notes();
     test_message_flags();

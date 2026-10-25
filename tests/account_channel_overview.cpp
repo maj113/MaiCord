@@ -1,6 +1,7 @@
 #include "maicord/app/account_channel_overview.hpp"
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -124,7 +125,7 @@ void test_transport() noexcept {
 
 // This executable intercepts only the ordinary submit boundary. The real
 // adapter and codec build requests; no worker, socket or account is created.
-RestClientSubmitResult rest_client_submit(RestClient* client, const RestClientRequest& request) noexcept {
+static RestClientSubmitResult submit_stub(RestClient* client, const RestClientRequest& request) noexcept {
     auto& capture = channel_overview_account_test::submission;
     ++capture.calls;
     capture.client = client;
@@ -147,6 +148,7 @@ RestClientSubmitResult rest_client_submit(RestClient* client, const RestClientRe
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_channel_overview_account_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub});
     using namespace maicord::channel_overview_account_test;
     test_transport();
     constexpr char pass[] = "PASS Channel Overview account transport\n";

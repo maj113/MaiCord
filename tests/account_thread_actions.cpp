@@ -1,21 +1,14 @@
 #include "maicord/app/account_thread_actions.hpp"
 #include "maicord/protocol/channel_overview.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_action_test {
 u32 failures{};
-struct Capture {
-    RestClient* client{};
-    RestRouteKey route{};
-    u64 request_id{}, active_id{};
-    u32 submissions{}, cancellations{}, target_bytes{}, body_bytes{};
-    u8 target[kThreadActionMaximumTargetBytes]{}, body[kThreadActionMaximumBodyBytes]{};
-    bool safe{}, json{}, published{};
-    RestClientSubmitError error{};
-} capture;
+RestCapture capture;
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
@@ -148,31 +141,10 @@ void run() noexcept {
     }
 }
 } // namespace thread_action_test
-
-RestClientSubmitResult rest_client_submit(RestClient* rest,
-    const RestClientRequest& request) noexcept {
-    auto& capture = thread_action_test::capture;
-    ++capture.submissions;
-    capture.client = rest; capture.request_id = request.request_id; capture.route = request.route;
-    capture.target_bytes = request.target.count; capture.body_bytes = request.body.count; capture.json = request.json_body;
-    capture.safe = request.target.data && request.target.count <= sizeof(capture.target) &&
-        request.body.count <= sizeof(capture.body) && (!request.body.count || request.body.data) &&
-        !request.identity_response && request.timeout_ms == kRestClientDefaultTimeoutMs;
-    if (!capture.safe) return {RestClientSubmitError::invalid_input};
-    copy_bytes(capture.target, request.target.data, request.target.count);
-    if (request.body.count) copy_bytes(capture.body, request.body.data, request.body.count);
-    return {capture.error};
-}
-bool rest_client_cancel(RestClient* rest, u64 request_id) noexcept {
-    auto& capture = thread_action_test::capture;
-    ++capture.cancellations; capture.client = rest; capture.request_id = request_id;
-    if (request_id != capture.active_id || capture.published) return false;
-    capture.active_id = 0;
-    return true;
-}
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_actions_test_entry() noexcept {
+    maicord::rest_install_capture(maicord::thread_action_test::capture);
     maicord::thread_action_test::run();
     constexpr auto pass = maicord::utf8_literal("PASS thread actions protocol/account\n");
     constexpr auto fail = maicord::utf8_literal("FAIL thread actions protocol/account\n");

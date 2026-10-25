@@ -2,6 +2,7 @@
 #include "maicord/model/guild_member_search.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -301,7 +302,7 @@ void test_transport() noexcept {
 
 } // namespace guild_moderation_test
 
-RestClientSubmitResult rest_client_submit(RestClient*, const RestClientRequest& request) noexcept {
+static RestClientSubmitResult submit_stub(RestClient*, const RestClientRequest& request) noexcept {
     auto& c = guild_moderation_test::capture;
     ++c.submissions;
     c.response_capacity = 0;
@@ -321,14 +322,14 @@ RestClientSubmitResult rest_client_submit(RestClient*, const RestClientRequest& 
     return {};
 }
 
-RestClientSubmitResult rest_client_submit_large_response(RestClient* client, const RestClientRequest& request,
+static RestClientSubmitResult submit_large_response_stub(RestClient* client, const RestClientRequest& request,
                                                          u32 response_capacity) noexcept {
     const auto result = rest_client_submit(client, request);
     guild_moderation_test::capture.response_capacity = response_capacity;
     return result;
 }
 
-bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
+static bool cancel_stub(RestClient*, u64 request_id) noexcept {
     ++guild_moderation_test::capture.cancellations;
     return request_id == 201;
 }
@@ -336,6 +337,9 @@ bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_guild_moderation_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub,
+        .submit_large_response = maicord::submit_large_response_stub,
+        .cancel = maicord::cancel_stub});
     using namespace maicord::guild_moderation_test;
     test_search_bodies();
     test_bans();

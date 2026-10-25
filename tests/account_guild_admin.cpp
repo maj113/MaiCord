@@ -2,6 +2,7 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/gateway_client.hpp"
@@ -1033,7 +1034,7 @@ void test_profile_and_boost() noexcept {
 
 } // namespace guild_admin_test
 
-RestClientSubmitResult rest_client_submit(RestClient* client,
+static RestClientSubmitResult submit_stub(RestClient* client,
                                           const RestClientRequest& request) noexcept {
     auto& c = guild_admin_test::capture;
     ++c.submissions;
@@ -1061,13 +1062,13 @@ RestClientSubmitResult rest_client_submit(RestClient* client,
 }
 
 // Image bodies over the ordinary ceiling (per-server avatars and banners).
-RestClientSubmitResult rest_client_submit_large(RestClient* client,
+static RestClientSubmitResult submit_large_stub(RestClient* client,
                                                 const RestClientRequest& request) noexcept {
     return rest_client_submit(client, request);
 }
 
 // Ban list pages: a bodyless GET with an extended response bank.
-RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
+static RestClientSubmitResult submit_large_response_stub(RestClient* client,
                                                          const RestClientRequest& request,
                                                          u32 response_capacity) noexcept {
     if (request.route.method != RestMethod::get || request.body.count || request.json_body)
@@ -1077,7 +1078,7 @@ RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
     return result;
 }
 
-bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
+static bool cancel_stub(RestClient*, u64 request_id) noexcept {
     ++guild_admin_test::capture.cancellations;
     return request_id == 106;
 }
@@ -1085,6 +1086,10 @@ bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub,
+        .submit_large = maicord::submit_large_stub,
+        .submit_large_response = maicord::submit_large_response_stub,
+        .cancel = maicord::cancel_stub});
     using namespace maicord::guild_admin_test;
     test_transport();
     test_routes();

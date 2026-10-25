@@ -1,27 +1,20 @@
 #include "maicord/app/account_thread_browser.hpp"
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_browser_account_test {
 u32 failures{};
-struct Capture {
-    RestClient* client{};
-    RestRouteKey route{};
-    u64 request_id{}, active_id{};
-    u32 submissions{}, cancellations{}, target_bytes{};
-    u8 target[kRestClientMaximumTargetBytes]{};
-    bool safe{}, published{};
-    RestClientSubmitError error{};
-} capture;
+RestCapture capture;
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
 bool exact(RestClient* rest, u64 request_id, u64 parent_id, Utf8View target) noexcept {
     return capture.safe && capture.client == rest && capture.request_id == request_id &&
-           capture.route.method == RestMethod::get && capture.route.route_id == kThreadBrowserRouteId &&
+           !capture.body_bytes && !capture.json && capture.route.method == RestMethod::get && capture.route.route_id == kThreadBrowserRouteId &&
            capture.route.major_key == parent_id && capture.route.major == RestMajorParameter::channel &&
            utf8_equal({reinterpret_cast<const char*>(capture.target), capture.target_bytes}, target);
 }
@@ -136,37 +129,10 @@ void transport() noexcept {
           "emits no work");
 }
 } // namespace thread_browser_account_test
-
-// Intercept the same submit/cancel boundary used by all existing DETAILS
-// adapters. No worker, socket, account, queue or body bank is created.
-RestClientSubmitResult rest_client_submit(RestClient* rest, const RestClientRequest& request) noexcept {
-    auto& capture = thread_browser_account_test::capture;
-    ++capture.submissions;
-    capture.client = rest;
-    capture.request_id = request.request_id;
-    capture.route = request.route;
-    capture.target_bytes = request.target.count;
-    capture.safe = request.target.data && request.target.count <= sizeof(capture.target) &&
-                   !request.body.count && !request.body.data && !request.json_body &&
-                   !request.identity_response && request.timeout_ms == kRestClientDefaultTimeoutMs;
-    if (!capture.safe)
-        return {RestClientSubmitError::invalid_input};
-    copy_bytes(capture.target, request.target.data, request.target.count);
-    return {capture.error};
-}
-bool rest_client_cancel(RestClient* rest, u64 request_id) noexcept {
-    auto& capture = thread_browser_account_test::capture;
-    ++capture.cancellations;
-    capture.client = rest;
-    capture.request_id = request_id;
-    if (request_id != capture.active_id || capture.published)
-        return false;
-    capture.active_id = 0;
-    return true;
-}
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_browser_test_entry() noexcept {
+    maicord::rest_install_capture(maicord::thread_browser_account_test::capture);
     maicord::thread_browser_account_test::transport();
     constexpr auto pass = maicord::utf8_literal("PASS thread browser account transport\n");
     constexpr auto fail = maicord::utf8_literal("FAIL thread browser account transport\n");

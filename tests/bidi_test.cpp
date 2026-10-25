@@ -44,7 +44,7 @@ bool unit_cases() noexcept {
 bool candidate_cases() noexcept {
     // Captured Windows levels, explicitly separate from Unicode conformance.
     struct Case {u32 count;u32 text[8];u8 expected[8];u8 base=0;};
-    const Case cases[]{
+    static const Case cases[]{
         {4,{0x5d0,'(',0x31,')'},{1,0,2,0}},
         {4,{'(',0x5d0,')',0x5d1},{1,1,1,1}},
         {4,{0x5d0,'(',')',0x31},{1,0,0,2}},
@@ -63,7 +63,7 @@ bool candidate_cases() noexcept {
 }
 bool tailored_cases() noexcept {
     struct Case {u32 count;u32 text[32];u8 windows[32],standard[32];u8 base;};
-    const Case cases[]{
+    static const Case cases[]{
 #include "bidi_tailored_weak_cases.inc"
 #include "bidi_tailored_bracket_cases.inc"
 #include "bidi_tailored_control_cases.inc"

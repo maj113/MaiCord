@@ -1,5 +1,6 @@
 #include "maicord/app/account_pinned_messages.hpp"
 #include "maicord/core/utf.hpp"
+#include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -113,7 +114,7 @@ void run() noexcept {
 
 // Synthetic admission boundary only. No account, token, socket or worker is
 // created. The real service and protocol writers produce the captured request.
-RestClientSubmitResult rest_client_submit(
+static RestClientSubmitResult submit_stub(
     RestClient* rest, const RestClientRequest& request) noexcept {
     auto& capture = pinned_transport_test::capture;
     ++capture.submissions;
@@ -129,7 +130,7 @@ RestClientSubmitResult rest_client_submit(
     copy_bytes(capture.target, request.target.data, request.target.count);
     return {capture.submit_error};
 }
-bool rest_client_cancel(RestClient* rest, u64 request_id) noexcept {
+static bool cancel_stub(RestClient* rest, u64 request_id) noexcept {
     auto& capture = pinned_transport_test::capture;
     ++capture.cancellations;
     capture.client = rest;
@@ -139,6 +140,7 @@ bool rest_client_cancel(RestClient* rest, u64 request_id) noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_pinned_messages_test_entry() noexcept {
+    maicord::rest_install_hooks({.submit = maicord::submit_stub, .cancel = maicord::cancel_stub});
     maicord::pinned_transport_test::run();
     constexpr char pass[] = "PASS pinned messages account transport\n";
     constexpr char fail[] = "FAIL pinned messages account transport\n";
