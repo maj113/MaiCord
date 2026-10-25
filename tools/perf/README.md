@@ -12,7 +12,7 @@ against a temporary `LOCALAPPDATA`, prints a table, and removes the probe, its o
 and the profiles. It never needs or touches a running client, a real account or the
 network.
 
-Each offline launch uses a short scenario and a 10-second timeout.
+Each offline launch uses a short scenario and a 15-second timeout.
 The scenario keeps 90 timeline scrolls, 24 channel switches, 60 member-list scrolls and six settings visits.
 Scenario deadlines and input intervals are ten times shorter than the original workload.
 The synthetic account sends churn events at ten times the original rate.
@@ -40,7 +40,8 @@ The build time is separate from the timeout for each launch.
   deterministic READY (100 guilds, ~2,600 channels, 2,000 users, 300 friends,
   180 DMs) projected by the production Gateway routes, generated message history
   with mixed content, member list syncs for a 48,000-member guild, generated media
-  frames, and typing/presence/message churn. Every REST submission is answered.
+  frames, typing/presence/message churn and a call whose cameras present
+  synthetic NV12 pictures on the client's device. Every REST submission is answered.
 
 ## Production startup
 
@@ -100,7 +101,8 @@ start to restored shell), `history`, `idle_static` (text-only channel), `scroll`
 `switch` (channel switches), `member_list`, `churn`, `settings`, `anim_scroll`
 (back to a mixed channel's GIFs), `idle_anim` (one second with two animations
 playing), `idle_fx` (text channel under the built-in Stars
-background effect), `idle_final` and `idle_hidden` (minimized; the end
+background effect), `call_open`, `call_30fps` and `call_5fps` (a synthetic call
+with two cameras presenting 30 and then 5 pictures a second), `idle_final` and `idle_hidden` (minimized; the end
 memory snapshot is taken before minimizing).
 
 An idle client may not wake on its own, so the probe arms one timer for its next

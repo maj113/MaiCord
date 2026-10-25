@@ -14,7 +14,7 @@ param(
     [switch]$Execute,
     [string]$Probe,
     [string]$ProfileRoot,
-    [ValidateRange(1, 600)][int]$RunTimeoutSeconds = 10,
+    [ValidateRange(1, 600)][int]$RunTimeoutSeconds = 15,
     # Run each launch under cdb and print the faulting stack (diagnosis only).
     [switch]$Debugger,
     # 1 kHz in-process sampling of the main thread; prints hot functions per
@@ -357,7 +357,7 @@ $columns = @(
 $header = '{0,-12}' -f 'phase'
 foreach ($column in $columns) { $header += '{0,10}' -f $column[1] }
 Write-Host $header
-foreach ($phase in @('startup', 'history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'idle_final', 'idle_hidden')) {
+foreach ($phase in @('startup', 'history', 'idle_static', 'scroll', 'switch', 'member_list', 'churn', 'settings', 'idle_anim', 'idle_fx', 'call_30fps', 'call_5fps', 'idle_final', 'idle_hidden')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ })
     if (!$rows.Count) { continue }
     $line = '{0,-12}' -f $phase
@@ -402,7 +402,7 @@ Write-Host ''
 # Media atlas per second of phase: decoder input KiB uploaded (all codec
 # paths), frames written, animation cache restores and video conversions.
 Write-Host ('{0,-12}{1,11}{2,11}{3,11}{4,11}' -f 'media / s', 'in KiB', 'frames', 'restores', 'video')
-foreach ($phase in @('history', 'scroll', 'switch', 'idle_anim', 'idle_final')) {
+foreach ($phase in @('history', 'scroll', 'switch', 'idle_anim', 'call_30fps', 'call_5fps', 'idle_final')) {
     $rows = @($warm | ForEach-Object { $_.phases[$phase] } | Where-Object { $_ -and $_.media_frames -ne $null })
     if (!$rows.Count) { continue }
     $perSecond = { param($row, $key, $scale) [double]$row[$key] / $scale / [Math]::Max(0.001, [double]$row.ms / 1000) }

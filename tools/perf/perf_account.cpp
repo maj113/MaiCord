@@ -71,6 +71,12 @@
 #include "maicord/app/account_media.hpp"
 #include "maicord/app/account_module_version.hpp"
 #include "maicord/protocol/message_history.hpp"
+#include "maicord/app/voice_connection_setup.hpp"
+#include "maicord/app/voice_socket.hpp"
+#include "maicord/app/voice_udp_discovery.hpp"
+#include "maicord/protocol/voice_participants.hpp"
+#include "maicord/protocol/voice_video_signaling.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord::perf {
 namespace {
@@ -548,6 +554,19 @@ constexpr u32 kScratchStructurals = 256 * 1024;
 // process, independent of the Gateway's 8M-offset limit.
 constexpr u32 kReadyStructurals = 1024 * 1024;
 
+// The joined synthetic call. The publisher thread only counts pictures;
+// textures and the device are created and released on the UI thread.
+struct SyntheticCall {
+    ID3D11Device* device;
+    ID3D11Texture2D* texture; // Two NV12 slices, alternated per picture.
+    ID3D11ShaderResourceView* luma[2];
+    ID3D11ShaderResourceView* chroma[2];
+    HANDLE thread, stop;
+    u64 guild_id, channel_id;
+    volatile LONG fps, pictures;
+    bool active, started;
+};
+
 struct Module {
     SRWLOCK lock;
     HANDLE gateway_event;   // manual reset: events pending
@@ -586,6 +605,7 @@ struct Module {
     PerfAccountControl churn;
     u64 churn_counter;
     PerfAccountCounters counters;
+    SyntheticCall call;
     bool started;
 };
 Module* g_module = nullptr;
@@ -1373,11 +1393,19 @@ u32 WINAPI module_runtime_bytes() noexcept {
     return sizeof(Module);
 }
 
+void stop_call(Module& m) noexcept;
+void release_call_textures(SyntheticCall& call) noexcept;
+
 AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64) noexcept {
     AccountModuleStatus status{};
     auto* m = instance ? static_cast<Module*>(*instance) : nullptr;
     if (!m)
         return status;
+    stop_call(*m);
+    release_call_textures(m->call);
+    com_release(m->call.device);
+    if (m->call.stop)
+        CloseHandle(m->call.stop);
     SetEvent(m->stop_event);
     SetEvent(m->churn_stop);
     HANDLE threads[3] = {m->ready_thread, m->work_thread, m->churn_thread};
@@ -1441,6 +1469,197 @@ template <u32 Slot, typename R, typename... A> struct Stub<Slot, R (*)(A...) noe
     }
 };
 
+// Synthetic call
+DWORD WINAPI call_video_thread(void* context) noexcept {
+    SyntheticCall& call = static_cast<Module*>(context)->call;
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!timer)
+        return 1;
+    LARGE_INTEGER frequency{}, now{};
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&now);
+    u64 due_qpc = static_cast<u64>(now.QuadPart);
+    HANDLE handles[2] = {call.stop, timer};
+    for (;;) {
+        const u64 period = static_cast<u64>(frequency.QuadPart) / static_cast<u64>(maximum<LONG>(call.fps, 1));
+        due_qpc += period;
+        QueryPerformanceCounter(&now);
+        const u64 at = static_cast<u64>(now.QuadPart);
+        if (due_qpc + period < at)
+            due_qpc = at; // A changed rate or a stall restarts the cadence.
+        LARGE_INTEGER due{};
+        due.QuadPart = -static_cast<LONGLONG>(
+            maximum<u64>(due_qpc > at ? (due_qpc - at) * 10'000'000 / static_cast<u64>(frequency.QuadPart) : 0, 1));
+        if (!SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE) ||
+            WaitForMultipleObjects(2, handles, FALSE, INFINITE) != WAIT_OBJECT_0 + 1)
+            break;
+        InterlockedIncrement(&call.pictures);
+    }
+    CloseHandle(timer);
+    return 0;
+}
+
+void release_call_textures(SyntheticCall& call) noexcept {
+    for (u32 i = 0; i < 2; ++i) {
+        com_release(call.chroma[i]);
+        com_release(call.luma[i]);
+    }
+    com_release(call.texture);
+}
+
+bool ensure_call_textures(SyntheticCall& call) noexcept {
+    if (call.texture)
+        return true;
+    if (!call.device)
+        return false;
+    constexpr u32 kWidth = kPerfCallVideoWidth, kHeight = kPerfCallVideoHeight;
+    constexpr u32 kSliceBytes = kWidth * kHeight * 3 / 2;
+    static u8* pixels = static_cast<u8*>(region_take(kSliceBytes * 2));
+    if (!pixels)
+        return false;
+    D3D11_SUBRESOURCE_DATA data[2]{};
+    for (u32 slice = 0; slice < 2; ++slice) {
+        u8* plane = pixels + slice * kSliceBytes;
+        for (u32 y = 0; y < kHeight; ++y)
+            for (u32 x = 0; x < kWidth; ++x)
+                plane[y * kWidth + x] = static_cast<u8>(32 + (x + y + slice * 64) % 192);
+        for (u32 i = kWidth * kHeight; i < kSliceBytes; ++i)
+            plane[i] = 128;
+        data[slice].pSysMem = plane;
+        data[slice].SysMemPitch = kWidth;
+    }
+    D3D11_TEXTURE2D_DESC texture{};
+    texture.Width = kWidth;
+    texture.Height = kHeight;
+    texture.MipLevels = 1;
+    texture.ArraySize = 2;
+    texture.Format = DXGI_FORMAT_NV12;
+    texture.SampleDesc.Count = 1;
+    texture.Usage = D3D11_USAGE_IMMUTABLE;
+    texture.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    HRESULT status = call.device->CreateTexture2D(&texture, data, &call.texture);
+    D3D11_SHADER_RESOURCE_VIEW_DESC plane{};
+    plane.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    plane.Texture2DArray.MipLevels = 1;
+    plane.Texture2DArray.ArraySize = 1;
+    for (u32 i = 0; i < 2 && SUCCEEDED(status); ++i) {
+        plane.Texture2DArray.FirstArraySlice = i;
+        plane.Format = DXGI_FORMAT_R8_UNORM;
+        status = call.device->CreateShaderResourceView(call.texture, &plane, &call.luma[i]);
+        plane.Format = DXGI_FORMAT_R8G8_UNORM;
+        if (SUCCEEDED(status))
+            status = call.device->CreateShaderResourceView(call.texture, &plane, &call.chroma[i]);
+    }
+    if (FAILED(status))
+        release_call_textures(call);
+    return SUCCEEDED(status);
+}
+
+bool start_call(Module& m, const PerfAccountControl& control) noexcept {
+    SyntheticCall& call = m.call;
+    InterlockedExchange(&call.fps, static_cast<LONG>(maximum<u32>(control.video_fps, 1)));
+    if (call.active)
+        return true;
+    call.guild_id = control.guild_id;
+    call.channel_id = control.channel_id;
+    if (!call.stop)
+        call.stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!call.stop)
+        return false;
+    ResetEvent(call.stop);
+    call.thread = CreateThread(nullptr, 64 * 1024, call_video_thread, &m, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (!call.thread)
+        return false;
+    call.active = call.started = true;
+    SetEvent(m.gateway_event); // The client reads the voice snapshot on its next pump.
+    return true;
+}
+
+void stop_call(Module& m) noexcept {
+    SyntheticCall& call = m.call;
+    if (call.thread) {
+        SetEvent(call.stop);
+        WaitForSingleObject(call.thread, INFINITE);
+        CloseHandle(call.thread);
+        call.thread = nullptr;
+    }
+    if (call.active) {
+        call.active = false;
+        SetEvent(m.gateway_event);
+    }
+}
+
+bool WINAPI module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept {
+    auto* m = static_cast<Module*>(instance);
+    if (!m || !output || !m->call.started)
+        return false;
+    *output = {};
+    if (!m->call.active)
+        return true;
+    output->user_id = kPerfSelfUserId;
+    output->guild_id = m->call.guild_id;
+    output->channel_id = m->call.channel_id;
+    output->generation = 1;
+    output->phase = VoiceSetupPhase::credentials_ready;
+    output->socket_phase = VoiceSocketPhase::open;
+    output->udp_phase = VoiceUdpPhase::ready;
+    return true;
+}
+bool WINAPI module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept {
+    auto* m = static_cast<Module*>(instance);
+    if (!m || !output || !m->call.active)
+        return false;
+    *output = {};
+    output->generation = 1;
+    output->count = kPerfCallCameras;
+    output->codec = VoiceVideoCodec::h264;
+    for (u32 i = 0; i < kPerfCallCameras; ++i) {
+        auto& user = output->users[i];
+        user.user_id = perf_user_id(1 + i);
+        user.ssrc = kPerfCallFirstSsrc + i;
+        user.kind = VoiceSourceKind::video;
+    }
+    return true;
+}
+bool WINAPI module_voice_video_wanted(void* instance, u64, bool) noexcept {
+    return instance != nullptr;
+}
+bool WINAPI module_voice_video_device(void* instance, ID3D11Device* device) noexcept {
+    auto* m = static_cast<Module*>(instance);
+    if (!m)
+        return false;
+    release_call_textures(m->call);
+    com_release(m->call.device);
+    if (device)
+        device->AddRef();
+    m->call.device = device;
+    return true;
+}
+bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame* output) noexcept {
+    auto* m = static_cast<Module*>(instance);
+    if (!m || !output || !m->call.active || ssrc < kPerfCallFirstSsrc ||
+        ssrc >= kPerfCallFirstSsrc + kPerfCallCameras || !ensure_call_textures(m->call))
+        return false;
+    SyntheticCall& call = m->call;
+    const u32 pictures = static_cast<u32>(call.pictures);
+    const u32 slice = pictures & 1u;
+    *output = {};
+    output->gpu.texture = call.texture;
+    output->gpu.subresource = slice;
+    output->gpu.width = kPerfCallVideoWidth;
+    output->gpu.height = kPerfCallVideoHeight;
+    output->gpu.luma = call.luma[slice];
+    output->gpu.chroma = call.chroma[slice];
+    call.texture->AddRef();
+    call.luma[slice]->AddRef();
+    call.chroma[slice]->AddRef();
+    output->ssrc = ssrc;
+    output->sequence = pictures;
+    output->display_width = static_cast<u16>(kPerfCallVideoWidth);
+    output->display_height = static_cast<u16>(kPerfCallVideoHeight);
+    return true;
+}
+
 } // namespace
 
 bool fill_api(AccountModuleApi* api) noexcept {
@@ -1464,6 +1683,11 @@ bool fill_api(AccountModuleApi* api) noexcept {
     api->runtime_bytes = module_runtime_bytes;
     api->stop = module_stop;
     api->guild_members_request = module_guild_members_request;
+    api->voice_snapshot = module_voice_snapshot;
+    api->voice_video_snapshot = module_voice_video_snapshot;
+    api->voice_video_wanted = module_voice_video_wanted;
+    api->voice_video_device = module_voice_video_device;
+    api->voice_video_frame = module_voice_video_frame;
 #define MC_STUB(slot, field) api->field = Stub<slot, decltype(api->field)>::call
     MC_STUB(1, private_conversation);
     MC_STUB(2, attachment_upload);
@@ -1529,7 +1753,6 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(62, poll);
     MC_STUB(63, guild_admin);
     MC_STUB(64, voice_request);
-    MC_STUB(65, voice_snapshot);
     MC_STUB(66, login_start_captcha_bridge);
     MC_STUB(67, login_captcha_bridge_status);
     MC_STUB(68, login_copy_captcha_bridge_url);
@@ -1548,10 +1771,6 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(81, guild_settings);
     MC_STUB(82, mentions);
     MC_STUB(83, guild_assets);
-    MC_STUB(84, voice_video_snapshot);
-    MC_STUB(85, voice_video_wanted);
-    MC_STUB(86, voice_video_device);
-    MC_STUB(87, voice_video_frame);
     MC_STUB(88, stream_watch);
     MC_STUB(89, stream_snapshot);
     MC_STUB(90, stream_volume);
@@ -1595,6 +1814,11 @@ bool control(const PerfAccountControl* control) noexcept {
         WaitForSingleObject(m->churn_thread, INFINITE);
         CloseHandle(m->churn_thread);
         m->churn_thread = nullptr;
+        return true;
+    case PerfAccountCommand::start_call:
+        return start_call(*m, *control);
+    case PerfAccountCommand::stop_call:
+        stop_call(*m);
         return true;
     case PerfAccountCommand::message_create: {
         Work work{};

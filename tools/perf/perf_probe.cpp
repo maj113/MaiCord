@@ -20,6 +20,7 @@
 #include "../../src/app/application_surface_motion.hpp"
 #include "../../src/app/application_tooltip.hpp"
 #include "../../src/app/application_video.hpp"
+#include "../../src/app/application_call.hpp"
 #include "../../src/app/application_scheduler.hpp"
 #include "../../src/app/application_activity.hpp"
 #include "../../src/app/application_invite_cards.hpp"
@@ -912,6 +913,9 @@ enum class Phase : u32 {
     animation_scroll,
     idle_animated,
     idle_fx,
+    call_open,
+    call_video_30,
+    call_video_5,
     idle_final,
     idle_hidden,
     report,
@@ -920,7 +924,8 @@ enum class Phase : u32 {
 };
 const char* const kPhaseNames[] = {"startup",     "history",     "idle_static", "scroll",    "switch",
                                    "member_list", "churn",       "settings",    "anim_scroll", "idle_anim",
-                                   "idle_fx",     "idle_final",  "idle_hidden", "report",      "done"};
+                                   "idle_fx",     "call_open",   "call_30fps",  "call_5fps",   "idle_final",
+                                   "idle_hidden", "report",      "done"};
 
 constexpr u32 kFrameSampleCapacity = 8192;
 // Retained text and paint work: parser runs against cache hits, content text
@@ -1171,6 +1176,17 @@ float message_x() noexcept {
 }
 float member_x() noexcept {
     return client_width_dip() - static_cast<float>(g_app.member_pane_width) * 0.5f;
+}
+
+bool call_control(PerfAccountCommand command, u32 video_fps) noexcept {
+    if (!g_probe.control)
+        return false;
+    PerfAccountControl control{};
+    control.command = command;
+    control.channel_id = perf_lab_voice_channel(0);
+    control.guild_id = g_probe.lab_guild;
+    control.video_fps = video_fps;
+    return g_probe.control(&control);
 }
 
 constexpr u32 kAnimationChannelIndex = 2;
@@ -2672,6 +2688,9 @@ u64 phase_deadline_qpc() noexcept {
     case Phase::animation_scroll: return action(kAnimationScrollNotches, 3'000);
     case Phase::idle_animated: return at(10'000);
     case Phase::idle_fx: return at(3'000);
+    case Phase::call_open: return at(2'000);
+    case Phase::call_video_30: return at(10'000);
+    case Phase::call_video_5: return at(10'000);
     case Phase::idle_final: return at(4'000);
     case Phase::idle_hidden: return at(4'000);
     default: return 0;
@@ -2909,8 +2928,32 @@ bool probe_step_phases(int* exit_code) noexcept {
         if (phase_ms > 3'000) {
             g_app.preferences.gradient = g_probe.gradient;
             app_detail::application_request_frame();
-            next_phase(Phase::idle_final);
             collect_threads(true);
+            // A call with two cameras in the content column.
+            if (!call_control(PerfAccountCommand::start_call, 30) ||
+                !app_detail::application_call_open(perf_lab_voice_channel(0), 0))
+                fail("call_open");
+            next_phase(Phase::call_open);
+        }
+        break;
+    case Phase::call_open:
+        if (phase_ms > 2'000)
+            next_phase(Phase::call_video_30);
+        break;
+    // Steady call video at camera rates. Picture rates are not scaled, so
+    // each runs a full second.
+    case Phase::call_video_30:
+        if (phase_ms > 10'000) {
+            if (!call_control(PerfAccountCommand::start_call, 5))
+                fail("call_rate");
+            next_phase(Phase::call_video_5);
+        }
+        break;
+    case Phase::call_video_5:
+        if (phase_ms > 10'000) {
+            call_control(PerfAccountCommand::stop_call, 0);
+            app_detail::application_call_close();
+            next_phase(Phase::idle_final);
         }
         break;
     case Phase::idle_final:

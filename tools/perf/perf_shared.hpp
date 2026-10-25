@@ -51,6 +51,16 @@ inline constexpr u64 perf_private_id(u32 index) noexcept {
 inline constexpr u32 perf_lab_channel_count() noexcept {
     return kPerfLabCategories * (kPerfLabTextPerCategory + 2);
 }
+// The voice channel closing Perf Lab category `category`.
+inline constexpr u64 perf_lab_voice_channel(u32 category) noexcept {
+    return perf_channel_id(0, category * (kPerfLabTextPerCategory + 2) + kPerfLabTextPerCategory + 1);
+}
+// The synthetic call: users 1..kPerfCallCameras send cameras on consecutive
+// SSRCs; their pictures are NV12 slices the module creates on the client's device.
+inline constexpr u32 kPerfCallCameras = 2;
+inline constexpr u32 kPerfCallFirstSsrc = 4'000;
+inline constexpr u32 kPerfCallVideoWidth = 640;
+inline constexpr u32 kPerfCallVideoHeight = 360;
 // Text channel `index` (0-based over all Perf Lab text channels).
 inline constexpr u64 perf_lab_text_channel(u32 index) noexcept {
     const u32 category = index / kPerfLabTextPerCategory;
@@ -65,6 +75,10 @@ enum class PerfAccountCommand : u32 {
     stop_churn = 2,
     // One new message in argument1's channel (mixed content).
     message_create = 3,
+    // Joins a synthetic call in channel_id/guild_id whose cameras present
+    // video_fps new pictures a second; again while joined changes the rate.
+    start_call = 4,
+    stop_call = 5,
 };
 
 struct PerfAccountControl {
@@ -74,6 +88,7 @@ struct PerfAccountControl {
     u32 messages_per_second;
     u64 channel_id;
     u64 guild_id;
+    u32 video_fps;
 };
 
 struct PerfAccountCounters {
