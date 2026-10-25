@@ -703,6 +703,9 @@ struct AccountModuleApi {
     // v142: whether the main window is focused. Requests report it as the app
     // state, and the Gateway counts the client active while it is.
     void(WINAPI* client_focus)(void*, bool focused) noexcept;
+    // v143: an auto-reset event set after any remote video stream publishes a
+    // new picture for voice_video_frame. Owned by the module; valid until stop.
+    HANDLE(WINAPI* voice_video_notification)(void*) noexcept;
 };
 
 // The account module's boundary, linked into MaiCord.exe (and a DLL only for
@@ -717,7 +720,8 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 136);
-static_assert(sizeof(AccountModuleApi) == 1000);
+static_assert(sizeof(AccountModuleApi) == 1008);
+static_assert(offsetof(AccountModuleApi, voice_video_notification) == 1000);
 static_assert(offsetof(AccountModuleApi, client_focus) == 992);
 static_assert(offsetof(AccountModuleApi, channel_info) == 976);
 static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 968);

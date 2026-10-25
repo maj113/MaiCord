@@ -561,7 +561,7 @@ struct SyntheticCall {
     ID3D11Texture2D* texture; // Two NV12 slices, alternated per picture.
     ID3D11ShaderResourceView* luma[2];
     ID3D11ShaderResourceView* chroma[2];
-    HANDLE thread, stop;
+    HANDLE thread, stop, frame_event; // frame_event: auto reset, set per picture.
     u64 guild_id, channel_id;
     volatile LONG fps, pictures;
     bool active, started;
@@ -1406,6 +1406,8 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     com_release(m->call.device);
     if (m->call.stop)
         CloseHandle(m->call.stop);
+    if (m->call.frame_event)
+        CloseHandle(m->call.frame_event);
     SetEvent(m->stop_event);
     SetEvent(m->churn_stop);
     HANDLE threads[3] = {m->ready_thread, m->work_thread, m->churn_thread};
@@ -1494,6 +1496,7 @@ DWORD WINAPI call_video_thread(void* context) noexcept {
             WaitForMultipleObjects(2, handles, FALSE, INFINITE) != WAIT_OBJECT_0 + 1)
             break;
         InterlockedIncrement(&call.pictures);
+        SetEvent(call.frame_event);
     }
     CloseHandle(timer);
     return 0;
@@ -1564,7 +1567,9 @@ bool start_call(Module& m, const PerfAccountControl& control) noexcept {
     call.channel_id = control.channel_id;
     if (!call.stop)
         call.stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!call.stop)
+    if (!call.frame_event)
+        call.frame_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!call.stop || !call.frame_event)
         return false;
     ResetEvent(call.stop);
     call.thread = CreateThread(nullptr, 64 * 1024, call_video_thread, &m, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
@@ -1620,6 +1625,10 @@ bool WINAPI module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoS
         user.kind = VoiceSourceKind::video;
     }
     return true;
+}
+HANDLE WINAPI module_voice_video_notification(void* instance) noexcept {
+    auto* m = static_cast<Module*>(instance);
+    return m && m->call.active ? m->call.frame_event : nullptr;
 }
 bool WINAPI module_voice_video_wanted(void* instance, u64, bool) noexcept {
     return instance != nullptr;
@@ -1688,6 +1697,7 @@ bool fill_api(AccountModuleApi* api) noexcept {
     api->voice_video_wanted = module_voice_video_wanted;
     api->voice_video_device = module_voice_video_device;
     api->voice_video_frame = module_voice_video_frame;
+    api->voice_video_notification = module_voice_video_notification;
 #define MC_STUB(slot, field) api->field = Stub<slot, decltype(api->field)>::call
     MC_STUB(1, private_conversation);
     MC_STUB(2, attachment_upload);

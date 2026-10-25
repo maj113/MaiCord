@@ -190,15 +190,20 @@ bool owned_views_valid(const GpuVideoFrame& frame) noexcept {
     return true;
 }
 
+// Waits on the decoders' picture event, so a picture published without a
+// signal fails the case.
 bool wait_frame(VideoStreamDecoders* decoders, u32 sequence, u64 deadline, VideoStreamFrame* frame) noexcept {
-    do {
+    if (!decoders->frame_event) return false;
+    for (;;) {
         if (video_stream_decoders_frame(decoders, 0x1234, frame)) {
             if (frame->sequence >= sequence) return true;
             release_frame(frame);
         }
-        Sleep(1);
-    } while (GetTickCount64() < deadline);
-    return false;
+        const u64 now = GetTickCount64();
+        if (now >= deadline ||
+            WaitForSingleObject(decoders->frame_event, static_cast<DWORD>(deadline - now)) != WAIT_OBJECT_0)
+            return false;
+    }
 }
 
 bool mark_frame(const GpuVideoFrame& frame, u32 offset, u32* expected) noexcept {

@@ -22,6 +22,10 @@ bool application_call_synchronize() noexcept;
 bool application_call_pump(bool* repaint) noexcept;
 // Voice pump cadence: wants only (also while the window is hidden).
 void application_call_voice_pump() noexcept;
+// The module's new-picture event while visible tiles poll (null otherwise);
+// the loop waits on it and reports a signal, which makes the poll due.
+HANDLE application_call_video_notification() noexcept;
+void application_call_video_signaled() noexcept;
 u64 application_call_next_wake() noexcept;
 bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 // Text in voice: the call's share of the content column while its chat shows

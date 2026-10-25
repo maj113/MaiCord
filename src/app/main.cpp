@@ -47,6 +47,7 @@
 #include "application_login_input.hpp"
 #include "application_login_ui.hpp"
 #include "application_scheduler.hpp"
+#include "application_call.hpp"
 #include "application_shutdown_metrics.hpp"
 #include "application_settings.hpp"
 #include "application_custom_theme.hpp"
@@ -332,7 +333,7 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 14]{};
+        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 15]{};
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
@@ -357,6 +358,10 @@ int application_run() noexcept {
         push_handle(application_account_switch_notification());
         push_handle(application_updates_notification());
         push_handle(application_plugin_browser_notification());
+        const u32 video_handle_index = wait_handle_count;
+        if (!application_account_logout_blocked())
+            push_handle(application_call_video_notification());
+        const bool video_handle = wait_handle_count != video_handle_index;
         u32 frame_handle_index = 0xFFFFFFFFu;
         const u64 wait_now_ms = clock_monotonic_milliseconds();
         const u64 wait_now_us = application_now_us();
@@ -469,6 +474,9 @@ int application_run() noexcept {
             PostMessageW(g_app.window, WM_CLOSE, 0, 0);
         }
         u64 restart_now_us = application_now_us();
+        const bool video_signal = video_handle && waited == WAIT_OBJECT_0 + video_handle_index;
+        if (video_signal)
+            application_call_video_signaled();
         const bool account_signal = account_handle_count != 0 && waited >= WAIT_OBJECT_0 &&
                                     waited < WAIT_OBJECT_0 + account_handle_count;
         bool frame_signal = retained_frame_permit || (frame_handle_index != 0xFFFFFFFFu &&
@@ -477,6 +485,10 @@ int application_run() noexcept {
             // MsgWait returns the lowest ready handle. Drain a simultaneous
             // display signal even when an earlier account handle or queued
             // window message won the primary wait.
+            frame_signal = d3d11_device_owner_wait(g_app.renderer.graphics, 0) == WAIT_OBJECT_0;
+        } else if (!frame_signal && video_signal && frame_clock_available) {
+            // A new call picture uses a free display slot in this turn instead
+            // of waking again for it.
             frame_signal = d3d11_device_owner_wait(g_app.renderer.graphics, 0) == WAIT_OBJECT_0;
         }
         const bool frame_timeout = frame_handle_index != 0xFFFFFFFFu && !frame_signal &&

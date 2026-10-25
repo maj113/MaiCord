@@ -446,6 +446,31 @@ void lifecycle_cases(Check check) noexcept {
 }
 } // namespace
 
+namespace {
+// Poll schedule: a module that signals pictures is polled on the signal with a
+// slow fallback; without a signal visible streams poll at display rate.
+void poll_cases(Check check) noexcept {
+    const CallVideoPumpResult visible{false, false, true, false};
+    const CallVideoPumpResult hidden{};
+    const CallVideoPumpResult want{false, false, false, true};
+    check(call_video_poll_after(0, 1'000, true, visible, false) == 1'000 + kCallVideoPollMs &&
+              call_video_poll_after(0, 1'000, true, visible, true) == 1'000 + kCallVideoSignaledPollMs,
+          "call poll: visible streams sample at display rate unless the module signals pictures");
+    u64 next = call_video_poll_after(0, 1'000, true, visible, true);
+    check(!call_video_poll_due(next, 1'100) && call_video_poll_signaled(next, 1'003) == 1'003 &&
+              call_video_poll_due(call_video_poll_signaled(next, 1'003), 1'003),
+          "call poll: a picture signal makes the armed poll due at once");
+    check(call_video_poll_after(next, 1'100, false, visible, true) == next,
+          "call poll: a wants-only pump keeps the scheduled poll");
+    next = call_video_poll_after(next, 1'200, false, hidden, true);
+    check(!next && !call_video_poll_signaled(next, 1'300) && call_video_poll_due(next, 1'300),
+          "call poll: nothing visible disarms the poll and ignores picture signals");
+    check(call_video_poll_after(0, 2'000, true, want, true) == 2'000 + kCallVideoWantRetryMs &&
+              call_video_poll_after(0, 2'000, true, want, false) == 2'000 + kCallVideoWantRetryMs,
+          "call poll: an unsent want retries on its own interval with nothing visible");
+}
+} // namespace
+
 void test_call_view(Check check) noexcept {
     grid_cases(check);
     fit_cases(check);
@@ -454,5 +479,6 @@ void test_call_view(Check check) noexcept {
     presenter_cases(check);
     roster_cases(check);
     lifecycle_cases(check);
+    poll_cases(check);
 }
 } // namespace maicord

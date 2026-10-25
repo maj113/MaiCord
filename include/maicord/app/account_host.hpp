@@ -59,7 +59,7 @@ struct AccountHost {
     bool stop_failed;
 };
 
-static_assert(sizeof(AccountHost) == 1248);
+static_assert(sizeof(AccountHost) == 1256);
 
 bool account_host_api_valid(const AccountModuleApi& api) noexcept;
 // Admits module's API into an empty host; a loaded host keeps its API. A

@@ -63,6 +63,26 @@ void call_video_presenter_reset(CallVideoPresenter*) noexcept;
 CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter*, const CallVideoHost&,
                                               ConstSlice<CallVideoTarget> targets, bool poll) noexcept;
 const CallVideoStream* call_video_presenter_find(const CallVideoPresenter&, u64 user_id) noexcept;
+// The call view's next stream poll in milliseconds (zero: none). A module
+// that signals new pictures is polled on its signal, with a slow fallback for
+// wants and pictures it cannot signal; otherwise visible streams are sampled
+// at display rate. A want that could not be sent retries on its own interval.
+inline constexpr u64 kCallVideoPollMs = 15;
+inline constexpr u64 kCallVideoSignaledPollMs = 250;
+inline constexpr u64 kCallVideoWantRetryMs = 250;
+constexpr u64 call_video_poll_interval(bool signaled) noexcept {
+    return signaled ? kCallVideoSignaledPollMs : kCallVideoPollMs;
+}
+constexpr bool call_video_poll_due(u64 next_ms, u64 now_ms) noexcept {
+    return !next_ms || now_ms >= next_ms;
+}
+// The schedule after a pump at now_ms that polled pictures or only wants.
+u64 call_video_poll_after(u64 next_ms, u64 now_ms, bool polled, const CallVideoPumpResult& result,
+                          bool signaled) noexcept;
+// A new-picture signal makes an armed poll due; nothing visible stays unarmed.
+constexpr u64 call_video_poll_signaled(u64 next_ms, u64 now_ms) noexcept {
+    return next_ms ? now_ms : 0;
+}
 // Reduction extent for a picture shown in a tile_pixels tile: the largest
 // integer GPU reduction whose result still covers the tile, capped at
 // kCallVideoMaximumExtent. Zero keeps the native picture.

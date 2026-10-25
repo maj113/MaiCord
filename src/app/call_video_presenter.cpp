@@ -105,6 +105,15 @@ CallVideoPumpResult call_video_presenter_pump(CallVideoPresenter* presenter, con
     return result;
 }
 
+u64 call_video_poll_after(u64 next_ms, u64 now_ms, bool polled, const CallVideoPumpResult& result,
+                          bool signaled) noexcept {
+    if (polled || !result.visible)
+        next_ms = result.visible ? now_ms + call_video_poll_interval(signaled) : 0;
+    if (result.want_pending && !next_ms)
+        next_ms = now_ms + kCallVideoWantRetryMs;
+    return next_ms;
+}
+
 const CallVideoStream* call_video_presenter_find(const CallVideoPresenter& presenter, u64 user_id) noexcept {
     for (u32 i = 0; user_id && i < presenter.count; ++i)
         if (presenter.streams[i].user_id == user_id)

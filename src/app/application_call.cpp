@@ -32,9 +32,6 @@
 
 namespace maicord::app_detail {
 namespace {
-// Visible streams are sampled at display rate; only new pictures repaint.
-constexpr u64 kVideoPollMs = 15;
-
 struct CallView {
     UiCallScene scene;
     UiCallParticipant participants[kUiCallMaximumTiles];
@@ -670,6 +667,22 @@ bool application_call_synchronize() noexcept {
     return true;
 }
 
+namespace {
+HANDLE video_notification() noexcept {
+    const auto& host = g_app.account;
+    return host.instance && host.api.voice_video_notification ? host.api.voice_video_notification(host.instance)
+                                                              : nullptr;
+}
+} // namespace
+
+HANDLE application_call_video_notification() noexcept {
+    return view.next_poll_ms ? video_notification() : nullptr;
+}
+
+void application_call_video_signaled() noexcept {
+    view.next_poll_ms = call_video_poll_signaled(view.next_poll_ms, GetTickCount64());
+}
+
 bool application_call_pump(bool* repaint_requested) noexcept {
     if (!g_app.account_ui)
         return true;
@@ -677,12 +690,10 @@ bool application_call_pump(bool* repaint_requested) noexcept {
     const u64 now = GetTickCount64();
     // Poll when due (or unscheduled); earlier pumps only reconcile wants, so
     // a busy frame loop never postpones the next poll.
-    const bool poll = !view.next_poll_ms || now >= view.next_poll_ms;
+    const bool poll = call_video_poll_due(view.next_poll_ms, now);
     const auto result = synchronize_video(poll);
-    if (poll || !result.visible)
-        view.next_poll_ms = result.visible ? now + kVideoPollMs : 0;
-    if (result.want_pending && !view.next_poll_ms)
-        view.next_poll_ms = now + 250;
+    const bool signaled = video_notification() != nullptr;
+    view.next_poll_ms = call_video_poll_after(view.next_poll_ms, now, poll, result, signaled);
     const u64 morph = scene_visible() ? ui_call_scene_next_wake(view.scene, now, g_app.preferences.reduced_motion) : 0;
     if ((result.presented || result.changed || (morph && now >= morph)) && repaint_requested) {
         *repaint_requested = true;
@@ -698,7 +709,7 @@ void application_call_voice_pump() noexcept {
     application_stream_pump();
     const auto result = synchronize_video(false);
     if (result.visible && !view.next_poll_ms)
-        view.next_poll_ms = GetTickCount64() + kVideoPollMs;
+        view.next_poll_ms = GetTickCount64() + call_video_poll_interval(video_notification() != nullptr);
     if (result.changed)
         application_repaint();
 }

@@ -1594,6 +1594,10 @@ bool WINAPI module_voice_video_frame(void* instance, u32 ssrc, VideoStreamFrame*
     ensure_video_frames(runtime, user_account_coordinator_gateway(&runtime->coordinator));
     return video_stream_decoders_frame(&runtime->video, ssrc, output);
 }
+HANDLE WINAPI module_voice_video_notification(void* instance) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    return runtime ? runtime->video.frame_event : nullptr;
+}
 bool WINAPI module_voice_video_wanted(void* instance, u64 user_id, bool wanted) noexcept {
     auto* gateway = module_gateway(instance);
     return gateway && gateway_client_voice_video_wanted(gateway, user_id, wanted);
@@ -2153,6 +2157,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_channel_info,
         maicord::module_collection_title,
         maicord::module_client_focus,
+        maicord::module_voice_video_notification,
     };
     maicord::copy_bytes(api, &table, sizeof(table));
     return true;

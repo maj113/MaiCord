@@ -38,7 +38,8 @@ void on_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
     if (!frame.gpu || !frame.gpu->texture) return;
     AcquireSRWLockExclusive(decoders->lock.native());
-    if (auto* stream = find(decoders, ssrc)) {
+    auto* stream = find(decoders, ssrc);
+    if (stream) {
         retain_frame(*frame.gpu);
         release_frame(stream->latest);
         stream->latest = *frame.gpu;
@@ -49,6 +50,7 @@ void on_frame(void* context, u32 ssrc, const GpuStreamFrame& frame) noexcept {
         ++stream->sequence;
     }
     ReleaseSRWLockExclusive(decoders->lock.native());
+    if (stream && decoders->frame_event) SetEvent(decoders->frame_event);
 }
 
 void on_keyframe(void* context, u32 ssrc) noexcept {
@@ -172,6 +174,7 @@ u32 decodable(void* context) noexcept {
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept {
     if (!decoders) return;
     reset_value(decoders);
+    decoders->frame_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
 }
 
 void video_stream_decoders_set_device(VideoStreamDecoders* decoders, ID3D11Device* device) noexcept {
@@ -231,6 +234,9 @@ void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
     ReleaseSRWLockExclusive(decoders->lock.native());
     for (auto* decoder : detached) gpu_stream_decoder_destroy(decoder);
     if (device) device->Release();
+    // Every decode thread has joined: nothing signals the event any more.
+    if (decoders->frame_event) CloseHandle(decoders->frame_event);
+    decoders->frame_event = nullptr;
 }
 
 } // namespace maicord

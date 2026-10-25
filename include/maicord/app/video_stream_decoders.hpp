@@ -45,12 +45,16 @@ struct VideoStreamDecoders {
     ID3D11Device* device; // Referenced; null until the renderer provides one.
     VideoKeyframeRequester keyframes;
     volatile LONG decodable; // voice_video_codec_bit set of the device's hardware decoders.
+    // Auto-reset event set after any stream publishes a new picture, so the UI
+    // waits for pictures instead of polling. Null if creation failed.
+    HANDLE frame_event;
     Stream streams[kVideoStreamDecoderStreams];
     // Worker-only: SSRCs waiting for their first keyframe, for request throttling.
     u32 waiting_ssrc[kVideoStreamDecoderStreams];
     u64 waiting_ms[kVideoStreamDecoderStreams];
 };
 
+// Creates frame_event; release closes it.
 void video_stream_decoders_initialize(VideoStreamDecoders* decoders) noexcept;
 // Any thread. The renderer's multithread-protected device; probes its decoders.
 // Streams created later decode on it (existing streams keep theirs until they end).
