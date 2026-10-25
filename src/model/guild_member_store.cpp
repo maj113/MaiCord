@@ -640,6 +640,22 @@ GuildMemberStoreResult guild_member_store_upsert(
                                          evicted};
 }
 
+bool guild_member_store_restore_display(GuildMemberStore* store, const ChatStateStore& state, u64 guild_id,
+                                        u64 user_id, Utf8View nickname, u32 role_color) noexcept {
+    const auto upserted =
+        guild_member_store_upsert(store, state, guild_id, user_id, nickname, {}, false, GuildMemberStatus::unknown);
+    if (!upserted.ok())
+        return false;
+    auto& record = store->records[upserted.record - store->records];
+    if (record.roles_known || record.role_color == role_color)
+        return true;
+    record.role_color = role_color;
+    saturating_increment(record.revision);
+    saturating_increment(store->revision);
+    saturating_increment(store->mutations);
+    return true;
+}
+
 GuildMemberInPlaceResult guild_member_store_update_in_place(
     GuildMemberStore* store, const ChatStateStore& state, u64 guild_id, u64 list_id, u32 list_index,
     u64 user_id, Utf8View nickname, ConstSlice<u64> role_ids, bool roles_known,

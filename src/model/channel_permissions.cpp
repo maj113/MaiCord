@@ -433,6 +433,30 @@ bool chat_state_store_set_channel_mute(ChatStateStore* store, u64 channel_id, bo
     return true;
 }
 
+bool chat_state_store_restore_channel(ChatStateStore* store, u64 channel_id, u64 permissions,
+                                      u64 last_message_id) noexcept {
+    ChannelRecord* channel = mutable_channel(store, channel_id);
+    if (!channel)
+        return false;
+    // Read through any message: nothing is unread until READY's read state.
+    channel->last_read_message_id = ~0ull;
+    if (channel_is_private(channel->type)) {
+        channel->last_message_id = last_message_id;
+    } else if (channel_is_thread(channel->type)) {
+        const ChannelRecord* parent = chat_state_store_find_channel(*store, channel->parent_id);
+        channel->permissions_resolved = parent && parent->guild_id == channel->guild_id && parent->permissions_resolved;
+        channel->effective_permissions = channel->permissions_resolved ? parent->effective_permissions : 0;
+        channel->actions = chat_state_store_thread_actions(*store, *channel);
+    } else {
+        channel->permissions_resolved = true;
+        channel->effective_permissions = permissions;
+        channel->actions = channel_actions(channel->type, permissions, true);
+    }
+    saturating_increment(channel->revision);
+    ++store->channel_mutations;
+    return true;
+}
+
 bool chat_state_store_set_guild_mute(ChatStateStore* store, u64 guild_id, bool muted) noexcept {
     GuildRecord* guild = mutable_guild(store, guild_id);
     if (!guild || guild->notification_muted == muted)

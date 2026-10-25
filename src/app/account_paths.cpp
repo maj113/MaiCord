@@ -29,11 +29,12 @@ AccountPathsResult account_paths_build_slot(const wchar_t* local_application_dat
         wide_append(accounts, 16, &accounts_length, slot_directory);
     AccountPaths& built = *paths;
     wchar_t* outputs[] = {built.application_directory, built.account_directory, built.profile, built.session,
-                          built.drafts};
-    static constexpr const wchar_t* files[] = {L"\\active.profile", L"\\active.session", L"\\active.drafts"};
+                          built.drafts, built.shell};
+    static constexpr const wchar_t* files[] = {L"\\active.profile", L"\\active.session", L"\\active.drafts",
+                                               L"\\active.shell"};
     bool complete = data_path_build(local_application_data, built.application_directory, kCapacity, nullptr) &&
                     data_path_build(local_application_data, built.account_directory, kCapacity, accounts);
-    for (u32 index = 0; complete && index < 3; ++index) {
+    for (u32 index = 0; complete && index < 4; ++index) {
         wchar_t relative[32];
         u32 length = 0;
         complete = wide_append(relative, 32, &length, accounts) && wide_append(relative, 32, &length, files[index]) &&

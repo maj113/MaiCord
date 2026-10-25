@@ -444,7 +444,7 @@ maicord_library(maicord_message_runtime
     src/app/read_scope.cpp src/app/bulk_read_ack_controller.cpp src/app/message_history_sync.cpp
     src/app/media_url_resolver.cpp src/app/message_send_tracker.cpp src/app/message_timeline.cpp
     src/app/message_view_runtime.cpp src/app/message_snapshot_cache.cpp src/model/message_reconcile.cpp
-    src/app/message_interaction_rules.cpp
+    src/app/message_interaction_rules.cpp src/app/startup_shell.cpp src/app/startup_shell_state.cpp
     LIBS maicord_core maicord_model maicord_protocol maicord_app_core maicord_platform maicord_ui kernel32)
 
 maicord_library(maicord_message_media

@@ -713,5 +713,16 @@ ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store, u6
                                                        u64 remembered_parent_id = 0) noexcept;
 ChatStateSelectionResult chat_state_store_select_channel(ChatStateStore* store,
                                                                u64 channel_id) noexcept;
+// Before READY: selects a resident server whose channels are not known yet,
+// with no channel, and makes it the restoration target so READY lands on
+// remembered_channel_id (0: the guild's default channel).
+ChatStateSelectionResult chat_state_store_select_pending_guild(ChatStateStore* store, u64 guild_id,
+                                                               u64 remembered_channel_id) noexcept;
+// Startup shell, before READY: a guild channel takes the permissions it had
+// when the shell was saved (a thread inherits its parent's), a conversation
+// sorts by last_message_id, and none reads as unread, even after a history
+// page reports newer messages. READY replaces all of it with real state.
+bool chat_state_store_restore_channel(ChatStateStore* store, u64 channel_id, u64 permissions,
+                                      u64 last_message_id) noexcept;
 
 } // namespace maicord

@@ -1347,6 +1347,28 @@ ChatStateSelectionResult chat_state_store_select_guild(ChatStateStore* store, u6
     return ChatStateSelectionResult{ChatStateSelectionError::none, set_selection(store, channel)};
 }
 
+ChatStateSelectionResult chat_state_store_select_pending_guild(ChatStateStore* store, u64 guild_id,
+                                                               u64 remembered_channel_id) noexcept {
+    if (!store || guild_id == 0)
+        return {ChatStateSelectionError::invalid_input, false};
+    if (!chat_state_store_find_guild(*store, guild_id))
+        return {ChatStateSelectionError::not_found, false};
+    saturating_increment(store->navigation_intent_revision);
+    // Any channel ID marks the target; a missing one falls back to the
+    // guild's default channel when READY's state completes.
+    store->restore_channel_id = remembered_channel_id ? remembered_channel_id : guild_id;
+    store->restore_guild_id = guild_id;
+    store->restore_deadline_ms = 0;
+    if (store->selected_guild_id == guild_id && !store->selected_channel_id && !store->home_selected)
+        return {ChatStateSelectionError::none, false};
+    read_state_leave_channel(store, store->selected_channel_id);
+    store->selected_guild_id = guild_id;
+    store->selected_channel_id = 0;
+    store->home_selected = false;
+    saturating_increment(store->selection_revision);
+    return {ChatStateSelectionError::none, true};
+}
+
 ChatStateSelectionResult chat_state_store_select_channel(ChatStateStore* store,
                                                                u64 channel_id) noexcept {
     if (!store || channel_id == 0) {

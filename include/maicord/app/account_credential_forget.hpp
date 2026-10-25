@@ -22,6 +22,8 @@ enum AccountCredentialForgetTarget : u8 {
     account_forget_session_new = 1u << 3,
     account_forget_marker = 1u << 4,
     account_forget_marker_new = 1u << 5,
+    account_forget_shell = 1u << 6,
+    account_forget_shell_new = 1u << 7,
 };
 
 struct AccountCredentialForgetResult {
@@ -55,8 +57,8 @@ struct AccountCredentialForgetIo {
 };
 
 // AccountPaths must contain the canonical active.profile and active.session
-// children of account_directory. Only those files and their .new companions
-// are touched. The nonsecret active.logout marker contains a fixed magic/v1.
+// children of account_directory. Only those files, the account's startup
+// shell (active.shell) and their .new companions are touched. The nonsecret active.logout marker contains a fixed magic/v1.
 // Any marker (including incomplete .new, a directory, or inaccessible path)
 // blocks startup; probe does not trust marker contents or decrypt credentials.
 AccountCredentialForgetResult account_credential_forget_probe(
@@ -66,7 +68,7 @@ AccountCredentialForgetResult account_credential_forget_begin(
 
 // Caller owns all coordinator/login joins and promotion serialization. False
 // performs zero IO. True preserves existing intent (including interrupted
-// .new) or commits new intent before deleting four credentials,
+// .new) or commits new intent before deleting four credentials and the shell,
 // confirms absence, then deletes marker.new and marker last. Any error leaves
 // pending=true. Missing files are successful; no drafts/preferences are read.
 AccountCredentialForgetResult account_credential_forget_complete_after_join(

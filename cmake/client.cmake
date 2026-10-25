@@ -340,6 +340,7 @@ maicord_compact_sources(
         src/ui/reaction_viewer.cpp src/ui/reaction_viewer_presentation.cpp
         src/ui/message_context_menu.cpp src/ui/attachment_menu.cpp src/ui/received_attachment_menu.cpp
         src/ui/text_edit_menu.cpp src/ui/toast.cpp src/app/channel_memory.cpp
+        src/app/startup_shell.cpp src/app/startup_shell_state.cpp
         src/ui/channel_context_policy.cpp src/ui/guild_context_policy.cpp
         src/ui/member_context_policy.cpp src/ui/private_channel_title.cpp
         src/app/quick_switcher_controller.cpp src/app/message_forward_controller.cpp

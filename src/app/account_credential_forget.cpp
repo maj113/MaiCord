@@ -8,7 +8,11 @@ namespace maicord {
 namespace {
 
 constexpr const wchar_t* kNames[]{L"active.profile",     L"active.session", L"active.profile.new",
-                                  L"active.session.new", L"active.logout",  L"active.logout.new"};
+                                  L"active.session.new", L"active.logout",  L"active.logout.new",
+                                  L"active.shell",       L"active.shell.new"};
+constexpr u32 kTargets = 8;
+// Everything but the markers: the credentials, then the startup shell.
+constexpr u32 kForgotten[]{0, 1, 2, 3, 6, 7};
 constexpr u8 kMarker[]{'M', 'A', 'I', 'C', 'L', 'O', 'G', 'O', 1, 0, 0, 0};
 static_assert(sizeof(kMarker) == 12);
 
@@ -21,7 +25,7 @@ AccountCredentialForgetResult failure(AccountCredentialForgetError error, u32 na
 u32 target_path(const AccountPaths& paths, u32 target, wchar_t* output) noexcept {
     const u32 directory =
         wide_length(paths.account_directory, kAccountProfileMaximumPathCharacters);
-    if (!directory || directory >= kAccountProfileMaximumPathCharacters || target >= 6)
+    if (!directory || directory >= kAccountProfileMaximumPathCharacters || target >= kTargets)
         return 0;
     const auto* name = kNames[target];
     const u32 name_length = wide_length(name, kAccountProfileMaximumPathCharacters);
@@ -59,7 +63,7 @@ bool valid(const AccountPaths& paths, const AccountCredentialForgetIo* io, wchar
     length = target_path(paths, 1, scratch);
     if (!length || !equal_path(scratch, paths.session, length))
         return false;
-    for (u32 target = 2; target < 6; ++target)
+    for (u32 target = 2; target < kTargets; ++target)
         if (!target_path(paths, target, scratch))
             return false;
     return true;
@@ -148,7 +152,7 @@ AccountCredentialForgetResult account_credential_forget_complete_after_join(
     auto result = ensure_marker(paths, io, scratch);
     if (!result.ok())
         return result;
-    for (u32 target = 0; target < 4; ++target) {
+    for (const u32 target : kForgotten) {
         target_path(paths, target, scratch);
         const u32 error = remove(io, scratch);
         if (error) {
@@ -161,7 +165,7 @@ AccountCredentialForgetResult account_credential_forget_complete_after_join(
     }
     if (!result.ok())
         return result;
-    for (u32 target = 0; target < 4; ++target) {
+    for (const u32 target : kForgotten) {
         target_path(paths, target, scratch);
         const auto found = probe(io, scratch);
         if (found.presence != AccountCredentialForgetPresence::missing) {

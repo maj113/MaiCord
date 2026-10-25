@@ -527,7 +527,8 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         src/app/application_attachment_probe.cpp src/app/attachment_media_probe.cpp
         src/app/application_attachment_allowance.cpp src/app/application_state.cpp
         tests/private_channel_state.cpp tests/private_membership.cpp tests/private_snapshot.cpp
-        tests/gateway_state_recovery.cpp tests/navigation_restore.cpp tests/channel_memory.cpp tests/private_order.cpp
+        tests/gateway_state_recovery.cpp tests/navigation_restore.cpp tests/channel_memory.cpp tests/startup_shell.cpp
+        tests/private_order.cpp
         tests/private_rail_pins.cpp
         tests/private_conversation.cpp tests/private_channel_actions.cpp tests/media_fixture.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_webauthn maicord_account_paths

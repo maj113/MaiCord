@@ -8,7 +8,10 @@ namespace maicord {
 namespace {
 
 constexpr const wchar_t* kNames[]{L"active.profile",     L"active.session", L"active.profile.new",
-                                  L"active.session.new", L"active.logout",  L"active.logout.new"};
+                                  L"active.session.new", L"active.logout",  L"active.logout.new",
+                                  L"active.shell",       L"active.shell.new"};
+// Everything logout removes: the credentials and the startup shell.
+constexpr u32 kForgotten[]{0, 1, 2, 3, 6, 7};
 constexpr u8 kSentinel[]{'s', 'y', 'n', 't', 'h', 'e', 't', 'i', 'c',
                          '-', 'f', 'i', 'x', 't', 'u', 'r', 'e'};
 
@@ -82,11 +85,11 @@ struct Fixture {
         return write_file(paths.drafts) && write_file(preferences);
     }
     bool target(u32 index, wchar_t* path) const noexcept {
-        return index < 6 && child(paths.account_directory, kNames[index], path);
+        return index < 8 && child(paths.account_directory, kNames[index], path);
     }
     bool credentials() const noexcept {
         wchar_t path[kAccountProfileMaximumPathCharacters];
-        for (u32 index = 0; index < 4; ++index)
+        for (const u32 index : kForgotten)
             if (!target(index, path) || !write_file(path))
                 return false;
         return true;
@@ -96,7 +99,7 @@ struct Fixture {
     }
     bool all_credentials_absent() const noexcept {
         wchar_t path[kAccountProfileMaximumPathCharacters];
-        for (u32 index = 0; index < 4; ++index) {
+        for (const u32 index : kForgotten) {
             if (!target(index, path) || GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES ||
                 !win32_error_is_missing_file(thread_last_error()))
                 return false;
@@ -107,7 +110,7 @@ struct Fixture {
         if (!ready)
             return;
         wchar_t path[kAccountProfileMaximumPathCharacters];
-        for (u32 index = 0; index < 6; ++index)
+        for (u32 index = 0; index < 8; ++index)
             if (target(index, path))
                 DeleteFileW(path);
         DeleteFileW(paths.drafts);
@@ -135,23 +138,23 @@ struct Faults {
     u32 sequence{};
     u32 marker_new_removed_at{};
     u32 marker_removed_at{};
-    u32 remove_errors[6]{};
+    u32 remove_errors[8]{};
     u8 probe_errors{};
     u8 probe_present{};
     u8 probe_missing{};
     FilePersistenceWriteError write_error{};
 
     static u32 index(const wchar_t* path) noexcept {
-        for (u32 i = 0; i < 6; ++i)
+        for (u32 i = 0; i < 8; ++i)
             if (suffix(path, kNames[i]))
                 return i;
-        return 6;
+        return 8;
     }
     static AccountCredentialForgetProbeResult probe(void* context, const wchar_t* path) noexcept {
         auto& f = *static_cast<Faults*>(context);
         ++f.calls;
         const u32 i = index(path);
-        if (i >= 6)
+        if (i >= 8)
             return {ERROR_INVALID_PARAMETER, AccountCredentialForgetPresence::error};
         if (f.probe_errors & (1u << i))
             return {ERROR_ACCESS_DENIED, AccountCredentialForgetPresence::error};
@@ -178,7 +181,7 @@ struct Faults {
         ++f.calls;
         ++f.removes;
         const u32 i = index(path);
-        if (i >= 6)
+        if (i >= 8)
             return ERROR_INVALID_PARAMETER;
         ++f.sequence;
         if (i == 5)
@@ -241,10 +244,10 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
     const auto complete = account_credential_forget_complete_after_join(fixture.paths, true, &io);
     check(complete.ok() && !complete.pending && fixture.all_credentials_absent() &&
               !account_credential_forget_probe(fixture.paths).pending &&
-              faults.marker_new_removed_at == 5 && faults.marker_removed_at == 6 &&
+              faults.marker_new_removed_at == 7 && faults.marker_removed_at == 8 &&
               fixture.protected_files(),
-          "joined cleanup deletes four exact credentials then temporary and final marker, preserving "
-          "drafts and preferences");
+          "joined cleanup deletes four exact credentials and the startup shell, then temporary and final "
+          "marker, preserving drafts and preferences");
     const auto repeated = account_credential_forget_complete_after_join(fixture.paths, true);
     check(repeated.ok() && !repeated.pending && fixture.protected_files(),
           "missing credentials and markers permit idempotent cleanup");
@@ -321,7 +324,7 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
     check(multiple.error == AccountCredentialForgetError::credential_delete &&
               multiple.native_error == ERROR_ACCESS_DENIED &&
               multiple.failed_targets == (account_forget_profile | account_forget_session) &&
-              faults.removes == 4 && account_credential_forget_probe(fixture.paths).pending,
+              faults.removes == 6 && account_credential_forget_probe(fixture.paths).pending,
           "all exact credential deletions are attempted with first error and complete failed-target mask");
 
     faults = {};
@@ -330,7 +333,7 @@ void test_account_credential_forget(void (*check)(bool, const char*) noexcept) n
     const auto reappeared = account_credential_forget_complete_after_join(fixture.paths, true, &io);
     check(reappeared.error == AccountCredentialForgetError::credential_delete &&
               reappeared.native_error == ERROR_BUSY &&
-              reappeared.failed_targets == account_forget_session_new && faults.removes == 4 &&
+              reappeared.failed_targets == account_forget_session_new && faults.removes == 6 &&
               account_credential_forget_probe(fixture.paths).pending,
           "post-delete absence verification prevents marker clearance if a credential remains");
 

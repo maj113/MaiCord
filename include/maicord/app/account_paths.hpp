@@ -10,6 +10,8 @@ struct AccountPaths {
     wchar_t profile[kAccountProfileMaximumPathCharacters];
     wchar_t session[kAccountProfileMaximumPathCharacters];
     wchar_t drafts[kAccountProfileMaximumPathCharacters];
+    // The encrypted startup shell (startup_shell.hpp).
+    wchar_t shell[kAccountProfileMaximumPathCharacters];
 };
 
 enum class AccountPathsError : u8 {

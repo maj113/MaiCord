@@ -183,6 +183,11 @@ GuildMemberStoreResult guild_member_store_upsert(
     GuildMemberStore* store, const ChatStateStore& state, u64 guild_id, u64 user_id,
     Utf8View nickname, ConstSlice<u64> role_ids, bool roles_known, GuildMemberStatus status,
     u32 list_index = ~0u, u64 list_id = 0) noexcept;
+// Startup shell, before READY: a member's nickname and name colour as last
+// shown, with roles unknown, so the first observation with roles replaces the
+// colour and visible-author hydration still asks for the member.
+bool guild_member_store_restore_display(GuildMemberStore* store, const ChatStateStore& state, u64 guild_id,
+                                        u64 user_id, Utf8View nickname, u32 role_color) noexcept;
 struct GuildMemberInPlaceResult {
     bool applied;       // the row stays at list_index in its sorted group
     bool changed;       // a displayed field changed (published via presence_revision)
