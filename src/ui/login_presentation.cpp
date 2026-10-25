@@ -23,7 +23,22 @@ bool push_border_truncated(PaintStream* stream, const Theme& theme, const UiRect
                                        {pixel_truncated(rectangle.left), pixel_truncated(rectangle.top),
                                         pixel_truncated(rectangle.right),
                                         pixel_truncated(rectangle.bottom)},
-                                       theme, fill, border, radius, border_width, .72f);
+                                       theme, fill, border, radius, border_width, .72f,
+                                       UiBackgroundSurfaceMode::gradient);
+}
+
+// Text fields paint like the client's other edit fields: a palette border
+// at rest, the semantic focus ring when focused.
+bool push_field_truncated(PaintStream* stream, const Theme& theme, const UiRect& rectangle,
+                          bool focused) noexcept {
+    return ui_background_paint_surface(stream,
+                                       {pixel_truncated(rectangle.left), pixel_truncated(rectangle.top),
+                                        pixel_truncated(rectangle.right), pixel_truncated(rectangle.bottom)},
+                                       theme, theme.base_lowest,
+                                       focused ? theme.tokens.border.focus : theme.tokens.border.strong,
+                                       theme.scale.radius_sm, 1.0f,
+                                       1.0f, UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
+                                       focused ? UiBackgroundBorderTone::semantic : UiBackgroundBorderTone::palette);
 }
 
 Color packed_rgb(u32 rgb, float alpha = 1.0f) noexcept {
@@ -66,16 +81,11 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
     if (!push_border_truncated(stream, theme, card, theme.surface, {}, scene.full_viewport ? 0.0f : 8.0f,
                                0) ||
         (!scene.phone_mode && !scene.browser_mode &&
-         !push_border_truncated(
-             stream, theme, login_field, theme.base_lowest,
-             scene.focus_visible && scene.focus == LoginControl::login ? theme.tokens.border.focus : theme.base_lowest,
-             4.0f, 1.0f)) ||
+         !push_field_truncated(stream, theme, login_field,
+                               scene.focus_visible && scene.focus == LoginControl::login)) ||
         (!scene.credential_fields_hidden &&
-         !push_border_truncated(stream, theme, password_field, theme.base_lowest,
-                                scene.focus_visible && scene.focus == LoginControl::password
-                                    ? theme.tokens.border.focus
-                                    : theme.base_lowest,
-                                4.0f, 1.0f))) {
+         !push_field_truncated(stream, theme, password_field,
+                               scene.focus_visible && scene.focus == LoginControl::password))) {
         return false;
     }
 
@@ -94,8 +104,7 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
             const auto cell = login_phone_cell_rectangle(password_field, i);
             const bool focused = scene.focus_visible && scene.focus == LoginControl::phone_code &&
                                  input.edit_caret.left >= cell.left && input.edit_caret.left <= cell.right;
-            if (!push_border_truncated(stream, theme, cell, theme.base_lowest,
-                                       focused ? theme.tokens.border.focus : theme.interactive, 4.0f, 1.0f))
+            if (!push_field_truncated(stream, theme, cell, focused))
                 return false;
         }
         if (scene.focus_visible && scene.focus == LoginControl::phone_resend &&
@@ -207,13 +216,16 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
     const QrCodeRectResult compacted = qr_code_compact_rects(
         *input.qr_code,
         Slice<QrCodeRect>{rectangles, static_cast<u32>(sizeof(rectangles) / sizeof(rectangles[0]))});
-    constexpr i32 kQuietModules = 4;
-    constexpr i32 kTotalModules = static_cast<i32>(kQrCodeSize) + kQuietModules * 2;
+    // As the official client: the white surface's 8 DIP padding is the quiet
+    // zone and the symbol fills the rest, in whole device pixels per module.
+    constexpr i32 kTotalModules = static_cast<i32>(kQrCodeSize);
+    constexpr float kQuietDip = 8.0f;
     const float dpi_scale = static_cast<float>(dpi) / 96.0f;
     const i32 left_px = static_cast<i32>(qr.left * dpi_scale + 0.5f);
     const i32 top_px = static_cast<i32>(qr.top * dpi_scale + 0.5f);
     const i32 extent_px = static_cast<i32>((qr.right - qr.left) * dpi_scale + 0.5f);
-    const i32 module_px = extent_px / kTotalModules;
+    const i32 quiet_px = static_cast<i32>(kQuietDip * dpi_scale + 0.5f);
+    const i32 module_px = (extent_px - 2 * quiet_px) / kTotalModules;
     if (!compacted.ok() || module_px <= 0) {
         return false;
     }
@@ -223,15 +235,10 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
     const float dip_per_pixel = 1.0f / dpi_scale;
     for (u32 index = 0; index < compacted.count; ++index) {
         const QrCodeRect rectangle = rectangles[index];
-        const float left =
-            static_cast<float>(origin_x_px + (kQuietModules + rectangle.left) * module_px) * dip_per_pixel;
-        const float top =
-            static_cast<float>(origin_y_px + (kQuietModules + rectangle.top) * module_px) * dip_per_pixel;
-        const float right =
-            static_cast<float>(origin_x_px + (kQuietModules + rectangle.right) * module_px) * dip_per_pixel;
-        const float bottom =
-            static_cast<float>(origin_y_px + (kQuietModules + rectangle.bottom) * module_px) *
-            dip_per_pixel;
+        const float left = static_cast<float>(origin_x_px + rectangle.left * module_px) * dip_per_pixel;
+        const float top = static_cast<float>(origin_y_px + rectangle.top * module_px) * dip_per_pixel;
+        const float right = static_cast<float>(origin_x_px + rectangle.right * module_px) * dip_per_pixel;
+        const float bottom = static_cast<float>(origin_y_px + rectangle.bottom * module_px) * dip_per_pixel;
         if (!paint_stream_push(stream, left, top, right, bottom, theme.base_lowest)) {
             return false;
         }

@@ -5147,7 +5147,8 @@ void test_login_scene() noexcept {
            "login_presentation_renderer_neutral_white_qr_pending_stream");
     scene.focus_visible = false;
     expect(login_presentation_build(scene, presentation, kDefaultTheme, 830.0f, 720.0f, 96, &login_paint) &&
-        login_paint.quads[3].border.red == kDefaultTheme.base_lowest.red && scene.focus == LoginControl::password,
+        login_paint.quads[3].border.red == kDefaultTheme.tokens.border.strong.red &&
+            scene.focus == LoginControl::password,
         "login pointer focus preserves editing without blue outline");
     expect(!login_presentation_build(scene, presentation, kDefaultTheme, 830.0f, 720.0f, 0, &login_paint),
            "login_presentation_reject_invalid_dpi");
