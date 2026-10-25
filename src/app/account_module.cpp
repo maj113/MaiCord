@@ -1807,11 +1807,13 @@ RestClientTakeResult WINAPI module_rest_take(void* instance, RestClientResponse*
                                              Slice<u8> body_output) noexcept {
     RestClientTakeResult invalid{};
     invalid.error = RestClientTakeError::invalid_input;
-    if (!module_rest(instance))
-        return invalid;
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    if (!runtime)
+        return invalid;
     if (runtime->logout_request_id)
-        return rest_client_take_response(&runtime->coordinator.details, response, body_output);
+        return module_rest(instance) ? rest_client_take_response(&runtime->coordinator.details, response, body_output)
+                                     : invalid;
+    // The startup history page may complete before READY.
     return user_account_coordinator_take(&runtime->coordinator, response, body_output);
 }
 

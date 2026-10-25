@@ -19,8 +19,9 @@ bool application_startup_shell_apply() noexcept;
 // A fresh READY is about to be applied. True when the shell's account ID
 // differed and was dropped so READY can establish its own.
 bool application_startup_shell_gateway_ready(u64 self_user_id) noexcept;
-// READY replaced the stores: the shell ends and its collapsed categories
-// come back.
+// READY replaced the stores: the shell ends. Collapsed categories come back,
+// and when the restoration kept the shown channel its page stays and only
+// newer messages are fetched.
 void application_startup_shell_ready() noexcept;
 // True once after READY ended a shell that replaced the restoring view.
 bool application_startup_shell_take_release() noexcept;

@@ -97,7 +97,8 @@ RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator,
                                           bool details = false) noexcept;
 // The PRIMARY lane from start, before READY, for read-only startup history:
 // the request opens the connection while the Gateway handshake runs. The
-// client keeps its rate, restriction and rejection rules; takes still wait for READY.
+// client keeps its rate, restriction and rejection rules. Its responses can be
+// taken from then on; the details lane's only after READY.
 RestClient* user_account_coordinator_startup_rest(UserAccountCoordinator* coordinator) noexcept;
 RestClientTakeResult user_account_coordinator_take(UserAccountCoordinator* coordinator,
                                                    RestClientResponse* response,

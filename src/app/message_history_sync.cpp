@@ -195,10 +195,14 @@ bool observe_history_members(GuildMemberStore* members, ChatStateStore* state,
             continue;
         }
         const ChannelRecord* channel = chat_state_store_find_channel(*state, message.channel_id);
+        // Roles resolve against the guild's role table; before READY delivers
+        // it (a startup shell guild) they stay unknown and keep the shown colour.
+        const bool roles_resolvable =
+            channel && (!state->roles || chat_state_store_find_role(*state, channel->guild_id, channel->guild_id));
         if (!channel || channel->guild_id == 0 || message.author_id == 0 ||
             !guild_member_store_upsert(members, *state, channel->guild_id, message.author_id,
                                                message.member_nick, message.member_roles,
-                                               !message.member_roles_partial,
+                                               !message.member_roles_partial && roles_resolvable,
                                                GuildMemberStatus::unknown)
                  .ok()) {
             return false;

@@ -10,6 +10,8 @@
 #include "../src/app/application_message_history.cpp"
 #include "../src/app/application_message_send.cpp"
 #include "application_startup_history.hpp"
+#include "application_startup_shell.hpp"
+#include "maicord/app/startup_shell.hpp"
 #include "application_composer_text_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_action_captcha_stubs.hpp"
@@ -628,6 +630,92 @@ void startup_history(AccountUiRuntime& ui) noexcept {
           "startup history: reset releases the PRIMARY lane it owns");
     g_app.account.status.running = true;
 }
+// A startup shell for Home on conversation 7, written as the last session would.
+bool startup_shell_file(AccountPaths* paths) noexcept {
+    const DWORD length = GetTempPathW(512, paths->shell);
+    constexpr wchar_t name[] = L"maicord-startup-shell-runtime.shell";
+    if (!length || length + sizeof(name) / sizeof(wchar_t) > 512)
+        return false;
+    copy_bytes(paths->shell + length, name, sizeof(name));
+    auto* shell = static_cast<StartupShell*>(
+        VirtualAlloc(nullptr, sizeof(StartupShell), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!shell)
+        return false;
+    shell->profile_id = g_app.account.status.profile_id;
+    shell->self_user_id = 11;
+    shell->saved_unix_ms = clock_unix_milliseconds();
+    shell->channel_id = 7;
+    shell->conversations[0] = {7, 11, 1002, 0, 1, 1, {}, {}};
+    shell->conversation_count = 1;
+    shell->recipients[0] = 12;
+    shell->recipient_count = 1;
+    shell->users[0].id = 11;
+    shell->users[1].id = 12;
+    shell->user_count = 2;
+    bool ok = startup_shell_add_text(shell, utf8_literal("self"), &shell->users[0].name) &&
+              startup_shell_add_text(shell, utf8_literal("peer"), &shell->users[1].name);
+    StartupShellKey key{};
+    ok = ok && startup_shell_save_file(paths->shell, &key, *shell);
+    startup_shell_key_release(&key);
+    VirtualFree(shell, 0, MEM_RELEASE);
+    return ok;
+}
+// Before READY the shell takes its channel's prefetched page; READY keeps it.
+void startup_shell_page(AccountUiRuntime& ui) noexcept {
+    auto& view = g_app.message_view;
+    AccountPaths paths{};
+    check(startup_shell_file(&paths), "startup shell page: the account's shell is saved");
+    const auto shell_shown = [&]() noexcept {
+        g_app.account.status.running = false;
+        application_startup_shell_begin(paths, g_app.account.status.profile_id);
+        return application_startup_shell_apply() && g_app.startup_shell_provisional &&
+               ui.chat_state.selected_channel_id == 7 && settle_restoration(ui, 7) && startup_submitted(7);
+    };
+    check(shell_shown(), "startup shell page: the shell selects its channel before READY");
+    receipt(1, 200, kStartupPage);
+    u32 admissions = history_admissions;
+    check(pump_message_history() && !receipt_ready && history_admissions == admissions &&
+              message_store_find(view.store, 1002).ok() && message_store_find(view.store, 1001).ok() &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
+          "startup shell page: the prefetched page is applied before READY");
+    const u32 sends = send_admissions, requests = ui.message_composer_controller.request_count;
+    check(queue_message_send() && send_admissions == sends && ui.message_composer_controller.request_count == requests,
+          "startup shell page: Enter before READY sends nothing");
+
+    g_app.account.status.running = true;
+    g_app.message_pump.resync_required = true;
+    application_startup_shell_ready();
+    check(!g_app.startup_shell_provisional && message_store_find(view.store, 1002).ok() &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::request_required &&
+              g_app.message_catchup.cursor_after == 1002,
+          "startup shell page: READY keeps the page and asks only for newer messages");
+    admissions = history_admissions;
+    check(pump_message_history() && history_admissions == admissions + 1 && last_history_channel == 7 &&
+              last_history_query.cursor == 1002 && last_history_query.position == MessageHistoryPosition::after &&
+              message_store_find(view.store, 1002).ok(),
+          "startup shell page: the page stays on screen while newer messages load");
+    receipt(last_history_id, 200, utf8_literal("[]"));
+    check(pump_message_history() && !g_app.message_pump.resync_required &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
+              message_store_find(view.store, 1002).ok(),
+          "startup shell page: the catch-up after READY completes the resync");
+
+    check(shell_shown(), "startup shell page: shown again for the lost-access case");
+    receipt(1, 200, kStartupPage);
+    check(pump_message_history() && message_store_find(view.store, 1002).ok(),
+          "startup shell page: page applied before the lost-access READY");
+    g_app.account.status.running = true;
+    check(chat_state_store_remove_channel(&ui.chat_state, 7), "startup shell page: READY no longer lists the channel");
+    application_startup_shell_ready();
+    check(!message_store_find(view.store, 1002).ok() && !view.store.count &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::idle,
+          "startup shell page: a channel READY took away loses its page at once");
+    application_startup_shell_stop();
+    DeleteFileW(paths.shell);
+    check(chat_state_store_upsert_channel(&ui.chat_state, {7, 0, 0, utf8_literal("chat"), 0, 0, 1}).ok(),
+          "startup shell page: conversation restored for teardown");
+}
 void run() noexcept {
     auto* ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -765,6 +853,7 @@ void run() noexcept {
     navigation_history_gate(*ui);
     scoped_read_routing();
     startup_history(*ui);
+    startup_shell_page(*ui);
     application_message_history_reset_reaction_turn();
     application_history_decode_storage_release(*ui);
     message_poll_store_release(&ui->message_poll_store);
@@ -1215,6 +1304,16 @@ bool application_message_components_response(const RestClientResponse&, Utf8View
     return true;
 }
 bool application_guild_folders_pending(u64) noexcept {
+    return false;
+}
+u32 application_guild_folders_capture(Slice<u8>, Slice<u64>, u32* expanded) noexcept {
+    *expanded = 0;
+    return 0;
+}
+bool application_guild_folders_restore(ConstSlice<u8>, ConstSlice<u64>) noexcept {
+    return true;
+}
+bool application_account_logout_blocked() noexcept {
     return false;
 }
 bool application_guild_folders_submit(u64, u64) noexcept {

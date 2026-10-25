@@ -307,11 +307,11 @@ RestClient* user_account_coordinator_startup_rest(UserAccountCoordinator* coordi
 
 RestClientTakeResult user_account_coordinator_take(UserAccountCoordinator* coordinator,
                                                    RestClientResponse* response, Slice<u8> body) noexcept {
-    auto* rest = user_account_coordinator_rest(coordinator);
+    auto* rest = user_account_coordinator_startup_rest(coordinator);
     if (!rest)
         return {0, RestClientTakeError::invalid_input};
     auto result = rest_client_take_response(rest, response, body);
-    return result.error == RestClientTakeError::empty
+    return result.error == RestClientTakeError::empty && user_account_coordinator_rest(coordinator, true)
                ? rest_client_take_response(&coordinator->details, response, body)
                : result;
 }

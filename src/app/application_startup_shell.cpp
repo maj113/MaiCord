@@ -2,6 +2,7 @@
 
 #include "account_ui_runtime.hpp"
 #include "application_account_logout.hpp"
+#include "application_channel_authority.hpp"
 #include "application_guild_folders.hpp"
 #include "application_load_trace.hpp"
 #include "application_state.hpp"
@@ -35,6 +36,7 @@ struct StartupShellOwner {
     bool loading, writing, saved;
     u64 profile_id, now_unix_ms;
     u64 write_at_ms;
+    u64 shown_channel_id;
     u32 observed_selection;
     u32 collapsed_count;
     u64 collapsed[kCollapsedCapacity];
@@ -190,6 +192,7 @@ bool application_startup_shell_apply() noexcept {
     for (u32 i = 0; i < shell.channel_count && owner->collapsed_count < kCollapsedCapacity; ++i)
         if (shell.channels[i].type == 4 && (shell.channels[i].state & startup_shell_channel_collapsed))
             owner->collapsed[owner->collapsed_count++] = shell.channels[i].id;
+    owner->shown_channel_id = ui.chat_state.selected_channel_id;
     owner->observed_selection = ui.chat_state.selection_revision;
     g_app.startup_shell_provisional = true;
     // Counts only.
@@ -229,6 +232,30 @@ void application_startup_shell_ready() noexcept {
         record.collapsed = true;
         saturating_increment(record.revision);
         saturating_increment(state.channel_mutations);
+    }
+    // A selection READY moved has already reset the timeline. A shown channel
+    // READY no longer lets this account read loses its page at once.
+    const u64 channel = ui.active_channel_id;
+    if (!channel || channel != g_owner->shown_channel_id)
+        return;
+    MessageHistoryCatchup& catchup = g_app.message_catchup;
+    if (!application_channel_readable(g_app, channel)) {
+        reset_value(&catchup);
+        reset_value(&g_app.message_older);
+        if (!message_timeline_reset(&g_app.message_view.timeline) ||
+            !message_timeline_set_scroll(&g_app.message_view.timeline, 0, true))
+            log_write(LogLevel::error, "shell", "startup_page_clear_failed");
+        return;
+    }
+    // READY asks for a full resync of retained history. The page shown before
+    // READY came from this session's handshake, as a held startup page would:
+    // when the restoration kept its channel, fetch only what is newer.
+    if (channel == state.selected_channel_id && !state.restore_channel_id &&
+        ui.observed_selection_revision == state.selection_revision && g_app.message_view.store.count &&
+        catchup.channel_id == channel && catchup.state == MessageHistoryCatchupState::complete) {
+        g_app.message_pump.catchup_required = true;
+        if (!message_history_catchup_begin(&catchup, &g_app.message_pump, channel, kMessageHistoryRequestLimit))
+            log_write(LogLevel::info, "shell", "startup_page_resynced");
     }
 }
 

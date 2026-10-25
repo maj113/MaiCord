@@ -395,6 +395,7 @@ maicord_test(MaiCordHistoryDecodeStorageTests ENTRY maicord_history_decode_stora
 maicord_test(MaiCordReactionHistoryRuntimeTests ENTRY maicord_application_reaction_history_runtime_entry
     SOURCES tests/application_reaction_history_runtime.cpp src/app/application_state.cpp src/core/log.cpp
         src/app/application_thread_actions.cpp src/app/application_startup_history.cpp
+        src/app/application_startup_shell.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_message_runtime
         maicord_message_media maicord_ui maicord_model maicord_render_core kernel32 user32
     INCLUDES src/app

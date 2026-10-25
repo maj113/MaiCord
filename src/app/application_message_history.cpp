@@ -860,36 +860,42 @@ static bool pump_message_history_main(bool admit) noexcept {
     AccountHost& host = g_app.account;
     MessageHistoryCatchup& catchup = g_app.message_catchup;
     MessageHistoryOlder& older = g_app.message_older;
-    if (!g_app.account_ui || !host.instance || !host.status.running) {
+    // Before READY only a startup shell takes its prefetched page.
+    const bool early = !host.status.running;
+    if (!g_app.account_ui || !host.instance ||
+        (early && (!g_app.startup_shell_provisional ||
+                   g_app.message_history_request_owner != MessageHistoryRequestOwner::startup_history))) {
         return true;
     }
     const u64 now_ms = clock_monotonic_milliseconds();
-    if (!application_commands_tick(now_ms))
-        return false;
-    application_message_components_tick(now_ms);
-    bool send_changed = false;
-    if (!message_composer_controller_tick(&g_app.account_ui->message_composer_controller, now_ms,
-                                          &send_changed) ||
-        !consume_message_send_completions()) {
-        return false;
+    if (!early) {
+        if (!application_commands_tick(now_ms))
+            return false;
+        application_message_components_tick(now_ms);
+        bool send_changed = false;
+        if (!message_composer_controller_tick(&g_app.account_ui->message_composer_controller, now_ms,
+                                              &send_changed) ||
+            !consume_message_send_completions()) {
+            return false;
+        }
+        if (send_changed && g_app.window) {
+            application_request_frame();
+        }
+        if (catchup.state == MessageHistoryCatchupState::waiting_retry) {
+            message_history_catchup_tick(&catchup, now_ms);
+        }
+        if (older.state == MessageHistoryOlderState::waiting_retry) {
+            message_history_older_tick(&older, now_ms);
+        }
+        message_history_attachment_tick(&g_app.attachment_refresh, now_ms);
+        const auto* reply_channel = chat_state_store_find_channel(g_app.account_ui->chat_state,
+                                                                     g_app.account_ui->active_channel_id);
+        if (!application_thread_browser_read_blocked() && reply_channel &&
+            (reply_channel->actions & channel_action_read_history) &&
+            g_app.message_history_request_owner != MessageHistoryRequestOwner::reply_refresh)
+            message_history_reply_queue(&g_app.reply_refresh, g_app.message_view.timeline, reply_channel->id,
+                                        now_ms);
     }
-    if (send_changed && g_app.window) {
-        application_request_frame();
-    }
-    if (catchup.state == MessageHistoryCatchupState::waiting_retry) {
-        message_history_catchup_tick(&catchup, now_ms);
-    }
-    if (older.state == MessageHistoryOlderState::waiting_retry) {
-        message_history_older_tick(&older, now_ms);
-    }
-    message_history_attachment_tick(&g_app.attachment_refresh, now_ms);
-    const auto* reply_channel = chat_state_store_find_channel(g_app.account_ui->chat_state,
-                                                                 g_app.account_ui->active_channel_id);
-    if (!application_thread_browser_read_blocked() && reply_channel &&
-        (reply_channel->actions & channel_action_read_history) &&
-        g_app.message_history_request_owner != MessageHistoryRequestOwner::reply_refresh)
-        message_history_reply_queue(&g_app.reply_refresh, g_app.message_view.timeline, reply_channel->id,
-                                    now_ms);
     // A startup page held until the restoration settled is presented as a
     // PRIMARY response once it has.
     const bool startup_replay = g_app.message_history_request_owner == MessageHistoryRequestOwner::none &&
@@ -1423,7 +1429,7 @@ static bool pump_message_history_main(bool admit) noexcept {
             }
         }
     }
-    if (!admit || g_app.message_history_request_owner != MessageHistoryRequestOwner::none) {
+    if (early || !admit || g_app.message_history_request_owner != MessageHistoryRequestOwner::none) {
         return true;
     }
 
@@ -1538,8 +1544,10 @@ static bool pump_message_history_main(bool admit) noexcept {
 bool pump_message_history() noexcept {
     if (!application_message_reaction_synchronize())
         return false;
-    if (!g_app.account_ui || !g_app.account.instance || !g_app.account.status.running)
+    if (!g_app.account_ui || !g_app.account.instance)
         return true;
+    if (!g_app.account.status.running)
+        return pump_message_history_main(false);
     application_thread_actions_synchronize();
     if (!application_thread_browser_synchronize())
         return false;
