@@ -39,6 +39,7 @@ struct StartupShellOwner {
     u64 shown_channel_id;
     u32 observed_selection;
     u32 collapsed_count;
+    i64 load_begin, load_end;
     u64 collapsed[kCollapsedCapacity];
     StartupShellKey key;
     StartupShell* shell;
@@ -50,10 +51,12 @@ bool g_release_pending;
 
 void __stdcall run(PTP_CALLBACK_INSTANCE, void* context, PTP_WORK) noexcept {
     auto& owner = *static_cast<StartupShellOwner*>(context);
-    if (owner.job == Work::load)
+    if (owner.job == Work::load) {
+        owner.load_begin = clock_now();
         owner.loaded = startup_shell_load_file(owner.path, owner.profile_id, owner.now_unix_ms, &owner.key,
                                                owner.shell);
-    else
+        owner.load_end = clock_now();
+    } else
         owner.saved = startup_shell_save_file(owner.path, &owner.key, *owner.shell);
     InterlockedExchange(&owner.busy, 0);
 }
@@ -175,7 +178,9 @@ bool application_startup_shell_apply() noexcept {
     StartupShellOwner* owner = g_owner;
     if (!owner || !g_app.account_ui || !owner->loading)
         return false;
+    const i64 wait_begin = clock_now();
     wait(*owner);
+    const i64 apply_begin = clock_now();
     owner->loading = false;
     AccountUiRuntime& ui = *g_app.account_ui;
     if (owner->loaded != StartupShellOpenError::none || g_app.account.status.profile_id != owner->profile_id) {
@@ -195,13 +200,18 @@ bool application_startup_shell_apply() noexcept {
     owner->shown_channel_id = ui.chat_state.selected_channel_id;
     owner->observed_selection = ui.chat_state.selection_revision;
     g_app.startup_shell_provisional = true;
-    // Counts only.
+    // Counts and timings only: the pool thread's read, unwrap, decrypt and
+    // decode; how long attach waited for it; and the stores' fill.
     TraceRecord line("startup_shell_applied");
+    line.field("load_us", clock_microseconds(g_app.clock, owner->load_begin, owner->load_end));
+    line.field("wait_us", clock_microseconds(g_app.clock, wait_begin, apply_begin));
+    line.field("apply_us", clock_microseconds(g_app.clock, apply_begin, clock_now()));
     line.field("guilds", shell.guild_count);
     line.field("channels", shell.channel_count);
     line.field("conversations", shell.conversation_count);
     line.field("users", shell.user_count);
     line.field("selection_placed", placed ? u64{1} : u64{0});
+    line.field("folder_bytes", shell.folder_bytes);
     line.write("load_trace");
     release_shell(*owner);
     return true;

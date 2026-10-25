@@ -678,6 +678,9 @@ void release_account_owners() noexcept {
 void application_prepare_account_stop() noexcept {
     UiWidgetManager* const logout_focus =
         application_account_logout_blocked() && g_app.text_form ? g_app.context_focus : nullptr;
+    // The final startup shell records the account before teardown clears its
+    // status and folder layout.
+    application_startup_shell_stop();
     // Retire queued intents and cancel the exact owned flight while its actor
     // and PRIMARY lane still exist. A failed stop retains that tombstone.
     application_thread_actions_release();
@@ -726,7 +729,6 @@ void application_prepare_account_stop() noexcept {
     application_message_forward_release();
     application_quick_switcher_release();
     application_channel_overview_release();
-    application_startup_shell_stop();
     application_channel_memory_stop();
     if (g_app.account_ui) {
         AccountUiRuntime& ui = *g_app.account_ui;
