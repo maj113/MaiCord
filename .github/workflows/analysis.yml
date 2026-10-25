@@ -77,7 +77,7 @@ jobs:
         with:
           languages: c-cpp
           build-mode: manual
-          queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
       - name: Build
         shell: powershell
         run: ./tools/build.ps1

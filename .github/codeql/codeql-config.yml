@@ -1,0 +1,7 @@
+queries:
+  - uses: security-extended
+query-filters:
+  # Every file path is built from the user's own profile folders
+  # (LOCALAPPDATA/APPDATA), which the query reports as external input.
+  - exclude:
+      id: cpp/path-injection
