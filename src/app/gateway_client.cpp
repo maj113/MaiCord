@@ -2,6 +2,7 @@
 #include "maicord/app/gateway_user_settings.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/app/client_session_metadata.hpp"
 #include "maicord/app/voice_receive.hpp"
 #include "maicord/app/gateway_stream_session.hpp"
 #include "maicord/app/voice_send.hpp"
@@ -243,7 +244,10 @@ struct GatewayUserRuntime {
     GatewayUserTextStorage<kGatewayUserMaximumUserAgentBytes> browser_user_agent;
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> browser_version;
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_sdk_version;
+    GatewayUserTextStorage<kGatewayUserLaunchIdBytes> launch_signature;
     u32 client_build_number;
+    u32 native_build_number;
+    ClientSessionMetadata* session_metadata;
     GatewayUserStatus status;
     bool has_since;
     bool afk;
@@ -368,6 +372,46 @@ GatewayClientRuntime* user_runtime(const GatewayClient* client) noexcept {
     return is_user(runtime) ? runtime : nullptr;
 }
 
+ClientSessionMetadata* session_metadata(const GatewayClientRuntime* runtime) noexcept {
+    return is_user(runtime) ? runtime->user->session_metadata : nullptr;
+}
+
+// The desktop client is active while focused or connected to a call.
+bool client_active(const GatewayClientRuntime* runtime) noexcept {
+    const VoiceConnection& voice = runtime->voice_connection;
+    return client_session_metadata_focused(session_metadata(runtime)) ||
+           (voice.socket.phase == VoiceSocketPhase::open && voice.udp.phase == VoiceUdpPhase::ready);
+}
+
+// While active, the heartbeat session is used every kClientHeartbeatIntervalMs,
+// starting when the client first becomes active.
+u64 client_activity_deadline(const GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    ClientSessionMetadata* metadata = session_metadata(runtime);
+    if (!metadata || runtime->stopping || !client_active(runtime))
+        return 0;
+    const u64 due = client_session_metadata_refresh_due(metadata);
+    return due > now_ms ? due : now_ms;
+}
+
+void drive_client_activity(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    const u64 due = client_activity_deadline(runtime, now_ms);
+    if (!due || now_ms < due)
+        return;
+    ClientSessionMetadata* metadata = session_metadata(runtime);
+    client_session_metadata_refreshed(metadata, now_ms);
+    ClientHeartbeatSession session{};
+    client_session_metadata_use_session(metadata, true, clock_unix_milliseconds(), &session);
+}
+
+// READY uses the heartbeat session too, starting one only when active.
+void client_session_ready(GatewayClientRuntime* runtime) noexcept {
+    if (ClientSessionMetadata* metadata = session_metadata(runtime)) {
+        ClientHeartbeatSession session{};
+        client_session_metadata_use_session(metadata, client_active(runtime), clock_unix_milliseconds(),
+                                            &session);
+    }
+}
+
 // True once the worker is certain to wake for `signal`: it was already pending or the post took.
 bool wake_worker(GatewayClient* client, NetworkSignal* signal) noexcept {
     return InterlockedCompareExchange(&signal->pending, 0, 0) != 0 ||
@@ -385,19 +429,33 @@ template <u32 Capacity> Utf8View user_text(const GatewayUserTextStorage<Capacity
     return Utf8View{text.data, text.bytes};
 }
 
-GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token) noexcept {
-    return GatewayUserIdentify{
+// heartbeat_id backs the request-time heartbeat session the live metadata reports.
+GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token,
+                                  char (&heartbeat_id)[kGatewayUserLaunchIdBytes]) noexcept {
+    GatewayUserIdentify identify{
         token,
         GatewayUserProperties{user_text(user.operating_system), user_text(user.browser),
                               user_text(user.release_channel), user_text(user.client_version),
                               user_text(user.os_version), user_text(user.os_arch), user_text(user.app_arch),
                               user_text(user.system_locale), user_text(user.client_launch_id),
                               user_text(user.browser_user_agent), user_text(user.browser_version),
-                              user_text(user.os_sdk_version), user.client_build_number},
+                              user_text(user.os_sdk_version), user.client_build_number,
+                              user.native_build_number, user_text(user.launch_signature)},
         user.since_ms,
         user.status,
         user.has_since,
         user.afk};
+    if (user.session_metadata) {
+        const GatewayUserProperties live =
+            client_session_metadata_properties(user.session_metadata, heartbeat_id);
+        identify.properties.client_heartbeat_session_id = live.client_heartbeat_session_id;
+        identify.properties.client_app_state = live.client_app_state;
+        identify.properties.app_state_first = live.app_state_first;
+        identify.client_app_state = client_session_metadata_focused(user.session_metadata)
+                                        ? utf8_literal("focused")
+                                        : utf8_literal("unfocused");
+    }
+    return identify;
 }
 
 template <u32 Capacity>
@@ -421,7 +479,10 @@ void store_user_configuration(GatewayUserRuntime* user,
     copy_user_text(&user->browser_user_agent, properties.browser_user_agent);
     copy_user_text(&user->browser_version, properties.browser_version);
     copy_user_text(&user->os_sdk_version, properties.os_sdk_version);
+    copy_user_text(&user->launch_signature, properties.launch_signature);
     user->client_build_number = properties.client_build_number;
+    user->native_build_number = properties.native_build_number;
+    user->session_metadata = configuration.metadata;
     user->since_ms = configuration.since_ms;
     user->status = configuration.status;
     user->has_since = configuration.has_since;
@@ -724,6 +785,7 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     deadline = earliest_deadline(deadline, gateway_stream_session_deadline(runtime->stream));
     if (runtime->session.lifecycle.heartbeat_interval_ms != 0)
         deadline = earliest_deadline(deadline, runtime->session.lifecycle.next_heartbeat_ms);
+    deadline = earliest_deadline(deadline, client_activity_deadline(runtime, now_ms));
     deadline = earliest_deadline(deadline, runtime->rate_deadline_ms);
     deadline =
         earliest_deadline(deadline, runtime->member_deadline_ms > now_ms ? runtime->member_deadline_ms : 0);
@@ -1341,7 +1403,8 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     const ConstSlice<u8> credential = secure_buffer_view(runtime->credential);
     const Utf8View token{reinterpret_cast<const char*>(credential.data), credential.count};
     if (next.action == GatewayLifecycleAction::send_identify && is_user(runtime)) {
-        auto identify = user_identify(*runtime->user, token);
+        char heartbeat_id[kGatewayUserLaunchIdBytes];
+        auto identify = user_identify(*runtime->user, token, heartbeat_id);
         AcquireSRWLockShared(&runtime->subscription_lock);
         if (runtime->self_status.authoritative) {
             identify.status = runtime->self_status.desired.status;
@@ -2015,6 +2078,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             InterlockedIncrement64(&client->frecency_settings_revision);
             publish_phase(client, GatewayClientPhase::ready);
             SetEvent(client->state_event);
+            client_session_ready(runtime);
             continue;
         }
         if (event.kind == GatewaySessionEventKind::resumed) {
@@ -2687,6 +2751,7 @@ NetworkWorkerStep gateway_worker_handler(void* opaque, NetworkLoop* loop,
                                      event.now_ms);
         publish_voice_snapshot(client, runtime);
     }
+    drive_client_activity(runtime, event.now_ms);
     notify_consumer(client, runtime);
     return {next_worker_wait(client, runtime, event.now_ms),
             runtime->stopping && shutdown_drained(runtime)};
@@ -2775,9 +2840,11 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     }
     if (user) {
         const ConstSlice<u8> token_bytes = secure_buffer_view(*credential);
+        char heartbeat_id[kGatewayUserLaunchIdBytes];
         const GatewayCommandWriteResult preflight = gateway_write_user_identify(
             user_identify(*runtime->user,
-                          Utf8View{reinterpret_cast<const char*>(token_bytes.data), token_bytes.count}),
+                          Utf8View{reinterpret_cast<const char*>(token_bytes.data), token_bytes.count},
+                          heartbeat_id),
             Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
         SecureZeroMemory(runtime->gateway_payload, sizeof(runtime->gateway_payload));
         if (!preflight.ok()) {
@@ -3376,6 +3443,11 @@ bool gateway_client_local_presence(GatewayClient* client, const GatewayLocalPres
             SetEvent(client->notification_event);
     }
     return true;
+}
+void gateway_client_activity_changed(GatewayClient* client) noexcept {
+    if (user_runtime(client))
+        network_signal_post(&client->worker.loop,
+                            &static_cast<GatewayClientRuntime*>(client->runtime)->subscription_signal, 1);
 }
 RestClientSubmitResult gateway_client_activity_sharing_submit(GatewayClient* client, RestClient* rest,
                                                               u64 profile, u64 self, bool share,

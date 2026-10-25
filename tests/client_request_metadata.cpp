@@ -1,8 +1,101 @@
+#include "maicord/app/client_session_metadata.hpp"
 #include "maicord/app/user_client_configuration.hpp"
 #include "maicord/protocol/rest.hpp"
 #include "maicord/protocol/client_user_agent.hpp"
 
 namespace maicord {
+namespace {
+// Request-time super properties: the header the shared metadata copies out
+// equals base64(JSON) of the expected object, and no other request copies.
+void test_client_session_metadata(const UserClientConfigurationStorage& configuration,
+                                  void (*check)(bool, const char*) noexcept) noexcept {
+    const GatewayUserProperties& base = configuration.configuration.properties;
+    u8 header[kRestUserSuperPropertiesMaximumBytes];
+    u8 expected[kRestUserSuperPropertiesMaximumBytes];
+    u8 scratch[kRestUserSuperPropertiesMaximumBytes];
+    u32 revision = 0;
+    ClientSessionMetadata metadata{};
+    const auto matches = [&](u32 bytes, Utf8View heartbeat, Utf8View app_state,
+                             bool app_state_first) noexcept {
+        GatewayUserProperties properties = base;
+        properties.client_heartbeat_session_id = heartbeat;
+        properties.client_app_state = app_state;
+        properties.app_state_first = app_state_first;
+        const auto written = write_rest_user_super_properties(properties, {scratch, sizeof(scratch)},
+                                                              {expected, sizeof(expected)});
+        return written.ok() && bytes == written.bytes && bytes_equal(header, expected, bytes);
+    };
+    constexpr u64 now = 1'800'000'000'000ull;
+    check(client_session_metadata_initialize(&metadata, base, nullptr, false),
+          "metadata encodes the base properties");
+    u32 bytes = client_session_metadata_request(&metadata, now, &revision, {header, sizeof(header)});
+    check(matches(bytes, {}, utf8_literal("unfocused"), true),
+          "the first request adds the app state; no heartbeat session is reported before one exists");
+    const u32 first_revision = revision;
+    header[0] = 0;
+    bytes = client_session_metadata_request(&metadata, now + 1, &revision, {header, sizeof(header)});
+    check(revision == first_revision && header[0] == 0 && bytes != 0,
+          "an unchanged request reuses the header without re-encoding or copying");
+    ClientHeartbeatSession session{};
+    check(client_session_metadata_use_session(&metadata, true, now, &session) && session.valid &&
+              session.created_ms == now && session.last_used_ms == now &&
+              client_heartbeat_session_valid(session) && session.uuid[14] == '4',
+          "an active client starts a heartbeat session");
+    client_session_metadata_set_focus(&metadata, true);
+    bytes = client_session_metadata_request(&metadata, now + 2, &revision, {header, sizeof(header)});
+    const Utf8View uuid{session.uuid, kGatewayUserLaunchIdBytes};
+    check(revision != first_revision && matches(bytes, uuid, utf8_literal("focused"), true),
+          "a heartbeat session first seen later follows the app state");
+    char identify_heartbeat[kGatewayUserLaunchIdBytes];
+    const GatewayUserProperties identify =
+        client_session_metadata_properties(&metadata, identify_heartbeat);
+    check(utf8_equal(identify.client_heartbeat_session_id, uuid) &&
+              utf8_equal(identify.client_app_state, utf8_literal("focused")) && identify.app_state_first,
+          "Identify reads the object the last request left");
+    ClientHeartbeatSession reused{};
+    check(!client_session_metadata_use_session(&metadata, true, now + kClientHeartbeatSessionIdleMs - 1,
+                                               &reused) &&
+              bytes_equal(reused.uuid, session.uuid, kGatewayUserLaunchIdBytes) &&
+              reused.last_used_ms == now + kClientHeartbeatSessionIdleMs - 1,
+          "a live session is reused and marked used");
+    const u64 expired = reused.last_used_ms + kClientHeartbeatSessionIdleMs;
+    bytes = client_session_metadata_request(&metadata, expired, &revision, {header, sizeof(header)});
+    check(matches(bytes, {}, utf8_literal("focused"), true),
+          "a session 30 minutes past its last use is no longer reported");
+    ClientHeartbeatSession dropped{};
+    check(!client_session_metadata_use_session(&metadata, false, expired, &dropped) && !dropped.valid &&
+              client_session_metadata_use_session(&metadata, true, expired, &session) &&
+              !bytes_equal(session.uuid, reused.uuid, kGatewayUserLaunchIdBytes),
+          "an inactive client drops the expired session and an active one starts another");
+    bytes = client_session_metadata_request(&metadata, expired, &revision, {header, sizeof(header)});
+    check(matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused"), true),
+          "a returning heartbeat session keeps its key's place");
+
+    ClientSessionMetadata restored{};
+    revision = 0;
+    check(client_session_metadata_initialize(&restored, base, &session, true),
+          "metadata restores a session");
+    bytes = client_session_metadata_request(&restored, expired + 1, &revision, {header, sizeof(header)});
+    check(matches(bytes, {session.uuid, kGatewayUserLaunchIdBytes}, utf8_literal("focused"), false),
+          "a session restored before the first request precedes the app state");
+    ClientHeartbeatSession invalid = session;
+    invalid.uuid[8] = 'x';
+    revision = 0;
+    check(client_session_metadata_initialize(&restored, base, &invalid, false) &&
+              !client_session_metadata_session(&restored).valid,
+          "a malformed restored session is discarded");
+    check(client_session_metadata_refresh_due(&restored) == 0 &&
+              (client_session_metadata_refreshed(&restored, 500),
+               client_session_metadata_refresh_due(&restored) == 500 + kClientHeartbeatIntervalMs),
+          "the active refresh is due at once, then every 15 minutes");
+
+    UserClientConfigurationStorage other_owner{};
+    check(user_client_configuration_initialize(&other_owner).ok() &&
+              utf8_equal(other_owner.configuration.properties.launch_signature, base.launch_signature),
+          "every owner in the process reports the same launch signature");
+}
+} // namespace
+
 void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noexcept {
     const auto contains = [](Utf8View value, Utf8View part) noexcept {
         for (u32 n = 0; n + part.bytes <= value.bytes; ++n)
@@ -20,6 +113,26 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
               configuration.timezone[configuration.timezone_bytes] == 0,
           "startup reads bounded host metadata and the captured compatibility build");
     const GatewayUserProperties& reported = configuration.configuration.properties;
+    u8 signature[16]{};
+    bool signature_hex = reported.launch_signature.bytes == kGatewayUserLaunchIdBytes &&
+                         reported.launch_signature.data == configuration.launch_signature;
+    for (u32 at = 0, byte = 0; signature_hex && at < kGatewayUserLaunchIdBytes; ++at) {
+        const char c = reported.launch_signature.data[at];
+        if (at == 8 || at == 13 || at == 18 || at == 23) {
+            signature_hex = c == '-';
+            continue;
+        }
+        const u8 nibble = c >= 'a' ? static_cast<u8>(c - 'a' + 10) : static_cast<u8>(c - '0');
+        signature[byte / 2] = static_cast<u8>(signature[byte / 2] | (byte % 2 ? nibble : nibble << 4));
+        ++byte;
+    }
+    bool mods_clear = signature_hex && (signature[6] >> 4) == 4 && (signature[8] >> 6) == 2;
+    constexpr u32 mod_bits[] = {119, 108, 100, 91, 84, 75, 61, 55, 48, 38, 24, 11};
+    for (const u32 bit : mod_bits)
+        mods_clear = mods_clear && !(signature[15 - bit / 8] & (1u << (bit % 8)));
+    check(mods_clear && reported.native_build_number == kClientNativeBuildNumber &&
+              !utf8_equal(reported.launch_signature, reported.client_launch_id),
+          "startup reports the native build and a v4 launch signature with every mod bit clear");
     const Utf8View os_version = reported.os_version;
     const Utf8View sdk = reported.os_sdk_version;
     check(utf8_equal(reported.browser, utf8_literal("Discord Client")) &&
@@ -123,5 +236,6 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
     check(write_rest_request_head(request, {output, sizeof(output)}).error ==
               RestRequestError::invalid_input,
           "timezone header cannot introduce additional HTTP fields");
+    test_client_session_metadata(configuration, check);
 }
 } // namespace maicord

@@ -81,7 +81,8 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         return result;
     }
     const RestUserConfiguration rest_configuration{ConstSlice<u8>{super_properties, properties.bytes},
-                                                   configuration->properties.system_locale, timezone};
+                                                   configuration->properties.system_locale, timezone,
+                                                   configuration->metadata};
     const RestClientResult rest_started =
         rest_client_start_user(&coordinator->rest, &rest_credential, &rest_configuration,
                                kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared);

@@ -1184,6 +1184,8 @@ static_assert(sizeof(GatewayActivitySharing) == 8);
 // output receives the sharing setting. Returns false for invalid input.
 bool gateway_client_local_presence(GatewayClient*, const GatewayLocalPresence* input,
                                    GatewayActivitySharing* output) noexcept;
+// Wakes the worker after the client's focus changed in its session metadata.
+void gateway_client_activity_changed(GatewayClient*) noexcept;
 // Sets show_current_game with a settings-proto PATCH that keeps the rest of
 // the status group. Completes through self_status_complete.
 RestClientSubmitResult gateway_client_activity_sharing_submit(GatewayClient*, RestClient*,

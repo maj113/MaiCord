@@ -28,6 +28,7 @@
 #include "maicord/app/account_profile_promotion.hpp"
 #include "maicord/app/browser_login.hpp"
 #include "maicord/app/account_session_store.hpp"
+#include "maicord/app/client_session_metadata.hpp"
 #include "maicord/app/account_media_worker.hpp"
 #include "maicord/app/gateway_stream_control.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
@@ -104,6 +105,7 @@ struct AccountModuleRuntime {
     // Views point into this stable owner. REST and replacement Gateway workers
     // share the same launch identity until the authenticated account stops.
     UserClientConfigurationStorage client_configuration;
+    ClientSessionMetadata client_metadata;
 };
 
 RestClient* module_rest(void* instance, bool details = false) noexcept {
@@ -453,8 +455,19 @@ template <typename T> u64 hash_value(u64 hash, const T& value) noexcept {
     return hash64_bytes(hash, &value, static_cast<u32>(sizeof(value)));
 }
 
-u64 snapshot_fingerprint(const GatewayUserSessionSnapshot& snapshot) noexcept {
+// The heartbeat session the session file keeps, or null.
+const ClientHeartbeatSession* persisted_heartbeat(const ClientHeartbeatSession& session) noexcept {
+    return client_heartbeat_session_valid(session) ? &session : nullptr;
+}
+
+u64 snapshot_fingerprint(const GatewayUserSessionSnapshot& snapshot,
+                         const ClientHeartbeatSession* heartbeat = nullptr) noexcept {
     u64 hash = kHash64Seed;
+    if (heartbeat) {
+        hash = hash_value(hash, heartbeat->created_ms);
+        hash = hash_value(hash, heartbeat->last_used_ms);
+        hash = hash64_bytes(hash, heartbeat->uuid, kGatewayUserLaunchIdBytes);
+    }
     hash = hash_value(hash, snapshot.profile_id);
     hash = hash_value(hash, snapshot.self_user_id);
     hash = hash_value(hash, snapshot.has_resume);
@@ -473,17 +486,25 @@ bool snapshot_is_persistable(const GatewayUserSessionSnapshot& snapshot) noexcep
 }
 
 bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot) noexcept {
+    const ClientHeartbeatSession session = client_session_metadata_session(&runtime->client_metadata);
+    const ClientHeartbeatSession* heartbeat = persisted_heartbeat(session);
     if (runtime->coordinator.state.error == UserAccountCoordinatorError::authentication_rejected ||
-        !snapshot_is_persistable(snapshot)) {
+        snapshot.profile_id == 0 || (!snapshot_is_persistable(snapshot) && !heartbeat)) {
         return true;
     }
-    const u64 fingerprint = snapshot_fingerprint(snapshot);
+    const u64 fingerprint = snapshot_fingerprint(snapshot, heartbeat);
     if (runtime->has_persisted_fingerprint && runtime->persisted_fingerprint == fingerprint) {
         ++runtime->session_save_skips;
         return true;
     }
+    // A resume token that is not persistable is not written with the heartbeat session.
+    GatewayUserSessionSnapshot stored = snapshot;
+    if (!snapshot_is_persistable(stored)) {
+        stored.has_resume = false;
+        reset_value(&stored.resume);
+    }
     const AccountSessionStoreResult saved =
-        account_user_session_store_save(runtime->session_path, snapshot);
+        account_user_session_store_save(runtime->session_path, stored, heartbeat);
     runtime->session_error = saved.error;
     runtime->session_native_error = saved.native_error;
     if (!saved.ok()) {
@@ -578,14 +599,17 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     }
 
     GatewayUserSessionSnapshot restored{};
-    const AccountSessionStoreResult session =
-        account_user_session_store_load(session_path, profile.metadata.profile_id, &restored);
+    ClientHeartbeatSession restored_heartbeat{};
+    const AccountSessionStoreResult session = account_user_session_store_load(
+        session_path, profile.metadata.profile_id, &restored, &restored_heartbeat);
     runtime->session_error = session.error;
     runtime->session_native_error = session.native_error;
     result.session_error = static_cast<u8>(session.error);
     result.session_loaded = session.ok();
-    if (session.ok() && snapshot_is_persistable(restored)) {
-        runtime->persisted_fingerprint = snapshot_fingerprint(restored);
+    const ClientHeartbeatSession* heartbeat =
+        session.ok() ? persisted_heartbeat(restored_heartbeat) : nullptr;
+    if (session.ok() && (snapshot_is_persistable(restored) || heartbeat)) {
+        runtime->persisted_fingerprint = snapshot_fingerprint(restored, heartbeat);
         runtime->has_persisted_fingerprint = true;
     }
 
@@ -612,6 +636,17 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     // Saved desired status arrives with READY; avoid a transient Online publish
     // while an account's Invisible preference is still unknown to this process.
     configuration.configuration.status = GatewayUserStatus::invisible;
+    // The client reports its focus once started (client_focus).
+    if (!client_session_metadata_initialize(&runtime->client_metadata,
+                                            configuration.configuration.properties, heartbeat, false)) {
+        account_media_worker_stop(&runtime->media, 5'000);
+        account_profile_release(&profile);
+        SecureZeroMemory(runtime, sizeof(*runtime));
+        VirtualFree(runtime, 0, MEM_RELEASE);
+        result.error = AccountModuleError::coordinator_start;
+        return result;
+    }
+    configuration.configuration.metadata = &runtime->client_metadata;
     const UserAccountCoordinatorResult started =
         user_account_coordinator_start(&runtime->coordinator, &profile, &configuration.configuration,
                                        // The persisted Gateway resume token is tied to its matching
@@ -1278,6 +1313,11 @@ void WINAPI module_guild_members_query_cancel(void* instance) noexcept {
 bool WINAPI module_channel_info(void* instance, u64 guild_id) noexcept {
     return gateway_client_request_channel_info(module_gateway(instance), guild_id);
 }
+void WINAPI module_client_focus(void* instance, bool focused) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    if (runtime && client_session_metadata_set_focus(&runtime->client_metadata, focused))
+        gateway_client_activity_changed(module_gateway(instance));
+}
 RestClientSubmitResult WINAPI module_gif_favorites(void* instance,
                                                    AccountGifFavoritesOperation operation,
                                                    ConstSlice<u8> patch_json,
@@ -1933,9 +1973,8 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     const UserAccountCoordinatorResult stopped =
         user_account_coordinator_stop(&runtime->coordinator, timeout_ms, &snapshot);
     bool final_session_saved = true;
-    if (!rejected && snapshot_is_persistable(snapshot)) {
+    if (!rejected)
         final_session_saved = save_snapshot(runtime, snapshot);
-    }
     AccountModuleStatus status = build_status(runtime);
     if (!stopped.ok() || stopped.phase != UserAccountCoordinatorPhase::stopped) {
         // The gateway may still deliver frames: keep the decoders alive.
@@ -2100,6 +2139,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_guild_members_query_cancel,
         maicord::module_channel_info,
         maicord::module_collection_title,
+        maicord::module_client_focus,
     };
     maicord::copy_bytes(api, &table, sizeof(table));
     return true;

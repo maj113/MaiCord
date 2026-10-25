@@ -15,6 +15,16 @@ namespace {
 using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*) noexcept;
 SRWLOCK launch_lock = SRWLOCK_INIT;
 char launch_id[kGatewayUserLaunchIdBytes + 1]{};
+char launch_signature[kGatewayUserLaunchIdBytes + 1]{};
+
+// The launch signature's bits that flag detected client mods, all clear for
+// an unmodified client (docs.discord.food, Client Properties).
+constexpr u8 kLaunchSignatureModBits[] = {119, 108, 100, 91, 84, 75, 61, 55, 48, 38, 24, 11};
+
+void uuid_set_version4(u8* uuid) noexcept {
+    uuid[6] = static_cast<u8>((uuid[6] & 0x0F) | 0x40);
+    uuid[8] = static_cast<u8>((uuid[8] & 0x3F) | 0x80);
+}
 
 void write_uuid(const u8* source, char* output) noexcept {
     u32 destination = 0;
@@ -46,6 +56,16 @@ u32 write_os_version(const OSVERSIONINFOW& version, char* output,
 
 } // namespace
 
+bool user_client_random_uuid(char* output) noexcept {
+    u8 uuid[16]{};
+    if (!secure_random_fill(Slice<u8>{uuid, sizeof(uuid)}).ok())
+        return false;
+    uuid_set_version4(uuid);
+    write_uuid(uuid, output);
+    SecureZeroMemory(uuid, sizeof(uuid));
+    return true;
+}
+
 UserClientConfigurationResult user_client_configuration_initialize(
     UserClientConfigurationStorage* storage) noexcept {
     if (!storage) {
@@ -55,7 +75,7 @@ UserClientConfigurationResult user_client_configuration_initialize(
 
     AcquireSRWLockExclusive(&launch_lock);
     if (!launch_id[0]) {
-        u8 uuid[16]{};
+        u8 uuid[32]{};
         const SecureRandomResult random = secure_random_fill(Slice<u8>{uuid, sizeof(uuid)});
         if (!random.ok()) {
             SecureZeroMemory(uuid, sizeof(uuid));
@@ -63,12 +83,18 @@ UserClientConfigurationResult user_client_configuration_initialize(
             return UserClientConfigurationResult{static_cast<u32>(random.platform_status),
                                                  UserClientConfigurationError::random};
         }
-        uuid[6] = static_cast<u8>((uuid[6] & 0x0F) | 0x40);
-        uuid[8] = static_cast<u8>((uuid[8] & 0x3F) | 0x80);
+        u8* signature = uuid + 16;
+        uuid_set_version4(uuid);
+        uuid_set_version4(signature);
+        // Bit n of the big-endian 128-bit value.
+        for (const u8 bit : kLaunchSignatureModBits)
+            signature[15 - bit / 8] = static_cast<u8>(signature[15 - bit / 8] & ~(1u << (bit % 8)));
         write_uuid(uuid, launch_id);
+        write_uuid(signature, launch_signature);
         SecureZeroMemory(uuid, sizeof(uuid));
     }
     copy_bytes(storage->client_launch_id, launch_id, sizeof(launch_id));
+    copy_bytes(storage->launch_signature, launch_signature, sizeof(launch_signature));
     ReleaseSRWLockExclusive(&launch_lock);
 
     wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH]{};
@@ -127,6 +153,8 @@ UserClientConfigurationResult user_client_configuration_initialize(
         utf8_literal(kClientElectronVersion),
         Utf8View{storage->os_version + sdk_offset, os_version_bytes - sdk_offset},
         kClientBuildNumber,
+        kClientNativeBuildNumber,
+        Utf8View{storage->launch_signature, kGatewayUserLaunchIdBytes},
     };
     configuration.status = GatewayUserStatus::online;
     storage->configuration = configuration;

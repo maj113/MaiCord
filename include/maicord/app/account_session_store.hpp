@@ -4,7 +4,9 @@
 
 namespace maicord {
 
-inline constexpr u32 kUserAccountSessionStoreVersion = 2;
+struct ClientHeartbeatSession;
+
+inline constexpr u32 kUserAccountSessionStoreVersion = 3;
 inline constexpr u32 kAccountSessionStoreMaximumFileBytes = 64 * 1024;
 
 enum class AccountSessionStoreError : u8 {
@@ -33,12 +35,15 @@ struct AccountSessionStoreResult {
     }
 };
 
-// Stores the profile-bound normal-user Resume state and authenticated user ID.
-// Version 1 loads with unknown user identity and is upgraded on the next save.
+// Stores the profile-bound normal-user Resume state, authenticated user ID and
+// a valid analytics heartbeat session, if any. Version 1 loads with unknown
+// user identity and versions before 3 without a heartbeat session; both are
+// upgraded on the next save.
 AccountSessionStoreResult account_user_session_store_save(
-    const wchar_t* path, const GatewayUserSessionSnapshot& snapshot) noexcept;
+    const wchar_t* path, const GatewayUserSessionSnapshot& snapshot,
+    const ClientHeartbeatSession* heartbeat = nullptr) noexcept;
 AccountSessionStoreResult account_user_session_store_load(
-    const wchar_t* path, u64 expected_profile_id,
-    GatewayUserSessionSnapshot* snapshot) noexcept;
+    const wchar_t* path, u64 expected_profile_id, GatewayUserSessionSnapshot* snapshot,
+    ClientHeartbeatSession* heartbeat = nullptr) noexcept;
 
 } // namespace maicord

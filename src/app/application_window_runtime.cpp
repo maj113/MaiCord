@@ -1,4 +1,5 @@
 #include "application_dm_profile.hpp"
+#include "application_account_module.hpp"
 #include "application_navigation_drag.hpp"
 #include "application_content_point.hpp"
 #include "application_shortcuts.hpp"
@@ -660,6 +661,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
     }
 
     case WM_ACTIVATE:
+        application_account_report_focus(LOWORD(wparam) != WA_INACTIVE && !HIWORD(wparam));
         if (LOWORD(wparam) != WA_INACTIVE)
             application_read_state_activity();
         // Never while minimized: the taskbar's SC_RESTORE is queued behind

@@ -1072,6 +1072,7 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
 maicord_test(MaiCordRestClientFixtureTests ENTRY maicord_rest_client_fixtures_entry
     SOURCES tests/rest_client_fixtures.cpp src/app/account_bulk_message_ack.cpp src/app/account_logout.cpp
         src/app/account_host.cpp src/media/png_common.cpp src/app/user_client_configuration.cpp
+        src/app/client_session_metadata.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     TIMEOUT 15

@@ -244,6 +244,7 @@ maicord_library(maicord_app_core
     src/app/oauth_authorization.cpp
     src/app/oauth_sign_in.cpp
     src/app/oauth_account.cpp
+    src/app/client_session_metadata.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 

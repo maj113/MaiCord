@@ -128,6 +128,7 @@ constexpr Utf8View gateway_user_status_name(GatewayUserStatus status) noexcept {
 // The client properties a user session reports, in the order the Windows
 // desktop client sends them. Identify and the X-Super-Properties header carry
 // the same object.
+inline constexpr u32 kGatewayUserMaximumAppStateBytes = 16;
 struct GatewayUserProperties {
     Utf8View operating_system;
     Utf8View browser;
@@ -142,12 +143,21 @@ struct GatewayUserProperties {
     Utf8View browser_version;
     Utf8View os_sdk_version;
     u32 client_build_number;
+    // The desktop host's native build; zero omits it.
+    u32 native_build_number;
+    // Per-launch UUID; empty omits it.
+    Utf8View launch_signature;
+    // Added at request time after launch_signature, in the order they first
+    // appeared (app_state_first); an empty value is omitted.
+    Utf8View client_heartbeat_session_id;
+    Utf8View client_app_state;
+    bool app_state_first;
 };
 
 // Writes the properties object, or with a null output measures it. Every
-// string must be non-empty, valid UTF-8 and within its limit, the launch ID a
-// UUID and the build number set. A short output gets output_too_small and no
-// bytes.
+// required string must be non-empty, valid UTF-8 and within its limit, the
+// launch ID, signature and heartbeat session UUIDs and the build number set.
+// A short output gets output_too_small and no bytes.
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
                                                         Slice<u8> output) noexcept;
 
@@ -155,6 +165,8 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
 // tuple and claims no cached versions. Use the same client compatibility
 // properties as REST; client_build_number describes that protocol profile,
 // independently of MaiCord's binary version.
+// Its properties add the current client_app_state (replacing the request-time
+// one in place) and the desktop client's non-fast-connect markers.
 struct GatewayUserIdentify {
     Utf8View token;
     GatewayUserProperties properties;
@@ -162,6 +174,7 @@ struct GatewayUserIdentify {
     GatewayUserStatus status;
     bool has_since;
     bool afk;
+    Utf8View client_app_state;
 };
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,

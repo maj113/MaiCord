@@ -282,7 +282,9 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
     u8 property_scratch[kRestUserSuperPropertiesMaximumBytes]{};
     u8 expected_properties[kRestUserSuperPropertiesMaximumBytes]{};
     const bool launch_ready = user_client_configuration_initialize(&launch).ok();
-    const auto projected = write_rest_user_super_properties(launch.configuration.properties,
+    GatewayUserProperties signed_out = launch.configuration.properties;
+    signed_out.client_app_state = utf8_literal("focused");
+    const auto projected = write_rest_user_super_properties(signed_out,
         {property_scratch, sizeof(property_scratch)}, {expected_properties, sizeof(expected_properties)});
     storage_check(launch_ready && projected.ok() && projected.bytes == runtime->user_super_properties_bytes &&
         bytes_equal(expected_properties, runtime->user_super_properties, projected.bytes) &&

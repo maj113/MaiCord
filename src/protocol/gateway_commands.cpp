@@ -87,50 +87,91 @@ GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdat
     return {at, GatewayCommandError::none};
 }
 
-GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
-                                                        Slice<u8> output) noexcept {
-    if (properties.client_build_number == 0 || !launch_id_valid(properties.client_launch_id)) {
+namespace {
+
+// One key and its value: an encoded string, or `raw` bytes (numbers and
+// literals) copied as they are. Keys carry the separator before them.
+struct PropertySegment {
+    Utf8View key;
+    Utf8View value;
+    u32 maximum;
+    bool raw;
+};
+
+GatewayCommandWriteResult write_properties(const GatewayUserProperties& properties,
+                                           Utf8View identify_app_state, bool identify,
+                                           Slice<u8> output) noexcept {
+    if (properties.client_build_number == 0 || !launch_id_valid(properties.client_launch_id) ||
+        (properties.launch_signature.bytes && !launch_id_valid(properties.launch_signature)) ||
+        (properties.client_heartbeat_session_id.bytes &&
+         !launch_id_valid(properties.client_heartbeat_session_id))) {
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     }
-    // Each string follows its key, which also carries the separator and any
-    // fixed property before it.
-    struct Field {
-        Utf8View key;
-        Utf8View value;
-        u32 maximum;
-    };
-    const Field fields[] = {
-        {utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes},
-        {utf8_literal(",\"browser\":"), properties.browser, kGatewayUserMaximumBrowserBytes},
+    char build[10];
+    char native_build[10];
+    const Utf8View build_text{build, decimal_write(build, properties.client_build_number)};
+    const Utf8View native_text{
+        native_build,
+        properties.native_build_number ? decimal_write(native_build, properties.native_build_number) : 0u};
+    const Utf8View app_state =
+        identify && identify_app_state.bytes ? identify_app_state : properties.client_app_state;
+    const Utf8View heartbeat = properties.client_heartbeat_session_id;
+    const PropertySegment app_state_segment{utf8_literal(",\"client_app_state\":"), app_state,
+                                            kGatewayUserMaximumAppStateBytes, false};
+    const PropertySegment heartbeat_segment{utf8_literal(",\"client_heartbeat_session_id\":"), heartbeat,
+                                            kGatewayUserLaunchIdBytes, false};
+    // An app state the request-time object lacks follows its other properties.
+    const bool app_state_first = properties.app_state_first && properties.client_app_state.bytes;
+    PropertySegment segments[] = {
+        {utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes,
+         false},
+        {utf8_literal(",\"browser\":"), properties.browser, kGatewayUserMaximumBrowserBytes, false},
         {utf8_literal(",\"release_channel\":"), properties.release_channel,
-         kGatewayUserMaximumReleaseChannelBytes},
-        {utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes},
-        {utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes},
-        {utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes},
-        {utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes},
-        {utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes},
+         kGatewayUserMaximumReleaseChannelBytes, false},
+        {utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes,
+         false},
+        {utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes, false},
+        {utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes, false},
+        {utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes, false},
+        {utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes,
+         false},
         {utf8_literal(",\"has_client_mods\":false,\"client_launch_id\":"), properties.client_launch_id,
-         kGatewayUserLaunchIdBytes},
+         kGatewayUserLaunchIdBytes, false},
         {utf8_literal(",\"browser_user_agent\":"), properties.browser_user_agent,
-         kGatewayUserMaximumUserAgentBytes},
-        {utf8_literal(",\"browser_version\":"), properties.browser_version,
-         kGatewayUserMaximumVersionBytes},
-        {utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes},
+         kGatewayUserMaximumUserAgentBytes, false},
+        {utf8_literal(",\"browser_version\":"), properties.browser_version, kGatewayUserMaximumVersionBytes,
+         false},
+        {utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes,
+         false},
+        {utf8_literal(",\"client_build_number\":"), build_text, 0, true},
+        {utf8_literal(",\"native_build_number\":"), native_text, 0, true},
+        {utf8_literal(",\"client_event_source\":"), utf8_literal("null"), 0, true},
+        {utf8_literal(",\"launch_signature\":"), properties.launch_signature, kGatewayUserLaunchIdBytes,
+         false},
+        app_state_first ? app_state_segment : heartbeat_segment,
+        app_state_first ? heartbeat_segment : app_state_segment,
+        {utf8_literal(",\"is_fast_connect\":false,\"gateway_connect_reasons\":"),
+         identify ? utf8_literal("\"COLD_START\"") : Utf8View{}, 0, true},
     };
-    constexpr u32 field_count = static_cast<u32>(sizeof(fields) / sizeof(fields[0]));
-    static constexpr char build_key[] = ",\"client_build_number\":";
-    static constexpr char suffix[] = ",\"client_event_source\":null}";
-    EncodedString encoded[field_count]{};
-    const u32 build_digits = decimal_digits(properties.client_build_number);
-    u32 required =
-        static_cast<u32>(sizeof(build_key) - 1) + build_digits + static_cast<u32>(sizeof(suffix) - 1);
-    for (u32 index = 0; index < field_count; ++index) {
+    constexpr u32 segment_count = static_cast<u32>(sizeof(segments) / sizeof(segments[0]));
+    // Fields before client_build_number are required; later ones are omitted when empty.
+    constexpr u32 required_count = 13;
+    EncodedString encoded[segment_count]{};
+    u32 required = 1;
+    for (u32 index = 0; index < segment_count; ++index) {
+        const PropertySegment& segment = segments[index];
+        if (index >= required_count && segment.value.bytes == 0)
+            continue;
+        if (segment.raw) {
+            required += segment.key.bytes + segment.value.bytes;
+            continue;
+        }
         const GatewayCommandWriteResult field =
-            encode_bounded(fields[index].value, fields[index].maximum, &encoded[index]);
+            encode_bounded(segment.value, segment.maximum, &encoded[index]);
         if (!field.ok()) {
             return field;
         }
-        required += fields[index].key.bytes + encoded[index].bytes;
+        required += segment.key.bytes + encoded[index].bytes;
     }
     if (!output.data) {
         return GatewayCommandWriteResult{required, GatewayCommandError::none};
@@ -140,16 +181,28 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
     }
 
     u32 offset = 0;
-    for (u32 index = 0; index < field_count; ++index) {
-        copy_bytes(output.data + offset, fields[index].key.data, fields[index].key.bytes);
-        offset += fields[index].key.bytes;
-        write_encoded(output.data, &offset, encoded[index]);
+    for (u32 index = 0; index < segment_count; ++index) {
+        const PropertySegment& segment = segments[index];
+        if (index >= required_count && segment.value.bytes == 0)
+            continue;
+        copy_bytes(output.data + offset, segment.key.data, segment.key.bytes);
+        offset += segment.key.bytes;
+        if (segment.raw) {
+            copy_bytes(output.data + offset, segment.value.data, segment.value.bytes);
+            offset += segment.value.bytes;
+        } else {
+            write_encoded(output.data, &offset, encoded[index]);
+        }
     }
-    write_literal(output.data, &offset, build_key);
-    decimal_write(output.data + offset, properties.client_build_number);
-    offset += build_digits;
-    write_literal(output.data, &offset, suffix);
+    output.data[offset++] = '}';
     return GatewayCommandWriteResult{offset, GatewayCommandError::none};
+}
+
+} // namespace
+
+GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
+                                                        Slice<u8> output) noexcept {
+    return write_properties(properties, {}, false, output);
 }
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
@@ -157,7 +210,8 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     if (!output.data) {
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     }
-    const GatewayCommandWriteResult properties = gateway_write_user_properties(identify.properties, {});
+    const GatewayCommandWriteResult properties =
+        write_properties(identify.properties, identify.client_app_state, true, {});
     if (!properties.ok()) {
         return properties;
     }
@@ -205,8 +259,9 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     decimal_write(output.data + offset, kGatewayUserCapabilitiesDefault);
     offset += capability_digits;
     write_literal(output.data, &offset, ",\"properties\":");
-    offset +=
-        gateway_write_user_properties(identify.properties, {output.data + offset, properties.bytes}).bytes;
+    offset += write_properties(identify.properties, identify.client_app_state, true,
+                               {output.data + offset, properties.bytes})
+                  .bytes;
     write_literal(output.data, &offset, ",\"presence\":{\"since\":");
     if (identify.has_since) {
         decimal_write(output.data + offset, identify.since_ms);

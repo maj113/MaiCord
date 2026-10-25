@@ -22011,7 +22011,7 @@ void test_user_auth_protocol() noexcept {
     const ConstSlice<u8> expected_auth_head =
         byte_literal("POST /api/v9/auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9256 Chrome/148.0.7778.280 Electron/42.9.0 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
                      "Accept: application/json\r\n"
                      "Content-Type: application/json\r\n"
                      "Content-Length: 123\r\n"
@@ -22022,7 +22022,7 @@ void test_user_auth_protocol() noexcept {
     const ConstSlice<u8> expected_remote_auth_head =
         byte_literal("POST /api/v9/users/@me/remote-auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9256 Chrome/148.0.7778.280 Electron/42.9.0 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
                      "Accept: application/json\r\n"
                      "Content-Type: application/json\r\n"
                      "Content-Length: 32\r\n"
@@ -22030,7 +22030,7 @@ void test_user_auth_protocol() noexcept {
     const ConstSlice<u8> expected_remote_auth_captcha_head =
         byte_literal("POST /api/v9/users/@me/remote-auth/login HTTP/1.1\r\n"
                      "Host: discord.com\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9256 Chrome/148.0.7778.280 Electron/42.9.0 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
                      "Accept: application/json\r\n"
                      "Content-Type: application/json\r\n"
                      "Content-Length: 32\r\n"
@@ -22765,7 +22765,7 @@ void test_gateway_commands() noexcept {
     const ConstSlice<u8> expected_user_properties = byte_literal(
         R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null})");
     const ConstSlice<u8> expected_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult user_identified =
         gateway_write_user_identify(user_identify, Slice<u8>{output, expected_user_identify.count});
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
@@ -22792,6 +22792,60 @@ void test_gateway_commands() noexcept {
         unchanged = unchanged && guarded[index] == 0x5A;
     }
     expect(unchanged, "gateway_user_properties_output_bound");
+
+#define MAICORD_TEST_PROPERTIES_HEAD \
+    R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"launch_signature":"10203040-5060-4708-9090-a0b0c0d0e0f0")"
+    // The desktop client's later properties: native build, launch signature,
+    // then the request-time heartbeat session and app state in the order they
+    // first appeared. Identify replaces the app state in place or appends it.
+    GatewayUserProperties live_properties = user_identify.properties;
+    live_properties.native_build_number = 96160;
+    live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0f0");
+    live_properties.client_heartbeat_session_id = utf8_literal("ffeeddcc-bbaa-4998-8776-655443322110");
+    live_properties.client_app_state = utf8_literal("unfocused");
+    const auto properties_equal = [&](const GatewayUserProperties& properties, ConstSlice<u8> expected) noexcept {
+        const GatewayCommandWriteResult written =
+            gateway_write_user_properties(properties, Slice<u8>{output, static_cast<u32>(sizeof(output))});
+        return written.ok() && bytes_equal(ConstSlice<u8>{output, written.bytes}, expected);
+    };
+    expect(properties_equal(live_properties,
+                            byte_literal(MAICORD_TEST_PROPERTIES_HEAD
+                                         R"(,"client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","client_app_state":"unfocused"})")),
+           "gateway_user_properties_desktop_tail_order");
+    live_properties.app_state_first = true;
+    expect(properties_equal(live_properties,
+                            byte_literal(MAICORD_TEST_PROPERTIES_HEAD
+                                         R"(,"client_app_state":"unfocused","client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110"})")),
+           "gateway_user_properties_app_state_first_order");
+    GatewayUserIdentify live_identify = user_identify;
+    live_identify.token = utf8_literal("t");
+    live_identify.properties = live_properties;
+    live_identify.client_app_state = utf8_literal("focused");
+    const auto identify_equal = [&](const GatewayUserIdentify& identify, ConstSlice<u8> expected) noexcept {
+        const GatewayCommandWriteResult written =
+            gateway_write_user_identify(identify, Slice<u8>{output, static_cast<u32>(sizeof(output))});
+        return written.ok() && bytes_equal(ConstSlice<u8>{output, written.bytes}, expected);
+    };
+    expect(identify_equal(live_identify,
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
+                                       MAICORD_TEST_PROPERTIES_HEAD
+                                       R"(,"client_app_state":"focused","client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
+           "gateway_user_identify_replaces_app_state_in_place");
+    live_identify.properties.client_app_state = {};
+    live_identify.properties.client_heartbeat_session_id = {};
+    expect(identify_equal(live_identify,
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
+                                       MAICORD_TEST_PROPERTIES_HEAD
+                                       R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
+           "gateway_user_identify_appends_absent_app_state");
+#undef MAICORD_TEST_PROPERTIES_HEAD
+    live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0fg");
+    expect(gateway_write_user_properties(live_properties, {}).error == GatewayCommandError::invalid_input,
+           "gateway_user_properties_launch_signature_validation");
+    live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0f0");
+    live_properties.client_heartbeat_session_id = utf8_literal("not-a-session");
+    expect(gateway_write_user_properties(live_properties, {}).error == GatewayCommandError::invalid_input,
+           "gateway_user_properties_heartbeat_session_validation");
     char header[1024]{};
     const Base64Result header_expected =
         base64_encode(expected_user_properties, Slice<char>{header, static_cast<u32>(sizeof(header))});
@@ -22875,7 +22929,7 @@ void test_gateway_commands() noexcept {
     idle_user_identify.has_since = true;
     idle_user_identify.afk = true;
     const ConstSlice<u8> expected_idle_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult idle_user_identified = gateway_write_user_identify(
         idle_user_identify, Slice<u8>{output, expected_idle_user_identify.count});
     expect(idle_user_identified.ok() && idle_user_identified.bytes == expected_idle_user_identify.count &&
@@ -23827,7 +23881,7 @@ void test_rest() noexcept {
                bytes_equal(ConstSlice<u8>{request_output, get.bytes},
                            byte_literal("GET /api/v10/gateway HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9256 Chrome/148.0.7778.280 Electron/42.9.0 Safari/537.36\r\n"
+                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
                                         "Accept: application/json\r\n"
                                         "Connection: keep-alive\r\n\r\n")),
            "rest_get_request_head");
@@ -23840,7 +23894,7 @@ void test_rest() noexcept {
                bytes_equal(ConstSlice<u8>{request_output, post.bytes},
                            byte_literal("POST /api/v10/channels/7/messages HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9256 Chrome/148.0.7778.280 Electron/42.9.0 Safari/537.36\r\n"
+                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
                                         "Accept: application/json\r\n"
                                         "Authorization: Bearer secret.token\r\n"
                                         "Content-Type: application/json\r\n"

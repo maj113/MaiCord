@@ -700,6 +700,9 @@ struct AccountModuleApi {
     // v138: bounded title lookup for the active media collection.
     AccountMediaRequestResult(WINAPI* collection_title)(void*, const AccountMediaCollectionTitleRequest*,
                                                        MediaTrackTitle*) noexcept;
+    // v142: whether the main window is focused. Requests report it as the app
+    // state, and the Gateway counts the client active while it is.
+    void(WINAPI* client_focus)(void*, bool focused) noexcept;
 };
 
 // The account module's boundary, linked into MaiCord.exe (and a DLL only for
@@ -714,7 +717,8 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 136);
-static_assert(sizeof(AccountModuleApi) == 992);
+static_assert(sizeof(AccountModuleApi) == 1000);
+static_assert(offsetof(AccountModuleApi, client_focus) == 992);
 static_assert(offsetof(AccountModuleApi, channel_info) == 976);
 static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 968);
 static_assert(offsetof(AccountModuleApi, guild_moderation) == 960);

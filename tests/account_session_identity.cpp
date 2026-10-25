@@ -1,4 +1,5 @@
 #include "maicord/app/account_session_store.hpp"
+#include "maicord/app/client_session_metadata.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -163,6 +164,28 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
               account_user_session_store_load(path, profile_id, &restored).ok() && !restored.has_resume &&
               !restored.self_user_id,
           "empty protected sessions do not retain an earlier authenticated identity");
+    // The analytics heartbeat session persists beside (or without) resume state.
+    ClientHeartbeatSession heartbeat{1'700'000'000'000ull, 1'700'000'060'000ull, {}, true};
+    copy_bytes(heartbeat.uuid, "0123abcd-4567-4890-a123-456789abcdef", kGatewayUserLaunchIdBytes);
+    ClientHeartbeatSession loaded{};
+    check(account_user_session_store_save(path, empty, &heartbeat).ok() &&
+              account_user_session_store_load(path, profile_id, &restored, &loaded).ok() &&
+              !restored.has_resume && loaded.valid && loaded.created_ms == heartbeat.created_ms &&
+              loaded.last_used_ms == heartbeat.last_used_ms &&
+              bytes_equal(loaded.uuid, heartbeat.uuid, kGatewayUserLaunchIdBytes),
+          "v3 session round-trips the heartbeat session without resume state");
+    check(account_user_session_store_save(path, current, &heartbeat).ok() &&
+              account_user_session_store_load(path, profile_id, &restored, &loaded).ok() &&
+              restored.has_resume && restored.resume.sequence == 42 && loaded.valid &&
+              account_user_session_store_load(path, profile_id, &restored).ok(),
+          "the heartbeat session follows resume state and is optional to read");
+    ClientHeartbeatSession malformed = heartbeat;
+    malformed.uuid[8] = '_';
+    check(account_user_session_store_save(path, empty, &malformed).error ==
+                  AccountSessionStoreError::invalid_input &&
+              account_user_session_store_save(path, empty).ok() &&
+              account_user_session_store_load(path, profile_id, &restored, &loaded).ok() && !loaded.valid,
+          "a malformed heartbeat session is never written and a session without one loads none");
     SecureZeroMemory(&legacy, sizeof(legacy));
     SecureZeroMemory(&current, sizeof(current));
     SecureZeroMemory(&restored, sizeof(restored));

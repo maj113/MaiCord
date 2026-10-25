@@ -34,6 +34,8 @@ bool application_stop_account() noexcept;
 // Starts the saved account again under the retained shell after a stop that
 // kept its UI. False when another owner holds the host or the start failed.
 bool application_account_restart() noexcept;
+// Tells the running account whether the main window is focused.
+void application_account_report_focus(bool focused) noexcept;
 // Main-thread quiescence retains borrowed account UI storage until stop joins.
 void application_prepare_account_stop() noexcept;
 void application_account_stop_observed(const AccountHostStopResult& result, bool had_account) noexcept;

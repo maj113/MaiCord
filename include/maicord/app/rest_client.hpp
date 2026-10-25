@@ -10,6 +10,7 @@
 namespace maicord {
 
 enum class UserAuthOperation : u8;
+struct ClientSessionMetadata;
 
 using RestTraceFunction = void (*)(const char* record) noexcept;
 // Configure before creating any clients; callback remains valid until all
@@ -303,6 +304,9 @@ struct RestUserConfiguration {
     ConstSlice<u8> super_properties;
     Utf8View locale;
     Utf8View timezone;
+    // Optional live metadata that outlives the client; each request then
+    // carries its current super properties instead of the copied ones.
+    ClientSessionMetadata* metadata;
 };
 
 // Start requires a zero-initialized or fully stopped client. A live client is

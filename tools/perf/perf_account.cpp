@@ -1571,6 +1571,7 @@ bool fill_api(AccountModuleApi* api) noexcept {
     MC_STUB(104, guild_members_query_cancel);
     MC_STUB(105, channel_info);
     MC_STUB(106, collection_title);
+    MC_STUB(107, client_focus);
 #undef MC_STUB
     return true;
 }

@@ -3,6 +3,7 @@
 #include "network_request_state.hpp"
 #include "maicord/app/account_logout.hpp"
 #include "maicord/app/user_client_configuration.hpp"
+#include "maicord/app/client_session_metadata.hpp"
 
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/deadline.hpp"
@@ -241,6 +242,8 @@ struct RestClientRuntime {
     u8* user_super_properties;
     char* user_locale;
     char* user_timezone;
+    ClientSessionMetadata* metadata;
+    u32 metadata_revision;
     u64 rate_wait_until_ms;
     u32 allocation_bytes;
     u32 response_capacity;
@@ -571,16 +574,31 @@ bool copy_user_configuration(RestClientRuntime* runtime,
     runtime->user_super_properties_bytes = configuration.super_properties.count;
     runtime->user_locale_bytes = configuration.locale.bytes;
     runtime->user_timezone_bytes = configuration.timezone.bytes;
+    runtime->metadata = configuration.metadata;
     return true;
+}
+
+// The super properties as the live metadata reports them for this request.
+void refresh_user_metadata(RestClientRuntime* runtime) noexcept {
+    if (!runtime->metadata)
+        return;
+    const u32 bytes = client_session_metadata_request(
+        runtime->metadata, clock_unix_milliseconds(), &runtime->metadata_revision,
+        {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes});
+    if (bytes)
+        runtime->user_super_properties_bytes = bytes;
 }
 
 bool initialize_auth_user_configuration(RestClientRuntime* runtime) noexcept {
     UserClientConfigurationStorage storage{};
     if (!user_client_configuration_initialize(&storage).ok())
         return false;
+    // Sign-in happens in the focused window, before any heartbeat session.
+    GatewayUserProperties signed_out = storage.configuration.properties;
+    signed_out.client_app_state = utf8_literal("focused");
     u8 scratch[kRestUserSuperPropertiesMaximumBytes];
     const auto properties = write_rest_user_super_properties(
-        storage.configuration.properties, {scratch, sizeof(scratch)},
+        signed_out, {scratch, sizeof(scratch)},
         {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes});
     if (!properties.ok())
         return false;
@@ -988,6 +1006,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     }
     u32 head_bytes = runtime->command.head_bytes;
     if (!runtime->user_auth_mode) {
+        refresh_user_metadata(runtime);
         const ConstSlice<u8> token = runtime->authorization == RestAuthorization::none
                                          ? ConstSlice<u8>{nullptr, 0}
                                          : secure_buffer_view(runtime->credential);

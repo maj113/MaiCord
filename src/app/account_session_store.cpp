@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account_session_store.hpp"
+#include "maicord/app/client_session_metadata.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
@@ -15,9 +16,12 @@ inline constexpr u32 kEntropyBytes = 32;
 inline constexpr u32 kLegacyPayloadHeaderBytes = 32;
 inline constexpr u32 kPayloadHeaderBytes = 40;
 inline constexpr u32 kFlagResume = 1u << 0;
-inline constexpr u32 kKnownFlags = kFlagResume;
+inline constexpr u32 kFlagHeartbeat = 1u << 1;
+inline constexpr u32 kKnownFlags = kFlagResume | kFlagHeartbeat;
+// Created and last-used times, then the UUID, after the resume strings.
+inline constexpr u32 kHeartbeatBytes = 16 + kGatewayUserLaunchIdBytes;
 inline constexpr u32 kPayloadCapacity =
-    kPayloadHeaderBytes + kGatewaySessionIdCapacity - 1 + kGatewayResumeUrlCapacity - 1;
+    kPayloadHeaderBytes + kGatewaySessionIdCapacity - 1 + kGatewayResumeUrlCapacity - 1 + kHeartbeatBytes;
 
 AccountSessionStoreResult success(u32 bytes = 0) noexcept {
     return AccountSessionStoreResult{bytes, 0, AccountSessionStoreError::none};
@@ -41,14 +45,20 @@ void make_entropy(u64 profile_id, u32 flags, u32 version, u8* output) noexcept {
     byte_store_le64(output + 24, 0);
 }
 
-bool encode(const GatewayUserSessionSnapshot& snapshot, SecureBuffer* payload) noexcept {
+u32 store_flags(const GatewayUserSessionSnapshot& snapshot,
+                const ClientHeartbeatSession* heartbeat) noexcept {
+    return (snapshot.has_resume ? kFlagResume : 0) | (heartbeat ? kFlagHeartbeat : 0);
+}
+
+bool encode(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbeatSession* heartbeat,
+            SecureBuffer* payload) noexcept {
     if (!snapshot_valid(snapshot) || !secure_buffer_initialize(payload, kPayloadCapacity).ok()) {
         return false;
     }
-    const u32 flags = snapshot.has_resume ? kFlagResume : 0;
+    const u32 flags = store_flags(snapshot, heartbeat);
     const u32 session_bytes = snapshot.has_resume ? snapshot.resume.session_id_bytes : 0;
     const u32 url_bytes = snapshot.has_resume ? snapshot.resume.resume_url_bytes : 0;
-    const u32 bytes = kPayloadHeaderBytes + session_bytes + url_bytes;
+    const u32 bytes = kPayloadHeaderBytes + session_bytes + url_bytes + (heartbeat ? kHeartbeatBytes : 0);
     byte_store_le32(payload->data, kUserAccountSessionStoreVersion);
     byte_store_le32(payload->data + 4, flags);
     byte_store_le64(payload->data + 8, snapshot.profile_id);
@@ -58,24 +68,40 @@ bool encode(const GatewayUserSessionSnapshot& snapshot, SecureBuffer* payload) n
     byte_store_le64(payload->data + 32, snapshot.self_user_id);
     copy_bytes(payload->data + kPayloadHeaderBytes, snapshot.resume.session_id, session_bytes);
     copy_bytes(payload->data + kPayloadHeaderBytes + session_bytes, snapshot.resume.resume_url, url_bytes);
+    if (heartbeat) {
+        u8* record = payload->data + kPayloadHeaderBytes + session_bytes + url_bytes;
+        byte_store_le64(record, heartbeat->created_ms);
+        byte_store_le64(record + 8, heartbeat->last_used_ms);
+        copy_bytes(record + 16, heartbeat->uuid, kGatewayUserLaunchIdBytes);
+    }
     payload->bytes = bytes;
     return true;
 }
 
 bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_flags, u32 version,
-            GatewayUserSessionSnapshot* snapshot) noexcept {
+            GatewayUserSessionSnapshot* snapshot, ClientHeartbeatSession* heartbeat) noexcept {
     const u32 header_bytes = version == 1 ? kLegacyPayloadHeaderBytes : kPayloadHeaderBytes;
-    if (!snapshot || payload.bytes < header_bytes ||
-        byte_load_le32(payload.data) != version ||
+    const u32 heartbeat_bytes = (expected_flags & kFlagHeartbeat) ? kHeartbeatBytes : 0;
+    if (!snapshot || payload.bytes < header_bytes || byte_load_le32(payload.data) != version ||
         byte_load_le32(payload.data + 4) != expected_flags ||
-        byte_load_le64(payload.data + 8) != expected_profile_id) {
+        byte_load_le64(payload.data + 8) != expected_profile_id || (heartbeat_bytes && version < 3)) {
         return false;
     }
     const u32 session_bytes = byte_load_le32(payload.data + 24);
     const u32 url_bytes = byte_load_le32(payload.data + 28);
     if (session_bytes >= kGatewaySessionIdCapacity || url_bytes >= kGatewayResumeUrlCapacity ||
-        static_cast<u64>(header_bytes) + session_bytes + url_bytes != payload.bytes) {
+        static_cast<u64>(header_bytes) + session_bytes + url_bytes + heartbeat_bytes != payload.bytes) {
         return false;
+    }
+    ClientHeartbeatSession restored{};
+    if (heartbeat_bytes) {
+        const u8* record = payload.data + header_bytes + session_bytes + url_bytes;
+        restored.created_ms = byte_load_le64(record);
+        restored.last_used_ms = byte_load_le64(record + 8);
+        copy_bytes(restored.uuid, record + 16, kGatewayUserLaunchIdBytes);
+        restored.valid = true;
+        if (!client_heartbeat_session_valid(restored))
+            return false;
     }
     GatewayUserSessionSnapshot decoded{};
     decoded.profile_id = expected_profile_id;
@@ -99,6 +125,7 @@ bool decode(const SecureBuffer& payload, u64 expected_profile_id, u32 expected_f
         return false;
     }
     *snapshot = decoded;
+    *heartbeat = restored;
     return true;
 }
 
@@ -133,19 +160,20 @@ bool parse_header(ConstSlice<u8> file, u64 expected_profile_id, u32* flags, u32*
 } // namespace
 
 AccountSessionStoreResult account_user_session_store_save(
-    const wchar_t* path, const GatewayUserSessionSnapshot& snapshot) noexcept {
+    const wchar_t* path, const GatewayUserSessionSnapshot& snapshot,
+    const ClientHeartbeatSession* heartbeat) noexcept {
     const u32 characters =
         wide_length(path, kAccountProfileMaximumPathCharacters);
     if (characters == 0 || characters + 4 >= kAccountProfileMaximumPathCharacters ||
-        !snapshot_valid(snapshot)) {
+        !snapshot_valid(snapshot) || (heartbeat && !client_heartbeat_session_valid(*heartbeat))) {
         return failure(AccountSessionStoreError::invalid_input);
     }
     SecureBuffer payload{};
-    if (!encode(snapshot, &payload)) {
+    if (!encode(snapshot, heartbeat, &payload)) {
         secure_buffer_release(&payload);
         return failure(AccountSessionStoreError::memory);
     }
-    const u32 flags = snapshot.has_resume ? kFlagResume : 0;
+    const u32 flags = store_flags(snapshot, heartbeat);
     u8 entropy[kEntropyBytes]{};
     make_entropy(snapshot.profile_id, flags, kUserAccountSessionStoreVersion, entropy);
     const SecureBufferResult required =
@@ -193,7 +221,8 @@ AccountSessionStoreResult account_user_session_store_save(
 }
 
 AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u64 expected_profile_id,
-                                                          GatewayUserSessionSnapshot* snapshot) noexcept {
+                                                          GatewayUserSessionSnapshot* snapshot,
+                                                          ClientHeartbeatSession* heartbeat) noexcept {
     const u32 characters =
         wide_length(path, kAccountProfileMaximumPathCharacters);
     if (characters == 0 || characters >= kAccountProfileMaximumPathCharacters || expected_profile_id == 0 ||
@@ -229,7 +258,7 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
         return failure(AccountSessionStoreError::read, native_error);
     }
     const u32 version = byte_load_le32(file_bytes + 8);
-    if (version != 1 && version != kUserAccountSessionStoreVersion) {
+    if (version == 0 || version > kUserAccountSessionStoreVersion) {
         file_persistence_secure_release(file_bytes, file_size);
         return failure(AccountSessionStoreError::version);
     }
@@ -259,12 +288,15 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
         return failure(AccountSessionStoreError::unprotect, error);
     }
     GatewayUserSessionSnapshot decoded{};
-    const bool valid = decode(payload, expected_profile_id, flags, version, &decoded);
+    ClientHeartbeatSession restored{};
+    const bool valid = decode(payload, expected_profile_id, flags, version, &decoded, &restored);
     secure_buffer_release(&payload);
     if (!valid) {
         return failure(AccountSessionStoreError::format);
     }
     *snapshot = decoded;
+    if (heartbeat)
+        *heartbeat = restored;
     return success(file_size);
 }
 
