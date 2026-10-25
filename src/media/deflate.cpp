@@ -1,7 +1,6 @@
 #include "maicord/media/deflate.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "png_common.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -64,11 +63,6 @@ struct InflateState {
     Slice<u8> output;
     DeflateWorkspace* workspace;
     DecodeTables* tables;
-    ZlibStreamInflater* stream;
-    Slice<u8>* output_view;
-    ZlibStreamGrowOutput grow_output;
-    void* grow_context;
-    u32 maximum_output_bytes;
     u32 output_bytes;
     u32 blocks;
     u32 literals;
@@ -432,38 +426,11 @@ bool slide_window(InflateState* state) noexcept {
     return true;
 }
 
-bool stream_output_disjoint(const InflateState& state, Slice<u8> output) noexcept {
-    const ConstSlice<u8> destination{output.data, output.count};
-    if (!output.data || !byte_range_valid(destination) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(state.stream), sizeof(*state.stream)}) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(state.output_view), sizeof(*state.output_view)}) ||
-        byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(state.reader.spans),
-            static_cast<u32>(state.reader.span_count * sizeof(DeflateInputSpan))})) return false;
-    for (u32 i = 0; i < state.reader.span_count; ++i)
-        if (byte_ranges_overlap(destination, {state.reader.spans[i].data, state.reader.spans[i].bytes})) return false;
-    return true;
-}
-template <bool Streaming> bool ensure_output(InflateState* state, u32 bytes) noexcept {
+bool ensure_output(InflateState* state, u32 bytes) noexcept {
     if (bytes <= state->output.count - state->output_bytes) return true;
-    if constexpr (!Streaming) {
-        if (state->sink) {
-            if (!slide_window(state)) return false;
-            if (bytes <= state->output.count - state->output_bytes) return true;
-        }
-    }
-    if constexpr (Streaming) {
-        if (state->grow_output && bytes <= state->maximum_output_bytes - state->output_bytes) {
-            const u32 required = state->output_bytes + bytes;
-            Slice<u8> backed{};
-            if (state->grow_output(state->grow_context, required, &backed) &&
-                backed.data == state->output.data && backed.count > state->output.count &&
-                backed.count >= required && backed.count <= state->maximum_output_bytes &&
-                stream_output_disjoint(*state, backed)) {
-                state->output = backed;
-                *state->output_view = backed;
-                return true;
-            }
-        }
+    if (state->sink) {
+        if (!slide_window(state)) return false;
+        if (bytes <= state->output.count - state->output_bytes) return true;
     }
     state->error = ZlibInflateError::output_capacity;
     return false;
@@ -522,31 +489,10 @@ __forceinline void copy_match_fast(u8* destination, u32 distance, u32 length) no
     }
 }
 
-// Copies the part of a match that precedes this flush from the dictionary.
-void copy_from_window(const ZlibStreamInflater& stream, u8* output, u32 position, u32 distance,
-                      u32 length) noexcept {
-    const u32 back = distance - position;
-    const u32 from_window = minimum(back, length);
-    const u32 index = (stream.window_cursor - back) & (kZlibStreamWindowBytes - 1);
-    u8* destination = output + position;
-    // The dictionary is a separate ring: at most two block copies.
-    const u32 first = minimum(from_window, kZlibStreamWindowBytes - index);
-    copy_bytes(destination, stream.window + index, first);
-    copy_bytes(destination + first, stream.window, from_window - first);
-    if (length > from_window)
-        copy_match_exact(destination + from_window, distance, length - from_window);
-}
-
-template <bool Streaming>
 __forceinline bool distance_available(const InflateState& state, u32 distance, u32 position) noexcept {
-    if constexpr (Streaming) {
-        return distance <= state.window_size && distance <= state.stream->window_bytes + position;
-    } else {
-        return distance <= state.window_size && distance <= position;
-    }
+    return distance <= state.window_size && distance <= position;
 }
 
-template <bool Streaming>
 bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* distances, u32 litlen_maximum,
                           u32 distance_maximum) noexcept {
     constexpr u32 kLitlenMask = (1u << kLitlenTableBits) - 1;
@@ -617,18 +563,11 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
                 const u32 distance = entry_value(entry) + static_cast<u32>(low_bits(bits, entry_extra(entry)));
                 bits >>= entry_extra(entry);
                 count -= entry_extra(entry);
-                if (!distance_available<Streaming>(*state, distance, position)) {
+                if (!distance_available(*state, distance, position)) {
                     error = ZlibInflateError::invalid_distance;
                     break;
                 }
-                if constexpr (Streaming) {
-                    if (distance > position)
-                        copy_from_window(*state->stream, out, position, distance, length);
-                    else
-                        copy_match_fast(out + position, distance, length);
-                } else {
-                    copy_match_fast(out + position, distance, length);
-                }
+                copy_match_fast(out + position, distance, length);
                 position += length;
                 ++copies;
             } while (in <= in_limit && position <= out_limit);
@@ -654,7 +593,7 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             return false;
         }
         if (entry_kind(entry) == kEntryLiteral) {
-            if (!ensure_output<Streaming>(state, 1))
+            if (!ensure_output(state, 1))
                 return false;
             state->output.data[state->output_bytes++] = static_cast<u8>(entry_value(entry));
             ++state->literals;
@@ -685,20 +624,13 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             return false;
         }
         const u32 distance = entry_value(entry) + extra;
-        if (!distance_available<Streaming>(*state, distance, state->output_bytes)) {
+        if (!distance_available(*state, distance, state->output_bytes)) {
             state->error = ZlibInflateError::invalid_distance;
             return false;
         }
-        if (!ensure_output<Streaming>(state, length))
+        if (!ensure_output(state, length))
             return false;
-        if constexpr (Streaming) {
-            if (distance > state->output_bytes)
-                copy_from_window(*state->stream, state->output.data, state->output_bytes, distance, length);
-            else
-                copy_match_exact(state->output.data + state->output_bytes, distance, length);
-        } else {
-            copy_match_exact(state->output.data + state->output_bytes, distance, length);
-        }
+        copy_match_exact(state->output.data + state->output_bytes, distance, length);
         state->output_bytes += length;
         ++state->copies;
     }
@@ -785,8 +717,7 @@ bool build_dynamic_tables(InflateState* state) noexcept {
     return true;
 }
 
-template <bool Streaming>
-bool decode_stored_block(InflateState* state, u16* decoded_length) noexcept {
+bool decode_stored_block(InflateState* state) noexcept {
     align_reader(&state->reader);
     u8 header[4]{};
     if (!read_aligned_bytes(&state->reader, header, 4)) {
@@ -799,7 +730,7 @@ bool decode_stored_block(InflateState* state, u16* decoded_length) noexcept {
         state->error = ZlibInflateError::invalid_block;
         return false;
     }
-    if (!ensure_output<Streaming>(state, length)) {
+    if (!ensure_output(state, length)) {
         state->error = ZlibInflateError::output_capacity;
         return false;
     }
@@ -809,25 +740,22 @@ bool decode_stored_block(InflateState* state, u16* decoded_length) noexcept {
     }
     state->output_bytes += length;
     state->literals += length;
-    if (decoded_length) {
-        *decoded_length = length;
-    }
     return true;
 }
 
-template <bool Streaming> bool decode_block(InflateState* state, u32 type, u16* stored_length) noexcept {
+bool decode_block(InflateState* state, u32 type) noexcept {
     switch (type) {
     case 0:
-        return decode_stored_block<Streaming>(state, stored_length);
+        return decode_stored_block(state);
     case 1: {
         const DecodeTables* fixed = fixed_tables(state->tables);
-        return decode_huffman_block<Streaming>(state, fixed->litlen, fixed->distance, fixed->litlen_maximum,
-                                               fixed->distance_maximum);
+        return decode_huffman_block(state, fixed->litlen, fixed->distance, fixed->litlen_maximum,
+                                    fixed->distance_maximum);
     }
     case 2:
         return build_dynamic_tables(state) &&
-               decode_huffman_block<Streaming>(state, state->tables->litlen, state->tables->distance,
-                                               state->tables->litlen_maximum, state->tables->distance_maximum);
+               decode_huffman_block(state, state->tables->litlen, state->tables->distance,
+                                    state->tables->litlen_maximum, state->tables->distance_maximum);
     default:
         state->error = ZlibInflateError::invalid_block;
         return false;
@@ -876,35 +804,6 @@ u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept {
     return ((second % 65'521) << 16) | (first % 65'521);
 }
 
-bool input_byte_from_end(ConstSlice<DeflateInputSpan> input, u32 reverse_index, u8* value) noexcept {
-    for (u32 span_index = input.count; span_index != 0; --span_index) {
-        const DeflateInputSpan& span = input[span_index - 1];
-        if (reverse_index < span.bytes) {
-            *value = span.data[span.bytes - reverse_index - 1];
-            return true;
-        }
-        reverse_index -= span.bytes;
-    }
-    return false;
-}
-
-bool input_ends_sync_flush(ConstSlice<DeflateInputSpan> input) noexcept {
-    static constexpr u8 suffix[4] = {0x00, 0x00, 0xFF, 0xFF};
-    for (u32 index = 0; index < 4; ++index) {
-        u8 value = 0;
-        if (!input_byte_from_end(input, 3 - index, &value) || value != suffix[index]) {
-            return false;
-        }
-    }
-    return true;
-}
-
-ZlibInflateResult poison_stream(ZlibStreamInflater* stream, const InflateState& state,
-                                ZlibInflateError error) noexcept {
-    stream->failed = true;
-    return failure(state, error);
-}
-
 bool decode_final_blocks(InflateState* state) noexcept {
     bool final_block = false;
     while (!final_block) {
@@ -915,7 +814,7 @@ bool decode_final_blocks(InflateState* state) noexcept {
         }
         final_block = final != 0;
         ++state->blocks;
-        if (!decode_block<false>(state, type, nullptr)) {
+        if (!decode_block(state, type)) {
             if (state->error == ZlibInflateError::none)
                 state->error = ZlibInflateError::invalid_block;
             return false;
@@ -946,20 +845,6 @@ bool read_zlib_header(BitReader* reader, u32* window_size, ZlibInflateError* err
     }
     *window_size = 1u << ((cmf >> 4) + 8u);
     return true;
-}
-
-// The dictionary keeps the last 32 KiB of output; matches read it only for
-// the bytes that precede this flush.
-void commit_window(ZlibStreamInflater* stream, const u8* output, u32 bytes) noexcept {
-    constexpr u32 kMask = kZlibStreamWindowBytes - 1;
-    const u32 kept = minimum(bytes, kZlibStreamWindowBytes);
-    const u8* source = output + bytes - kept;
-    const u32 first = minimum(kept, kZlibStreamWindowBytes - stream->window_cursor);
-    copy_bytes(stream->window + stream->window_cursor, source, first);
-    copy_bytes(stream->window, source + first, kept - first);
-    stream->window_cursor = (stream->window_cursor + kept) & kMask;
-    stream->window_bytes = static_cast<u32>(
-        minimum<u64>(static_cast<u64>(stream->window_bytes) + bytes, stream->window_size));
 }
 
 } // namespace
@@ -1119,112 +1004,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
         result.copies += state.copies;
     }
     return result;
-}
-
-bool zlib_stream_initialize(ZlibStreamInflater* stream) noexcept {
-    if (!stream) {
-        return false;
-    }
-    SecureZeroMemory(stream, sizeof(*stream));
-    return true;
-}
-
-void zlib_stream_clear(ZlibStreamInflater* stream) noexcept {
-    if (stream) {
-        SecureZeroMemory(stream, sizeof(*stream));
-    }
-}
-
-static ZlibInflateResult stream_inflate_flush(ZlibStreamInflater* stream, ConstSlice<DeflateInputSpan> input,
-    Slice<u8> output, Slice<u8>* output_view = nullptr, u32 maximum_output_bytes = 0,
-    ZlibStreamGrowOutput grow = nullptr, void* context = nullptr) noexcept {
-    InflateState state{};
-    DecodeTables tables;
-    state.output = output;
-    if (!stream || (!output.data && output.count != 0)) {
-        return failure(state, ZlibInflateError::invalid_input);
-    }
-    if (stream->failed) {
-        return failure(state, ZlibInflateError::stream_failed);
-    }
-    state.workspace = &stream->workspace;
-    state.tables = &tables;
-    state.stream = stream;
-    state.output_view = output_view;
-    state.maximum_output_bytes = maximum_output_bytes;
-    state.grow_output = grow;
-    state.grow_context = context;
-    if (!reader_initialize(&state.reader, input)) {
-        return failure(state, ZlibInflateError::invalid_input);
-    }
-    if (!input_ends_sync_flush(input)) {
-        return poison_stream(stream, state, ZlibInflateError::invalid_flush);
-    }
-
-    if (!stream->initialized) {
-        ZlibInflateError header_error = ZlibInflateError::none;
-        if (!read_zlib_header(&state.reader, &stream->window_size, &header_error)) {
-            return poison_stream(stream, state, header_error);
-        }
-        stream->initialized = true;
-    }
-    state.window_size = stream->window_size;
-
-    while (reader_consumed(state.reader) < state.reader.input_bytes) {
-        u32 final = 0;
-        u32 type = 0;
-        if (!read_bits(&state.reader, 1, &final) || !read_bits(&state.reader, 2, &type)) {
-            return poison_stream(stream, state, ZlibInflateError::truncated);
-        }
-        if (final != 0) {
-            return poison_stream(stream, state, ZlibInflateError::invalid_flush);
-        }
-        ++state.blocks;
-        u16 stored_length = 0;
-        if (!decode_block<true>(&state, type, &stored_length)) {
-            return poison_stream(stream, state,
-                                 state.error == ZlibInflateError::none ? ZlibInflateError::invalid_block
-                                                                       : state.error);
-        }
-        if (type == 0 && stored_length == 0 && reader_consumed(state.reader) == state.reader.input_bytes) {
-            commit_window(stream, state.output.data, state.output_bytes);
-            return failure(state, ZlibInflateError::none);
-        }
-    }
-    return poison_stream(stream, state, ZlibInflateError::invalid_flush);
-}
-
-ZlibInflateResult zlib_stream_inflate_flush(ZlibStreamInflater* stream, ConstSlice<DeflateInputSpan> input,
-    Slice<u8> output) noexcept {
-    return stream_inflate_flush(stream, input, output);
-}
-ZlibInflateResult zlib_stream_inflate_flush_growing(ZlibStreamInflater* stream,
-    ConstSlice<DeflateInputSpan> input, Slice<u8>* output, u32 maximum_output_bytes,
-    ZlibStreamGrowOutput grow, void* context) noexcept {
-    InflateState state{};
-    if (!stream || !output || !grow || !maximum_output_bytes ||
-        !input.data || !input.count || input.count > ~0u / sizeof(DeflateInputSpan))
-        return failure(state, ZlibInflateError::invalid_input);
-    const ConstSlice<u8> owner{reinterpret_cast<const u8*>(stream), sizeof(*stream)};
-    const ConstSlice<u8> view{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    const ConstSlice<u8> spans{reinterpret_cast<const u8*>(input.data),
-        static_cast<u32>(input.count * sizeof(DeflateInputSpan))};
-    if (!byte_range_valid(owner) || !byte_range_valid(view) || !byte_range_valid(spans) ||
-        byte_ranges_overlap(view, owner) || byte_ranges_overlap(view, spans) ||
-        byte_ranges_overlap(owner, spans)) return failure(state, ZlibInflateError::invalid_input);
-    for (u32 i = 0; i < input.count; ++i) {
-        const ConstSlice<u8> span{input[i].data, input[i].bytes};
-        if (!byte_range_valid(span) || byte_ranges_overlap(span, view) || byte_ranges_overlap(span, owner))
-            return failure(state, ZlibInflateError::invalid_input);
-    }
-    state.output = *output;
-    state.output_view = output;
-    state.stream = stream;
-    state.reader.spans = input.data;
-    state.reader.span_count = input.count;
-    if (!output->count || output->count > maximum_output_bytes || !stream_output_disjoint(state, *output))
-        return failure(state, ZlibInflateError::invalid_input);
-    return stream_inflate_flush(stream, input, *output, output, maximum_output_bytes, grow, context);
 }
 
 } // namespace maicord

@@ -14204,83 +14204,6 @@ void test_zlib_deflate() noexcept {
     DeflateWorkspace workspace{};
     const DeflateInputSpan stored_span{stored, sizeof(stored)};
 
-    constexpr u8 stream_first[] = {
-        0x78, 0x9C, 0xAA, 0x56, 0xCA, 0x2F, 0x50, 0xB2, 0x32, 0x34, 0xD0, 0x51, 0x4A,
-        0x51, 0xB2, 0xAA, 0x56, 0xCA, 0x48, 0x4D, 0x2C, 0x2A, 0x49, 0x4A, 0x4D, 0x2C,
-        0x89, 0xCF, 0xCC, 0x2B, 0x49, 0x2D, 0x2A, 0x4B, 0xCC, 0x51, 0xB2, 0x32, 0x31,
-        0x34, 0x32, 0x35, 0xA8, 0xAD, 0x05, 0x00, 0x00, 0x00, 0xFF, 0xFF,
-    };
-    constexpr u8 stream_repeat[] = {
-        0xAA, 0x26, 0x5A, 0x25, 0x00, 0x00, 0x00, 0xFF, 0xFF,
-    };
-    const ConstSlice<u8> stream_message = byte_literal(R"({"op":10,"d":{"heartbeat_interval":41250}})");
-    const DeflateInputSpan stream_first_spans[] = {
-        DeflateInputSpan{stream_first, 3},
-        DeflateInputSpan{stream_first + 3, 43},
-        DeflateInputSpan{stream_first + 46, 2},
-        DeflateInputSpan{stream_first + 48, 2},
-    };
-    ZlibStreamInflater stream{};
-    expect(zlib_stream_initialize(&stream), "zlib_stream_initialize");
-    const ZlibInflateResult first_flush = zlib_stream_inflate_flush(
-        &stream,
-        ConstSlice<DeflateInputSpan>{stream_first_spans, static_cast<u32>(sizeof(stream_first_spans) /
-                                                                          sizeof(stream_first_spans[0]))},
-        Slice<u8>{output, static_cast<u32>(sizeof(output))});
-    expect(first_flush.ok() && first_flush.output_bytes == 42 && first_flush.blocks == 2 &&
-               stream.initialized && stream.window_bytes == 42 &&
-               bytes_equal(ConstSlice<u8>{output, first_flush.output_bytes}, stream_message),
-           "zlib_stream_first_header_and_flush");
-
-    const DeflateInputSpan stream_repeat_spans[] = {
-        DeflateInputSpan{stream_repeat, 2},
-        DeflateInputSpan{stream_repeat + 2, 3},
-        DeflateInputSpan{stream_repeat + 5, 4},
-    };
-    bool repeated = true;
-    for (u32 iteration = 0; iteration < 800 && repeated; ++iteration) {
-        const ZlibInflateResult repeat_flush = zlib_stream_inflate_flush(
-            &stream,
-            ConstSlice<DeflateInputSpan>{
-                stream_repeat_spans,
-                static_cast<u32>(sizeof(stream_repeat_spans) / sizeof(stream_repeat_spans[0]))},
-            Slice<u8>{output, static_cast<u32>(sizeof(output))});
-        repeated = repeat_flush.ok() && repeat_flush.output_bytes == 42 && repeat_flush.copies != 0 &&
-                   bytes_equal(ConstSlice<u8>{output, repeat_flush.output_bytes}, stream_message);
-    }
-    expect(repeated && stream.window_bytes == kZlibStreamWindowBytes && !stream.failed,
-           "zlib_stream_cross_flush_dictionary_and_window_wrap");
-
-    ZlibStreamInflater missing_flush_stream{};
-    zlib_stream_initialize(&missing_flush_stream);
-    const DeflateInputSpan missing_flush_span{stream_first, static_cast<u32>(sizeof(stream_first) - 1)};
-    const DeflateInputSpan stream_first_span{stream_first, sizeof(stream_first)};
-    expect(zlib_stream_inflate_flush(&missing_flush_stream,
-                                     ConstSlice<DeflateInputSpan>{&missing_flush_span, 1},
-                                     Slice<u8>{output, static_cast<u32>(sizeof(output))})
-                       .error == ZlibInflateError::invalid_flush &&
-               missing_flush_stream.failed &&
-               zlib_stream_inflate_flush(&missing_flush_stream,
-                                         ConstSlice<DeflateInputSpan>{&stream_first_span, 1},
-                                         Slice<u8>{output, static_cast<u32>(sizeof(output))})
-                       .error == ZlibInflateError::stream_failed,
-           "zlib_stream_missing_flush_poison");
-
-    ZlibStreamInflater capacity_stream{};
-    zlib_stream_initialize(&capacity_stream);
-    const ZlibInflateResult stream_capacity = zlib_stream_inflate_flush(
-        &capacity_stream, ConstSlice<DeflateInputSpan>{&stream_first_span, 1}, Slice<u8>{output, 41});
-    expect(stream_capacity.error == ZlibInflateError::output_capacity &&
-               stream_capacity.output_bytes == 41 && capacity_stream.failed,
-           "zlib_stream_output_capacity_poison");
-    zlib_stream_clear(&capacity_stream);
-    bool stream_cleared = true;
-    const u8* cleared_stream = reinterpret_cast<const u8*>(&capacity_stream);
-    for (u32 index = 0; index < sizeof(capacity_stream); ++index) {
-        stream_cleared = stream_cleared && cleared_stream[index] == 0;
-    }
-    expect(stream_cleared, "zlib_stream_secure_clear");
-
     u8 corrupt[sizeof(stored) + 1]{};
     for (u32 index = 0; index < sizeof(stored); ++index) {
         corrupt[index] = stored[index];
@@ -18421,7 +18344,7 @@ void test_json_reader_and_gateway() noexcept {
                ready.user_id == 2,
            "gateway_ready_normal_user_shape");
     expect(gateway_client_ready_matches_identity(GatewayClientIdentity::normal_user, ready) &&
-               !gateway_client_ready_matches_identity(GatewayClientIdentity::transport_probe, ready),
+               !gateway_client_ready_matches_identity(GatewayClientIdentity::empty, ready),
            "gateway_ready_normal_user_identity_policy");
 
     expect(
@@ -20342,7 +20265,8 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_decode_message_create(
                 envelope.data, Slice<u32>{scratch, 256}, 16, Slice<char>{content, 64},
-                Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, 42, &message)
+                Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, Slice<GatewayMessageNamedUser>{},
+                42, &message)
                 .ok() &&
             message.mention_everyone && message.mentions_current_user && message.mention_roles.count == 2 &&
             message.mention_roles[0] == 55 && message.mention_roles[1] == 66,
@@ -20390,7 +20314,8 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_decode_message_create(
                 duplicate_mentions.data, Slice<u32>{scratch, 256}, 16, Slice<char>{content, 64},
-                Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, 42, &message)
+                Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, Slice<GatewayMessageNamedUser>{},
+                42, &message)
                     .error == GatewayEventDecodeError::duplicate_field,
         "gateway_message_duplicate_mention_role_rejected");
     GatewayMessageNamedUser kept_user[1]{};

@@ -504,10 +504,6 @@ GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32
                                                        GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
-                                                       Slice<u64> mention_role_scratch, u64 current_user_id,
-                                                       GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
                                                        Slice<u64> mention_role_scratch,
                                                        Slice<GatewayMessageNamedUser> mention_user_scratch,
                                                        u64 current_user_id,
@@ -519,16 +515,6 @@ GatewayEventDecodeResult gateway_decode_message_create(
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
-                                                       GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       Slice<u64> mention_role_scratch, u64 current_user_id,
-                                                       GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
-                                                       u32 maximum_depth, Slice<char> content_scratch,
-                                                       Slice<u64> mention_role_scratch,
-                                                       Slice<GatewayMessageNamedUser> mention_user_scratch,
-                                                       u64 current_user_id,
                                                        GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_update(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> content_scratch,

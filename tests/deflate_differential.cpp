@@ -1,6 +1,6 @@
 // Differential tests: the table-driven inflater must match the frozen
 // bit-serial reference on random valid, mutated, truncated and capacity-bound
-// zlib streams and sync-flushed zlib-stream sequences.
+// zlib streams.
 #include "deflate_reference.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -14,7 +14,6 @@ u8 g_encoded[kMaximumEncoded];
 u8 g_mutated[kMaximumEncoded];
 u8 g_actual[kMaximumRaw + 512];
 u8 g_reference[kMaximumRaw + 512];
-ZlibStreamInflater g_stream;
 DeflateWorkspace g_workspace;
 
 constexpr u16 kLengthBase[29] = {3,  4,  5,  6,  7,  8,  9,  10, 11,  13,  15,  17,  19,  23,  27,
@@ -579,70 +578,12 @@ void single_code_cases(void (*check)(bool, const char*) noexcept) noexcept {
     check(exact, "DEFLATE sole codewords and invalid branches match the independent decoder");
 }
 
-void stream_cases(void (*check)(bool, const char*) noexcept) noexcept {
-    Random random{0xD1B54A32D192ED03ull};
-    bool encoder_valid = true, identical = true;
-    for (u32 iteration = 0; iteration < 12; ++iteration) {
-        Encoder encoder{};
-        encoder.random = &random;
-        encoder.raw = g_raw;
-        encoder.raw_capacity = kMaximumRaw;
-        const u32 cinfo = random.chance(75) ? 7 : random.below(8);
-        encoder.window = 1u << (cinfo + 8);
-        encoder.writer = {g_encoded, kMaximumEncoded, 0, 0, 0, false};
-        zlib_header(encoder.writer, cinfo);
-        u32 boundaries[24]{}, raw_ends[24]{};
-        const u32 segments = 2 + random.below(20);
-        for (u32 segment = 0; segment < segments; ++segment) {
-            for (u32 block = random.below(3); block; --block)
-                random_block(encoder, false);
-            stored_block(encoder, false, 0); // Z_SYNC_FLUSH marker
-            boundaries[segment] = encoder.writer.bytes;
-            raw_ends[segment] = encoder.raw_bytes;
-        }
-        if (encoder.writer.overflow)
-            continue;
-        const bool mutated = random.chance(50);
-        u32 input_bytes = encoder.writer.bytes;
-        const u8* input = g_encoded;
-        if (mutated) {
-            copy_bytes(g_mutated, g_encoded, input_bytes);
-            const u32 bit = random.below(input_bytes * 8);
-            g_mutated[bit / 8] ^= static_cast<u8>(1u << (bit & 7));
-            input = g_mutated;
-        }
-        deflate_reference::stream_reset();
-        zlib_stream_initialize(&g_stream);
-        u32 start = 0, raw_start = 0;
-        bool poisoned = false;
-        for (u32 segment = 0; segment < segments; ++segment) {
-            const u32 raw_bytes = raw_ends[segment] - raw_start;
-            const u32 capacity = random.chance(10) ? random.below(raw_bytes + 1) : raw_bytes + random.below(300);
-            DeflateInputSpan spans[4];
-            const u32 span_count = split(random, input + start, boundaries[segment] - start, spans);
-            const auto reference = deflate_reference::stream_flush({spans, span_count}, {g_reference, capacity});
-            const auto actual = zlib_stream_inflate_flush(&g_stream, {spans, span_count}, {g_actual, capacity});
-            if (!mutated && !poisoned && capacity >= raw_bytes)
-                encoder_valid = encoder_valid && reference.ok() && reference.output_bytes == raw_bytes &&
-                                bytes_equal(g_reference, g_raw + raw_start, raw_bytes);
-            identical = identical && same(actual, reference, g_actual, g_reference);
-            poisoned = poisoned || !reference.ok();
-            start = boundaries[segment];
-            raw_start = raw_ends[segment];
-        }
-    }
-    zlib_stream_clear(&g_stream);
-    check(encoder_valid, "DEFLATE stream differential encoder emits accepted flushes");
-    check(identical, "DEFLATE stream decoder matches the reference across flushes, windows and poisoning");
-}
-
 } // namespace
 
 void test_deflate_differential(void (*check)(bool, const char*) noexcept) noexcept {
     depth_cases(check);
     single_code_cases(check);
     zlib_cases(check);
-    stream_cases(check);
 }
 
 } // namespace maicord

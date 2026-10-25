@@ -407,11 +407,6 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
     VirtualFree(runtime, 0, MEM_RELEASE);
 }
 
-GatewayEndpointPolicy endpoint_policy(GatewayClientIdentity identity) noexcept {
-    return identity == GatewayClientIdentity::normal_user ? GatewayEndpointPolicy::user_v9_etf_zstd_stream
-                                                          : GatewayEndpointPolicy::application_v10_json;
-}
-
 bool is_user(const GatewayClientRuntime* runtime) noexcept {
     return runtime && runtime->identity == GatewayClientIdentity::normal_user && runtime->user;
 }
@@ -1187,7 +1182,7 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     if (runtime->resume.valid) {
         if (gateway_endpoint_parse_with_policy(
                 Utf8View{runtime->resume.resume_url, runtime->resume.resume_url_bytes},
-                endpoint_policy(runtime->identity), &runtime->endpoint) != GatewayEndpointError::none) {
+                GatewayEndpointPolicy::user_v9_etf_zstd_stream, &runtime->endpoint) != GatewayEndpointError::none) {
             return false;
         }
     } else {
@@ -3015,31 +3010,25 @@ GatewayClientResult fail_start(GatewayClient* client, GatewayClientError error, 
 }
 
 GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential,
-                                 GatewayClientIdentity identity,
                                  const AccountProfileMetadata* user_metadata,
                                  const GatewayUserClientConfiguration* user_configuration,
                                  const GatewayEndpoint* gateway_endpoint,
                                  const GatewayResumeState* resume_state, u64 resume_user_id) noexcept {
-    const bool probe = identity == GatewayClientIdentity::transport_probe;
-    const bool user = identity == GatewayClientIdentity::normal_user;
     const bool valid_credential =
         credential && credential->data && credential->locked && credential->bytes != 0 &&
-        (!user || credential->bytes <= kGatewayUserMaximumTokenBytes) &&
+        credential->bytes <= kGatewayUserMaximumTokenBytes &&
         utf8_validate(Utf8View{reinterpret_cast<const char*>(credential->data), credential->bytes}).valid;
     if (!client || client->worker.thread || client->runtime || client->state_event ||
-        client->notification_event || (!probe && !user) ||
+        client->notification_event ||
         (resume_state && resume_state->valid && !gateway_resume_validate(*resume_state)) ||
         (gateway_endpoint && (!gateway_endpoint_validate(*gateway_endpoint) ||
-                              gateway_endpoint->policy != endpoint_policy(identity))) ||
-        (probe && (credential || user_metadata || user_configuration)) ||
-        (user && (!valid_credential || !user_metadata || user_metadata->profile_id == 0 ||
-                  !user_configuration ||
-                  !gateway_user_client_configuration_validate(*user_configuration)))) {
+                              gateway_endpoint->policy != GatewayEndpointPolicy::user_v9_etf_zstd_stream)) ||
+        !valid_credential || !user_metadata || user_metadata->profile_id == 0 || !user_configuration ||
+        !gateway_user_client_configuration_validate(*user_configuration)) {
         return invalid_input_result();
     }
     reset_value<GatewayClient>(client);
-    const u32 allocation_bytes =
-        user ? kGatewayUserClientRuntimeBytes : static_cast<u32>(sizeof(GatewayClientRuntime));
+    const u32 allocation_bytes = kGatewayUserClientRuntimeBytes;
     client->runtime = VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!client->runtime) {
         InterlockedExchange(&client->error, static_cast<LONG>(GatewayClientError::memory));
@@ -3048,37 +3037,35 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     }
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     runtime->allocation_bytes = allocation_bytes;
-    runtime->identity = identity;
+    runtime->identity = GatewayClientIdentity::normal_user;
     runtime->owner = client;
     if (!stable_storage_initialize(&runtime->structural_scratch, kStructuralCount, kInitialStructuralCount,
                                    sizeof(u32), alignof(u32)) ||
         // Address space only: nothing is committed until an oversized guild.
         !reserved_bytes_initialize(&runtime->large_record, kGatewayClientGuildRecordCapacity) ||
-        (user &&
-         !stable_storage_initialize(&runtime->decoded_message, kGatewaySessionMaximumDecodedMessageBytes,
-                                    kInitialDecodedMessageBytes, sizeof(u8), alignof(u8))) ||
-        (user && !stable_storage_initialize(&runtime->ready_record_index, kStructuralCount,
-                                            kInitialStructuralCount, sizeof(u32), alignof(u32))) ||
-        (user && !reserved_bytes_initialize(&runtime->ready_staging, kReadyStagingBytes)) ||
-        (user && !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes)) ||
-        (user && !stable_storage_initialize(&runtime->zstd_storage, kZstdStorageBytes, kZstdInitialStorageBytes,
-                                            sizeof(u8), alignof(u8)))) {
+        !stable_storage_initialize(&runtime->decoded_message, kGatewaySessionMaximumDecodedMessageBytes,
+                                   kInitialDecodedMessageBytes, sizeof(u8), alignof(u8)) ||
+        !stable_storage_initialize(&runtime->ready_record_index, kStructuralCount, kInitialStructuralCount,
+                                   sizeof(u32), alignof(u32)) ||
+        !reserved_bytes_initialize(&runtime->ready_staging, kReadyStagingBytes) ||
+        !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes) ||
+        !stable_storage_initialize(&runtime->zstd_storage, kZstdStorageBytes, kZstdInitialStorageBytes,
+                                   sizeof(u8), alignof(u8))) {
         return fail_start(client, GatewayClientError::memory, thread_last_error());
     }
-    if (user) {
-        runtime->user = reinterpret_cast<GatewayUserRuntime*>(static_cast<u8*>(client->runtime) +
-                                                              kGatewayUserRuntimeOffset);
-        runtime->user->metadata = *user_metadata;
-        store_user_configuration(runtime->user, *user_configuration);
-        gateway_self_status_initialize(&runtime->self_status, user_metadata->profile_id,
-                                       {user_configuration->since_ms, user_configuration->status,
-                                        user_configuration->has_since, user_configuration->afk});
-    }
+    runtime->user = reinterpret_cast<GatewayUserRuntime*>(static_cast<u8*>(client->runtime) +
+                                                          kGatewayUserRuntimeOffset);
+    runtime->user->metadata = *user_metadata;
+    store_user_configuration(runtime->user, *user_configuration);
+    gateway_self_status_initialize(&runtime->self_status, user_metadata->profile_id,
+                                   {user_configuration->since_ms, user_configuration->status,
+                                    user_configuration->has_since, user_configuration->afk});
     if (gateway_endpoint) {
         runtime->initial_endpoint = *gateway_endpoint;
     } else if (gateway_endpoint_parse_with_policy(
                    Utf8View{kGatewayUrl, static_cast<u32>(sizeof(kGatewayUrl) - 1)},
-                   endpoint_policy(identity), &runtime->initial_endpoint) != GatewayEndpointError::none) {
+                   GatewayEndpointPolicy::user_v9_etf_zstd_stream, &runtime->initial_endpoint) !=
+               GatewayEndpointError::none) {
         release_runtime_allocation(client);
         client->runtime = nullptr;
         return invalid_input_result();
@@ -3088,20 +3075,17 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         runtime->self_user_id = runtime->resume_user_id = resume_user_id;
         gateway_self_status_bind(&runtime->self_status, resume_user_id);
     }
-    if (user) {
-        const ConstSlice<u8> token_bytes = secure_buffer_view(*credential);
-        char heartbeat_id[kGatewayUserLaunchIdBytes];
-        const GatewayCommandWriteResult preflight = gateway_write_user_identify(
-            user_identify(*runtime->user,
-                          Utf8View{reinterpret_cast<const char*>(token_bytes.data), token_bytes.count},
-                          heartbeat_id),
-            Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
-        SecureZeroMemory(runtime->gateway_payload, sizeof(runtime->gateway_payload));
-        if (!preflight.ok()) {
-            release_runtime_allocation(client);
-            client->runtime = nullptr;
-            return invalid_input_result();
-        }
+    const ConstSlice<u8> token_bytes = secure_buffer_view(*credential);
+    char heartbeat_id[kGatewayUserLaunchIdBytes];
+    const GatewayCommandWriteResult preflight = gateway_write_user_identify(
+        user_identify(*runtime->user, Utf8View{reinterpret_cast<const char*>(token_bytes.data), token_bytes.count},
+                      heartbeat_id),
+        Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+    SecureZeroMemory(runtime->gateway_payload, sizeof(runtime->gateway_payload));
+    if (!preflight.ok()) {
+        release_runtime_allocation(client);
+        client->runtime = nullptr;
+        return invalid_input_result();
     }
     client->state_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!client->state_event)
@@ -3158,11 +3142,6 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
 
 } // namespace
 
-GatewayClientResult gateway_client_start(GatewayClient* client) noexcept {
-    return start_client(client, nullptr, GatewayClientIdentity::transport_probe, nullptr, nullptr, nullptr,
-                        nullptr, 0);
-}
-
 GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProfile* profile,
                                               const GatewayUserClientConfiguration* configuration,
                                               const GatewayEndpoint* gateway_endpoint,
@@ -3174,8 +3153,8 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
     }
     const AccountProfileMetadata metadata = profile->metadata;
     const GatewayClientResult started = start_client(
-        client, &profile->credential, GatewayClientIdentity::normal_user, &metadata, configuration,
-        gateway_endpoint, session && session->has_resume ? &session->resume : nullptr,
+        client, &profile->credential, &metadata, configuration, gateway_endpoint,
+        session && session->has_resume ? &session->resume : nullptr,
         session && session->has_resume ? session->self_user_id : 0);
     if (!profile->credential.data) {
         reset_value<AccountProfile>(profile);

@@ -298,10 +298,6 @@ struct Application {
     struct LoadTrace {
         i64 channel_started;
         u64 channel_epoch;
-        i64 pending_since[static_cast<u32>(MessageHistoryRequestOwner::count)];
-        u64 pending_mask;
-        MessageHistoryRequestOwner primary, details;
-        u64 next_wait_report_ms;
         bool shell_presented, history_ready, history_presented, members_presented, media_uploaded;
     } load_trace;
     ApplicationProfile* profile;

@@ -5,7 +5,7 @@ param(
 )
 
 # Builds the opt-in inflate benchmark inside the single Release cache under the
-# shared build mutex, decodes a generated gzip/zlib/zlib-stream corpus, then
+# shared build mutex, decodes a generated gzip/zlib corpus, then
 # removes the binary, objects and corpus and restores the shipping-only configuration.
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
@@ -39,7 +39,7 @@ try {
             $rows[$entry.index].Elapsed += [double]$entry.elapsed_us
         }
     }
-    $kinds = @('gzip', 'zlib', 'zlib-stream')
+    $kinds = @('gzip', 'zlib')
     $middle = [int][math]::Floor(($Samples - 1) * 0.5)
     $rows.Keys | Sort-Object | ForEach-Object {
         $row = $rows[$_]

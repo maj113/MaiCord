@@ -68,12 +68,9 @@ bool decode_message(Utf8View payload, bool create, GatewayMessageEvent* message,
                      envelope.data, Slice<u32>{structural_scratch, 256}, 16,
                      Slice<char>{content_scratch, 256},
                      Slice<u64>{mention_role_scratch, kGatewayMessageMentionRoleMaximumIds},
-                     1'250'000'000'000'000'042ull, message)
-               : gateway_decode_message_update(
-                     envelope.data, Slice<u32>{structural_scratch, 256}, 16,
-                     Slice<char>{content_scratch, 256},
-                     Slice<u64>{mention_role_scratch, kGatewayMessageMentionRoleMaximumIds},
-                     1'250'000'000'000'000'042ull, message);
+                     Slice<GatewayMessageNamedUser>{}, 1'250'000'000'000'000'042ull, message)
+               : gateway_decode_message_update(envelope.data, Slice<u32>{structural_scratch, 256}, 16,
+                                               Slice<char>{content_scratch, 256}, message);
     return event_result.ok();
 }
 

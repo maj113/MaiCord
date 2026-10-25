@@ -12,10 +12,6 @@ maicord_program(MaiCordTlsProbe ENTRY maicord_tls_probe_entry
 maicord_program(MaiCordRestProbe ENTRY maicord_rest_probe_entry
     SOURCES tests/integration/rest_probe.cpp tests/integration/probe_transport.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 secur32 bcrypt crypt32)
-maicord_program(MaiCordGatewayProbe ENTRY maicord_gateway_probe_entry
-    SOURCES tests/integration/gateway_probe.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model kernel32 ws2_32 secur32
-        bcrypt crypt32)
 maicord_program(MaiCordRestClientProbe ENTRY maicord_rest_client_probe_entry
     SOURCES tests/integration/rest_client_probe.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 secur32 bcrypt crypt32)

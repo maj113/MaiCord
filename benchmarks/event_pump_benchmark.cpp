@@ -3,6 +3,7 @@
 #include "maicord/app/presence_coalescer.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/member_list.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/protocol/gateway_payload.hpp"

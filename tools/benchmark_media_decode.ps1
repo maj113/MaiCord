@@ -38,7 +38,11 @@ try {
     if ($ownedCorpus) {
         $generator = @('-I', (Join-Path $PSScriptRoot 'generate_media_decode_benchmark_corpus.py'), $corpus)
         if ($Quick) { $generator += '--quick' }
+        # Python reports progress on stderr; Windows PowerShell 5.1 turns redirected
+        # stderr into a terminating error under 'Stop', so judge by exit code only.
+        $ErrorActionPreference = 'Continue'
         & python @generator 2>$null
+        $ErrorActionPreference = 'Stop'
         if ($LASTEXITCODE -ne 0) { throw 'Corpus generation failed.' }
     }
     try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }

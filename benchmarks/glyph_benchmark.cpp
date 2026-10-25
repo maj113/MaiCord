@@ -1,7 +1,9 @@
 #include "maicord/core/time.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 #include "maicord/render/glyph_atlas_gpu.hpp"
 #include "maicord/render/gpu_timing.hpp"
 #include "maicord/ui/text.hpp"
+#include "maicord/render/native_glyph_outlines.hpp"
 #include "maicord/text/font_run.hpp"
 #include "maicord/text/font_session.hpp"
 
@@ -184,15 +186,12 @@ int run() noexcept {
 
     const TextShapeResult shaped_result = text_shape_utf8(&text_system, utf8_literal("A"), 64.0f, 64.0f,
                                                           Slice<wchar_t>{g_utf16, 16}, &shaped);
-    // The native run's font geometry supplies the normalized outline.
-    const auto* record = shaped_result.ok() && shaped.run_count == 1 && shaped.native_fonts()
-                             ? native_font_run_get(*native_font_session_runs(shaped.native_fonts()), shaped.runs[0].native_face)
-                             : nullptr;
-    const auto* font = record ? native_font_get(*native_font_session_fonts(shaped.native_fonts()), record->source.face)
-                              : nullptr;
-    if (!font || shaped.glyph_count != 1 ||
-        font_geometry_outline(FontGeometryInstance{&font->geometry, nullptr}, shaped.glyphs[0].index, nullptr,
-                              &outline) != SfntStatus::ok) {
+    // The renderer's outline owner binds the run's font instance and scratch.
+    NativeGlyphOutlines* outlines = nullptr;
+    if (!shaped_result.ok() || shaped.run_count != 1 || !shaped.native_fonts() || shaped.glyph_count != 1 ||
+        !native_glyph_outline(&outlines, 1, shaped.glyphs[0].index, &outline, shaped.native_fonts(),
+                              shaped.runs[0].native_face)) {
+        native_glyph_outlines_release(&outlines);
         glyph_atlas_gpu_release(&gpu);
         shaped_text_reset(&shaped);
         text_system_release(&text_system);
@@ -200,6 +199,7 @@ int run() noexcept {
         com_release(device);
         return 3;
     }
+    native_glyph_outlines_release(&outlines);
 
     GlyphRasterBounds bounds{};
     if (!glyph_raster_bounds(outline, 32.0f, 1, &bounds)) {

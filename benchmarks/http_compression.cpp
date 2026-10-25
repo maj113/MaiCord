@@ -35,56 +35,23 @@ int run() noexcept {
     const Clock clock = clock_initialize();
     u32 offset = 0, index = 0;
     DeflateWorkspace workspace{};
-    static ZlibStreamInflater stream{};
     while (got - offset >= 12) {
         u32 header[3]{};
         copy_bytes(header, bytes + offset, 12);
         offset += 12;
         const u32 raw_size = header[0], encoded_size = header[1], kind = header[2];
-        if ((kind != 2 && raw_size > 2 * 1024 * 1024) || raw_size > got - offset ||
-            encoded_size > got - offset - raw_size || kind > 2)
+        if (raw_size > 2 * 1024 * 1024 || raw_size > got - offset || encoded_size > got - offset - raw_size ||
+            kind > 1)
             return 6;
         const auto* expected = bytes + offset;
         const auto* encoded = expected + raw_size;
         const DeflateInputSpan span{encoded, encoded_size};
-        // Gateway shape: one dictionary, each sync-flushed payload decoded at the buffer start.
-        u32 segments = 0;
-        if (kind == 2) {
-            if (encoded_size < 4)
-                return 6;
-            copy_bytes(&segments, encoded, 4);
-            if (segments > (encoded_size - 4) / 8)
-                return 6;
-        }
-        const auto decode_stream = [&](bool verify) noexcept {
-            zlib_stream_initialize(&stream);
-            const u8* sizes = encoded + 4;
-            const u8* segment = sizes + 8 * segments;
-            const u8* raw = expected;
-            ZlibInflateResult total{};
-            for (u32 i = 0; i < segments; ++i) {
-                u32 pair[2]{};
-                copy_bytes(pair, sizes + 8 * i, 8);
-                if (pair[0] > 2 * 1024 * 1024 || pair[1] > static_cast<u32>(encoded + encoded_size - segment))
-                    return ZlibInflateResult{0, 0, 0, 0, 0, ZlibInflateError::invalid_input};
-                const DeflateInputSpan part{segment, pair[1]};
-                const auto result = zlib_stream_inflate_flush(&stream, {&part, 1}, {output, 2 * 1024 * 1024});
-                if (!result.ok() || result.output_bytes != pair[0] || (verify && !bytes_equal(raw, output, pair[0])))
-                    return ZlibInflateResult{0, 0, 0, 0, 0, ZlibInflateError::output_size};
-                segment += pair[1];
-                raw += pair[0];
-                total.output_bytes += result.output_bytes;
-            }
-            return total;
-        };
         const auto decode = [&]() noexcept {
-            return kind == 2 ? decode_stream(false)
-                 : kind      ? zlib_inflate({&span, 1}, {output, 2 * 1024 * 1024}, ~0u, &workspace)
-                             : gzip_inflate({encoded, encoded_size}, {output, 2 * 1024 * 1024}, &workspace);
+            return kind ? zlib_inflate({&span, 1}, {output, 2 * 1024 * 1024}, ~0u, &workspace)
+                        : gzip_inflate({encoded, encoded_size}, {output, 2 * 1024 * 1024}, &workspace);
         };
-        const auto first = kind == 2 ? decode_stream(true) : decode();
-        if (!first.ok() || first.output_bytes != raw_size ||
-            (kind != 2 && !bytes_equal(expected, output, raw_size)))
+        const auto first = decode();
+        if (!first.ok() || first.output_bytes != raw_size || !bytes_equal(expected, output, raw_size))
             return 7;
         const i64 begin = clock_now();
         constexpr u32 iterations = 40;

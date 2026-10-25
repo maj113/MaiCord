@@ -1,8 +1,7 @@
-"""Write the deterministic HTTP/Gateway/PNG inflate corpus read by MaiCordHttpCompressionBenchmark.
+"""Write the deterministic HTTP/PNG inflate corpus read by MaiCordHttpCompressionBenchmark.
 
 Entry: u32 raw_size, u32 encoded_size, u32 kind, raw bytes, encoded bytes.
-kind 0 = gzip, 1 = zlib, 2 = zlib stream: encoded bytes are u32 count, count
-pairs of (raw, encoded) sizes, then each Z_SYNC_FLUSH segment in order.
+kind 0 = gzip, 1 = zlib.
 """
 import json
 import random
@@ -55,16 +54,6 @@ def ready():
             'users': [user() for _ in range(800)], 'session_id': '%032x' % rng.getrandbits(128)}}
 
 
-def event(sequence):
-    kind = rng.random()
-    if kind < .45:
-        return {'t': 'MESSAGE_CREATE', 's': sequence, 'op': 0, 'd': message(snowflake())}
-    if kind < .8:
-        return {'t': 'PRESENCE_UPDATE', 's': sequence, 'op': 0, 'd': {'user': {'id': snowflake()}, 'status': rng.choice(['online', 'idle', 'dnd']),
-                                                                      'guild_id': snowflake(), 'activities': [], 'client_status': {'desktop': 'online'}}}
-    return {'t': 'TYPING_START', 's': sequence, 'op': 0, 'd': {'user_id': snowflake(), 'timestamp': rng.randrange(1 << 31), 'channel_id': snowflake()}}
-
-
 def png_rows(width, height, channels):
     rows = bytearray()
     for y in range(height):
@@ -100,15 +89,6 @@ image = png_rows(512, 256, 4)
 add(1, image, compress_zlib(image, 6))
 runs = bytes(rng.choice(b'ab') for _ in range(64)) * 4096
 add(1, runs, compress_zlib(runs, 9))
-
-# Gateway-style connection: READY, then small events, every payload sync-flushed.
-payloads = [json.dumps(ready(), separators=(',', ':')).encode()[:1024 * 1024]]
-payloads += [json.dumps(event(i + 2), separators=(',', ':')).encode() for i in range(1500)]
-encoder = zlib.compressobj(6, zlib.DEFLATED, 15)
-segments = [encoder.compress(p) + encoder.flush(zlib.Z_SYNC_FLUSH) for p in payloads]
-raw = b''.join(payloads)
-table = struct.pack('<I', len(payloads)) + b''.join(struct.pack('<II', len(p), len(s)) for p, s in zip(payloads, segments))
-add(2, raw, table + b''.join(segments))
 
 with open(sys.argv[1], 'wb') as output:
     output.write(b''.join(entries))

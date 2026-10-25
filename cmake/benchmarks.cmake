@@ -112,8 +112,8 @@ maicord_program(MaiCordMarkdownBenchmark ENTRY maicord_markdown_benchmark_entry
     SOURCES benchmarks/markdown_benchmark.cpp
     LIBS maicord_core maicord_ui kernel32)
 maicord_program(MaiCordGlyphBenchmark ENTRY maicord_glyph_benchmark_entry
-    SOURCES benchmarks/glyph_benchmark.cpp
-    LIBS maicord_core maicord_text maicord_render_core maicord_atlas_gpu kernel32 d3d11)
+    SOURCES benchmarks/glyph_benchmark.cpp src/render/native_glyph_outlines.cpp
+    LIBS maicord_core maicord_text maicord_render_core maicord_atlas_gpu maicord_paint_program kernel32 d3d11)
 maicord_program(MaiCordMediaBenchmark ENTRY maicord_media_benchmark_entry
     SOURCES benchmarks/media_benchmark.cpp tests/media_fixture.cpp
     LIBS maicord_core maicord_protocol maicord_render_core maicord_media_core maicord_media_codec

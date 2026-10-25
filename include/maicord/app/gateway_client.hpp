@@ -60,7 +60,6 @@ enum class GatewayClientPhase : u8 {
 
 enum class GatewayClientIdentity : u8 {
     empty,
-    transport_probe,
     normal_user,
 };
 
@@ -1219,9 +1218,6 @@ struct GatewayUserSessionSnapshot {
     bool has_resume;
 };
 
-// Transport-only probe path: it stops at typed HELLO and sends
-// no Identify or credential-bearing payload.
-GatewayClientResult gateway_client_start(GatewayClient* client) noexcept;
 // Normal-user path. A successful start consumes the complete normal_user
 // profile and binds the WebSocket to the v9 ETF zstd-stream endpoint policy;
 // commands go out as ETF.
@@ -1233,8 +1229,8 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
 GatewayClientResult gateway_client_wait_hello(GatewayClient* client, u32 timeout_milliseconds) noexcept;
 GatewayClientResult gateway_client_stop(GatewayClient* client, u32 timeout_milliseconds) noexcept;
 // User-only counterpart. After the worker finishes, the profile metadata
-// and locked credential are returned together. Probe clients are rejected
-// without stopping and the empty output remains unchanged.
+// and locked credential are returned together. A client that is not a user
+// one is rejected without stopping and the empty output remains unchanged.
 GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
                                                             AccountProfile* profile) noexcept;
 GatewayClientResult gateway_client_status(const GatewayClient* client) noexcept;

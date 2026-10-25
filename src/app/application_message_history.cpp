@@ -77,180 +77,6 @@ static bool catchup_wanted() noexcept {
              (g_app.message_pump.catchup_required || g_app.message_view.timeline.newer_refetch_required)));
 }
 
-static void trace_rest_scheduler() noexcept {
-    auto& t = g_app.load_trace;
-    const auto& ui = *g_app.account_ui;
-    const u64 now_ms = clock_monotonic_milliseconds();
-    const i64 now = clock_now();
-    u64 pending = 0;
-    const auto mark = [&](MessageHistoryRequestOwner owner, bool due) noexcept {
-        if (due && (owner == MessageHistoryRequestOwner::message_send ||
-                    owner == MessageHistoryRequestOwner::user_profile ||
-                    (owner != g_app.message_history_request_owner && owner != g_app.details_request_owner)))
-            pending |= 1ull << static_cast<u32>(owner);
-    };
-    mark(MessageHistoryRequestOwner::catchup,
-         g_app.message_catchup.state == MessageHistoryCatchupState::request_required || catchup_wanted());
-    mark(MessageHistoryRequestOwner::older,
-         g_app.message_older.state == MessageHistoryOlderState::request_required);
-    mark(MessageHistoryRequestOwner::message_jump,
-         g_app.pending_message_jump_message_id &&
-             g_app.pending_message_jump_channel_id == ui.active_channel_id);
-    mark(MessageHistoryRequestOwner::attachment_refresh,
-         g_app.attachment_refresh.state == AttachmentRefreshState::request_required);
-    mark(MessageHistoryRequestOwner::reply_refresh,
-         g_app.reply_refresh.state == AttachmentRefreshState::request_required);
-    mark(MessageHistoryRequestOwner::private_conversation,
-         private_conversation_due(ui.private_conversation, now_ms));
-    mark(MessageHistoryRequestOwner::friends, application_friends_pending(now_ms));
-    mark(MessageHistoryRequestOwner::message_search, application_search_pending(now_ms));
-    mark(MessageHistoryRequestOwner::pinned_messages, application_pinned_messages_pending(now_ms));
-    mark(MessageHistoryRequestOwner::search_navigation, application_search_navigation_pending(now_ms));
-    mark(MessageHistoryRequestOwner::thread_actions, application_thread_actions_pending(now_ms));
-    mark(MessageHistoryRequestOwner::thread_browser, application_thread_browser_pending(now_ms));
-    mark(MessageHistoryRequestOwner::thread_creation, application_thread_creation_pending(now_ms));
-    mark(MessageHistoryRequestOwner::forum_post, application_forum_post_pending(now_ms));
-    mark(MessageHistoryRequestOwner::poll, application_poll_pending(now_ms));
-    mark(MessageHistoryRequestOwner::member_moderation, application_member_moderation_pending(now_ms));
-    mark(MessageHistoryRequestOwner::guild_invite, application_guild_invite_pending(now_ms));
-    mark(MessageHistoryRequestOwner::private_channel, application_private_channel_pending(now_ms));
-    mark(MessageHistoryRequestOwner::guild_notification_settings, application_notification_controls_pending(now_ms));
-    mark(MessageHistoryRequestOwner::inbox_mentions, application_inbox_pending(now_ms));
-    mark(MessageHistoryRequestOwner::stream_preview, application_stream_preview_pending(now_ms));
-    mark(MessageHistoryRequestOwner::stage, application_stage_pending(now_ms));
-    mark(MessageHistoryRequestOwner::soundboard, application_soundboard_pending(now_ms));
-    mark(MessageHistoryRequestOwner::message_components, application_message_components_pending(now_ms));
-    mark(MessageHistoryRequestOwner::invite_cards, application_invite_cards_pending(now_ms));
-    mark(MessageHistoryRequestOwner::custom_status, application_custom_status_pending(now_ms));
-    mark(MessageHistoryRequestOwner::media_catalog, application_media_picker_pending(now_ms));
-    mark(MessageHistoryRequestOwner::gif_favorites, application_gif_favorites_pending(now_ms));
-    mark(MessageHistoryRequestOwner::emoji_preferences, application_emoji_preferences_pending(now_ms));
-    const u64 overview_wake = application_channel_overview_next_wake();
-    mark(MessageHistoryRequestOwner::channel_overview, overview_wake && overview_wake <= now_ms);
-    mark(MessageHistoryRequestOwner::self_status, application_self_status_pending(now_ms));
-    const u64 read_wake = application_read_state_next_wake();
-    mark(MessageHistoryRequestOwner::read_state_ack, read_wake && read_wake <= now_ms);
-    const u64 scoped_wake = application_scoped_read_next_wake();
-    mark(MessageHistoryRequestOwner::scoped_read, scoped_wake && scoped_wake <= now_ms);
-    mark(MessageHistoryRequestOwner::attachment_upload, application_attachment_url_pending(now_ms));
-    mark(MessageHistoryRequestOwner::message_delete,
-         g_app.message_delete.message_id && g_app.message_delete.retry_at_ms <= now_ms);
-    mark(MessageHistoryRequestOwner::message_edit,
-         g_app.message_edit.phase == MessageEditRequestPhase::queued ||
-             (g_app.message_edit.phase == MessageEditRequestPhase::retry_wait &&
-              g_app.message_edit.retry_at_ms <= now_ms));
-    mark(MessageHistoryRequestOwner::message_reaction, application_message_reaction_pending(now_ms));
-    mark(MessageHistoryRequestOwner::media_url_refresh,
-         media_url_next(&g_app.media_urls, now_ms) != nullptr);
-    const auto& reactions = g_app.reaction_viewer_controller;
-    mark(MessageHistoryRequestOwner::reaction_users,
-         reactions.initialized && reactions.viewer && reactions.viewer->active &&
-             (reactions.phase == ReactionViewerRequestPhase::required ||
-              (reactions.phase == ReactionViewerRequestPhase::retry_wait && reactions.retry_at_ms &&
-               reactions.retry_at_ms <= now_ms)));
-    mark(MessageHistoryRequestOwner::reaction_tooltip, application_reaction_tooltip_pending());
-    const auto* profile = g_app.profile;
-    mark(MessageHistoryRequestOwner::user_profile, profile && profile->scene.active &&
-                                                       (profile->pending || profile->effect_pending) &&
-                                                       profile->retry_at <= now_ms);
-    mark(MessageHistoryRequestOwner::commands, application_commands_pending(now_ms));
-    mark(MessageHistoryRequestOwner::dm_profile, application_dm_profile_pending(now_ms));
-    for (const auto& request : ui.message_composer_controller.requests)
-        mark(MessageHistoryRequestOwner::message_send,
-             request.occupied && (request.phase == MessageComposerRequestPhase::queued ||
-                                  (request.phase == MessageComposerRequestPhase::retry_wait &&
-                                   request.retry_at_ms <= now_ms)));
-    const bool changed = pending != t.pending_mask || t.primary != g_app.message_history_request_owner ||
-                         t.details != g_app.details_request_owner;
-    if (!changed && (!pending || now_ms < t.next_wait_report_ms))
-        return;
-    for (u32 index = 1; index < static_cast<u32>(MessageHistoryRequestOwner::count); ++index) {
-        const u64 bit = 1ull << index;
-        if ((pending & bit) && !(t.pending_mask & bit))
-            t.pending_since[index] = now;
-        if ((t.pending_mask & bit) && !(pending & bit)) {
-            const auto owner = static_cast<MessageHistoryRequestOwner>(index);
-            TraceRecord line("queue_leave");
-            line.field("work", rest_owner_name(owner));
-            line.field("channel_epoch", t.channel_epoch);
-            const bool admitted =
-                owner == g_app.message_history_request_owner || owner == g_app.details_request_owner;
-            line.field("outcome", admitted ? "admitted" : "withdrawn_or_deferred");
-            if (admitted)
-                line.field("request", owner == g_app.details_request_owner ? g_app.details_request_id
-                                                                           : g_app.primary_request_id);
-            line.field("wait_us", clock_microseconds(g_app.clock, t.pending_since[index], now));
-            line.write("rest_trace");
-            t.pending_since[index] = 0;
-        }
-    }
-    TraceRecord line("scheduler");
-    line.field("primary", rest_owner_name(g_app.message_history_request_owner));
-    line.field("primary_request", g_app.primary_request_id);
-    line.field("details", rest_owner_name(g_app.details_request_owner));
-    line.field("details_request", g_app.details_request_id);
-    line.field("both_busy",
-               static_cast<u64>(g_app.message_history_request_owner != MessageHistoryRequestOwner::none &&
-                                g_app.details_request_owner != MessageHistoryRequestOwner::none));
-    line.field("pending_mask", pending);
-    line.field("channel_epoch", t.channel_epoch);
-    line.write("rest_trace");
-    for (u32 index = 1; index < static_cast<u32>(MessageHistoryRequestOwner::count); ++index)
-        if (pending & (1ull << index)) {
-            const auto owner = static_cast<MessageHistoryRequestOwner>(index);
-            const bool details = owner == MessageHistoryRequestOwner::channel_overview ||
-                                 owner == MessageHistoryRequestOwner::user_profile ||
-                                 owner == MessageHistoryRequestOwner::commands ||
-                                 owner == MessageHistoryRequestOwner::pinned_messages ||
-                                 owner == MessageHistoryRequestOwner::search_navigation ||
-                                 owner == MessageHistoryRequestOwner::thread_actions ||
-                                 owner == MessageHistoryRequestOwner::thread_browser ||
-                                 owner == MessageHistoryRequestOwner::thread_creation ||
-                                 owner == MessageHistoryRequestOwner::forum_post ||
-                                 owner == MessageHistoryRequestOwner::poll ||
-                                 owner == MessageHistoryRequestOwner::member_moderation ||
-                                 owner == MessageHistoryRequestOwner::guild_invite ||
-                                 owner == MessageHistoryRequestOwner::account_settings ||
-                                 owner == MessageHistoryRequestOwner::private_channel ||
-                                 owner == MessageHistoryRequestOwner::guild_notification_settings ||
-                                 owner == MessageHistoryRequestOwner::inbox_mentions ||
-                                 owner == MessageHistoryRequestOwner::stream_preview ||
-                                 owner == MessageHistoryRequestOwner::stage ||
-                                 owner == MessageHistoryRequestOwner::soundboard ||
-                                 owner == MessageHistoryRequestOwner::message_components ||
-                                 owner == MessageHistoryRequestOwner::invite_cards ||
-                                 owner == MessageHistoryRequestOwner::dm_profile;
-            const auto blocker =
-                details ? g_app.details_request_owner : g_app.message_history_request_owner;
-            TraceRecord wait("queue_wait");
-            wait.field("work", rest_owner_name(owner));
-            wait.field("channel_epoch", t.channel_epoch);
-            wait.field("lane", details ? "details" : "primary");
-            wait.field("reason",
-                       blocker == MessageHistoryRequestOwner::none ? "admission_or_priority" : "lane_busy");
-            wait.field("blocker", rest_owner_name(blocker));
-            wait.field("wait_us", clock_microseconds(g_app.clock, t.pending_since[index], now));
-            wait.write("rest_trace");
-        }
-    t.pending_mask = pending;
-    t.primary = g_app.message_history_request_owner;
-    t.details = g_app.details_request_owner;
-    t.next_wait_report_ms = now_ms + 1000;
-}
-
-struct RestApplyTrace {
-    u64 request;
-    MessageHistoryRequestOwner owner;
-    i64 started = clock_now();
-    ~RestApplyTrace() noexcept {
-        TraceRecord line("ui_apply");
-        line.field("request", request);
-        line.field("work", rest_owner_name(owner));
-        line.field("elapsed_us", clock_microseconds(g_app.clock, started, clock_now()));
-        line.write("rest_trace");
-    }
-};
-
 // A response over the shared buffer (a large list such as a server's bans,
 // submitted with rest_client_submit_large_response) is taken into a bank of
 // its exact size that lives until the drain returns.
@@ -339,64 +165,64 @@ struct DetailsRequestTurn {
 };
 static DetailsRequestTurn details_request_turn{};
 
-// Admits the lane's request when it has work; the lane's owner tags the request.
-template <bool (*Pending)(u64) noexcept, bool (*Submit)(u64, u64) noexcept,
-          MessageHistoryRequestOwner Owner>
-static bool admit_details_lane(u64 now) noexcept {
-    if (!Pending(now))
+// A lane with a `submit` admits its request when `pending` reports work and the lane's owner tags
+// the request. A lane without one (channel overview, profile, commands) tags its own request.
+struct DetailsLane {
+    bool (*pending)(u64 now) noexcept;
+    bool (*submit)(u64 request_id, u64 now) noexcept;
+    MessageHistoryRequestOwner owner;
+};
+
+static constexpr DetailsLane kDetailsLanes[] = {
+    {application_thread_actions_pending, application_thread_actions_submit,
+     MessageHistoryRequestOwner::thread_actions},
+    {application_search_navigation_pending, application_search_navigation_submit,
+     MessageHistoryRequestOwner::search_navigation},
+    {application_pinned_messages_pending, application_pinned_messages_submit,
+     MessageHistoryRequestOwner::pinned_messages},
+    {application_thread_browser_pending, application_thread_browser_submit,
+     MessageHistoryRequestOwner::thread_browser},
+    {application_channel_overview_submit},
+    {application_profile_submit},
+    {application_commands_submit},
+    {application_thread_creation_pending, application_thread_creation_submit,
+     MessageHistoryRequestOwner::thread_creation},
+    {application_forum_post_pending, application_forum_post_submit, MessageHistoryRequestOwner::forum_post},
+    {application_poll_pending, application_poll_submit, MessageHistoryRequestOwner::poll},
+    {application_member_moderation_pending, application_member_moderation_submit,
+     MessageHistoryRequestOwner::member_moderation},
+    {application_guild_invite_pending, application_guild_invite_submit,
+     MessageHistoryRequestOwner::guild_invite},
+    {application_account_settings_pending, application_account_settings_submit,
+     MessageHistoryRequestOwner::account_settings},
+    {application_private_channel_pending, application_private_channel_submit,
+     MessageHistoryRequestOwner::private_channel},
+    {application_notification_controls_pending, application_notification_controls_submit,
+     MessageHistoryRequestOwner::guild_notification_settings},
+    {application_inbox_pending, application_inbox_submit, MessageHistoryRequestOwner::inbox_mentions},
+    {application_stream_preview_pending, application_stream_preview_submit,
+     MessageHistoryRequestOwner::stream_preview},
+    {application_stage_pending, application_stage_submit, MessageHistoryRequestOwner::stage},
+    {application_message_components_pending, application_message_components_submit,
+     MessageHistoryRequestOwner::message_components},
+    {application_invite_cards_pending, application_invite_cards_submit,
+     MessageHistoryRequestOwner::invite_cards},
+    {application_soundboard_pending, application_soundboard_submit, MessageHistoryRequestOwner::soundboard},
+    {application_dm_profile_pending, application_dm_profile_submit, MessageHistoryRequestOwner::dm_profile},
+};
+
+static bool admit_details_lane(const DetailsLane& lane, u64 now) noexcept {
+    if (!lane.submit)
+        return lane.pending(now);
+    if (!lane.pending(now))
         return false;
     const u64 request_id = next_message_history_request_id();
-    if (!Submit(request_id, now))
+    if (!lane.submit(request_id, now))
         return false;
-    g_app.details_request_owner = Owner;
+    g_app.details_request_owner = lane.owner;
     g_app.details_request_id = request_id;
     return true;
 }
-
-// The channel overview, profile and command lanes tag their own request.
-using DetailsLane = bool (*)(u64 now) noexcept;
-static constexpr DetailsLane kDetailsLanes[] = {
-    admit_details_lane<application_thread_actions_pending, application_thread_actions_submit,
-                       MessageHistoryRequestOwner::thread_actions>,
-    admit_details_lane<application_search_navigation_pending, application_search_navigation_submit,
-                       MessageHistoryRequestOwner::search_navigation>,
-    admit_details_lane<application_pinned_messages_pending, application_pinned_messages_submit,
-                       MessageHistoryRequestOwner::pinned_messages>,
-    admit_details_lane<application_thread_browser_pending, application_thread_browser_submit,
-                       MessageHistoryRequestOwner::thread_browser>,
-    application_channel_overview_submit,
-    application_profile_submit,
-    application_commands_submit,
-    admit_details_lane<application_thread_creation_pending, application_thread_creation_submit,
-                       MessageHistoryRequestOwner::thread_creation>,
-    admit_details_lane<application_forum_post_pending, application_forum_post_submit,
-                       MessageHistoryRequestOwner::forum_post>,
-    admit_details_lane<application_poll_pending, application_poll_submit, MessageHistoryRequestOwner::poll>,
-    admit_details_lane<application_member_moderation_pending, application_member_moderation_submit,
-                       MessageHistoryRequestOwner::member_moderation>,
-    admit_details_lane<application_guild_invite_pending, application_guild_invite_submit,
-                       MessageHistoryRequestOwner::guild_invite>,
-    admit_details_lane<application_account_settings_pending, application_account_settings_submit,
-                       MessageHistoryRequestOwner::account_settings>,
-    admit_details_lane<application_private_channel_pending, application_private_channel_submit,
-                       MessageHistoryRequestOwner::private_channel>,
-    admit_details_lane<application_notification_controls_pending, application_notification_controls_submit,
-                       MessageHistoryRequestOwner::guild_notification_settings>,
-    admit_details_lane<application_inbox_pending, application_inbox_submit,
-                       MessageHistoryRequestOwner::inbox_mentions>,
-    admit_details_lane<application_stream_preview_pending, application_stream_preview_submit,
-                       MessageHistoryRequestOwner::stream_preview>,
-    admit_details_lane<application_stage_pending, application_stage_submit,
-                       MessageHistoryRequestOwner::stage>,
-    admit_details_lane<application_message_components_pending, application_message_components_submit,
-                       MessageHistoryRequestOwner::message_components>,
-    admit_details_lane<application_invite_cards_pending, application_invite_cards_submit,
-                       MessageHistoryRequestOwner::invite_cards>,
-    admit_details_lane<application_soundboard_pending, application_soundboard_submit,
-                       MessageHistoryRequestOwner::soundboard>,
-    admit_details_lane<application_dm_profile_pending, application_dm_profile_submit,
-                       MessageHistoryRequestOwner::dm_profile>,
-};
 
 static void admit_details_request(u64 now) noexcept {
     auto& turn = details_request_turn;
@@ -405,7 +231,8 @@ static void admit_details_request(u64 now) noexcept {
     constexpr u8 lanes = sizeof(kDetailsLanes) / sizeof(kDetailsLanes[0]);
     for (u8 tried = 0; tried < lanes; ++tried) {
         const u8 index = static_cast<u8>((turn.next + tried) % lanes);
-        if (kDetailsLanes[index](now)) {
+        const DetailsLane& lane = kDetailsLanes[index];
+        if (admit_details_lane(lane, now)) {
             turn.next = static_cast<u8>((index + 1) % lanes);
             return;
         }
@@ -779,17 +606,22 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
 
 // REST response consumers by request owner. A response that could not be taken reaches them as a
 // transport failure with an empty body.
-using ResponseConsumer = bool (*)(const RestClientResponse&, Utf8View body, u64 now_ms) noexcept;
+using ResponseConsumer = bool (*)(const RestClientResponse&, Utf8View body) noexcept;
+using TimedResponseConsumer = bool (*)(const RestClientResponse&, Utf8View body, u64 now_ms) noexcept;
 struct ResponseRoute {
     MessageHistoryRequestOwner owner;
-    ResponseConsumer consume;
     bool lenient; // A failed take never stops the pump.
-};
+    ResponseConsumer plain;
+    TimedResponseConsumer timed;
 
-template <bool (*Consume)(const RestClientResponse&, Utf8View) noexcept>
-static bool route_response(const RestClientResponse& response, Utf8View body, u64) noexcept {
-    return Consume(response, body);
-}
+    constexpr ResponseRoute(MessageHistoryRequestOwner o, ResponseConsumer c, bool l = false) noexcept
+        : owner(o), lenient(l), plain(c), timed(nullptr) {}
+    constexpr ResponseRoute(MessageHistoryRequestOwner o, TimedResponseConsumer c) noexcept
+        : owner(o), lenient(false), plain(nullptr), timed(c) {}
+    bool consume(const RestClientResponse& response, Utf8View body, u64 now_ms) const noexcept {
+        return plain ? plain(response, body) : timed(response, body, now_ms);
+    }
+};
 
 static bool route_activity_sharing(const RestClientResponse& response, Utf8View body, u64) noexcept {
     application_activity_sharing_response(response, body);
@@ -810,42 +642,40 @@ static bool route_message_reaction(const RestClientResponse& response, Utf8View,
 }
 
 static constexpr ResponseRoute kResponseRoutes[] = {
-    {MessageHistoryRequestOwner::channel_prefetch, route_response<application_channel_prefetch_response>},
-    {MessageHistoryRequestOwner::forum_post, route_response<application_forum_post_response>},
-    {MessageHistoryRequestOwner::thread_creation, route_response<application_thread_creation_response>},
-    {MessageHistoryRequestOwner::thread_browser, route_response<application_thread_browser_response>},
-    {MessageHistoryRequestOwner::poll, route_response<application_poll_response>},
-    {MessageHistoryRequestOwner::member_moderation, route_response<application_member_moderation_response>},
-    {MessageHistoryRequestOwner::guild_invite, route_response<application_guild_invite_response>},
-    {MessageHistoryRequestOwner::thread_actions, route_response<application_thread_actions_response>},
-    {MessageHistoryRequestOwner::search_navigation, route_response<application_search_navigation_response>},
-    {MessageHistoryRequestOwner::channel_overview, route_response<application_channel_overview_response>},
-    {MessageHistoryRequestOwner::pinned_messages, route_response<application_pinned_messages_response>},
-    {MessageHistoryRequestOwner::self_status, route_response<application_self_status_response>},
-    {MessageHistoryRequestOwner::user_settings, route_response<application_user_settings_response>},
-    {MessageHistoryRequestOwner::guild_notification_settings,
-     route_response<application_notification_controls_response>},
-    {MessageHistoryRequestOwner::custom_status, route_response<application_custom_status_response>},
+    {MessageHistoryRequestOwner::channel_prefetch, application_channel_prefetch_response},
+    {MessageHistoryRequestOwner::forum_post, application_forum_post_response},
+    {MessageHistoryRequestOwner::thread_creation, application_thread_creation_response},
+    {MessageHistoryRequestOwner::thread_browser, application_thread_browser_response},
+    {MessageHistoryRequestOwner::poll, application_poll_response},
+    {MessageHistoryRequestOwner::member_moderation, application_member_moderation_response},
+    {MessageHistoryRequestOwner::guild_invite, application_guild_invite_response},
+    {MessageHistoryRequestOwner::thread_actions, application_thread_actions_response},
+    {MessageHistoryRequestOwner::search_navigation, application_search_navigation_response},
+    {MessageHistoryRequestOwner::channel_overview, application_channel_overview_response},
+    {MessageHistoryRequestOwner::pinned_messages, application_pinned_messages_response},
+    {MessageHistoryRequestOwner::self_status, application_self_status_response},
+    {MessageHistoryRequestOwner::user_settings, application_user_settings_response},
+    {MessageHistoryRequestOwner::guild_notification_settings, application_notification_controls_response},
+    {MessageHistoryRequestOwner::custom_status, application_custom_status_response},
     {MessageHistoryRequestOwner::activity_sharing, route_activity_sharing},
-    {MessageHistoryRequestOwner::inbox_mentions, route_response<application_inbox_response>},
-    {MessageHistoryRequestOwner::stream_preview, route_response<application_stream_preview_response>},
-    {MessageHistoryRequestOwner::stage, route_response<application_stage_response>},
-    {MessageHistoryRequestOwner::soundboard, route_response<application_soundboard_response>},
-    {MessageHistoryRequestOwner::message_components,
-     route_response<application_message_components_response>},
-    {MessageHistoryRequestOwner::invite_cards, route_response<application_invite_cards_response>},
-    {MessageHistoryRequestOwner::account_settings, route_response<application_account_settings_response>},
-    {MessageHistoryRequestOwner::private_channel, route_response<application_private_channel_response>},
-    {MessageHistoryRequestOwner::media_catalog, route_response<application_media_picker_response>},
-    {MessageHistoryRequestOwner::gif_favorites, route_response<application_gif_favorites_response>},
-    {MessageHistoryRequestOwner::emoji_preferences, route_response<application_emoji_preferences_response>},
-    {MessageHistoryRequestOwner::message_search, route_response<application_search_response>},
+    {MessageHistoryRequestOwner::inbox_mentions, application_inbox_response},
+    {MessageHistoryRequestOwner::stream_preview, application_stream_preview_response},
+    {MessageHistoryRequestOwner::stage, application_stage_response},
+    {MessageHistoryRequestOwner::soundboard, application_soundboard_response},
+    {MessageHistoryRequestOwner::message_components, application_message_components_response},
+    {MessageHistoryRequestOwner::invite_cards, application_invite_cards_response},
+    {MessageHistoryRequestOwner::account_settings, application_account_settings_response},
+    {MessageHistoryRequestOwner::private_channel, application_private_channel_response},
+    {MessageHistoryRequestOwner::media_catalog, application_media_picker_response},
+    {MessageHistoryRequestOwner::gif_favorites, application_gif_favorites_response},
+    {MessageHistoryRequestOwner::emoji_preferences, application_emoji_preferences_response},
+    {MessageHistoryRequestOwner::message_search, application_search_response},
     {MessageHistoryRequestOwner::read_state_ack, route_read_state},
     {MessageHistoryRequestOwner::scoped_read, route_scoped_read},
-    {MessageHistoryRequestOwner::friends, route_response<application_friends_response>},
-    {MessageHistoryRequestOwner::commands, route_response<application_commands_response>},
-    {MessageHistoryRequestOwner::user_profile, route_response<application_profile_response>, true},
-    {MessageHistoryRequestOwner::dm_profile, route_response<application_dm_profile_response>, true},
+    {MessageHistoryRequestOwner::friends, application_friends_response},
+    {MessageHistoryRequestOwner::commands, application_commands_response},
+    {MessageHistoryRequestOwner::user_profile, application_profile_response, true},
+    {MessageHistoryRequestOwner::dm_profile, application_dm_profile_response, true},
     {MessageHistoryRequestOwner::message_reaction, route_message_reaction},
 };
 
@@ -938,7 +768,7 @@ static bool pump_message_history_main(bool admit) noexcept {
             }
             MessageHistoryRequestOwner owner =
                 details ? g_app.details_request_owner : g_app.message_history_request_owner;
-            const RestApplyTrace apply_trace{response.request_id, owner};
+            const i64 apply_started = clock_now();
             const u64 expected_id = details ? g_app.details_request_id : g_app.primary_request_id;
             if (details) {
                 g_app.details_request_owner = MessageHistoryRequestOwner::none;
@@ -1390,7 +1220,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                     applied.field("resident", accepted.apply.resident);
                     applied.field("channel_epoch", g_app.load_trace.channel_epoch);
                     applied.field("decode_apply_us",
-                                  clock_microseconds(g_app.clock, apply_trace.started, clock_now()));
+                                  clock_microseconds(g_app.clock, apply_started, clock_now()));
                     applied.write("load_trace");
                     if (owner == MessageHistoryRequestOwner::catchup ||
                         owner == MessageHistoryRequestOwner::message_jump) {
@@ -1558,7 +1388,6 @@ bool pump_message_history() noexcept {
     if (!application_poll_synchronize())
         return false;
     application_search_navigation_synchronize();
-    trace_rest_scheduler();
     // At most two completions. Decode/model application stays ordered on the
     // UI thread and reuses one response/scratch arena, not one arena per worker.
     for (u32 pass = 0; pass < 2; ++pass) {
@@ -1578,7 +1407,6 @@ bool pump_message_history() noexcept {
         const u64 now = clock_monotonic_milliseconds();
         admit_details_request(now);
     }
-    trace_rest_scheduler();
     return true;
 }
 
