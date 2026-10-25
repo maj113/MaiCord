@@ -227,6 +227,11 @@ void offer_changelog(UpdateService* s, const UpdateTransport& transport, Utf8Vie
     }
     if (s->observer.offered) s->observer.offered(s->observer.context, manifest, verified);
 }
+// A protocol-1 generation runs only against the v2 journal it reads; a v3
+// journal is never handed to one, so it is neither activated nor reverted to.
+bool launchable(const UpdateGenerationTransaction& t, const UpdateGenerationReference& r) noexcept {
+    return r.present && (t.record_legacy || !update_package_descriptor_legacy(r.package));
+}
 bool hex_name(const wchar_t* name, const u8* digest) noexcept {
     static constexpr wchar_t hex[] = L"0123456789abcdef";
     if (name[0] != L'g' || name[1] != L'-') return false;
@@ -363,8 +368,10 @@ UpdateServiceError update_service_inspect(UpdateService* s, UpdateInstalledState
     const SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
     const auto& st = s->transaction.state;
     out->journal = true; out->phase = st.phase; out->active_version = st.active.package.version;
-    out->previous_version = st.previous.present ? st.previous.package.version : 0;
-    out->candidate_version = st.candidate.present ? st.candidate.package.version : 0;
+    // Activating or reverting rewrites the journal, so a protocol-1 candidate
+    // or previous generation is not offered.
+    out->previous_version = st.previous.present && !update_package_descriptor_legacy(st.previous.package) ? st.previous.package.version : 0;
+    out->candidate_version = st.candidate.present && !update_package_descriptor_legacy(st.candidate.package) ? st.candidate.package.version : 0;
     update_service_close(s);
     return SE::none;
 }
@@ -534,12 +541,13 @@ UpdateServiceError update_service_restart(UpdateService* s) noexcept {
     UpdateGenerationLaunchAdmission admission{};
     bool pending = false;
     UpdateInstallResult selected{};
-    if (st.phase == UpdateGenerationPhase::prepared) {
+    if (st.phase == UpdateGenerationPhase::prepared && !update_package_descriptor_legacy(st.candidate.package)) {
         selected = update_install_activate(&s->install);
         if (selected.ok()) selected = update_install_activation_admission(&s->install, &admission);
         if (selected.ok()) selected = update_install_select_activation_package(&s->install, &s->package);
         pending = st.phase == UpdateGenerationPhase::pending;
-    } else if (st.phase == UpdateGenerationPhase::stable && st.active.package.version != s->config.own_version) {
+    } else if (st.phase == UpdateGenerationPhase::stable && st.active.package.version != s->config.own_version &&
+        launchable(s->transaction, st.active)) {
         selected = update_install_select_package(&s->install, &s->package);
     } else { update_service_close(s); return SE::state; }
     if (!selected.ok()) log_install("restart_select", selected);
@@ -581,7 +589,7 @@ UpdateServiceError update_service_revert(UpdateService* s) noexcept {
     if (!exists(s->paths.journal)) return SE::state;
     SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
     const auto& st = s->transaction.state;
-    const bool allowed = st.phase == UpdateGenerationPhase::stable && st.previous.present &&
+    const bool allowed = st.phase == UpdateGenerationPhase::stable && st.previous.present && !update_package_descriptor_legacy(st.previous.package) &&
         st.previous.package.version < st.active.package.version && st.disposal.target == UpdateGenerationDisposalTarget::none;
     const auto reverted_result = allowed ? update_install_revert(&s->install) : UpdateInstallResult{UpdateInstallError::state};
     const bool ok = allowed && reverted_result.ok();
@@ -600,7 +608,7 @@ bool update_service_dispatch(UpdateService* s) noexcept {
     UpdateLog("dispatch").field("phase", static_cast<u8>(st.phase)).field("active", st.active.package.version)
         .field("own", s->config.own_version).write();
     UpdateInstallResult selected{UpdateInstallError::state};
-    if (st.phase == UpdateGenerationPhase::stable && st.active.package.version > s->config.own_version) {
+    if (st.phase == UpdateGenerationPhase::stable && st.active.package.version > s->config.own_version && launchable(s->transaction, st.active)) {
         selected = update_install_select_package(&s->install, &s->package);
         if (!selected.ok()) log_install("dispatch_select", selected);
     }
@@ -648,8 +656,10 @@ UpdateServiceError update_service_child_open(const UpdateServiceConfig& config, 
     if (!read_enrollment(paths, inventory, &installation)) return SE::enrollment;
     u64 bytes = 0; u8 record[kUpdateGenerationRecordBytes]{}; UpdateGenerationState state{};
     owners.journal = open_read(paths.journal);
-    if (!regular_size(owners.journal, &bytes) || bytes != sizeof(record) || !read_exact(owners.journal, record, sizeof(record)) ||
-        !update_generation_decode({record, sizeof(record)}, &state).ok() || !state.active.present ||
+    // A v2 journal is still current while its writer, a release up to 0.4.x, coordinates.
+    if (!regular_size(owners.journal, &bytes) || (bytes != sizeof(record) && bytes != kUpdateGenerationLegacyRecordBytes) ||
+        !read_exact(owners.journal, record, static_cast<u32>(bytes)) ||
+        !update_generation_decode({record, static_cast<u32>(bytes)}, &state).ok() || !state.active.present ||
         (state.phase != UpdateGenerationPhase::stable && state.phase != UpdateGenerationPhase::pending) ||
         !bytes_equal(state.installation.bytes, installation.bytes, 16)) return SE::state;
     const auto& active = state.active.package;

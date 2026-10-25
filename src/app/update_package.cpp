@@ -96,7 +96,10 @@ struct Members {
     u8 name_bytes[kUpdatePackageMaximumMembers];
     u32 count;
 };
-bool zip(Reader& reader, Members* members) noexcept {
+bool named(Utf8View name, Utf8View expected, bool exact) noexcept {
+    return name.bytes == expected.bytes && (exact ? bytes_equal(name.data, expected.data, name.bytes) : lower_equal(name.data, expected.data, name.bytes));
+}
+bool zip(Reader& reader, Members* members, u8 protocol) noexcept {
     if (reader.bytes < 22 || reader.bytes > kUpdatePackageMaximumBytes) return reader.fail(UpdatePackageError::zip);
     u8 end[22]{};
     if (!reader.read(reader.bytes - 22, end, sizeof(end))) return false;
@@ -132,9 +135,11 @@ bool zip(Reader& reader, Members* members) noexcept {
         if (!reader.read(next_local + 30, name, name_bytes) || !reader.read(next_central + 46, central_name, name_bytes) ||
             !bytes_equal(name, central_name, name_bytes)) return reader.fail(UpdatePackageError::zip);
         const Utf8View view{reinterpret_cast<const char*>(name), name_bytes};
-        // The first member is the launch target.
-        if (!update_package_member_name_valid(view) || (i == 0 && (name_bytes != kUpdatePackageExecutable.bytes ||
-            !bytes_equal(name, kUpdatePackageExecutable.data, name_bytes)))) return reader.fail(UpdatePackageError::zip);
+        // The first member is the launch target; the legacy library is the
+        // second member of a protocol-1 pair and appears nowhere else.
+        if (!update_package_member_name_valid(view) || (i == 0 && !named(view, kUpdatePackageExecutable, true)) ||
+            (protocol == kUpdateLegacyProtocol ? i == 1 && !named(view, kUpdatePackageLegacyLibrary, true) :
+                named(view, kUpdatePackageLegacyLibrary, false))) return reader.fail(UpdatePackageError::zip);
         for (u32 j = 0; j < i; ++j)
             if (members->name_bytes[j] == name_bytes && lower_equal(members->names[j], view.data, name_bytes))
                 return reader.fail(UpdatePackageError::zip);
@@ -142,7 +147,8 @@ bool zip(Reader& reader, Members* members) noexcept {
         copy_bytes(members->names[i], name, name_bytes); members->name_bytes[i] = static_cast<u8>(name_bytes);
         next_local = data + bytes; next_central += 46 + name_bytes;
     }
-    if (next_local != central || next_central != reader.bytes - 22) return reader.fail(UpdatePackageError::zip);
+    if (next_local != central || next_central != reader.bytes - 22 || (protocol == kUpdateLegacyProtocol && count != 2))
+        return reader.fail(UpdatePackageError::zip);
     members->count = count;
     return true;
 }
@@ -210,7 +216,7 @@ bool inspect(Reader& reader, const UpdateManifest& manifest, Members* members, U
     u8 package_hash[32]{};
     if (!reader.stream(0, reader.bytes, package_hash, nullptr)) return false;
     if (!bytes_equal(package_hash, manifest.artifact_sha256, 32)) return reader.fail(UpdatePackageError::digest);
-    if (!zip(reader, members)) return false;
+    if (!zip(reader, members, manifest.protocol)) return false;
     UpdatePackageDescriptor derived{};
     derived.version = manifest.version; derived.channel = manifest.channel;
     derived.package_bytes = manifest.artifact_bytes; derived.member_count = members->count;
@@ -302,6 +308,9 @@ bool update_package_descriptor_equal(const UpdatePackageDescriptor& a, const Upd
     }
     return true;
 }
+bool update_package_descriptor_legacy(const UpdatePackageDescriptor& p) noexcept {
+    return p.member_count == 2 && named(update_package_member_name(p.members[1]), kUpdatePackageLegacyLibrary, true);
+}
 bool update_package_descriptor_valid(const UpdatePackageDescriptor& p) noexcept {
     if (!p.version || !p.package_bytes || p.package_bytes > kUpdatePackageMaximumBytes || p.channel > UpdateChannel::preview ||
         !p.member_count || p.member_count > kUpdatePackageMaximumMembers ||
@@ -389,7 +398,7 @@ UpdatePackageResult update_package_verify_installed(UpdateStage* stage, const Up
     }
     Reader reader{stage->file, stage->bytes, {}};
     UpdateManifest manifest{};
-    const auto verified = update_manifest_verify_installed(offer.document, offer.signature, key, workspace,
+    const auto verified = update_manifest_verify_generation(offer.document, offer.signature, key, workspace,
         kUpdatePackageMaximumBytes, maximum_validity_seconds, scratch, &manifest);
     if (!verified.ok()) { reader.fail(UpdatePackageError::offer); reader.status.manifest_error = verified.error; return reader.status; }
     if (stage->bytes != manifest.artifact_bytes) { reader.fail(UpdatePackageError::size); return reader.status; }

@@ -18,8 +18,8 @@ any Windows machine with Python 3.10 or newer will do.
 - **Update package**: `MaiCord-x64-p2-<version>.zip`. One to four *stored*
   members, `MaiCord.exe` first, with no flags, extra fields or comments. Member
   names are 1–32 ASCII letters, digits, `.`, `-` or `_`, start with a letter or
-  digit, differ ignoring case and are never device names or `offer.json`,
-  `offer.sig` or `package.zip`; `.exe` and `.dll` members must be AMD64 images
+  digit, differ ignoring case and are never device names, `offer.json`,
+  `offer.sig`, `package.zip` or `MaiCordAccount.dll` (which marks protocol 1); `.exe` and `.dll` members must be AMD64 images
   of that kind. `MEMBER_NAMES` lists what a release ships (today only
   `MaiCord.exe`). Timestamps are fixed, so the same binaries always give the same
   bytes. At most 64 MiB. Checked by `src/app/update_package.cpp`.
@@ -115,8 +115,15 @@ generation record and handoff that dispatcher reads.
 
 Releases up to 0.4.0 use protocol 1: they read `updates/maicord-*.json` and
 install only the two-file `MaiCord.exe` and `MaiCordAccount.dll` package, which
-no later release has. Replace such an install once by hand with the portable
-zip of a newer release.
+no later release has. Replace such an install's `MaiCord.exe` once by hand with
+that of a newer release. The newer client continues the existing installation:
+it reads the v2 generation journal 0.4.x wrote, still verifies the protocol-1
+generations under their signed offers, installs the next release beside them
+and rewrites the journal as v3, then disposes the old generation with the
+following update. A 0.4.x generation is never activated or rolled back to once
+the journal is v3, because it cannot read that journal. A protocol-1 bridge
+would not help without replacing the dispatcher: a 0.4.x dispatcher reads only
+v2 journals and protocol-1 generations.
 
 ## Provenance
 

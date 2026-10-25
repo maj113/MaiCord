@@ -5,10 +5,13 @@
 namespace maicord {
 
 // Backend journal v3: generations record their package members by name.
-// Older/unknown records are refused; there is no implicit migration or
-// missing-journal reset.
+// Releases up to 0.4.x wrote v2, whose references are MaiCord.exe and
+// MaiCordAccount.dll pairs; it decodes to the same v3 state (those two named
+// members, the same digests) and the next commit rewrites it as v3. Unknown
+// records are refused; there is no missing-journal reset.
 inline constexpr u32 kUpdateGenerationRecordVersion = 3;
 inline constexpr u32 kUpdateGenerationRecordBytes = 1440;
+inline constexpr u32 kUpdateGenerationLegacyRecordBytes = 768;
 inline constexpr u32 kUpdateGenerationMaximumRootCharacters = 511;
 inline constexpr u32 kUpdateGenerationMaximumAncestors = 32;
 inline constexpr u32 kUpdateGenerationMaximumRootEntries = 16;
@@ -105,6 +108,7 @@ struct UpdateGenerationTransaction {
     u8 publisher_inventory_sha256[32];
     UpdateGenerationState state;
     bool record_present;
+    bool record_legacy; // install.state on disk is still the v2 record
     bool provisioning_admitted; // set only by a successful missing-journal begin
     HANDLE record_owner; // failed write/flush/close/disposal remains retryable
     bool record_temporary;

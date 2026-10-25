@@ -69,6 +69,7 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_generation(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_generation_authentication(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_generation_failures(void (*check)(bool, const char*) noexcept) noexcept;
+void test_update_generation_legacy(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_install(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_update_startup(void (*check)(bool, const char*) noexcept) noexcept;
@@ -201,6 +202,7 @@ constexpr ExtensionFixture extension_fixtures[]{
     test_update_generation,
     test_update_generation_authentication,
     test_update_generation_failures,
+    test_update_generation_legacy,
     test_update_install,
     test_update_signed_handoff,
     test_application_update_startup,
@@ -379,8 +381,8 @@ constexpr ExtensionFixture extension_fixtures[]{
 };
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;
-constexpr u32 kUpdateFixtureCount = 12;
-static_assert(kExtensionFixtureCount == 172);
+constexpr u32 kUpdateFixtureCount = 13;
+static_assert(kExtensionFixtureCount == 173);
 static_assert(extension_fixtures[0] == test_update_manifest &&
               extension_fixtures[kUpdateFixtureCount - 1] == test_application_update_startup &&
               extension_fixtures[kUpdateFixtureCount] == test_desktop_integration);
@@ -395,7 +397,7 @@ constexpr u32 shard_fixture_count(u32 shard) noexcept {
         count += fixture_shard(index) == shard;
     return count;
 }
-static_assert(shard_fixture_count(0) == 52 && shard_fixture_count(1) == 40 &&
+static_assert(shard_fixture_count(0) == 53 && shard_fixture_count(1) == 40 &&
               shard_fixture_count(2) == 40 && shard_fixture_count(3) == 40);
 static_assert(shard_fixture_count(0) + shard_fixture_count(1) + shard_fixture_count(2) +
                   shard_fixture_count(3) == kExtensionFixtureCount);

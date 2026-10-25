@@ -13,6 +13,10 @@ namespace maicord {
 inline constexpr u32 kUpdateProtocol = 2;
 inline constexpr Utf8View kUpdateProtocolDirectory = utf8_literal("/updates/p2/");
 inline constexpr Utf8View kUpdateArtifactPrefix = utf8_literal("MaiCord-x64-p2-");
+// Releases up to 0.4.x installed protocol-1 offers ("MaiCord-x64-<version>.zip").
+// Only installed generations are still verified under it; offers never are.
+inline constexpr u32 kUpdateLegacyProtocol = 1;
+inline constexpr Utf8View kUpdateLegacyArtifactPrefix = utf8_literal("MaiCord-x64-");
 inline constexpr u32 kUpdateManifestMaximumBytes = 4096;
 inline constexpr u32 kUpdateArtifactNameCapacity = 64;
 // Sign this prefix followed by the UTF-8 document bytes, with SHA-256
@@ -48,6 +52,7 @@ struct UpdateManifest {
     char artifact_name[kUpdateArtifactNameCapacity];
     u32 artifact_name_bytes;
     UpdateChannel channel;
+    u8 protocol; // the document's format
 };
 
 // Verification gate only: no network, unpacking, installation or restart.
@@ -70,6 +75,12 @@ UpdateManifestResult update_manifest_verify(Utf8View document, ConstSlice<u8> si
 // acceptance state. Recovery must also verify the retained package and
 // both installed members against this snapshot. Output is unchanged on failure.
 UpdateManifestResult update_manifest_verify_installed(Utf8View document, ConstSlice<u8> signature,
+    const P256Key& trusted_key, KdfSha256Workspace& workspace,
+    u64 maximum_artifact_bytes, u64 maximum_validity_seconds,
+    Slice<u32> structural_scratch, UpdateManifest* output) noexcept;
+// update_manifest_verify_installed that also accepts the protocol-1 schema of
+// generations installed by releases up to 0.4.x; output.protocol says which.
+UpdateManifestResult update_manifest_verify_generation(Utf8View document, ConstSlice<u8> signature,
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
     u64 maximum_artifact_bytes, u64 maximum_validity_seconds,
     Slice<u32> structural_scratch, UpdateManifest* output) noexcept;

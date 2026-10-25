@@ -742,7 +742,7 @@ bool temporary_root(Temp* t) noexcept {
     return true;
 }
 void remove_root(const Temp& t) noexcept { wchar_t path[MAX_PATH]{}; const u32 n = length(t.root); copy_bytes(path, t.root, (n + 1) * sizeof(wchar_t)); remove_tree(path, n); }
-constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999;
+constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999, kV8 = 4999;
 constexpr char pages_manifest[] = "/repo/updates/p2/maicord-stable.manifest.json";
 constexpr char pages_current[] = "/repo/updates/current.json";
 constexpr char pages_signature[] = "/repo/updates/p2/maicord-stable.manifest.json.sig";
@@ -1147,6 +1147,147 @@ void test_preview_replay() noexcept {
     check(false, "preview replay: build must supply the built EXE fixture path");
 #endif
 }
+// A 0.4.x installation as that release left it: enrollment, acceptance, a v2
+// journal and a protocol-1 MaiCord.exe/MaiCordAccount.dll generation, opened
+// by a current dispatcher older than that generation. It inspects, verifies
+// and selects the old pair, installs the next release, writes v3, never offers
+// the old pair as a rollback target and disposes it with the next update.
+void test_legacy_service() noexcept {
+    KdfSha256Workspace workspace{}; P256Key signer{}, key{};
+    char key_hex[130]{}; u8 point[65]{}, inventory[32]{};
+    const bool keys = kdf_sha256_initialize(&workspace).ok() && p256_generate(&signer, P256Kind::ecdsa).ok() && hex_key(signer, key_hex) &&
+        p256_export_public(signer, {point, 65}).ok() && p256_import_public(&key, P256Kind::ecdsa, {point, 65}).ok() &&
+        update_generation_inventory_fingerprint(key, workspace, {inventory, 32}).ok();
+    struct Keys { KdfSha256Workspace& w; P256Key& a; P256Key& b; ~Keys() noexcept { p256_release(&a); p256_release(&b); kdf_sha256_release(&w); } }
+        key_owner{workspace, signer, key};
+    check(keys, "legacy service: throwaway publisher key and its enrolled inventory"); if (!keys) return;
+    static Temp t{};
+    UpdatePaths paths{};
+    const bool dirs = temporary_root(&t) && update_paths_build({t.base, length(t.base)}, &paths) && CreateDirectoryW(t.base, nullptr) &&
+        CreateDirectoryW(paths.root, nullptr) && CreateDirectoryW(paths.work, nullptr);
+    struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
+    check(dirs, "legacy service: isolated profile with the 0.4.x updates layout"); if (!dirs) return;
+
+    // Synthetic never-executed images: the old pair, and the next release's
+    // single executable.
+    u8 exe[kNativeImageBytes]{}, dll[kNativeImageBytes]{};
+    native_image(exe, false); native_image(dll, true);
+    const bool images = write_file(t.root, L"image.exe", exe, kNativeImageBytes) && write_file(t.root, L"image.dll", dll, kNativeImageBytes);
+    wchar_t exe_path[MAX_PATH]{}, dll_path[MAX_PATH]{}, legacy_zip[MAX_PATH]{};
+    child(t.root, L"image.exe", exe_path); child(t.root, L"image.dll", dll_path); child(t.root, L"legacy.zip", legacy_zip);
+    HANDLE legacy_file = nullptr, package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr;
+    u64 legacy_bytes = 0, package_bytes = 0; u8 legacy_digest[32]{}, digest[32]{};
+    const wchar_t* pair_paths[]{exe_path, dll_path}; const char* pair_names[]{"MaiCord.exe", "MaiCordAccount.dll"};
+    bool packaged = images && package(legacy_zip, pair_paths, pair_names, 2, &legacy_file, sources, &legacy_bytes, legacy_digest, &hash);
+    for (auto& h : sources) close(&h);
+    packaged = packaged && package(t.package, pair_paths, pair_names, 1, &package_file, sources, &package_bytes, digest, &hash);
+    for (auto& h : sources) close(&h);
+    struct Files { HANDLE& a; HANDLE& b; ~Files() noexcept { close(&a); close(&b); } } file_owner{legacy_file, package_file};
+    check(packaged, "legacy service: a stored protocol-1 pair and a current single-executable package"); if (!packaged) return;
+
+    // The 0.4.x state: offer, generation files, enrollment, acceptance, v2 journal.
+    char legacy_document[512]{}, documents[2][512]{}; u8 legacy_signature[64]{}, signatures[2][64]{};
+    u8 document_digest[32]{}, exe_digest[32]{}, dll_digest[32]{};
+    const Utf8View legacy_text = manifest(legacy_document, legacy_bytes, legacy_digest, kV6, kUpdateLegacyProtocol);
+    const ConstSlice<u8> document_parts[]{{reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},
+        {reinterpret_cast<const u8*>(legacy_text.data), legacy_text.bytes}};
+    const ConstSlice<u8> exe_part[]{{exe, kNativeImageBytes}}, dll_part[]{{dll, kNativeImageBytes}};
+    const Utf8View v7 = manifest(documents[0], package_bytes, digest, kV7), v8 = manifest(documents[1], package_bytes, digest, kV8);
+    const bool signed_all = sign(legacy_text, signer, workspace, legacy_signature) && sign(v7, signer, workspace, signatures[0]) &&
+        sign(v8, signer, workspace, signatures[1]) && sha256(workspace, {document_parts, 2}, {document_digest, 32}).ok() &&
+        sha256(workspace, {exe_part, 1}, {exe_digest, 32}).ok() && sha256(workspace, {dll_part, 1}, {dll_digest, 32}).ok();
+    const auto pair = legacy_pair(kV6, legacy_bytes, document_digest, legacy_digest, kNativeImageBytes, exe_digest, kNativeImageBytes, dll_digest);
+    wchar_t generation[MAX_PATH]{}, generation_name[67]{}, legacy_zip_copy[MAX_PATH]{};
+    constexpr wchar_t hex[] = L"0123456789abcdef"; generation_name[0] = L'g'; generation_name[1] = L'-';
+    for (u32 i = 0; i < 32; ++i) { generation_name[2 + i * 2] = hex[document_digest[i] >> 4]; generation_name[3 + i * 2] = hex[document_digest[i] & 15]; }
+    child(paths.root, generation_name, generation); child(generation, L"package.zip", legacy_zip_copy);
+    HANDLE copied = INVALID_HANDLE_VALUE;
+    bool laid_out = signed_all && CreateDirectoryW(generation, nullptr) &&
+        write_file(generation, L"offer.json", legacy_text.data, legacy_text.bytes) && write_file(generation, L"offer.sig", legacy_signature, 64) &&
+        write_file(generation, L"MaiCord.exe", exe, kNativeImageBytes) && write_file(generation, L"MaiCordAccount.dll", dll, kNativeImageBytes);
+    if (laid_out) copied = CreateFileW(legacy_zip_copy, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    laid_out = laid_out && copied != INVALID_HANDLE_VALUE && copy(legacy_file, copied, legacy_bytes) && FlushFileBuffers(copied);
+    if (copied != INVALID_HANDLE_VALUE) CloseHandle(copied);
+    u8 enrollment[64]{}; copy_bytes(enrollment, "MCUPENR1", 8); enrollment[16] = 0x5a; enrollment[31] = 0xa5; copy_bytes(enrollment + 32, inventory, 32);
+    UpdateAcceptanceState accepted{}; accepted.channels[0] = {kV6, {}, true}; copy_bytes(accepted.channels[0].manifest_sha256, document_digest, 32);
+    u8 acceptance[kUpdateAcceptanceRecordBytes]{};
+    UpdateGenerationState v2{}; copy_bytes(v2.installation.bytes, enrollment + 16, 16); v2.sequence = 1; v2.active = {pair, true};
+    u8 journal[kUpdateGenerationLegacyRecordBytes]{}; legacy_record(v2, 135, journal);
+    wchar_t updates[MAX_PATH]{}; copy_bytes(updates, t.base, (length(t.base) + 1) * sizeof(wchar_t));
+    laid_out = laid_out && update_acceptance_encode(accepted, {acceptance, sizeof(acceptance)}).ok() &&
+        write_file(updates, L"enrollment.bin", enrollment, 64) && write_file(paths.work, L"acceptance.bin", acceptance, sizeof(acceptance)) &&
+        write_file(paths.root, L"install.state", journal, sizeof(journal));
+    check(laid_out, "legacy service: the 0.4.x enrollment, acceptance, v2 journal and five-file generation are on disk"); if (!laid_out) return;
+
+    UpdateServiceConfig config{};
+    static UpdateService service{};
+    const bool configured = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV5, &config) &&
+        update_service_initialize(&service, config, paths) == UpdateServiceError::none;
+    struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
+    check(configured, "legacy service: a current client older than the installed 0.4.x generation"); if (!configured) return;
+    g_update_log_sink = capture; g_line_count = 0;
+    UpdateInstalledState installed{};
+    check(update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.journal &&
+        installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV6 && !logged("open_failed"),
+        "legacy service: a 768-byte install.state no longer fails every check with a size error");
+
+    wchar_t module[MAX_PATH]{}; child(service.paths.root, generation_name, module); child(module, L"MaiCord.exe", module);
+    UpdateHandoffChild handoff{};
+    check(update_service_child_open(config, paths, {module, length(module)}, {L"x", 1}, &handoff) == UpdateServiceError::launch && !handoff.parent,
+        "legacy service: a child of the 0.4.x generation passes journal and signed-package checks before the handoff command");
+    update_handoff_child_release(&handoff);
+    bool selected = update_service_open(&service, false) == UpdateServiceError::none && service.transaction.record_legacy &&
+        update_install_select_package(&service.install, &service.package).ok() && service.package.descriptor.member_count == 2 &&
+        service.package.files[0] && service.package.files[1] && update_package_descriptor_equal(service.package.descriptor, pair);
+    update_service_close(&service);
+    check(selected, "legacy service: the dispatcher authenticates and pins the 0.4.x pair while the journal is v2");
+
+    static UpdateLocation location7{}, location8{};
+    static char target7[96]{}, target8[96]{};
+    const bool located = update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV7, &location7) &&
+        update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV8, &location8);
+    check(located, "legacy service: release package locations"); if (!located) return;
+    copy_bytes(target7, location7.target, location7.target_bytes); copy_bytes(target8, location8.target, location8.target_bytes);
+    static Fake fake{};
+    const auto serve = [&](const Utf8View& document, const u8* signature, const char* target) noexcept {
+        fake = {}; fake.origin = "owner.github.io";
+        fake.routes[fake.count++] = route(UpdateHost::pages, pages_manifest, 200, nullptr, document.data, document.bytes);
+        fake.routes[fake.count++] = route(UpdateHost::pages, pages_signature, 200, nullptr, signature, 64);
+        fake.routes[fake.count++] = route(UpdateHost::github, target, 302, "https://release-assets.githubusercontent.com/package?sig=3");
+        fake.routes[fake.count] = route(UpdateHost::release_assets, "/package?sig=3", 200);
+        fake.routes[fake.count].file = package_file; fake.routes[fake.count++].body_bytes = package_bytes;
+    };
+    const UpdateTransport transport{&fake, fake_get};
+    serve(v7, signatures[0], target7);
+    auto r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    HANDLE journal_file = CreateFileW(paths.journal, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    LARGE_INTEGER journal_size{};
+    const bool rewritten = journal_file != INVALID_HANDLE_VALUE && GetFileSizeEx(journal_file, &journal_size) && journal_size.QuadPart == kUpdateGenerationRecordBytes;
+    if (journal_file != INVALID_HANDLE_VALUE) CloseHandle(journal_file);
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && rewritten && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
+        installed.phase == UpdateGenerationPhase::prepared && installed.active_version == kV6 && installed.candidate_version == kV7,
+        "legacy service: the next release prepares beside the authenticated 0.4.x pair and the journal is rewritten as v3");
+    UpdateGenerationLaunchAdmission admission{};
+    bool acknowledged = update_service_open(&service, false) == UpdateServiceError::none &&
+        update_install_activate(&service.install).ok() && update_install_activation_admission(&service.install, &admission).ok();
+    if (acknowledged) {
+        u8 document[32]{}; copy_bytes(document, service.transaction.state.active.package.document_sha256, 32);
+        acknowledged = update_install_acknowledge(&service.install, service.transaction.state.transaction, {document, 32}).ok() &&
+            update_install_recover(&service.install).ok() && service.transaction.state.previous.present &&
+            update_package_descriptor_legacy(service.transaction.state.previous.package);
+    }
+    update_service_close(&service);
+    check(acknowledged && update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.phase == UpdateGenerationPhase::stable &&
+        installed.active_version == kV7 && !installed.previous_version && update_service_revert(&service) == UpdateServiceError::state,
+        "legacy service: once confirmed, the retained 0.4.x pair is not offered as a rollback target, which it could not start from");
+    serve(v8, signatures[1], target8);
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV8 && GetFileAttributesW(generation) == INVALID_FILE_ATTRIBUTES &&
+        update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.phase == UpdateGenerationPhase::prepared &&
+        installed.active_version == kV7 && installed.candidate_version == kV8 && !fake.wrong_host,
+        "legacy service: the following update disposes the 0.4.x generation and its five files");
+    g_update_log_sink = nullptr;
+}
 // The caption's update badge: when it shows, what a click does, its progress.
 void test_caption_badge() noexcept {
     using app_detail::application_update_badge;
@@ -1236,6 +1377,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_check_schedule();
     maicord::test_interval_store();
     maicord::test_service();
+    maicord::test_legacy_service();
     maicord::test_preview_replay();
     maicord::test_replay();
     ExitProcess(maicord::failures ? 1 : 0);

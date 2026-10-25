@@ -11,6 +11,9 @@ inline constexpr u64 kUpdatePackageMaximumBytes = 0xfffffffeull;
 inline constexpr u32 kUpdatePackageMaximumMembers = 4;
 inline constexpr u32 kUpdatePackageMaximumNameBytes = 32;
 inline constexpr Utf8View kUpdatePackageExecutable = utf8_literal("MaiCord.exe");
+// A protocol-1 package is exactly MaiCord.exe then this library; a current
+// package never carries a member of this name.
+inline constexpr Utf8View kUpdatePackageLegacyLibrary = utf8_literal("MaiCordAccount.dll");
 
 struct UpdatePackageMember {
     u64 bytes;
@@ -40,6 +43,8 @@ bool update_package_descriptor_equal(const UpdatePackageDescriptor&, const Updat
 // Every field in range, member names valid and distinct, members[0] the
 // executable and unused members zero; a zero descriptor is not valid.
 bool update_package_descriptor_valid(const UpdatePackageDescriptor&) noexcept;
+// A generation installed from a protocol-1 package by a release up to 0.4.x.
+bool update_package_descriptor_legacy(const UpdatePackageDescriptor&) noexcept;
 
 // The generation coordinator holds every protected ancestor and the
 // exclusive candidate directory. Callbacks must not create directories or choose
@@ -95,7 +100,7 @@ UpdatePackageResult update_package_extract(UpdateStage* stage,
 // Recovery authenticates the installed signed offer without network freshness
 // or installed-version floor, then derives the package descriptor anew and compares
 // every installed member's bytes/PE, given in member order. Does not promote
-// supplied descriptors. Requires protected enrollment/provenance storage and
+// supplied descriptors. A protocol-1 offer must describe the legacy pair. Requires protected enrollment/provenance storage and
 // retained generation paths.
 UpdatePackageResult update_package_verify_installed(UpdateStage* stage,
     const UpdatePackageOffer& offer, const P256Key& key, KdfSha256Workspace& workspace,

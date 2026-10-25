@@ -15,24 +15,8 @@ u32 crc32(const u8* data, u32 count) noexcept {
 }
 // Generated PE format fixtures, never executed/loaded. Real shipping startup
 // admission is separately covered by root's built MaiCord integration.
-constexpr u32 kImageBytes = 1024;
-u32 pe(u8* out, bool dll) noexcept {
-    SecureZeroMemory(out, kImageBytes);
-    put16(out, 0x5a4d); put32(out + 60, 128);
-    u8* nt = out + 128; put32(nt, 0x00004550); put16(nt + 4, 0x8664);
-    put16(nt + 6, 1); put16(nt + 20, 240); put16(nt + 22, dll ? 0x2022 : 0x22);
-    u8* opt = nt + 24; put16(opt, 0x20b); opt[2] = 14;
-    put32(opt + 4, 512); put32(opt + 16, 4096); put32(opt + 20, 4096);
-    put32(opt + 24, 0x400000); put32(opt + 32, 4096); put32(opt + 36, 512);
-    put16(opt + 40, 6); put16(opt + 48, 6); put32(opt + 56, 8192);
-    put32(opt + 60, 512); put16(opt + 68, 3); put16(opt + 70, 0x100);
-    put32(opt + 72, 1048576); put32(opt + 80, 4096); put32(opt + 88, 1048576); put32(opt + 96, 4096);
-    put32(opt + 108, 16);
-    u8* sec = nt + 264; copy_bytes(sec, ".text", 5); put32(sec + 8, 6); put32(sec + 12, 4096);
-    put32(sec + 16, 512); put32(sec + 20, 512); put32(sec + 36, 0x60000020);
-    out[512] = 0xb8; out[513] = 1; out[517] = 0xc3;
-    return kImageBytes;
-}
+constexpr u32 kImageBytes = signed_update_fixture::kNativeImageBytes;
+u32 pe(u8* out, bool dll) noexcept { return signed_update_fixture::native_image(out, dll); }
 // The launch target, a library and a data file; names of equal length so a
 // mutation can rename one member in place.
 constexpr u32 kMembers = 3, kNotesBytes = 64;

@@ -130,6 +130,56 @@ bool get_disposal(const u8* b, UpdateGenerationDisposalIntent* d) noexcept {
     }
     return valid_disposal(*d);
 }
+// v2, written by releases up to 0.4.x: a 64-byte header, three 176-byte
+// MaiCord.exe/MaiCordAccount.dll pair references, the disposal intent at 592
+// with its five files in the order exe, dll, offer, signature, package, and the
+// checksum in the last 8 bytes.
+constexpr u8 legacy_magic[8]{'M','A','I','G','E','N','0','2'};
+constexpr u32 legacy_reference_bytes = 176, legacy_disposal_offset = 592,
+    legacy_checksum_offset = kUpdateGenerationLegacyRecordBytes - 8;
+constexpr u32 legacy_slots[5]{kUpdateGenerationFirstMemberSlot, kUpdateGenerationFirstMemberSlot + 1,
+    kUpdateGenerationOfferSlot, kUpdateGenerationSignatureSlot, kUpdateGenerationPackageSlot};
+// The v2 pair becomes the two-member package it installed; the DLL's export
+// ordinal is dropped, its bytes stay bound by the member digest.
+bool get_legacy_reference(const u8* b, UpdateGenerationReference* r) noexcept {
+    if (b[163] > 1 || !bytes_zero(b + 164, 12)) return false;
+    if (!b[163]) return bytes_zero(b, legacy_reference_bytes);
+    if (!b[161] && !b[162]) return false;
+    auto& p = r->package;
+    p.version = byte_load_le64(b); p.package_bytes = byte_load_le64(b + 8);
+    copy_bytes(p.document_sha256, b + 16, 32); copy_bytes(p.package_sha256, b + 48, 32);
+    p.channel = static_cast<UpdateChannel>(b[160]); p.member_count = 2;
+    const Utf8View names[2]{kUpdatePackageExecutable, kUpdatePackageLegacyLibrary};
+    for (u32 i = 0; i < 2; ++i) {
+        auto& m = p.members[i];
+        m.bytes = byte_load_le64(b + 80 + i * 40); copy_bytes(m.sha256, b + 88 + i * 40, 32);
+        copy_bytes(m.name, names[i].data, names[i].bytes); m.name_bytes = static_cast<u8>(names[i].bytes);
+    }
+    r->present = true;
+    return update_package_descriptor_valid(p);
+}
+bool get_legacy_disposal(const u8* b, UpdateGenerationDisposalIntent* d) noexcept {
+    if (!bytes_zero(b + 1, 7) || !bytes_zero(b + 12, 4) || !bytes_zero(b + 104, 64)) return false;
+    d->target = static_cast<UpdateGenerationDisposalTarget>(b[0]);
+    d->file_count = d->target == UpdateGenerationDisposalTarget::none ? 0 : 5;
+    d->directory = {byte_load_le32(b + 8), byte_load_le64(b + 16)};
+    for (u32 i = 0; i < 5; ++i) {
+        if (!bytes_zero(b + 28 + i * 16, 4)) return false;
+        d->files[legacy_slots[i]] = {byte_load_le32(b + 24 + i * 16), byte_load_le64(b + 32 + i * 16)};
+    }
+    return valid_disposal(*d);
+}
+UpdateGenerationResult decode_legacy(const u8* b, UpdateGenerationState* output) noexcept {
+    if (!bytes_equal(b, legacy_magic, 8) || byte_load_le32(b + 8) != 2 || byte_load_le32(b + 12) != kUpdateGenerationLegacyRecordBytes ||
+        !bytes_zero(b + 57, 7)) return fail(UpdateGenerationError::format);
+    if (byte_load_le64(b + legacy_checksum_offset) != hash64_bytes(kHash64Seed, b, legacy_checksum_offset)) return fail(UpdateGenerationError::checksum);
+    UpdateGenerationState s{}; copy_bytes(s.installation.bytes, b + 16, 16); copy_bytes(s.transaction.bytes, b + 32, 16);
+    s.sequence = byte_load_le64(b + 48); s.phase = static_cast<UpdateGenerationPhase>(b[56]);
+    if (!get_legacy_reference(b + 64, &s.active) || !get_legacy_reference(b + 64 + legacy_reference_bytes, &s.previous) ||
+        !get_legacy_reference(b + 64 + legacy_reference_bytes * 2, &s.candidate) || !get_legacy_disposal(b + legacy_disposal_offset, &s.disposal) ||
+        !valid_state(s)) return fail(UpdateGenerationError::format);
+    copy_value(output, s); return {};
+}
 bool path_valid(ConstSlice<wchar_t> p, u32* ancestors) noexcept {
     if (!p.data || p.count < 4 || p.count > kUpdateGenerationMaximumRootCharacters ||
         ascii_lower(p[0]) < L'a' || ascii_lower(p[0]) > L'z' || p[1] != L':' || p[2] != L'\\') return false;
@@ -301,12 +351,16 @@ UpdateGenerationResult validate_disposal_io(UpdateGenerationTransaction* t, cons
     }
     return update_generation_validate(t);
 }
-UpdateGenerationResult read_state(HANDLE file, UpdateGenerationState* state) noexcept {
+UpdateGenerationResult read_state(HANDLE file, UpdateGenerationState* state, bool* legacy = nullptr) noexcept {
     LARGE_INTEGER size{};
-    if (!GetFileSizeEx(file, &size) || size.QuadPart != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size, GetLastError());
+    if (!GetFileSizeEx(file, &size) || (size.QuadPart != kUpdateGenerationRecordBytes && size.QuadPart != kUpdateGenerationLegacyRecordBytes))
+        return fail(UpdateGenerationError::size, GetLastError());
+    const u32 bytes = static_cast<u32>(size.QuadPart);
     u8 record[kUpdateGenerationRecordBytes]{}; u32 native = 0;
-    if (!file_persistence_read_complete(file, {record, sizeof(record)}, &native)) return fail(UpdateGenerationError::read, native);
-    return update_generation_decode({record, sizeof(record)}, state);
+    if (!file_persistence_read_complete(file, {record, bytes}, &native)) return fail(UpdateGenerationError::read, native);
+    const auto result = update_generation_decode({record, bytes}, state);
+    if (result.ok() && legacy) *legacy = bytes == kUpdateGenerationLegacyRecordBytes;
+    return result;
 }
 // Authenticates the launchable packages of a proposed journal and the disposal target it begins or finishes.
 UpdateGenerationResult authenticate_transition(UpdateGenerationTransaction* t, const UpdateGenerationState& proposed,
@@ -360,6 +414,7 @@ UpdateGenerationResult update_generation_encode(const UpdateGenerationState& s, 
 }
 UpdateGenerationResult update_generation_decode(ConstSlice<u8> b, UpdateGenerationState* output) noexcept {
     if (!output || !b.data || byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)}, b)) return fail(UpdateGenerationError::invalid_input);
+    if (b.count == kUpdateGenerationLegacyRecordBytes) return decode_legacy(b.data, output);
     if (b.count != kUpdateGenerationRecordBytes) return fail(UpdateGenerationError::size);
     if (!bytes_equal(b.data, magic, 8) || byte_load_le32(b.data + 8) != kUpdateGenerationRecordVersion || byte_load_le32(b.data + 12) != b.count ||
         !bytes_zero(b.data + 57, 7) || !bytes_zero(b.data + disposal_offset + disposal_bytes, checksum_offset - disposal_offset - disposal_bytes))
@@ -438,7 +493,7 @@ UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment&
     if (!t || t->gate || t->ancestor_count || t->record_owner || t->record_temporary || t->validation_owner || t->inventory_owner || !e.explicitly_enrolled ||
         bytes_zero(e.installation.bytes, 16) || bytes_zero(e.publisher_inventory_sha256, 32)) return fail(UpdateGenerationError::enrollment);
     if (!path_valid(e.root, &count) || !e.ancestors.data || e.ancestors.count != count) return fail(UpdateGenerationError::path);
-    reset_value(&t->state); t->record_present = false; t->provisioning_admitted = false;
+    reset_value(&t->state); t->record_present = false; t->record_legacy = false; t->provisioning_admitted = false;
     wchar_t drive[4]{e.root[0], L':', L'\\', 0};
     if (GetDriveTypeW(drive) != DRIVE_FIXED) return fail(UpdateGenerationError::path, ERROR_NOT_SUPPORTED);
     t->root_characters = e.root.count; for (u32 i = 0; i < e.root.count; ++i) t->root[i] = e.root[i]; t->root[e.root.count] = 0;
@@ -475,10 +530,11 @@ UpdateGenerationResult update_generation_begin(const UpdateGenerationEnrollment&
         return fail(UpdateGenerationError::open, native);
     }
     if (!file_valid(t->record_owner)) return fail(UpdateGenerationError::file, GetLastError());
-    UpdateGenerationState state{}; auto result = read_state(t->record_owner, &state); if (!result.ok()) return result;
+    UpdateGenerationState state{}; bool legacy = false;
+    auto result = read_state(t->record_owner, &state, &legacy); if (!result.ok()) return result;
     if (!identity(state.installation, t->installation)) return fail(UpdateGenerationError::identity);
     if (!CloseHandle(t->record_owner)) return fail(UpdateGenerationError::release, GetLastError());
-    t->record_owner = nullptr; t->state = state; t->record_present = true; return update_generation_validate(t);
+    t->record_owner = nullptr; t->state = state; t->record_present = true; t->record_legacy = legacy; return update_generation_validate(t);
 }
 UpdateGenerationResult update_generation_validate(UpdateGenerationTransaction* t) noexcept {
     u32 count = 0;
@@ -556,7 +612,7 @@ UpdateGenerationResult update_generation_commit(UpdateGenerationTransaction* t, 
     t->record_owner = nullptr;
     result = update_generation_validate(t); if (!result.ok()) return result;
     if (!MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return fail(UpdateGenerationError::commit, GetLastError());
-    t->record_temporary = false; t->state = proposed; t->record_present = true; t->provisioning_admitted = false; return {};
+    t->record_temporary = false; t->state = proposed; t->record_present = true; t->record_legacy = false; t->provisioning_admitted = false; return {};
 }
 UpdateGenerationResult update_generation_select(UpdateGenerationTransaction* t, const UpdateGenerationAuthenticator& a, UpdatePackageDescriptor* out) noexcept {
     auto result = update_generation_validate(t); if (!result.ok()) return result;

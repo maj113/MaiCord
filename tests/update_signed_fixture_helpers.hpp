@@ -3,6 +3,9 @@
 // authorizes production. The public point is the fixture scalar-one signer.
 #include "maicord/app/update_install.hpp"
 #include "test_output.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 
 namespace maicord::signed_update_fixture {
@@ -41,6 +44,26 @@ inline bool copy(HANDLE source, HANDLE destination, u64 bytes) noexcept {
 }
 inline void put16(u8* p, u16 v) noexcept { p[0] = static_cast<u8>(v); p[1] = static_cast<u8>(v >> 8); }
 inline void put32(u8* p, u32 v) noexcept { put16(p, static_cast<u16>(v)); put16(p + 2, static_cast<u16>(v >> 16)); }
+// Generated, never-executed AMD64 image of kNativeImageBytes: one .text section
+// holding a two-instruction entry point.
+inline constexpr u32 kNativeImageBytes = 1024;
+inline u32 native_image(u8* out, bool dll) noexcept {
+    SecureZeroMemory(out, kNativeImageBytes);
+    put16(out, 0x5a4d); put32(out + 60, 128);
+    u8* nt = out + 128; put32(nt, 0x00004550); put16(nt + 4, 0x8664);
+    put16(nt + 6, 1); put16(nt + 20, 240); put16(nt + 22, dll ? 0x2022 : 0x22);
+    u8* opt = nt + 24; put16(opt, 0x20b); opt[2] = 14;
+    put32(opt + 4, 512); put32(opt + 16, 4096); put32(opt + 20, 4096);
+    put32(opt + 24, 0x400000); put32(opt + 32, 4096); put32(opt + 36, 512);
+    put16(opt + 40, 6); put16(opt + 48, 6); put32(opt + 56, 8192);
+    put32(opt + 60, 512); put16(opt + 68, 3); put16(opt + 70, 0x100);
+    put32(opt + 72, 1048576); put32(opt + 80, 4096); put32(opt + 88, 1048576); put32(opt + 96, 4096);
+    put32(opt + 108, 16);
+    u8* sec = nt + 264; copy_bytes(sec, ".text", 5); put32(sec + 8, 6); put32(sec + 12, 4096);
+    put32(sec + 16, 512); put32(sec + 20, 512); put32(sec + 36, 0x60000020);
+    out[512] = 0xb8; out[513] = 1; out[517] = 0xc3;
+    return kNativeImageBytes;
+}
 inline u32 crc(u32 value, const u8* p, u32 bytes) noexcept {
     // Byte-table IEEE CRC-32; identical to the bitwise definition, which
     // dominated these multi-megabyte package fixtures.
@@ -122,13 +145,54 @@ inline u32 decimal(char* out, u64 value) noexcept {
     char reverse[20]{}; u32 n = 0; do { reverse[n++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
     for (u32 i = 0; i < n; ++i) out[i] = reverse[n - i - 1]; return n;
 }
-inline Utf8View manifest(char* out, u64 bytes, const u8* digest, u64 version) noexcept {
+// kUpdateLegacyProtocol gives the offer schema releases up to 0.4.x installed.
+inline Utf8View manifest(char* out, u64 bytes, const u8* digest, u64 version, u32 protocol = kUpdateProtocol) noexcept {
     u32 n = 0; auto add = [&](Utf8View text) noexcept { copy_bytes(out + n, text.data, text.bytes); n += text.bytes; };
-    add(utf8_literal(R"({"format":)")); n += decimal(out + n, kUpdateProtocol);
+    add(utf8_literal(R"({"format":)")); n += decimal(out + n, protocol);
     add(utf8_literal(R"(,"product":"MaiCord","arch":"x64","channel":"stable","version":)")); n += decimal(out + n, version);
     add(utf8_literal(R"(,"issued":90,"expires":200,"bytes":)")); n += decimal(out + n, bytes); add(utf8_literal(R"(,"sha256":")")); constexpr char digits[] = "0123456789abcdef";
     for (u32 i = 0; i < 32; ++i) { out[n++] = digits[digest[i] >> 4]; out[n++] = digits[digest[i] & 15]; }
-    add(utf8_literal(R"(","artifact":")")); add(kUpdateArtifactPrefix); n += decimal(out + n, version); add(utf8_literal(R"(.zip"})")); return {out,n};
+    add(utf8_literal(R"(","artifact":")")); add(protocol == kUpdateProtocol ? kUpdateArtifactPrefix : kUpdateLegacyArtifactPrefix);
+    n += decimal(out + n, version); add(utf8_literal(R"(.zip"})")); return {out,n};
+}
+// The 768-byte v2 journal record exactly as releases up to 0.4.x encoded it,
+// from a state whose references are MaiCord.exe/MaiCordAccount.dll pairs. Pair
+// references carry the account DLL's export ordinal; the disposal intent lists
+// its files as exe, dll, offer, signature, package.
+inline void legacy_record(const UpdateGenerationState& s, u16 ordinal, u8* b) noexcept {
+    clear_bytes(b, kUpdateGenerationLegacyRecordBytes);
+    copy_bytes(b, "MAIGEN02", 8); byte_store_le32(b + 8, 2); byte_store_le32(b + 12, kUpdateGenerationLegacyRecordBytes);
+    copy_bytes(b + 16, s.installation.bytes, 16); copy_bytes(b + 32, s.transaction.bytes, 16);
+    byte_store_le64(b + 48, s.sequence); b[56] = static_cast<u8>(s.phase);
+    const UpdateGenerationReference* references[]{&s.active, &s.previous, &s.candidate};
+    for (u32 i = 0; i < 3; ++i) if (references[i]->present) {
+        const auto& p = references[i]->package; u8* r = b + 64 + i * 176;
+        byte_store_le64(r, p.version); byte_store_le64(r + 8, p.package_bytes);
+        copy_bytes(r + 16, p.document_sha256, 32); copy_bytes(r + 48, p.package_sha256, 32);
+        for (u32 m = 0; m < 2; ++m) { byte_store_le64(r + 80 + m * 40, p.members[m].bytes); copy_bytes(r + 88 + m * 40, p.members[m].sha256, 32); }
+        r[160] = static_cast<u8>(p.channel); r[161] = static_cast<u8>(ordinal); r[162] = static_cast<u8>(ordinal >> 8); r[163] = 1;
+    }
+    u8* d = b + 592; d[0] = static_cast<u8>(s.disposal.target);
+    byte_store_le32(d + 8, s.disposal.directory.volume); byte_store_le64(d + 16, s.disposal.directory.file);
+    constexpr u32 slots[5]{kUpdateGenerationFirstMemberSlot, kUpdateGenerationFirstMemberSlot + 1,
+        kUpdateGenerationOfferSlot, kUpdateGenerationSignatureSlot, kUpdateGenerationPackageSlot};
+    for (u32 i = 0; i < 5; ++i) {
+        byte_store_le32(d + 24 + i * 16, s.disposal.files[slots[i]].volume); byte_store_le64(d + 32 + i * 16, s.disposal.files[slots[i]].file);
+    }
+    byte_store_le64(b + 760, hash64_bytes(kHash64Seed, b, 760));
+}
+// The migrated form of a v2 pair: MaiCord.exe then MaiCordAccount.dll.
+inline UpdatePackageDescriptor legacy_pair(u64 version, u64 package_bytes, const u8* document, const u8* package,
+    u64 executable_bytes, const u8* executable, u64 library_bytes, const u8* library) noexcept {
+    UpdatePackageDescriptor p{}; p.version = version; p.package_bytes = package_bytes; p.member_count = 2;
+    copy_bytes(p.document_sha256, document, 32); copy_bytes(p.package_sha256, package, 32);
+    const Utf8View names[2]{kUpdatePackageExecutable, kUpdatePackageLegacyLibrary};
+    const u64 sizes[2]{executable_bytes, library_bytes}; const u8* digests[2]{executable, library};
+    for (u32 i = 0; i < 2; ++i) {
+        p.members[i].bytes = sizes[i]; copy_bytes(p.members[i].sha256, digests[i], 32);
+        copy_bytes(p.members[i].name, names[i].data, names[i].bytes); p.members[i].name_bytes = static_cast<u8>(names[i].bytes);
+    }
+    return p;
 }
 inline void measurement(const char* name, usize value) noexcept {
     test_write_metric(name, value);

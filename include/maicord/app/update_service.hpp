@@ -110,10 +110,13 @@ void update_service_release(UpdateService*) noexcept;
 // another process holds it). provision admits a missing journal once.
 UpdateServiceError update_service_open(UpdateService*, bool provision) noexcept;
 void update_service_close(UpdateService*) noexcept;
+// A protocol-1 (0.4.x) previous or candidate generation reports version 0:
+// it is never reverted to or activated.
 UpdateServiceError update_service_inspect(UpdateService*, UpdateInstalledState*) noexcept;
 UpdateCheckResult update_service_check(UpdateService*, const UpdateTransport&, UpdateChannel, u64 now_unix) noexcept;
 // Launches the prepared (live activation) or newer/reverted stable package and
-// waits for its startup confirmation. none means the caller should exit.
+// waits for its startup confirmation. none means the caller should exit. A
+// protocol-1 package launches only while the journal is still v2.
 UpdateServiceError update_service_restart(UpdateService*) noexcept;
 // Stable with a retained older previous package: make it active again.
 UpdateServiceError update_service_revert(UpdateService*) noexcept;
