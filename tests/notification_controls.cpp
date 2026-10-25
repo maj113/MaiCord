@@ -188,15 +188,15 @@ void presence_activity(Check check) noexcept {
     const auto written = gateway_write_presence_update({0, GatewayUserStatus::dnd, false, false}, &custom, nullptr,
                                                        {output, sizeof(output)});
     constexpr auto expected = utf8_literal(
-        "{\"op\":3,\"d\":{\"since\":null,\"activities\":[{\"name\":\"Custom Status\",\"type\":4,\"state\":"
-        "\"Busy \\\"now\\\"\",\"timestamps\":{\"end\":9000},\"emoji\":{\"id\":\"42\",\"name\":\"smile\","
-        "\"animated\":false}}],\"status\":\"dnd\",\"afk\":false}}");
+        "{\"op\":3,\"d\":{\"status\":\"dnd\",\"since\":0,\"activities\":[{\"name\":\"Custom Status\",\"type\":4,"
+        "\"state\":\"Busy \\\"now\\\"\",\"timestamps\":{\"end\":9000},\"emoji\":{\"id\":\"42\",\"name\":\"smile\","
+        "\"animated\":false}}],\"afk\":false}}");
     check(written.ok() && equals(reinterpret_cast<const char*>(output), written.bytes, expected),
           "presence: custom status publishes as a type 4 activity");
     const auto plain = gateway_write_presence_update({0, GatewayUserStatus::online, false, false}, nullptr, nullptr,
                                                      {output, sizeof(output)});
     check(plain.ok() && equals(reinterpret_cast<const char*>(output), plain.bytes,
-                               utf8_literal("{\"op\":3,\"d\":{\"since\":null,\"activities\":[],\"status\":\"online\","
+                               utf8_literal("{\"op\":3,\"d\":{\"status\":\"online\",\"since\":0,\"activities\":[],"
                                             "\"afk\":false}}")),
           "presence: without a custom status the activity set stays empty");
     check(!gateway_write_presence_update({0, GatewayUserStatus::dnd, false, false}, &custom, nullptr, {output, 120})

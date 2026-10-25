@@ -59,24 +59,26 @@ GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpd
                                                         const GatewayGameActivity* game,
                                                         Slice<u8> output) noexcept {
     const Utf8View status = gateway_user_status_name(presence.status);
-    if (!status.bytes || !output.data || (presence.has_since && presence.status != GatewayUserStatus::idle) ||
+    if (!status.bytes || !output.data ||
+        (presence.has_since && presence.status == GatewayUserStatus::online) ||
         (game && (!game->name.bytes || !utf8_validate(game->name).valid || !game_type_valid(game->type) ||
                   !utf8_validate(game->details).valid || !utf8_validate(game->state).valid)))
         return {0, GatewayCommandError::invalid_input};
+    // The desktop client's order; since is 0 unless idle.
     ProtocolWriter w{output, 0};
-    bool ok = protocol_writer_append_literal(&w, "{\"op\":3,\"d\":{\"since\":") &&
-              (presence.has_since ? protocol_writer_append_u64(&w, presence.since_ms)
-                                  : protocol_writer_append_literal(&w, "null")) &&
+    bool ok = protocol_writer_append_literal(&w, "{\"op\":3,\"d\":{\"status\":\"") &&
+              protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(status.data), status.bytes) &&
+              protocol_writer_append_literal(&w, "\",\"since\":") &&
+              protocol_writer_append_u64(&w, presence.has_since ? presence.since_ms : 0) &&
               protocol_writer_append_literal(&w, ",\"activities\":[");
     const bool with_custom = custom_present(custom);
     if (with_custom)
         ok = ok && write_custom(&w, *custom);
     if (game)
         ok = ok && (!with_custom || protocol_writer_append_byte(&w, ',')) && write_game(&w, *game);
-    ok = ok && protocol_writer_append_literal(&w, "],\"status\":\"") &&
-         protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(status.data), status.bytes) &&
-         protocol_writer_append_literal(&w, "\",\"afk\":") &&
-         (presence.afk ? protocol_writer_append_literal(&w, "true") : protocol_writer_append_literal(&w, "false")) &&
+    ok = ok && protocol_writer_append_literal(&w, "],\"afk\":") &&
+         (presence.afk ? protocol_writer_append_literal(&w, "true")
+                       : protocol_writer_append_literal(&w, "false")) &&
          protocol_writer_append_literal(&w, "}}");
     if (!ok)
         return {0, GatewayCommandError::output_too_small};
@@ -114,8 +116,7 @@ GatewayPresenceUpdate gateway_presence_effective(const GatewayPresenceUpdate& de
         return desired;
     if (desired.status == GatewayUserStatus::online)
         return {local->idle_since_ms, GatewayUserStatus::idle, true, true};
-    GatewayPresenceUpdate kept = desired;
-    kept.afk = true;
-    return kept;
+    // Other statuses stay chosen but report when the user went idle.
+    return {local->idle_since_ms, desired.status, true, true};
 }
 } // namespace maicord

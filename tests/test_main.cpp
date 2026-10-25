@@ -22820,7 +22820,7 @@ void test_gateway_commands() noexcept {
     const ConstSlice<u8> expected_user_properties = byte_literal(
         R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null})");
     const ConstSlice<u8> expected_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult user_identified =
         gateway_write_user_identify(user_identify, Slice<u8>{output, expected_user_identify.count});
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
@@ -22884,14 +22884,14 @@ void test_gateway_commands() noexcept {
     expect(identify_equal(live_identify,
                           byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
                                        MAICORD_TEST_PROPERTIES_HEAD
-                                       R"(,"client_app_state":"focused","client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
+                                       R"(,"client_app_state":"focused","client_heartbeat_session_id":"ffeeddcc-bbaa-4998-8776-655443322110","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_replaces_app_state_in_place");
     live_identify.properties.client_app_state = {};
     live_identify.properties.client_heartbeat_session_id = {};
     expect(identify_equal(live_identify,
                           byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
                                        MAICORD_TEST_PROPERTIES_HEAD
-                                       R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
+                                       R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_appends_absent_app_state");
 #undef MAICORD_TEST_PROPERTIES_HEAD
     live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0fg");
@@ -22984,7 +22984,7 @@ void test_gateway_commands() noexcept {
     idle_user_identify.has_since = true;
     idle_user_identify.afk = true;
     const ConstSlice<u8> expected_idle_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,"is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"idle","since":987654321,"activities":[],"afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult idle_user_identified = gateway_write_user_identify(
         idle_user_identify, Slice<u8>{output, expected_idle_user_identify.count});
     expect(idle_user_identified.ok() && idle_user_identified.bytes == expected_idle_user_identify.count &&

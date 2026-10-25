@@ -502,11 +502,11 @@ void idle() noexcept {
     const auto manual = gateway_presence_effective({0, GatewayUserStatus::idle, false, false}, &local);
     const auto active = gateway_presence_effective({0, GatewayUserStatus::online, false, false}, nullptr);
     check(online.status == GatewayUserStatus::idle && online.has_since && online.since_ms == 1234 && online.afk &&
-              dnd.status == GatewayUserStatus::dnd && !dnd.has_since && dnd.afk &&
-              invisible.status == GatewayUserStatus::invisible && invisible.afk &&
-              manual.status == GatewayUserStatus::idle && !manual.has_since && manual.afk &&
+              dnd.status == GatewayUserStatus::dnd && dnd.has_since && dnd.since_ms == 1234 && dnd.afk &&
+              invisible.status == GatewayUserStatus::invisible && invisible.since_ms == 1234 && invisible.afk &&
+              manual.status == GatewayUserStatus::idle && manual.has_since && manual.afk &&
               active.status == GatewayUserStatus::online && !active.afk,
-          "idle: automatic idle only replaces online; DND, invisible and manual idle stay chosen");
+          "idle: automatic idle only replaces online; DND, invisible and manual idle stay chosen with since");
 }
 
 void opcode3() noexcept {
@@ -515,28 +515,28 @@ void opcode3() noexcept {
     const GatewayGameActivity game{utf8_literal("Mossrun"), 500000000000000001ull, 1700000000000ull};
     auto w = gateway_write_presence_update({1234, GatewayUserStatus::idle, true, true}, &custom, &game, {out, 1024});
     check(w.ok() && same_bytes(out, w.bytes,
-                               utf8_literal(R"({"op":3,"d":{"since":1234,"activities":[{"name":"Custom Status","type":4,"state":"Away"},{"name":"Mossrun","type":0,"application_id":"500000000000000001","timestamps":{"start":1700000000000}}],"status":"idle","afk":true}})")),
+                               utf8_literal(R"({"op":3,"d":{"status":"idle","since":1234,"activities":[{"name":"Custom Status","type":4,"state":"Away"},{"name":"Mossrun","type":0,"application_id":"500000000000000001","timestamps":{"start":1700000000000}}],"afk":true}})")),
           "op 3: automatic idle with custom status and a shared game");
     const GatewayGameActivity bare{utf8_literal("Terraria"), 0, 0};
     w = gateway_write_presence_update({0, GatewayUserStatus::online, false, false}, nullptr, &bare, {out, 1024});
     check(w.ok() && same_bytes(out, w.bytes,
-                               utf8_literal(R"({"op":3,"d":{"since":null,"activities":[{"name":"Terraria","type":0}],"status":"online","afk":false}})")),
+                               utf8_literal(R"({"op":3,"d":{"status":"online","since":0,"activities":[{"name":"Terraria","type":0}],"afk":false}})")),
           "op 3: a game without application or start");
     w = gateway_write_presence_update({0, GatewayUserStatus::dnd, false, false}, nullptr, nullptr, {out, 1024});
     check(w.ok() && same_bytes(out, w.bytes,
-                               utf8_literal(R"({"op":3,"d":{"since":null,"activities":[],"status":"dnd","afk":false}})")),
+                               utf8_literal(R"({"op":3,"d":{"status":"dnd","since":0,"activities":[],"afk":false}})")),
           "op 3: status only body is unchanged");
     const GatewayGameActivity rich{utf8_literal("Lo-fi \"beats\""), 0, 1700000000000ull, 1700000300000ull,
                                    utf8_literal("Track 3"), utf8_literal("Album"), 2};
     w = gateway_write_presence_update({0, GatewayUserStatus::online, false, false}, &custom, &rich, {out, 1024});
     check(w.ok() && same_bytes(out, w.bytes,
-                               utf8_literal(R"({"op":3,"d":{"since":null,"activities":[{"name":"Custom Status","type":4,"state":"Away"},{"name":"Lo-fi \"beats\"","type":2,"details":"Track 3","state":"Album","timestamps":{"start":1700000000000,"end":1700000300000}}],"status":"online","afk":false}})")),
+                               utf8_literal(R"({"op":3,"d":{"status":"online","since":0,"activities":[{"name":"Custom Status","type":4,"state":"Away"},{"name":"Lo-fi \"beats\"","type":2,"details":"Track 3","state":"Album","timestamps":{"start":1700000000000,"end":1700000300000}}],"afk":false}})")),
           "op 3: a plugin's listening activity with details, state and both timestamps");
     const GatewayGameActivity ending{utf8_literal("Match"), 7, 0, 99, {}, {}, 5};
     const GatewayGameActivity streaming{utf8_literal("Stream"), 0, 0, 0, {}, {}, 1};
     w = gateway_write_presence_update({0, GatewayUserStatus::online, false, false}, nullptr, &ending, {out, 1024});
     check(w.ok() && same_bytes(out, w.bytes,
-                               utf8_literal(R"({"op":3,"d":{"since":null,"activities":[{"name":"Match","type":5,"application_id":"7","timestamps":{"end":99}}],"status":"online","afk":false}})")) &&
+                               utf8_literal(R"({"op":3,"d":{"status":"online","since":0,"activities":[{"name":"Match","type":5,"application_id":"7","timestamps":{"end":99}}],"afk":false}})")) &&
               !gateway_write_presence_update({0, GatewayUserStatus::online, false, false}, nullptr, &streaming,
                                              {out, 1024}).ok(),
           "op 3: competing with only an end timestamp; streaming and custom types are refused");

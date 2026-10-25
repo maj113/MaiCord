@@ -10,7 +10,7 @@ void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcep
     auto result = gateway_write_presence_update({0, GatewayUserStatus::invisible, false, false}, nullptr, nullptr,
                                                 {wire, sizeof(wire)});
     check(result.ok() && utf8_equal({reinterpret_cast<const char*>(wire), result.bytes},
-        utf8_literal("{\"op\":3,\"d\":{\"since\":null,\"activities\":[],\"status\":\"invisible\",\"afk\":false}}")),
+        utf8_literal("{\"op\":3,\"d\":{\"status\":\"invisible\",\"since\":0,\"activities\":[],\"afk\":false}}")),
         "self status: opcode3 Invisible is explicit desired status rather than Offline presence");
     wire[0] = 77;
     check(gateway_write_presence_update({0, static_cast<GatewayUserStatus>(4), false, false}, nullptr, nullptr,

@@ -236,17 +236,18 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
 
     constexpr u32 prefix_bytes = sizeof("{\"op\":2,\"d\":{\"token\":") - 1;
     constexpr u32 capabilities_bytes = sizeof(",\"capabilities\":,\"properties\":") - 1;
-    constexpr u32 presence_bytes = sizeof(",\"presence\":{\"since\":") - 1;
-    constexpr u32 activities_bytes = sizeof(",\"activities\":[],\"status\":") - 1;
-    constexpr u32 afk_bytes = sizeof(",\"afk\":") - 1;
+    constexpr u32 presence_bytes = sizeof(",\"presence\":{\"status\":") - 1;
+    constexpr u32 since_bytes = sizeof(",\"since\":") - 1;
+    constexpr u32 afk_bytes = sizeof(",\"activities\":[],\"afk\":") - 1;
     constexpr u32 suffix_bytes =
         sizeof("},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}") - 1;
     const u32 capability_digits = decimal_digits(kGatewayUserCapabilitiesDefault);
-    const u32 since_digits = identify.has_since ? decimal_digits(identify.since_ms) : 4;
+    const u64 since = identify.has_since ? identify.since_ms : 0;
+    const u32 since_digits = decimal_digits(since);
     const u32 afk_literal_bytes = identify.afk ? 4 : 5;
     const u64 required = static_cast<u64>(prefix_bytes) + token.bytes + capabilities_bytes +
-                         capability_digits + properties.bytes + presence_bytes + since_digits +
-                         activities_bytes + status.bytes + afk_bytes + afk_literal_bytes + suffix_bytes;
+                         capability_digits + properties.bytes + presence_bytes + status.bytes +
+                         since_bytes + since_digits + afk_bytes + afk_literal_bytes + suffix_bytes;
     if (required > kGatewayUserMaximumCommandBytes) {
         return GatewayCommandWriteResult{0, GatewayCommandError::value_too_large};
     }
@@ -264,16 +265,12 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     offset += write_properties(identify.properties, identify.client_app_state, true,
                                {output.data + offset, properties.bytes})
                   .bytes;
-    write_literal(output.data, &offset, ",\"presence\":{\"since\":");
-    if (identify.has_since) {
-        decimal_write(output.data + offset, identify.since_ms);
-        offset += since_digits;
-    } else {
-        write_literal(output.data, &offset, "null");
-    }
-    write_literal(output.data, &offset, ",\"activities\":[],\"status\":");
+    // The presence in the desktop client's order; since is 0 unless idle.
+    write_literal(output.data, &offset, ",\"presence\":{\"status\":");
     write_encoded(output.data, &offset, status);
-    write_literal(output.data, &offset, ",\"afk\":");
+    write_literal(output.data, &offset, ",\"since\":");
+    offset += decimal_write(output.data + offset, since);
+    write_literal(output.data, &offset, ",\"activities\":[],\"afk\":");
     write_boolean(output.data, &offset, identify.afk);
     write_literal(output.data, &offset, "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}");
     return GatewayCommandWriteResult{offset, GatewayCommandError::none};
