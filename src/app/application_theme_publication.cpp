@@ -29,13 +29,12 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     // Built-in defaults by reference: conditional copies of these banks
     // expand into inline vector loops.
     static constexpr UiThemeTypography default_typography{};
-    static constexpr UiThemeMetrics default_metrics{};
     static constexpr UiThemeIcons default_icons{};
-    static constexpr UiThemeSettings default_settings{};
     const UiThemeTypography& typography = document ? document->typography : default_typography;
-    const UiThemeMetrics& metrics = document ? document->metrics : default_metrics;
-    const UiThemeMetrics previous_metrics =
-        publication.styles ? publication.styles->metrics : UiThemeMetrics{};
+    const UiThemeMetrics& metrics = document ? document->metrics : kUiThemeMetricsDefault;
+    // Read before the commit below overwrites the published bank.
+    const float previous_sidebar_width = (publication.styles ? publication.styles->metrics : kUiThemeMetricsDefault).shell_sidebar_width;
+    const float previous_member_width = (publication.styles ? publication.styles->metrics : kUiThemeMetricsDefault).shell_member_width;
     UiResolvedThemeStyles candidate;
     if (publication.styles)
         copy_value(&candidate, *publication.styles);
@@ -48,7 +47,7 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
             return false;
         // Component tokens are paint-only data beside the typed banks.
         const UiThemeIcons& icons = document ? document->icons : default_icons;
-        const UiThemeSettings& settings = document ? document->settings : default_settings;
+        const UiThemeSettings& settings = document ? document->settings : kUiThemeSettingsDefault;
         if (!bytes_equal(&candidate.icons, &icons, sizeof(icons)) ||
             !bytes_equal(&candidate.settings, &settings, sizeof(settings))) {
             candidate.icons = icons;
@@ -96,9 +95,9 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     publication.custom = document != nullptr;
     remember_preferences(publication, g_app.preferences);
     if (geometry_changed) {
-        if (!g_app.channel_pane_width || g_app.channel_pane_width == previous_metrics.shell_sidebar_width)
+        if (!g_app.channel_pane_width || g_app.channel_pane_width == previous_sidebar_width)
             g_app.channel_pane_width = metrics.shell_sidebar_width;
-        if (!g_app.member_pane_width || g_app.member_pane_width == previous_metrics.shell_member_width)
+        if (!g_app.member_pane_width || g_app.member_pane_width == previous_member_width)
             g_app.member_pane_width = metrics.shell_member_width;
     }
     if (typography_changed || styles_result.changed() || foreground_changed || background_changed) {

@@ -6,11 +6,8 @@
 #include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
-namespace {
-constexpr UiThemeMetrics defaults{};
-}
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles* bank) noexcept {
-    return bank && bank->ready ? bank->metrics : defaults;
+    return bank && bank->ready ? bank->metrics : kUiThemeMetricsDefault;
 }
 UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles* bank) noexcept {
     const auto& m = ui_theme_metrics(bank);

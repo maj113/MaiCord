@@ -116,7 +116,7 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     view.enabled_actions |= ui_thread_action_bit(UiThreadAction::retry);
     ++view.source_publication;
     ui_thread_header_update(&header, view, strip, clip, style);
-    const Theme themes[]{kDefaultTheme, kLightTheme, kAmoledTheme};
+    const Theme themes[]{kDefaultTheme, kLightTheme, ui_theme_amoled()};
     bool readable = true;
     for (const auto& theme : themes) {
         ui_text_command_stream_reset(&stream);

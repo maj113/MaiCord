@@ -71,10 +71,9 @@ inline constexpr u32 kComposerReplyMentionId = 13;
 inline constexpr u32 kComposerReplyCancelId = 14;
 inline constexpr u32 kComposerPluginId = 15; // through 15 + kMessageComposerPluginSlots - 1
 inline constexpr float kComposerRowGap = kUiComposerPadding;
-inline constexpr UiThemeMetrics kDefaultComposerMetrics{};
 
 const UiThemeMetrics& composer_metrics(const UiResolvedThemeStyles* styles) noexcept {
-    return styles && styles->ready ? styles->metrics : kDefaultComposerMetrics;
+    return styles && styles->ready ? styles->metrics : kUiThemeMetricsDefault;
 }
 
 float accessory_width(const UiResolvedThemeStyles* styles) noexcept {

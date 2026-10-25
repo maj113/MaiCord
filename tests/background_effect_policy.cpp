@@ -47,7 +47,8 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
           "background media policy: 64 shader phases reuse; completion, input, damage, scroll and explicit "
           "deadlines retain pumping");
     constexpr ClientTheme kinds[]{ClientTheme::dark, ClientTheme::amoled, ClientTheme::light};
-    const Theme* bases[]{&kDefaultTheme, &kAmoledTheme, &kLightTheme};
+    const Theme amoled_theme = ui_theme_amoled();
+    const Theme* bases[]{&kDefaultTheme, &amoled_theme, &kLightTheme};
     constexpr BackgroundEffect effects[]{BackgroundEffect::stars, BackgroundEffect::comets,
                                          BackgroundEffect::stars_and_comets};
     static_assert(sizeof(effects) / sizeof(effects[0]) == kBackgroundEffectProfileCount);

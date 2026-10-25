@@ -14,15 +14,14 @@
 
 namespace maicord {
 namespace {
-inline constexpr UiThemeMetrics kDefaultPopupMetrics{};
 const UiThemeMetrics& popup_metrics(const PopupScene& scene) noexcept {
     return scene.themed_menu && scene.theme_styles && scene.theme_styles->ready
                ? scene.theme_styles->metrics
-               : kDefaultPopupMetrics;
+               : kUiThemeMetricsDefault;
 }
 const UiThemeMetrics& popup_paint_metrics(const PopupScene& scene, const Theme& theme) noexcept {
     return scene.themed_menu && theme.styles && theme.styles->ready ? theme.styles->metrics
-                                                                    : kDefaultPopupMetrics;
+                                                                    : kUiThemeMetricsDefault;
 }
 Color menu_row_foreground(const PopupItem& item, const Theme& theme) noexcept;
 bool paint_popup_presence(PaintStream* paint, UiRect rectangle, UiPresence status, Color background,

@@ -13,9 +13,8 @@ namespace {
 
 inline constexpr u32 kPopupRootId = 1;
 inline constexpr u32 kPopupPanelId = 2;
-inline constexpr UiThemeMetrics kDefaultMenuMetrics{};
 const UiThemeMetrics& menu_metrics(const UiResolvedThemeStyles* styles) noexcept {
-    return styles && styles->ready ? styles->metrics : kDefaultMenuMetrics;
+    return styles && styles->ready ? styles->metrics : kUiThemeMetricsDefault;
 }
 // Any ordinary row with a leading icon gives icon-less rows the same label
 // column and full row height, so mixed menus keep one rhythm.

@@ -16,34 +16,62 @@ enum UiSettingsSchemaFlag : u16 {
     ui_settings_schema_dynamic = 1u << 2,
 };
 
-// Group text pointers and lengths separately to avoid padding in each view.
+// Text pointers first, then the small fields, so the node packs to one cache
+// line. Text over 255 bytes, over 65535 choices or a binding or default
+// choice over 65534 cannot be encoded; constructing such a node in a constant
+// expression fails to compile.
+namespace ui_settings_schema_detail {
+void field_out_of_range() noexcept; // Deliberately undefined: only a failed range check calls it.
+constexpr u8 narrow_text(u32 bytes) noexcept {
+    if (bytes > 0xff)
+        field_out_of_range();
+    return static_cast<u8>(bytes);
+}
+constexpr u16 narrow_field(u32 value) noexcept {
+    if (value > 0xffff)
+        field_out_of_range();
+    return static_cast<u16>(value);
+}
+} // namespace ui_settings_schema_detail
 struct UiSettingsSchemaNode {
     const char *key_data, *label_data, *description_data, *keywords_data, *action_data;
-    ConstSlice<Utf8View> choices;
-    u32 key_bytes, label_bytes, description_bytes, keywords_bytes, action_bytes;
-    u32 default_choice;
-    u32 binding;
+    const Utf8View* choice_data;
+    u16 choice_count, default_choice_slot, binding_slot, flags;
+    u8 key_bytes, label_bytes, description_bytes, keywords_bytes, action_bytes;
     UiSettingsControlKind kind;
     u8 variant;
-    u16 flags;
 
+    // default_option ~0u means no default.
     constexpr UiSettingsSchemaNode(Utf8View key, Utf8View label, Utf8View description,
                                    Utf8View keywords, UiSettingsControlKind control_kind,
                                    u8 control_variant, u16 control_flags, ConstSlice<Utf8View> options,
                                    u32 default_option, u32 control_binding, Utf8View action) noexcept
         : key_data(key.data), label_data(label.data), description_data(description.data),
-          keywords_data(keywords.data), action_data(action.data), choices(options),
-          key_bytes(key.bytes), label_bytes(label.bytes), description_bytes(description.bytes),
-          keywords_bytes(keywords.bytes), action_bytes(action.bytes), default_choice(default_option),
-          binding(control_binding), kind(control_kind), variant(control_variant), flags(control_flags) {}
+          keywords_data(keywords.data), action_data(action.data), choice_data(options.data),
+          choice_count(ui_settings_schema_detail::narrow_field(options.count)),
+          default_choice_slot(default_option == ~0u ? u16{0xffff}
+                                                    : ui_settings_schema_detail::narrow_field(default_option)),
+          binding_slot(ui_settings_schema_detail::narrow_field(control_binding)), flags(control_flags),
+          key_bytes(ui_settings_schema_detail::narrow_text(key.bytes)),
+          label_bytes(ui_settings_schema_detail::narrow_text(label.bytes)),
+          description_bytes(ui_settings_schema_detail::narrow_text(description.bytes)),
+          keywords_bytes(ui_settings_schema_detail::narrow_text(keywords.bytes)),
+          action_bytes(ui_settings_schema_detail::narrow_text(action.bytes)), kind(control_kind),
+          variant(control_variant) {}
 
     constexpr Utf8View key() const noexcept { return {key_data, key_bytes}; }
     constexpr Utf8View label() const noexcept { return {label_data, label_bytes}; }
     constexpr Utf8View description() const noexcept { return {description_data, description_bytes}; }
     constexpr Utf8View keywords() const noexcept { return {keywords_data, keywords_bytes}; }
     constexpr Utf8View action_label() const noexcept { return {action_data, action_bytes}; }
+    constexpr ConstSlice<Utf8View> choices() const noexcept { return {choice_data, choice_count}; }
+    // ~0u (kUiSettingsNoChoice) when the node has no default.
+    constexpr u32 default_choice() const noexcept {
+        return default_choice_slot == 0xffff ? ~0u : default_choice_slot;
+    }
+    constexpr u32 binding() const noexcept { return binding_slot; }
 };
-static_assert(sizeof(UiSettingsSchemaNode) == 88);
+static_assert(sizeof(UiSettingsSchemaNode) == 64);
 
 struct UiSettingsSchemaPanel {
     Utf8View key, title, keywords;

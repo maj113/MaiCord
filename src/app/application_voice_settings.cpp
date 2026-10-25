@@ -66,8 +66,9 @@ Utf8View key_name(u8 key) noexcept {
 SettingBinding binding_of(u64 control_id) noexcept {
     UiSettingsSchemaLocation location{};
     const auto* node = settings_control_location(control_id, &location) ? settings_catalog_node(location) : nullptr;
-    return node && node->binding < static_cast<u32>(SettingBinding::count) ? static_cast<SettingBinding>(node->binding)
-                                                                          : SettingBinding::none;
+    return node && node->binding() < static_cast<u32>(SettingBinding::count)
+               ? static_cast<SettingBinding>(node->binding())
+               : SettingBinding::none;
 }
 } // namespace
 

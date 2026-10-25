@@ -6,8 +6,7 @@ namespace maicord {
 bool ui_menu_row_project(UiRect content, UiRect clip, UiMenuRowPresentation presentation, bool has_detail,
                          bool has_shortcut, UiMenuRowGeometry* output,
                          const UiResolvedThemeStyles* styles) noexcept {
-    const UiThemeMetrics defaults{};
-    const auto& metrics = styles && styles->ready ? styles->metrics : defaults;
+    const auto& metrics = styles && styles->ready ? styles->metrics : kUiThemeMetricsDefault;
     if (!output || !ui_rect_valid_or_empty(content) || !ui_rect_valid_or_empty(clip) ||
         !ui_menu_row_presentation_valid(presentation)) {
         return false;

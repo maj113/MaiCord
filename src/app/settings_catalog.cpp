@@ -811,7 +811,7 @@ const UiSettingsSchemaNode* settings_catalog_binding(SettingBinding binding,
     number_labels_initialize();
     for (u32 p = 0; p < kSettingsPanelCount; ++p)
         for (u32 n = 0; n < panels[p].nodes.count; ++n)
-            if (panels[p].nodes[n].binding == bind(binding)) {
+            if (panels[p].nodes[n].binding() == bind(binding)) {
                 if (location)
                     *location = {p, n};
                 return &panels[p].nodes[n];

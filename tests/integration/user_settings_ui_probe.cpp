@@ -55,7 +55,7 @@ constexpr ClientPreferences kPreferences = client_preferences_defaults();
 SettingBinding binding_of(u64 id) noexcept {
     UiSettingsSchemaLocation location{};
     const auto* node = settings_control_location(id, &location) ? settings_catalog_node(location) : nullptr;
-    return node ? static_cast<SettingBinding>(node->binding) : SettingBinding::none;
+    return node ? static_cast<SettingBinding>(node->binding()) : SettingBinding::none;
 }
 bool palette(void*, u64 id, u32 choice, BackgroundTheme* output) noexcept {
     if (id == 1000 + 17) {
@@ -80,26 +80,26 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             (n.kind == UiSettingsControlKind::category && (n.flags & ui_settings_schema_dynamic)))
             continue;
         auto& c = out[count];
-        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, (i % 3) != 1, n.choices,
-             n.default_choice < n.choices.count ? n.default_choice : 0, n.action_label(), nullptr};
+        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, (i % 3) != 1, n.choices(),
+             n.default_choice() < n.choices().count ? n.default_choice() : 0, n.action_label(), nullptr};
         if (n.kind == UiSettingsControlKind::choice && !c.choices.count)
-            c.choices = n.binding == static_cast<u32>(SettingBinding::add_game) ? ConstSlice<Utf8View>{kGames, 1}
+            c.choices = n.binding() == static_cast<u32>(SettingBinding::add_game) ? ConstSlice<Utf8View>{kGames, 1}
                                                                                   : ConstSlice<Utf8View>{kDevices, 2};
         if (n.kind == UiSettingsControlKind::palette && !c.choices.count)
             c.choices = {kThemes, 3};
         if (n.kind == UiSettingsControlKind::slider && c.choices.count > 120)
             c.selected_choice = c.choices.count * 2 / 3;
-        if (n.kind == UiSettingsControlKind::category && n.binding)
+        if (n.kind == UiSettingsControlKind::category && n.binding())
             continue; // list headings are followed by host rows only
         looks[count] = {static_cast<UiSettingsVariant>(n.variant),
                         static_cast<u8>(n.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
-                        n.default_choice < kUiSettingsNoDefault ? static_cast<u16>(n.default_choice)
-                                                                : kUiSettingsNoDefault};
-        if (n.binding == static_cast<u32>(SettingBinding::group_spacing))
+                        n.default_choice() < kUiSettingsNoDefault ? static_cast<u16>(n.default_choice())
+                                                                  : kUiSettingsNoDefault};
+        if (n.binding() == static_cast<u32>(SettingBinding::group_spacing))
             c.selected_choice = 2, looks[count].default_choice = 3;
         SettingValue value{};
         if (n.kind == UiSettingsControlKind::palette &&
-            settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding), &value))
+            settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding()), &value))
             c.selected_choice = value.choice;
         ++count;
     }
@@ -159,12 +159,12 @@ u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks
     for (u32 i = 0; i < nodes.count && count < kRows; ++i) {
         const auto& n = nodes[i];
         auto& c = out[count];
-        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, false, n.choices, 0, n.action_label(),
+        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, false, n.choices(), 0, n.action_label(),
              nullptr};
         looks[count] = {static_cast<UiSettingsVariant>(n.variant), 0, kUiSettingsNoDefault};
         items[count] = {};
         meters[count] = kUiSettingsNoMeter;
-        const auto binding = static_cast<SettingBinding>(n.binding);
+        const auto binding = static_cast<SettingBinding>(n.binding());
         if (binding == SettingBinding::update_changelog) {
             if (!app_detail::application_updates_changelog_heading(u.rows, &c, &items[count]))
                 continue;
@@ -208,7 +208,7 @@ u32 build_gallery(Fixture& f) noexcept {
          true});
     add({0, utf8_literal("Sliders"), {}, K::category, true, false});
     add({0, utf8_literal("Speaker Volume"), {}, K::slider, true, false,
-         settings_catalog_panel(SettingsPanel::voice).nodes[4].choices, 140});
+         settings_catalog_panel(SettingsPanel::voice).nodes[4].choices(), 140});
     add({0, utf8_literal("Space Between Message Groups"), utf8_literal("The default mark is highlighted."), K::slider,
          true, false, {kSpacing, 5}, 2},
         {UiSettingsVariant::standard, ui_settings_presentation_marks, 3});

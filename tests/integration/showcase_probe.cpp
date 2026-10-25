@@ -1171,7 +1171,7 @@ constexpr ClientPreferences kPreferences = client_preferences_defaults();
 SettingBinding binding_of(u64 id) noexcept {
     UiSettingsSchemaLocation location{};
     const auto* n = settings_control_location(id, &location) ? settings_catalog_node(location) : nullptr;
-    return n ? static_cast<SettingBinding>(n->binding) : SettingBinding::none;
+    return n ? static_cast<SettingBinding>(n->binding()) : SettingBinding::none;
 }
 bool palette(void*, u64 id, u32 choice, BackgroundTheme* output) noexcept {
     return settings_theme_swatch(kPreferences, binding_of(id), choice, output);
@@ -1187,7 +1187,7 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
         if ((n.flags & ui_settings_schema_search_hidden) ||
             (n.kind == UiSettingsControlKind::category && (n.flags & ui_settings_schema_dynamic)))
             continue;
-        if (n.kind == UiSettingsControlKind::category && n.binding)
+        if (n.kind == UiSettingsControlKind::category && n.binding())
             continue;
         auto& c = out[count];
         c = {settings_control_id(panel, i),
@@ -1196,12 +1196,12 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
              n.kind,
              true,
              (i % 3) != 1,
-             n.choices,
-             n.default_choice < n.choices.count ? n.default_choice : 0,
+             n.choices(),
+             n.default_choice() < n.choices().count ? n.default_choice() : 0,
              n.action_label(),
              nullptr};
         if (n.kind == UiSettingsControlKind::choice && !c.choices.count)
-            c.choices = n.binding == static_cast<u32>(SettingBinding::add_game)
+            c.choices = n.binding() == static_cast<u32>(SettingBinding::add_game)
                             ? ConstSlice<Utf8View>{kGames, 1}
                             : ConstSlice<Utf8View>{kDevices, 2};
         if (n.kind == UiSettingsControlKind::palette && !c.choices.count)
@@ -1211,11 +1211,11 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
         looks[count] = {
             static_cast<UiSettingsVariant>(n.variant),
             static_cast<u8>(n.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
-            n.default_choice < kUiSettingsNoDefault ? static_cast<u16>(n.default_choice)
-                                                    : kUiSettingsNoDefault};
+            n.default_choice() < kUiSettingsNoDefault ? static_cast<u16>(n.default_choice())
+                                                      : kUiSettingsNoDefault};
         SettingValue value{};
         if (n.kind == UiSettingsControlKind::palette &&
-            settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding), &value))
+            settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding()), &value))
             c.selected_choice = value.choice;
         ++count;
     }

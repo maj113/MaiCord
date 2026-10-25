@@ -283,7 +283,7 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         PaintStream paint{}; MessageMediaCommand media_storage[1]{}; MessageMediaCommandStream media{};
         MessagePresentationResult result{};
         bool painted = paint_stream_initialize(&paint) && message_media_command_stream_initialize(&media, {media_storage, 1});
-        const Theme themes[]{kDefaultTheme, kLightTheme, kAmoledTheme};
+        const Theme themes[]{kDefaultTheme, kLightTheme, ui_theme_amoled()};
         for (const auto& theme : themes) {
             painted &= paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                 message_presentation_build(f.scene, theme, &paint, &media, &result);

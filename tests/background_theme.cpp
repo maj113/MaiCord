@@ -465,7 +465,7 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
         const auto theme = client_theme_projection(preferences);
         const auto baseline =
             selected == ClientTheme::light || selected == ClientTheme::custom_light_gradient ? kLightTheme
-            : selected == ClientTheme::amoled                                                ? kAmoledTheme
+            : selected == ClientTheme::amoled                                                ? ui_theme_amoled()
                                               : kDefaultTheme;
         projected = projected && theme.text_primary.alpha == 1 && theme.text_secondary.alpha == 1 &&
                     theme.surface.alpha == 1 && theme.interactive.alpha == 1 &&

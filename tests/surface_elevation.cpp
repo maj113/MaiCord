@@ -51,7 +51,7 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
                             projected(ClientTheme::custom_light_gradient),
                             projected(ClientTheme::custom_gradient, 0),
                             projected(ClientTheme::custom_light_gradient, 100)};
-    const Theme flats[]{kDefaultTheme, kAmoledTheme, kLightTheme};
+    const Theme flats[]{kDefaultTheme, ui_theme_amoled(), kLightTheme};
 
     // Surface style resolution per elevation.
     bool ladder = true, materials = true;
@@ -126,7 +126,8 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
                   ui_surface_paint(&paint, {10, 10, 200, 120}, kLightTheme, elevation, 8) && paint.count == 1 &&
                   paint_stream_reset(&paint, 400, 300) &&
                   ui_surface_paint(&paint, {10, 10, 200, 120}, kDefaultTheme, elevation, 8) && paint.count == 1;
-    const Theme* darks[]{&kDefaultTheme, &kAmoledTheme, &gradients[0], &gradients[1]};
+    const Theme amoled_theme = ui_theme_amoled();
+    const Theme* darks[]{&kDefaultTheme, &amoled_theme, &gradients[0], &gradients[1]};
     for (const Theme* dark : darks) {
         const auto dialog = ui_surface_shadow_color(*dark, UiElevation::dialog);
         shadows = shadows && dark->appearance != ThemeAppearance::light && paint_stream_reset(&paint, 400, 300) &&

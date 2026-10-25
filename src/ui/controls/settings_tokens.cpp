@@ -18,8 +18,7 @@ Color pick(u32 packed, Color fallback) noexcept {
     return packed ? ui_settings_color_unpack(packed) : fallback;
 }
 const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexcept {
-    static constexpr UiThemeSettings defaults{};
-    return styles && styles->ready ? styles->settings : defaults;
+    return styles && styles->ready ? styles->settings : kUiThemeSettingsDefault;
 }
 // The first 49 metrics have the same field order in the packed theme and resolved layout.
 static_assert([]() constexpr {

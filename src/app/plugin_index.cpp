@@ -3,17 +3,18 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
 using E = PluginIndexError;
-constexpr Utf8View kCategories[kPluginIndexCategoryCount]{utf8_literal("chat"), utf8_literal("appearance"),
-    utf8_literal("notifications"), utf8_literal("privacy"), utf8_literal("utility"), utf8_literal("voice"),
-    utf8_literal("accessibility"), utf8_literal("moderation"), utf8_literal("developer"), utf8_literal("fun")};
-constexpr Utf8View kDisclosures[kPluginIndexDisclosureCount]{utf8_literal("network"), utf8_literal("files"),
-    utf8_literal("processes"), utf8_literal("input")};
-constexpr Utf8View kArches[]{utf8_literal("x64"), utf8_literal("arm64")};
-constexpr Utf8View kSeverities[]{utf8_literal("malicious"), utf8_literal("broken"), utf8_literal("withdrawn")};
+constexpr char kCategories[] =
+    "chat\0appearance\0notifications\0privacy\0utility\0voice\0accessibility\0moderation\0developer\0fun\0";
+constexpr char kDisclosures[] = "network\0files\0processes\0input\0";
+constexpr char kArches[] = "x64\0arm64\0";
+constexpr char kSeverities[] = "malicious\0broken\0withdrawn\0";
+static_assert(name_list_count(kCategories) == kPluginIndexCategoryCount &&
+              name_list_count(kDisclosures) == kPluginIndexDisclosureCount);
 constexpr Utf8View kOfficialId = utf8_literal("maicord");
 // The longest text field plus one byte, so a decode that fills it is too long.
 constexpr u32 kDecodeCapacity = kPluginIndexChangelogMaximumBytes + 1;
@@ -32,9 +33,10 @@ bool fail(Parse& p, E error) noexcept {
 }
 // The index of name among names, marking it seen; count (with the error set)
 // when it is unknown or repeated.
-u32 member(Parse& p, JsonString name, const Utf8View* names, u32 count, u32* seen) noexcept {
-    for (u32 i = 0; i < count; ++i) {
-        if (!json_string_equals_ascii(name, names[i])) continue;
+u32 member(Parse& p, JsonString name, const char* names, u32 count, u32* seen) noexcept {
+    u32 i = 0;
+    for (NameList list{names}; list; list.next(), ++i) {
+        if (!json_string_equals_ascii(name, list.name())) continue;
         if (*seen & (1u << i)) { fail(p, E::duplicate_field); return count; }
         *seen |= 1u << i;
         return i;
@@ -161,9 +163,10 @@ bool release_name_valid(const Decoded& d, u32 maximum) noexcept {
     }
     return true;
 }
-u32 lookup(const Utf8View* names, u32 count, const Decoded& d) noexcept {
+u32 lookup(const char* names, u32 count, const Decoded& d) noexcept {
     if (!d.fits) return count;
-    for (u32 i = 0; i < count; ++i) if (utf8_equal(d.text, names[i])) return i;
+    u32 i = 0;
+    for (NameList list{names}; list; list.next(), ++i) if (utf8_equal(d.text, list.name())) return i;
     return count;
 }
 // MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-preview.N exactly as
@@ -210,8 +213,8 @@ bool string_set(Parse& p, JsonValue value, Vocabulary vocabulary, u32 maximum, u
 
 // ---- provider ------------------------------------------------------------------
 enum Provider : u32 { pr_id, pr_name, pr_homepage, pr_key, provider_count };
-constexpr Utf8View kProviderNames[provider_count]{utf8_literal("id"), utf8_literal("name"), utf8_literal("homepage"),
-    utf8_literal("key")};
+constexpr char kProviderNames[] = "id\0name\0homepage\0key\0";
+static_assert(name_list_count(kProviderNames) == provider_count);
 constexpr u32 kProviderRequired = (1u << pr_key) - 1;
 struct ObjectContext {
     Parse* p;
@@ -253,7 +256,8 @@ bool provider_member(void* context, JsonString name, JsonValue value) noexcept {
 
 // ---- files ---------------------------------------------------------------------
 enum Release : u32 { gr_repository, gr_tag, gr_asset, release_count };
-constexpr Utf8View kReleaseNames[release_count]{utf8_literal("repository"), utf8_literal("tag"), utf8_literal("asset")};
+constexpr char kReleaseNames[] = "repository\0tag\0asset\0";
+static_assert(name_list_count(kReleaseNames) == release_count);
 struct ReleaseContext {
     Parse* p;
     PluginIndexFile* file;
@@ -273,8 +277,8 @@ bool release_member(void* context, JsonString name, JsonValue value) noexcept {
     return true;
 }
 enum FileField : u32 { f_arch, f_sha256, f_bytes, f_path, f_release, file_field_count };
-constexpr Utf8View kFileNames[file_field_count]{utf8_literal("arch"), utf8_literal("sha256"), utf8_literal("bytes"),
-    utf8_literal("path"), utf8_literal("github_release")};
+constexpr char kFileNames[] = "arch\0sha256\0bytes\0path\0github_release\0";
+static_assert(name_list_count(kFileNames) == file_field_count);
 constexpr u32 kFileRequired = (1u << f_path) - 1;
 struct FileContext {
     Parse* p;
@@ -348,9 +352,9 @@ bool file_entry(void* context, u32 index, JsonValue value) noexcept {
 // ---- versions ------------------------------------------------------------------
 enum VersionField : u32 { v_version, v_code, v_abi, v_min_host, v_max_host, v_permissions, v_files, v_released, v_commit,
     v_changelog, version_field_count };
-constexpr Utf8View kVersionNames[version_field_count]{utf8_literal("version"), utf8_literal("version_code"),
-    utf8_literal("abi"), utf8_literal("min_host_abi"), utf8_literal("max_host_abi"), utf8_literal("permissions"),
-    utf8_literal("files"), utf8_literal("released"), utf8_literal("commit"), utf8_literal("changelog")};
+constexpr char kVersionNames[] = "version\0version_code\0abi\0min_host_abi\0max_host_abi\0permissions\0files\0released\0"
+                                 "commit\0changelog\0";
+static_assert(name_list_count(kVersionNames) == version_field_count);
 constexpr u32 kVersionRequired = ((1u << version_field_count) - 1) & ~(1u << v_commit);
 struct VersionContext {
     Parse* p;
@@ -436,15 +440,16 @@ bool version_entry(void* context, u32 index, JsonValue value) noexcept {
 // ---- plugins -------------------------------------------------------------------
 enum PluginField : u32 { pl_slug, pl_owner, pl_name, pl_summary, pl_publisher, pl_authors, pl_license, pl_homepage,
     pl_categories, pl_disclosures, pl_details, pl_versions, plugin_field_count };
-constexpr Utf8View kPluginNames[plugin_field_count]{utf8_literal("slug"), utf8_literal("owner_id"), utf8_literal("name"),
-    utf8_literal("summary"), utf8_literal("publisher"), utf8_literal("authors"), utf8_literal("license"),
-    utf8_literal("homepage"), utf8_literal("categories"), utf8_literal("disclosures"), utf8_literal("details"),
-    utf8_literal("versions")};
+constexpr char kPluginNames[] = "slug\0owner_id\0name\0summary\0publisher\0authors\0license\0homepage\0categories\0"
+                                "disclosures\0details\0versions\0";
+static_assert(name_list_count(kPluginNames) == plugin_field_count);
 constexpr u32 kPluginRequired = ((1u << plugin_field_count) - 1) & ~(1u << pl_details);
 enum AuthorField : u32 { au_name, au_github, author_field_count };
-constexpr Utf8View kAuthorNames[author_field_count]{utf8_literal("name"), utf8_literal("github")};
+constexpr char kAuthorNames[] = "name\0github\0";
+static_assert(name_list_count(kAuthorNames) == author_field_count);
 enum DetailsField : u32 { de_sha256, de_bytes, details_field_count };
-constexpr Utf8View kDetailsNames[details_field_count]{utf8_literal("sha256"), utf8_literal("bytes")};
+constexpr char kDetailsNames[] = "sha256\0bytes\0";
+static_assert(name_list_count(kDetailsNames) == details_field_count);
 struct AuthorContext {
     Parse* p;
     PluginIndexAuthor* author;
@@ -585,10 +590,11 @@ bool plugin_entry(void* context, u32 index, JsonValue value) noexcept {
 
 // ---- revocations and the blocklist ---------------------------------------------
 enum RevokedField : u32 { rv_owner, rv_sha256, rv_severity, rv_reason, rv_since, revoked_field_count };
-constexpr Utf8View kRevokedNames[revoked_field_count]{utf8_literal("owner_id"), utf8_literal("sha256"),
-    utf8_literal("severity"), utf8_literal("reason"), utf8_literal("since")};
+constexpr char kRevokedNames[] = "owner_id\0sha256\0severity\0reason\0since\0";
+static_assert(name_list_count(kRevokedNames) == revoked_field_count);
 enum BlockField : u32 { bl_sha256, bl_reason, bl_since, block_field_count };
-constexpr Utf8View kBlockNames[block_field_count]{utf8_literal("sha256"), utf8_literal("reason"), utf8_literal("since")};
+constexpr char kBlockNames[] = "sha256\0reason\0since\0";
+static_assert(name_list_count(kBlockNames) == block_field_count);
 struct RevokedContext {
     Parse* p;
     PluginIndexRevocation* entry;
@@ -674,9 +680,8 @@ bool block_entry(void* context, u32 index, JsonValue value) noexcept {
 // ---- root ----------------------------------------------------------------------
 enum RootField : u32 { r_format, r_provider, r_sequence, r_issued, r_expires, r_plugins, r_revoked, r_blocklist,
     root_field_count };
-constexpr Utf8View kRootNames[root_field_count]{utf8_literal("format"), utf8_literal("provider"), utf8_literal("sequence"),
-    utf8_literal("issued"), utf8_literal("expires"), utf8_literal("plugins"), utf8_literal("revoked"),
-    utf8_literal("blocklist")};
+constexpr char kRootNames[] = "format\0provider\0sequence\0issued\0expires\0plugins\0revoked\0blocklist\0";
+static_assert(name_list_count(kRootNames) == root_field_count);
 constexpr u32 kRootRequired = (1u << r_blocklist) - 1;
 bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<ObjectContext*>(context);
@@ -818,7 +823,7 @@ PluginIndexKeyPeek plugin_index_unverified_key(Utf8View document, Slice<u32> scr
 }
 
 Utf8View plugin_index_category_name(u32 index) noexcept {
-    return index < kPluginIndexCategoryCount ? kCategories[index] : Utf8View{};
+    return index < kPluginIndexCategoryCount ? name_list_at(kCategories, index) : Utf8View{};
 }
 
 PluginIndexResult plugin_index_verify(Utf8View document, ConstSlice<u8> signature, const P256Key& trusted_key,

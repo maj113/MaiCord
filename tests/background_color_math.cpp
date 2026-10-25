@@ -46,12 +46,13 @@ void test_background_color_math(void (*check)(bool, const char*) noexcept) noexc
             double background_luminance, foreground_luminance;
             const char* label;
         };
+        const Theme amoled_theme = ui_theme_amoled();
         const Fixture fixtures[]{
             {kDefaultTheme, kDefaultTheme.accent, white, blue_luminance, 1,
              "filled text: default blue chooses white when both authored extremes fall below4.5"},
             {kLightTheme, kLightTheme.accent, kLightTheme.surface, blue_luminance, 1,
              "filled text: Light blue preserves its authored white surface at4.6065 contrast"},
-            {kAmoledTheme, kAmoledTheme.accent, white, blue_luminance, 1,
+            {amoled_theme, amoled_theme.accent, white, blue_luminance, 1,
              "filled text: AMOLED blue keeps its white on-accent text over the readable black base"},
             {kDefaultTheme, yellow, kDefaultTheme.base_lowest, yellow_luminance, dark_base_luminance,
              "filled text: bright yellow preserves readable dark authored text"},
@@ -109,7 +110,8 @@ void test_background_color_math(void (*check)(bool, const char*) noexcept) noexc
           "theme color anchors: invalid descriptors preserve the caller output");
     ClientPreferences preferences{};
     constexpr ClientTheme flat[]{ClientTheme::dark, ClientTheme::amoled, ClientTheme::light};
-    const Theme* originals[]{&kDefaultTheme, &kAmoledTheme, &kLightTheme};
+    const Theme amoled_theme = ui_theme_amoled();
+    const Theme* originals[]{&kDefaultTheme, &amoled_theme, &kLightTheme};
     bool unchanged = true;
     for (u32 i = 0; i < 3; ++i) {
         preferences.theme = flat[i];

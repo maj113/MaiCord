@@ -129,7 +129,7 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
     PaintStream paint{}; UiTextCommand commands[128]{}; UiTextCommandStream stream{}; UiTextOutput output{&stream,nullptr};
     bool visual = paint_stream_initialize(&paint) && ui_text_command_stream_initialize(&stream,{commands,128});
     Theme bright = kLightTheme; bright.accent = {.95f,.85f,.4f,1};
-    const Theme themes[]{kDefaultTheme,kLightTheme,bright,kAmoledTheme};
+    const Theme themes[]{kDefaultTheme,kLightTheme,bright,ui_theme_amoled()};
     const UiRect sizes[]{viewport,{0,0,320,420},{0,0,240,300},{0,0,1920,1080}};
     for (u32 variant = 0; variant < 4; ++variant) {
         const auto& theme = themes[variant]; const auto size = sizes[variant];

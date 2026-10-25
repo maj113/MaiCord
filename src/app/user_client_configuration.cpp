@@ -3,6 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/protocol/client_user_agent.hpp"
 
 #include "maicord/platform/random.hpp"
@@ -56,33 +57,14 @@ u32 write_os_version(const OSVERSIONINFOW& version, char* output,
 }
 
 // The locales the desktop host ships (its locales\*.pak).
-constexpr Utf8View kHostLocales[] = {
-    utf8_literal("af"),     utf8_literal("am"),    utf8_literal("ar"),    utf8_literal("bg"),
-    utf8_literal("bn"),     utf8_literal("ca"),    utf8_literal("cs"),    utf8_literal("da"),
-    utf8_literal("de"),     utf8_literal("el"),    utf8_literal("en-GB"), utf8_literal("en-US"),
-    utf8_literal("es-419"), utf8_literal("es"),    utf8_literal("et"),    utf8_literal("fa"),
-    utf8_literal("fi"),     utf8_literal("fil"),   utf8_literal("fr"),    utf8_literal("gu"),
-    utf8_literal("he"),     utf8_literal("hi"),    utf8_literal("hr"),    utf8_literal("hu"),
-    utf8_literal("id"),     utf8_literal("it"),    utf8_literal("ja"),    utf8_literal("kn"),
-    utf8_literal("ko"),     utf8_literal("lt"),    utf8_literal("lv"),    utf8_literal("ml"),
-    utf8_literal("mr"),     utf8_literal("ms"),    utf8_literal("nb"),    utf8_literal("nl"),
-    utf8_literal("pl"),     utf8_literal("pt-BR"), utf8_literal("pt-PT"), utf8_literal("ro"),
-    utf8_literal("ru"),     utf8_literal("sk"),    utf8_literal("sl"),    utf8_literal("sr"),
-    utf8_literal("sv"),     utf8_literal("sw"),    utf8_literal("ta"),    utf8_literal("te"),
-    utf8_literal("th"),     utf8_literal("tr"),    utf8_literal("uk"),    utf8_literal("ur"),
-    utf8_literal("vi"),     utf8_literal("zh-CN"), utf8_literal("zh-TW"),
-};
+constexpr char kHostLocales[] =
+    "af\0am\0ar\0bg\0bn\0ca\0cs\0da\0de\0el\0en-GB\0en-US\0es-419\0es\0et\0fa\0fi\0fil\0fr\0gu\0he\0hi\0hr\0hu\0id\0it\0"
+    "ja\0kn\0ko\0lt\0lv\0ml\0mr\0ms\0nb\0nl\0pl\0pt-BR\0pt-PT\0ro\0ru\0sk\0sl\0sr\0sv\0sw\0ta\0te\0th\0tr\0uk\0ur\0vi\0"
+    "zh-CN\0zh-TW\0";
 // Discord's enabled interface locales, in its list order.
-constexpr Utf8View kDiscordLocales[] = {
-    utf8_literal("en-US"), utf8_literal("en-GB"),  utf8_literal("zh-CN"), utf8_literal("zh-TW"),
-    utf8_literal("cs"),    utf8_literal("da"),     utf8_literal("nl"),    utf8_literal("fr"),
-    utf8_literal("de"),    utf8_literal("el"),     utf8_literal("hu"),    utf8_literal("it"),
-    utf8_literal("ja"),    utf8_literal("ko"),     utf8_literal("pl"),    utf8_literal("pt-BR"),
-    utf8_literal("ru"),    utf8_literal("es-419"), utf8_literal("es-ES"), utf8_literal("sv-SE"),
-    utf8_literal("tr"),    utf8_literal("bg"),     utf8_literal("uk"),    utf8_literal("fi"),
-    utf8_literal("no"),    utf8_literal("hr"),     utf8_literal("ro"),    utf8_literal("lt"),
-    utf8_literal("th"),    utf8_literal("vi"),     utf8_literal("hi"),
-};
+constexpr char kDiscordLocales[] =
+    "en-US\0en-GB\0zh-CN\0zh-TW\0cs\0da\0nl\0fr\0de\0el\0hu\0it\0ja\0ko\0pl\0pt-BR\0ru\0es-419\0es-ES\0sv-SE\0tr\0bg\0uk\0"
+    "fi\0no\0hr\0ro\0lt\0th\0vi\0hi\0";
 
 // The first subtag.
 Utf8View language_of(Utf8View locale) noexcept {
@@ -99,19 +81,19 @@ u32 emit(Utf8View value, Slice<char> output) noexcept {
     return value.bytes;
 }
 
-// A shipped locale equal to candidate, ignoring case.
-const Utf8View* host_locale_named(Utf8View candidate) noexcept {
-    for (const Utf8View& locale : kHostLocales)
-        if (ascii_equal_ignore_case(locale, candidate))
-            return &locale;
-    return nullptr;
+// A shipped locale equal to candidate, ignoring case; empty when none.
+Utf8View host_locale_named(Utf8View candidate) noexcept {
+    for (NameList list{kHostLocales}; list; list.next())
+        if (ascii_equal_ignore_case(list.name(), candidate))
+            return list.name();
+    return {};
 }
 
 } // namespace
 
 u32 client_host_locale(Utf8View locale, Slice<char> output) noexcept {
-    if (const Utf8View* exact = host_locale_named(locale))
-        return emit(*exact, output);
+    if (const Utf8View exact = host_locale_named(locale); exact.data)
+        return emit(exact, output);
     const Utf8View language = language_of(locale);
     if (language.bytes && language.bytes < locale.bytes) {
         const Utf8View region{locale.data + language.bytes + 1, locale.bytes - language.bytes - 1};
@@ -132,8 +114,8 @@ u32 client_host_locale(Utf8View locale, Slice<char> output) noexcept {
             mapped = is(region, utf8_literal("lr")) || is(region, utf8_literal("ph"))
                          ? utf8_literal("en-US")
                          : utf8_literal("en-GB");
-        if (const Utf8View* resolved = host_locale_named(mapped))
-            return emit(*resolved, output);
+        if (const Utf8View resolved = host_locale_named(mapped); resolved.data)
+            return emit(resolved, output);
     }
     constexpr Utf8View aliases[][2] = {
         {utf8_literal("en"), utf8_literal("en-US")}, {utf8_literal("iw"), utf8_literal("he")},
@@ -147,19 +129,19 @@ u32 client_host_locale(Utf8View locale, Slice<char> output) noexcept {
 }
 
 u32 client_discord_locale(Utf8View host_locale, Slice<char> output) noexcept {
-    for (const Utf8View& locale : kDiscordLocales)
-        if (utf8_equal(locale, host_locale))
-            return emit(locale, output);
+    for (NameList list{kDiscordLocales}; list; list.next())
+        if (utf8_equal(list.name(), host_locale))
+            return emit(list.name(), output);
     const Utf8View language = language_of(host_locale);
-    for (const Utf8View& locale : kDiscordLocales)
-        if (utf8_equal(locale, language))
-            return emit(locale, output);
+    for (NameList list{kDiscordLocales}; list; list.next())
+        if (utf8_equal(list.name(), language))
+            return emit(list.name(), output);
     if (utf8_equal(language, utf8_literal("zh")) && host_locale.bytes > 3 &&
         utf8_equal(language_of({host_locale.data + 3, host_locale.bytes - 3}), utf8_literal("Hant")))
         return emit(utf8_literal("zh-TW"), output);
-    for (const Utf8View& locale : kDiscordLocales)
-        if (utf8_equal(language_of(locale), language))
-            return emit(locale, output);
+    for (NameList list{kDiscordLocales}; list; list.next())
+        if (utf8_equal(language_of(list.name()), language))
+            return emit(list.name(), output);
     return emit(utf8_literal("en-US"), output);
 }
 

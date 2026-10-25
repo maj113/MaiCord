@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
@@ -22,28 +23,24 @@ enum Field : u32 { schema, owner, abi, name, version, description, dll, digest, 
     field_count };
 // min_host_abi and publisher are optional; everything before them is required.
 constexpr u32 kRequiredFields = (1u << min_host) - 1;
-constexpr Utf8View kPermissionNames[kNativePluginPermissionCount]{
-    utf8_literal("settings"), utf8_literal("menus"), utf8_literal("message_send"), utf8_literal("commands"),
-    utf8_literal("ui_slots"), utf8_literal("store"), utf8_literal("timer"), utf8_literal("read_context"),
-    utf8_literal("read_guilds"), utf8_literal("read_members"), utf8_literal("read_presence"), utf8_literal("read_voice"),
-    utf8_literal("read_messages"), utf8_literal("message_render"), utf8_literal("act_messages"),
-    utf8_literal("act_presence"), utf8_literal("navigate"), utf8_literal("clipboard"), utf8_literal("open_links"),
-    utf8_literal("notify"), utf8_literal("keybinds"), utf8_literal("effects")};
-constexpr Utf8View kPermissionLabels[kNativePluginPermissionCount]{
-    utf8_literal("Add settings pages"), utf8_literal("Add items to context menus"),
-    utf8_literal("Change your messages before they are sent"), utf8_literal("Add slash commands"),
-    utf8_literal("Show badges and buttons"), utf8_literal("Store its own data"), utf8_literal("Run on a timer"),
-    utf8_literal("See the open channel and your username"), utf8_literal("See your servers, channels and roles"),
-    utf8_literal("See users, server members, friends and open profiles"),
-    utf8_literal("See online status, devices and activities"), utf8_literal("See who is in voice channels"),
-    utf8_literal("Read messages you receive, including edits and deletions"),
-    utf8_literal("Change how messages are shown (hide, label, blur)"),
-    utf8_literal("Send, edit and react to messages and mark them read as you"),
-    utf8_literal("Change your custom status and shown activity"),
-    utf8_literal("Open channels, profiles and its own pages when you use it"),
-    utf8_literal("Copy text to the clipboard when you use it"),
-    utf8_literal("Open links (MaiCord asks first)"), utf8_literal("Show notices and dialogs"),
-    utf8_literal("Add keyboard shortcuts"), utf8_literal("Draw a background effect")};
+constexpr char kPermissionNames[] =
+    "settings\0menus\0message_send\0commands\0ui_slots\0store\0timer\0read_context\0read_guilds\0read_members\0"
+    "read_presence\0read_voice\0read_messages\0message_render\0act_messages\0act_presence\0navigate\0clipboard\0"
+    "open_links\0notify\0keybinds\0effects\0";
+constexpr char kPermissionLabels[] =
+    "Add settings pages\0Add items to context menus\0Change your messages before they are sent\0"
+    "Add slash commands\0Show badges and buttons\0Store its own data\0Run on a timer\0"
+    "See the open channel and your username\0See your servers, channels and roles\0"
+    "See users, server members, friends and open profiles\0See online status, devices and activities\0"
+    "See who is in voice channels\0Read messages you receive, including edits and deletions\0"
+    "Change how messages are shown (hide, label, blur)\0"
+    "Send, edit and react to messages and mark them read as you\0"
+    "Change your custom status and shown activity\0"
+    "Open channels, profiles and its own pages when you use it\0"
+    "Copy text to the clipboard when you use it\0Open links (MaiCord asks first)\0"
+    "Show notices and dialogs\0Add keyboard shortcuts\0Draw a background effect\0";
+static_assert(name_list_count(kPermissionNames) == kNativePluginPermissionCount &&
+              name_list_count(kPermissionLabels) == kNativePluginPermissionCount);
 struct Parse { NativePluginManifest candidate; u32 seen; NativePluginManifestError error; JsonIndexedDocument document; };
 bool permission(void* context, u32 index, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
@@ -52,8 +49,9 @@ bool permission(void* context, u32 index, JsonValue value) noexcept {
         parse.error = index >= kNativePluginPermissionCount ? NativePluginManifestError::capacity : NativePluginManifestError::type;
         return false;
     }
-    for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit) {
-        if (!json_string_equals_ascii(string, kPermissionNames[bit])) continue;
+    u32 bit = 0;
+    for (NameList names{kPermissionNames}; names; names.next(), ++bit) {
+        if (!json_string_equals_ascii(string, names.name())) continue;
         if (parse.candidate.permissions & (1ull << bit)) { parse.error = NativePluginManifestError::duplicate_field; return false; }
         parse.candidate.permissions |= 1ull << bit;
         return true;
@@ -169,15 +167,16 @@ bool native_plugin_path_component_valid(ConstSlice<wchar_t> part) noexcept {
     return true;
 }
 Utf8View native_plugin_permission_name(u32 index) noexcept {
-    return index < kNativePluginPermissionCount ? kPermissionNames[index] : Utf8View{};
+    return index < kNativePluginPermissionCount ? name_list_at(kPermissionNames, index) : Utf8View{};
 }
 u32 native_plugin_permission_bit(Utf8View name) noexcept {
-    for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit)
-        if (utf8_equal(name, kPermissionNames[bit])) return bit;
+    u32 bit = 0;
+    for (NameList names{kPermissionNames}; names; names.next(), ++bit)
+        if (utf8_equal(name, names.name())) return bit;
     return kNativePluginPermissionCount;
 }
 Utf8View native_plugin_permission_label(u32 index) noexcept {
-    return index < kNativePluginPermissionCount ? kPermissionLabels[index] : Utf8View{};
+    return index < kNativePluginPermissionCount ? name_list_at(kPermissionLabels, index) : Utf8View{};
 }
 bool native_plugin_manifest_valid(const NativePluginManifest& manifest) noexcept {
     if ((manifest.permissions & ~kNativePluginPermissionsAll) ||
@@ -233,7 +232,7 @@ NativePluginManifestResult native_plugin_manifest_write(const NativePluginManife
         if(manifest.publisher_bytes){w.text(utf8_literal(",\"publisher\":"));w.quoted({manifest.publisher,manifest.publisher_bytes});}
         w.text(utf8_literal(",\"permissions\":["));bool first=true;
         for(u32 bit=0;bit<kNativePluginPermissionCount;++bit)if(manifest.permissions&(1ull<<bit)){
-            if(!first)w.character(',');first=false;w.quoted(kPermissionNames[bit]);}
+            if(!first)w.character(',');first=false;w.quoted(name_list_at(kPermissionNames,bit));}
         w.character(']');
         w.text(utf8_literal(",\"name\":"));w.quoted({manifest.name,manifest.name_bytes});
         w.text(utf8_literal(",\"version\":"));w.quoted({manifest.version,manifest.version_bytes});

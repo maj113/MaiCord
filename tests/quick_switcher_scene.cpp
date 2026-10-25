@@ -111,7 +111,7 @@ void test_quick_switcher_scene(void (*check)(bool, const char*) noexcept) noexce
     UiTextCommandStream stream{};
     UiTextOutput output{&stream, nullptr};
     bool painted = paint_stream_initialize(&paint) && ui_text_command_stream_initialize(&stream, {commands, 128});
-    const Theme themes[]{kDefaultTheme, kLightTheme, kAmoledTheme};
+    const Theme themes[]{kDefaultTheme, kLightTheme, ui_theme_amoled()};
     const UiRect viewports[]{viewport, {0, 0, 320, 360}, {0, 0, 1920, 1080}};
     for (u32 i = 0; i < 3; ++i) {
         painted &= ui_quick_switcher_scene_update(&scene, &source, &content, viewports[i]);

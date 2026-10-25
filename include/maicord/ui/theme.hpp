@@ -79,7 +79,9 @@ constexpr Color ui_theme_color_alpha(Color color, float alpha) noexcept {
 // The built-in presets (theme_presets.hpp), resolved once at compile time in
 // theme.cpp rather than in every source that includes this header.
 extern const Theme kDefaultTheme;
-extern const Theme kAmoledTheme;
 extern const Theme kLightTheme;
+// kDefaultTheme on near-black surfaces, built on demand: storing it would
+// double the resolved-theme footprint for four changed colours.
+Theme ui_theme_amoled() noexcept;
 
 } // namespace maicord

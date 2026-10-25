@@ -26,27 +26,21 @@
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
+#include <stddef.h>
 
 
 namespace maicord {
 namespace {
-constexpr Utf8View kBases[]{utf8_literal("dark"), utf8_literal("light"), utf8_literal("amoled")};
-constexpr Utf8View kEffects[]{utf8_literal("none"), utf8_literal("stars"), utf8_literal("comets"),
-                              utf8_literal("stars_and_comets")};
-static_assert(sizeof(kEffects) / sizeof(kEffects[0]) == kBackgroundEffectCount);
-constexpr Utf8View kFaces[]{
-    utf8_literal("normal"),      utf8_literal("display"),    utf8_literal("serif"),
-    utf8_literal("rounded"),     utf8_literal("mono"),       utf8_literal("hand"),
-    utf8_literal("techno"),      utf8_literal("bangers"),    utf8_literal("biorhyme"),
-    utf8_literal("cherry_bomb"), utf8_literal("chicle"),     utf8_literal("compagnon"),
-    utf8_literal("museo"),       utf8_literal("medieval"),   utf8_literal("pixelify"),
-    utf8_literal("ribes"),       utf8_literal("sinistre"),   utf8_literal("zilla"),
-    utf8_literal("playpen"),     utf8_literal("new_rocker"), utf8_literal("kalam")};
-static_assert(sizeof(kFaces) / sizeof(kFaces[0]) == static_cast<u32>(UiTextFace::count));
-constexpr Utf8View kTypographyNames[]{utf8_literal("body_size"),       utf8_literal("heading_1_ratio"),
-                                      utf8_literal("heading_2_ratio"), utf8_literal("heading_3_ratio"),
-                                      utf8_literal("subtext_ratio"),   utf8_literal("mono_ratio"),
-                                      utf8_literal("body_face"),       utf8_literal("code_face")};
+constexpr char kBases[] = "dark\0light\0amoled\0";
+constexpr char kEffects[] = "none\0stars\0comets\0stars_and_comets\0";
+static_assert(name_list_count(kEffects) == kBackgroundEffectCount);
+constexpr char kFaces[] =
+    "normal\0display\0serif\0rounded\0mono\0hand\0techno\0bangers\0biorhyme\0cherry_bomb\0chicle\0compagnon\0"
+    "museo\0medieval\0pixelify\0ribes\0sinistre\0zilla\0playpen\0new_rocker\0kalam\0";
+static_assert(name_list_count(kFaces) == static_cast<u32>(UiTextFace::count));
+constexpr char kTypographyNames[] = "body_size\0heading_1_ratio\0heading_2_ratio\0heading_3_ratio\0"
+                                    "subtext_ratio\0mono_ratio\0body_face\0code_face\0";
 constexpr float UiThemeTypography::* kTypographyValues[]{
     &UiThemeTypography::body_size,       &UiThemeTypography::heading_1_ratio,
     &UiThemeTypography::heading_2_ratio, &UiThemeTypography::heading_3_ratio,
@@ -161,9 +155,9 @@ bool decimal(JsonValue value, float* output) noexcept {
 }
 constexpr u32 kPaletteCapacity = 32;
 constexpr u32 kTokenCount = static_cast<u32>(UiThemeToken::count);
-constexpr Utf8View kCurves[]{utf8_literal("linear"), utf8_literal("ease_out"), utf8_literal("ease_in_out"),
-                             utf8_literal("css_ease_out"), utf8_literal("spring")};
-static_assert(sizeof(kCurves) / sizeof(kCurves[0]) == static_cast<u32>(UiMotionCurve::spring) + 1);
+constexpr char kCurves[] = "linear\0ease_out\0ease_in_out\0css_ease_out\0spring\0";
+constexpr u32 kCurveCount = name_list_count(kCurves);
+static_assert(kCurveCount == static_cast<u32>(UiMotionCurve::spring) + 1);
 // Root keys: sections follow the three scalars. Order here is only identity;
 // sections are applied in kSectionOrder so references resolve independently
 // of member order in the file.
@@ -197,46 +191,59 @@ enum Section : u32 {
     X(radio_size) X(radio_gap) X(radio_spacing) X(control_height) X(control_radius) X(button_small)        \
     X(button_medium) X(button_padding) X(swatch) X(swatch_gap) X(close_size) X(close_caption_gap)          \
     X(notice_padding) X(switch_ms) X(switch_reduced_ms) X(modal_enter_ms) X(flash_ms) X(flash_fade_ms)
-#define NAME(field) utf8_literal(#field),
-#define COLOR_MEMBER(field) &UiThemeSettings::field,
-#define SIZE_MEMBER(field) &UiThemeSettings::field,
-constexpr Utf8View kSettingsColorNames[]{THEME_SETTINGS_COLORS(NAME)};
-constexpr u32 UiThemeSettings::* kSettingsColors[]{THEME_SETTINGS_COLORS(COLOR_MEMBER)};
-constexpr Utf8View kSettingsSizeNames[]{THEME_SETTINGS_SIZES(NAME)};
-constexpr u16 UiThemeSettings::* kSettingsSizes[]{THEME_SETTINGS_SIZES(SIZE_MEMBER)};
-#undef NAME
-#undef COLOR_MEMBER
-#undef SIZE_MEMBER
-constexpr u32 kSettingsColorCount = sizeof(kSettingsColors) / sizeof(kSettingsColors[0]);
-constexpr u32 kSettingsSizeCount = sizeof(kSettingsSizes) / sizeof(kSettingsSizes[0]);
+#define NAME(field) #field "\0"
+#define FIELD_OFFSET(field) offsetof(UiThemeSettings, field),
+constexpr char kSettingsColorNames[] = THEME_SETTINGS_COLORS(NAME);
+constexpr char kSettingsSizeNames[] = THEME_SETTINGS_SIZES(NAME);
+constexpr u32 kSettingsColorCount = name_list_count(kSettingsColorNames);
+constexpr u32 kSettingsSizeCount = name_list_count(kSettingsSizeNames);
 static_assert(kSettingsColorCount <= 64 && kSettingsSizeCount <= 64);
 // Every field is listed: only the trailing alignment padding is unnamed.
-static_assert((kSettingsColorCount * sizeof(u32) + kSettingsSizeCount * sizeof(u16) + 3) / 4 * 4 ==
-              sizeof(UiThemeSettings));
-constexpr Utf8View kIconRoles[]{utf8_literal("normal"),  utf8_literal("muted"),   utf8_literal("accent"),
-                                utf8_literal("danger"),  utf8_literal("success"), utf8_literal("warning"),
-                                utf8_literal("on_accent")};
-static_assert(sizeof(kIconRoles) / sizeof(kIconRoles[0]) == sizeof(UiThemeIcons::colors) / sizeof(u32));
+constexpr u32 kSettingsNamedBytes = kSettingsColorCount * sizeof(u32) + kSettingsSizeCount * sizeof(u16);
+static_assert((kSettingsNamedBytes + 3) / 4 * 4 == sizeof(UiThemeSettings));
+// The colours then the sizes are consecutive fields in list order, so a name index addresses its field.
+static_assert([]() constexpr {
+    constexpr usize colors[]{THEME_SETTINGS_COLORS(FIELD_OFFSET)};
+    constexpr usize sizes[]{THEME_SETTINGS_SIZES(FIELD_OFFSET)};
+    for (u32 i = 0; i < kSettingsColorCount; ++i)
+        if (colors[i] != i * sizeof(u32))
+            return false;
+    for (u32 i = 0; i < kSettingsSizeCount; ++i)
+        if (sizes[i] != kSettingsColorCount * sizeof(u32) + i * sizeof(u16))
+            return false;
+    return true;
+}());
+#undef NAME
+#undef FIELD_OFFSET
+inline const u32* settings_colors(const UiThemeSettings& settings) noexcept {
+    return reinterpret_cast<const u32*>(&settings);
+}
+inline u32* settings_colors(UiThemeSettings& settings) noexcept {
+    return reinterpret_cast<u32*>(&settings);
+}
+inline const u16* settings_sizes(const UiThemeSettings& settings) noexcept {
+    return reinterpret_cast<const u16*>(settings_colors(settings) + kSettingsColorCount);
+}
+inline u16* settings_sizes(UiThemeSettings& settings) noexcept {
+    return reinterpret_cast<u16*>(settings_colors(settings) + kSettingsColorCount);
+}
+constexpr char kIconRoles[] = "normal\0muted\0accent\0danger\0success\0warning\0on_accent\0";
+constexpr u32 kIconRoleCount = sizeof(UiThemeIcons::colors) / sizeof(u32);
+static_assert(name_list_count(kIconRoles) == kIconRoleCount);
 bool settings_size_valid(u32 index, u32 value) noexcept {
     // Index 1 is the modal viewport ratio, a percentage; durations share the size bound.
     return index == 1 ? value >= 10 && value <= 100 : value <= 4096;
 }
 bool components_equal(const ClientThemeDocument& a, const ClientThemeDocument& b) noexcept {
-    if (!bytes_equal(&a.icons, &b.icons, sizeof(a.icons)))
-        return false;
-    for (const auto member : kSettingsColors)
-        if (a.settings.*member != b.settings.*member)
-            return false;
-    for (const auto member : kSettingsSizes)
-        if (a.settings.*member != b.settings.*member)
-            return false;
-    return true;
+    return bytes_equal(&a.icons, &b.icons, sizeof(a.icons)) &&
+           bytes_equal(&a.settings, &b.settings, kSettingsNamedBytes);
 }
 bool components_valid(const UiThemeIcons& icons, const UiThemeSettings& settings) noexcept {
     if (!(icons.weight >= .25f && icons.weight <= 4))
         return false;
+    const u16* sizes = settings_sizes(settings);
     for (u32 i = 0; i < kSettingsSizeCount; ++i)
-        if (!settings_size_valid(i, settings.*kSettingsSizes[i]))
+        if (!settings_size_valid(i, sizes[i]))
             return false;
     return true;
 }
@@ -274,17 +281,18 @@ bool duplicate(Parse& parse, u64& seen, u32 id, u32 offset) noexcept {
     seen |= bit;
     return true;
 }
-u32 key_index(JsonString name, const Utf8View* names, u32 count) noexcept {
-    for (u32 i = 0; i < count; ++i)
-        if (json_string_equals_ascii(name, names[i]))
-            return i;
-    return count;
+u32 key_index(JsonString name, const char* names) noexcept {
+    u32 index{};
+    for (NameList list{names}; list; list.next(), ++index)
+        if (json_string_equals_ascii(name, list.name()))
+            return index;
+    return index;
 }
-bool enum_value(Parse& parse, JsonValue value, const Utf8View* names, u32 count, u32* output) noexcept {
+bool enum_value(Parse& parse, JsonValue value, const char* names, u32 count, u32* output) noexcept {
     JsonString string{};
     if (!json_value_as_string(value, &string))
         return parse.fail(ClientThemeDocumentError::type, value.source_offset);
-    const u32 id = key_index(string, names, count);
+    const u32 id = key_index(string, names);
     if (id == count)
         return parse.fail(ClientThemeDocumentError::range, value.source_offset);
     *output = id;
@@ -415,7 +423,7 @@ bool color_value(Parse& parse, JsonValue value, Reference allowed, UiThemeTokenS
     } else if (count == 2 && allowed != Reference::palette_only && utf8_equal(parts[0], utf8_literal("colors"))) {
         const auto colors = ui_theme_color_descriptors();
         for (u32 i = 0; i < colors.count; ++i)
-            if (utf8_equal(colors[i].name, parts[1])) {
+            if (utf8_equal(colors[i].name(), parts[1])) {
                 *output = {{}, alpha, static_cast<u8>(colors[i].id), UiThemeTokenSourceKind::core};
                 return true;
             }
@@ -435,7 +443,7 @@ bool color_member(void* context, JsonString name, JsonValue value) noexcept {
     const auto tokens = ui_theme_color_descriptors();
     for (u32 i = 0; i < tokens.count; ++i) {
         const auto& token = tokens[i];
-        if (!json_string_equals_ascii(name, token.name))
+        if (!json_string_equals_ascii(name, token.name()))
             continue;
         if (!duplicate(parse, section.seen, static_cast<u32>(token.id), name.source_offset))
             return false;
@@ -464,14 +472,14 @@ bool palette_member(void* context, JsonString name, JsonValue value) noexcept {
 }
 struct GroupVisit {
     Parse* parse;
-    Utf8View group;
+    u32 group;
 };
 bool semantic_token_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& visit = *static_cast<GroupVisit*>(context);
     auto& parse = *visit.parse;
     const auto tokens = ui_theme_token_descriptors();
     for (u32 i = 0; i < tokens.count; ++i) {
-        if (!utf8_equal(tokens[i].group(), visit.group) || !json_string_equals_ascii(name, tokens[i].name()))
+        if (tokens[i].group_index != visit.group || !json_string_equals_ascii(name, tokens[i].name()))
             continue;
         if (parse.overrides[i].kind != UiThemeTokenSourceKind::inherit)
             return parse.fail(ClientThemeDocumentError::duplicate_field, name.source_offset);
@@ -485,19 +493,19 @@ bool semantic_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
     const auto tokens = ui_theme_token_descriptors();
-    for (u32 i = 0, group = 0; i < tokens.count; ++i) {
-        if (i && utf8_equal(tokens[i].group(), tokens[i - 1].group()))
+    for (u32 i = 0; i < tokens.count; ++i) {
+        const u32 group = tokens[i].group_index;
+        if (i && group == tokens[i - 1].group_index)
             continue;
         if (json_string_equals_ascii(name, tokens[i].group())) {
             if (!duplicate(parse, section.seen, group, name.source_offset))
                 return false;
             if (value.kind != JsonValueKind::object)
                 return parse.fail(ClientThemeDocumentError::type, value.source_offset);
-            GroupVisit visit{&parse, tokens[i].group()};
+            GroupVisit visit{&parse, group};
             return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
                                                         semantic_token_member, &visit));
         }
-        ++group;
     }
     ++parse.unsupported;
     return true;
@@ -507,7 +515,7 @@ bool scale_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *section.parse;
     const auto scales = ui_theme_scale_descriptors();
     for (u32 i = 0; i < scales.count; ++i) {
-        if (!json_string_equals_ascii(name, scales[i].name))
+        if (!json_string_equals_ascii(name, scales[i].name()))
             continue;
         if (!duplicate(parse, section.seen, i, name.source_offset))
             return false;
@@ -529,8 +537,8 @@ struct MotionVisit {
 bool motion_field(void* context, JsonString name, JsonValue value) noexcept {
     auto& visit = *static_cast<MotionVisit*>(context);
     auto& parse = *visit.parse;
-    static constexpr Utf8View keys[]{utf8_literal("duration_ms"), utf8_literal("curve")};
-    const u32 id = key_index(name, keys, 2);
+    static constexpr char keys[] = "duration_ms\0curve\0";
+    const u32 id = key_index(name, keys);
     if (id == 2) {
         ++parse.unsupported;
         return true;
@@ -539,7 +547,7 @@ bool motion_field(void* context, JsonString name, JsonValue value) noexcept {
         return false;
     if (id == 1) {
         u32 curve{};
-        if (!enum_value(parse, value, kCurves, sizeof(kCurves) / sizeof(kCurves[0]), &curve))
+        if (!enum_value(parse, value, kCurves, kCurveCount, &curve))
             return false;
         visit.style->curve = static_cast<UiMotionCurve>(curve);
         return true;
@@ -557,7 +565,7 @@ bool motion_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *section.parse;
     const auto motions = ui_theme_motion_descriptors();
     for (u32 i = 0; i < motions.count; ++i) {
-        if (!json_string_equals_ascii(name, motions[i].name))
+        if (!json_string_equals_ascii(name, motions[i].name()))
             continue;
         if (!duplicate(parse, section.seen, i, name.source_offset))
             return false;
@@ -581,14 +589,14 @@ bool metric_member(void* context, JsonString name, JsonValue value) noexcept {
     const auto metrics = ui_theme_metric_descriptors();
     for (u32 i = 0; i < metrics.count; ++i) {
         const auto& metric = metrics[i];
-        if (!json_string_equals_ascii(name, metric.name))
+        if (!json_string_equals_ascii(name, metric.name()))
             continue;
         if (!duplicate(parse, section.seen, static_cast<u32>(metric.id), name.source_offset))
             return false;
         float number{};
         if (!float_value(parse, value, &number))
             return false;
-        if (number < metric.minimum || number > metric.maximum ||
+        if (number < metric.minimum() || number > metric.maximum() ||
             !ui_theme_metric_set(&parse.candidate.metrics, metric.id, number))
             return parse.fail(ClientThemeDocumentError::range, value.source_offset);
         return true;
@@ -599,7 +607,7 @@ bool metric_member(void* context, JsonString name, JsonValue value) noexcept {
 bool typography_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    const u32 id = key_index(name, kTypographyNames, 8);
+    const u32 id = key_index(name, kTypographyNames);
     if (id == 8) {
         ++parse.unsupported;
         return true;
@@ -642,11 +650,8 @@ bool palette_color(void* context, u32 index, JsonValue value) noexcept {
 bool background_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    static constexpr Utf8View keys[]{utf8_literal("colors"),    utf8_literal("angle_degrees"),
-                              utf8_literal("intensity"), utf8_literal("effect"),
-                              utf8_literal("speed"),     utf8_literal("strength"),
-                              utf8_literal("density")};
-    const u32 id = key_index(name, keys, 7);
+    static constexpr char keys[] = "colors\0angle_degrees\0intensity\0effect\0speed\0strength\0density\0";
+    const u32 id = key_index(name, keys);
     if (id == 7) {
         ++parse.unsupported;
         return true;
@@ -671,7 +676,7 @@ bool background_member(void* context, JsonString name, JsonValue value) noexcept
         if (!json_value_as_string(value, &effect_name))
             return parse.fail(ClientThemeDocumentError::type, value.source_offset);
         // A name outside the catalog (a removed effect) means no effect.
-        const u32 effect = key_index(effect_name, kEffects, kBackgroundEffectCount);
+        const u32 effect = key_index(effect_name, kEffects);
         if (effect == kBackgroundEffectCount)
             ++parse.unsupported;
         background.effect =
@@ -726,8 +731,8 @@ bool resolved_color(Parse& parse, JsonValue value, u32* output) noexcept {
 bool icon_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    constexpr u32 count = sizeof(kIconRoles) / sizeof(kIconRoles[0]);
-    const u32 id = json_string_equals_ascii(name, utf8_literal("weight")) ? count : key_index(name, kIconRoles, count);
+    constexpr u32 count = kIconRoleCount;
+    const u32 id = json_string_equals_ascii(name, utf8_literal("weight")) ? count : key_index(name, kIconRoles);
     if (id == count && !json_string_equals_ascii(name, utf8_literal("weight"))) {
         ++parse.unsupported;
         return true;
@@ -747,11 +752,11 @@ bool icon_member(void* context, JsonString name, JsonValue value) noexcept {
 bool settings_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    const u32 color = key_index(name, kSettingsColorNames, kSettingsColorCount);
+    const u32 color = key_index(name, kSettingsColorNames);
     if (color < kSettingsColorCount)
         return duplicate(parse, section.seen, color, name.source_offset) &&
-               resolved_color(parse, value, &(parse.candidate.settings.*kSettingsColors[color]));
-    const u32 size = key_index(name, kSettingsSizeNames, kSettingsSizeCount);
+               resolved_color(parse, value, &settings_colors(parse.candidate.settings)[color]);
+    const u32 size = key_index(name, kSettingsSizeNames);
     if (size == kSettingsSizeCount) {
         ++parse.unsupported;
         return true;
@@ -764,14 +769,14 @@ bool settings_member(void* context, JsonString name, JsonValue value) noexcept {
         return parse.fail(ClientThemeDocumentError::type, value.source_offset);
     if (number > 0xffff || !settings_size_valid(size, static_cast<u32>(number)))
         return parse.fail(ClientThemeDocumentError::range, value.source_offset);
-    parse.candidate.settings.*kSettingsSizes[size] = static_cast<u16>(number);
+    settings_sizes(parse.candidate.settings)[size] = static_cast<u16>(number);
     return true;
 }
 bool components_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    static constexpr Utf8View keys[]{utf8_literal("icons"), utf8_literal("settings")};
-    const u32 id = key_index(name, keys, 2);
+    static constexpr char keys[] = "icons\0settings\0";
+    const u32 id = key_index(name, keys);
     if (id == 2) {
         ++parse.unsupported;
         return true;
@@ -786,15 +791,11 @@ bool components_member(void* context, JsonString name, JsonValue value) noexcept
 }
 bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
-    static constexpr Utf8View keys[]{utf8_literal("version"),    utf8_literal("name"),
-                              utf8_literal("base"),       utf8_literal("colors"),
-                              utf8_literal("background"), utf8_literal("typography"),
-                              utf8_literal("metrics"),    utf8_literal("palette"),
-                              utf8_literal("semantic"),   utf8_literal("scale"),
-                              utf8_literal("motion"),     utf8_literal("components")};
-    constexpr u32 count = sizeof(keys) / sizeof(keys[0]);
+    static constexpr char keys[] = "version\0name\0base\0colors\0background\0typography\0metrics\0palette\0"
+                                   "semantic\0scale\0motion\0components\0";
+    constexpr u32 count = name_list_count(keys);
     static_assert(count == 3 + section_count);
-    const u32 id = key_index(name, keys, count);
+    const u32 id = key_index(name, keys);
     if (id == count) {
         ++parse.unsupported;
         return true;
@@ -962,12 +963,12 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal("{\"version\":\"2.0\",\"name\":"));
     writer.quoted({document.name, document.name_bytes});
     writer.text(utf8_literal(",\"base\":"));
-    writer.quoted(kBases[static_cast<u32>(document.base)]);
+    writer.quoted(name_list_at(kBases, static_cast<u32>(document.base)));
     writer.text(utf8_literal(",\"colors\":{"));
     bool comma{};
     const auto tokens = ui_theme_color_descriptors();
     for (u32 i = 0; i < tokens.count; ++i) {
-        writer.key(comma, tokens[i].name);
+        writer.key(comma, tokens[i].name());
         write_color(writer, *ui_theme_color_get(document.theme, tokens[i].id));
     }
     // Canonical semantic values are resolved literals: a stored document never
@@ -975,7 +976,7 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal("},\"semantic\":{"));
     const auto semantic = ui_theme_token_descriptors();
     for (u32 i = 0; i < semantic.count; ++i) {
-        const bool first = !i || !utf8_equal(semantic[i].group(), semantic[i - 1].group());
+        const bool first = !i || semantic[i].group_index != semantic[i - 1].group_index;
         if (first) {
             if (i)
                 writer.text(utf8_literal("},"));
@@ -993,7 +994,7 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     for (u32 i = 0; i < scales.count; ++i) {
         float value{};
         ui_theme_scale_get(document.theme.scale, scales[i].id, &value);
-        writer.key(comma, scales[i].name);
+        writer.key(comma, scales[i].name());
         writer.real(value);
     }
     writer.text(utf8_literal("},\"motion\":{"));
@@ -1002,11 +1003,11 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     comma = false;
     for (u32 i = 0; i < motions.count; ++i) {
         const auto* style = ui_theme_motion_slot(&motion, motions[i].id);
-        writer.key(comma, motions[i].name);
+        writer.key(comma, motions[i].name());
         writer.text(utf8_literal("{\"duration_ms\":"));
         writer.number(style->duration_ms);
         writer.text(utf8_literal(",\"curve\":"));
-        writer.quoted(kCurves[static_cast<u32>(style->curve)]);
+        writer.quoted(name_list_at(kCurves, static_cast<u32>(style->curve)));
         writer.character('}');
     }
     writer.text(utf8_literal("},\"background\":{\"colors\":["));
@@ -1021,7 +1022,7 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal(",\"intensity\":"));
     writer.number(background.intensity);
     writer.text(utf8_literal(",\"effect\":"));
-    writer.quoted(kEffects[static_cast<u32>(background.effect)]);
+    writer.quoted(name_list_at(kEffects, static_cast<u32>(background.effect)));
     writer.text(utf8_literal(",\"speed\":"));
     writer.number(background.speed);
     writer.text(utf8_literal(",\"strength\":"));
@@ -1031,12 +1032,12 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal("},\"typography\":{"));
     comma = false;
     for (u32 i = 0; i < 8; ++i) {
-        writer.key(comma, kTypographyNames[i]);
+        writer.key(comma, name_list_at(kTypographyNames, i));
         if (i < 6)
             writer.real(document.typography.*kTypographyValues[i]);
         else
-            writer.quoted(kFaces[static_cast<u32>(i == 6 ? document.typography.body_face
-                                                         : document.typography.code_face)]);
+            writer.quoted(name_list_at(kFaces, static_cast<u32>(i == 6 ? document.typography.body_face
+                                                                       : document.typography.code_face)));
     }
     writer.text(utf8_literal("},\"metrics\":{"));
     comma = false;
@@ -1044,15 +1045,15 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     for (u32 i = 0; i < metrics.count; ++i) {
         float value{};
         ui_theme_metric_get(document.metrics, metrics[i].id, &value);
-        writer.key(comma, metrics[i].name);
+        writer.key(comma, metrics[i].name());
         writer.real(value);
     }
     // Components carry only authored (non-default) values.
     writer.text(utf8_literal("},\"components\":{\"icons\":{"));
     comma = false;
-    for (u32 i = 0; i < sizeof(kIconRoles) / sizeof(kIconRoles[0]); ++i)
+    for (u32 i = 0; i < kIconRoleCount; ++i)
         if (document.icons.colors[i]) {
-            writer.key(comma, kIconRoles[i]);
+            writer.key(comma, name_list_at(kIconRoles, i));
             writer.hex(document.icons.colors[i]);
         }
     if (document.icons.weight != UiThemeIcons{}.weight) {
@@ -1061,16 +1062,17 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     }
     writer.text(utf8_literal("},\"settings\":{"));
     comma = false;
-    constexpr UiThemeSettings settings_defaults{};
+    const u32* colors = settings_colors(document.settings);
+    const u16 *sizes = settings_sizes(document.settings), *defaults = settings_sizes(kUiThemeSettingsDefault);
     for (u32 i = 0; i < kSettingsColorCount; ++i)
-        if (const u32 packed = document.settings.*kSettingsColors[i]) {
-            writer.key(comma, kSettingsColorNames[i]);
+        if (const u32 packed = colors[i]) {
+            writer.key(comma, name_list_at(kSettingsColorNames, i));
             writer.hex(packed);
         }
     for (u32 i = 0; i < kSettingsSizeCount; ++i)
-        if (document.settings.*kSettingsSizes[i] != settings_defaults.*kSettingsSizes[i]) {
-            writer.key(comma, kSettingsSizeNames[i]);
-            writer.number(document.settings.*kSettingsSizes[i]);
+        if (sizes[i] != defaults[i]) {
+            writer.key(comma, name_list_at(kSettingsSizeNames, i));
+            writer.number(sizes[i]);
         }
     writer.text(utf8_literal("}}}"));
 }
@@ -1080,7 +1082,7 @@ ClientThemeDocument client_theme_document_defaults(ClientThemeBase base) noexcep
     document.base =
         static_cast<u32>(base) <= static_cast<u32>(ClientThemeBase::amoled) ? base : ClientThemeBase::dark;
     document.theme = document.base == ClientThemeBase::light    ? kLightTheme
-                     : document.base == ClientThemeBase::amoled ? kAmoledTheme
+                     : document.base == ClientThemeBase::amoled ? ui_theme_amoled()
                                                                 : kDefaultTheme;
     document.theme.styles = nullptr;
     document.theme.style_revision = 0;

@@ -935,10 +935,11 @@ void test_controller() noexcept {
     g_app.renderer.retained_presentation.valid = true;
     const u32 theme_layouts = observed.layout_updates;
     const u32 theme_account_text = observed.account_text_updates;
+    const Theme amoled_theme = ui_theme_amoled();
     check(
         activate_control(kAppearancePage, cid("appearance.theme"), VK_RIGHT) && g_app.preferences.theme == ClientTheme::amoled &&
-            bytes_equal(&application_theme().base_lowest, &kAmoledTheme.base_lowest, sizeof(Color)) &&
-            bytes_equal(&application_theme().text_primary, &kAmoledTheme.text_primary, sizeof(Color)) &&
+            bytes_equal(&application_theme().base_lowest, &amoled_theme.base_lowest, sizeof(Color)) &&
+            bytes_equal(&application_theme().text_primary, &amoled_theme.text_primary, sizeof(Color)) &&
             !application_theme().background.color_count && !g_app.renderer.retained_presentation.valid &&
             g_app.preferences_save_pending && g_app.preferences_request_revision &&
             observed.layout_updates == theme_layouts && observed.account_text_updates == theme_account_text,
@@ -2767,7 +2768,7 @@ void test_settings_catalog() noexcept {
             UiSettingsSchemaLocation location{};
             ids = ids && settings_control_location(settings_control_id(p, n), &location) && location.panel == p &&
                   location.node == n;
-            const auto binding = static_cast<SettingBinding>(schema.panels[p].nodes[n].binding);
+            const auto binding = static_cast<SettingBinding>(schema.panels[p].nodes[n].binding());
             UiSettingsSchemaLocation found{};
             bindings = bindings && (binding == SettingBinding::none ||
                                     (settings_catalog_binding(binding, &found) && found.panel == p && found.node == n));

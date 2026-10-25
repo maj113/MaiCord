@@ -11,7 +11,7 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
     UiThemeMetrics metrics{};
     check(ui_theme_typography_valid(typography) && ui_theme_metrics_valid(metrics) &&
               ui_theme_palette_valid(kDefaultTheme) && ui_theme_palette_valid(kLightTheme) &&
-              ui_theme_palette_valid(kAmoledTheme),
+              ui_theme_palette_valid(ui_theme_amoled()),
           "Theme schema current shipped palettes and typography/metrics defaults are valid");
     check(metrics.shell_rail_width == kGuildChannelShellLayoutMetrics.guild_rail_width &&
               metrics.shell_sidebar_width == kGuildChannelShellLayoutMetrics.navigation_width &&
@@ -83,14 +83,14 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
     for (u32 i = 0; i < descriptors.count; ++i) {
         const auto& descriptor = descriptors[i];
         float value{};
-        vocabulary = vocabulary && static_cast<u32>(descriptor.id) == i && descriptor.name.bytes &&
-                     ui_theme_metric_get(metrics, descriptor.id, &value) && value >= descriptor.minimum &&
-                     value <= descriptor.maximum;
+        vocabulary = vocabulary && static_cast<u32>(descriptor.id) == i && descriptor.name().bytes &&
+                     ui_theme_metric_get(metrics, descriptor.id, &value) && value >= descriptor.minimum() &&
+                     value <= descriptor.maximum();
         for (u32 j = 0; j < i; ++j)
-            vocabulary = vocabulary && !utf8_equal(descriptor.name, descriptors[j].name);
+            vocabulary = vocabulary && !utf8_equal(descriptor.name(), descriptors[j].name());
         const UiThemeMetrics before = metrics;
-        vocabulary = vocabulary && !ui_theme_metric_set(&metrics, descriptor.id, descriptor.minimum - 1) &&
-                     !ui_theme_metric_set(&metrics, descriptor.id, descriptor.maximum + 1) &&
+        vocabulary = vocabulary && !ui_theme_metric_set(&metrics, descriptor.id, descriptor.minimum() - 1) &&
+                     !ui_theme_metric_set(&metrics, descriptor.id, descriptor.maximum() + 1) &&
                      !ui_theme_metric_set(&metrics, descriptor.id, nonfinite) &&
                      ui_theme_metrics_equal(metrics, before);
     }
@@ -169,7 +169,7 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
         const auto& descriptor = color_descriptors[i];
         const Theme before = palette;
         const Color replacement{.1f, .2f, .3f, .4f};
-        colors_valid = colors_valid && static_cast<u32>(descriptor.id) == i && descriptor.name.bytes &&
+        colors_valid = colors_valid && static_cast<u32>(descriptor.id) == i && descriptor.name().bytes &&
                        ui_theme_color_set(&palette, descriptor.id, replacement);
         for (u32 j = 0; j < color_descriptors.count; ++j) {
             const auto* current = ui_theme_color_get(palette, color_descriptors[j].id);

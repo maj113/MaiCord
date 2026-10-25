@@ -30,9 +30,13 @@ enum class UiThemeColor : u8 {
     text_secondary,
     count
 };
+// Descriptors hold offsets into one pooled table of document key names; IDs
+// are the table indices.
+Utf8View ui_theme_name(u16 offset) noexcept;
 struct UiThemeColorDescriptor {
+    u16 name_offset;
     UiThemeColor id;
-    Utf8View name;
+    Utf8View name() const noexcept { return ui_theme_name(name_offset); }
 };
 ConstSlice<UiThemeColorDescriptor> ui_theme_color_descriptors() noexcept;
 const Color* ui_theme_color_get(const Theme&, UiThemeColor) noexcept;
@@ -60,20 +64,16 @@ struct UiThemeTokenSource {
     u8 target;
     UiThemeTokenSourceKind kind;
 };
+Utf8View ui_theme_token_group_name(u8 group) noexcept;
+// dark and light index the table of default sources (theme_styles.cpp).
 struct UiThemeTokenDescriptor {
-    const UiThemeTokenSource &dark, &light;
-    const char* group_data;
-    const char* name_data;
+    u16 name_offset;
+    u8 group_index, dark, light;
     UiThemeToken id;
-    u8 group_bytes, name_bytes;
-    constexpr UiThemeTokenDescriptor(UiThemeToken id, Utf8View group, Utf8View name,
-                                    const UiThemeTokenSource& dark, const UiThemeTokenSource& light) noexcept
-        : dark(dark), light(light), group_data(group.data), name_data(name.data), id(id),
-          group_bytes(static_cast<u8>(group.bytes)), name_bytes(static_cast<u8>(name.bytes)) {}
-    constexpr Utf8View group() const noexcept { return {group_data, group_bytes}; }
-    constexpr Utf8View name() const noexcept { return {name_data, name_bytes}; }
+    Utf8View group() const noexcept { return ui_theme_token_group_name(group_index); }
+    Utf8View name() const noexcept { return ui_theme_name(name_offset); }
 };
-static_assert(sizeof(UiThemeTokenDescriptor) == 40);
+static_assert(sizeof(UiThemeTokenDescriptor) == 6);
 inline constexpr u32 kUiThemeTokenMaximumDepth = 8;
 ConstSlice<UiThemeTokenDescriptor> ui_theme_token_descriptors() noexcept;
 const Color* ui_theme_token_get(const Theme&, UiThemeToken) noexcept;
@@ -101,10 +101,13 @@ enum class UiThemeScaleToken : u8 {
 #include "maicord/ui/theme_tokens.inc"
     count
 };
+// Whole-DIP bounds.
 struct UiThemeScaleDescriptor {
+    u16 name_offset, low, high;
     UiThemeScaleToken id;
-    Utf8View name;
-    float value, minimum, maximum;
+    Utf8View name() const noexcept { return ui_theme_name(name_offset); }
+    float minimum() const noexcept { return low; }
+    float maximum() const noexcept { return high; }
 };
 ConstSlice<UiThemeScaleDescriptor> ui_theme_scale_descriptors() noexcept;
 bool ui_theme_scale_get(const UiThemeScale&, UiThemeScaleToken, float*) noexcept;
@@ -115,8 +118,9 @@ enum class UiThemeMotionToken : u8 {
     count
 };
 struct UiThemeMotionDescriptor {
+    u16 name_offset;
     UiThemeMotionToken id;
-    Utf8View name;
+    Utf8View name() const noexcept { return ui_theme_name(name_offset); }
 };
 ConstSlice<UiThemeMotionDescriptor> ui_theme_motion_descriptors() noexcept;
 UiMotionStyle* ui_theme_motion_slot(UiThemeMotion*, UiThemeMotionToken) noexcept;
@@ -237,13 +241,16 @@ enum UiThemeStyleChange : u32 {
     ui_theme_style_geometry = 1u << 1,
     ui_theme_style_paint = 1u << 2,
 };
+// Whole-DIP bounds; changes is the UiThemeStyleChange mask of a change.
 struct UiThemeMetricDescriptor {
-    Utf8View name;
-    float minimum, maximum;
-    u32 changes;
+    u16 name_offset, low, high;
+    u8 changes;
     UiThemeMetric id;
+    Utf8View name() const noexcept { return ui_theme_name(name_offset); }
+    float minimum() const noexcept { return low; }
+    float maximum() const noexcept { return high; }
 };
-static_assert(sizeof(UiThemeMetricDescriptor) == 32);
+static_assert(sizeof(UiThemeMetricDescriptor) == 8);
 // Fixed compile-time vocabulary for the bounded document parser. IDs append
 // only; names are the portable wire keys.
 ConstSlice<UiThemeMetricDescriptor> ui_theme_metric_descriptors() noexcept;
@@ -284,6 +291,9 @@ struct UiThemeSettings {
         close_size{36}, close_caption_gap{6}, notice_padding{12};
     u16 switch_ms{300}, switch_reduced_ms{200}, modal_enter_ms{320}, flash_ms{2000}, flash_fade_ms{200};
 };
+// One shared copy of each default bank, for consumers that fall back to it.
+inline constexpr UiThemeMetrics kUiThemeMetricsDefault{};
+inline constexpr UiThemeSettings kUiThemeSettingsDefault{};
 struct UiResolvedThemeStyles {
     UiThemeTypography typography{};
     UiThemeMetrics metrics{};

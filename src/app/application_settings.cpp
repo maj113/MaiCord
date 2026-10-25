@@ -224,9 +224,10 @@ bool page_allowed(UiPageKey page) noexcept {
 constexpr u64 kNativeSettingsOwner = kSettingsNativeOwner;
 constexpr u64 kPluginsPage = static_cast<u64>(SettingsPanel::plugins) + 1;
 
+static_assert(kUiSettingsNoDefault == 0xffff, "UiSettingsSchemaNode stores no default as 0xffff");
 SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
-    return node.binding < static_cast<u32>(SettingBinding::count) ? static_cast<SettingBinding>(node.binding)
-                                                                  : SettingBinding::none;
+    return node.binding_slot < static_cast<u32>(SettingBinding::count) ? static_cast<SettingBinding>(node.binding_slot)
+                                                                       : SettingBinding::none;
 }
 bool theme_panel(UiPageKey page) noexcept {
     return page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1;
@@ -341,11 +342,10 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     const bool theme_idle = !custom.busy && !custom.previewing;
     const bool idle = !custom.candidate_ready && !custom.previewing && !custom.busy;
     *control = {settings_control_id(panel, index), node.label(), node.description(), node.kind, true, false,
-                node.choices, 0, node.action_label(), nullptr};
+                node.choices(), 0, node.action_label(), nullptr};
     *presentation = {static_cast<UiSettingsVariant>(node.variant),
                      static_cast<u8>(node.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
-                     node.default_choice < kUiSettingsNoDefault ? static_cast<u16>(node.default_choice)
-                                                                : kUiSettingsNoDefault};
+                     node.default_choice_slot}; // 0xffff is kUiSettingsNoDefault
     if (binding == SettingBinding::spotify_account) {
         media_saved_state();
         const auto& account = g_spotify_account;

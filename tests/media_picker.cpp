@@ -370,6 +370,7 @@ void test_picker_rail_and_scroll_reuse(void (*check)(bool, const char*) noexcept
     check(emoji_glyphs, "media picker rail: every category is a distinct emoji from the emoji catalog");
 }
 void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
+    const Theme amoled_theme = ui_theme_amoled();
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 65'536, 10'000, UiMediaPickerItemKind::gif, false};
     fixture.favoritable = true;
@@ -427,13 +428,13 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
 
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 800) &&
-              ui_media_picker_scene_paint(scene, kAmoledTheme, &paint, nullptr, 96),
+              ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96),
           "media picker favorites: themed scene background paints before actual native media");
     const u32 background_quads = paint.count;
     // Stand-in native media is inserted between the background and foreground.
     check(paint_stream_push(&paint, first.clip.left, first.clip.top, first.clip.right, first.clip.bottom,
-                            kAmoledTheme.surface) &&
-              ui_media_picker_scene_paint_foreground(scene, kAmoledTheme, &paint),
+                            amoled_theme.surface) &&
+              ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint),
           "media picker favorites: toolbar and original curved star paint above native media");
     bool toolbar_after_media = false, star_after_media = false;
     for (u32 i = background_quads + 1; i < paint.count; ++i) {
@@ -442,10 +443,10 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
                               (q.left == button.left && q.top == button.top && q.right == button.right &&
                                q.bottom == button.bottom &&
                                q.radius == scene.style.control_radius - scene.style.metrics.emoji_padding &&
-                               bytes_equal(&q.fill, &kAmoledTheme.base_lower, sizeof(Color)));
+                               bytes_equal(&q.fill, &amoled_theme.base_lower, sizeof(Color)));
         star_after_media = star_after_media ||
-                           (q.fill.alpha == kAmoledTheme.text_primary.alpha &&
-                            q.fill.red == kAmoledTheme.text_primary.red && q.left >= button.left &&
+                           (q.fill.alpha == amoled_theme.text_primary.alpha &&
+                            q.fill.red == amoled_theme.text_primary.red && q.left >= button.left &&
                             q.right <= button.right && q.top >= button.top && q.bottom <= button.bottom);
     }
     check(toolbar_after_media && star_after_media && paint.clip_depth == 1 && !paint.rejected,
@@ -476,13 +477,13 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
               ui_media_picker_scene_hit_test(scene, send_x, send_y).action == UiMediaPickerAction::item,
           "media picker favorites: pending never fabricates confirmation or falls through to Send");
     paint_stream_reset(&paint, 1000, 800);
-    check(ui_media_picker_scene_paint_foreground(scene, kAmoledTheme, &paint) && paint.clip_depth == 1,
+    check(ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) && paint.clip_depth == 1,
           "media picker favorites: pending paints bounded static status without a continuous spinner");
     bool pending_accent = false;
     for (u32 i = 0; i < paint.count; ++i)
         pending_accent = pending_accent || (paint.quads[i].fill.alpha > 0 &&
-                                            paint.quads[i].fill.red == kAmoledTheme.accent.red &&
-                                            paint.quads[i].fill.blue == kAmoledTheme.accent.blue);
+                                            paint.quads[i].fill.red == amoled_theme.accent.red &&
+                                            paint.quads[i].fill.blue == amoled_theme.accent.blue);
     check(!pending_accent,
           "media picker favorites: unconfirmed pending star never paints confirmed accent");
     fixture.favorite_pending = false;
@@ -530,8 +531,8 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     }
     paint_stream_reset(&paint, 1000, 800);
     check(distant_bounds && visible_buttons && fixture.calls - before_deep <= 48 &&
-              ui_media_picker_scene_paint(scene, kAmoledTheme, &paint, nullptr, 96) &&
-              ui_media_picker_scene_paint_foreground(scene, kAmoledTheme, &paint) &&
+              ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96) &&
+              ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) &&
               paint.clip_depth == 1 && !paint.rejected && paint.count < kMaxPaintQuads,
           "media picker favorites: clipped distant stars preserve full geometry, exact visible source and "
           "bounded paint");
@@ -586,8 +587,8 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
                   ui_media_picker_scene_favorite(scene, 4, &button),
               "media picker favorites: distinct hover focus and capture expose three confirmed stars");
         paint_stream_reset(&paint, 1000, 1000);
-        check(ui_media_picker_scene_paint(scene, kAmoledTheme, &paint, nullptr, 96) &&
-                  ui_media_picker_scene_paint_foreground(scene, kAmoledTheme, &paint) &&
+        check(ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96) &&
+                  ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) &&
                   paint.count < kMaxPaintQuads && !paint.rejected && paint.clip_depth == 1 &&
                   scene.cell_count <= 48 && scene.widgets.count <= 96 &&
                   scene.storage.arena.committed <= 128 * 1024,
@@ -598,6 +599,7 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     ui_media_picker_scene_release(&scene);
 }
 void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
+    const Theme amoled_theme = ui_theme_amoled();
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 256, 500'000, UiMediaPickerItemKind::sticker, false};
     UiMediaPickerSection sections[]{{1, 0, 128, utf8_literal("Guild stickers"), true},
@@ -682,10 +684,10 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     UiTextCommandStream stream{};
     UiTextOutput output{&stream, nullptr};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 800) &&
-              ui_media_picker_scene_paint(scene, kAmoledTheme, &paint, nullptr, 120) &&
-              ui_media_picker_scene_paint_foreground(scene, kAmoledTheme, &paint) &&
+              ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 120) &&
+              ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) &&
               ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_media_picker_scene_text_output(scene, kAmoledTheme, &output, nullptr) &&
+              ui_media_picker_scene_text_output(scene, amoled_theme, &output, nullptr) &&
               paint.clip_depth == 1 && !paint.rejected && !stream.rejected,
           "media picker style: non-default chrome and text paint with balanced native clips");
     bool panel_radius = false, cell_radius = false, text_clipped = true;
@@ -851,9 +853,9 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
                                        &dense) &&
               scene.cell_count == 16 && scene.cell_count <= kUiMediaPickerVisibleCells &&
               scene.body.bottom == scene.footer.top &&
-              ui_media_picker_scene_paint(scene, kAmoledTheme, &paint, nullptr, 96) &&
-              ui_media_picker_scene_paint_foreground(scene, kAmoledTheme, &paint) &&
-              ui_media_picker_scene_text_output(scene, kAmoledTheme, &output, nullptr) &&
+              ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96) &&
+              ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) &&
+              ui_media_picker_scene_text_output(scene, amoled_theme, &output, nullptr) &&
               !ui_media_picker_scene_media(scene, 0, &media) && !paint.rejected && !stream.rejected &&
               paint.count < kMaxPaintQuads && paint.clip_depth == 1 && scene.widgets.count <= 96 &&
               scene.storage.arena.committed <= 128 * 1024,
@@ -1128,6 +1130,7 @@ void test_picker_resize_cost(void (*check)(bool, const char*) noexcept) noexcept
 }
 } // namespace
 void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
+    const Theme amoled_theme = ui_theme_amoled();
     test_picker_scrollbars(check);
     test_picker_rail_and_scroll_reuse(check);
     test_picker_emoji(check);
@@ -1290,9 +1293,9 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     UiTextOutput output{&stream, nullptr};
     PaintStream paint{};
     check(ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_media_picker_scene_text_output(scene, kAmoledTheme, &output, nullptr) &&
+              ui_media_picker_scene_text_output(scene, amoled_theme, &output, nullptr) &&
               paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 800) &&
-              ui_media_picker_scene_paint(scene, kAmoledTheme, &paint, nullptr, 96) &&
+              ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96) &&
               paint.clip_depth == 1 && paint.rejected == 0,
           "media picker: existing themed paint/text primitives emit bounded clips and native chrome");
     bool clipped = true;

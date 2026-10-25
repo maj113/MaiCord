@@ -3,6 +3,7 @@
 #include "maicord/ui/presence.hpp"
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/theme_presets.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -31,8 +32,11 @@ bool contains_fill(const PaintStream& paint, Color color) noexcept {
 }
 } // namespace
 void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
-    const Theme* shipped[]{&kDefaultTheme, &kLightTheme, &kAmoledTheme};
-    bool constexpr_matches = true;
+    const Theme amoled = ui_theme_amoled();
+    constexpr Theme amoled_preset = ui_theme_amoled_preset();
+    const Theme* shipped[]{&kDefaultTheme, &kLightTheme, &amoled};
+    // The derived AMOLED theme is the constexpr preset.
+    bool constexpr_matches = ui_theme_palette_equal(amoled, amoled_preset);
     for (const auto* theme : shipped) {
         Theme runtime = *theme;
         constexpr_matches = constexpr_matches && ui_theme_tokens_resolve(&runtime, nullptr).ok() &&
@@ -289,7 +293,7 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
     UiThemeContrastWarning warnings[4]{};
     const bool clean = ui_theme_contrast_warnings(kDefaultTheme, warnings, 4) == 0 &&
                        ui_theme_contrast_warnings(kLightTheme, warnings, 4) == 0 &&
-                       ui_theme_contrast_warnings(kAmoledTheme, warnings, 4) == 0;
+                       ui_theme_contrast_warnings(amoled, warnings, 4) == 0;
     const auto low = parse(utf8_literal("{\"version\":\"2.0\",\"colors\":{\"text_primary\":\"#2a2a2e\"}}"), &output);
     const u32 count = ui_theme_contrast_warnings(output.theme, warnings, 1);
     check(clean && low.ok() && count >= 3 && warnings[0].foreground == UiThemeToken::text_normal &&

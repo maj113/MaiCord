@@ -56,52 +56,203 @@ constexpr u32 paint = ui_theme_style_paint;
                                                                         poll_marker, 12, 32, geometry)     \
                                                                         X(poll_emoji, 16, 32, geometry)    \
                                                                             X(poll_radius, 0, 24, paint)
-#define COLOR_DESCRIPTOR(name) {UiThemeColor::name, utf8_literal(#name)},
+enum class TokenGroup : u8 {
+#define MAICORD_THEME_GROUP(group) group,
+#include "maicord/ui/theme_tokens.inc"
+    count
+};
+// Every document key name, family by family in ID order. Trailing
+// underscores (C++ keyword members) are dropped from the pooled key.
+constexpr const char* kNameSource[]{
+#define NAME(name) #name,
+    THEME_COLORS(NAME)
+#undef NAME
+#define MAICORD_THEME_GROUP(group) #group,
+#include "maicord/ui/theme_tokens.inc"
+#define MAICORD_THEME_TOKEN(group, name, dark, light) #name,
+#include "maicord/ui/theme_tokens.inc"
+#define MAICORD_THEME_SCALE(name, value, minimum, maximum) #name,
+#include "maicord/ui/theme_tokens.inc"
+#define MAICORD_THEME_MOTION(name, duration, curve) #name,
+#include "maicord/ui/theme_tokens.inc"
+#define METRIC_NAME(name, low, high, domain) #name,
+    THEME_METRICS(METRIC_NAME)
+#undef METRIC_NAME
+};
+constexpr u32 kColorCount = static_cast<u32>(UiThemeColor::count);
+constexpr u32 kGroupCount = static_cast<u32>(TokenGroup::count);
+constexpr u32 kTokenCount = static_cast<u32>(UiThemeToken::count);
+constexpr u32 kScaleCount = static_cast<u32>(UiThemeScaleToken::count);
+constexpr u32 kMotionCount = static_cast<u32>(UiThemeMotionToken::count);
+constexpr u32 kMetricCount = static_cast<u32>(UiThemeMetric::count);
+constexpr u32 kFirstGroup = kColorCount, kFirstToken = kFirstGroup + kGroupCount,
+              kFirstScale = kFirstToken + kTokenCount, kFirstMotion = kFirstScale + kScaleCount,
+              kFirstMetric = kFirstMotion + kMotionCount, kNameCount = kFirstMetric + kMetricCount;
+static_assert(sizeof(kNameSource) / sizeof(kNameSource[0]) == kNameCount);
+struct NamePool {
+    char text[4096]{};
+    u16 offsets[kNameCount]{};
+    u32 used{};
+};
+// Equal names share one pooled string.
+consteval NamePool build_name_pool() noexcept {
+    NamePool pool{};
+    for (u32 i = 0; i < kNameCount; ++i) {
+        const char* name = kNameSource[i];
+        u32 length{};
+        while (name[length])
+            ++length;
+        if (length && name[length - 1] == '_')
+            --length;
+        bool shared{};
+        for (u32 j = 0; j < i && !shared; ++j) {
+            const u32 at = pool.offsets[j];
+            u32 k{};
+            while (k < length && pool.text[at + k] == name[k])
+                ++k;
+            if (k == length && !pool.text[at + k]) {
+                pool.offsets[i] = static_cast<u16>(at);
+                shared = true;
+            }
+        }
+        if (shared)
+            continue;
+        pool.offsets[i] = static_cast<u16>(pool.used);
+        for (u32 k = 0; k < length; ++k)
+            pool.text[pool.used++] = name[k];
+        ++pool.used; // the terminator
+    }
+    return pool;
+}
+constexpr NamePool kBuiltNames = build_name_pool();
+template <u32 Bytes> struct PoolText {
+    char text[Bytes];
+};
+template <u32 Bytes> consteval PoolText<Bytes> pool_text() noexcept {
+    PoolText<Bytes> pool{};
+    for (u32 i = 0; i < Bytes; ++i)
+        pool.text[i] = kBuiltNames.text[i];
+    return pool;
+}
+constexpr auto kNames = pool_text<kBuiltNames.used>();
+constexpr u16 name_slot(u32 index) noexcept {
+    return kBuiltNames.offsets[index];
+}
+#define COLOR_DESCRIPTOR(name)                                                                             \
+    {name_slot(static_cast<u32>(UiThemeColor::name)), UiThemeColor::name},
 constexpr UiThemeColorDescriptor colors[]{THEME_COLORS(COLOR_DESCRIPTOR)};
 #undef COLOR_DESCRIPTOR
 #define METRIC_DESCRIPTOR(name, low, high, domain)                                                         \
-    {utf8_literal(#name), low, high, domain, UiThemeMetric::name},
+    {name_slot(kFirstMetric + static_cast<u32>(UiThemeMetric::name)), low, high, domain, UiThemeMetric::name},
 constexpr UiThemeMetricDescriptor metrics[]{THEME_METRICS(METRIC_DESCRIPTOR)};
 #undef METRIC_DESCRIPTOR
-static_assert(sizeof(colors) / sizeof(colors[0]) == static_cast<u8>(UiThemeColor::count));
-constexpr Utf8View token_name(Utf8View name) noexcept {
-    // C++ keywords carry a trailing underscore in the member name only.
-    return name.bytes && name.data[name.bytes - 1] == '_' ? Utf8View{name.data, name.bytes - 1} : name;
-}
-// Equal immutable defaults share one compile-time source object.
-template <UiThemeTokenSource Source>
-inline constexpr UiThemeTokenSource default_source = Source;
+static_assert(sizeof(colors) / sizeof(colors[0]) == kColorCount);
+constexpr u16 kGroupNames[]{
+#define MAICORD_THEME_GROUP(group) name_slot(kFirstGroup + static_cast<u32>(TokenGroup::group)),
+#include "maicord/ui/theme_tokens.inc"
+};
+// Every token's dark and light default, in ID order, before deduplication.
 #define P(id) {{}, 1, static_cast<u8>(UiThemeColor::id), UiThemeTokenSourceKind::core}
 #define PA(id, a) {{}, a, static_cast<u8>(UiThemeColor::id), UiThemeTokenSourceKind::core}
 #define T(group, name)                                                                                     \
     {{}, 1, static_cast<u8>(UiThemeToken::group##_##name), UiThemeTokenSourceKind::token}
 #define RGBA(r, g, b, a) {{r, g, b, a}, 1, 0, UiThemeTokenSourceKind::literal}
-#define MAICORD_THEME_TOKEN(group, name, dark, light) static_assert(sizeof(#group) <= 256 && sizeof(#name) <= 256);
-#include "maicord/ui/theme_tokens.inc"
-#undef MAICORD_THEME_TOKEN
-#define MAICORD_THEME_TOKEN(group, name, dark, light)                                                      \
-    {UiThemeToken::group##_##name, utf8_literal(#group), token_name(utf8_literal(#name)), \
-     default_source<UiThemeTokenSource dark>, default_source<UiThemeTokenSource light>},
-constexpr UiThemeTokenDescriptor tokens[]{
+constexpr u32 kSourceCount = 2 * kTokenCount;
+constexpr UiThemeTokenSource kTokenSources[kSourceCount]{
+#define MAICORD_THEME_TOKEN(group, name, dark, light) UiThemeTokenSource dark, UiThemeTokenSource light,
 #include "maicord/ui/theme_tokens.inc"
 };
 #undef P
 #undef PA
 #undef T
 #undef RGBA
+consteval bool same_source(const UiThemeTokenSource& a, const UiThemeTokenSource& b) noexcept {
+    return a.kind == b.kind && a.alpha == b.alpha && a.target == b.target && a.literal.red == b.literal.red &&
+           a.literal.green == b.literal.green && a.literal.blue == b.literal.blue &&
+           a.literal.alpha == b.literal.alpha;
+}
+// Equal defaults share one slot: literals first, then references.
+struct SourceSlots {
+    UiThemeTokenSource unique[kSourceCount]{};
+    u8 slot[kSourceCount]{};
+    u32 literals{}, references{};
+};
+consteval SourceSlots dedupe_sources() noexcept {
+    SourceSlots slots{};
+    u32 count{};
+    for (u32 pass = 0; pass < 2; ++pass) {
+        const u32 first = count;
+        for (u32 i = 0; i < kSourceCount; ++i) {
+            if ((kTokenSources[i].kind == UiThemeTokenSourceKind::literal) != (pass == 0))
+                continue;
+            u32 at = first;
+            while (at < count && !same_source(slots.unique[at], kTokenSources[i]))
+                ++at;
+            if (at == count)
+                slots.unique[count++] = kTokenSources[i];
+            slots.slot[i] = static_cast<u8>(at);
+        }
+        if (!pass)
+            slots.literals = count;
+    }
+    slots.references = count - slots.literals;
+    return slots;
+}
+constexpr SourceSlots kSlots = dedupe_sources();
+static_assert(kSlots.literals + kSlots.references <= 255);
+struct ReferenceSource {
+    float alpha;
+    u8 target;
+    UiThemeTokenSourceKind kind;
+};
+template <typename Row, u32 Count> struct SourceTable {
+    Row row[Count];
+};
+consteval auto literal_table() noexcept {
+    SourceTable<Color, kSlots.literals> table{};
+    for (u32 i = 0; i < kSlots.literals; ++i)
+        table.row[i] = kSlots.unique[i].literal;
+    return table;
+}
+consteval auto reference_table() noexcept {
+    SourceTable<ReferenceSource, kSlots.references> table{};
+    for (u32 i = 0; i < kSlots.references; ++i) {
+        const auto& source = kSlots.unique[kSlots.literals + i];
+        table.row[i] = {source.alpha, source.target, source.kind};
+    }
+    return table;
+}
+constexpr auto kLiterals = literal_table();
+constexpr auto kReferences = reference_table();
+UiThemeTokenSource default_source(u32 slot) noexcept {
+    if (slot < kSlots.literals)
+        return {kLiterals.row[slot], 1, 0, UiThemeTokenSourceKind::literal};
+    const auto& reference = kReferences.row[slot - kSlots.literals];
+    return {{}, reference.alpha, reference.target, reference.kind};
+}
+#define MAICORD_THEME_TOKEN(group, name, dark, light)                                                      \
+    {name_slot(kFirstToken + static_cast<u32>(UiThemeToken::group##_##name)),                              \
+     static_cast<u8>(TokenGroup::group),                                                                   \
+     kSlots.slot[2 * static_cast<u32>(UiThemeToken::group##_##name)],                                      \
+     kSlots.slot[2 * static_cast<u32>(UiThemeToken::group##_##name) + 1], UiThemeToken::group##_##name},
+constexpr UiThemeTokenDescriptor tokens[]{
+#include "maicord/ui/theme_tokens.inc"
+};
 #define MAICORD_THEME_SCALE(name, value, minimum, maximum)                                                 \
-    {UiThemeScaleToken::name, utf8_literal(#name), value, minimum, maximum},
+    {name_slot(kFirstScale + static_cast<u32>(UiThemeScaleToken::name)), minimum, maximum,                 \
+     UiThemeScaleToken::name},
 constexpr UiThemeScaleDescriptor scales[]{
 #include "maicord/ui/theme_tokens.inc"
 };
-#define MAICORD_THEME_MOTION(name, duration, curve) {UiThemeMotionToken::name, utf8_literal(#name)},
+#define MAICORD_THEME_MOTION(name, duration, curve)                                                        \
+    {name_slot(kFirstMotion + static_cast<u32>(UiThemeMotionToken::name)), UiThemeMotionToken::name},
 constexpr UiThemeMotionDescriptor motions[]{
 #include "maicord/ui/theme_tokens.inc"
 };
-static_assert(sizeof(tokens) / sizeof(tokens[0]) == static_cast<u8>(UiThemeToken::count));
-static_assert(sizeof(scales) / sizeof(scales[0]) == static_cast<u8>(UiThemeScaleToken::count));
-static_assert(sizeof(motions) / sizeof(motions[0]) == static_cast<u8>(UiThemeMotionToken::count));
-static_assert(sizeof(metrics) / sizeof(metrics[0]) == static_cast<u8>(UiThemeMetric::count));
+static_assert(sizeof(tokens) / sizeof(tokens[0]) == kTokenCount);
+static_assert(sizeof(scales) / sizeof(scales[0]) == kScaleCount);
+static_assert(sizeof(motions) / sizeof(motions[0]) == kMotionCount);
+static_assert(sizeof(metrics) / sizeof(metrics[0]) == kMetricCount);
 bool between(float value, float minimum, float maximum) noexcept {
     // Comparisons reject NaN and either infinity without a CRT math dependency.
     return value >= minimum && value <= maximum;
@@ -117,6 +268,16 @@ u32 advance(u32 value) noexcept {
     return value == ~0u ? 1u : value + 1u;
 }
 } // namespace
+Utf8View ui_theme_name(u16 offset) noexcept {
+    const char* data = kNames.text + offset;
+    u32 bytes{};
+    while (data[bytes])
+        ++bytes;
+    return {data, bytes};
+}
+Utf8View ui_theme_token_group_name(u8 group) noexcept {
+    return ui_theme_name(kGroupNames[group]);
+}
 ConstSlice<UiThemeColorDescriptor> ui_theme_color_descriptors() noexcept {
     return {colors, static_cast<u32>(UiThemeColor::count)};
 }
@@ -148,7 +309,7 @@ bool ui_theme_palette_valid(const Theme& theme) noexcept {
     for (const auto& descriptor : scales) {
         float value{};
         if (!ui_theme_scale_get(theme.scale, descriptor.id, &value) ||
-            !between(value, descriptor.minimum, descriptor.maximum))
+            !between(value, descriptor.minimum(), descriptor.maximum()))
             return false;
     }
     auto motion = theme.motion;
@@ -209,10 +370,10 @@ bool resolve_token(TokenResolution& r, u32 id) noexcept {
     }
     r.state[id] = 1;
     const auto& descriptor = tokens[id];
-    const auto& source = r.overrides && r.overrides[id].kind != UiThemeTokenSourceKind::inherit
-                             ? r.overrides[id]
-                         : r.theme->appearance == ThemeAppearance::light ? descriptor.light
-                                                                         : descriptor.dark;
+    const UiThemeTokenSource source =
+        r.overrides && r.overrides[id].kind != UiThemeTokenSourceKind::inherit
+            ? r.overrides[id]
+            : default_source(r.theme->appearance == ThemeAppearance::light ? descriptor.light : descriptor.dark);
     const Color* reference = nullptr;
     if (source.kind == UiThemeTokenSourceKind::literal)
         reference = &source.literal;
@@ -271,7 +432,7 @@ bool ui_theme_scale_set(UiThemeScale* scale, UiThemeScaleToken id, float input) 
     if (!scale || id >= UiThemeScaleToken::count)
         return false;
     const auto& descriptor = scales[static_cast<u8>(id)];
-    if (!between(input, descriptor.minimum, descriptor.maximum))
+    if (!between(input, descriptor.minimum(), descriptor.maximum()))
         return false;
     reinterpret_cast<float*>(scale)[static_cast<u8>(id)] = input;
     return true;
@@ -450,7 +611,7 @@ bool ui_theme_metric_set(UiThemeMetrics* output, UiThemeMetric id, float value) 
     if (!output || id >= UiThemeMetric::count)
         return false;
     const auto& descriptor = metrics[static_cast<u8>(id)];
-    if (!between(value, descriptor.minimum, descriptor.maximum))
+    if (!between(value, descriptor.minimum(), descriptor.maximum()))
         return false;
     reinterpret_cast<float*>(output)[static_cast<u8>(id)] = value;
     return true;
@@ -473,7 +634,7 @@ bool ui_theme_metrics_valid(const UiThemeMetrics& value) noexcept {
     for (const auto& descriptor : metrics) {
         float current{};
         if (!ui_theme_metric_get(value, descriptor.id, &current) ||
-            !between(current, descriptor.minimum, descriptor.maximum))
+            !between(current, descriptor.minimum(), descriptor.maximum()))
             return false;
     }
     return value.audio_minimum_width <= value.audio_maximum_width &&

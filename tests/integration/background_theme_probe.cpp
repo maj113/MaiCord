@@ -710,7 +710,7 @@ bool solid_pixels(D3D11Renderer& r) noexcept {
     return true;
 }
 bool effect_canvas_pixels(D3D11Renderer& r) noexcept {
-    const Theme modes[]{kDefaultTheme, kAmoledTheme, kLightTheme};
+    const Theme modes[]{kDefaultTheme, ui_theme_amoled(), kLightTheme};
     constexpr BackgroundEffect effects[]{BackgroundEffect::stars, BackgroundEffect::comets,
                                          BackgroundEffect::stars_and_comets};
     for (u32 mode = 0; mode < 4; ++mode) {

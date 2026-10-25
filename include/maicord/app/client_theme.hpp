@@ -6,12 +6,12 @@
 #include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
-// One out-of-line copy: inlined, every token default expands at each caller.
+// One out-of-line copy: inlined, the projection expands at each caller.
 __declspec(noinline) inline Theme client_theme_projection(const ClientPreferences& preferences) noexcept {
     Theme theme =
         preferences.theme == ClientTheme::light || preferences.theme == ClientTheme::custom_light_gradient
             ? kLightTheme
-        : preferences.theme == ClientTheme::amoled ? kAmoledTheme
+        : preferences.theme == ClientTheme::amoled ? ui_theme_amoled()
                                                    : kDefaultTheme;
     if (preferences.theme == ClientTheme::light || preferences.theme < ClientTheme::aurora ||
         (preferences.theme > ClientTheme::custom_gradient &&
@@ -58,7 +58,7 @@ __declspec(noinline) inline Theme client_theme_projection(const ClientPreference
         theme.text_primary = background_color_mix(theme.text_primary, text, anchors.text_percent);
         theme.text_secondary = background_color_mix(theme.text_secondary, text, anchors.text_percent);
     }
-    theme = ui_theme_resolve_defaults(theme);
+    ui_theme_tokens_resolve(&theme, nullptr);
     // Accent treatment follows the gradient; flat themes return above unchanged.
     ui_theme_resolve_emphasis(&theme);
     return theme;

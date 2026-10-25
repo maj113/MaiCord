@@ -6462,11 +6462,12 @@ bool probe_settings_scene() noexcept {
         return {0, 0, g_probe.renderer.width * scale, g_probe.renderer.height * scale};
     };
     const auto settings_pixels = [](const UiSettingsScene& settings, bool amoled) noexcept {
+        const Theme scene_theme = amoled ? ui_theme_amoled() : kDefaultTheme;
         UiTextCommand commands[64]{};
         UiTextCommandStream stream{};
         UiTextOutput stream_output{&stream, nullptr};
         if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
-            !ui_settings_scene_text_output(settings, amoled ? kAmoledTheme : kDefaultTheme, &stream_output))
+            !ui_settings_scene_text_output(settings, scene_theme, &stream_output))
             return false;
         const Utf8View labels[]{utf8_literal("Theme"), utf8_literal("ESC"),
                                 amoled ? utf8_literal("AMOLED") : utf8_literal("Dark"),
@@ -6734,11 +6735,12 @@ bool probe_settings_scene() noexcept {
                   "settings_exclusive_hidden_overlays_text_paint_retained_pixels_passed");
     }
     // Theme-only changes still invalidate the visible Settings text and paint.
+    const Theme amoled_theme = ui_theme_amoled();
     const u32 theme_text_builds = g_probe.renderer.content_text_retention.builds;
     const u32 theme_paints = g_probe.renderer.paint_stream_builds;
-    if (!renderer_rebuild_content_text(&g_probe.renderer, kAmoledTheme) ||
+    if (!renderer_rebuild_content_text(&g_probe.renderer, amoled_theme) ||
         g_probe.renderer.content_text_retention.builds <= theme_text_builds ||
-        !probe_present(&g_probe.renderer, kAmoledTheme) ||
+        !probe_present(&g_probe.renderer, amoled_theme) ||
         g_probe.renderer.paint_stream_builds <= theme_paints ||
         !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) ||
         !probe_present(&g_probe.renderer, kDefaultTheme))
@@ -6752,9 +6754,9 @@ bool probe_settings_scene() noexcept {
         g_probe.renderer.content_text_retention.builds <= scene_text_builds ||
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream_builds <= scene_paints ||
-        !renderer_rebuild_content_text(&g_probe.renderer, kAmoledTheme) ||
-        !probe_present(&g_probe.renderer, kAmoledTheme) || !settings_pixels(scene, true) ||
-        !probe_capture_frame(L"settings-amoled.bmp", kAmoledTheme))
+        !renderer_rebuild_content_text(&g_probe.renderer, amoled_theme) ||
+        !probe_present(&g_probe.renderer, amoled_theme) || !settings_pixels(scene, true) ||
+        !probe_capture_frame(L"settings-amoled.bmp", amoled_theme))
         return false;
     bool black_background = false;
     for (u32 i = 0; i < g_probe.renderer.paint_stream.count; ++i) {

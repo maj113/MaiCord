@@ -15,14 +15,19 @@ consteval bool metadata_valid() noexcept {
     return true;
 }
 static_assert(metadata_valid());
-u32 find(u16 sequence) noexcept {
-    u32 first = 0, last = kRegionalFlagAssetCount;
-    while (first < last) {
-        const u32 middle = first + (last - first) / 2;
-        if (sequences[middle] < sequence) first = middle + 1;
-        else last = middle;
-    }
-    return first < kRegionalFlagAssetCount && sequences[first] == sequence ? first : kRegionalFlagAssetCount;
+// Only membership is needed: a bitmap of the sequences replaces the table.
+struct SequenceSet {
+    u64 words[(679 >> 6) + 1];
+};
+consteval SequenceSet sequence_set() noexcept {
+    SequenceSet set{};
+    for (const u16 sequence : sequences)
+        set.words[sequence >> 6] |= u64{1} << (sequence & 63);
+    return set;
+}
+constexpr SequenceSet kKnown = sequence_set();
+bool known(u16 sequence) noexcept {
+    return sequence <= 679 && (kKnown.words[sequence >> 6] >> (sequence & 63) & 1);
 }
 }
 
@@ -53,7 +58,7 @@ u16 regional_flag_sequence(Utf8View glyph) noexcept {
                 break;
             }
     }
-    return find(sequence) < kRegionalFlagAssetCount ? sequence : 0;
+    return known(sequence) ? sequence : 0;
 }
 
 bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) noexcept {
@@ -94,7 +99,7 @@ bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) no
 }
 
 u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
-    if (find(sequence) == kRegionalFlagAssetCount || !output.data) return 0;
+    if (!known(sequence) || !output.data) return 0;
     u32 scalars[7]{};
     u32 count = 2;
     if (sequence <= 676) {

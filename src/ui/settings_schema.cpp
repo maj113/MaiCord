@@ -86,8 +86,8 @@ bool ui_settings_schema_valid(const UiSettingsSchema& schema) noexcept {
                 (!node.label().bytes && !(node.flags & ui_settings_schema_dynamic)))
                 return false;
             if (choice_kind(node.kind) && !(node.flags & ui_settings_schema_dynamic) &&
-                (!node.choices.count || !node.choices.data ||
-                 (node.default_choice != kUiSettingsNoChoice && node.default_choice >= node.choices.count)))
+                (!node.choices().count || !node.choices().data ||
+                 (node.default_choice() != kUiSettingsNoChoice && node.default_choice() >= node.choices().count)))
                 return false;
         }
     }
