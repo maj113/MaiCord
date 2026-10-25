@@ -54,6 +54,15 @@ u32 count_delayed(const Image& image, const char* name, u32 length) noexcept {
                      same_name(reinterpret_cast<const char*>(image.base + entry->DllNameRVA), name, length);
     return found;
 }
+u32 static_descriptors(const Image& image) noexcept {
+    const auto& directory = image.directory(IMAGE_DIRECTORY_ENTRY_IMPORT);
+    u32 count = 0;
+    if (directory.VirtualAddress)
+        for (auto* entry = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(image.base + directory.VirtualAddress);
+             entry->Name; ++entry)
+            ++count;
+    return count;
+}
 u32 delayed_descriptors(const Image& image) noexcept {
     const auto& directory = image.directory(IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT);
     u32 count = 0;
@@ -94,8 +103,11 @@ void test_imports() noexcept {
         }
         check(expected >= 1 && delayed_descriptors(image) == expected,
               "the delay-load directory holds exactly the listed DLLs");
-        check(count_static(image, "kernel32.dll", 12) == 1 && count_static(image, "d3d11.dll", 9) == 1,
-              "kernel32 and d3d11 (the device prestart) stay static imports");
+        // The exact set the loader maps before the entry point; a new static import must be added here on purpose.
+        check(count_static(image, "kernel32.dll", 12) == 1 && count_static(image, "user32.dll", 10) == 1 &&
+                  count_static(image, "d3d11.dll", 9) == 1 && count_static(image, "gdi32.dll", 9) == 1 &&
+                  count_static(image, "ntdll.dll", 9) == 1 && static_descriptors(image) == 5,
+              "the static imports are exactly kernel32, user32, d3d11, gdi32 and ntdll");
         check(count_delayed(image, "d3d11.dll", 9) == 0 && count_delayed(image, "user32.dll", 10) == 0,
               "the device and window paths are not delay-loaded");
         UnmapViewOfFile(base);
