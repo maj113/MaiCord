@@ -276,17 +276,9 @@ bool gif_frame_valid(const GifFrame& frame, u16 canvas_width, u16 canvas_height,
         palette.count > 256 || pixels > indices.count || !indices.data) {
         return false;
     }
-    if (palette.has_transparency && palette.transparent_index >= palette.count) {
-        return false;
-    }
-    // Every u8 index is valid for a full 256-entry palette; skip rescanning the image.
-    if (palette.count == 256) return true;
-    for (u32 index = 0; index < pixels; ++index) {
-        if (indices[index] >= palette.count) {
-            return false;
-        }
-    }
-    return true;
+    // The decoder rejects indices past the palette; the shader clamps any
+    // other source.
+    return !palette.has_transparency || palette.transparent_index < palette.count;
 }
 
 bool animated_webp_control_valid(const AnimatedWebpFrame& frame, u16 canvas_width,

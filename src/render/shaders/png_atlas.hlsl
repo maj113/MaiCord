@@ -85,7 +85,7 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
         const uint index = bit_depth < 8u
                                ? packed_sample(row, x)
                                : load_byte(row + x);
-        const uint packed = palette_rgba[index];
+        const uint packed = index < palette_count ? palette_rgba[index] : 0u;
         rgba = uint4(packed & 255u, (packed >> 8u) & 255u,
                      (packed >> 16u) & 255u, packed >> 24u);
     } else if (color_type == 4u) {
