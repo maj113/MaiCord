@@ -16,14 +16,21 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      security-events: write # upload the findings to code scanning
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Code scanning isn't available to this private repository, so findings
-      # are printed and fail the job instead of being uploaded as SARIF.
-      # --strict-collection also fails on workflow files GitHub couldn't parse.
+      # Findings go to code scanning, which shows them on the commit or pull
+      # request; collection errors (workflow files GitHub couldn't parse) still
+      # fail the job.
       - name: zizmor
         env:
           GH_TOKEN: ${{ github.token }}
-        run: pipx run zizmor==1.30.1 --strict-collection --min-severity medium --format plain .github
+        run: pipx run zizmor==1.30.1 --strict-collection --min-severity medium --format sarif --no-exit-codes .github > zizmor.sarif
+      # Pull requests from forks get a read-only token and cannot upload.
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
