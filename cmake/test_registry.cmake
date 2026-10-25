@@ -272,7 +272,7 @@ maicord_test(MaiCordPluginBrowserTests ENTRY maicord_plugin_browser_tests_entry
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_plugin_manager maicord_plugin_modules kernel32
         user32 bcrypt
     INCLUDES src/app
-    BUNDLE MaiCordUiUnitTests
+    BUNDLE MaiCordAppUnitTests
     TIMEOUT 10
     TEST maicord_plugin_browser)
 # Nested rounded rectangles, clipped highlights and per-component padding
@@ -282,7 +282,7 @@ maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_test
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui maicord_text
         maicord_message_runtime maicord_plugin_manager maicord_plugin_modules kernel32 user32 bcrypt
     INCLUDES src/app
-    BUNDLE MaiCordUiUnitTests
+    BUNDLE MaiCordAppUnitTests
     TIMEOUT 10
     TEST maicord_layout_consistency)
 # Window caption frame insets, hit testing across DPIs and button states.
@@ -690,7 +690,7 @@ maicord_test(MaiCordGuildAdminGatewayTests ENTRY maicord_guild_admin_gateway_ent
     SOURCES tests/guild_admin_gateway.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_message_runtime
         kernel32
-    BUNDLE MaiCordModelTests
+    BUNDLE MaiCordAppUnitTests
     TIMEOUT 15
     TEST maicord_guild_admin_gateway)
 maicord_add_tests(MaiCordSurfaceMotionTests TIMEOUT 10 TEST maicord_surface_motion)
@@ -858,7 +858,7 @@ maicord_test(MaiCordMessagePinnedStateTests ENTRY maicord_message_pinned_state_e
     SOURCES tests/message_pinned_state.cpp
     LIBS maicord_core maicord_protocol maicord_model maicord_ui maicord_message_runtime maicord_app_core
         maicord_platform kernel32 ws2_32 secur32 bcrypt crypt32
-    BUNDLE MaiCordModelTests
+    BUNDLE MaiCordAppUnitTests
     TIMEOUT 15
     TEST maicord_message_pinned_state)
 maicord_test(MaiCordForwardedTextContractTests ENTRY maicord_forwarded_text_contract_entry
@@ -950,7 +950,7 @@ maicord_test(MaiCordDownloadsRuntimeTests ENTRY maicord_application_downloads_ru
 maicord_test(MaiCordAccountReconnectTests ENTRY maicord_account_reconnect_tests_entry
     SOURCES tests/account_reconnect.cpp
     LIBS maicord_account_paths maicord_core kernel32
-    BUNDLE MaiCordAppUnitTests
+    BUNDLE MaiCordCoreUnitTests
     TIMEOUT 5
     TEST maicord_account_reconnect)
 # Toast queue: order, merge, overflow, timing by update and wake counts, placement and paint.

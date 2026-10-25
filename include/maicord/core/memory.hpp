@@ -4,10 +4,6 @@
 #include "maicord/sys/crt.hpp"
 #include "maicord/sys/intrin.hpp"
 
-extern "C" void* __cdecl memmove(void* destination, const void* source, unsigned long long count);
-extern "C" void* __cdecl memset(void* destination, int value, unsigned long long count);
-// Declared as <intrin.h> declares it, without parsing it.
-extern "C" void __stosb(unsigned char* destination, unsigned char value, unsigned long long count);
 #pragma intrinsic(__stosb)
 
 namespace maicord {

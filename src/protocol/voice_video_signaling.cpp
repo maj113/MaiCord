@@ -1,4 +1,5 @@
 #include "maicord/protocol/voice_video_signaling.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "json_command_writer.hpp"
@@ -34,7 +35,7 @@ bool uuid_valid(Utf8View id) noexcept {
     for (u32 i = 0; i != id.bytes; ++i) {
         const char c = id.data[i];
         const bool dash = i == 8 || i == 13 || i == 18 || i == 23;
-        if (dash ? c != '-' : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+        if (dash ? c != '-' : !ascii_is_lower_hex_digit(c))
             return false;
     }
     return true;

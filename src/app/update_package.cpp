@@ -278,7 +278,7 @@ bool update_package_member_name_valid(Utf8View name) noexcept {
     wchar_t wide[kUpdatePackageMaximumNameBytes]{};
     for (u32 i = 0; i < name.bytes; ++i) {
         const char c = name.data[i];
-        const bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        const bool alnum = ascii_is_alnum(c);
         if (!alnum && (i == 0 || (c != '.' && c != '-' && c != '_'))) return false;
         wide[i] = static_cast<wchar_t>(c);
     }

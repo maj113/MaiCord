@@ -151,12 +151,10 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
             if (!idat || length)
                 return parse_failure(result, PngError::chunk_order);
             end = true;
-        } else if (type == kChunkActl || type == kChunkFctl || type == kChunkFdat) {
-            // APNG: the thumbnail is the default image; frame data is skipped.
-            ++result.ancillary_chunks;
         } else if (!(type_bytes[0] & 0x20u)) {
             return parse_failure(result, PngError::unknown_critical_chunk);
         } else {
+            // APNG chunks are ancillary too: the thumbnail is the default image.
             ++result.ancillary_chunks;
         }
         cursor = static_cast<u32>(next);

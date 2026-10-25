@@ -1,4 +1,5 @@
 #include "maicord/protocol/media_catalog.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/json_ids.hpp"
@@ -32,7 +33,7 @@ bool locale_valid(Utf8View locale) noexcept {
         return false;
     for (u32 i = 0; i < locale.bytes; ++i) {
         const char c = locale.data[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'))
+        if (!(ascii_is_alnum(c) || c == '-'))
             return false;
     }
     return locale.data[0] != '-' && locale.data[locale.bytes - 1] != '-';
@@ -51,7 +52,7 @@ bool url_valid(Utf8View url, bool* relative) noexcept {
     u32 stop = first;
     while (stop < url.bytes && url.data[stop] != '/' && url.data[stop] != '?' && url.data[stop] != '#') {
         const char c = url.data[stop++];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ||
+        if (!(ascii_is_alnum(c) || c == '.' ||
               c == '-'))
             return false;
     }

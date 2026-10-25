@@ -15,14 +15,6 @@ struct PendingControl {
     bool transparent;
 };
 
-bool bytes_equal(const u8* bytes, const char* expected, u32 count) noexcept {
-    for (u32 index = 0; index < count; ++index) {
-        if (bytes[index] != static_cast<u8>(expected[index])) {
-            return false;
-        }
-    }
-    return true;
-}
 
 GifParseResult fail(GifParseResult result, GifError error) noexcept {
     result.error = error;

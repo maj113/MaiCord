@@ -1,4 +1,5 @@
 #include "maicord/app/message_interaction_rules.hpp"
+#include "maicord/core/ascii.hpp"
 
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
@@ -7,15 +8,12 @@
 namespace maicord {
 namespace {
 
-bool space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\n' || value == '\r';
-}
 
 Utf8View trim(Utf8View text) noexcept {
     u32 first = 0, last = text.bytes;
-    while (first < last && space(text.data[first]))
+    while (first < last && ascii_is_space(text.data[first]))
         ++first;
-    while (last > first && space(text.data[last - 1]))
+    while (last > first && ascii_is_space(text.data[last - 1]))
         --last;
     return {text.data + first, last - first};
 }
@@ -37,7 +35,7 @@ struct Writer {
 
 // Optional argument after the command word; nullptr data means no match.
 bool command_argument(Utf8View text, Utf8View command, Utf8View* argument) noexcept {
-    if (!utf8_starts_with(text, command) || (text.bytes > command.bytes && !space(text.data[command.bytes])))
+    if (!utf8_starts_with(text, command) || (text.bytes > command.bytes && !ascii_is_space(text.data[command.bytes])))
         return false;
     *argument = trim({text.data + command.bytes, text.bytes - command.bytes});
     return true;
@@ -104,7 +102,7 @@ ComposerTextCommand composer_text_command_parse(Utf8View raw, Slice<char> output
         if (name.bytes == 0 || name.bytes > 64)
             return command;
         for (u32 i = 0; i < name.bytes; ++i)
-            if (name.data[i] == ':' || space(name.data[i]))
+            if (name.data[i] == ':' || ascii_is_space(name.data[i]))
                 return command;
         command.kind = ComposerTextCommandKind::react;
         command.emoji = name;
@@ -183,10 +181,10 @@ bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) n
         }
         // Whole words only: start of text or after whitespace, then end or whitespace.
         const Emoticon* match = nullptr;
-        if (!code_block && !code_span && (at == 0 || space(text.data[at - 1])))
+        if (!code_block && !code_span && (at == 0 || ascii_is_space(text.data[at - 1])))
             for (const auto& emoticon : kEmoticons) {
                 const u32 end = at + emoticon.text.bytes;
-                if (end <= text.bytes && (end == text.bytes || space(text.data[end])) &&
+                if (end <= text.bytes && (end == text.bytes || ascii_is_space(text.data[end])) &&
                     bytes_equal(text.data + at, emoticon.text.data, emoticon.text.bytes) &&
                     (!match || emoticon.text.bytes > match->text.bytes))
                     match = &emoticon;

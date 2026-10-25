@@ -9,11 +9,6 @@ namespace {
 static_assert(sizeof(MessageRecord) == 64);
 static_assert(sizeof(MessageInput) == 72);
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 MessageStoreResult store_error(MessageStoreError error) noexcept {
     return MessageStoreResult{MessageHandle{~0u, 0}, 0, error, false};
 }

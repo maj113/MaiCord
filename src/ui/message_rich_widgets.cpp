@@ -40,14 +40,6 @@ UiLayoutStyle reaction_button_style(float width) noexcept {
     return style;
 }
 
-u32 literal_length(const char* value) noexcept {
-    u32 bytes = 0;
-    while (value && value[bytes] != 0) {
-        ++bytes;
-    }
-    return bytes;
-}
-
 UiWidgetResult add_group(UiWidgetManager* manager, UiWidgetHandle parent, u32 id, const char* name,
                          float height, bool reactions, float gap = 0.0f) noexcept {
     UiLayoutStyle style = reactions ? reaction_region_style(height) : region_style(height, UiLayoutFlow::vertical);
@@ -56,7 +48,7 @@ UiWidgetResult add_group(UiWidgetManager* manager, UiWidgetHandle parent, u32 id
     return ui_widget_manager_add_prevalidated(
         manager, parent,
         UiWidgetDesc{id, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{Utf8View{name, literal_length(name)}, style, UiSize{}, 0.0f, id}});
+                     UiLayoutNodeSpec{Utf8View{name, c_string_length(name)}, style, UiSize{}, 0.0f, id}});
 }
 
 UiWidgetResult add_item(UiWidgetManager* manager, UiWidgetHandle parent, u32 id, const char* name,
@@ -64,7 +56,7 @@ UiWidgetResult add_item(UiWidgetManager* manager, UiWidgetHandle parent, u32 id,
     return ui_widget_manager_add_prevalidated(
         manager, parent,
         UiWidgetDesc{id, kind, flags,
-                     UiLayoutNodeSpec{Utf8View{name, literal_length(name)}, item_style(height), UiSize{},
+                     UiLayoutNodeSpec{Utf8View{name, c_string_length(name)}, item_style(height), UiSize{},
                                       0.0f, id}});
 }
 

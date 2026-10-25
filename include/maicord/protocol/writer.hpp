@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/utf.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord {
 
@@ -23,8 +24,7 @@ bool protocol_writer_append_json_string(ProtocolWriter* writer, Utf8View value) 
 
 // RFC 3986 unreserved characters, which percent-encoding leaves as they are.
 constexpr bool url_unreserved(u8 value) noexcept {
-    return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
-           (value >= '0' && value <= '9') || value == '-' || value == '_' || value == '.' || value == '~';
+    return ascii_is_alnum(value) || value == '-' || value == '_' || value == '.' || value == '~';
 }
 // Appends value with every byte but the url_unreserved ones as %XX.
 bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, Utf8View value) noexcept;

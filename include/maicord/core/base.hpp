@@ -48,6 +48,12 @@ template <typename T> constexpr T maximum(T a, T b) noexcept {
     return a > b ? a : b;
 }
 
+// The generation after this one: zero is skipped so a stale handle never matches an empty slot.
+template <typename T> constexpr T next_generation(T generation) noexcept {
+    ++generation;
+    return generation == 0 ? T{1} : generation;
+}
+
 template <typename T> constexpr T clamp_value(T value, T low, T high) noexcept {
     return value < low ? low : value > high ? high : value;
 }

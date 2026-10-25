@@ -606,10 +606,7 @@ float message_composer_preferred_height(const MessageComposer& composer,
         if (!decoded.valid) {
             break;
         }
-        if (decoded.codepoint == '\n') {
-            ++lines;
-            column = 0;
-        } else if (++column >= columns) {
+        if (decoded.codepoint == '\n' || ++column >= columns) {
             ++lines;
             column = 0;
         }

@@ -7,8 +7,7 @@ bool valid_base64_metadata(ConstSlice<u8> value) noexcept {
     u32 padding = 0;
     for (u32 index = 0; index < value.count; ++index) {
         const u8 byte = value[index];
-        const bool alphabet = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
-                              (byte >= '0' && byte <= '9') || byte == '+' || byte == '/';
+        const bool alphabet = ascii_is_alnum(byte) || byte == '+' || byte == '/';
         if (byte == '=') {
             ++padding;
             if (index < value.count - 2 || padding > 2) {

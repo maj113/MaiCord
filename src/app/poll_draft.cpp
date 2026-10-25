@@ -1,4 +1,5 @@
 #include "maicord/app/poll_draft.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -40,7 +41,7 @@ bool custom_emoji(Utf8View text, u64* id) noexcept {
     const u32 name = at;
     while (at < text.bytes && text.data[at] != ':') {
         const char c = text.data[at];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'))
+        if (!(ascii_is_alnum(c) || c == '_'))
             return false;
         ++at;
     }

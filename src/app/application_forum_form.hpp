@@ -12,9 +12,6 @@ enum class ApplicationForumField : u8 {
     title,
     body
 };
-bool application_forum_form_open(const ApplicationForumPostTicket&) noexcept;
-// Owner dismissal detaches without cancelling a different or completed intent.
-void application_forum_form_close(const ApplicationForumPostTicket&) noexcept;
 void application_forum_form_close(bool restore_focus = true, bool redraw = true) noexcept;
 void application_forum_form_release() noexcept;
 bool application_forum_form_active() noexcept;

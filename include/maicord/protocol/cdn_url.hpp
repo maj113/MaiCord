@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stddef.h>
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/slice.hpp"
 #include "maicord/media/asset.hpp"
 
@@ -63,7 +64,7 @@ constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {
     for (u32 i = 0; i < target.count; ++i) {
         const u8 c = target[i];
         if (i < prefix_bytes ? c != static_cast<u8>(prefix[i])
-                             : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+                             : !ascii_is_alnum(c))
             return false;
     }
     return true;

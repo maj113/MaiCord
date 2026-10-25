@@ -1,4 +1,5 @@
 #include "maicord/ui/badge.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
@@ -45,7 +46,7 @@ bool asset(Utf8View value) noexcept {
         return false;
     for (u32 i = 0; i < value.bytes; ++i) {
         const char c = value.data[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'))
+        if (!(ascii_is_alnum(c) || c == '_'))
             return false;
     }
     return true;

@@ -60,14 +60,6 @@ bool segment_bounds(ConstSlice<u8> encoded, u32* cursor, u32* payload, u32* payl
     return true;
 }
 
-bool bytes_equal(const u8* left, const char* right, u32 count) noexcept {
-    for (u32 index = 0; index < count; ++index) {
-        if (left[index] != static_cast<u8>(right[index])) {
-            return false;
-        }
-    }
-    return true;
-}
 
 bool parse_exif_orientation(const u8* payload, u32 bytes, JpegOrientation* orientation) noexcept {
     // The sixth identifier byte is a fill byte and is not checked, as in Chromium.

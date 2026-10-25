@@ -1,21 +1,14 @@
 #include "maicord/media/wave_pcm.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 namespace {
-bool span(const void* p, u64 bytes) noexcept {
-    return (!bytes || p) && bytes <= ~usize{0} - reinterpret_cast<usize>(p);
-}
-bool overlap(const void* a, u64 an, const void* b, u64 bn) noexcept {
-    if (!an || !bn)
-        return false;
-    const auto av = reinterpret_cast<usize>(a), bv = reinterpret_cast<usize>(b);
-    return !span(a, an) || !span(b, bn) || (av < bv + bn && bv < av + an);
-}
 bool valid(const WavePcmSource& s) noexcept {
     if (!s.ready || !s.encoded.count || s.encoded.count > kWavePcmMaximumEncodedBytes ||
-        !span(s.encoded.data, s.encoded.count) || !s.data.count || !span(s.data.data, s.data.count) ||
-        (s.channels != 1 && s.channels != 2) || s.sample_rate < 8000 || s.sample_rate > 192000 ||
+        !byte_range_valid(s.encoded.data, s.encoded.count) || !s.data.count ||
+        !byte_range_valid(s.data.data, s.data.count) || (s.channels != 1 && s.channels != 2) ||
+        s.sample_rate < 8000 || s.sample_rate > 192000 ||
         (s.container_bits != 8 && s.container_bits != 16 && s.container_bits != 24 &&
          s.container_bits != 32) ||
         !s.valid_bits || s.valid_bits > s.container_bits ||
@@ -77,8 +70,8 @@ u32 sample_bits(const u8* p, u32 bytes) noexcept {
 }
 } // namespace
 WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexcept {
-    if (!output || !encoded.data || !span(encoded.data, encoded.count) ||
-        overlap(output, sizeof(*output), encoded.data, encoded.count))
+    if (!output || !encoded.data || !byte_range_valid(encoded.data, encoded.count) ||
+        byte_ranges_conflict(output, sizeof(*output), encoded.data, encoded.count))
         return WavePcmError::invalid_input;
     if (encoded.count > kWavePcmMaximumEncodedBytes)
         return WavePcmError::capacity;
@@ -131,10 +124,11 @@ WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexc
 WavePcmDecodeResult wave_pcm_decode(const WavePcmSource& source, u64 first_frame, u32 requested,
                                     Slice<float> output) noexcept {
     if (!valid(source) || !requested || requested > kWavePcmMaximumDecodeFrames ||
-        first_frame > source.total_frames || !span(output.data, u64{output.count} * sizeof(float)) ||
-        overlap(output.data, u64{output.count} * sizeof(float), source.encoded.data,
-                source.encoded.count) ||
-        overlap(output.data, u64{output.count} * sizeof(float), &source, sizeof(source)))
+        first_frame > source.total_frames ||
+        !byte_range_valid(output.data, u64{output.count} * sizeof(float)) ||
+        byte_ranges_conflict(output.data, u64{output.count} * sizeof(float), source.encoded.data,
+                             source.encoded.count) ||
+        byte_ranges_conflict(output.data, u64{output.count} * sizeof(float), &source, sizeof(source)))
         return {0, WavePcmError::invalid_input};
     if (first_frame == source.total_frames)
         return {0, WavePcmError::end_of_stream};

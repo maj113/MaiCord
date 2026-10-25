@@ -162,7 +162,7 @@ Utf8View named_key(u8 key) noexcept {
 
 // Word-prefix matching, ASCII case-insensitive (the settings search rule).
 bool word_byte(char value) noexcept {
-    return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9') ||
+    return ascii_is_alnum(value) ||
            (static_cast<u8>(value) & 0x80) || value == '/' || value == ',' || value == '\\';
 }
 bool word_prefixes(Utf8View word, Utf8View text) noexcept {

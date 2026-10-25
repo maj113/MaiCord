@@ -19,7 +19,6 @@ inline constexpr Utf8View kToastMessageIdCopied = utf8_literal("Copied Message I
 inline constexpr Utf8View kToastIdCopyFailed = utf8_literal("Unable to copy ID");
 inline constexpr Utf8View kToastTextCopied = utf8_literal("Copied Message Text");
 inline constexpr Utf8View kToastUsernameCopied = utf8_literal("Username Copied");
-inline constexpr Utf8View kToastCopied = utf8_literal("Copied to clipboard.");
 inline constexpr Utf8View kToastCopyFailed = utf8_literal("Unable to copy to clipboard");
 inline constexpr Utf8View kToastImageSaved = utf8_literal("Image Saved");
 inline constexpr Utf8View kToastImageSaveFailed = utf8_literal("Unable to save image");

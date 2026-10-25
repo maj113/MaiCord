@@ -1,4 +1,5 @@
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/gateway_reaction_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
@@ -19,13 +20,6 @@ inline constexpr u32 kPollFields = gateway_message_poll_field_question |
                                    gateway_message_poll_field_answers | gateway_message_poll_field_expiry |
                                    gateway_message_poll_field_multiselect |
                                    gateway_message_poll_field_layout | gateway_message_poll_field_results;
-bool overlap(const void* left, u64 left_bytes, const void* right, u64 right_bytes) noexcept {
-    if (!left_bytes || !right_bytes)
-        return false;
-    const auto a = reinterpret_cast<usize>(left), b = reinterpret_cast<usize>(right);
-    return !left || !right || left_bytes > ~static_cast<usize>(0) - a ||
-           right_bytes > ~static_cast<usize>(0) - b || (a < b + right_bytes && b < a + left_bytes);
-}
 bool nonzero_u32(JsonValue value, u32* out) noexcept {
     u64 number = 0;
     if (!json_value_to_u64(value, &number) || !number || number > ~0u)
@@ -440,14 +434,14 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
         static_cast<u64>(scratch.answer_counts.count) * sizeof(GatewayMessagePollAnswerCount),
         sizeof(*output), sizeof(*text_used)};
     for (u32 i = 0; i < 5; ++i) {
-        if (overlap(banks[i], sizes[i], document.input.data, document.input.bytes) ||
-            overlap(banks[i], sizes[i], document.structurals.data,
+        if (byte_ranges_conflict(banks[i], sizes[i], document.input.data, document.input.bytes) ||
+            byte_ranges_conflict(banks[i], sizes[i], document.structurals.data,
                     static_cast<u64>(document.structurals.count) * sizeof(u32)) ||
-            overlap(banks[i], sizes[i], &scratch, sizeof(scratch)) ||
-            overlap(banks[i], sizes[i], &document, sizeof(document)))
+            byte_ranges_conflict(banks[i], sizes[i], &scratch, sizeof(scratch)) ||
+            byte_ranges_conflict(banks[i], sizes[i], &document, sizeof(document)))
             return decode_failure(GatewayEventDecodeError::invalid_input);
         for (u32 j = i + 1; j < 5; ++j)
-            if (overlap(banks[i], sizes[i], banks[j], sizes[j]))
+            if (byte_ranges_conflict(banks[i], sizes[i], banks[j], sizes[j]))
                 return decode_failure(GatewayEventDecodeError::invalid_input);
     }
     const auto input_start = reinterpret_cast<usize>(document.input.data);
@@ -515,10 +509,10 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
     if (!output || data.kind != JsonValueKind::object || !data.source.data || !data.source.bytes ||
         data.source.bytes > 4096 || !structural_scratch.data || !structural_scratch.count ||
         !maximum_depth ||
-        overlap(data.source.data, data.source.bytes, structural_scratch.data,
+        byte_ranges_conflict(data.source.data, data.source.bytes, structural_scratch.data,
                 static_cast<u64>(structural_scratch.count) * sizeof(u32)) ||
-        overlap(output, sizeof(*output), data.source.data, data.source.bytes) ||
-        overlap(output, sizeof(*output), structural_scratch.data,
+        byte_ranges_conflict(output, sizeof(*output), data.source.data, data.source.bytes) ||
+        byte_ranges_conflict(output, sizeof(*output), structural_scratch.data,
                 static_cast<u64>(structural_scratch.count) * sizeof(u32)))
         return decode_failure(GatewayEventDecodeError::invalid_input);
     const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
@@ -541,7 +535,7 @@ GatewayReactionBatchVisitResult gateway_visit_message_poll_vote_add_many(
     if (!visit || data.kind != JsonValueKind::object || !data.source.data || !data.source.bytes ||
         !maximum_depth || !structural_scratch.data || !structural_scratch.count ||
         structural_scratch.count > ~u32{0} / sizeof(u32) ||
-        overlap(data.source.data, data.source.bytes, structural_scratch.data,
+        byte_ranges_conflict(data.source.data, data.source.bytes, structural_scratch.data,
                 static_cast<u64>(structural_scratch.count) * sizeof(u32)))
         return {decode_failure(GatewayEventDecodeError::invalid_input), 0, false};
     const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);

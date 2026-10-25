@@ -1,4 +1,5 @@
 #include "maicord/protocol/guild_community.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
@@ -6,24 +7,15 @@
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
 constexpr u32 kDepth = 32;
 
-bool is_space(char c) noexcept {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
 // Decodes a JSON string into output, truncated at a code point boundary.
 u32 decode_text(JsonValue value, char* output, u32 capacity) noexcept {
-    JsonString text{};
-    if (!json_value_as_string(value, &text) || !capacity)
-        return 0;
-    char decoded[4096];
-    const auto result = json_string_decode_utf8(text, {decoded, sizeof(decoded)});
-    if (!result.ok())
-        return 0;
-    return utf8_copy_truncated(output, capacity, {decoded, result.bytes});
+    return protocol_detail::copy_text_truncated<4096>(value, output, capacity);
 }
 // A bounded text bank: decoded strings are appended and addressed by offset.
 struct Bank {
@@ -460,7 +452,7 @@ u32 codepoints(Utf8View text, bool* valid) noexcept {
 }
 bool blank(Utf8View text) noexcept {
     for (u32 i = 0; i < text.bytes; ++i)
-        if (!is_space(text.data[i]))
+        if (!ascii_is_space(text.data[i]))
             return false;
     return true;
 }
@@ -492,9 +484,9 @@ bool guild_community_request_valid(const GuildCommunityRequest& request) noexcep
         return false;
     // A JSON object: the module never forwards anything else.
     u32 first = 0, last = request.body_bytes;
-    while (first < last && is_space(static_cast<char>(request.body[first])))
+    while (first < last && ascii_is_space(static_cast<char>(request.body[first])))
         ++first;
-    while (last > first && is_space(static_cast<char>(request.body[last - 1])))
+    while (last > first && ascii_is_space(static_cast<char>(request.body[last - 1])))
         --last;
     return last - first >= 2 && request.body[first] == '{' && request.body[last - 1] == '}';
 }
@@ -509,7 +501,7 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
     }
     for (u32 i = 0; i < session_id.bytes; ++i) {
         const char c = session_id.data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+        if (!ascii_is_alnum(c)) {
             result.error = GuildCommunityWriteError::invalid_input;
             return result;
         }
@@ -756,7 +748,7 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
                  json_visit_indexed_object(*f.document, value, kDepth, response_key, &existing);
                  // The original object minus its closing brace, then the response.
                  u32 end = value.source.bytes - 1;
-                 while (end > 1 && is_space(value.source.data[end - 1]))
+                 while (end > 1 && ascii_is_space(value.source.data[end - 1]))
                      --end;
                  const bool empty = end == 1;
                  bool ok = (f.index == 0 || protocol_writer_append_byte(f.writer, ',')) &&

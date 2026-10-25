@@ -7,11 +7,6 @@ namespace {
 inline constexpr u32 kEmptyBucket = 0;
 inline constexpr u32 kTombstoneBucket = 0xFFFFFFFFu;
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 // Bucket tables are powers of two in practice: mask instead of dividing on
 // every probe of the per-frame visibility lookups.
 u32 wrap_bucket(u64 value, u32 capacity) noexcept {

@@ -60,8 +60,6 @@
 
 namespace maicord::app_detail {
 
-bool refresh_popup_text() noexcept;
-
 namespace {
 const MessageRecord* resident_message(u64 message_id) noexcept {
     const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);

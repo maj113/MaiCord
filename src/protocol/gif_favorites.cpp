@@ -3,6 +3,7 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_fields.hpp"
+#include "proto_wire.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
@@ -13,95 +14,12 @@ namespace maicord {
 namespace {
 using namespace protocol_detail;
 using E = GifFavoritesError;
-struct Wire {
-    ConstSlice<u8> raw;
-    Utf8View encoded;
-    u32 size;
-    static u8 digit(char c) noexcept {
-        return c >= 'A' && c <= 'Z'   ? static_cast<u8>(c - 'A')
-               : c >= 'a' && c <= 'z' ? static_cast<u8>(c - 'a' + 26)
-               : c >= '0' && c <= '9' ? static_cast<u8>(c - '0' + 52)
-               : c == '+'             ? 62
-               : c == '/'             ? 63
-                                      : 0;
-    }
-    u8 at(u32 p) const noexcept {
-        if (raw.data)
-            return raw[p];
-        const u32 q = p / 3 * 4;
-        const u8 a = digit(encoded.data[q]), b = digit(encoded.data[q + 1]), c = digit(encoded.data[q + 2]),
-                 d = digit(encoded.data[q + 3]);
-        return p % 3 == 0   ? static_cast<u8>((a << 2) | (b >> 4))
-               : p % 3 == 1 ? static_cast<u8>((b << 4) | (c >> 2))
-                            : static_cast<u8>((c << 6) | d);
-    }
-};
-bool varint(const Wire& w, u32& p, u32 end, u64& n) noexcept {
-    n = 0;
-    for (u32 i = 0; i < 10; ++i) {
-        if (p == end)
-            return false;
-        const u8 b = w.at(p++);
-        if (i == 9 && b > 1)
-            return false;
-        n |= static_cast<u64>(b & 127) << (i * 7);
-        if (!(b & 128))
-            return true;
-    }
-    return false;
-}
-bool tag(const Wire& w, u32& p, u32 end, u32& field, u32& type) noexcept {
-    u64 n = 0;
-    if (!varint(w, p, end, n) || n > ~u32{0} || !(n >> 3))
-        return false;
-    field = static_cast<u32>(n >> 3);
-    type = static_cast<u32>(n & 7);
-    return true;
-}
-bool length(const Wire& w, u32& p, u32 end, u32& stop) noexcept {
-    u64 n = 0;
-    if (!varint(w, p, end, n) || n > end - p)
-        return false;
-    stop = p + static_cast<u32>(n);
-    return true;
-}
-bool skip(const Wire& w, u32& p, u32 end, u32 type, u32 field, u32 depth = 0) noexcept {
-    u64 n = 0;
-    if (type == 0)
-        return varint(w, p, end, n);
-    if (type == 1 || type == 5) {
-        const u32 bytes = type == 1 ? 8 : 4;
-        if (bytes > end - p)
-            return false;
-        p += bytes;
-        return true;
-    }
-    if (type == 2) {
-        u32 stop = 0;
-        if (!length(w, p, end, stop))
-            return false;
-        p = stop;
-        return true;
-    }
-    if (type != 3 || depth >= 16)
-        return false;
-    while (p < end) {
-        u32 f = 0, t = 0;
-        if (!tag(w, p, end, f, t))
-            return false;
-        if (t == 4)
-            return f == field;
-        if (!skip(w, p, end, t, f, depth + 1))
-            return false;
-    }
-    return false;
-}
 struct Entry {
     u32 begin, end, key_begin, key_end, src_begin, src_end;
     u32 width, height, order;
     GifFavoriteFormat format;
 };
-bool utf8(const Wire& w, u32 begin, u32 end) noexcept {
+bool utf8(const ProtoSource& w, u32 begin, u32 end) noexcept {
     while (begin < end) {
         char scalar[4]{};
         const u32 available = minimum(4u, end - begin);
@@ -114,15 +32,15 @@ bool utf8(const Wire& w, u32 begin, u32 end) noexcept {
     }
     return true;
 }
-E value(const Wire& w, u32 p, u32 end, Entry& entry) noexcept {
+E value(const ProtoSource& w, u32 p, u32 end, Entry& entry) noexcept {
     while (p < end) {
         u32 f = 0, t = 0;
         u64 n = 0;
-        if (!tag(w, p, end, f, t))
+        if (!proto_tag(w, p, end, f, t))
             return E::protobuf;
         if (f == 2) {
             u32 stop = 0;
-            if (t != 2 || !length(w, p, end, stop))
+            if (t != 2 || !proto_length(w, p, end, stop))
                 return E::protobuf;
             if (!utf8(w, p, stop))
                 return E::utf8;
@@ -130,7 +48,7 @@ E value(const Wire& w, u32 p, u32 end, Entry& entry) noexcept {
             entry.src_end = stop;
             p = stop;
         } else if (f == 1 || (f >= 3 && f <= 5)) {
-            if (t != 0 || !varint(w, p, end, n))
+            if (t != 0 || !proto_varint(w, p, end, n))
                 return E::protobuf;
             if (f == 1) {
                 if (n > ~u32{0} && n < 0xffffffff80000000ull)
@@ -146,22 +64,22 @@ E value(const Wire& w, u32 p, u32 end, Entry& entry) noexcept {
                 else
                     entry.order = static_cast<u32>(n);
             }
-        } else if (!skip(w, p, end, t, f))
+        } else if (!proto_skip(w, p, end, t, f))
             return E::protobuf;
     }
     return E::none;
 }
-E entry(const Wire& w, u32 p, u32 end, Entry& result) noexcept {
+E entry(const ProtoSource& w, u32 p, u32 end, Entry& result) noexcept {
     reset_value(&result);
     result.begin = p;
     result.end = end;
     while (p < end) {
         u32 f = 0, t = 0;
-        if (!tag(w, p, end, f, t))
+        if (!proto_tag(w, p, end, f, t))
             return E::protobuf;
         if (f == 1 || f == 2) {
             u32 stop = 0;
-            if (t != 2 || !length(w, p, end, stop))
+            if (t != 2 || !proto_length(w, p, end, stop))
                 return E::protobuf;
             if (f == 1) {
                 if (!utf8(w, p, stop))
@@ -174,20 +92,20 @@ E entry(const Wire& w, u32 p, u32 end, Entry& result) noexcept {
                     return parsed;
             }
             p = stop;
-        } else if (!skip(w, p, end, t, f))
+        } else if (!proto_skip(w, p, end, t, f))
             return E::protobuf;
     }
     return E::none;
 }
-E favorites(const Wire& w, u32 p, u32 end, GifFavoritesResult& result) noexcept {
+E favorites(const ProtoSource& w, u32 p, u32 end, GifFavoritesResult& result) noexcept {
     while (p < end) {
         u32 f = 0, t = 0;
-        if (!tag(w, p, end, f, t))
+        if (!proto_tag(w, p, end, f, t))
             return E::protobuf;
         if (f == 1) {
             u32 stop = 0;
             Entry parsed{};
-            if (t != 2 || !length(w, p, end, stop))
+            if (t != 2 || !proto_length(w, p, end, stop))
                 return E::protobuf;
             if (result.entry_count == kGifFavoritesMaximumEntries)
                 return E::capacity;
@@ -198,42 +116,42 @@ E favorites(const Wire& w, u32 p, u32 end, GifFavoritesResult& result) noexcept 
             p = stop;
         } else if (f == 2) {
             u64 n = 0;
-            if (t != 0 || !varint(w, p, end, n))
+            if (t != 0 || !proto_varint(w, p, end, n))
                 return E::protobuf;
             result.hide_tooltip = n != 0;
-        } else if (!skip(w, p, end, t, f))
+        } else if (!proto_skip(w, p, end, t, f))
             return E::protobuf;
     }
     return E::none;
 }
-E versions(const Wire& w, u32 p, u32 end, GifFavoritesResult& result) noexcept {
+E versions(const ProtoSource& w, u32 p, u32 end, GifFavoritesResult& result) noexcept {
     while (p < end) {
         u32 f = 0, t = 0;
         u64 n = 0;
-        if (!tag(w, p, end, f, t))
+        if (!proto_tag(w, p, end, f, t))
             return E::protobuf;
         if (f >= 1 && f <= 3) {
-            if (t != 0 || !varint(w, p, end, n) || n > ~u32{0})
+            if (t != 0 || !proto_varint(w, p, end, n) || n > ~u32{0})
                 return E::protobuf;
             if (f == 3)
                 result.data_version = static_cast<u32>(n);
-        } else if (!skip(w, p, end, t, f))
+        } else if (!proto_skip(w, p, end, t, f))
             return E::protobuf;
     }
     return E::none;
 }
-GifFavoritesResult measure(const Wire& w) noexcept {
+GifFavoritesResult measure(const ProtoSource& w) noexcept {
     GifFavoritesResult result{};
     u32 p = 0;
     while (p < w.size) {
         u32 f = 0, t = 0;
-        if (!tag(w, p, w.size, f, t)) {
+        if (!proto_tag(w, p, w.size, f, t)) {
             result.error = E::protobuf;
             return result;
         }
         if (f == 1 || f == 2) {
             u32 stop = 0;
-            if (t != 2 || !length(w, p, w.size, stop)) {
+            if (t != 2 || !proto_length(w, p, w.size, stop)) {
                 result.error = E::protobuf;
                 return result;
             }
@@ -252,7 +170,7 @@ GifFavoritesResult measure(const Wire& w) noexcept {
             if (!result.ok())
                 return result;
             p = stop;
-        } else if (!skip(w, p, w.size, t, f)) {
+        } else if (!proto_skip(w, p, w.size, t, f)) {
             result.error = E::protobuf;
             return result;
         }
@@ -260,7 +178,7 @@ GifFavoritesResult measure(const Wire& w) noexcept {
     result.index_words = gif_favorites_index_words(result.entry_count);
     return result;
 }
-bool encoded_wire(Utf8View input, Wire* wire, E* error) noexcept {
+bool encoded_wire(Utf8View input, ProtoSource* wire, E* error) noexcept {
     if (input.bytes > base64_encoded_size(kGifFavoritesMaximumProtoBytes) ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes})) {
         *error = E::input;
@@ -274,13 +192,13 @@ bool encoded_wire(Utf8View input, Wire* wire, E* error) noexcept {
     *wire = {{}, input, decoded.bytes};
     return true;
 }
-u32 hash(const Wire& w, u32 begin, u32 end) noexcept {
+u32 hash(const ProtoSource& w, u32 begin, u32 end) noexcept {
     u32 n = 2166136261u;
     while (begin < end)
         n = (n ^ w.at(begin++)) * 16777619u;
     return n;
 }
-bool equal(const Wire& w, const Entry& a, const Entry& b) noexcept {
+bool equal(const ProtoSource& w, const Entry& a, const Entry& b) noexcept {
     if (a.key_end - a.key_begin != b.key_end - b.key_begin)
         return false;
     for (u32 i = 0; i < a.key_end - a.key_begin; ++i)
@@ -288,7 +206,7 @@ bool equal(const Wire& w, const Entry& a, const Entry& b) noexcept {
             return false;
     return true;
 }
-bool equal(const Wire& w, const Entry& a, Utf8View b) noexcept {
+bool equal(const ProtoSource& w, const Entry& a, Utf8View b) noexcept {
     if (a.key_end - a.key_begin != b.bytes)
         return false;
     for (u32 i = 0; i < b.bytes; ++i)
@@ -308,17 +226,17 @@ struct Index {
         CopyMemory(bytes + word * 4, &n, 4);
     }
 };
-Entry indexed_entry(const Wire& group, u32 offset) noexcept {
+Entry indexed_entry(const ProtoSource& group, u32 offset) noexcept {
     u32 p = offset;
     u32 end = 0;
-    length(group, p, group.size, end);
+    proto_length(group, p, group.size, end);
     Entry result{};
     entry(group, p, end, result);
     return result;
 }
 // First word records first insertion position; second records the winning
 // entry length-prefix offset. Full key equality resolves hash collisions.
-u32 index_group(const Wire& group, Index index) noexcept {
+u32 index_group(const ProtoSource& group, Index index) noexcept {
     if (!index.words)
         return 0;
     ZeroMemory(index.bytes, index.words * 4);
@@ -326,14 +244,14 @@ u32 index_group(const Wire& group, Index index) noexcept {
     u32 count = 0, p = 0;
     while (p < group.size) {
         u32 f = 0, t = 0;
-        tag(group, p, group.size, f, t);
+        proto_tag(group, p, group.size, f, t);
         if (f != 1) {
-            skip(group, p, group.size, t, f);
+            proto_skip(group, p, group.size, t, f);
             continue;
         }
         const u32 offset = p;
         u32 stop = 0;
-        length(group, p, group.size, stop);
+        proto_length(group, p, group.size, stop);
         Entry parsed{};
         entry(group, p, stop, parsed);
         u32 bucket = hash(group, parsed.key_begin, parsed.key_end) & (buckets - 1);
@@ -353,7 +271,7 @@ u32 index_group(const Wire& group, Index index) noexcept {
     }
     return count;
 }
-GifFavoriteRecord record(const Wire& group, const Entry& parsed, u32 first) noexcept {
+GifFavoriteRecord record(const ProtoSource& group, const Entry& parsed, u32 first) noexcept {
     return {{reinterpret_cast<const char*>(group.raw.data + parsed.key_begin),
              parsed.key_end - parsed.key_begin},
             {reinterpret_cast<const char*>(group.raw.data + parsed.src_begin),
@@ -399,7 +317,7 @@ void record_index(ConstSlice<GifFavoriteRecord> records, Index index) noexcept {
     const u32 buckets = index.words / 2;
     for (u32 i = 0; i < records.count; ++i) {
         const auto key = records[i].url;
-        Wire w{{reinterpret_cast<const u8*>(key.data), key.bytes}, {}, key.bytes};
+        ProtoSource w{{reinterpret_cast<const u8*>(key.data), key.bytes}, {}, key.bytes};
         u32 bucket = hash(w, 0, w.size) & (buckets - 1);
         for (u32 probes = 0; probes < buckets; ++probes) {
             if (!index.get(bucket * 2)) {
@@ -416,7 +334,7 @@ ConstSlice<u8> range(Slice<u8> s) noexcept {
 template <class T> ConstSlice<u8> range(Slice<T> s) noexcept {
     return {reinterpret_cast<const u8*>(s.data), s.count * static_cast<u32>(sizeof(T))};
 }
-GifFavoritesResult decode(const Wire& input, Slice<u8> output, Slice<GifFavoriteRecord> records,
+GifFavoritesResult decode(const ProtoSource& input, Slice<u8> output, Slice<GifFavoriteRecord> records,
                           Slice<u32> scratch) noexcept {
     auto result = measure(input);
     if (!result.ok())
@@ -431,17 +349,17 @@ GifFavoritesResult decode(const Wire& input, Slice<u8> output, Slice<GifFavorite
     u32 p = 0, copied = 0;
     while (p < input.size) {
         u32 f = 0, t = 0;
-        tag(input, p, input.size, f, t);
+        proto_tag(input, p, input.size, f, t);
         if (f != 2) {
-            skip(input, p, input.size, t, f);
+            proto_skip(input, p, input.size, t, f);
             continue;
         }
         u32 stop = 0;
-        length(input, p, input.size, stop);
+        proto_length(input, p, input.size, stop);
         while (p < stop)
             output.data[copied++] = input.at(p++);
     }
-    Wire group{{output.data, result.group_bytes}, {}, result.group_bytes};
+    ProtoSource group{{output.data, result.group_bytes}, {}, result.group_bytes};
     Index index{reinterpret_cast<u8*>(scratch.data), result.index_words};
     result.record_count = index_group(group, index);
     u32 written = 0;
@@ -471,7 +389,7 @@ bool outputs_valid(ConstSlice<u8> input, Slice<u8> output, Slice<GifFavoriteReco
 }
 } // namespace
 GifFavoritesResult gif_favorites_measure_base64(Utf8View input) noexcept {
-    Wire wire{};
+    ProtoSource wire{};
     GifFavoritesResult result{};
     if (!encoded_wire(input, &wire, &result.error))
         return result;
@@ -481,7 +399,7 @@ GifFavoritesResult gif_favorites_decode_base64(Utf8View input, Slice<u8> output,
                                                Slice<GifFavoriteRecord> records,
                                                Slice<u32> scratch) noexcept {
     const ConstSlice<u8> bytes{reinterpret_cast<const u8*>(input.data), input.bytes};
-    Wire wire{};
+    ProtoSource wire{};
     GifFavoritesResult result{};
     if (!outputs_valid(bytes, output, records, scratch)) {
         result.error = E::input;
@@ -501,7 +419,7 @@ const GifFavoriteRecord* gif_favorites_find(ConstSlice<GifFavoriteRecord> record
         !byte_range_valid({reinterpret_cast<const u8*>(scratch.data), scratch.count * 4}) ||
         !byte_range_valid({reinterpret_cast<const u8*>(url.data), url.bytes}))
         return nullptr;
-    Wire w{{reinterpret_cast<const u8*>(url.data), url.bytes}, {}, url.bytes};
+    ProtoSource w{{reinterpret_cast<const u8*>(url.data), url.bytes}, {}, url.bytes};
     const u32 buckets = scratch.count / 2;
     u32 bucket = hash(w, 0, w.size) & (buckets - 1);
     for (u32 probes = 0; probes < buckets; ++probes) {
@@ -515,55 +433,37 @@ const GifFavoriteRecord* gif_favorites_find(ConstSlice<GifFavoriteRecord> record
     return nullptr;
 }
 namespace {
-struct BinaryWriter {
-    u8* data;
-    u32 used;
-    void bytes(const u8* source, u32 count) noexcept {
-        if (data && count)
-            copy_bytes(data + used, source, count);
-        used += count;
-    }
-    void number(u64 n) noexcept {
-        do {
-            const u8 b = static_cast<u8>(n & 127);
-            n >>= 7;
-            if (data)
-                data[used] = b | (n ? 128 : 0);
-            ++used;
-        } while (n);
-    }
-    void scalar(u32 field, u64 n) noexcept {
-        number(field * 8);
-        number(n);
-    }
-    void string(u32 field, Utf8View text) noexcept {
-        number(field * 8 + 2);
-        number(text.bytes);
-        bytes(reinterpret_cast<const u8*>(text.data), text.bytes);
-    }
-};
+void write_scalar(ProtoWriter& out, u32 field, u64 n) noexcept {
+    out.tag(field, 0);
+    out.varint(n);
+}
+void write_string(ProtoWriter& out, u32 field, Utf8View text) noexcept {
+    out.tag(field, 2);
+    out.varint(text.bytes);
+    out.bytes(text.data, text.bytes);
+}
 struct MutationPlan {
     u32 winning_offset, order, records;
     bool found, set_hide_tooltip;
 };
-void changed_value(const Wire& group, const Entry* observed, const GifFavoriteMutation& mutation, u32 order,
-                   BinaryWriter& out) noexcept {
+void changed_value(const ProtoSource& group, const Entry* observed, const GifFavoriteMutation& mutation, u32 order,
+                   ProtoWriter& out) noexcept {
     if (observed) {
         u32 p = observed->begin;
         while (p < observed->end) {
             u32 f = 0, t = 0;
-            tag(group, p, observed->end, f, t);
+            proto_tag(group, p, observed->end, f, t);
             if (f != 2) {
-                skip(group, p, observed->end, t, f);
+                proto_skip(group, p, observed->end, t, f);
                 continue;
             }
             u32 stop = 0;
-            length(group, p, observed->end, stop);
+            proto_length(group, p, observed->end, stop);
             while (p < stop) {
                 const u32 begin = p;
                 u32 vf = 0, vt = 0;
-                tag(group, p, stop, vf, vt);
-                skip(group, p, stop, vt, vf);
+                proto_tag(group, p, stop, vf, vt);
+                proto_skip(group, p, stop, vt, vf);
                 const bool replaced =
                     mutation.kind == GifFavoriteMutationKind::add ? vf >= 1 && vf <= 5 : vf == 5;
                 if (!replaced)
@@ -572,72 +472,72 @@ void changed_value(const Wire& group, const Entry* observed, const GifFavoriteMu
         }
     }
     if (mutation.kind == GifFavoriteMutationKind::add) {
-        out.scalar(1, static_cast<u32>(mutation.format));
-        out.string(2, mutation.src);
-        out.scalar(3, mutation.width);
-        out.scalar(4, mutation.height);
+        write_scalar(out, 1, static_cast<u32>(mutation.format));
+        write_string(out, 2, mutation.src);
+        write_scalar(out, 3, mutation.width);
+        write_scalar(out, 4, mutation.height);
     }
-    out.scalar(5, order);
+    write_scalar(out, 5, order);
 }
-void changed_entry(const Wire& group, const Entry* observed, const GifFavoriteMutation& mutation, u32 order,
-                   BinaryWriter& out) noexcept {
+void changed_entry(const ProtoSource& group, const Entry* observed, const GifFavoriteMutation& mutation, u32 order,
+                   ProtoWriter& out) noexcept {
     if (observed) {
         u32 p = observed->begin;
         while (p < observed->end) {
             const u32 begin = p;
             u32 f = 0, t = 0;
-            tag(group, p, observed->end, f, t);
-            skip(group, p, observed->end, t, f);
+            proto_tag(group, p, observed->end, f, t);
+            proto_skip(group, p, observed->end, t, f);
             if (f != 2)
                 out.bytes(group.raw.data + begin, p - begin);
         }
     } else
-        out.string(1, mutation.url);
-    BinaryWriter inner{};
+        write_string(out, 1, mutation.url);
+    ProtoWriter inner{};
     changed_value(group, observed, mutation, order, inner);
-    out.number(18);
-    out.number(inner.used);
+    out.varint(18);
+    out.varint(inner.at);
     changed_value(group, observed, mutation, order, out);
 }
-void write_group(const Wire& group, const GifFavoriteMutation& mutation, const MutationPlan& plan,
-                 BinaryWriter& out) noexcept {
+void write_group(const ProtoSource& group, const GifFavoriteMutation& mutation, const MutationPlan& plan,
+                 ProtoWriter& out) noexcept {
     u32 p = 0;
     while (p < group.size) {
         const u32 begin = p;
         u32 f = 0, t = 0;
-        tag(group, p, group.size, f, t);
+        proto_tag(group, p, group.size, f, t);
         if (f == 1) {
             const u32 offset = p;
             u32 stop = 0;
-            length(group, p, group.size, stop);
+            proto_length(group, p, group.size, stop);
             Entry observed{};
             entry(group, p, stop, observed);
             p = stop;
             if (mutation.kind == GifFavoriteMutationKind::remove && equal(group, observed, mutation.url))
                 continue;
             if (plan.found && offset == plan.winning_offset) {
-                BinaryWriter changed{};
+                ProtoWriter changed{};
                 changed_entry(group, &observed, mutation, plan.order, changed);
-                out.number(10);
-                out.number(changed.used);
+                out.varint(10);
+                out.varint(changed.at);
                 changed_entry(group, &observed, mutation, plan.order, out);
             } else
                 out.bytes(group.raw.data + begin, p - begin);
         } else {
-            skip(group, p, group.size, t, f);
+            proto_skip(group, p, group.size, t, f);
             if (!(f == 2 && plan.set_hide_tooltip))
                 out.bytes(group.raw.data + begin, p - begin);
         }
     }
     if (!plan.found && mutation.kind == GifFavoriteMutationKind::add) {
-        BinaryWriter added{};
+        ProtoWriter added{};
         changed_entry(group, nullptr, mutation, plan.order, added);
-        out.number(10);
-        out.number(added.used);
+        out.varint(10);
+        out.varint(added.at);
         changed_entry(group, nullptr, mutation, plan.order, out);
     }
     if (plan.set_hide_tooltip)
-        out.scalar(2, 1);
+        write_scalar(out, 2, 1);
 }
 } // namespace
 GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 data_version,
@@ -662,7 +562,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     for (const auto input : inputs)
         if (byte_ranges_overlap(input, range(scratch)) || byte_ranges_overlap(input, range(output)))
             return fail(E::input);
-    Wire group{observed, {}, observed.count};
+    ProtoSource group{observed, {}, observed.count};
     GifFavoritesResult measured{};
     measured.error = favorites(group, 0, group.size, measured);
     if (!measured.ok())
@@ -696,14 +596,14 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
         plan.order = maximum_order + 1;
         plan.set_hide_tooltip = !measured.hide_tooltip && plan.records + (plan.found ? 0 : 1) > 2;
     }
-    BinaryWriter counted{};
+    ProtoWriter counted{};
     write_group(group, mutation, plan, counted);
-    if (counted.used > kGifFavoritesMaximumGroupBytes)
+    if (counted.at > kGifFavoritesMaximumGroupBytes)
         return fail(E::capacity);
-    BinaryWriter prefix{};
-    prefix.number(18);
-    prefix.number(counted.used);
-    const u32 proto_bytes = prefix.used + counted.used;
+    ProtoWriter prefix{};
+    prefix.varint(18);
+    prefix.varint(counted.at);
+    const u32 proto_bytes = prefix.at + counted.at;
     static constexpr char start[] = "{\"settings\":\"";
     static constexpr char middle[] = "\",\"required_data_version\":";
     const u32 encoded_bytes = base64_encoded_size(proto_bytes);
@@ -713,18 +613,18 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     if (proto_bytes > scratch.count || json_bytes > output.count ||
         json_bytes > kGifFavoritesMaximumPatchBytes)
         return fail(E::capacity);
-    BinaryWriter encoded{scratch.data, 0};
-    encoded.number(18);
-    encoded.number(counted.used);
+    ProtoWriter encoded{scratch, 0, true};
+    encoded.varint(18);
+    encoded.varint(counted.at);
     write_group(group, mutation, plan, encoded);
     copy_bytes(output.data, start, start_bytes);
-    base64_encode({scratch.data, encoded.used},
+    base64_encode({scratch.data, encoded.at},
                   {reinterpret_cast<char*>(output.data + start_bytes), encoded_bytes});
     ProtocolWriter json{output, start_bytes + encoded_bytes};
     protocol_writer_append_literal(&json, middle);
     protocol_writer_append_u64(&json, data_version);
     protocol_writer_append_byte(&json, '}');
-    return {json.used, counted.used, E::none};
+    return {json.used, counted.at, E::none};
 }
 GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
     if (input.bytes > kGifFavoritesMaximumPatchBytes ||
@@ -737,12 +637,12 @@ GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
         !json_visit_root_object(input, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok() ||
         parsed.seen != 3)
         return E::envelope;
-    Wire w{};
+    ProtoSource w{};
     E error{};
     if (!encoded_wire(parsed.encoded, &w, &error))
         return error;
     u32 p = 0, f = 0, t = 0, stop = 0;
-    if (!tag(w, p, w.size, f, t) || f != 2 || t != 2 || !length(w, p, w.size, stop) || stop != w.size)
+    if (!proto_tag(w, p, w.size, f, t) || f != 2 || t != 2 || !proto_length(w, p, w.size, stop) || stop != w.size)
         return E::envelope;
     if (stop - p > kGifFavoritesMaximumGroupBytes)
         return E::capacity;

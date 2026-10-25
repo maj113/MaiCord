@@ -95,7 +95,7 @@ u32 message_event_cover_url(const ScheduledEvent& event, Slice<char> output) noe
         return 0;
     for (u32 i = 0; i < event.image_bytes; ++i) {
         const char c = event.image[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'))
+        if (!(ascii_is_alnum(c) || c == '_'))
             return 0;
     }
     return cdn_url(utf8_literal("https://cdn.discordapp.com/guild-events/"), event.id, {event.image, event.image_bytes},

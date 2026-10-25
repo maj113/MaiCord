@@ -30,6 +30,15 @@ constexpr bool ascii_is_hex_digit(char value) noexcept {
     return ascii_is_digit(value) || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F');
 }
 
+constexpr bool ascii_is_lower_hex_digit(char value) noexcept {
+    return ascii_is_digit(value) || (value >= 'a' && value <= 'f');
+}
+
+// Space, tab, CR or LF.
+constexpr bool ascii_is_space(char value) noexcept {
+    return value == ' ' || value == '\t' || value == '\r' || value == '\n';
+}
+
 // 0-15 for a hexadecimal digit of either case, otherwise -1.
 constexpr i32 ascii_hex_value(char value) noexcept {
     return ascii_is_digit(value)            ? value - '0'

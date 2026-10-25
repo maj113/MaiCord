@@ -1003,10 +1003,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
 
 UiWidgetResult add_region(MessageScene* scene, UiWidgetHandle parent, u32 id, const char* name,
                           float height, bool text) noexcept {
-    u32 bytes = 0;
-    while (name && name[bytes] != 0) {
-        ++bytes;
-    }
+    const u32 bytes = c_string_length(name);
     return ui_widget_manager_add_prevalidated(
         &scene->widgets, parent,
         UiWidgetDesc{

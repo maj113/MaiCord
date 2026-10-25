@@ -9,11 +9,6 @@
 namespace maicord {
 namespace {
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 u32 find_guild_order(const ChatStateStore& store, u64 id, bool* found) noexcept {
     u32 first = 0;
     u32 count = store.guild_count;
@@ -127,56 +122,41 @@ u32 active_name_base(const ChatStateStore& store) noexcept {
 bool compact_names(ChatStateStore* store) noexcept {
     const u8 target_bank = store->active_name_bank == 0 ? 1 : 0;
     const u32 target_base = static_cast<u32>(target_bank) * store->name_bank_bytes;
+    // Visits every record that carries a name, in the order the names are laid out.
+    const auto each_name = [&](auto&& visit) noexcept {
+        for (u32 order = 0; order < store->guild_count; ++order)
+            if (!visit(store->guilds[store->guild_order[order]]))
+                return false;
+        for (u32 order = 0; order < store->channel_count; ++order)
+            if (!visit(store->channels[store->channel_order[order]]))
+                return false;
+        for (u32 index = 0; index < store->role_count; ++index)
+            if (!visit(store->roles[index]))
+                return false;
+        return true;
+    };
     // Back the target bank for every live name before moving any of them.
     u64 live = 0;
-    for (u32 order = 0; order < store->guild_count; ++order)
-        live += store->guilds[store->guild_order[order]].name_bytes;
-    for (u32 order = 0; order < store->channel_count; ++order)
-        live += store->channels[store->channel_order[order]].name_bytes;
-    for (u32 index = 0; index < store->role_count; ++index)
-        live += store->roles[index].name_bytes;
+    each_name([&](auto& record) noexcept {
+        live += record.name_bytes;
+        return true;
+    });
     if (live > store->name_bank_bytes || !back_names(*store, target_bank, static_cast<u32>(live)))
         return false;
     u32 used = 0;
-    for (u32 order = 0; order < store->guild_count; ++order) {
-        GuildRecord& record = store->guilds[store->guild_order[order]];
-        if (record.name_bytes == 0) {
-            record.name_offset = 0;
-            continue;
-        }
-        if (record.name_bytes > store->name_bank_bytes - used) {
-            return false;
-        }
-        copy_bytes(store->names + target_base + used, store->names + record.name_offset, record.name_bytes);
-        record.name_offset = target_base + used;
-        used += record.name_bytes;
-    }
-    for (u32 order = 0; order < store->channel_count; ++order) {
-        ChannelRecord& record = store->channels[store->channel_order[order]];
-        if (record.name_bytes == 0) {
-            record.name_offset = 0;
-            continue;
-        }
-        if (record.name_bytes > store->name_bank_bytes - used) {
-            return false;
-        }
-        copy_bytes(store->names + target_base + used, store->names + record.name_offset, record.name_bytes);
-        record.name_offset = target_base + used;
-        used += record.name_bytes;
-    }
-    for (u32 index = 0; index < store->role_count; ++index) {
-        RoleRecord& record = store->roles[index];
-        if (record.name_bytes == 0) {
-            record.name_offset = 0;
-            continue;
-        }
-        if (record.name_bytes > store->name_bank_bytes - used) {
-            return false;
-        }
-        copy_bytes(store->names + target_base + used, store->names + record.name_offset, record.name_bytes);
-        record.name_offset = target_base + used;
-        used += record.name_bytes;
-    }
+    if (!each_name([&](auto& record) noexcept {
+            if (record.name_bytes == 0) {
+                record.name_offset = 0;
+                return true;
+            }
+            if (record.name_bytes > store->name_bank_bytes - used)
+                return false;
+            copy_bytes(store->names + target_base + used, store->names + record.name_offset, record.name_bytes);
+            record.name_offset = target_base + used;
+            used += record.name_bytes;
+            return true;
+        }))
+        return false;
     store->active_name_bank = target_bank;
     store->name_used = used;
     store->name_wasted = 0;

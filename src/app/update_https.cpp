@@ -99,7 +99,7 @@ bool host_wide(Utf8View name, wchar_t* out) noexcept {
     if (!name.data || !name.bytes || name.bytes > kUpdateHostNameCapacity) return false;
     for (u32 i = 0; i < name.bytes; ++i) {
         const char c = name.data[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-')) return false;
+        if (!(ascii_is_alnum(c) || c == '.' || c == '-')) return false;
         out[i] = static_cast<wchar_t>(c);
     }
     out[name.bytes] = 0;

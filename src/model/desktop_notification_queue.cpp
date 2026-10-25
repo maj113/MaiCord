@@ -1,17 +1,13 @@
 #include "maicord/model/desktop_notification_queue.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {
-bool overlaps(const void* a, usize an, const void* b, usize bn) noexcept {
-    if(!an || !bn) return false;
-    const usize av=reinterpret_cast<usize>(a), bv=reinterpret_cast<usize>(b);
-    return !a || !b || av>~usize{0}-an || bv>~usize{0}-bn || (av<bv+bn && bv<av+an);
-}
 bool aliases(const DesktopNotificationQueue& q,const void* p,usize bytes) noexcept {
-    return overlaps(p,bytes,&q,sizeof(q)) || overlaps(p,bytes,q.rows.data,usize(q.rows.count)*sizeof(*q.rows.data)) ||
-        overlaps(p,bytes,q.bytes.data,q.bytes.count) || overlaps(p,bytes,q.scratch.data,q.scratch.count);
+    return byte_ranges_conflict(p,bytes,&q,sizeof(q)) || byte_ranges_conflict(p,bytes,q.rows.data,usize(q.rows.count)*sizeof(*q.rows.data)) ||
+        byte_ranges_conflict(p,bytes,q.bytes.data,q.bytes.count) || byte_ranges_conflict(p,bytes,q.scratch.data,q.scratch.count);
 }
 bool valid_text(Utf8View text) noexcept {
     if((text.bytes && !text.data) || !utf8_validate(text).valid) return false;
@@ -56,9 +52,9 @@ bool desktop_notification_queue_initialize(DesktopNotificationQueue* q,Slice<Des
     Slice<char> bytes,Slice<char> scratch) noexcept {
     if(!q || !rows.data || !rows.count || rows.count>kDesktopNotificationQueueRows || !bytes.data || !bytes.count ||
         bytes.count>kDesktopNotificationQueueBytes || !scratch.data || !scratch.count || scratch.count>kDesktopNotificationQueueItemBytes ||
-        overlaps(q,sizeof(*q),rows.data,usize(rows.count)*sizeof(*rows.data)) || overlaps(q,sizeof(*q),bytes.data,bytes.count) ||
-        overlaps(q,sizeof(*q),scratch.data,scratch.count) || overlaps(rows.data,usize(rows.count)*sizeof(*rows.data),bytes.data,bytes.count) ||
-        overlaps(rows.data,usize(rows.count)*sizeof(*rows.data),scratch.data,scratch.count) || overlaps(bytes.data,bytes.count,scratch.data,scratch.count))return false;
+        byte_ranges_conflict(q,sizeof(*q),rows.data,usize(rows.count)*sizeof(*rows.data)) || byte_ranges_conflict(q,sizeof(*q),bytes.data,bytes.count) ||
+        byte_ranges_conflict(q,sizeof(*q),scratch.data,scratch.count) || byte_ranges_conflict(rows.data,usize(rows.count)*sizeof(*rows.data),bytes.data,bytes.count) ||
+        byte_ranges_conflict(rows.data,usize(rows.count)*sizeof(*rows.data),scratch.data,scratch.count) || byte_ranges_conflict(bytes.data,bytes.count,scratch.data,scratch.count))return false;
     reset_value(q);q->rows=rows;q->bytes=bytes;q->scratch=scratch;
     clear_bytes(rows.data,rows.count*sizeof(*rows.data));clear_bytes(bytes.data,bytes.count);clear_bytes(scratch.data,scratch.count);return true;
 }

@@ -1,6 +1,8 @@
 #include "maicord/protocol/relationships.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "json_helpers.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
@@ -8,16 +10,8 @@
 
 namespace maicord {
 namespace {
+using protocol_detail::decode_text;
 RelationshipsDecodeResult failure(RelationshipsDecodeError error) noexcept { return {error, 0, 0, false}; }
-bool decode_text(JsonValue value, char* output, u32 capacity, u16* bytes, bool nullable) noexcept {
-    if (nullable && value.kind == JsonValueKind::null_value) { *bytes = 0; return true; }
-    JsonString text{};
-    if (!json_value_as_string(value, &text)) return false;
-    const auto decoded = json_string_decode_utf8(text, {output, capacity});
-    if (!decoded.ok() || decoded.bytes > 0xFFFFu) return false;
-    *bytes = static_cast<u16>(decoded.bytes);
-    return true;
-}
 struct Parse {
     const JsonIndexedDocument* document;
     RelationshipMutation mutation;
@@ -196,7 +190,7 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
         if (username.bytes < 2 || username.bytes > kRelationshipUsernameMaximumBytes) return {0, RelationshipWriteError::invalid_input};
         for (u32 i = 0; i < username.bytes; ++i) {
             const char c = username.data[i];
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.'))
+            if (!(ascii_is_alnum(c) || c == '_' || c == '.'))
                 return {0, RelationshipWriteError::invalid_input};
         }
         route_append(&writer, utf8_literal("{\"username\":\""));

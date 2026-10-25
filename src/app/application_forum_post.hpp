@@ -70,5 +70,6 @@ struct ApplicationForumPostMetrics {
 ApplicationForumPostMetrics application_forum_post_metrics() noexcept;
 // Native two-field composer boundary, implemented by application_forum_form.
 bool application_forum_form_open(const ApplicationForumPostTicket&) noexcept;
+// Owner dismissal detaches without cancelling a different or completed intent.
 void application_forum_form_close(const ApplicationForumPostTicket&) noexcept;
 } // namespace maicord::app_detail

@@ -1,4 +1,5 @@
 #include "maicord/ui/search_query.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -45,7 +46,7 @@ bool term(Utf8View value, char* output, u8* bytes, u32 capacity, bool hostname, 
         return false;
     for (u32 i = 0; i < value.bytes; ++i) {
         char c = value.data[i];
-        const bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        const bool alnum = ascii_is_alnum(c);
         if ((hostname && !alnum && c != '.' && c != '-') || (extension && !alnum))
             return false;
         if (hostname || extension)

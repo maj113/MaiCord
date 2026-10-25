@@ -578,9 +578,6 @@ bool embed_stream_location(CdnHost cdn, Utf8View url, EmbedStreamLocation* out) 
     return true;
 }
 bool youtube_stream_url(Utf8View url) noexcept { return embed_stream_location(CdnHost::google_video, url); }
-bool youtube_stream_location(Utf8View url, EmbedStreamLocation* out) noexcept {
-    return out && embed_stream_location(CdnHost::google_video, url, out);
-}
 u32 youtube_stream_get(Utf8View url, u64 first, u32 bytes, Slice<u8> output) noexcept {
     return embed_stream_get(CdnHost::google_video, url, first, bytes, output);
 }

@@ -1,4 +1,5 @@
 #include "maicord/protocol/captcha_bridge.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_reader.hpp"
@@ -14,8 +15,6 @@ bool folded(Utf8View value, const char* literal) noexcept {
     return http_ascii_equal_case_insensitive({reinterpret_cast<const u8*>(value.data), value.bytes}, literal);
 }
 bool port_valid(u16 port) noexcept { return port >= 1024; }
-bool alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); }
-bool lower_hex(char c) noexcept { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }
 
 // Appends when room remains and always counts, so one routine both measures
 // and writes. Overflow is reported once at the end.
@@ -100,8 +99,7 @@ ProviderSources provider_sources(CaptchaBridgeProvider provider) noexcept {
     }
 }
 Utf8View cstring(const char* value) noexcept {
-    u32 bytes = 0; while (value[bytes]) ++bytes;
-    return {value, bytes};
+    return {value, c_string_length(value)};
 }
 
 static constexpr char kPageHead[] =
@@ -206,14 +204,14 @@ void write_body(Writer& out, const CaptchaBridgePage& page, const ProviderSource
 
 bool captcha_bridge_hex_valid(Utf8View value, u32 bytes) noexcept {
     if (!value.data || value.bytes != bytes) return false;
-    for (u32 i = 0; i < bytes; ++i) if (!lower_hex(value.data[i])) return false;
+    for (u32 i = 0; i < bytes; ++i) if (!ascii_is_lower_hex_digit(value.data[i])) return false;
     return true;
 }
 bool captcha_bridge_sitekey_valid(Utf8View sitekey) noexcept {
     if (!sitekey.data || !sitekey.bytes || sitekey.bytes > kCaptchaBridgeMaximumSitekeyBytes) return false;
     for (u32 i = 0; i < sitekey.bytes; ++i) {
         const char c = sitekey.data[i];
-        if (!alnum(c) && c != '-' && c != '_') return false;
+        if (!ascii_is_alnum(c) && c != '-' && c != '_') return false;
     }
     return true;
 }
@@ -221,7 +219,7 @@ bool captcha_bridge_rqdata_valid(Utf8View rqdata) noexcept {
     if ((!rqdata.data && rqdata.bytes) || rqdata.bytes > kCaptchaBridgeMaximumRqdataBytes) return false;
     for (u32 i = 0; i < rqdata.bytes; ++i) {
         const char c = rqdata.data[i];
-        if (!alnum(c) && c != '-' && c != '_' && c != '+' && c != '/' && c != '=' && c != '.') return false;
+        if (!ascii_is_alnum(c) && c != '-' && c != '_' && c != '+' && c != '/' && c != '=' && c != '.') return false;
     }
     return true;
 }
@@ -233,7 +231,7 @@ bool captcha_bridge_token_valid(Utf8View token) noexcept {
         return false;
     for (u32 i = 0; i < token.bytes; ++i) {
         const char c = token.data[i];
-        if (!alnum(c) && c != '-' && c != '_' && c != '.') return false;
+        if (!ascii_is_alnum(c) && c != '-' && c != '_' && c != '.') return false;
     }
     return true;
 }
@@ -279,7 +277,7 @@ CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 
         u32 colon = begin; while (colon < end && text[colon] != ':') ++colon;
         if (colon == begin || colon == end) return reject(CaptchaBridgeProtocolError::http);
         for (u32 i = begin; i < colon; ++i)
-            if (!alnum(text[i]) && text[i] != '-') return reject(CaptchaBridgeProtocolError::http);
+            if (!ascii_is_alnum(text[i]) && text[i] != '-') return reject(CaptchaBridgeProtocolError::http);
         for (u32 i = colon + 1; i < end; ++i)
             if ((static_cast<u8>(text[i]) < 0x20 && text[i] != '\t') || text[i] == 0x7f) return reject(CaptchaBridgeProtocolError::http);
         const Utf8View name{text + begin, colon - begin}, value = http_trim_ows({text + colon + 1, end - colon - 1});

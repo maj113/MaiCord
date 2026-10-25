@@ -4,10 +4,6 @@
 #include "maicord/sys/crt.hpp"
 #include "maicord/sys/intrin.hpp"
 
-// Declared as <string.h> and <intrin.h> declare them, without parsing either.
-extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned long long count);
-extern "C" unsigned short __cdecl _byteswap_ushort(unsigned short value);
-extern "C" unsigned long __cdecl _byteswap_ulong(unsigned long value);
 #pragma intrinsic(memcpy, _byteswap_ushort, _byteswap_ulong, _byteswap_uint64)
 
 namespace maicord {

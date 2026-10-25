@@ -1,4 +1,5 @@
 #include "maicord/ui/settings_schema.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/settings_scene.hpp"
 
@@ -12,8 +13,7 @@ u8 fold(u8 byte) noexcept {
     return byte >= 'A' && byte <= 'Z' ? static_cast<u8>(byte + 32) : byte;
 }
 bool word_byte(u8 byte) noexcept {
-    return byte >= 0x80 || (byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'z') ||
-           (byte >= 'A' && byte <= 'Z');
+    return byte >= 0x80 || ascii_is_alnum(byte);
 }
 u32 split(Utf8View text, Word* words, u32 capacity) noexcept {
     u32 count = 0;

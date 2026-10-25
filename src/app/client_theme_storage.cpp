@@ -1,4 +1,5 @@
 #include "maicord/app/client_theme_storage.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "client_gradient_record.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -22,15 +23,6 @@ ClientThemeStorageResult failure(ClientThemeStorageError error, u32 native = 0) 
 }
 ClientThemeStorageResult document_failure(ClientThemeDocumentResult result) noexcept {
     return {0, result.error_offset, result.unsupported_fields, ClientThemeStorageError::document};
-}
-bool span(const void* p, u64 bytes) noexcept {
-    return (!bytes || p) && bytes <= ~usize{0} - reinterpret_cast<usize>(p);
-}
-bool overlap(const void* a, u64 an, const void* b, u64 bn) noexcept {
-    if (!an || !bn)
-        return false;
-    const auto av = reinterpret_cast<usize>(a), bv = reinterpret_cast<usize>(b);
-    return !span(a, an) || !span(b, bn) || (av < bv + bn && bv < av + an);
 }
 bool path_valid(ConstSlice<wchar_t> path) noexcept {
     if (!path.data || !path.count || path.count >= kClientThemeIoMaximumPathUnits - 4)
@@ -183,10 +175,10 @@ bool client_theme_storage_apply_theme_fields(const ClientThemeStorageSnapshot& s
 }
 ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSnapshot& snapshot,
                                                      Slice<u8> record, u32* bytes) noexcept {
-    if (!bytes || !span(record.data, record.count) || !client_theme_storage_valid(snapshot) ||
-        overlap(record.data, record.count, &snapshot, sizeof(snapshot)) ||
-        overlap(record.data, record.count, bytes, sizeof(*bytes)) ||
-        overlap(bytes, sizeof(*bytes), &snapshot, sizeof(snapshot)))
+    if (!bytes || !byte_range_valid(record.data, record.count) || !client_theme_storage_valid(snapshot) ||
+        byte_ranges_conflict(record.data, record.count, &snapshot, sizeof(snapshot)) ||
+        byte_ranges_conflict(record.data, record.count, bytes, sizeof(*bytes)) ||
+        byte_ranges_conflict(bytes, sizeof(*bytes), &snapshot, sizeof(snapshot)))
         return failure(ClientThemeStorageError::invalid_input);
     u32 document_bytes = 0;
     if (snapshot.custom_present) {
@@ -223,10 +215,11 @@ ClientThemeStorageResult client_theme_storage_encode(const ClientThemeStorageSna
 ClientThemeStorageResult client_theme_storage_decode(ConstSlice<u8> record, Slice<u32> scratch,
                                                      ClientThemeStorageSnapshot* output) noexcept {
     const u64 scratch_bytes = u64{scratch.count} * sizeof(u32);
-    if (!output || !span(record.data, record.count) || !span(scratch.data, scratch_bytes) ||
-        overlap(output, sizeof(*output), record.data, record.count) ||
-        overlap(output, sizeof(*output), scratch.data, scratch_bytes) ||
-        overlap(record.data, record.count, scratch.data, scratch_bytes))
+    if (!output || !byte_range_valid(record.data, record.count) ||
+        !byte_range_valid(scratch.data, scratch_bytes) ||
+        byte_ranges_conflict(output, sizeof(*output), record.data, record.count) ||
+        byte_ranges_conflict(output, sizeof(*output), scratch.data, scratch_bytes) ||
+        byte_ranges_conflict(record.data, record.count, scratch.data, scratch_bytes))
         return failure(ClientThemeStorageError::invalid_input);
     if (record.count < kClientThemeStorageHeaderBytes || record.count > kClientThemeStorageMaximumBytes)
         return failure(ClientThemeStorageError::size);
@@ -548,7 +541,7 @@ DWORD WINAPI io_work(void* opaque) noexcept {
     }
 }
 bool submit(ClientThemeIo* io, const ClientThemeIoRequest& request, u64* generation) noexcept {
-    if (!io || !generation || overlap(generation, sizeof(*generation), io, sizeof(*io)))
+    if (!io || !generation || byte_ranges_conflict(generation, sizeof(*generation), io, sizeof(*io)))
         return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(&io->lock);
     if (io->stopping || io->next_generation == ~u64{0}) {
@@ -636,9 +629,10 @@ HANDLE client_theme_io_completion_event(const ClientThemeIo* io) noexcept {
     return io ? io->completion_event : nullptr;
 }
 bool client_theme_io_poll(ClientThemeIo* io, ClientThemeIoCompletion* completion, bool* ready) noexcept {
-    if (!io || !completion || !ready || overlap(completion, sizeof(*completion), io, sizeof(*io)) ||
-        overlap(ready, sizeof(*ready), io, sizeof(*io)) ||
-        overlap(ready, sizeof(*ready), completion, sizeof(*completion)))
+    if (!io || !completion || !ready ||
+        byte_ranges_conflict(completion, sizeof(*completion), io, sizeof(*io)) ||
+        byte_ranges_conflict(ready, sizeof(*ready), io, sizeof(*io)) ||
+        byte_ranges_conflict(ready, sizeof(*ready), completion, sizeof(*completion)))
         return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(&io->lock);
     *ready = io->completion_ready;

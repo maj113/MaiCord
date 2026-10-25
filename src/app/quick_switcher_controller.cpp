@@ -63,7 +63,6 @@ bool allowed_user(QuickSwitcherSources sources, u64 id) noexcept {
 u16 copy_text(char* output, u32 capacity, Utf8View text) noexcept {
     return static_cast<u16>(utf8_copy_truncated(output, capacity, text));
 }
-bool space(char c) noexcept { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 u32 field_score(Utf8View query, Utf8View field) noexcept {
     if (!field.bytes) return 0;
     if (ascii_equal_ignore_case(query, field)) return 1000;
@@ -94,9 +93,9 @@ u32 match_score(Utf8View query, Utf8View label, Utf8View detail, Utf8View altern
     if (!score) {
         u32 position = 0, total = 0, terms = 0;
         while (position < query.bytes) {
-            while (position < query.bytes && space(query.data[position])) ++position;
+            while (position < query.bytes && ascii_is_space(query.data[position])) ++position;
             const u32 first = position;
-            while (position < query.bytes && !space(query.data[position])) ++position;
+            while (position < query.bytes && !ascii_is_space(query.data[position])) ++position;
             if (first == position) break;
             const Utf8View term{query.data + first, position - first};
             const u32 part = maximum(maximum(field_score(term, label), field_score(term, alternate)), field_score(term, detail));
@@ -308,13 +307,13 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
     ++c->rebuild_count;
     if (!valid) { c->phase = QuickSwitcherPhase::invalid_query; return true; }
     u32 first = 0, last = query.bytes;
-    while (first < last && space(query.data[first])) ++first;
-    while (last > first && space(query.data[last - 1])) --last;
+    while (first < last && ascii_is_space(query.data[first])) ++first;
+    while (last > first && ascii_is_space(query.data[last - 1])) --last;
     char prefix = first < last ? query.data[first] : 0;
 
     if (prefix == '*' || prefix == '#' || prefix == '@' || prefix == '!') {
         ++first; if (prefix == '@' && first < last && query.data[first] == '@') ++first;
-        while (first < last && space(query.data[first])) ++first;
+        while (first < last && ascii_is_space(query.data[first])) ++first;
     } else prefix = 0;
     const Utf8View match{query.data ? query.data + first : nullptr, last - first};
     const auto& state = *sources.state;

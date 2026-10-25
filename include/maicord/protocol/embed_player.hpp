@@ -30,7 +30,6 @@ EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View expected_video_i
 // Does not authorize forwarding OAuth tokens or browser cookies to that CDN.
 bool youtube_stream_url(Utf8View url) noexcept;
 struct EmbedStreamLocation { Utf8View host, target; };
-bool youtube_stream_location(Utf8View url, EmbedStreamLocation*) noexcept;
 bool embed_stream_location(CdnHost, Utf8View url, EmbedStreamLocation* = nullptr) noexcept;
 constexpr bool embed_stream_host(CdnHost host) noexcept {
     return host == CdnHost::google_video || host == CdnHost::tiktok_video || host == CdnHost::twitch_video ||

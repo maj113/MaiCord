@@ -1,4 +1,5 @@
 #include "maicord/protocol/remote_auth.hpp"
+#include "maicord/core/ascii.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -340,8 +341,7 @@ RemoteAuthUserPreviewResult remote_auth_parse_user_preview(Utf8View payload,
     }
     for (u32 index = avatar_hex_offset; valid_avatar && index < avatar.bytes; ++index) {
         const char value = avatar.data[index];
-        valid_avatar = (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') ||
-                       (value >= 'A' && value <= 'F');
+        valid_avatar = ascii_is_hex_digit(value);
     }
     if (!valid_avatar) {
         return user_failure(RemoteAuthUserPreviewError::invalid_avatar, separators[1] + 1);

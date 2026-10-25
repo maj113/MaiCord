@@ -4,11 +4,6 @@
 namespace maicord {
 namespace {
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 u64 atlas_tick(GlyphAtlasAllocator* atlas) noexcept {
     if (atlas->clock == ~0ull) {
         u32 maximum_rank = 0;

@@ -1,4 +1,5 @@
 #include "maicord/ui/profile_activity.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -62,7 +63,7 @@ struct Writer {
     }
 };
 bool word(char c) noexcept {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    return ascii_is_alnum(c) || c == '_';
 }
 bool digit(char c) noexcept {
     return c >= '0' && c <= '9';

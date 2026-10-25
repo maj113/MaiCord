@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/utf.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord {
 
@@ -10,8 +11,7 @@ inline bool gateway_state_emoji_name_valid(Utf8View name) noexcept {
     }
     for (u32 index = 0; index < name.bytes; ++index) {
         const u8 value = static_cast<u8>(name.data[index]);
-        if (!((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
-              (value >= '0' && value <= '9') || value == '_')) {
+        if (!(ascii_is_alnum(value) || value == '_')) {
             return false;
         }
     }

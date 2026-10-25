@@ -13,10 +13,7 @@ inline bool view_valid(Utf8View text) noexcept {
 
 // A member name against an ASCII literal.
 inline bool name_is(JsonString name, const char* ascii) noexcept {
-    u32 bytes = 0;
-    while (ascii[bytes])
-        ++bytes;
-    return json_string_equals_ascii(name, {ascii, bytes});
+    return json_string_equals_ascii(name, {ascii, c_string_length(ascii)});
 }
 
 // A JSON string into output; null stores zero bytes and succeeds when nullable.
@@ -35,6 +32,17 @@ bool decode_text(JsonValue value, char* output, u32 capacity, Size* bytes, bool 
         return false;
     *bytes = static_cast<Size>(decoded.bytes);
     return true;
+}
+
+// A JSON string decoded through a Scratch-byte buffer and cut to capacity at a code point
+// boundary: the copied byte count, or 0 when value is not a string or does not fit Scratch.
+template <u32 Scratch> u32 copy_text_truncated(JsonValue value, char* output, u32 capacity) noexcept {
+    JsonString string{};
+    if (!json_value_as_string(value, &string))
+        return 0;
+    char decoded[Scratch];
+    const auto result = json_string_decode_utf8(string, {decoded, Scratch});
+    return result.ok() ? utf8_copy_truncated(output, capacity, {decoded, result.bytes}) : 0;
 }
 
 // Error is an enum with none, input, capacity and json.

@@ -1,4 +1,5 @@
 #include "maicord/protocol/guild_assets.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
@@ -613,7 +614,7 @@ bool guild_emoji_name_valid(Utf8View name) noexcept {
         return false;
     for (u32 i = 0; i < name.bytes; ++i) {
         const char c = name.data[i];
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
+        if (!(ascii_is_alnum(c) || c == '_'))
             return false;
     }
     return true;

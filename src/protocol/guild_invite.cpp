@@ -1,10 +1,12 @@
 #include "maicord/protocol/guild_invite.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
@@ -17,14 +19,7 @@ struct Members {
 };
 // Copies a JSON string, truncating at a code point boundary.
 u8 copy_text(JsonValue value, char* output, u32 capacity) noexcept {
-    JsonString text{};
-    char decoded[512];
-    if (!json_value_as_string(value, &text))
-        return 0;
-    const auto result = json_string_decode_utf8(text, {decoded, sizeof(decoded)});
-    if (!result.ok())
-        return 0;
-    return static_cast<u8>(utf8_copy_truncated(output, capacity, {decoded, result.bytes}));
+    return static_cast<u8>(protocol_detail::copy_text_truncated<512>(value, output, capacity));
 }
 bool guild_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& m = *static_cast<Members*>(opaque);
@@ -85,7 +80,7 @@ bool guild_invite_code_valid(const char* code, u32 bytes) noexcept {
         return false;
     for (u32 i = 0; i < bytes; ++i) {
         const char c = code[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-'))
+        if (!(ascii_is_alnum(c) || c == '-'))
             return false;
     }
     return true;

@@ -32,6 +32,7 @@
 #include "maicord/ui/search_filter_context.hpp"
 #include "maicord/model/friend_search.hpp"
 #include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/forwarded_input.hpp"
 #include "maicord/app/search_recent.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
@@ -1777,53 +1778,13 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
     }
     return true;
 }
-TextInputTarget delegate(const TextInputTarget& target) noexcept {
-    auto result = message_composer_input_target(static_cast<MessageComposer*>(target.context));
-    result.identity = target.identity;
-    return result;
-}
 bool edit_ready(const TextInputTarget& t) noexcept {
-    return application_search_edit_focused() && t.context == application_search_edit_model() &&
-           text_input_ready(delegate(t));
+    return application_search_edit_focused() && t.context == application_search_edit_model();
 }
-u32 edit_revision(const TextInputTarget& t) noexcept {
-    return text_input_revision(delegate(t));
+bool edit_forbidden(u32 unit) noexcept {
+    return unit < 32 || unit == 0x2028 || unit == 0x2029;
 }
-TextInputResult edit_length(const TextInputTarget& t, u32* n) noexcept {
-    return text_input_length(delegate(t), n);
-}
-TextInputResult edit_selection(const TextInputTarget& t, TextInputSelection* s) noexcept {
-    return text_input_selection(delegate(t), s);
-}
-TextInputResult edit_select(const TextInputTarget& t, TextInputSelection s) noexcept {
-    return text_input_select(delegate(t), s);
-}
-TextInputResult edit_copy(const TextInputTarget& t, u32 a, u32 b, Slice<u16> out, u32* n,
-                          u32* next) noexcept {
-    return text_input_copy(delegate(t), a, b, out, n, next);
-}
-TextInputResult edit_replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> input,
-                             TextInputChange* change) noexcept {
-    if (!change || (!input.data && input.count))
-        return TextInputResult::invalid_input;
-    for (u32 i = 0; i < input.count; ++i)
-        if (input[i] < 32 || input[i] == 0x2028 || input[i] == 0x2029)
-            return TextInputResult::invalid_input;
-    return text_input_replace(delegate(t), a, b, input, change);
-}
-void edit_cancel(const TextInputTarget& t) noexcept {
-    text_input_cancel(delegate(t));
-}
-bool edit_begin(const TextInputTarget& t) noexcept {
-    auto* m = static_cast<MessageComposer*>(t.context);
-    return (m->history || message_composer_enable_history(m, 2048)) && text_input_begin_group(delegate(t));
-}
-void edit_end(const TextInputTarget& t) noexcept {
-    text_input_end_group(delegate(t));
-}
-constexpr TextInputOperations edit_operations{edit_ready,  edit_revision, edit_length,  edit_selection,
-                                              edit_select, edit_copy,     edit_replace, edit_cancel,
-                                              edit_begin,  edit_end};
+using EditInput = ForwardedInput<edit_ready, edit_forbidden, true>;
 bool scroll_read(void* opaque, u64 key, UiScrollRange* out) noexcept {
     if (opaque != g_app.search || !out || !front())
         return false;
@@ -2200,17 +2161,16 @@ bool application_search_edit_focused() noexcept {
 }
 TextInputTarget application_search_edit_target() noexcept {
     auto* model = application_search_edit_model();
-    return {model, &edit_operations, model ? model->document_identity : 0};
+    return {model, &EditInput::operations, model ? model->document_identity : 0};
 }
 UiRect application_search_edit_bounds() noexcept {
     return g_app.search ? g_app.search->scene.text : UiRect{};
 }
 void application_search_edit_cancel_native_group(const TextInputTarget& t) noexcept {
-    if (t.operations != &edit_operations || !g_app.search || t.context != &g_app.search->edit ||
+    if (t.operations != &EditInput::operations || !g_app.search || t.context != &g_app.search->edit ||
         t.identity != g_app.search->edit.document_identity)
         return;
-    text_input_end_group(delegate(t));
-    text_input_cancel(delegate(t));
+    EditInput::abandon(t);
 }
 bool application_search_edit_changed(bool) noexcept {
     auto* s = g_app.search;

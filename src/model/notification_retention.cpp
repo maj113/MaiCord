@@ -1,4 +1,5 @@
 #include "maicord/model/notification_retention.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 
@@ -9,11 +10,6 @@ bool range(const void* p,usize bytes,usize alignment) noexcept {
     const usize address=reinterpret_cast<usize>(p);
     return !bytes || (p && !(address&(alignment-1)) && address<=~usize{0}-bytes);
 }
-bool overlaps(const void* a,usize an,const void* b,usize bn) noexcept {
-    if(!an || !bn)return false;
-    const usize x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return x<y+bn && y<x+an;
-}
 usize row_bytes(Slice<NotificationRetentionRow> rows) noexcept {return usize(rows.count)*sizeof(NotificationRetentionRow);}
 usize index_bytes(Slice<u32> index) noexcept {return usize(index.count)*sizeof(u32);}
 bool owner_range(const NotificationRetention* n) noexcept {return n && range(n,sizeof(*n),alignof(NotificationRetention));}
@@ -23,8 +19,8 @@ bool storage(const NotificationRetention* n,Slice<NotificationRetentionRow> rows
     if((index.count&(index.count-1)) || u64(index.count)<2*u64(rows.count) ||
         !range(rows.data,row_bytes(rows),alignof(NotificationRetentionRow)) ||
         !range(index.data,index_bytes(index),alignof(u32)))return false;
-    return !overlaps(rows.data,row_bytes(rows),index.data,index_bytes(index)) &&
-        !overlaps(n,sizeof(*n),rows.data,row_bytes(rows)) && !overlaps(n,sizeof(*n),index.data,index_bytes(index));
+    return !byte_ranges_overlap(rows.data,row_bytes(rows),index.data,index_bytes(index)) &&
+        !byte_ranges_overlap(n,sizeof(*n),rows.data,row_bytes(rows)) && !byte_ranges_overlap(n,sizeof(*n),index.data,index_bytes(index));
 }
 bool layout(const NotificationRetention* n) noexcept {return owner_range(n) && storage(n,n->rows,n->index,n->count);}
 bool row_valid(const NotificationRetentionRow& row) noexcept {
@@ -65,8 +61,8 @@ bool consistent(const NotificationRetention& n) noexcept {
 }
 void zero_index(Slice<u32> index) noexcept {for(u32 i=0;i<index.count;++i)index[i]=0;}
 bool output_valid(const NotificationRetention& n,const void* p,usize bytes) noexcept {
-    return range(p,bytes,alignof(u64)) && !overlaps(p,bytes,&n,sizeof(n)) &&
-        !overlaps(p,bytes,n.rows.data,row_bytes(n.rows)) && !overlaps(p,bytes,n.index.data,index_bytes(n.index));
+    return range(p,bytes,alignof(u64)) && !byte_ranges_overlap(p,bytes,&n,sizeof(n)) &&
+        !byte_ranges_overlap(p,bytes,n.rows.data,row_bytes(n.rows)) && !byte_ranges_overlap(p,bytes,n.index.data,index_bytes(n.index));
 }
 struct Erase {Error error{};u32 moved_slot{};};
 Erase prepare_erase(const NotificationRetention& n,const Found& found) noexcept {
@@ -117,10 +113,10 @@ NotificationRetentionError notification_retention_rebind(NotificationRetention* 
     if(!layout(n) || !storage(n,rows,index,n->count) || !consistent(*n))return Error::invalid_input;
     // Same-base prefix resizing is safe; any other overlap could destroy rows
     // needed to reconstruct the index, so reject before writing either bank.
-    if((rows.data!=n->rows.data && overlaps(rows.data,row_bytes(rows),n->rows.data,row_bytes(n->rows))) ||
-        (index.data!=n->index.data && overlaps(index.data,index_bytes(index),n->index.data,index_bytes(n->index))) ||
-        overlaps(rows.data,row_bytes(rows),n->index.data,index_bytes(n->index)) ||
-        overlaps(index.data,index_bytes(index),n->rows.data,row_bytes(n->rows)))return Error::invalid_input;
+    if((rows.data!=n->rows.data && byte_ranges_overlap(rows.data,row_bytes(rows),n->rows.data,row_bytes(n->rows))) ||
+        (index.data!=n->index.data && byte_ranges_overlap(index.data,index_bytes(index),n->index.data,index_bytes(n->index))) ||
+        byte_ranges_overlap(rows.data,row_bytes(rows),n->index.data,index_bytes(n->index)) ||
+        byte_ranges_overlap(index.data,index_bytes(index),n->rows.data,row_bytes(n->rows)))return Error::invalid_input;
     if(rows.data!=n->rows.data)for(u32 i=0;i<n->count;++i)rows[i]=n->rows[i];
     zero_index(index);
     for(u32 i=0;i<n->count;++i){

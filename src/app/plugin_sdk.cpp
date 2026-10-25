@@ -3,6 +3,7 @@
 // decorators live in plugin_sdk_surfaces.cpp; read, events, actions and
 // effects in plugin_sdk_data.cpp.
 #include "plugin_sdk_internal.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/color_hex.hpp"
@@ -966,14 +967,13 @@ NativePluginActivationResult WINAPI adapter_settings(void* state, u32, NativePlu
 
 // ---- Command parsing ------------------------------------------------------------------
 
-bool space(char c) noexcept { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 Utf8View command_name(Utf8View text, Utf8View* rest) noexcept {
     if (rest) reset_value(rest);
     if (!text.bytes || text.data[0] != '/') return {};
     u32 end = 1;
-    while (end < text.bytes && !space(text.data[end])) ++end;
+    while (end < text.bytes && !ascii_is_space(text.data[end])) ++end;
     u32 at = end;
-    while (at < text.bytes && space(text.data[at])) ++at;
+    while (at < text.bytes && ascii_is_space(text.data[at])) ++at;
     if (rest) *rest = {text.data + at, text.bytes - at};
     return {text.data + 1, end - 1};
 }
@@ -1387,7 +1387,7 @@ NativePluginSdkComposeResult native_plugin_sdk_run_command(NativePluginSdkRuntim
         return notice(runtime, binding.owner_id, utf8_literal("This command isn't available right now."));
     if (rest.bytes > kPluginSdkInputBytes)
         return notice(runtime, binding.owner_id, utf8_literal("The command text is too long."));
-    while (rest.bytes && space(rest.data[rest.bytes - 1])) --rest.bytes;
+    while (rest.bytes && ascii_is_space(rest.data[rest.bytes - 1])) --rest.bytes;
     // Copy-only: arguments point into the runtime's input copy, not the composer.
     copy_bytes(runtime->input, rest.data, rest.bytes);
     const Utf8View raw{runtime->input, rest.bytes};
@@ -1399,10 +1399,10 @@ NativePluginSdkComposeResult native_plugin_sdk_run_command(NativePluginSdkRuntim
         argument.size = sizeof(argument);
         argument.type = option.type;
         argument.name = {option.name, option.name_bytes};
-        while (at < raw.bytes && space(raw.data[at])) ++at;
+        while (at < raw.bytes && ascii_is_space(raw.data[at])) ++at;
         u32 end = at;
         if (i + 1 == command.option_count && option.type == MC_OPTION_STRING) end = raw.bytes;
-        else while (end < raw.bytes && !space(raw.data[end])) ++end;
+        else while (end < raw.bytes && !ascii_is_space(raw.data[end])) ++end;
         const Utf8View token{raw.data + at, end - at};
         at = end;
         const Utf8View option_name{option.name, option.name_bytes};

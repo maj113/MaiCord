@@ -8,11 +8,6 @@
 namespace maicord {
 namespace {
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 bool status_valid(GuildMemberStatus status) noexcept {
     return status >= GuildMemberStatus::unknown && status <= GuildMemberStatus::offline;
 }

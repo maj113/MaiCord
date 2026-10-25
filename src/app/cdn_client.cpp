@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/cdn_client.hpp"
+#include "network_request_state.hpp"
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
@@ -26,17 +27,6 @@ inline constexpr u32 kRequestHeadBytes = kCdnMaximumRequestHeadBytes;
 inline constexpr u32 kRequestSignalValue = 0x43444E52u;
 inline constexpr u32 kCancelSignalValue = 0x43444E43u;
 inline constexpr u32 kMaximumRequestTimeoutMs = 10 * 60 * 1000;
-
-enum RequestState : LONG {
-    request_state_empty = 0,
-    request_state_writing = 1,
-    request_state_pending = 2,
-    request_state_active = 3,
-    request_state_ready = 4,
-    request_state_cancel_pending = 5,
-    request_state_cancel_active = 6,
-    request_state_publishing = 7,
-};
 
 struct CdnClientCommand {
     u64 request_id;
@@ -257,16 +247,8 @@ void copy_policy_metadata(CdnClientRuntime* runtime, CdnClientResponse* response
 void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
                        CdnClientResponse response) noexcept {
     bool cancelled = false;
-    LONG prior =
-        InterlockedCompareExchange(&client->request_state, request_state_publishing, request_state_active);
-    if (prior != request_state_active) {
-        if (prior != request_state_cancel_pending && prior != request_state_cancel_active) {
-            return;
-        }
-        if (InterlockedCompareExchange(&client->request_state, request_state_publishing, prior) != prior) {
-            return;
-        }
-        cancelled = true;
+    if (!network_client_begin_publish(client, &cancelled)) {
+        return;
     }
     if (cancelled) {
         erase_response(runtime);
@@ -919,33 +901,7 @@ bool cdn_client_cancel(CdnClient* client, u64 request_id) noexcept {
         return false;
     }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
-    LONG claimed_state = request_state_empty;
-    for (;;) {
-        const LONG state = InterlockedCompareExchange(&client->request_state, 0, 0);
-        if (state != request_state_pending && state != request_state_active) {
-            return false;
-        }
-        if (static_cast<u64>(InterlockedCompareExchange64(&client->current_request_id, 0, 0)) !=
-            request_id) {
-            return false;
-        }
-        const LONG cancelling =
-            state == request_state_pending ? request_state_cancel_pending : request_state_cancel_active;
-        if (InterlockedCompareExchange(&client->request_state, cancelling, state) == state) {
-            claimed_state = cancelling;
-            break;
-        }
-    }
-    if (claimed_state == request_state_cancel_pending) {
-        return true;
-    }
-    const NetworkResult signalled =
-        network_signal_post(&client->worker.loop, &runtime->cancel_signal, kCancelSignalValue);
-    if (!signalled.ok()) {
-        return InterlockedCompareExchange(&client->request_state, request_state_active,
-                                          request_state_cancel_active) != request_state_cancel_active;
-    }
-    return true;
+    return network_client_cancel(client, &runtime->cancel_signal, kCancelSignalValue, request_id);
 }
 
 CdnClientResult cdn_client_wait_response(CdnClient* client, u32 timeout_ms) noexcept {

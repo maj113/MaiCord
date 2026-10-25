@@ -6,11 +6,6 @@
 namespace maicord {
 namespace {
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 u32 find_order(const UserStore& store, u64 id, bool* found) noexcept {
     u32 first = 0;
     u32 count = store.count;

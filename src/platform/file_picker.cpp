@@ -173,8 +173,8 @@ NativeFilePickerResult collect_save(Runtime* runtime) noexcept {
                 if (!runtime->overwrite_observed || !file_identity_equal(current.identity, runtime->snapshots[0].identity) ||
                     current.bytes != runtime->snapshots[0].bytes) outcome.error = NativeFilePickerError::path;
                 else runtime->destination_exists = runtime->overwrite_authorized = true;
-            } else if (outcome.native_error != ERROR_FILE_NOT_FOUND) outcome.error = NativeFilePickerError::path;
-            else if (runtime->overwrite_observed) outcome.error = NativeFilePickerError::path;
+            } else if (outcome.native_error != ERROR_FILE_NOT_FOUND || runtime->overwrite_observed)
+                outcome.error = NativeFilePickerError::path;
             else outcome.native_error = 0;
             if (outcome.error == NativeFilePickerError::none) {
                 auto* owned = arena_allocate<wchar_t>(&runtime->paths, units + 1);

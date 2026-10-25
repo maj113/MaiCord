@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/rest_client.hpp"
+#include "network_request_state.hpp"
 #include "maicord/app/account_logout.hpp"
 #include "maicord/app/user_client_configuration.hpp"
 
@@ -44,17 +45,6 @@ inline constexpr u32 kCancelSignalValue = 0x43414E43u;
 inline constexpr u32 kRateSignalValue = 0x52415445u;
 inline constexpr u32 kMaximumRequestTimeoutMs = 10 * 60 * 1000;
 inline constexpr u32 kMaximumCredentialBytes = 2 * 1024;
-
-enum RequestState : LONG {
-    request_state_empty = 0,
-    request_state_writing = 1,
-    request_state_pending = 2,
-    request_state_active = 3,
-    request_state_ready = 4,
-    request_state_cancel_pending = 5,
-    request_state_cancel_active = 6,
-    request_state_publishing = 7,
-};
 
 struct RestEndpointKey {
     u64 key_low, key_high;
@@ -784,19 +774,9 @@ u32 next_wait(const RestClientRuntime* runtime, u64 now_ms) noexcept {
 
 void publish_completed(RestClient* client, RestClientRuntime* runtime,
                        RestClientResponse response) noexcept {
-    bool cancelled = false;
-    bool active_cancel = false;
-    LONG prior =
-        InterlockedCompareExchange(&client->request_state, request_state_publishing, request_state_active);
-    if (prior != request_state_active) {
-        if (prior != request_state_cancel_pending && prior != request_state_cancel_active) {
-            return;
-        }
-        if (InterlockedCompareExchange(&client->request_state, request_state_publishing, prior) != prior) {
-            return;
-        }
-        cancelled = true;
-        active_cancel = prior == request_state_cancel_active;
+    bool cancelled = false, active_cancel = false;
+    if (!network_client_begin_publish(client, &cancelled, &active_cancel)) {
+        return;
     }
     if (runtime->transaction.lease.active || runtime->endpoint_lease.generation)
         cancel_rate_lease(runtime);
@@ -2050,33 +2030,7 @@ bool rest_client_cancel(RestClient* client, u64 request_id) noexcept {
     if (!runtime || request_id == 0) {
         return false;
     }
-    LONG claimed_state = request_state_empty;
-    for (;;) {
-        const LONG state = InterlockedCompareExchange(&client->request_state, 0, 0);
-        if (state != request_state_pending && state != request_state_active) {
-            return false;
-        }
-        if (static_cast<u64>(InterlockedCompareExchange64(&client->current_request_id, 0, 0)) !=
-            request_id) {
-            return false;
-        }
-        const LONG cancelling =
-            state == request_state_pending ? request_state_cancel_pending : request_state_cancel_active;
-        if (InterlockedCompareExchange(&client->request_state, cancelling, state) == state) {
-            claimed_state = cancelling;
-            break;
-        }
-    }
-    if (claimed_state == request_state_cancel_pending) {
-        return true;
-    }
-    const NetworkResult signalled =
-        network_signal_post(&client->worker.loop, &runtime->cancel_signal, kCancelSignalValue);
-    if (!signalled.ok()) {
-        return InterlockedCompareExchange(&client->request_state, request_state_active,
-                                          request_state_cancel_active) != request_state_cancel_active;
-    }
-    return true;
+    return network_client_cancel(client, &runtime->cancel_signal, kCancelSignalValue, request_id);
 }
 
 RestClientResult rest_client_wait_response(RestClient* client,

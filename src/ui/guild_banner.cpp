@@ -1,4 +1,5 @@
 #include "maicord/ui/guild_banner.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -41,7 +42,7 @@ bool hash_valid(Utf8View hash) noexcept {
         return false;
     for (u32 i = begin; i < hash.bytes; ++i) {
         const char c = hash.data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+        if (!ascii_is_hex_digit(c))
             return false;
     }
     return true;

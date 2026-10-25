@@ -30,11 +30,6 @@ constexpr bool valid_item_units(u32 units) noexcept {
     return units != 0 && units <= kMaximumUiItemExtentUnits;
 }
 
-constexpr u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 void rebuild_fenwick(UiVariableList* list) noexcept {
     list->total_units = 0;
     for (u32 index = 0; index < list->count; ++index) {

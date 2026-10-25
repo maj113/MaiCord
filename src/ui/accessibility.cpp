@@ -607,17 +607,12 @@ bool ui_access_tree_finish(UiAccessTree* tree) noexcept {
                                : composite[nodes[index].parent];
         auto& node = nodes[index];
         const bool interactive = node.actions != 0 || (node.state & (ui_access_focusable | ui_access_focused));
-        bool remove = false;
-        if (node.role == UiAccessRole::text && !node.name_bytes)
-            remove = true;
-        else if (composite[index] != kUiAccessNone && !interactive && has_role(kPassThroughRoles, node.role))
-            remove = true;
-        else if ((node.role == UiAccessRole::group || node.role == UiAccessRole::none) && !interactive &&
-                 !node.name_bytes && !(node.state & (ui_access_modal | ui_access_live)))
-            remove = true;
-        else if (node.role == UiAccessRole::pane && !node.name_bytes && !interactive)
-            remove = true;
-        if (remove)
+        const bool unnamed = !node.name_bytes;
+        if ((node.role == UiAccessRole::text && unnamed) ||
+            (composite[index] != kUiAccessNone && !interactive && has_role(kPassThroughRoles, node.role)) ||
+            ((node.role == UiAccessRole::group || node.role == UiAccessRole::none) && !interactive &&
+             unnamed && !(node.state & (ui_access_modal | ui_access_live))) ||
+            (node.role == UiAccessRole::pane && unnamed && !interactive))
             node.internal |= internal_remove;
     }
     // 4. Compaction. Parents always precede children, so new indices preserve that.

@@ -1,4 +1,5 @@
 #include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/surface_geometry.hpp"
@@ -464,7 +465,7 @@ bool projected_token_at(Utf8View source, u32 first, const MessageComposerProject
         const u32 name_first = cursor;
         while (cursor < source.bytes && source.data[cursor] != ':') {
             const char c = source.data[cursor++];
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'))
+            if (!(ascii_is_alnum(c) || c == '_'))
                 return false;
         }
         if (cursor == name_first || cursor == source.bytes)

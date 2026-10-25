@@ -1,4 +1,5 @@
 #include "application_downloads.hpp"
+#include "maicord/model/forwarded_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
@@ -158,36 +159,12 @@ void caret_reset(ApplicationQuickSwitcher& q) noexcept {
     q.caret_visible = true;
     q.blink_at = interval && interval != INFINITE ? deadline_after(clock_monotonic_milliseconds(), interval) : 0;
 }
-TextInputTarget delegate(const TextInputTarget& target) noexcept {
-    return message_composer_input_target(static_cast<MessageComposer*>(target.context));
-}
 bool edit_ready(const TextInputTarget& target) noexcept {
     const auto* q = g_app.quick_switcher;
     return q && q->active && q->focused && available() && same_scope(q->controller.scope, scope()) &&
-        target.context == &q->edit && target.identity == q->identity && text_input_ready(delegate(target));
+        target.context == &q->edit && target.identity == q->identity;
 }
-u32 edit_revision(const TextInputTarget& t) noexcept { return text_input_revision(delegate(t)); }
-TextInputResult edit_length(const TextInputTarget& t, u32* n) noexcept { return text_input_length(delegate(t), n); }
-TextInputResult edit_selection(const TextInputTarget& t, TextInputSelection* s) noexcept { return text_input_selection(delegate(t), s); }
-TextInputResult edit_select(const TextInputTarget& t, TextInputSelection s) noexcept { return text_input_select(delegate(t), s); }
-TextInputResult edit_copy(const TextInputTarget& t, u32 a, u32 b, Slice<u16> out, u32* n, u32* next) noexcept {
-    return text_input_copy(delegate(t), a, b, out, n, next);
-}
-TextInputResult edit_replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> in, TextInputChange* c) noexcept {
-    if (!c || (!in.data && in.count)) return TextInputResult::invalid_input;
-    for (u32 i = 0; i < in.count; ++i)
-        if (in[i] < 32 || (in[i] >= 127 && in[i] <= 159) || in[i] == 0x2028 || in[i] == 0x2029)
-            return TextInputResult::invalid_input;
-    return text_input_replace(delegate(t), a, b, in, c);
-}
-void edit_cancel(const TextInputTarget& t) noexcept { text_input_cancel(delegate(t)); }
-bool edit_begin(const TextInputTarget& t) noexcept {
-    auto* m = static_cast<MessageComposer*>(t.context);
-    return (m->history || message_composer_enable_history(m, 2048)) && text_input_begin_group(delegate(t));
-}
-void edit_end(const TextInputTarget& t) noexcept { text_input_end_group(delegate(t)); }
-constexpr TextInputOperations edit_operations{edit_ready, edit_revision, edit_length, edit_selection,
-    edit_select, edit_copy, edit_replace, edit_cancel, edit_begin, edit_end};
+using EditInput = ForwardedInput<edit_ready, text_input_single_line_forbidden>;
 bool pointer_edit(ApplicationQuickSwitcher& q, float x, float y, bool extend) noexcept {
     const auto& layout = g_app.renderer.media_picker_layout;
     const auto text = message_composer_text(q.edit);
@@ -237,15 +214,15 @@ bool application_quick_switcher_edit_focused() noexcept {
 }
 TextInputTarget application_quick_switcher_edit_target() noexcept {
     auto* q = g_app.quick_switcher;
-    return application_quick_switcher_edit_focused() ? TextInputTarget{&q->edit, &edit_operations, q->identity} : TextInputTarget{};
+    return application_quick_switcher_edit_focused() ? TextInputTarget{&q->edit, &EditInput::operations, q->identity} : TextInputTarget{};
 }
 UiRect application_quick_switcher_edit_bounds() noexcept {
     return application_quick_switcher_active() ? g_app.quick_switcher->scene.text : UiRect{};
 }
 void application_quick_switcher_edit_cancel_native_group(const TextInputTarget& t) noexcept {
     const auto* q = g_app.quick_switcher;
-    if (q && t.context == &q->edit && t.operations == &edit_operations && t.identity == q->identity) {
-        text_input_end_group(delegate(t)); text_input_cancel(delegate(t));
+    if (q && t.context == &q->edit && t.operations == &EditInput::operations && t.identity == q->identity) {
+        EditInput::abandon(t);
     }
 }
 void application_quick_switcher_close() noexcept {

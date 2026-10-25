@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {
@@ -52,7 +53,7 @@ struct UpdateLog {
         add(" "); add(key); add("=");
         for (u32 i = 0; i < name.bytes && bytes + 1 < sizeof(text); ++i) {
             const char c = name.data[i];
-            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-') text[bytes++] = c;
+            if (ascii_is_alnum(c) || c == '.' || c == '-') text[bytes++] = c;
         }
         return *this;
     }

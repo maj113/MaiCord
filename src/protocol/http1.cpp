@@ -18,14 +18,6 @@ struct LineResult {
     LineState state;
 };
 
-u32 literal_length(const char* literal) noexcept {
-    u32 bytes = 0;
-    while (literal[bytes] != 0) {
-        ++bytes;
-    }
-    return bytes;
-}
-
 bool case_equal(ConstSlice<u8> value, const char* literal, u32 literal_bytes) noexcept {
     if (value.count != literal_bytes) {
         return false;
@@ -44,8 +36,7 @@ bool is_ows(u8 value) noexcept {
 }
 
 bool token_character(u8 value) noexcept {
-    if ((value >= '0' && value <= '9') || (value >= 'A' && value <= 'Z') ||
-        (value >= 'a' && value <= 'z')) {
+    if (ascii_is_alnum(value)) {
         return true;
     }
     switch (value) {
@@ -214,7 +205,7 @@ bool parse_content_length(ConstSlice<u8> value, u64* parsed) noexcept {
 }
 
 bool token_list_contains(ConstSlice<u8> value, const char* expected) noexcept {
-    const u32 expected_bytes = literal_length(expected);
+    const u32 expected_bytes = c_string_length(expected);
     u32 offset = 0;
     while (offset < value.count) {
         while (offset < value.count && (is_ows(value[offset]) || value[offset] == ',')) {
@@ -360,7 +351,7 @@ bool http_ascii_equal_case_insensitive(ConstSlice<u8> value, const char* literal
     if (!value.data && value.count != 0) {
         return false;
     }
-    return case_equal(value, literal, literal_length(literal));
+    return case_equal(value, literal, c_string_length(literal));
 }
 
 ConstSlice<u8> http_trim_ows(ConstSlice<u8> value) noexcept {

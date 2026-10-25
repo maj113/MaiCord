@@ -11,16 +11,9 @@ namespace {
 bool image_size_valid(u32 size) noexcept {
     return size >= 16 && size <= 4'096 && (size & (size - 1)) == 0;
 }
-u32 literal_length(const char* literal) noexcept {
-    u32 bytes = 0;
-    while (literal[bytes] != 0) {
-        ++bytes;
-    }
-    return bytes;
-}
 
 bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
-    if (bytes != literal_length(literal)) {
+    if (bytes != c_string_length(literal)) {
         return false;
     }
     for (u32 index = 0; index < bytes; ++index) {
@@ -35,7 +28,7 @@ bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noex
     if (bytes > value.count) {
         return false;
     }
-    const u32 literal_bytes = literal_length(literal);
+    const u32 literal_bytes = c_string_length(literal);
     if (literal_bytes > bytes) {
         return false;
     }
@@ -402,8 +395,7 @@ bool klipy_asset_valid(ConstSlice<u8> target, const char* suffix, u32 suffix_byt
         return false;
     for (u32 index = 1; index < target.count - suffix_bytes; ++index) {
         const u8 value = target[index];
-        if (!((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
-              (value >= '0' && value <= '9') || value == '_' || value == '-' || value == '/') ||
+        if (!(ascii_is_alnum(value) || value == '_' || value == '-' || value == '/') ||
             (value == '/' && target[index - 1] == '/'))
             return false;
     }
@@ -467,7 +459,7 @@ u32 catalog_proxy_query_bits(ConstSlice<u8> target) noexcept {
     const u32 token_begin = cursor;
     while (cursor < target.count && target[cursor] != '/') {
         const u8 c = target[cursor++];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
+        if (!(ascii_is_alnum(c) || c == '_' ||
               c == '-'))
             return invalid;
     }
@@ -554,7 +546,7 @@ bool soundboard_target_valid(ConstSlice<u8> target) noexcept {
 
 namespace {
 bool gif_id_byte(u8 c) noexcept {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    return ascii_is_alnum(c);
 }
 bool slug_byte(u8 c) noexcept { return gif_id_byte(c) || c == '-' || c == '_'; }
 // /<11-byte id>AAAA1/<slug>.webp
@@ -675,7 +667,7 @@ MediaUrlResult provider_preview(const char* host, u32 host_bytes, const char* pa
     return publish_provider(CdnHost::catalog_giphy, target, 17 + part_bytes, output);
 }
 bool path_ends_with(const char* path, u32 bytes, const char* suffix) noexcept {
-    const u32 length = literal_length(suffix);
+    const u32 length = c_string_length(suffix);
     if (bytes < length) return false;
     for (u32 i = 0; i < length; ++i)
         if (ascii_lower(static_cast<u8>(path[bytes - length + i])) != static_cast<u8>(suffix[i])) return false;
@@ -714,7 +706,7 @@ bool external_proxy_target(ConstSlice<u8> target, ExternalProxyTarget* out) noex
         return false;
     const auto text = reinterpret_cast<const char*>(target.data);
     const auto alnum = [](u8 c) noexcept {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        return ascii_is_alnum(c);
     };
     u32 cursor = prefix;
     while (cursor < target.count && target[cursor] != '/') {
@@ -1007,7 +999,7 @@ u32 media_url_log_fields(Utf8View url, Slice<char> output) noexcept {
         put(key);
         for (u32 i = 0; i < bytes && i < 253 && used < output.count; ++i) {
             const char c = host[i];
-            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-')
+            if (ascii_is_alnum(c) || c == '.' || c == '-')
                 output[used++] = c;
         }
     };
@@ -1030,7 +1022,7 @@ u32 media_url_log_fields(Utf8View url, Slice<char> output) noexcept {
     bool extension = dot > segment && path_bytes - dot >= 1 && path_bytes - dot <= 5;
     for (u32 i = dot; extension && i < path_bytes; ++i) {
         const char c = path[i];
-        extension = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        extension = ascii_is_alnum(c);
     }
     put(" ext=");
     if (!extension)

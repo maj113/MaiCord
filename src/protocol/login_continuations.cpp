@@ -1,4 +1,5 @@
 #include "maicord/protocol/login_continuations.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_write.hpp"
 
@@ -35,8 +36,7 @@ bool binary_string(JsonValue value, Utf8View* text) noexcept {
         (string.encoded.bytes & 3u) == 1) return false;
     for (u32 i = 0; i < string.encoded.bytes; ++i) {
         const char c = string.encoded.data[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-              (c >= '0' && c <= '9') || c == '-' || c == '_')) return false;
+        if (!(ascii_is_alnum(c) || c == '-' || c == '_')) return false;
     }
     *text = string.encoded;
     return true;

@@ -1,4 +1,5 @@
 #include "maicord/media/regional_flag_svg.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/simd.hpp"
@@ -17,15 +18,14 @@ void sincos(double angle, double& sine, double& cosine) noexcept {
     for (u32 n = 1; n < 12; ++n) {term *= -angle * angle / ((2 * n - 1) * (2 * n)); cosine += term;}
 }
 bool equal(Utf8View value, const char* literal) noexcept {
-    u32 bytes = 0; while (literal[bytes]) ++bytes;
+    const u32 bytes = c_string_length(literal);
     if (bytes != value.bytes) return false;
     for (u32 i = 0; i < bytes; ++i) if (value.data[i] != literal[i]) return false;
     return true;
 }
-bool space(char c) noexcept {return c == ' ' || c == '\t' || c == '\r' || c == '\n';}
 struct Cursor {Utf8View input; u32 at = 0;};
 void skip(Cursor& c, bool comma = false) noexcept {
-    while (c.at < c.input.bytes && (space(c.input.data[c.at]) || (comma && c.input.data[c.at] == ','))) ++c.at;
+    while (c.at < c.input.bytes && (ascii_is_space(c.input.data[c.at]) || (comma && c.input.data[c.at] == ','))) ++c.at;
 }
 bool number(Cursor& c, double& value) noexcept {
     skip(c, true); bool negative = false;

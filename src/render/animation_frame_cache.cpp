@@ -6,14 +6,6 @@ namespace {
 
 inline constexpr u32 kEmptyBucket = 0;
 
-u64 mix64(u64 value) noexcept {
-    value ^= value >> 30;
-    value *= 0xBF58476D1CE4E5B9ull;
-    value ^= value >> 27;
-    value *= 0x94D049BB133111EBull;
-    return value ^ (value >> 31);
-}
-
 bool key_valid(const AnimationFrameCacheKey& key) noexcept {
     return media_asset_key_valid(key.asset) && key.source_generation != 0;
 }
@@ -31,14 +23,15 @@ bool key_equal(const AnimationFrameCacheKey& left,
 u32 key_bucket(const AnimationFrameCacheKey& key, u32 capacity) noexcept {
     u64 hash;
     if (key.content_identity != 0)
-        hash = mix64(key.content_identity ^ mix64(key.frame_index));
+        hash = media_asset_hash_mix(key.content_identity ^ media_asset_hash_mix(key.frame_index));
     else {
         const u64 asset_tail = static_cast<u64>(key.asset.variant) |
                                (static_cast<u64>(key.asset.flags) << 32) |
                                (static_cast<u64>(key.asset.kind) << 48);
         const u64 frame_tail = static_cast<u64>(key.frame_index) |
                                (static_cast<u64>(key.source_generation) << 32);
-        hash = mix64(key.asset.id ^ mix64(asset_tail) ^ mix64(frame_tail));
+        hash = media_asset_hash_mix(key.asset.id ^ media_asset_hash_mix(asset_tail) ^
+                                    media_asset_hash_mix(frame_tail));
     }
     return (capacity & (capacity - 1)) == 0 ? static_cast<u32>(hash) & (capacity - 1)
                                           : static_cast<u32>(hash % capacity);

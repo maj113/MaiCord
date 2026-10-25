@@ -22,6 +22,15 @@ __declspec(noinline) inline u64 hash64_bytes(u64 hash, const void* source, u32 b
     return hash;
 }
 
+// 32-bit FNV-1a: the checksum of the small persisted state files.
+inline u32 hash32_bytes(const u8* data, u32 bytes) noexcept {
+    u32 hash = 2166136261u;
+    for (u32 index = 0; index < bytes; ++index) {
+        hash = (hash ^ data[index]) * 16777619u;
+    }
+    return hash;
+}
+
 __forceinline u64 hash64_counted_bytes(u64 hash, const void* source, u32 bytes) noexcept {
     return hash64_mix(hash64_bytes(hash, source, bytes), bytes);
 }

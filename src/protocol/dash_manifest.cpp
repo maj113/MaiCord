@@ -8,7 +8,6 @@ namespace {
 using E = DashManifestError;
 constexpr u32 maximum_bytes = 64 * 1024, maximum_segments = 8192;
 bool equal(Utf8View a, Utf8View b) noexcept { return utf8_equal(a, b); }
-bool space(char c) noexcept { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 bool name_char(char c) noexcept { return ascii_is_alnum(c) || c == '_' || c == '-' || c == '.' || c == ':'; }
 bool name_start(char c) noexcept { return (ascii_is_alnum(c) && !ascii_is_digit(c)) || c == '_'; }
 bool number(Utf8View s, u64* out) noexcept {
@@ -75,7 +74,7 @@ E next(Reader& r, Element& e) noexcept {
     }
     if (!opening && r.at + 4 <= s.bytes && bytes_equal(s.data + r.at, "?xml", 4)) {
         r.at += 4;
-        if (r.at == s.bytes || !space(s.data[r.at])) return E::malformed;
+        if (r.at == s.bytes || !ascii_is_space(s.data[r.at])) return E::malformed;
         while (r.at + 1 < s.bytes) {
             if (s.data[r.at] == '?' && s.data[r.at + 1] == '>') { r.at += 2; return E::none; }
             if (s.data[r.at++] == '<') return E::malformed;
@@ -91,7 +90,7 @@ E next(Reader& r, Element& e) noexcept {
     for (u32 i = 0; i < e.name.bytes; ++i) if (e.name.data[i] == ':') return E::unsupported;
     for (;;) {
         const u32 before_space = r.at;
-        while (r.at < s.bytes && space(s.data[r.at])) ++r.at;
+        while (r.at < s.bytes && ascii_is_space(s.data[r.at])) ++r.at;
         if (r.at == s.bytes) return E::malformed;
         if (s.data[r.at] == '>') { ++r.at; return E::none; }
         if (!e.closing && r.at + 1 < s.bytes && s.data[r.at] == '/' && s.data[r.at + 1] == '>') {
@@ -102,9 +101,9 @@ E next(Reader& r, Element& e) noexcept {
         while (r.at < s.bytes && name_char(s.data[r.at])) ++r.at;
         if (r.at == key || !name_start(s.data[key])) return E::malformed;
         Attribute a{{s.data + key, r.at - key}, {}};
-        while (r.at < s.bytes && space(s.data[r.at])) ++r.at;
+        while (r.at < s.bytes && ascii_is_space(s.data[r.at])) ++r.at;
         if (r.at == s.bytes || s.data[r.at++] != '=') return E::malformed;
-        while (r.at < s.bytes && space(s.data[r.at])) ++r.at;
+        while (r.at < s.bytes && ascii_is_space(s.data[r.at])) ++r.at;
         if (r.at == s.bytes || (s.data[r.at] != '"' && s.data[r.at] != '\'')) return E::malformed;
         const char quote = s.data[r.at++]; const u32 value = r.at;
         while (r.at < s.bytes && s.data[r.at] != quote) {
@@ -194,7 +193,7 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
     if (!byte_range_valid(input.data, input.bytes) || !byte_range_valid(output, sizeof(*output)) ||
         byte_ranges_overlap(input.data, input.bytes, output, sizeof(*output))) return E::invalid_input;
     for (u32 i = 0; i < input.bytes; ++i)
-        if (static_cast<u8>(input.data[i]) < 32 && !space(input.data[i])) return E::malformed;
+        if (static_cast<u8>(input.data[i]) < 32 && !ascii_is_space(input.data[i])) return E::malformed;
     Reader reader{input}; Element element{}; Utf8View stack[8]{}, ids[64]{};
     u32 depth = 0, periods = 0, representations = 0; bool root = false, closed = false, audio_present = false;
     Utf8View adaptation_mime{}, adaptation_codec{}; bool adaptation_image = false;
@@ -211,7 +210,7 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
         const auto error = next(reader, element); if (error != E::none) return error;
         if (element.text.bytes) {
             for (u32 i = 0; i < element.text.bytes; ++i)
-                if (!space(element.text.data[i]) && (!depth || tag(stack[depth - 1]) != Tag::other)) return E::malformed;
+                if (!ascii_is_space(element.text.data[i]) && (!depth || tag(stack[depth - 1]) != Tag::other)) return E::malformed;
         }
         if (!element.name.bytes) continue;
         const auto kind = tag(element.name);

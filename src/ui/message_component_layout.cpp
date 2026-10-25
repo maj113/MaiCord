@@ -100,17 +100,15 @@ float message_component_leaf_width(const MessageRichComponent& component, float 
     const float width = maximum(1.0f, available);
     switch (message_component_kind(component)) {
     case MessageComponentKind::button:
-        // Generous until the label is shaped: measuring inside a narrower
-        // box would clip the natural width the next pass converges to.
-        return minimum(width, kMessageComponentSelectMaximumWidth);
     case MessageComponentKind::select:
+    case MessageComponentKind::file:
+        // Generous until a label is shaped: measuring inside a narrower
+        // box would clip the natural width the next pass converges to.
         return minimum(width, kMessageComponentSelectMaximumWidth);
     case MessageComponentKind::thumbnail:
         return kMessageComponentThumbnailExtent;
     case MessageComponentKind::gallery:
         return minimum(width, kMessageComponentGalleryMaximumWidth);
-    case MessageComponentKind::file:
-        return minimum(width, kMessageComponentSelectMaximumWidth);
     case MessageComponentKind::text:
     case MessageComponentKind::separator:
         return width;

@@ -200,7 +200,6 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
         result.kind = GatewaySessionEventKind::error;
         result.error = GatewaySessionError::lifecycle;
     }
-    return;
 }
 
 bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcept {

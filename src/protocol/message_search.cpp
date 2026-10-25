@@ -1,4 +1,5 @@
 #include "maicord/protocol/message_search.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/message_card_excerpt.hpp"
 
@@ -470,7 +471,7 @@ bool term_valid(const char* text, u32 bytes, u32 capacity, bool hostname, bool e
         return false;
     for (u32 index = 0; index < bytes; ++index) {
         const char c = text[index];
-        const bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        const bool alnum = ascii_is_alnum(c);
         if ((hostname && !alnum && c != '.' && c != '-') || (extension && !alnum))
             return false;
     }

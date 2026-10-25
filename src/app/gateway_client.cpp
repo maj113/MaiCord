@@ -2326,7 +2326,6 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
         if (event.kind == GatewaySessionEventKind::error) {
             return fail_session_event(runtime, event);
         }
-        continue;
     }
 }
 

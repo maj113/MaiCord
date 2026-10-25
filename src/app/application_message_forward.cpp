@@ -1,4 +1,5 @@
 #include "application_message_forward.hpp"
+#include "maicord/model/forwarded_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
@@ -60,10 +61,6 @@ bool available() noexcept {
         !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active) &&
         !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active;
 }
-// Control characters and line separators never enter the single-line fields.
-bool forbidden_scalar(u32 c) noexcept {
-    return c < 32 || (c >= 127 && c <= 159) || c == 0x2028 || c == 0x2029;
-}
 UiQuickSwitcherKind ui_kind(QuickSwitcherKind kind) noexcept {
     return kind == QuickSwitcherKind::private_channel ? UiQuickSwitcherKind::private_channel :
         kind == QuickSwitcherKind::group_private ? UiQuickSwitcherKind::group_private : UiQuickSwitcherKind::text_channel;
@@ -95,36 +92,12 @@ void caret_reset(ApplicationMessageForward& q) noexcept {
     q.caret_visible = true;
     q.blink_at = interval && interval != INFINITE ? deadline_after(clock_monotonic_milliseconds(), interval) : 0;
 }
-TextInputTarget delegate(const TextInputTarget& target) noexcept {
-    return message_composer_input_target(static_cast<MessageComposer*>(target.context));
-}
 bool edit_ready(const TextInputTarget& target) noexcept {
     const auto* q = g_app.message_forward;
     return q && q->active && q->focused && !q->controller.committed && available() && quick_switcher_scope_equal(q->controller.scope, scope()) &&
-        target.context == (q->caption_focused ? &q->caption : &q->edit) && target.identity == q->identity && text_input_ready(delegate(target));
+        target.context == (q->caption_focused ? &q->caption : &q->edit) && target.identity == q->identity;
 }
-u32 edit_revision(const TextInputTarget& t) noexcept { return text_input_revision(delegate(t)); }
-TextInputResult edit_length(const TextInputTarget& t, u32* n) noexcept { return text_input_length(delegate(t), n); }
-TextInputResult edit_selection(const TextInputTarget& t, TextInputSelection* s) noexcept { return text_input_selection(delegate(t), s); }
-TextInputResult edit_select(const TextInputTarget& t, TextInputSelection s) noexcept { return text_input_select(delegate(t), s); }
-TextInputResult edit_copy(const TextInputTarget& t, u32 a, u32 b, Slice<u16> out, u32* n, u32* next) noexcept {
-    return text_input_copy(delegate(t), a, b, out, n, next);
-}
-TextInputResult edit_replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> in, TextInputChange* c) noexcept {
-    if (!c || (!in.data && in.count)) return TextInputResult::invalid_input;
-    for (u32 i = 0; i < in.count; ++i)
-        if (forbidden_scalar(in[i]))
-            return TextInputResult::invalid_input;
-    return text_input_replace(delegate(t), a, b, in, c);
-}
-void edit_cancel(const TextInputTarget& t) noexcept { text_input_cancel(delegate(t)); }
-bool edit_begin(const TextInputTarget& t) noexcept {
-    auto* m = static_cast<MessageComposer*>(t.context);
-    return (m->history || message_composer_enable_history(m, 2048)) && text_input_begin_group(delegate(t));
-}
-void edit_end(const TextInputTarget& t) noexcept { text_input_end_group(delegate(t)); }
-constexpr TextInputOperations edit_operations{edit_ready, edit_revision, edit_length, edit_selection,
-    edit_select, edit_copy, edit_replace, edit_cancel, edit_begin, edit_end};
+using EditInput = ForwardedInput<edit_ready, text_input_single_line_forbidden>;
 bool pointer_edit(ApplicationMessageForward& q, float x, float y, bool extend) noexcept {
     const auto& layout = q.caption_focused ? g_app.renderer.popup_edit_layout : g_app.renderer.media_picker_layout;
     auto& model = q.caption_focused ? q.caption : q.edit;
@@ -204,7 +177,7 @@ bool application_message_forward_caption_focused() noexcept {
 }
 TextInputTarget application_message_forward_edit_target() noexcept {
     auto* model = application_message_forward_edit_model();
-    return model ? TextInputTarget{model, &edit_operations, g_app.message_forward->identity} : TextInputTarget{};
+    return model ? TextInputTarget{model, &EditInput::operations, g_app.message_forward->identity} : TextInputTarget{};
 }
 UiRect application_message_forward_edit_bounds() noexcept {
     auto* q = g_app.message_forward;
@@ -212,8 +185,8 @@ UiRect application_message_forward_edit_bounds() noexcept {
 }
 void application_message_forward_edit_cancel_native_group(const TextInputTarget& t) noexcept {
     const auto* q = g_app.message_forward;
-    if (q && (t.context == &q->edit || t.context == &q->caption) && t.operations == &edit_operations && t.identity == q->identity) {
-        text_input_end_group(delegate(t)); text_input_cancel(delegate(t));
+    if (q && (t.context == &q->edit || t.context == &q->caption) && t.operations == &EditInput::operations && t.identity == q->identity) {
+        EditInput::abandon(t);
     }
 }
 void application_message_forward_close() noexcept {
@@ -395,7 +368,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
     if (!application_message_forward_edit_focused()) return true;
     auto& model = q->caption_focused ? q->caption : q->edit;
     if (kind == UiInputKind::character) {
-        if (control || (alt && !ctrl_raw) || forbidden_scalar(key) || key > 0xffff) return true;
+        if (control || (alt && !ctrl_raw) || text_input_single_line_forbidden(key) || key > 0xffff) return true;
         if (!model.history) message_composer_enable_history(&model, 2048);
         if (message_composer_insert_utf16(&model, static_cast<u16>(key), clock_monotonic_milliseconds()) == MessageComposerResult::changed)
             application_message_forward_edit_changed(true);
@@ -414,7 +387,7 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
         bool valid = read.ok();
         for (u32 i = 0; valid && i < read.bytes;) {
             const auto scalar = utf8_decode_one(text + i, read.bytes - i);
-            valid = scalar.valid && !forbidden_scalar(scalar.codepoint);
+            valid = scalar.valid && !text_input_single_line_forbidden(scalar.codepoint);
             if (valid) i += scalar.width;
         }
         if (valid) result = message_composer_insert_utf8(&model, {text, read.bytes});

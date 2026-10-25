@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/gateway_reaction_events.hpp"
 
 namespace maicord {
@@ -117,8 +118,7 @@ inline bool gateway_avatar_hash_valid(Utf8View hash) noexcept {
         return false;
     for (u32 i = first; i < hash.bytes; ++i) {
         const char digit = hash.data[i];
-        if (!((digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f') ||
-              (digit >= 'A' && digit <= 'F')))
+        if (!ascii_is_hex_digit(digit))
             return false;
     }
     return true;

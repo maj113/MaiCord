@@ -1,4 +1,5 @@
 #include "maicord/app/update_changelog.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 
@@ -28,7 +29,6 @@ bool plain_string(JsonValue value, Utf8View* output) noexcept {
     *output = parsed.encoded;
     return true;
 }
-bool hex_digit(char c) noexcept { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }
 // Keeps valid UTF-8 without C0/C1 controls (except '\n'; tabs become spaces),
 // DEL or bidirectional embeddings, overrides and isolates. Returns the length.
 u32 sanitize(char* text, u32 bytes) noexcept {
@@ -62,7 +62,7 @@ bool visit_entry(void* opaque, JsonString name, JsonValue value) noexcept {
         Utf8View text{};
         if (!plain_string(value, &text) || (text.bytes != 0 && text.bytes != 40)) return fail(parse, UpdateChangelogError::field);
         for (u32 i = 0; i < text.bytes; ++i)
-            if (!hex_digit(text.data[i])) return fail(parse, UpdateChangelogError::field);
+            if (!ascii_is_lower_hex_digit(text.data[i])) return fail(parse, UpdateChangelogError::field);
         copy_bytes(e.entry.commit, text.data, text.bytes);
         e.entry.has_commit = text.bytes == 40;
         return true;

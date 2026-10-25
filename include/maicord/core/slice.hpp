@@ -47,6 +47,14 @@ inline bool utf8_starts_with(Utf8View text, Utf8View prefix) noexcept {
     return text.bytes >= prefix.bytes && bytes_equal(text.data, prefix.data, prefix.bytes);
 }
 
+// Bytes before the terminator of a C string; null is empty.
+constexpr u32 c_string_length(const char* text) noexcept {
+    u32 bytes = 0;
+    while (text && text[bytes] != 0)
+        ++bytes;
+    return bytes;
+}
+
 template <usize Count> constexpr Utf8View utf8_literal(const char (&text)[Count]) noexcept {
     static_assert(Count > 0);
     static_assert(Count - 1 <= 0xFFFFFFFFull);

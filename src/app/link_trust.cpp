@@ -2,6 +2,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/win32_process.hpp"
@@ -41,12 +42,6 @@ bool protocol_valid(Utf8View protocol) noexcept {
             return false;
     }
     return true;
-}
-u32 checksum(const u8* data, u32 bytes) noexcept {
-    u32 hash = 2166136261u;
-    for (u32 i = 0; i < bytes; ++i)
-        hash = (hash ^ data[i]) * 16777619u;
-    return hash;
 }
 // Scheme, then for "//" URLs the authority's start and end.
 struct UrlParts {
@@ -242,7 +237,7 @@ u32 link_trust_encode(const LinkTrustStore& store, Slice<u8> output) noexcept {
         if (!protocol_valid(protocol) || !put(&length, 1) || !put(protocol.data, protocol.bytes))
             return 0;
     }
-    const u32 hash = checksum(output.data, used);
+    const u32 hash = hash32_bytes(output.data, used);
     const u8 tail[] = {static_cast<u8>(hash), static_cast<u8>(hash >> 8), static_cast<u8>(hash >> 16),
                        static_cast<u8>(hash >> 24)};
     return put(tail, 4) ? used : 0;
@@ -255,7 +250,7 @@ bool link_trust_decode(ConstSlice<u8> input, LinkTrustStore* store) noexcept {
     const u32 stored = input[body] | (u32{input[body + 1]} << 8) | (u32{input[body + 2]} << 16) |
                        (u32{input[body + 3]} << 24);
     if (!bytes_equal(input.data, kMagic, 4) || input[4] != kVersion || input[5] > kLinkTrustHostCapacity ||
-        input[6] > kLinkTrustProtocolCapacity || input[7] != 0 || stored != checksum(input.data, body))
+        input[6] > kLinkTrustProtocolCapacity || input[7] != 0 || stored != hash32_bytes(input.data, body))
         return false;
     // Large decode scratch stays off the stack; the caller's store is only
     // replaced once the whole record is valid.

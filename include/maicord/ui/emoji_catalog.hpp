@@ -4,8 +4,6 @@
 
 namespace maicord {
 
-inline constexpr u32 kUnicodeEmojiCatalogMajor = 16;
-inline constexpr u32 kUnicodeEmojiCatalogMinor = 0;
 inline constexpr u32 kUnicodeEmojiCatalogEntryCount = 3'780;
 inline constexpr u32 kUnicodeEmojiCatalogNameBytes = 64'461;
 // The catalog and shortcode entries use this shared glyph pool.

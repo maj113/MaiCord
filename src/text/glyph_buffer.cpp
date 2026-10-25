@@ -1,11 +1,9 @@
 #include "maicord/text/glyph_buffer.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {namespace {
 bool aligned(const void* p) noexcept {return (reinterpret_cast<usize>(p)&(alignof(SfntGsubGlyph)-1))==0;}
-bool overlap(const void* a,u64 an,const void* b,u64 bn) noexcept {
-    if(!an || !bn)return false;const usize ap=reinterpret_cast<usize>(a),bp=reinterpret_cast<usize>(b);return ap<=bp?bp-ap<an:ap-bp<bn;
-}
 bool valid(const SfntGlyphBuffer& b) noexcept {return b.record_size>=sizeof(SfntGsubGlyph) && b.record_size%alignof(SfntGsubGlyph)==0 && (!b.storage.count || (b.storage.data && aligned(b.storage.data))) && b.capacity==b.storage.count/b.record_size && b.gap_begin<=b.gap_end && b.gap_end<=b.capacity;}
 u32 count(const SfntGlyphBuffer& b) noexcept {return b.capacity-(b.gap_end-b.gap_begin);}
 u32 distance(const SfntGlyphBuffer& b,u32 at) noexcept {return b.gap_begin==b.gap_end?0u:at>b.gap_begin?at-b.gap_begin:b.gap_begin-at;}
@@ -32,7 +30,7 @@ SfntStatus sfnt_glyph_buffer_seek(SfntGlyphBuffer* b,u32 at,u64 work) noexcept {
 SfntStatus sfnt_glyph_buffer_replace(SfntGlyphBuffer* b,u32 start,ConstSlice<u32> consumed,ConstSlice<u8> replacements,SfntGlyphEdit* output,u64 work) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!b || !valid(*b) || (consumed.count && !consumed.data) || (replacements.count && !replacements.data) || replacements.count%b->record_size)return SfntStatus::invalid_input;
     const u32 before=count(*b),inserted=replacements.count/b->record_size;if(start>before || consumed.count>before || (consumed.count && (start==before || consumed.data[0]!=start)))return SfntStatus::invalid_input;
-    if(overlap(consumed.data,static_cast<u64>(consumed.count)*sizeof(u32),b->storage.data,b->storage.count) || overlap(replacements.data,replacements.count,b->storage.data,b->storage.count))return SfntStatus::invalid_input;
+    if(byte_ranges_overlap(consumed.data,static_cast<u64>(consumed.count)*sizeof(u32),b->storage.data,b->storage.count) || byte_ranges_overlap(replacements.data,replacements.count,b->storage.data,b->storage.count))return SfntStatus::invalid_input;
     if(consumed.count>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<consumed.count;++i)if(consumed.data[i]>=before || (i && consumed.data[i]<=consumed.data[i-1]))return SfntStatus::invalid_input;
     const u64 after=static_cast<u64>(before)-consumed.count+inserted;if(after>b->capacity)return SfntStatus::output_too_small;

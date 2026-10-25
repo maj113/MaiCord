@@ -132,7 +132,7 @@ BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16
         if (colon == begin || colon == end) return reject(BrowserSignInError::http);
         for (u32 i = begin; i < colon; ++i) {
             const char c = text[i];
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-')) return reject(BrowserSignInError::http);
+            if (!(ascii_is_alnum(c) || c == '-')) return reject(BrowserSignInError::http);
         }
         for (u32 i = colon + 1; i < end; ++i) if ((static_cast<u8>(text[i]) < 0x20 && text[i] != '\t') || text[i] == 0x7f) return reject(BrowserSignInError::http);
         const Utf8View name{text + begin, colon - begin}, value = http_trim_ows({text + colon + 1, end - colon - 1});

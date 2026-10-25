@@ -23,11 +23,6 @@ bool etag_valid(ConstSlice<u8> etag) noexcept {
     return true;
 }
 
-u16 next_generation(u16 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 bool power_of_two(u32 value) noexcept {
     return value != 0 && (value & (value - 1)) == 0;
 }

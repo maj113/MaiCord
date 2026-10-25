@@ -1,4 +1,5 @@
 #include "maicord/model/user_activity.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -244,7 +245,7 @@ bool alphanumeric(Utf8View text, u32 limit) noexcept {
         return false;
     for (u32 i = 0; i < text.bytes; ++i) {
         const char c = text.data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+        if (!ascii_is_alnum(c))
             return false;
     }
     return true;
@@ -341,7 +342,7 @@ u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application
     // Session IDs are hex, or "h:<platform>,..." for headless sessions.
     for (u32 i = 0; i < session.bytes; ++i) {
         const char c = session.data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == ':' || c == ',' ||
+        if (!(ascii_is_alnum(c) || c == ':' || c == ',' ||
               c == '_' || c == '-' || c == '.'))
             return 0;
     }

@@ -31,6 +31,7 @@
 #include "maicord/ui/splitter.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/model/asset_hash.hpp"
+#include "maicord/model/forwarded_input.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/app/gateway_client.hpp"
@@ -1818,61 +1819,12 @@ bool application_media_picker_preview_rejected(MediaAssetKey key, u64 scope, u32
     return false;
 }
 namespace {
-TextInputTarget edit_delegate(const TextInputTarget& target) noexcept {
-    return message_composer_input_target(static_cast<MessageComposer*>(target.context));
-}
 bool picker_edit_ready(const TextInputTarget& target) noexcept {
     const auto* p = g_app.media_picker;
     return p && application_media_picker_edit_focused() && target.context == &p->edit &&
-           target.identity == p->edit_identity && text_input_ready(edit_delegate(target));
+           target.identity == p->edit_identity;
 }
-u32 picker_edit_revision(const TextInputTarget& target) noexcept {
-    return text_input_revision(edit_delegate(target));
-}
-TextInputResult picker_edit_length(const TextInputTarget& target, u32* count) noexcept {
-    return text_input_length(edit_delegate(target), count);
-}
-TextInputResult picker_edit_selection(const TextInputTarget& target,
-                                      TextInputSelection* selection) noexcept {
-    return text_input_selection(edit_delegate(target), selection);
-}
-TextInputResult picker_edit_select(const TextInputTarget& target, TextInputSelection selection) noexcept {
-    return text_input_select(edit_delegate(target), selection);
-}
-TextInputResult picker_edit_copy(const TextInputTarget& target, u32 first, u32 last, Slice<u16> output,
-                                 u32* count, u32* next) noexcept {
-    return text_input_copy(edit_delegate(target), first, last, output, count, next);
-}
-bool single_line(ConstSlice<u16> input) noexcept {
-    if (!input.data && input.count)
-        return false;
-    for (u32 i = 0; i < input.count; ++i)
-        if (input[i] < 32 || (input[i] >= 127 && input[i] <= 159) || input[i] == 0x2028 ||
-            input[i] == 0x2029)
-            return false;
-    return true;
-}
-TextInputResult picker_edit_replace(const TextInputTarget& target, u32 first, u32 last,
-                                    ConstSlice<u16> input, TextInputChange* change) noexcept {
-    return change && single_line(input)
-               ? text_input_replace(edit_delegate(target), first, last, input, change)
-               : TextInputResult::invalid_input;
-}
-void picker_edit_cancel(const TextInputTarget& target) noexcept {
-    text_input_cancel(edit_delegate(target));
-}
-bool picker_edit_begin(const TextInputTarget& target) noexcept {
-    auto* model = static_cast<MessageComposer*>(target.context);
-    return (model->history || message_composer_enable_history(model, 2048)) &&
-           text_input_begin_group(edit_delegate(target));
-}
-void picker_edit_end(const TextInputTarget& target) noexcept {
-    text_input_end_group(edit_delegate(target));
-}
-constexpr TextInputOperations picker_edit_operations{
-    picker_edit_ready, picker_edit_revision, picker_edit_length, picker_edit_selection, picker_edit_select,
-    picker_edit_copy,  picker_edit_replace,  picker_edit_cancel, picker_edit_begin,     picker_edit_end};
-
+using PickerEditInput = ForwardedInput<picker_edit_ready, text_input_single_line_forbidden>;
 bool scroll_read(void* opaque, u64 scope, UiScrollRange* output, bool rail) noexcept {
     if (!output || opaque != g_app.media_picker || !application_media_picker_active())
         return false;
@@ -1973,16 +1925,15 @@ bool edit_pointer(ApplicationMediaPicker& p, float x, float y, bool extend) noex
 
 TextInputTarget application_media_picker_edit_target() noexcept {
     const auto* p = g_app.media_picker;
-    return p ? TextInputTarget{&g_app.media_picker->edit, &picker_edit_operations, p->edit_identity}
+    return p ? TextInputTarget{&g_app.media_picker->edit, &PickerEditInput::operations, p->edit_identity}
              : TextInputTarget{};
 }
 void application_media_picker_edit_cancel_native_group(const TextInputTarget& target) noexcept {
     const auto* p = g_app.media_picker;
-    if (!p || target.operations != &picker_edit_operations || target.context != &p->edit ||
+    if (!p || target.operations != &PickerEditInput::operations || target.context != &p->edit ||
         target.identity != p->edit_identity)
         return;
-    text_input_end_group(edit_delegate(target));
-    text_input_cancel(edit_delegate(target));
+    PickerEditInput::abandon(target);
 }
 
 bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) noexcept {

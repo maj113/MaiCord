@@ -1,4 +1,5 @@
 #include "maicord/platform/browser_sign_in_launcher.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/sys/shell.hpp"
 
 namespace maicord {
@@ -50,7 +51,7 @@ bool browser_sign_in_launch(HWND window, const SecureBuffer* url) noexcept {
         if (i == 8 || i == 13 || i == 18 || i == 23) {
             if (c != '-')
                 return false;
-        } else if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+        } else if (!ascii_is_lower_hex_digit(c))
             return false;
     }
     return open_validated(window, url);
@@ -70,7 +71,7 @@ bool captcha_bridge_url_valid(const SecureBuffer* url) noexcept {
         return false;
     for (u32 i = cursor + 3; i < url->bytes; ++i) {
         const u8 c = url->data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+        if (!ascii_is_lower_hex_digit(c))
             return false;
     }
     return true;

@@ -1,4 +1,5 @@
 #include "maicord/protocol/thread_browser.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/thread_actions.hpp"
@@ -366,7 +367,7 @@ bool avatar_hash_valid(Utf8View hash) noexcept {
     if (!hash.bytes || hash.bytes > kThreadBrowserPostAvatarHashMaximumBytes) return false;
     for (u32 at = 0; at < hash.bytes; ++at) {
         const char c = hash.data[at];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || c == '_')) return false;
+        if (!(ascii_is_lower_hex_digit(c) || c == '_')) return false;
     }
     return true;
 }

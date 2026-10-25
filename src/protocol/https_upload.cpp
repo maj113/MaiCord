@@ -1,4 +1,5 @@
 #include "maicord/protocol/https_upload.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/client_user_agent.hpp"
 #include "maicord/protocol/writer.hpp"
 
@@ -32,7 +33,7 @@ HttpsUploadUrl https_upload_parse_url(Utf8View url) noexcept {
             if (url.bytes - i < 3) return {};
             for (u32 j = 1; j <= 2; ++j) {
                 const char h = url.data[i + j];
-                if (!((h >= '0' && h <= '9') || (h >= 'a' && h <= 'f') || (h >= 'A' && h <= 'F'))) return {};
+                if (!ascii_is_hex_digit(h)) return {};
             }
             i += 2;
         }

@@ -97,7 +97,6 @@ inline UiCursor ui_settings_scene_cursor(const UiSettingsScene& scene, float x, 
     switch (control->kind) {
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline:
-        return ui_action_cursor(ui_settings_scene_button_hit(scene, target, x, y));
     case UiSettingsControlKind::action:
     case UiSettingsControlKind::notice:
         return ui_action_cursor(ui_settings_scene_button_hit(scene, target, x, y));

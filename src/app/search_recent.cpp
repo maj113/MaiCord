@@ -1,6 +1,7 @@
 #include "maicord/app/search_recent.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 
@@ -18,12 +19,6 @@ bool text_valid(Utf8View text) noexcept {
         if (static_cast<u8>(text.data[i]) < 0x20 || text.data[i] == 0x7f)
             return false;
     return true;
-}
-u32 checksum(const u8* data, u32 bytes) noexcept {
-    u32 hash = 2166136261u;
-    for (u32 i = 0; i < bytes; ++i)
-        hash = (hash ^ data[i]) * 16777619u;
-    return hash;
 }
 bool same(const SearchRecentList& list, u32 index, Utf8View text) noexcept {
     return list.bytes[index] == text.bytes && bytes_equal(list.text[index], text.data, text.bytes);
@@ -93,7 +88,7 @@ u32 search_recent_encode(const SearchRecentList& list, Slice<u8> output) noexcep
         if (!text_valid(entry) || !put(length, 2) || !put(entry.data, entry.bytes))
             return 0;
     }
-    const u32 hash = checksum(output.data, used);
+    const u32 hash = hash32_bytes(output.data, used);
     const u8 tail[] = {static_cast<u8>(hash), static_cast<u8>(hash >> 8), static_cast<u8>(hash >> 16),
                        static_cast<u8>(hash >> 24)};
     return put(tail, 4) ? used : 0;
@@ -106,7 +101,7 @@ bool search_recent_decode(ConstSlice<u8> input, SearchRecentList* list) noexcept
     const u32 stored = input[body] | (u32{input[body + 1]} << 8) | (u32{input[body + 2]} << 16) |
                        (u32{input[body + 3]} << 24);
     if (!bytes_equal(input.data, kMagic, 4) || input[4] != kVersion || input[5] > kSearchRecentCapacity ||
-        stored != checksum(input.data, body))
+        stored != hash32_bytes(input.data, body))
         return false;
     SearchRecentList decoded{};
     u32 at = 6;

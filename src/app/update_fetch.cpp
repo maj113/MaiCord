@@ -24,10 +24,9 @@ bool decimal(ConstSlice<u8> text, u64* value) noexcept {
     while (end > at && (text[end - 1] == ' ' || text[end - 1] == '\t')) --end;
     return end - at <= 19 && decimal_parse({as_text(text).data + at, end - at}, value);
 }
-bool alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); }
 bool target_byte(u8 c) noexcept {
     // RFC 3986 path/query characters; percent-encoding passes through as-is.
-    if (alnum(static_cast<char>(c))) return true;
+    if (ascii_is_alnum(static_cast<char>(c))) return true;
     static constexpr char allowed[] = "-._~!$&'()*+,;=:@/?%";
     for (char a : allowed) if (a && c == static_cast<u8>(a)) return true;
     return false;
@@ -81,12 +80,12 @@ bool update_repository_valid(Utf8View repository) noexcept {
     while (slash < repository.bytes && p[slash] != '/') ++slash;
     // The owner doubles as the DNS label of "<owner>.github.io".
     if (!slash || slash > kUpdateOwnerMaximumBytes || slash == repository.bytes || p[0] == '-' || p[slash - 1] == '-') return false;
-    for (u32 i = 0; i < slash; ++i) if (!alnum(p[i]) && p[i] != '-') return false;
+    for (u32 i = 0; i < slash; ++i) if (!ascii_is_alnum(p[i]) && p[i] != '-') return false;
     const char* name = p + slash + 1;
     const u32 n = repository.bytes - slash - 1;
     // "." and ".." would change the request path; a second '/' is refused below.
     if (!n || (n == 1 && name[0] == '.') || (n == 2 && name[0] == '.' && name[1] == '.')) return false;
-    for (u32 i = 0; i < n; ++i) if (!alnum(name[i]) && name[i] != '-' && name[i] != '_' && name[i] != '.') return false;
+    for (u32 i = 0; i < n; ++i) if (!ascii_is_alnum(name[i]) && name[i] != '-' && name[i] != '_' && name[i] != '.') return false;
     return true;
 }
 
@@ -125,7 +124,7 @@ bool update_origin_host_valid(Utf8View host) noexcept {
             start = i + 1; digits = true;
         } else {
             const char c = host.data[i];
-            if (!alnum(c) && c != '-') return false;
+            if (!ascii_is_alnum(c) && c != '-') return false;
             digits &= c >= '0' && c <= '9';
         }
     }

@@ -386,11 +386,6 @@ bool same_route(const RestRouteKey& left, const RestRouteKey& right) noexcept {
            left.method == right.method && left.major == right.major;
 }
 
-u16 next_generation(u16 value) noexcept {
-    ++value;
-    return value == 0 ? 1 : value;
-}
-
 bool same_hash(const RestRateBucket& bucket, const RateLimitHeaders& rate,
                const RestRouteKey& route) noexcept {
     if (!bucket.used || !bucket.canonical || bucket.hash_bytes != rate.bucket_bytes ||
@@ -568,8 +563,7 @@ RestUserPropertiesResult write_rest_user_super_properties(
 namespace {
 // The bytes encodeURIComponent leaves as they are.
 bool audit_unreserved(u8 value) noexcept {
-    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
-           (value >= '0' && value <= '9') || value == '-' || value == '_' || value == '.' || value == '!' ||
+    return ascii_is_alnum(value) || value == '-' || value == '_' || value == '.' || value == '!' ||
            value == '~' || value == '*' || value == '\'' || value == '(' || value == ')';
 }
 bool audit_hex(u8 value) noexcept {
@@ -686,7 +680,7 @@ bool rest_multipart_boundary_valid(ConstSlice<u8> boundary) noexcept {
         return false;
     for (u32 i = 0; i < boundary.count; ++i) {
         const u8 c = boundary[i];
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
+        if (!(ascii_is_alnum(c) || c == '-' || c == '_'))
             return false;
     }
     return true;

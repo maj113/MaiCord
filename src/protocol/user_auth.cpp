@@ -452,11 +452,6 @@ void copy_raw(const RawField& field, Slice<char> destination) noexcept {
     copy_bytes(destination.data, field.value.source.data, field.bytes);
 }
 
-u64 next_generation(u64 generation) noexcept {
-    ++generation;
-    return generation == 0 ? 1 : generation;
-}
-
 UserAuthTransitionResult transition_failure(const UserAuthState* state,
                                             UserAuthTransitionError error) noexcept {
     return UserAuthTransitionResult{state->generation, error};

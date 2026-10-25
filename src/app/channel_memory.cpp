@@ -1,6 +1,7 @@
 #include "maicord/app/channel_memory.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_process.hpp"
@@ -12,12 +13,6 @@ namespace {
 constexpr u8 kMagic[] = {'M', 'C', 'C', 'M'};
 constexpr u8 kVersion = 1;
 
-u32 checksum(const u8* data, u32 bytes) noexcept {
-    u32 hash = 2166136261u;
-    for (u32 i = 0; i < bytes; ++i)
-        hash = (hash ^ data[i]) * 16777619u;
-    return hash;
-}
 bool entry_valid(const ChannelMemoryEntry& entry) noexcept {
     return entry.channel_id != 0 && entry.parent_id != entry.channel_id;
 }
@@ -87,7 +82,7 @@ u32 channel_memory_encode(const ChannelMemory& memory, Slice<u8> output) noexcep
         byte_store_le64(at + 8, memory.entries[i].channel_id);
         byte_store_le64(at + 16, memory.entries[i].parent_id);
     }
-    const u32 hash = checksum(output.data, body);
+    const u32 hash = hash32_bytes(output.data, body);
     byte_store_le32(output.data + body, hash);
     return body + 4;
 }
@@ -99,7 +94,7 @@ bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept
         return false;
     const u32 body = input.count - 4;
     const u32 stored = byte_load_le32(input.data + body);
-    if (stored != checksum(input.data, body))
+    if (stored != hash32_bytes(input.data, body))
         return false;
     ChannelMemory decoded{};
     for (u32 i = 0; i < input[5]; ++i) {

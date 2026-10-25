@@ -351,11 +351,6 @@ bool scroll_container(ProfileScene* scene, UiWidgetHandle handle, float offset) 
     node->spec.style.flags |= ui_layout_node_scroll_vertical;
     return ui_layout_engine_set_scroll(&scene->widgets.layout, widget->layout, {0, offset});
 }
-void copy_label(ProfileString<128>* out, Utf8View text) noexcept {
-    const u32 bytes = utf8_truncated_length(text, 128);
-    copy_bytes(out->data, text.data, bytes);
-    out->bytes = static_cast<u16>(bytes);
-}
 template <u32 N> bool append(ProfileString<N>* s, Utf8View text) noexcept {
     const u32 bytes = utf8_truncated_length(text, N - s->bytes);
     copy_bytes(s->data + s->bytes, text.data, bytes);

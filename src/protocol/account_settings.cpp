@@ -1,4 +1,5 @@
 #include "maicord/protocol/account_settings.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
@@ -8,6 +9,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "json_helpers.hpp"
 #include "json_write.hpp"
 
 namespace maicord {
@@ -20,7 +22,7 @@ bool hash_valid(ConstSlice<u8> hash) noexcept {
         return false;
     for (u32 i = 0; i < hash.count; ++i) {
         const u8 c = hash[i];
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' ||
+        if (!(ascii_is_alnum(c) || c == '+' ||
               c == '/' || c == '=' || c == '-' || c == '_'))
             return false;
     }
@@ -37,14 +39,7 @@ Utf8View text(ConstSlice<u8> payload) noexcept {
 
 // Copies a JSON string, truncating at a code point boundary.
 u32 copy_text(JsonValue value, char* output, u32 capacity) noexcept {
-    JsonString string{};
-    if (!json_value_as_string(value, &string))
-        return 0;
-    char decoded[1024];
-    const auto result = json_string_decode_utf8(string, {decoded, sizeof(decoded)});
-    if (!result.ok())
-        return 0;
-    return utf8_copy_truncated(output, capacity, {decoded, result.bytes});
+    return protocol_detail::copy_text_truncated<1024>(value, output, capacity);
 }
 template <typename T> u8 copy_small(JsonValue value, T (&output)) noexcept {
     return static_cast<u8>(copy_text(value, output, sizeof(output)));

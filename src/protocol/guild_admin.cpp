@@ -1,4 +1,5 @@
 #include "maicord/protocol/guild_admin.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
@@ -45,7 +46,7 @@ bool data_uri_valid(Utf8View uri) noexcept {
     bool comma = false;
     for (u32 i = sizeof(prefix) - 1; i < uri.bytes; ++i) {
         const char c = uri.data[i];
-        const bool base64 = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+        const bool base64 = ascii_is_alnum(c) ||
                             c == '+' || c == '/' || c == '=';
         if (c == ',')
             comma = true;
@@ -67,7 +68,7 @@ bool image_hash_valid(Utf8View hash) noexcept {
     }
     for (; at < hash.bytes; ++at) {
         const char c = hash.data[at];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+        if (!ascii_is_lower_hex_digit(c))
             return false;
     }
     return true;
@@ -92,7 +93,7 @@ bool brand_color_valid(Utf8View color) noexcept {
         return false;
     for (u32 i = 1; i < 7; ++i) {
         const char c = color.data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+        if (!ascii_is_hex_digit(c))
             return false;
     }
     return true;
@@ -1592,7 +1593,7 @@ bool md5_valid(Utf8View md5) noexcept {
         return false;
     for (u32 i = 0; i < 32; ++i) {
         const char c = md5.data[i];
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+        if (!ascii_is_lower_hex_digit(c))
             return false;
     }
     return true;

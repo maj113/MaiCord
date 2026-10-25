@@ -53,9 +53,6 @@
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
-// Defined below beside ordinary message-link routing; retains its channel,
-// permission and authenticated history machinery for OS activation.
-bool application_navigate_notification(u64 channel_id, u64 message_id) noexcept;
 namespace {
 
 ReceivedAttachmentOpen received_attachment_open{};

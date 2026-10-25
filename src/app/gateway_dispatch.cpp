@@ -1119,10 +1119,7 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slic
             side.header.gates &= ~notification_gate_age_access;
     }
     if (channel && (f.seen & 1048576)) {
-        if (f.type != 3 && f.type != 18) {
-            side.header.known_gates |= notification_gate_managed;
-            side.header.gates &= ~notification_gate_managed;
-        } else if (full_channel && !(f.seen & 65536)) {
+        if ((f.type != 3 && f.type != 18) || (full_channel && !(f.seen & 65536))) {
             side.header.known_gates |= notification_gate_managed;
             side.header.gates &= ~notification_gate_managed;
         }
