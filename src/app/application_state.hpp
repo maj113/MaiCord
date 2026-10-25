@@ -169,6 +169,7 @@ enum class MessageHistoryRequestOwner : u8 {
     soundboard,
     reaction_tooltip,
     dm_profile,
+    startup_history,
     count,
 };
 

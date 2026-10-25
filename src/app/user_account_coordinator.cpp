@@ -295,6 +295,14 @@ RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator, b
                : nullptr;
 }
 
+RestClient* user_account_coordinator_startup_rest(UserAccountCoordinator* coordinator) noexcept {
+    return coordinator && coordinator->rest.runtime &&
+                   (coordinator->state.phase == UserAccountCoordinatorPhase::gateway_connecting ||
+                    coordinator->state.phase == UserAccountCoordinatorPhase::running)
+               ? &coordinator->rest
+               : nullptr;
+}
+
 RestClientTakeResult user_account_coordinator_take(UserAccountCoordinator* coordinator,
                                                    RestClientResponse* response, Slice<u8> body) noexcept {
     auto* rest = user_account_coordinator_rest(coordinator);

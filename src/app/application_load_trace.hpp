@@ -111,6 +111,8 @@ inline const char* rest_owner_name(MessageHistoryRequestOwner owner) noexcept {
         return "soundboard";
     case MessageHistoryRequestOwner::dm_profile:
         return "dm_profile";
+    case MessageHistoryRequestOwner::startup_history:
+        return "startup_history";
     case MessageHistoryRequestOwner::count:
         break;
     }

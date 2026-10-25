@@ -12,6 +12,15 @@ static_assert(static_cast<u8>(LoginStatus::idle) == 0 &&
 void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noexcept {
     UserAccountCoordinator account{};
     account.state.phase = UserAccountCoordinatorPhase::gateway_connecting;
+    u8 rest_runtime = 0;
+    account.rest.runtime = &rest_runtime;
+    check(!user_account_coordinator_rest(&account) && !user_account_coordinator_rest(&account, true) &&
+              user_account_coordinator_startup_rest(&account) == &account.rest,
+          "before READY only startup history reaches the PRIMARY lane");
+    account.state.phase = UserAccountCoordinatorPhase::failed;
+    check(!user_account_coordinator_startup_rest(&account), "a failed account has no startup lane");
+    account.rest.runtime = nullptr;
+    account.state.phase = UserAccountCoordinatorPhase::gateway_connecting;
     account.gateway.phase = static_cast<LONG>(GatewayClientPhase::ready);
     check(user_account_coordinator_pump(&account).phase == UserAccountCoordinatorPhase::running,
           "saved session becomes running only after gateway ready");

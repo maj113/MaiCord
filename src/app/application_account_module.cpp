@@ -6,6 +6,7 @@
 #include "application_private_channel.hpp"
 #include "application_stage.hpp"
 #include "application_channel_memory.hpp"
+#include "application_startup_history.hpp"
 #include "application_voice_channels.hpp"
 #include "application_soundboard.hpp"
 #include "application_action_captcha.hpp"
@@ -907,6 +908,7 @@ struct AccountEarlyStart {
 AccountEarlyStart g_early_start{};
 
 AccountModuleStartResult start_account_worker(const AccountPaths& paths) noexcept {
+    application_startup_history_reset();
     const i64 start_counter = clock_now();
     application_trace_load_stage("account_start");
     const AccountModuleStartResult started = account_host_start(
@@ -940,6 +942,7 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
         log_write(LogLevel::warning, "draft", "persistence_configuration_failed");
     }
     application_channel_memory_start(started.status.profile_id);
+    application_startup_history_attach();
     log_u64(LogLevel::info, "account", "profile_id", started.status.profile_id);
     log_u64(LogLevel::info, "account", "module_runtime_bytes", host.api.runtime_bytes());
     log_u64(LogLevel::info, "account", "ui_runtime_bytes", sizeof(AccountUiRuntime));
@@ -997,6 +1000,7 @@ bool application_account_prestart() noexcept {
         application_account_module_release();
         return false;
     }
+    application_startup_history_begin(early.started.status.profile_id);
     early.instance = g_app.account.instance;
     g_app.account.instance = nullptr;
     early.failed = false;
@@ -1012,6 +1016,7 @@ void application_account_prestart_cancel() noexcept {
         application_account_stop_observed(stopped, true);
         application_account_module_release();
     }
+    application_startup_history_reset();
     reset_value(&early);
 }
 
@@ -1090,6 +1095,7 @@ bool application_account_attach_if_present() noexcept {
         application_account_module_release();
         return true;
     }
+    application_startup_history_begin(started.status.profile_id);
     publish_started_account(paths, started);
     return true;
 }

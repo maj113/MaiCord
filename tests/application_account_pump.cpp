@@ -66,6 +66,9 @@ u64 application_thread_actions_next_wake() noexcept {
 u64 application_channel_prefetch_next_wake() noexcept {
     return 0;
 }
+u64 application_startup_history_next_wake() noexcept {
+    return 0;
+}
 void application_channel_snapshots_reset() noexcept {}
 void application_channel_snapshots_observe(void*, const GatewayClientEvent&, ConstSlice<u8>,
                                            MessageContentAvailability) noexcept {}

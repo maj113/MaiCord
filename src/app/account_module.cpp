@@ -731,7 +731,9 @@ RestClientSubmitResult WINAPI module_history_submit(void* instance, u64 channel_
                                                     const MessageHistoryQuery* query,
                                                     u64 request_id) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
-    RestClient* rest = module_rest(instance);
+    // The restored channel's first page may go out before READY.
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    RestClient* rest = runtime ? user_account_coordinator_startup_rest(&runtime->coordinator) : nullptr;
     if (!rest || !query || request_id == 0) {
         return invalid;
     }

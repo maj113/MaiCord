@@ -95,6 +95,10 @@ u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* 
                                                   u32 capacity) noexcept;
 RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator,
                                           bool details = false) noexcept;
+// The PRIMARY lane from start, before READY, for read-only startup history:
+// the request opens the connection while the Gateway handshake runs. The
+// client keeps its rate, restriction and rejection rules; takes still wait for READY.
+RestClient* user_account_coordinator_startup_rest(UserAccountCoordinator* coordinator) noexcept;
 RestClientTakeResult user_account_coordinator_take(UserAccountCoordinator* coordinator,
                                                    RestClientResponse* response,
                                                    Slice<u8> body) noexcept;

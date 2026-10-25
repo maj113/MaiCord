@@ -12,6 +12,7 @@
 #include "application_inbox.hpp"
 #include "application_downloads.hpp"
 #include "application_channel_snapshots.hpp"
+#include "application_startup_history.hpp"
 #include "application_commands.hpp"
 #include "application_settings.hpp"
 #include "application_theme_editor.hpp"
@@ -312,8 +313,10 @@ void application_release_account_ui(Application& application) noexcept {
     }
     message_composer_scene_set_caret_visible(&application.message_composer_scene, false);
     message_event_pump_reset(&application.message_pump);
-    if (&application == &g_app)
+    if (&application == &g_app) {
         application_channel_snapshots_reset();
+        application_startup_history_reset();
+    }
     message_view_runtime_unbind_rich_store(&application.message_view);
     renderer_unbind_media_atlas(&application.renderer);
     application.renderer.message_measure_cache = nullptr;

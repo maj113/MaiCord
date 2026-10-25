@@ -50,6 +50,7 @@
 #include "application_stream.hpp"
 #include "application_stage.hpp"
 #include "application_soundboard.hpp"
+#include "application_startup_history.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/protocol/writer.hpp"
@@ -889,8 +890,12 @@ static bool pump_message_history_main(bool admit) noexcept {
         g_app.message_history_request_owner != MessageHistoryRequestOwner::reply_refresh)
         message_history_reply_queue(&g_app.reply_refresh, g_app.message_view.timeline, reply_channel->id,
                                     now_ms);
+    // A startup page held until the restoration settled is presented as a
+    // PRIMARY response once it has.
+    const bool startup_replay = g_app.message_history_request_owner == MessageHistoryRequestOwner::none &&
+                                application_startup_history_replay_due();
     if (g_app.message_history_request_owner != MessageHistoryRequestOwner::none ||
-        g_app.details_request_owner != MessageHistoryRequestOwner::none) {
+        g_app.details_request_owner != MessageHistoryRequestOwner::none || startup_replay) {
         const bool emoji_buffer =
             g_app.message_history_request_owner == MessageHistoryRequestOwner::emoji_preferences;
         const bool favorites_buffer =
@@ -903,7 +908,9 @@ static bool pump_message_history_main(bool admit) noexcept {
         if (!body_output.data || !body_output.count)
             return false;
         RestClientResponse response{};
-        RestClientTakeResult taken = host.api.rest_take(host.instance, &response, body_output);
+        RestClientTakeResult taken = startup_replay
+                                         ? application_startup_history_replay(&response, body_output)
+                                         : host.api.rest_take(host.instance, &response, body_output);
         // Declared before the erase guard so the bank is erased, then released.
         LargeResponseBank large{};
         if (taken.error == RestClientTakeError::output_too_small && large.allocate(taken.body_bytes)) {
@@ -933,6 +940,17 @@ static bool pump_message_history_main(bool admit) noexcept {
             } else {
                 g_app.message_history_request_owner = MessageHistoryRequestOwner::none;
                 g_app.primary_request_id = 0;
+            }
+            // The restored channel's startup page is its latest-page catch-up.
+            if (owner == MessageHistoryRequestOwner::startup_history) {
+                const bool usable = taken.ok() && response.request_id == expected_id &&
+                                    response.body_bytes == taken.body_bytes;
+                const Utf8View startup_body =
+                    usable ? Utf8View{reinterpret_cast<const char*>(body_output.data), taken.body_bytes}
+                           : Utf8View{};
+                if (!application_startup_history_take(response, startup_body))
+                    return true;
+                owner = MessageHistoryRequestOwner::catchup;
             }
             // A hovered channel that was selected meanwhile takes its prefetch as
             // the latest-page catch-up instead of issuing a second request.

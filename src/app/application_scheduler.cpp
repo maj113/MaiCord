@@ -33,6 +33,7 @@
 #include "application_surface_motion.hpp"
 #include "application_channel_overview.hpp"
 #include "application_channel_snapshots.hpp"
+#include "application_startup_history.hpp"
 #include "application_background.hpp"
 #include "application_thread_actions.hpp"
 #include "application_thread_browser.hpp"
@@ -162,6 +163,7 @@ u64 application_next_wake_at_ms() noexcept {
     add(application_thread_actions_next_wake());
     add(application_search_navigation_next_wake());
     add(application_channel_prefetch_next_wake());
+    add(application_startup_history_next_wake());
     add(g_app.member_list_subscription.retry_at_ms);
     add(application_author_hydration_next_wake());
     add(application_mention_member_query_next_wake());

@@ -9,6 +9,7 @@
 #include "application_dm_profile_inactive.hpp"
 #include "../src/app/application_message_history.cpp"
 #include "../src/app/application_message_send.cpp"
+#include "application_startup_history.hpp"
 #include "application_composer_text_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_action_captcha_stubs.hpp"
@@ -24,7 +25,8 @@ u64 scoped_flight, scoped_response_id;
 u16 scoped_response_status;
 bool scoped_ready, scoped_busy;
 RestClientError scoped_response_error;
-u64 reaction_flight, last_send_id, last_history_id, last_response_id;
+u64 reaction_flight, last_send_id, last_history_id, last_response_id, last_history_channel;
+MessageHistoryQuery last_history_query{};
 u32 queued_reactions;
 bool busy_reaction, retired;
 u16 details_ready;
@@ -82,9 +84,12 @@ RestClientSubmitResult WINAPI send(void*, u64 channel, Utf8View content, u64 non
 }
 RestClientSubmitResult WINAPI history(void*, u64 channel, const MessageHistoryQuery* query,
                                       u64 id) noexcept {
-    check(channel == 7 && query && query->limit && id, "lower history submits an actual prepared query");
+    check((channel == 7 || channel == 8) && query && query->limit && id,
+          "lower history submits an actual prepared query");
     ++history_admissions;
     last_history_id = id;
+    last_history_channel = channel;
+    last_history_query = *query;
     return {};
 }
 void receipt(u64 id, u16 status = 204, Utf8View body = {},
@@ -475,6 +480,153 @@ void scoped_read_routing() noexcept {
               g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
           "resumed scope receives its exact successful body after lower-owner completion");
 }
+// Startup history needs a resident window that holds a whole latest page.
+MessageRecord startup_records[32];
+u32 startup_order[32], startup_heights[32];
+u64 startup_fenwick[32];
+u8 startup_text[8192];
+constexpr auto kStartupPage = utf8_literal(
+    R"([{"id":"1002","channel_id":"7","author":{"id":"11","username":"self"},"content":"b","timestamp":"2024-08-30T12:00:01Z"},)"
+    R"({"id":"1001","channel_id":"7","author":{"id":"11","username":"self"},"content":"a","timestamp":"2024-08-30T12:00:00Z"}])");
+// READY placed the restoration on channel_id and the channel session began its catch-up.
+bool settle_restoration(AccountUiRuntime& ui, u64 channel_id) noexcept {
+    auto& state = ui.chat_state;
+    state.restore_channel_id = state.restore_guild_id = 0;
+    state.selected_channel_id = channel_id;
+    ++state.selection_revision;
+    ui.observed_selection_revision = state.selection_revision;
+    ui.active_channel_id = channel_id;
+    reset_value(&g_app.message_catchup);
+    reset_value(&g_app.message_older);
+    auto& timeline = g_app.message_view.timeline;
+    if (!message_timeline_reset(&timeline) || !message_timeline_set_scroll(&timeline, 0, true))
+        return false;
+    g_app.message_pump.catchup_required = timeline.newer_refetch_required = true;
+    g_app.message_pump.resync_required = false;
+    return message_history_catchup_begin(&g_app.message_catchup, &g_app.message_pump, channel_id,
+                                         kMessageHistoryRequestLimit);
+}
+// Before READY the PRIMARY lane is not pumped: only submit and attach run.
+bool startup_submitted(u64 channel_id) noexcept {
+    g_app.account.status.running = false;
+    const u32 before = history_admissions;
+    const bool submitted = application_startup_history_submit(channel_id);
+    application_startup_history_attach();
+    return submitted && history_admissions == before + 1 && last_history_id == 1 &&
+           last_history_channel == channel_id && last_history_query.cursor == 0 &&
+           last_history_query.limit == kMessageHistoryRequestLimit &&
+           last_history_query.position == MessageHistoryPosition::latest &&
+           is_primary(MessageHistoryRequestOwner::startup_history, 1);
+}
+void startup_history(AccountUiRuntime& ui) noexcept {
+    auto& view = g_app.message_view;
+    view.timeline.rich_store = nullptr;
+    check(message_store_initialize(&view.store, {startup_records, 32}, {startup_order, 32},
+                                   {startup_text, sizeof(startup_text)}) &&
+              ui_variable_list_initialize(&view.list, {startup_heights, 32}, {startup_fenwick, 32}, 0, 100) &&
+              message_timeline_initialize(&view.timeline, &view.store, &view.list, 100, 100, true) &&
+              chat_state_store_upsert_channel(&ui.chat_state, {8, 0, 0, utf8_literal("other"), 0, 0, 1}).ok(),
+          "startup history: whole-page window and a second conversation");
+    auto* channel = const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, 7));
+    if (!channel)
+        return;
+    channel->last_message_id = 1002;
+    receipt_ready = false;
+    reset_value(&g_app.message_catchup);
+    g_app.message_history_request_owner = MessageHistoryRequestOwner::none;
+    g_app.primary_request_id = 0;
+
+    void* const instance = g_app.account.instance;
+    g_app.account.instance = nullptr;
+    u32 admissions = history_admissions;
+    check(!application_startup_history_submit(7) && history_admissions == admissions,
+          "startup history: nothing is requested without a started account");
+    g_app.account.instance = instance;
+    check(!application_startup_history_submit(0) && history_admissions == admissions,
+          "startup history: nothing is requested without a remembered channel");
+    application_startup_history_begin(0xFEEDFACE12345678ull);
+    check(history_admissions == admissions &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
+          "startup history: an account without channel memory requests nothing");
+
+    check(startup_submitted(7), "startup history: latest page is submitted before READY on PRIMARY");
+    ui.chat_state.restore_channel_id = 7;
+    receipt(1, 200, kStartupPage);
+    check(pump_message_history() && receipt_ready, "startup history: the response waits for READY");
+    g_app.account.status.running = true;
+    check(settle_restoration(ui, 7), "startup history: restored channel begins its catch-up");
+    admissions = history_admissions;
+    check(pump_message_history() && history_admissions == admissions && !receipt_ready &&
+              message_store_find(view.store, 1002).ok() && message_store_find(view.store, 1001).ok() &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
+              g_app.message_catchup.requests == 1 &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none,
+          "startup history: matching restoration applies the page as its catch-up without a second request");
+
+    check(startup_submitted(7), "startup history: resubmitted for the held case");
+    g_app.account.status.running = true;
+    ui.chat_state.restore_channel_id = 7;
+    receipt(1, 200, kStartupPage);
+    admissions = history_admissions;
+    check(pump_message_history() && !receipt_ready && history_admissions == admissions &&
+              g_app.message_history_request_owner == MessageHistoryRequestOwner::none &&
+              !application_startup_history_next_wake(),
+          "startup history: a page taken before the restoration settles is held and frees PRIMARY");
+    check(settle_restoration(ui, 7) && !message_store_find(view.store, 1002).ok() &&
+              application_startup_history_next_wake() == 1,
+          "startup history: settled restoration wakes the held page");
+    check(pump_message_history() && history_admissions == admissions &&
+              message_store_find(view.store, 1002).ok() &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::complete &&
+              !application_startup_history_next_wake(),
+          "startup history: held page is applied once as the catch-up");
+
+    check(startup_submitted(8), "startup history: remembered channel differs from the restored one");
+    g_app.account.status.running = true;
+    check(settle_restoration(ui, 7), "startup history: restoration lands on another channel");
+    receipt(1, 200, kStartupPage);
+    admissions = history_admissions;
+    check(pump_message_history() && history_admissions == admissions + 1 && last_history_channel == 7 &&
+              last_history_id != 1 && is_primary(MessageHistoryRequestOwner::catchup, last_history_id) &&
+              !message_store_find(view.store, 1002).ok(),
+          "startup history: a different selection drops the page and submits the normal request");
+    receipt(last_history_id, 200, kStartupPage);
+    check(pump_message_history() && message_store_find(view.store, 1002).ok(),
+          "startup history: the normal request then loads the selected channel");
+
+    check(startup_submitted(7), "startup history: resubmitted for the failure case");
+    g_app.account.status.running = true;
+    check(settle_restoration(ui, 7), "startup history: restoration matches before the failure");
+    receipt(1, 403, utf8_literal(R"({"code":50001})"));
+    admissions = history_admissions;
+    check(pump_message_history() && history_admissions == admissions + 1 &&
+              is_primary(MessageHistoryRequestOwner::catchup, last_history_id) &&
+              g_app.message_catchup.state == MessageHistoryCatchupState::awaiting_page,
+          "startup history: a failed request falls back to the normal request");
+    receipt(last_history_id, 200, kStartupPage);
+    check(pump_message_history() && message_store_find(view.store, 1002).ok(),
+          "startup history: the fallback request loads the channel");
+
+    check(startup_submitted(7), "startup history: resubmitted for the stale case");
+    g_app.account.status.running = true;
+    check(settle_restoration(ui, 7), "startup history: restoration matches a stale page");
+    channel->last_message_id = 2000;
+    receipt(1, 200, kStartupPage);
+    admissions = history_admissions;
+    check(pump_message_history() && history_admissions == admissions + 1 &&
+              is_primary(MessageHistoryRequestOwner::catchup, last_history_id) &&
+              !message_store_find(view.store, 1002).ok(),
+          "startup history: a short page older than the channel's last message falls back");
+    receipt(last_history_id, 200, kStartupPage);
+    pump_message_history();
+    channel->last_message_id = 1002;
+
+    check(startup_submitted(7), "startup history: resubmitted for reset");
+    application_startup_history_reset();
+    check(g_app.message_history_request_owner == MessageHistoryRequestOwner::none && !g_app.primary_request_id,
+          "startup history: reset releases the PRIMARY lane it owns");
+    g_app.account.status.running = true;
+}
 void run() noexcept {
     auto* ui = static_cast<AccountUiRuntime*>(
         VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -611,6 +763,7 @@ void run() noexcept {
     details_fairness(*ui);
     navigation_history_gate(*ui);
     scoped_read_routing();
+    startup_history(*ui);
     application_message_history_reset_reaction_turn();
     application_history_decode_storage_release(*ui);
     message_poll_store_release(&ui->message_poll_store);
