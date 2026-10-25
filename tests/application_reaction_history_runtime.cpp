@@ -502,7 +502,8 @@ bool settle_restoration(AccountUiRuntime& ui, u64 channel_id) noexcept {
     if (!message_timeline_reset(&timeline) || !message_timeline_set_scroll(&timeline, 0, true))
         return false;
     g_app.message_pump.catchup_required = timeline.newer_refetch_required = true;
-    g_app.message_pump.resync_required = false;
+    // READY with a pending restoration requests a resync.
+    g_app.message_pump.resync_required = true;
     return message_history_catchup_begin(&g_app.message_catchup, &g_app.message_pump, channel_id,
                                          kMessageHistoryRequestLimit);
 }

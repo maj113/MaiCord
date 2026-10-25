@@ -59,6 +59,8 @@ bool restoration_settled() noexcept {
 }
 
 // The catch-up the selected channel would submit is exactly the query sent.
+// READY with a pending restoration requests a resync, which only matters
+// when messages are retained.
 bool catchup_matches(u64 channel_id) noexcept {
     const AccountUiRuntime& ui = *g_app.account_ui;
     const MessageHistoryCatchup& catchup = g_app.message_catchup;
@@ -66,7 +68,8 @@ bool catchup_matches(u64 channel_id) noexcept {
            ui.chat_state.selected_channel_id == channel_id && catchup.channel_id == channel_id &&
            catchup.state == MessageHistoryCatchupState::request_required && catchup.cursor_after == 0 &&
            catchup.request_limit == kMessageHistoryRequestLimit && !g_app.pending_message_jump_message_id &&
-           !g_app.message_pump.resync_required && application_channel_readable(g_app, channel_id);
+           (!g_app.message_pump.resync_required || g_app.message_view.store.count == 0) &&
+           application_channel_readable(g_app, channel_id);
 }
 
 // A page that answered before READY can miss messages created before READY.
@@ -172,6 +175,7 @@ bool application_startup_history_take(const RestClientResponse& response, Utf8Vi
         finish("selection_changed", response);
         return false;
     }
+    g_app.message_pump.resync_required = false;
     finish("adopted", response);
     return true;
 }
