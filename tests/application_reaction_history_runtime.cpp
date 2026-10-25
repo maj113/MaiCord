@@ -701,6 +701,24 @@ void startup_shell_page(AccountUiRuntime& ui) noexcept {
               message_store_find(view.store, 1002).ok(),
           "startup shell page: the catch-up after READY completes the resync");
 
+    check(shell_shown(), "startup shell page: shown again for a full page");
+    receipt(1, 200, kStartupPage);
+    check(pump_message_history() && message_store_find(view.store, 1002).ok(),
+          "startup shell page: page applied before READY");
+    // A full page leaves its catch-up waiting for the next one.
+    g_app.message_catchup.state = MessageHistoryCatchupState::request_required;
+    g_app.account.status.running = true;
+    g_app.message_pump.resync_required = true;
+    application_startup_shell_ready();
+    admissions = history_admissions;
+    check(pump_message_history() && history_admissions == admissions + 1 && last_history_query.cursor == 1002 &&
+              last_history_query.position == MessageHistoryPosition::after &&
+              message_store_find(view.store, 1002).ok(),
+          "startup shell page: READY keeps a full page and asks only for newer messages");
+    receipt(last_history_id, 200, utf8_literal("[]"));
+    check(pump_message_history() && !g_app.message_pump.resync_required && message_store_find(view.store, 1002).ok(),
+          "startup shell page: the full page survives the resync");
+
     check(shell_shown(), "startup shell page: shown again for the lost-access case");
     receipt(1, 200, kStartupPage);
     check(pump_message_history() && message_store_find(view.store, 1002).ok(),

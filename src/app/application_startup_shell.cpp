@@ -249,10 +249,15 @@ void application_startup_shell_ready() noexcept {
     }
     // READY asks for a full resync of retained history. The page shown before
     // READY came from this session's handshake, as a held startup page would:
-    // when the restoration kept its channel, fetch only what is newer.
+    // when the restoration kept its channel, fetch only what is newer. A full
+    // page leaves its catch-up waiting for the next one.
+    const bool page_settled = catchup.state == MessageHistoryCatchupState::complete ||
+                              catchup.state == MessageHistoryCatchupState::request_required ||
+                              catchup.state == MessageHistoryCatchupState::paused ||
+                              catchup.state == MessageHistoryCatchupState::waiting_retry;
     if (channel == state.selected_channel_id && !state.restore_channel_id &&
         ui.observed_selection_revision == state.selection_revision && g_app.message_view.store.count &&
-        catchup.channel_id == channel && catchup.state == MessageHistoryCatchupState::complete) {
+        catchup.channel_id == channel && page_settled) {
         g_app.message_pump.catchup_required = true;
         if (!message_history_catchup_begin(&catchup, &g_app.message_pump, channel, kMessageHistoryRequestLimit))
             log_write(LogLevel::info, "shell", "startup_page_resynced");
