@@ -909,6 +909,7 @@ enum class Phase : u32 {
     member_list,
     churn,
     settings,
+    animation_scroll,
     idle_animated,
     idle_fx,
     idle_final,
@@ -918,8 +919,8 @@ enum class Phase : u32 {
     count
 };
 const char* const kPhaseNames[] = {"startup",     "history",     "idle_static", "scroll",    "switch",
-                                   "member_list", "churn",       "settings",    "idle_anim", "idle_fx",
-                                   "idle_final",  "idle_hidden", "report",      "done"};
+                                   "member_list", "churn",       "settings",    "anim_scroll", "idle_anim",
+                                   "idle_fx",     "idle_final",  "idle_hidden", "report",      "done"};
 
 constexpr u32 kFrameSampleCapacity = 8192;
 // Retained text and paint work: parser runs against cache hits, content text
@@ -950,6 +951,9 @@ struct PhaseStats {
     // and whether presentation was suspended (inactive window, reduced motion).
     u32 anim_entries, anim_visible;
     bool anim_suspended;
+    // Timeline frame advances during the phase and the most entries playing at once.
+    u64 anim_advances_begin, anim_advances;
+    u32 anim_visible_peak;
     u64 wakes, wake_timeouts, wake_frames, wake_messages, wake_handles;
     u64 presents;
     u64 draw_calls;
@@ -1097,6 +1101,7 @@ void begin_phase(Phase phase) noexcept {
     g_probe.phase = phase;
     trace(kPhaseNames[static_cast<u32>(phase)]);
     g_probe.phase_start_qpc = stats.begin.qpc;
+    stats.anim_advances_begin = g_app.animations.timeline.counters.due_advances;
     stats.text_begin = sample_text_work();
     stats.gpu_begin = sample_gpu_work();
     g_probe.actions = 0;
@@ -1115,6 +1120,7 @@ void end_phase() noexcept {
         stats.anim_visible += (timeline.entries[i].flags & animation_timeline_entry_occupied) &&
                               (timeline.entries[i].flags & animation_timeline_entry_visible);
     stats.anim_suspended = timeline.suspended;
+    stats.anim_advances = timeline.counters.due_advances - stats.anim_advances_begin;
 }
 void next_phase(Phase phase) noexcept {
     end_phase();
@@ -1166,6 +1172,9 @@ float message_x() noexcept {
 float member_x() noexcept {
     return client_width_dip() - static_cast<float>(g_app.member_pane_width) * 0.5f;
 }
+
+constexpr u32 kAnimationChannelIndex = 2;
+constexpr u32 kAnimationScrollNotches = 16;
 
 bool due(u64 interval_ms) noexcept {
     const u64 now = qpc_now();
@@ -1680,6 +1689,8 @@ void report_phase(Phase phase) noexcept {
     o.kv("anim_entries", stats.anim_entries);
     o.kv("anim_visible", stats.anim_visible);
     o.kv("anim_suspended", stats.anim_suspended);
+    o.kv("anim_advances", stats.anim_advances);
+    o.kv("anim_visible_peak", stats.anim_visible_peak);
     o.kv("ctxsw", stats.end.context_switches - stats.begin.context_switches);
     o.kv("ctxsw_main", stats.end.main_context_switches - stats.begin.main_context_switches);
     o.kv("draws", stats.draw_calls);
@@ -2658,7 +2669,8 @@ u64 phase_deadline_qpc() noexcept {
         const u64 next = g_probe.actions < 6 ? g_probe.next_action_qpc : at(3'800);
         return next > at(600) ? next : at(600);
     }
-    case Phase::idle_animated: return at(3'000);
+    case Phase::animation_scroll: return action(kAnimationScrollNotches, 3'000);
+    case Phase::idle_animated: return at(10'000);
     case Phase::idle_fx: return at(3'000);
     case Phase::idle_final: return at(4'000);
     case Phase::idle_hidden: return at(4'000);
@@ -2717,6 +2729,15 @@ bool probe_step_phases(int* exit_code) noexcept {
         const u64 now_ms = clock_monotonic_milliseconds();
         stats.next_pending += g_app.frame_pending;
         stats.next_timeline += animation_timeline_next_wake_at_us(&g_app.animations.timeline) != 0;
+        {
+            const auto& timeline = g_app.animations.timeline;
+            constexpr u32 kPlaying = animation_timeline_entry_occupied | animation_timeline_entry_visible;
+            u32 playing = 0;
+            for (u32 i = 0; timeline.entries && i < timeline.capacity; ++i)
+                playing += (timeline.entries[i].flags & kPlaying) == kPlaying;
+            if (playing > stats.anim_visible_peak)
+                stats.anim_visible_peak = playing;
+        }
         stats.next_effect += g_app.renderer.text_effect_animated ||
                              profile_scene_animating(g_app.renderer.profile_scene, now_ms);
         stats.next_spinner += app_detail::application_loading_spinner_wake() != 0;
@@ -2852,13 +2873,24 @@ bool probe_step_phases(int* exit_code) noexcept {
         }
         if (g_probe.actions >= 6 && phase_ms > 3'800) {
             app_detail::application_settings_close(false);
-            next_phase(Phase::idle_animated);
+            if (!select_channel(g_probe.lab_guild, perf_lab_text_channel(kAnimationChannelIndex)))
+                fail("select_animation_channel");
+            next_phase(Phase::animation_scroll);
         }
         break;
     }
+    case Phase::animation_scroll:
+        // A mixed channel without churn or typing: its newest messages are
+        // static, so scroll back to the GIFs and animated emoji.
+        if (g_probe.actions < kAnimationScrollNotches && due(45))
+            post_wheel(message_x(), client_height_dip() * 0.5f, WHEEL_DELTA);
+        if (g_probe.actions >= kAnimationScrollNotches && phase_ms > 3'000)
+            next_phase(Phase::idle_animated);
+        break;
     case Phase::idle_animated:
-        // The media channel with visible animations: the steady animation cost.
-        if (phase_ms > 3'000) {
+        // Two playing animations, nothing else: the steady animation cost.
+        // Animation frame rates are not scaled, so it runs a full second.
+        if (phase_ms > 10'000) {
             if (!select_channel(g_probe.lab_guild, g_probe.text_channel))
                 fail("select_text_channel_final");
             // The text channel under the built-in Stars effect: the steady

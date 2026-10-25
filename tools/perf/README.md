@@ -97,8 +97,9 @@ The offline workload always uses its synthetic account module and does not measu
 
 Each launch runs one window through these phases, in order: `startup` (process
 start to restored shell), `history`, `idle_static` (text-only channel), `scroll`,
-`switch` (channel switches), `member_list`, `churn`, `settings`, `idle_anim`
-(animated content visible), `idle_fx` (text channel under the built-in Stars
+`switch` (channel switches), `member_list`, `churn`, `settings`, `anim_scroll`
+(back to a mixed channel's GIFs), `idle_anim` (one second with two animations
+playing), `idle_fx` (text channel under the built-in Stars
 background effect), `idle_final` and `idle_hidden` (minimized; the end
 memory snapshot is taken before minimizing).
 
