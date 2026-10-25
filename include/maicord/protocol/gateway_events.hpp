@@ -43,6 +43,8 @@ struct GatewayReady {
     JsonValue read_state;
     JsonValue user_guild_settings, user_settings_proto, notification_settings;
     JsonValue auth_session_id_hash;
+    // Optional base64 QoS data for later identifies; a credential.
+    JsonValue qos_token;
     bool notification_policy_invalid;
 };
 

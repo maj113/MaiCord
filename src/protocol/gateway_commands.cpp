@@ -100,9 +100,11 @@ struct PropertySegment {
     bool raw;
 };
 
+// Properties of a user identify, or with identify null of the request-time
+// header. A fast-connect identify carries the page's reduced object.
 GatewayCommandWriteResult write_properties(const GatewayUserProperties& properties,
-                                           Utf8View identify_app_state, bool identify,
-                                           Slice<u8> output) noexcept {
+                                           const GatewayUserIdentify* identify, Slice<u8> output) noexcept {
+    const bool fast = identify && identify->fast_connect;
     if (properties.client_build_number == 0 || !launch_id_valid(properties.client_launch_id) ||
         (properties.launch_signature.bytes && !launch_id_valid(properties.launch_signature)) ||
         (properties.client_heartbeat_session_id.bytes &&
@@ -115,15 +117,23 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     const Utf8View native_text{
         native_build,
         properties.native_build_number ? decimal_write(native_build, properties.native_build_number) : 0u};
-    const Utf8View app_state =
-        identify && identify_app_state.bytes ? identify_app_state : properties.client_app_state;
-    const Utf8View heartbeat = properties.client_heartbeat_session_id;
+    const Utf8View app_state = fast                                      ? Utf8View{}
+                               : identify && identify->client_app_state.bytes ? identify->client_app_state
+                                                                             : properties.client_app_state;
+    const Utf8View heartbeat = fast ? Utf8View{} : properties.client_heartbeat_session_id;
+    const PropertySegment markers =
+        fast ? PropertySegment{utf8_literal(",\"is_fast_connect\":"), utf8_literal("true"), 0, true}
+        : identify
+            ? PropertySegment{utf8_literal(",\"is_fast_connect\":false,\"gateway_connect_reasons\":"),
+                              identify->connect_reasons.bytes ? identify->connect_reasons : utf8_literal("COLD_START"),
+                              kGatewayUserMaximumConnectReasonsBytes, false}
+            : PropertySegment{};
     const PropertySegment app_state_segment{utf8_literal(",\"client_app_state\":"), app_state,
                                             kGatewayUserMaximumAppStateBytes, false};
     const PropertySegment heartbeat_segment{utf8_literal(",\"client_heartbeat_session_id\":"), heartbeat,
                                             kGatewayUserLaunchIdBytes, false};
     // An app state the request-time object lacks follows its other properties.
-    const bool app_state_first = properties.app_state_first && properties.client_app_state.bytes;
+    const bool app_state_first = properties.app_state_first && properties.client_app_state.bytes && !fast;
     PropertySegment segments[] = {
         {utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes,
          false},
@@ -148,12 +158,11 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
         {utf8_literal(",\"client_build_number\":"), build_text, 0, true},
         {utf8_literal(",\"native_build_number\":"), native_text, 0, true},
         {utf8_literal(",\"client_event_source\":"), utf8_literal("null"), 0, true},
-        {utf8_literal(",\"launch_signature\":"), properties.launch_signature, kGatewayUserLaunchIdBytes,
-         false},
+        {utf8_literal(",\"launch_signature\":"), fast ? Utf8View{} : properties.launch_signature,
+         kGatewayUserLaunchIdBytes, false},
         app_state_first ? app_state_segment : heartbeat_segment,
         app_state_first ? heartbeat_segment : app_state_segment,
-        {utf8_literal(",\"is_fast_connect\":false,\"gateway_connect_reasons\":"),
-         identify ? utf8_literal("\"COLD_START\"") : Utf8View{}, 0, true},
+        markers,
     };
     constexpr u32 segment_count = static_cast<u32>(sizeof(segments) / sizeof(segments[0]));
     // Fields before client_build_number are required; later ones are omitted when empty.
@@ -200,11 +209,26 @@ GatewayCommandWriteResult write_properties(const GatewayUserProperties& properti
     return GatewayCommandWriteResult{offset, GatewayCommandError::none};
 }
 
+// Standard base64 with padding, as the client encodes the token.
+bool qos_token_valid(Utf8View token) noexcept {
+    if (!token.bytes)
+        return true;
+    if (!token.data || token.bytes > kGatewayUserMaximumQosTokenBytes || token.bytes % 4)
+        return false;
+    for (u32 i = 0; i < token.bytes; ++i) {
+        const char c = token.data[i];
+        const bool pad = c == '=' && i + 2 >= token.bytes && (i + 1 == token.bytes || token.data[i + 1] == '=');
+        if (!pad && !ascii_is_alnum(c) && c != '+' && c != '/')
+            return false;
+    }
+    return true;
+}
+
 } // namespace
 
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
                                                         Slice<u8> output) noexcept {
-    return write_properties(properties, {}, false, output);
+    return write_properties(properties, nullptr, output);
 }
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
@@ -213,7 +237,7 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     }
     const GatewayCommandWriteResult properties =
-        write_properties(identify.properties, identify.client_app_state, true, {});
+        write_properties(identify.properties, &identify, {});
     if (!properties.ok()) {
         return properties;
     }
@@ -239,15 +263,22 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     constexpr u32 presence_bytes = sizeof(",\"presence\":{\"status\":") - 1;
     constexpr u32 since_bytes = sizeof(",\"since\":") - 1;
     constexpr u32 afk_bytes = sizeof(",\"activities\":[],\"afk\":") - 1;
-    constexpr u32 suffix_bytes =
-        sizeof("},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}") - 1;
+    constexpr u32 suffix_bytes = sizeof("},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}") - 1;
+    constexpr u32 fast_suffix_bytes = sizeof(",\"client_state\":{\"guild_versions\":{}}}}") - 1;
+    constexpr u32 qos_bytes = sizeof(",\"qos_token\":\"\"") - 1;
+    if (!qos_token_valid(identify.qos_token))
+        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     const u32 capability_digits = decimal_digits(kGatewayUserCapabilitiesDefault);
     const u64 since = identify.has_since ? identify.since_ms : 0;
     const u32 since_digits = decimal_digits(since);
     const u32 afk_literal_bytes = identify.afk ? 4 : 5;
-    const u64 required = static_cast<u64>(prefix_bytes) + token.bytes + capabilities_bytes +
-                         capability_digits + properties.bytes + presence_bytes + status.bytes +
-                         since_bytes + since_digits + afk_bytes + afk_literal_bytes + suffix_bytes;
+    const u64 head = static_cast<u64>(prefix_bytes) + token.bytes + capabilities_bytes + capability_digits +
+                     properties.bytes;
+    const u64 required =
+        identify.fast_connect
+            ? head + fast_suffix_bytes
+            : head + presence_bytes + status.bytes + since_bytes + since_digits + afk_bytes + afk_literal_bytes +
+                  suffix_bytes + (identify.qos_token.bytes ? qos_bytes + identify.qos_token.bytes : 0);
     if (required > kGatewayUserMaximumCommandBytes) {
         return GatewayCommandWriteResult{0, GatewayCommandError::value_too_large};
     }
@@ -262,9 +293,11 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     decimal_write(output.data + offset, kGatewayUserCapabilitiesDefault);
     offset += capability_digits;
     write_literal(output.data, &offset, ",\"properties\":");
-    offset += write_properties(identify.properties, identify.client_app_state, true,
-                               {output.data + offset, properties.bytes})
-                  .bytes;
+    offset += write_properties(identify.properties, &identify, {output.data + offset, properties.bytes}).bytes;
+    if (identify.fast_connect) {
+        write_literal(output.data, &offset, ",\"client_state\":{\"guild_versions\":{}}}}");
+        return GatewayCommandWriteResult{offset, GatewayCommandError::none};
+    }
     // The presence in the desktop client's order; since is 0 unless idle.
     write_literal(output.data, &offset, ",\"presence\":{\"status\":");
     write_encoded(output.data, &offset, status);
@@ -272,7 +305,14 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     offset += decimal_write(output.data + offset, since);
     write_literal(output.data, &offset, ",\"activities\":[],\"afk\":");
     write_boolean(output.data, &offset, identify.afk);
-    write_literal(output.data, &offset, "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}");
+    write_literal(output.data, &offset, "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}");
+    if (identify.qos_token.bytes) {
+        write_literal(output.data, &offset, ",\"qos_token\":\"");
+        copy_bytes(output.data + offset, identify.qos_token.data, identify.qos_token.bytes);
+        offset += identify.qos_token.bytes;
+        write_literal(output.data, &offset, "\"");
+    }
+    write_literal(output.data, &offset, "}}");
     return GatewayCommandWriteResult{offset, GatewayCommandError::none};
 }
 

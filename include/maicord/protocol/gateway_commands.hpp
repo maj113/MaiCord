@@ -165,8 +165,17 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
 // tuple and claims no cached versions. Use the same client compatibility
 // properties as REST; client_build_number describes that protocol profile,
 // independently of MaiCord's binary version.
-// Its properties add the current client_app_state (replacing the request-time
-// one in place) and the desktop client's non-fast-connect markers.
+//
+// A launch's first identify is the desktop page's fast-connect one: token,
+// capabilities, the reduced properties (no launch signature, heartbeat session
+// or app state; the page's own client_launch_id) with is_fast_connect:true, and
+// client_state; no presence, compress or QoS token. Later identifies carry the
+// current client_app_state (replacing the request-time one in place),
+// is_fast_connect:false, gateway_connect_reasons (empty writes "COLD_START"),
+// the presence, compress:false, client_state and the base64 qos_token (empty
+// omits it).
+inline constexpr u32 kGatewayUserMaximumConnectReasonsBytes = 256;
+inline constexpr u32 kGatewayUserMaximumQosTokenBytes = 1024;
 struct GatewayUserIdentify {
     Utf8View token;
     GatewayUserProperties properties;
@@ -175,6 +184,9 @@ struct GatewayUserIdentify {
     bool has_since;
     bool afk;
     Utf8View client_app_state;
+    bool fast_connect;
+    Utf8View connect_reasons;
+    Utf8View qos_token;
 };
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,

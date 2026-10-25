@@ -344,6 +344,8 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
     } else if (json_string_equals_ascii(name, utf8_literal("auth_session_id_hash"))) {
         // Optional; identifies this session in the Devices list.
         ready.auth_session_id_hash = value;
+    } else if (json_string_equals_ascii(name, utf8_literal("qos_token"))) {
+        ready.qos_token = value;
     }
     return true;
 }

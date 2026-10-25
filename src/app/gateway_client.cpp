@@ -17,6 +17,7 @@
 #include "maicord/platform/random.hpp"
 #include "maicord/platform/tls_client.hpp"
 #include "maicord/protocol/gateway_endpoint.hpp"
+#include "maicord/protocol/gateway_qos_token.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/gateway_session.hpp"
 #include "maicord/protocol/gif_favorites.hpp"
@@ -72,6 +73,9 @@ inline constexpr u64 kPhaseTimeoutMs = 15'000;
 // Typed READY records are far smaller than the decoded READY; a larger
 // projection routes twice instead of staging.
 inline constexpr u32 kReadyStagingBytes = 16u * 1024u * 1024u;
+// The desktop client's connect reasons once its app skeleton has mounted,
+// which it has by any identify after the launch's fast-connect one.
+inline constexpr char kGatewayConnectReasons[] = "AppSkeleton";
 
 static_assert(kGatewayClientDispatchPayloadCapacity <= kHandshakeBytes - kMessageBytes,
               "Gateway dispatch output must fit in the disjoint scratch half");
@@ -239,6 +243,10 @@ template <u32 Capacity> struct GatewayUserTextStorage {
 
 struct GatewayUserRuntime {
     ZlibStreamInflater inflater;
+    // READY's QoS data, re-encoded for later identifies' qos_token.
+    u8 qos_derived[kGatewayQosDerivedMaximumBytes];
+    u32 qos_derived_bytes;
+    bool has_qos_derived;
     AccountProfileMetadata metadata;
     u64 since_ms;
     GatewayUserTextStorage<kGatewayUserMaximumOperatingSystemBytes> operating_system;
@@ -483,6 +491,33 @@ GatewayClientResult invalid_input_result() noexcept {
 
 template <u32 Capacity> Utf8View user_text(const GatewayUserTextStorage<Capacity>& text) noexcept {
     return Utf8View{text.data, text.bytes};
+}
+
+// The launch's first identify is the desktop page's fast-connect one; the
+// page's own module instance gives it a launch ID of its own.
+volatile LONG fast_connect_taken;
+bool take_fast_connect(char (&launch_id)[kGatewayUserLaunchIdBytes]) noexcept {
+    if (InterlockedCompareExchange(&fast_connect_taken, 1, 0) != 0)
+        return false;
+    u8 uuid[16];
+    if (!secure_random_fill(Slice<u8>{uuid, sizeof(uuid)}).ok())
+        return false;
+    uuid[6] = static_cast<u8>((uuid[6] & 0x0F) | 0x40);
+    uuid[8] = static_cast<u8>((uuid[8] & 0x3F) | 0x80);
+    u32 at = 0;
+    for (u32 i = 0; i < 16; ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10)
+            launch_id[at++] = '-';
+        launch_id[at++] = ascii_hex_digit(uuid[i] >> 4);
+        launch_id[at++] = ascii_hex_digit(uuid[i]);
+    }
+    SecureZeroMemory(uuid, sizeof(uuid));
+    return true;
+}
+
+// The heartbeat QoS activity identify reports (the upcoming state, else the current one).
+bool qos_active(const GatewayQosState& qos) noexcept {
+    return qos.has_upcoming ? qos.upcoming.active : qos.has_current && qos.current.active;
 }
 
 // heartbeat_id backs the request-time heartbeat session the live metadata reports.
@@ -1498,6 +1533,37 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
     return OutboundDrive::sending;
 }
 
+// The user identify into gateway_payload: the launch's first is the
+// fast-connect one, later ones carry the connect reasons and QoS token.
+GatewayCommandWriteResult write_user_identify_command(GatewayClientRuntime* runtime, Utf8View token) noexcept {
+    char heartbeat_id[kGatewayUserLaunchIdBytes];
+    char fast_connect_id[kGatewayUserLaunchIdBytes];
+    char qos_token[kGatewayQosTokenMaximumBytes];
+    auto identify = user_identify(*runtime->user, token, heartbeat_id);
+    if (take_fast_connect(fast_connect_id)) {
+        identify.fast_connect = true;
+        identify.properties.client_launch_id = {fast_connect_id, kGatewayUserLaunchIdBytes};
+    } else {
+        identify.connect_reasons = utf8_literal(kGatewayConnectReasons);
+        const GatewayUserRuntime& user = *runtime->user;
+        identify.qos_token = {qos_token, gateway_qos_token_write(qos_active(runtime->qos), user.has_qos_derived,
+                                                                 {user.qos_derived, user.qos_derived_bytes},
+                                                                 {qos_token, sizeof(qos_token)})};
+    }
+    AcquireSRWLockShared(&runtime->subscription_lock);
+    if (runtime->self_status.authoritative) {
+        identify.status = runtime->self_status.desired.status;
+        identify.since_ms = runtime->self_status.desired.since_ms;
+        identify.has_since = runtime->self_status.desired.has_since;
+        identify.afk = runtime->self_status.desired.afk;
+    }
+    ReleaseSRWLockShared(&runtime->subscription_lock);
+    const GatewayCommandWriteResult command =
+        gateway_write_user_identify(identify, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+    SecureZeroMemory(qos_token, sizeof(qos_token));
+    return command;
+}
+
 OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime* runtime,
                                      u64 now_ms) noexcept {
     if (runtime->send_purpose != SendPurpose::none) {
@@ -1521,18 +1587,7 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     const ConstSlice<u8> credential = secure_buffer_view(runtime->credential);
     const Utf8View token{reinterpret_cast<const char*>(credential.data), credential.count};
     if (next.action == GatewayLifecycleAction::send_identify && is_user(runtime)) {
-        char heartbeat_id[kGatewayUserLaunchIdBytes];
-        auto identify = user_identify(*runtime->user, token, heartbeat_id);
-        AcquireSRWLockShared(&runtime->subscription_lock);
-        if (runtime->self_status.authoritative) {
-            identify.status = runtime->self_status.desired.status;
-            identify.since_ms = runtime->self_status.desired.since_ms;
-            identify.has_since = runtime->self_status.desired.has_since;
-            identify.afk = runtime->self_status.desired.afk;
-        }
-        ReleaseSRWLockShared(&runtime->subscription_lock);
-        command = gateway_write_user_identify(
-            identify, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+        command = write_user_identify_command(runtime, token);
     } else if (next.action == GatewayLifecycleAction::send_resume && runtime->resume.valid) {
         const GatewayResume resume{token,
                                    Utf8View{runtime->resume.session_id, runtime->resume.session_id_bytes},
@@ -2092,6 +2147,15 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
             if (!gateway_client_ready_matches_identity(runtime->identity, event.ready)) {
                 return fail_plaintext(runtime, GatewayClientFailureStage::ready_identity);
+            }
+            if (is_user(runtime)) {
+                // A READY without one drops the stored data, as the client does.
+                JsonString qos{};
+                GatewayUserRuntime& user = *runtime->user;
+                user.has_qos_derived =
+                    json_value_as_string(event.ready.qos_token, &qos) && !qos.has_escapes &&
+                    gateway_qos_derived_from_ready(qos.encoded, {user.qos_derived, kGatewayQosDerivedMaximumBytes},
+                                                   &user.qos_derived_bytes);
             }
             GatewayResumeState captured_state{};
             const GatewayResumeCaptureError captured = gateway_resume_capture(

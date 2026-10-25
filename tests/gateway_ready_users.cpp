@@ -739,6 +739,57 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     zlib_stream_clear(&inflater);
     check(fresh_index(), "Gateway demand index fixture returns to one-page baseline");
 }
+
+// The launch's first identify is the fast-connect one with its own launch ID;
+// later ones carry the connect reasons and the QoS token from READY's data.
+void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
+    static GatewayUserRuntime user{};
+    GatewayUserClientConfiguration configuration{};
+    configuration.properties = GatewayUserProperties{
+        utf8_literal("Windows"), utf8_literal("Discord Client"), utf8_literal("stable"), utf8_literal("1.0.9256"),
+        utf8_literal("10.0.19045"), utf8_literal("x64"), utf8_literal("x64"), utf8_literal("en-US"),
+        utf8_literal("00112233-4455-6677-8899-aabbccddeeff"), utf8_literal("Agent"), utf8_literal("42.9.0"),
+        utf8_literal("19045"), 603738};
+    store_user_configuration(&user, configuration);
+    GatewayUserRuntime* const saved = runtime.user;
+    runtime.user = &user;
+    runtime.identity = GatewayClientIdentity::normal_user;
+    fast_connect_taken = 0;
+    constexpr auto head = utf8_literal(
+        R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":")");
+    constexpr auto tail = utf8_literal(
+        R"(","browser_user_agent":"Agent","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null,)");
+    const auto text = [](u32 offset) noexcept { return reinterpret_cast<const char*>(runtime.gateway_payload) + offset; };
+    const auto first = write_user_identify_command(&runtime, utf8_literal("t"));
+    constexpr auto fast_end = utf8_literal(R"("is_fast_connect":true},"client_state":{"guild_versions":{}}}})");
+    bool launch_id = true;
+    for (u32 i = 0; i < 36; ++i) {
+        const char c = text(head.bytes)[i];
+        launch_id = launch_id && ((i == 8 || i == 13 || i == 18 || i == 23) ? c == '-' : ascii_is_hex_digit(c));
+    }
+    check(first.ok() && first.bytes == head.bytes + 36 + tail.bytes + fast_end.bytes &&
+              bytes_equal(text(0), head.data, head.bytes) && launch_id && text(head.bytes)[14] == '4' &&
+              !bytes_equal(text(head.bytes), "00112233-4455-6677-8899-aabbccddeeff", 36) &&
+              bytes_equal(text(head.bytes + 36), tail.data, tail.bytes) &&
+              bytes_equal(text(head.bytes + 36 + tail.bytes), fast_end.data, fast_end.bytes),
+          "Gateway sends the fast-connect identify first, with its own launch ID");
+    const u8 derived[]{0x0a, 0x03, 'a', 'b', 'c'};
+    copy_bytes(user.qos_derived, derived, sizeof(derived));
+    user.qos_derived_bytes = sizeof(derived);
+    user.has_qos_derived = true;
+    runtime.qos.has_upcoming = true;
+    runtime.qos.upcoming = gateway_qos_payload(gateway_qos_foregrounded);
+    const auto second = write_user_identify_command(&runtime, utf8_literal("t"));
+    constexpr auto main_end = utf8_literal(
+        R"("is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIARIFCgNhYmM="}})");
+    check(second.ok() && second.bytes == head.bytes + 36 + tail.bytes + main_end.bytes &&
+              bytes_equal(text(head.bytes), "00112233-4455-6677-8899-aabbccddeeff", 36) &&
+              bytes_equal(text(head.bytes + 36 + tail.bytes), main_end.data, main_end.bytes),
+          "Gateway later identifies carry the app's connect reasons and QoS token");
+    SecureZeroMemory(runtime.gateway_payload, sizeof(runtime.gateway_payload));
+    runtime.qos = {};
+    runtime.user = saved;
+}
 }
 void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace ready_probe;
@@ -770,6 +821,7 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     worker_projection(check);
     oversized_record(check);
     failure_receipt(check);
+    identify_sequence(check);
     release();
     check(!runtime.structural_scratch.arena.base && !runtime.structural_scratch.capacity &&
         !runtime.structural_scratch.reserved_capacity, "Gateway index teardown releases and clears the owner descriptor");

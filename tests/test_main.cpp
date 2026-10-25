@@ -88,6 +88,7 @@
 #include "maicord/protocol/cdn_url.hpp"
 #include "maicord/protocol/cdn_http.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
+#include "maicord/protocol/gateway_qos_token.hpp"
 #include "maicord/protocol/gateway_endpoint.hpp"
 #include "maicord/protocol/gateway_events.hpp"
 #include "maicord/protocol/gateway_lifecycle.hpp"
@@ -22896,6 +22897,71 @@ void test_gateway_commands() noexcept {
                                        MAICORD_TEST_PROPERTIES_HEAD
                                        R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"COLD_START"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}}}})")),
            "gateway_user_identify_appends_absent_app_state");
+    // Later identifies: the connect reasons the client counted and its QoS token.
+    live_identify.connect_reasons = utf8_literal("AppSkeleton");
+    live_identify.qos_token = utf8_literal("CgIIAQ==");
+    expect(identify_equal(live_identify,
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":)"
+                                       MAICORD_TEST_PROPERTIES_HEAD
+                                       R"(,"client_app_state":"focused","is_fast_connect":false,"gateway_connect_reasons":"AppSkeleton"},"presence":{"status":"online","since":0,"activities":[],"afk":false},"compress":false,"client_state":{"guild_versions":{}},"qos_token":"CgIIAQ=="}})")),
+           "gateway_user_identify_connect_reasons_and_qos_token");
+    live_identify.qos_token = utf8_literal("CgII AQ=");
+    expect(gateway_write_user_identify(live_identify, Slice<u8>{output, static_cast<u32>(sizeof(output))}).error ==
+               GatewayCommandError::invalid_input,
+           "gateway_user_identify_qos_token_validation");
+    // The fast-connect identify: the page's reduced properties (no launch
+    // signature, heartbeat session or app state), no presence, compress or
+    // QoS token.
+    live_identify.properties.client_heartbeat_session_id = utf8_literal("ffeeddcc-bbaa-4998-8776-655443322110");
+    live_identify.properties.client_app_state = utf8_literal("unfocused");
+    live_identify.properties.app_state_first = true;
+    live_identify.properties.client_launch_id = utf8_literal("99887766-5544-4332-a110-ffeeddccbbaa");
+    live_identify.fast_connect = true;
+    live_identify.has_since = true;
+    live_identify.since_ms = 1759800000000ull;
+    live_identify.qos_token = utf8_literal("CgIIAQ==");
+    expect(identify_equal(live_identify,
+                          byte_literal(R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"99887766-5544-4332-a110-ffeeddccbbaa","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"native_build_number":96160,"client_event_source":null,"is_fast_connect":true},"client_state":{"guild_versions":{}}}})")),
+           "gateway_user_identify_fast_connect");
+    {
+        u8 measured[2048];
+        const auto fast = gateway_write_user_identify(live_identify, Slice<u8>{measured, sizeof(measured)});
+        expect(fast.ok() && gateway_write_user_identify(live_identify, Slice<u8>{measured, fast.bytes - 1}).error ==
+                                GatewayCommandError::output_too_small,
+               "gateway_user_identify_fast_connect_output_bound");
+    }
+    // QoS tokens: client_provided {is_active}, then the READY data re-encoded
+    // in field order with unknown fields last.
+    {
+        char token[kGatewayQosTokenMaximumBytes];
+        u8 derived[kGatewayQosDerivedMaximumBytes];
+        const u32 idle = gateway_qos_token_write(false, false, {}, {token, sizeof(token)});
+        expect(idle == 4 && maicord::bytes_equal(token, "CgA=", 4), "gateway_qos_token_idle");
+        const u32 active = gateway_qos_token_write(true, false, {}, {token, sizeof(token)});
+        expect(active == 8 && maicord::bytes_equal(token, "CgIIAQ==", 8), "gateway_qos_token_active");
+        const u8 canonical[] = {0x0a, 0x03, 'a', 'b', 'c', 0x12, 0x02, 'x', 'y', 0x18, 0x07, 0x20, 0x05};
+        u32 reordered = 0;
+        expect(gateway_qos_derived_from_ready(utf8_literal("GAcgBQoDYWJjEgJ4eQ=="), {derived, sizeof(derived)},
+                                              &reordered) &&
+                   reordered == sizeof(canonical) && maicord::bytes_equal(derived, canonical, sizeof(canonical)),
+               "gateway_qos_derived_reencoded");
+        const u32 with_derived = gateway_qos_token_write(true, true, {derived, reordered}, {token, sizeof(token)});
+        expect(with_derived == 28 && maicord::bytes_equal(token, "CgIIARINCgNhYmMSAnh5GAcgBQ==", 28),
+               "gateway_qos_token_with_derived");
+        // An empty message is still sent (as an empty derived field).
+        u32 empty = 1, key_only = 0, unused = 0;
+        expect(gateway_qos_derived_from_ready(utf8_literal("CgA="), {derived, sizeof(derived)}, &empty) && empty == 0 &&
+                   gateway_qos_token_write(false, true, {derived, 0}, {token, sizeof(token)}) == 8 &&
+                   maicord::bytes_equal(token, "CgASAA==", 8),
+               "gateway_qos_token_empty_derived");
+        expect(!gateway_qos_derived_from_ready(utf8_literal("CgNhYmMSAnh5GAc"), {derived, sizeof(derived)}, &unused) &&
+                   gateway_qos_derived_from_ready(utf8_literal("GAo="), {derived, sizeof(derived)}, &key_only) &&
+                   key_only == 2 &&
+                   !gateway_qos_derived_from_ready(utf8_literal("Cg=="), {derived, sizeof(derived)}, &unused) &&
+                   !gateway_qos_derived_from_ready(utf8_literal("EgB4"), {derived, sizeof(derived)}, &unused) &&
+                   gateway_qos_token_write(true, false, {}, {token, 7}) == 0,
+               "gateway_qos_token_invalid_inputs");
+    }
 #undef MAICORD_TEST_PROPERTIES_HEAD
     live_properties.launch_signature = utf8_literal("10203040-5060-4708-9090-a0b0c0d0e0fg");
     expect(gateway_write_user_properties(live_properties, {}).error == GatewayCommandError::invalid_input,
