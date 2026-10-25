@@ -35,7 +35,7 @@ void project_audit(Bank& bank) noexcept {
     else if (p.failed && p.status.bytes)
         push_error({}, p.status);
     else if (!p.audit_complete && !p.audit_count)
-        push_loading(utf8_literal("Loading the audit logÃ¢â‚¬Â¦"));
+        push_loading(utf8_literal("Loading the audit log…"));
     push_category(control_list_category, utf8_literal("Recent actions"));
     if (p.audit_complete && !p.audit_count)
         push_notice(utf8_literal("No matching actions."));
@@ -72,7 +72,7 @@ void project_audit(Bank& bank) noexcept {
         const u32 detail = bank.used;
         relative_time(bank, (entry.id >> 22) + kSnowflakeEpochMilliseconds, now, false);
         if (entry.reason_bytes) {
-            bank.add(utf8_literal(" Ã‚Â· "));
+            bank.add(utf8_literal(" · "));
             bank.add({entry.reason, entry.reason_bytes});
         }
         const auto description = bank.since(detail);
@@ -88,7 +88,7 @@ void project_audit(Bank& bank) noexcept {
     }
     // Older actions load when this row scrolls into view.
     if (p.audit_count && !p.audit_complete)
-        push_loading(utf8_literal("Loading older actionsÃ¢â‚¬Â¦"), control_more);
+        push_loading(utf8_literal("Loading older actions…"), control_more);
 }
 
 void reset_audit() noexcept {

@@ -135,7 +135,7 @@ bool save(CustomThemeOwner& o) noexcept {
     o.saving = true;
     o.save_request = o.applied;
     o.save_failed = false;
-    o.status = utf8_literal("Saving themeâ€¦");
+    o.status = utf8_literal("Saving theme…");
     changed(o);
     return true;
 }
@@ -219,7 +219,7 @@ bool start_import(CustomThemeOwner& o) noexcept {
     }
     o.importing = true;
     o.read_failed = false;
-    o.status = utf8_literal("Loading themeâ€¦");
+    o.status = utf8_literal("Loading theme…");
     changed(o);
     return true;
 }
