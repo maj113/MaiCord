@@ -89,7 +89,7 @@ bool twitch_live_fetch_probe() noexcept {
     const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     valid = valid && event;
     AccountVideoSession session{}; const AccountVideoIdentity identity{1, 2, 3, 4, 0, 1, 0};
-    struct Feed { AccountMedia* media; bool valid{true}; u32 playlists[2]{}; } feed{media};
+    struct Feed { AccountMedia* media; bool valid{true}; u32 playlists[2]{}, routed[2]{}; } feed{media};
     u32 frames = 0; u64 epoch = 0, prior_written = 0;
     const u64 deadline = GetTickCount64() + 12000;
     while (valid && GetTickCount64() < deadline) {
@@ -100,6 +100,10 @@ bool twitch_live_fetch_probe() noexcept {
                 const u32 index = video->inflight_id == response.request_id ? 0 : 1;
                 const auto* owner = index ? f.media->progressive_audio : video;
                 const bool playlist = owner->host == CdnHost::twitch_playlist;
+                EmbedStreamLocation location{};
+                const bool routed = !playlist && embed_stream_location(CdnHost::twitch_live,
+                    {reinterpret_cast<const char*>(owner->target), owner->target_bytes}, &location) &&
+                    utf8_starts_with(location.target, utf8_literal("/s"));
                 const auto accepted = account_media_accept_progressive(f.media, response, body);
                 if (accepted == ProgressiveVideoAccept::failed) {
                     test_write_metric("Twitch failed response track: ", index);
@@ -112,6 +116,7 @@ bool twitch_live_fetch_probe() noexcept {
                 }
                 f.valid = accepted != ProgressiveVideoAccept::failed;
                 if (playlist && accepted == ProgressiveVideoAccept::progress) ++f.playlists[index];
+                if (routed && accepted == ProgressiveVideoAccept::progress) ++f.routed[index];
                 return true;
             }, &feed);
         valid = feed.valid;
@@ -177,6 +182,8 @@ bool twitch_live_fetch_probe() noexcept {
         test_write_metric("Twitch live decoded height: ", media->progressive->fragment.track.height);
     test_write_metric("Twitch live video refreshes: ", feed.playlists[0]);
     test_write_metric("Twitch live audio refreshes: ", feed.playlists[1]);
+    test_write_metric("Twitch live routed video files: ", feed.routed[0]);
+    test_write_metric("Twitch live routed audio files: ", feed.routed[1]);
     test_write_metric("Twitch live consumed PCM: ", account_video_session_audio_progress(&session).consumed_frames);
     if(media&&media->progressive&&media->progressive_audio&&media->progressive->segmented&&media->progressive_audio->segmented) {
         u32 committed=0,peak=0;

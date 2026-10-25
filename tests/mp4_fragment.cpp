@@ -582,7 +582,9 @@ void live_fetch_tests() noexcept {
         protocol_writer_append_u64(&w, 100 + first);
         protocol_writer_append_literal(&w, "\n#EXT-X-MAP:URI=\"https://example.hls.ttvnw.net/v1/segment/init.mp4\"\n");
         for (u32 i = first; i < first + 5; ++i) {
-            protocol_writer_append_literal(&w, "#EXTINF:0.032552,\nhttps://example.hls.ttvnw.net/v1/segment/");
+            protocol_writer_append_literal(&w, "#EXTINF:0.032552,\nhttps://example.hls.ttvnw.net");
+            if (i & 1) protocol_writer_append_literal(&w, "/s1");
+            protocol_writer_append_literal(&w, "/v1/segment/");
             protocol_writer_append_u64(&w, broken ? i + 10 : i); protocol_writer_append_literal(&w, ".mp4\n");
         }
         if (ended) protocol_writer_append_literal(&w, "#EXT-X-ENDLIST\n");
@@ -641,7 +643,8 @@ void live_fetch_tests() noexcept {
     const auto next = progressive_video_fetch_next(f, false, 104);
     const Utf8View target{reinterpret_cast<char*>(f->target), f->target_bytes};
     check(next.step == ProgressiveVideoStep::submit && next.range.bytes && f->host == CdnHost::twitch_live &&
-        utf8_equal(target, utf8_literal("https://example.hls.ttvnw.net/v1/segment/3.mp4")), "live ordinal mapping survives discarded playlist entries");
+        utf8_equal(target, utf8_literal("https://example.hls.ttvnw.net/s1/v1/segment/3.mp4")),
+        "live ordinal mapping preserves mixed delivery shards through startup and sliding refreshes");
     progressive_video_fetch_submitted(f, ++serial, next.range); const auto media = stored_segment(3);
     check(reply(media.view()) == ProgressiveVideoAccept::progress, "live media returns to the media response path after playlist refresh");
     check(refresh(105), "live next refresh is scheduled after a changed snapshot");

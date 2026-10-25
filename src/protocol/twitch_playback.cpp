@@ -148,13 +148,22 @@ bool twitch_live_location(Utf8View url, bool playlist, EmbedStreamLocation* outp
     const Utf8View target{url.data + end, url.bytes - end};
     const auto prefix = playlist ? utf8_literal("/v1/playlist/") : utf8_literal("/v1/segment/");
     const auto extension = playlist ? utf8_literal(".m3u8") : transport ? utf8_literal(".ts") : utf8_literal(".mp4");
-    if (!utf8_starts_with(target, prefix)) return false;
-    u32 path_end = prefix.bytes;
+    // Live media can carry a delivery shard before the versioned route.
+    // Retain it in the request target: it is part of the advertised URL.
+    u32 route = 0;
+    if (!playlist && utf8_starts_with(target, utf8_literal("/s"))) {
+        route = 2;
+        while (route < target.bytes && ascii_is_digit(target.data[route])) ++route;
+        if (route == 2) return false;
+    }
+    if (!utf8_starts_with({target.data + route, target.bytes - route}, prefix)) return false;
+    const u32 key_begin = route + prefix.bytes;
+    u32 path_end = key_begin;
     while (path_end < target.bytes && target.data[path_end] != '?') ++path_end;
-    if (path_end <= prefix.bytes + extension.bytes ||
+    if (path_end <= key_begin + extension.bytes ||
         !utf8_equal({target.data + path_end - extension.bytes, extension.bytes}, extension)) return false;
     u32 padding = 0;
-    for (u32 i = prefix.bytes; i < path_end - extension.bytes; ++i) {
+    for (u32 i = key_begin; i < path_end - extension.bytes; ++i) {
         const char c = target.data[i];
         if (c == '=') { if (++padding > 2) return false; }
         // Twitch uses both URL-safe and standard base64 in opaque media keys.

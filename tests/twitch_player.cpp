@@ -192,6 +192,32 @@ void live() noexcept {
     check(twitch_live_location(transport,false,nullptr,true) && !twitch_live_location(transport,false) &&
         !twitch_live_location(media,false,nullptr,true) && embed_stream_location(CdnHost::twitch_live,transport),
         "transport media uses the same owned host boundary with an explicit TS extension");
+    constexpr auto routed = utf8_literal("https://example.hls.ttvnw.net/s1/v1/segment/abc_DEF+123==.ts?dna=abc%3D");
+    EmbedStreamLocation location{};
+    check(twitch_live_location(routed, false, &location, true) &&
+        utf8_equal(location.host, utf8_literal("example.hls.ttvnw.net")) &&
+        utf8_equal(location.target, utf8_literal("/s1/v1/segment/abc_DEF+123==.ts?dna=abc%3D")) &&
+        embed_stream_location(CdnHost::twitch_live, routed) && !twitch_live_location(routed, true),
+        "live delivery shards preserve the complete media target and its query");
+    check(twitch_live_location(utf8_literal("https://example.hls.ttvnw.net/s12/v1/segment/key.mp4"), false) &&
+        !twitch_live_location(utf8_literal("https://example.playlist.ttvnw.net/s1/v1/playlist/key.m3u8"), true),
+        "numeric delivery shards apply only to media routes");
+    const u32 routed_bytes = embed_stream_get(CdnHost::twitch_live, routed, 0, 188, {body, sizeof(body)});
+    check(routed_bytes && utf8_starts_with({reinterpret_cast<char*>(body), routed_bytes},
+        utf8_literal("GET /s1/v1/segment/abc_DEF+123==.ts?dna=abc%3D HTTP/1.1\r\n")),
+        "native CDN requests retain the advertised delivery shard without rewriting its signed key");
+    constexpr Utf8View bad_routes[]{
+        utf8_literal("https://x.hls.ttvnw.net/s/v1/segment/key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s-1/v1/segment/key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s1evil/v1/segment/key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s1//v1/segment/key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s1/../v1/segment/key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s1/v2/segment/key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s1/v1/segment/../key.ts"),
+        utf8_literal("https://x.hls.ttvnw.net/s1/v1/segment/a=b/c.ts"),
+        utf8_literal("https://x.hls.ttvnw.net.evil.test/s1/v1/segment/key.ts")};
+    for (auto url : bad_routes) check(!twitch_live_location(url, false, nullptr, true),
+        "delivery shards cannot bypass host, version, traversal or key validation");
     constexpr char ts_response[]="HTTP/1.1 200 OK\r\nContent-Type: video/MP2T; codecs=avc1\r\nContent-Length: 188\r\n\r\n";
     const ConstSlice<u8> ts_head{reinterpret_cast<const u8*>(ts_response),sizeof(ts_response)-1};
     check(validate_cdn_range_response(CdnImageType::mpeg_ts,ts_head,188,{0,1024},1000,CdnHost::twitch_live).ok() &&

@@ -181,7 +181,7 @@ void live_resolver_test() noexcept {
             : call == 3 && c.deny ? utf8_literal("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\n")
             : utf8_literal("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:6\n#EXT-X-MEDIA-SEQUENCE:123\n"
                 "#EXT-X-MAP:URI=\"https://example.hls.ttvnw.net/v1/segment/init.mp4\"\n"
-                "#EXTINF:2,\nhttps://example.hls.ttvnw.net/v1/segment/one.mp4\n");
+                "#EXTINF:2,\nhttps://example.hls.ttvnw.net/s1/v1/segment/one.mp4\n");
         response->status = 200;
         return request.sink(request.sink_context, {reinterpret_cast<const u8*>(body.data), body.bytes}) ? UpdateTransportError::none : UpdateTransportError::sink;
     };
