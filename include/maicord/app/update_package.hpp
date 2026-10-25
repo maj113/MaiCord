@@ -4,7 +4,7 @@
 
 namespace maicord {
 
-inline constexpr u32 kUpdatePackageReadBufferBytes = 4096;
+inline constexpr u32 kUpdatePackageReadBufferBytes = 32 * 1024;
 inline constexpr u32 kUpdatePackageMaximumSections = 96;
 inline constexpr u64 kUpdatePackageMaximumBytes = 0xfffffffeull;
 // A package carries 1 to 4 stored members; the first is the launch target.
@@ -87,7 +87,7 @@ struct UpdatePackageOffer {
 // snapshot. The trusted policy/key originate in enrollment, not offer text.
 // Before creating any output: authenticates outer SHA256, checks all ZIP
 // metadata/CRC/nonoverlap, member names and offline AMD64 images for .exe and
-// .dll members. Streams fixed 4096-byte chunks; no heap/archive runtime/code
+// .dll members. Streams fixed 32 KiB chunks; no heap/archive runtime/code
 // execution. Flushes, seals and independently hashes/PE-checks every readback
 // file before returning. Source cursor is borrowed and serialized.
 // Inputs/buffers/output must be disjoint; output is zero initialized, owns no

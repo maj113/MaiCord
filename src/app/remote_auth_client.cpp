@@ -87,11 +87,11 @@ template <usize Count> ConstSlice<u8> bytes(const char (&text)[Count]) noexcept 
 }
 
 template <typename T> T load_field(const volatile LONG& field) noexcept {
-    return static_cast<T>(InterlockedCompareExchange(const_cast<volatile LONG*>(&field), 0, 0));
+    return static_cast<T>(read_acquire(&field));
 }
 
 u64 load_field64(const volatile LONG64& field) noexcept {
-    return static_cast<u64>(InterlockedCompareExchange64(const_cast<volatile LONG64*>(&field), 0, 0));
+    return static_cast<u64>(read_acquire(&field));
 }
 
 RemoteAuthClientPhase load_phase(const RemoteAuthClient* client) noexcept {
@@ -165,7 +165,7 @@ void publish_failure(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
 }
 
 bool stop_requested(const RemoteAuthClient* client) noexcept {
-    return InterlockedCompareExchange(const_cast<volatile LONG*>(&client->stop_requested), 0, 0) != 0;
+    return read_acquire(&client->stop_requested) != 0;
 }
 
 bool accept_receive(RemoteAuthClientRuntime* runtime, const NetworkCompletion& completion,
@@ -773,7 +773,7 @@ void drain_transport(RemoteAuthClientRuntime* runtime) noexcept {
         network_connection_close(&runtime->connection);
     }
     while (remaining_socket != 0 || runtime->resolver.pending ||
-           InterlockedCompareExchange(&runtime->cancel_signal.pending, 0, 0) != 0) {
+           read_acquire(&runtime->cancel_signal.pending) != 0) {
         const NetworkPollResult polled = network_loop_poll(&runtime->loop, INFINITE);
         if (polled.state != NetworkPollState::completion) {
             continue;
@@ -1040,7 +1040,7 @@ RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient* client) noexc
     SetEvent(client->cancel_event);
     ReleaseSRWLockExclusive(client->snapshot_lock.native());
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
-    if (InterlockedCompareExchange(&runtime->loop_ready, 0, 0) != 0) {
+    if (read_acquire(&runtime->loop_ready) != 0) {
         network_signal_post(&runtime->loop, &runtime->cancel_signal, kCancelSignalValue);
     }
     return client_result(client);
@@ -1061,7 +1061,7 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
         InterlockedExchange(&client->stop_requested, 1);
         SetEvent(client->cancel_event);
         auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
-        if (InterlockedCompareExchange(&runtime->loop_ready, 0, 0) != 0) {
+        if (read_acquire(&runtime->loop_ready) != 0) {
             network_signal_post(&runtime->loop, &runtime->cancel_signal, kCancelSignalValue);
         }
     }
@@ -1083,7 +1083,7 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
         // Merge only the terminal receipt, without replacing prior diagnostics.
         AcquireSRWLockExclusive(client->snapshot_lock.native());
         InterlockedExchange(&client->http_status, 429);
-        const u64 previous = static_cast<u64>(InterlockedCompareExchange64(&client->retry_at_ms, 0, 0));
+        const u64 previous = static_cast<u64>(read_acquire(&client->retry_at_ms));
         InterlockedExchange64(&client->retry_at_ms,
                               static_cast<LONG64>(maximum(previous, ticket_stopped.retry_at_ms)));
         ReleaseSRWLockExclusive(client->snapshot_lock.native());
@@ -1198,7 +1198,7 @@ RemoteAuthClientResult remote_auth_client_submit_captcha(RemoteAuthClient* clien
 
 HANDLE remote_auth_client_notification_handle(const RemoteAuthClient* client) noexcept {
     if (client && client->thread && load_phase(client) == RemoteAuthClientPhase::authenticated &&
-        InterlockedCompareExchange(const_cast<volatile LONG*>(&client->token_taken), 0, 0) == 0)
+        read_acquire(&client->token_taken) == 0)
         return client->thread;
     return client ? client->notification_event : nullptr;
 }

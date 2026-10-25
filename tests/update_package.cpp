@@ -23,7 +23,7 @@ constexpr u32 kMembers = 3, kNotesBytes = 64;
 constexpr const char* kNames[kMembers]{"MaiCord.exe", "codec.dll", "notes.txt"};
 constexpr u32 kNameBytes[kMembers]{11, 9, 9};
 struct ZipLayout { u32 bytes, local[kMembers], data[kMembers], central[kMembers], sizes[kMembers], end; };
-ZipLayout fixture(u8* out, u32 members = kMembers) noexcept {
+ZipLayout fixture(u8* out, u32 members = kMembers, u32 notes = kNotesBytes) noexcept {
     SecureZeroMemory(out, 4096);
     ZipLayout z{}; u32 offset = 0, crcs[kMembers]{};
     for (u32 i = 0; i < members; ++i) {
@@ -31,7 +31,7 @@ ZipLayout fixture(u8* out, u32 members = kMembers) noexcept {
         put32(h, 0x04034b50); put16(h + 4, 20); put16(h + 26, static_cast<u16>(kNameBytes[i]));
         copy_bytes(h + 30, kNames[i], kNameBytes[i]); z.data[i] = offset + 30 + kNameBytes[i];
         if (i < 2) z.sizes[i] = pe(out + z.data[i], i == 1);
-        else { z.sizes[i] = kNotesBytes; for (u32 b = 0; b < kNotesBytes; ++b) out[z.data[i] + b] = static_cast<u8>('a' + b % 26); }
+        else { z.sizes[i] = notes; for (u32 b = 0; b < notes; ++b) out[z.data[i] + b] = static_cast<u8>('a' + b % 26); }
         crcs[i] = crc32(out + z.data[i], z.sizes[i]);
         put32(h + 14, crcs[i]); put32(h + 18, z.sizes[i]); put32(h + 22, z.sizes[i]);
         offset = z.data[i] + z.sizes[i];
@@ -140,7 +140,7 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     const bool crypto = kdf_sha256_initialize(&workspace).ok() && p256_import_private(&signer, P256Kind::ecdsa, {scalar, 32}).ok() &&
         p256_export_public(signer, {point, 65}).ok() && p256_import_public(&key, P256Kind::ecdsa, {point, 65}).ok();
     check(crypto, "package: independent fixture signing/trusted key initializes"); if (!crypto) return;
-    u8 bytes[4096]{}; char text[512]{}; u32 scratch[256]{}; u64 version = 6;
+    u8 storage[4096]{}; u8* bytes = storage; char text[512]{}; u32 scratch[256]{}; u64 version = 6;
     UpdatePackageOffer offer{}; UpdateManifestPolicy policy{4, 0, 100, 65536, 1000, UpdateChannel::stable};
     const UpdatePackageTarget destination{&target, validate, create, seal};
     auto admit = [&](u32 count) noexcept {
@@ -286,5 +286,20 @@ void test_update_package(void (*check)(bool, const char*) noexcept) noexcept {
     }
     target.fail_seal = false; target.protected_close = false;
     fixture(bytes); check(admit(z.bytes) && extract(), "package: valid package retries after failed cleanup ownership is released");
+    // Members longer than one read chunk: reads continue across chunks without reseeking, the final chunk is short
+    // and a fault in the last chunk is still caught.
+    constexpr u32 kLongNotes = 2 * kUpdatePackageReadBufferBytes + 5000;
+    u8* const long_bytes = static_cast<u8*>(VirtualAlloc(nullptr, kLongNotes + 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (!long_bytes) { check(false, "package: multi-chunk fixture memory"); return; }
+    bytes = long_bytes; policy.maximum_artifact_bytes = u64{kLongNotes} + 4096;
+    const auto lz = fixture(bytes, kMembers, kLongNotes);
+    check(admit(lz.bytes) && extract() && package.descriptor.members[2].bytes == kLongNotes && package.files[2] &&
+        update_package_verify_installed(&stage, offer, key, workspace, 1000, {scratch, 256}, {package.files, kMembers}, &reopened).ok() &&
+        update_package_descriptor_equal(reopened, package.descriptor),
+        "package: members spanning several read chunks extract and verify installed");
+    bytes[lz.data[2] + kLongNotes - 1] ^= 1;
+    check(admit(lz.bytes) && !extract() && extracted.error == UpdatePackageError::crc && no_files(package) && !target.created,
+        "package: a fault in the last read chunk of a member fails its CRC before any output is created");
+    bytes = storage; policy.maximum_artifact_bytes = 65536; VirtualFree(long_bytes, 0, MEM_RELEASE);
 }
 } // namespace maicord

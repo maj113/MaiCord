@@ -1,4 +1,5 @@
 #include "application_updates.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
@@ -52,10 +53,16 @@ u64 now_unix() noexcept { return clock_unix_milliseconds() / 1000; }
 u32 random32() noexcept { u32 value = 0; secure_random_u32(&value); return value; }
 void publish(Worker* w, void (*change)(Worker*, void*), void* context) noexcept {
     AcquireSRWLockExclusive(w->lock.native());
+    const ApplicationUpdatesView before = w->view;
+    const bool quit = w->quit;
     change(w, context);
-    ++w->revision;
+    // A change that leaves the view and quit flag as they were (every published changelog bumps
+    // changelog_revision) would only wake the UI to rebuild the same rows. The first
+    // publication always goes out so the UI builds its rows once.
+    const bool changed = w->revision == 0 || quit != w->quit || !bytes_equal(&before, &w->view, sizeof(before));
+    if (changed) ++w->revision;
     ReleaseSRWLockExclusive(w->lock.native());
-    SetEvent(w->notify);
+    if (changed) SetEvent(w->notify);
 }
 void set_state(Worker* w, State state, UpdateServiceError error = UpdateServiceError::none) noexcept {
     struct C { State s; UpdateServiceError e; } c{state, error};
@@ -122,8 +129,8 @@ bool relay_sink(void* context, ConstSlice<u8> bytes) noexcept {
     if (!relay->sink(relay->context, bytes)) return false;
     Worker* w = relay->worker;
     const u64 now = clock_monotonic_milliseconds();
-    const LONG64 total = InterlockedCompareExchange64(&w->service.progress.total, 0, 0);
-    const LONG64 received = InterlockedCompareExchange64(&w->service.progress.received, 0, 0);
+    const LONG64 total = read_acquire(&w->service.progress.total);
+    const LONG64 received = read_acquire(&w->service.progress.received);
     // The last bytes switch to "installing" at once: staging and the
     // generation install follow, and a stale percentage would read as a stall.
     const bool done = total && received >= total;

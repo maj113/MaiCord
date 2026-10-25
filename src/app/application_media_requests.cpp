@@ -361,12 +361,12 @@ bool ApplicationMediaPump::request_catalog_previews(u64 now_ms, u64 now_seconds,
 namespace {
 bool profile_scene_shows(const ProfileScene& scene, const MediaAssetKey& key) noexcept {
     for (u32 i = 0; i < scene.part_count; ++i) {
-        ProfileMedia media{};
+        ProfileMedia media;
         if (profile_media_resolve(scene, i, &media) && media_asset_key_equal(key, media.key))
             return true;
     }
     for (u32 i = 0; scene.effect && i < maximum<u8>(1, scene.effect->count); ++i) {
-        ProfileMedia media{};
+        ProfileMedia media;
         if (profile_effect_media_resolve(scene, i, GetTickCount64(), &media) &&
             media_asset_key_equal(key, media.key))
             return true;
@@ -382,8 +382,8 @@ bool profile_editor_key_current(const MediaAssetKey& key) noexcept {
         preview && profile_scene_shows(*preview, key))
         return true;
     if (const auto* dialog = application_profile_editor_dialog()) {
-        ProfileMedia media{};
-        for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i, media = {})
+        ProfileMedia media;
+        for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i)
             if (media_asset_key_equal(key, media.key))
                 return true;
     }

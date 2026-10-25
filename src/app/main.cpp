@@ -206,10 +206,6 @@ int application_run() noexcept {
         }
     } tooltip_lifetime;
     log_write(LogLevel::info, "startup", "process_entry");
-    log_write(LogLevel::info, "startup", "output_debug_string_mirror_enabled");
-
-    // The embedded manifest establishes PerMonitorV2 before process entry.
-    log_write(LogLevel::info, "startup", "dpi_awareness_manifest_per_monitor_v2");
     // Connect first: the saved account's DNS/TCP/TLS/Gateway handshake runs on
     // its workers while the window, D3D11 device and UI are created below.
     application_account_prestart();

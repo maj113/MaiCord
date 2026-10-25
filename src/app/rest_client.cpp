@@ -323,8 +323,8 @@ bool authentication_rejected(const RestClient* client) noexcept {
 }
 
 AccountRequirement required_action(RestClient* client) noexcept {
-    return static_cast<AccountRequirement>(InterlockedCompareExchange(
-        client->shared ? &client->shared->required_action : &client->required_action, 0, 0));
+    return static_cast<AccountRequirement>(
+        read_acquire(client->shared ? &client->shared->required_action : &client->required_action));
 }
 
 constexpr u32 ordinary_fixed_storage_bytes(bool normal_user) noexcept {
@@ -498,11 +498,11 @@ void trace_busy(RestClient* client, RestClientRuntime* runtime,
     TraceRecord line("submit_busy");
     trace_identity(line, runtime, request.request_id);
     line.field("route", request.route.route_id);
-    line.field("blocking_request", static_cast<u64>(InterlockedCompareExchange64(&client->current_request_id, 0, 0)));
+    line.field("blocking_request", static_cast<u64>(read_acquire(&client->current_request_id)));
     line.field("blocking_phase", phase_name(load_phase(client)));
     if (client->shared) {
         for (auto* peer : client->shared->clients) if (peer && peer != client) {
-            line.field("peer_request", static_cast<u64>(InterlockedCompareExchange64(&peer->current_request_id, 0, 0)));
+            line.field("peer_request", static_cast<u64>(read_acquire(&peer->current_request_id)));
             line.field("peer_phase", phase_name(load_phase(peer)));
         }
     }
@@ -769,8 +769,8 @@ void release_completed_response(RestClient* client, RestClientRuntime* runtime,
     }
     reset_value<RestResponse>(&runtime->response);
     reset_value<RestClientResponse>(&runtime->completed);
-    const auto logout = InterlockedCompareExchange64(&runtime->logout_request_id, 0, 0);
-    if (logout && InterlockedCompareExchange64(&runtime->logout_reservation_id, 0, 0) == logout) {
+    const auto logout = read_acquire(&runtime->logout_request_id);
+    if (logout && read_acquire(&runtime->logout_reservation_id) == logout) {
         InterlockedExchange64(&runtime->logout_reservation_id, 0);
         runtime->logout_preempt_id = 0;
         runtime->logout_cancelled = false;
@@ -839,8 +839,8 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
     response.request_id = runtime->command.request_id;
     if (runtime->authorization == RestAuthorization::normal_user) {
         response.diagnostics = {runtime->command.route.route_id,
-                                static_cast<u64>(InterlockedCompareExchange64(&client->requests, 0, 0)),
-                                static_cast<u64>(InterlockedCompareExchange64(&client->responses, 0, 0)) +
+                                static_cast<u64>(read_acquire(&client->requests)),
+                                static_cast<u64>(read_acquire(&client->responses)) +
                                     1,
                                 runtime->command.route.method};
     }
@@ -1463,7 +1463,7 @@ void activate_request(RestClient* client, RestClientRuntime* runtime, NetworkLoo
 }
 
 void cancel_request(RestClient* client, RestClientRuntime* runtime) noexcept {
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_cancel_active) {
+    if (read_acquire(&client->request_state) != request_state_cancel_active) {
         return;
     }
     if (runtime->transaction.phase == RestTransactionPhase::idle &&
@@ -1541,7 +1541,7 @@ NetworkWorkerStep worker_handler(void* opaque, NetworkLoop* loop,
         } else if (event.poll.completion.signal == &runtime->rate_signal &&
                    event.poll.completion.signal_value == kRateSignalValue && runtime->rate_wait_until_ms &&
                    runtime->transaction.phase == RestTransactionPhase::idle &&
-                   InterlockedCompareExchange(&client->request_state, 0, 0) == request_state_active) {
+                   read_acquire(&client->request_state) == request_state_active) {
             acquire_request(client, runtime, loop, event.now_ms);
         }
         if (runtime->draining) {
@@ -1787,9 +1787,12 @@ RestClientResult rest_client_start_user_auth(RestClient* client,
 void rest_client_set_required_action(RestClient* client,
                                      AccountRequirement action) noexcept {
     if (client) {
-        InterlockedExchange(&client->required_action, static_cast<LONG>(action));
-        if (client->shared)
-            InterlockedExchange(&client->shared->required_action, static_cast<LONG>(action));
+        // Pumped on every wake with a value that rarely changes: read first, store only on change.
+        const LONG value = static_cast<LONG>(action);
+        if (read_acquire(&client->required_action) != value)
+            InterlockedExchange(&client->required_action, value);
+        if (client->shared && read_acquire(&client->shared->required_action) != value)
+            InterlockedExchange(&client->shared->required_action, value);
     }
 }
 
@@ -1801,7 +1804,7 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
                         account_logout_request_valid(request);
     if (runtime) {
         const auto reserved =
-            static_cast<u64>(InterlockedCompareExchange64(&runtime->logout_reservation_id, 0, 0));
+            static_cast<u64>(read_acquire(&runtime->logout_reservation_id));
         if (reserved && (!logout || request.request_id != reserved))
             return {RestClientSubmitError::busy};
     }
@@ -2107,7 +2110,7 @@ RestClientTakeResult rest_client_take_response(RestClient* client,
     if (!runtime || runtime->user_auth_mode || !response || (!body_output.data && body_output.count != 0)) {
         return RestClientTakeResult{0, RestClientTakeError::invalid_input};
     }
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready) {
+    if (read_acquire(&client->request_state) != request_state_ready) {
         return RestClientTakeResult{0, RestClientTakeError::empty};
     }
     if (runtime->completed.body_bytes > body_output.count) {
@@ -2134,12 +2137,12 @@ RestClientSubmitResult rest_client_prepare_logout(RestClient* client,
         InterlockedCompareExchange64(&runtime->logout_reservation_id, static_cast<LONG64>(request_id), 0));
     if (reserved && reserved != request_id)
         return {RestClientSubmitError::busy};
-    if (static_cast<u64>(InterlockedCompareExchange64(&runtime->logout_request_id, 0, 0)) == request_id)
+    if (static_cast<u64>(read_acquire(&runtime->logout_request_id)) == request_id)
         return {RestClientSubmitError::busy};
     if (runtime->logout_cancelled)
         return {RestClientSubmitError::invalid_input};
-    const auto current = static_cast<u64>(InterlockedCompareExchange64(&client->current_request_id, 0, 0));
-    const auto state = InterlockedCompareExchange(&client->request_state, 0, 0);
+    const auto current = static_cast<u64>(read_acquire(&client->current_request_id));
+    const auto state = read_acquire(&client->request_state);
     if (!current && state == request_state_empty) {
         runtime->logout_preempt_id = 0;
         return {RestClientSubmitError::none};
@@ -2163,9 +2166,9 @@ RestClientSubmitResult rest_client_prepare_logout(RestClient* client,
 bool rest_client_cancel_logout(RestClient* client, u64 request_id) noexcept {
     auto* runtime = runtime_of(client);
     if (!runtime || runtime->authorization != RestAuthorization::normal_user || !request_id ||
-        static_cast<u64>(InterlockedCompareExchange64(&runtime->logout_reservation_id, 0, 0)) != request_id)
+        static_cast<u64>(read_acquire(&runtime->logout_reservation_id)) != request_id)
         return false;
-    const auto admitted = static_cast<u64>(InterlockedCompareExchange64(&runtime->logout_request_id, 0, 0));
+    const auto admitted = static_cast<u64>(read_acquire(&runtime->logout_request_id));
     if (!admitted) {
         runtime->logout_cancelled = true;
         if (runtime->logout_preempt_id)
@@ -2183,8 +2186,8 @@ RestClientTakeResult rest_client_take_logout_response(
     if (!runtime || !response || !request_id || runtime->user_auth_mode ||
         runtime->authorization != RestAuthorization::normal_user)
         return {0, RestClientTakeError::invalid_input};
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready ||
-        static_cast<u64>(InterlockedCompareExchange64(&runtime->logout_request_id, 0, 0)) != request_id ||
+    if (read_acquire(&client->request_state) != request_state_ready ||
+        static_cast<u64>(read_acquire(&runtime->logout_request_id)) != request_id ||
         runtime->completed.request_id != request_id ||
         runtime->completed.diagnostics.route_id != kAccountLogoutRouteId ||
         runtime->completed.diagnostics.method != RestMethod::post)
@@ -2202,7 +2205,7 @@ RestClientTakeResult rest_client_consume_user_auth_response(
     if (!runtime || !runtime->user_auth_mode || !response || !consumer) {
         return RestClientTakeResult{0, RestClientTakeError::invalid_input};
     }
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready) {
+    if (read_acquire(&client->request_state) != request_state_ready) {
         return RestClientTakeResult{0, RestClientTakeError::empty};
     }
     const u32 body_bytes = runtime->completed.body_bytes;
@@ -2224,7 +2227,7 @@ RestClientResult rest_client_status(const RestClient* client) noexcept {
 
 static void capture_user_auth_stop_receipt(RestClient* client, RestClientResponse* receipt) noexcept {
     if (!receipt || !client || !client->runtime ||
-        InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready)
+        read_acquire(&client->request_state) != request_state_ready)
         return;
     const auto* runtime = static_cast<const RestClientRuntime*>(client->runtime);
     if (!runtime->user_auth_mode || !runtime->completed.transport_ok() ||

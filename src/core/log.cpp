@@ -89,16 +89,31 @@ char level_letter(LogLevel level) noexcept {
     return '?';
 }
 
-// The local date/time prefix changes once per second; only milliseconds are
-// formatted per line.
-u32 begin_line(char* line, u32 capacity, LogLevel level, const char* component) noexcept {
+// The local date/time prefix changes once per second and is copied into the
+// line's first kStampCharacters bytes by commit_line under the lock it takes
+// anyway; only milliseconds are formatted per line.
+u32 begin_line(char* line, u32 capacity, LogLevel level, const char* component, u64* second) noexcept {
     FILETIME now{};
     GetSystemTimeAsFileTime(&now);
     const u64 ticks = (static_cast<u64>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
-    const u64 second = ticks / 10'000'000ull;
-    u32 length = 0;
-    AcquireSRWLockExclusive(&g_log.lock);
+    *second = ticks / 10'000'000ull;
+    u32 length = kStampCharacters;
+    line[length] = 0;
+    append_char(line, capacity, &length, '.');
+    append_fixed_decimal(line, capacity, &length, static_cast<u32>(ticks / 10'000ull % 1'000ull), 3);
+    append_text(line, capacity, &length, " [");
+    append_char(line, capacity, &length, level_letter(level));
+    append_text(line, capacity, &length, "] [");
+    append_text(line, capacity, &length, component ? component : "unknown");
+    append_text(line, capacity, &length, "] ");
+    return length;
+}
+
+// Caller holds the lock.
+void copy_stamp_locked(char* line, u64 second) noexcept {
     if (g_log.stamp_second != second) {
+        const u64 ticks = second * 10'000'000ull;
+        const FILETIME now{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
         SYSTEMTIME utc{};
         SYSTEMTIME time{};
         FileTimeToSystemTime(&now, &utc);
@@ -106,6 +121,7 @@ u32 begin_line(char* line, u32 capacity, LogLevel level, const char* component) 
             time = utc;
         }
         char stamp[kStampCharacters + 1];
+        u32 length = 0;
         append_fixed_decimal(stamp, sizeof(stamp), &length, time.wYear, 4);
         append_char(stamp, sizeof(stamp), &length, '-');
         append_fixed_decimal(stamp, sizeof(stamp), &length, time.wMonth, 2);
@@ -122,19 +138,9 @@ u32 begin_line(char* line, u32 capacity, LogLevel level, const char* component) 
         }
         g_log.stamp_second = second;
     }
-    for (length = 0; length < kStampCharacters; ++length) {
-        line[length] = g_log.stamp[length];
+    for (u32 index = 0; index < kStampCharacters; ++index) {
+        line[index] = g_log.stamp[index];
     }
-    ReleaseSRWLockExclusive(&g_log.lock);
-    line[length] = 0;
-    append_char(line, capacity, &length, '.');
-    append_fixed_decimal(line, capacity, &length, static_cast<u32>(ticks / 10'000ull % 1'000ull), 3);
-    append_text(line, capacity, &length, " [");
-    append_char(line, capacity, &length, level_letter(level));
-    append_text(line, capacity, &length, "] [");
-    append_text(line, capacity, &length, component ? component : "unknown");
-    append_text(line, capacity, &length, "] ");
-    return length;
 }
 
 // Caller holds the lock.
@@ -155,8 +161,11 @@ void CALLBACK flush_timer_callback(PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) noex
     ReleaseSRWLockExclusive(&g_log.lock);
 }
 
-void commit_line(char* line, u32* length, LogLevel level) noexcept {
+void commit_line(char* line, u32* length, LogLevel level, u64 second) noexcept {
     append_text(line, kLineCapacity, length, "\r\n");
+
+    AcquireSRWLockExclusive(&g_log.lock);
+    copy_stamp_locked(line, second);
 #if defined(MAICORD_LOG_STDOUT)
     const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
     if (output && output != INVALID_HANDLE_VALUE) {
@@ -164,8 +173,6 @@ void commit_line(char* line, u32* length, LogLevel level) noexcept {
         WriteFile(output, line, *length, &written, nullptr);
     }
 #endif
-
-    AcquireSRWLockExclusive(&g_log.lock);
     if (g_log.file && g_log.file != INVALID_HANDLE_VALUE) {
         const u64 pending = g_log.file_bytes + g_log.buffered;
         if (pending <= kLogFileMaximumBytes && *length <= kLogFileMaximumBytes - pending) {
@@ -281,18 +288,20 @@ void log_close() noexcept {
 
 void log_write(LogLevel level, const char* component, const char* message) noexcept {
     char line[kLineCapacity];
-    u32 length = begin_line(line, kLineCapacity, level, component);
+    u64 second = 0;
+    u32 length = begin_line(line, kLineCapacity, level, component, &second);
     append_text(line, kLineCapacity, &length, message);
-    commit_line(line, &length, level);
+    commit_line(line, &length, level, second);
 }
 
 void log_u64(LogLevel level, const char* component, const char* key, u64 value) noexcept {
     char line[kLineCapacity];
-    u32 length = begin_line(line, kLineCapacity, level, component);
+    u64 second = 0;
+    u32 length = begin_line(line, kLineCapacity, level, component, &second);
     append_text(line, kLineCapacity, &length, key ? key : "value");
     append_char(line, kLineCapacity, &length, '=');
     append_u64_decimal(line, kLineCapacity, &length, value);
-    commit_line(line, &length, level);
+    commit_line(line, &length, level, second);
 }
 
 } // namespace maicord

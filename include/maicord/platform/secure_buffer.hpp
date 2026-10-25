@@ -44,6 +44,14 @@ ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept;
 SecureBufferResult secure_buffer_protect_user_bound(
     const SecureBuffer& plaintext, ConstSlice<u8> entropy,
     Slice<u8> protected_output) noexcept;
+// Protects into a new zero-initialized VirtualAlloc block with header_bytes of
+// caller-owned space in front, using one DPAPI call (two only when the output
+// guess is short). On success *block holds header_bytes + result.bytes used
+// bytes within *block_bytes allocated; the caller securely clears and frees
+// it. Fails with output_too_small when the result would exceed maximum_bytes.
+SecureBufferResult secure_buffer_protect_user_bound_block(
+    const SecureBuffer& plaintext, ConstSlice<u8> entropy, u32 header_bytes,
+    u32 maximum_bytes, u8** block, u32* block_bytes) noexcept;
 SecureBufferResult secure_buffer_unprotect_user_bound(
     ConstSlice<u8> protected_input, ConstSlice<u8> entropy,
     SecureBuffer* plaintext) noexcept;

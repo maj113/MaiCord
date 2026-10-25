@@ -209,8 +209,9 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
     r.scalar(count);
     if (marker != kWireMarker || count > kUserActivityMaximum)
         return false;
-    UserActivitySet set{};
+    UserActivitySet& set = *output;
     set.user_id = user;
+    set.last_seen = 0;
     set.count = count;
     for (u32 i = 0; i < count && r.ok; ++i) {
         auto& a = set.items[i];
@@ -247,7 +248,6 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
     }
     if (!r.ok || r.used != input.count)
         return false;
-    *output = set;
     return true;
 }
 

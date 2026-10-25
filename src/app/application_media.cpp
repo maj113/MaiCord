@@ -111,8 +111,13 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
     // Gallery item lifetimes never return after their accepted source bank is
     // replaced. Cancel those catalog entries once per visibility epoch,
     // while keeping current-bank offscreen entries for ordinary pause/resume.
-    for (u32 slot = 0; slot < application.animations.timeline.capacity; ++slot) {
+    // Only occupied entries can match; stop once every live entry was visited.
+    for (u32 slot = 0, live = application.animations.timeline.entry_count;
+         live && slot < application.animations.timeline.capacity; ++slot) {
         const auto& entry = application.animations.timeline.entries[slot];
+        if (!(entry.flags & animation_timeline_entry_occupied))
+            continue;
+        --live;
         if (entry.key.kind != MediaAssetKind::catalog_preview && !media_asset_search(entry.key))
             continue;
         const auto* visual = find_animation_visual(entry.key, entry.generation);
@@ -952,6 +957,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         const auto& store = application.account_ui->message_rich_store;
         for (u32 i = 0; i < scene.count; ++i) {
             const auto& row = scene.rows[i];
+            // Every loop below is bounded by one of these counts.
+            if (!row.component_item_count && !row.embed_item_count && !row.invite_item_count)
+                continue;
             const auto* record = message_store_resolve(application.message_view.store, row.message);
             const auto* rich = record ? message_rich_store_find(store, record->id) : nullptr;
             for (u32 c = 0; rich && rich->message_revision == record->revision && c < rich->component_count &&
@@ -1009,7 +1017,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 }
             }
             InviteLink links[kMessageInviteCardMaximum];
-            const u32 invites = record && scene.invite_cards
+            const u32 invites = record && scene.invite_cards && row.invite_item_count
                                     ? message_scene_invite_codes(scene, *record, {links, kMessageInviteCardMaximum})
                                     : 0u;
             for (u32 l = 0; l < invites && l < row.invite_item_count; ++l) {
@@ -1054,7 +1062,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 record ? user_appearance_find(application.account_ui->user_store.appearance,
                                                  record->author_id)
                        : nullptr;
-            ProfileMedia media{};
+            ProfileMedia media;
             if (!appearance || appearance->bot ||
                 !user_guild_badge_media(*appearance, layout->rectangle, application.message_scene.viewport,
                                         &media))
@@ -1117,7 +1125,7 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 } else if (resident) {
                     continue;
                 }
-                ProfileMedia media{};
+                ProfileMedia media;
                 if (visibility_only ||
                     !member_media_resolve(members, visible, static_cast<MemberMedia>(layer), &media))
                     continue;

@@ -114,8 +114,7 @@ struct GatewayClientRuntime {
     GatewaySession session;
     GatewayEndpoint endpoint;
     GatewayEndpoint initial_endpoint;
-    SpscMailbox<GatewayClientEvent, kGatewayClientEventCapacity, kGatewayClientDispatchPayloadCapacity>
-        events;
+    GatewayClientMailbox events;
     // An oversized guild record (beyond the ring) is routed into this
     // reservation, committed only while one is in flight. The worker owns it
     // while large_record_lease is 0; from the external push until the UI
@@ -135,6 +134,8 @@ struct GatewayClientRuntime {
     u64 mailbox_deadline_ms;
     SecureBuffer credential;
     GatewayResumeState resume;
+    // Live Gateway sequence of `resume`; written by the worker, read by it and by the snapshot reader.
+    volatile LONG64 resume_sequence;
     GatewayReactionBatchCursor reaction_batch;
     u64 resume_user_id; // Protected by resume_lock together with its matching session.
     SRWLOCK resume_lock;
@@ -660,7 +661,7 @@ bool acquire_large_record(void* opaque, u32 bytes, Slice<char>* storage) noexcep
     GatewayClient* client = runtime->owner;
     const u64 deadline =
         runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : GetTickCount64() + kPhaseTimeoutMs;
-    if (!client || !gateway_mailbox_wait_lease(runtime->mailbox_space, runtime->mailbox_cancel,
+    if (!client || !gateway_mailbox_wait_lease(&runtime->events, runtime->mailbox_space, runtime->mailbox_cancel,
                                                client->notification_event, deadline, &runtime->large_record_lease) ||
         !reserved_bytes_commit(&runtime->large_record, bytes))
         return false;
@@ -702,14 +703,15 @@ Slice<u32> object_scratch(GatewayClientRuntime* runtime) noexcept {
 void publish_resume(GatewayClientRuntime* runtime, const GatewayResumeState& state) noexcept {
     AcquireSRWLockExclusive(&runtime->resume_lock);
     runtime->resume = state;
+    runtime->resume_sequence = static_cast<LONG64>(state.sequence);
     runtime->resume_user_id = runtime->self_user_id;
     ReleaseSRWLockExclusive(&runtime->resume_lock);
 }
 
+// The worker is the only writer: a release store keeps the snapshot reader (UI thread) lock-free. The
+// session and URL stay under resume_lock; `resume.sequence` is its READY value, this is the live one.
 void publish_resume_sequence(GatewayClientRuntime* runtime, u64 sequence) noexcept {
-    AcquireSRWLockExclusive(&runtime->resume_lock);
-    runtime->resume.sequence = sequence;
-    ReleaseSRWLockExclusive(&runtime->resume_lock);
+    runtime->resume_sequence = static_cast<LONG64>(sequence);
 }
 
 GatewayClientResult result(const GatewayClient* client) noexcept {
@@ -943,6 +945,7 @@ void clear_resume(GatewayClientRuntime* runtime) noexcept {
     reset_value(&runtime->reaction_batch);
     AcquireSRWLockExclusive(&runtime->resume_lock);
     gateway_resume_clear(&runtime->resume);
+    runtime->resume_sequence = 0;
     runtime->resume_user_id = 0;
     ReleaseSRWLockExclusive(&runtime->resume_lock);
 }
@@ -1229,7 +1232,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
     reconnecting.timestamp_ms = now_ms;
     reconnecting.kind = GatewayClientEventKind::reconnecting;
     reconnecting.has_sequence = runtime->resume.valid;
-    reconnecting.sequence = runtime->resume.sequence;
+    reconnecting.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
     publish_event(runtime, reconnecting);
     return true;
 }
@@ -1396,7 +1399,7 @@ bool initialize_session(GatewayClientRuntime* runtime,
                              : Slice<u8>{runtime->handshake_output, kMessageBytes},
             main_index_view(runtime), ConstSlice<u8>{client_key, kWebSocketClientKeyBytes},
             kSessionInputBytes - 14, kMessageBytes, runtime->resume.valid, runtime->resume.valid,
-            runtime->resume.sequence)) {
+            static_cast<u64>(ReadAcquire64(&runtime->resume_sequence)))) {
         return false;
     }
     runtime->session.grow_index = grow_main_index;
@@ -1638,7 +1641,7 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     } else if (next.action == GatewayLifecycleAction::send_resume && runtime->resume.valid) {
         const GatewayResume resume{token,
                                    Utf8View{runtime->resume.session_id, runtime->resume.session_id_bytes},
-                                   runtime->resume.sequence};
+                                   static_cast<u64>(ReadAcquire64(&runtime->resume_sequence))};
         command = gateway_write_resume(
             resume, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     } else if (next.action == GatewayLifecycleAction::send_heartbeat) {
@@ -3087,6 +3090,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     }
     if (resume_state && resume_state->valid) {
         runtime->resume = *resume_state;
+        runtime->resume_sequence = static_cast<LONG64>(resume_state->sequence);
         runtime->self_user_id = runtime->resume_user_id = resume_user_id;
         gateway_self_status_bind(&runtime->self_status, resume_user_id);
     }
@@ -3255,10 +3259,9 @@ bool gateway_client_pop_event(GatewayClient* client, GatewayClientEvent* event) 
     }
     if (discarded.external)
         release_large_record(runtime);
-    SetEvent(runtime->mailbox_space);
-    if (spsc_mailbox_size(runtime->events) != 0) {
-        SetEvent(client->notification_event);
-    }
+    // The consumer is draining: only a producer blocked on a full mailbox needs a signal. Records the
+    // worker publishes after this pop carry their own notification.
+    gateway_mailbox_signal_space(&runtime->events, runtime->mailbox_space);
     return true;
 }
 
@@ -3279,7 +3282,7 @@ GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, G
     if (popped.ok() && popped.external)
         release_large_record(runtime);
     if (spsc_mailbox_load_u32(&runtime->events.read_sequence) != before)
-        SetEvent(runtime->mailbox_space);
+        gateway_mailbox_signal_space(&runtime->events, runtime->mailbox_space);
     GatewayClientPopError error = GatewayClientPopError::none;
     switch (popped.error) {
     case SpscMailboxError::none:
@@ -3296,9 +3299,6 @@ GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, G
     default:
         error = GatewayClientPopError::invalid_input;
         break;
-    }
-    if (spsc_mailbox_size(runtime->events) != 0) {
-        SetEvent(client->notification_event);
     }
     return GatewayClientPopResult{popped.payload_bytes, error};
 }
@@ -3326,7 +3326,9 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
         return false;
     }
     AcquireSRWLockShared(const_cast<SRWLOCK*>(&runtime->resume_lock));
-    const GatewayResumeState resume = runtime->resume;
+    GatewayResumeState resume = runtime->resume;
+    // The lock pairs the session with its READY; the worker advances the sequence without it.
+    resume.sequence = static_cast<u64>(ReadAcquire64(&runtime->resume_sequence));
     const u64 self_user_id = runtime->resume_user_id;
     ReleaseSRWLockShared(const_cast<SRWLOCK*>(&runtime->resume_lock));
     GatewayUserSessionSnapshot snapshot{};

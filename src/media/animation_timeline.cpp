@@ -379,8 +379,13 @@ void animation_timeline_end_visibility(AnimationTimeline* timeline, u64 monotoni
     }
     monotonic_now_us = presentation_time(*timeline, monotonic_now_us);
     constexpr u32 kRequiredFlags = animation_timeline_entry_occupied | animation_timeline_entry_visible;
-    for (u32 index = 0; index < timeline->capacity; ++index) {
+    // entry_count is exact: stop once every occupied entry was visited.
+    u32 live = timeline->entry_count;
+    for (u32 index = 0; live && index < timeline->capacity; ++index) {
         AnimationTimelineEntry& entry = timeline->entries[index];
+        if (!occupied(entry))
+            continue;
+        --live;
         if ((entry.flags & kRequiredFlags) != kRequiredFlags ||
             entry.seen_epoch == timeline->visibility_epoch) {
             continue;
@@ -407,9 +412,13 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
     const u32 first = timeline->scan_cursor % timeline->capacity;
     constexpr u32 kRequiredFlags = animation_timeline_entry_occupied | animation_timeline_entry_visible;
     constexpr u32 kRejectedFlags = animation_timeline_entry_pending | animation_timeline_entry_finished;
-    for (u32 offset = 0; offset < timeline->capacity; ++offset) {
+    u32 live = timeline->entry_count;
+    for (u32 offset = 0; live && offset < timeline->capacity; ++offset) {
         const u32 index = (first + offset) % timeline->capacity;
         AnimationTimelineEntry& entry = timeline->entries[index];
+        if (!occupied(entry))
+            continue;
+        --live;
         const u32 flags = entry.flags;
         if ((flags & kRequiredFlags) != kRequiredFlags || (flags & kRejectedFlags) != 0 ||
             entry.due_at_us > monotonic_now_us) {
@@ -508,8 +517,12 @@ u64 animation_timeline_next_wake_at_us(const AnimationTimeline* timeline) noexce
     u64 next = 0;
     constexpr u32 kRequiredFlags = animation_timeline_entry_occupied | animation_timeline_entry_visible;
     constexpr u32 kRejectedFlags = animation_timeline_entry_pending | animation_timeline_entry_finished;
-    for (u32 index = 0; index < timeline->capacity; ++index) {
+    u32 live = timeline->entry_count;
+    for (u32 index = 0; live && index < timeline->capacity; ++index) {
         const AnimationTimelineEntry& entry = timeline->entries[index];
+        if (!occupied(entry))
+            continue;
+        --live;
         const u32 flags = entry.flags;
         if ((flags & kRequiredFlags) != kRequiredFlags || (flags & kRejectedFlags) != 0 ||
             entry.due_at_us == 0) {

@@ -191,7 +191,9 @@ SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept
     while (low < high) {
         const u32 middle = low + (high - low) / 2;
         const u16 slot = store.order[middle];
-        if (slot >= store.record_extent || !store.records[slot].occupied) {
+        // order lists occupied slots only, so a probe reads just the id (the
+        // 8 KiB record's first line); occupancy is checked on the final candidate.
+        if (slot >= store.record_extent) {
             return SearchResult{};
         }
         if (store.records[slot].message_id < message_id) {
@@ -932,10 +934,10 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     }
     MessageRichRecord* record = &store->records[slot];
     if (!search.found) {
-        const u16 generation = record->generation == 0 ? 1 : record->generation;
-        reset_value<MessageRichRecord>(record);
+        // A free slot is zero except for its generation (erase_slot,
+        // erase_snapshot_slot, abandon, initialize_store and extend_records
+        // leave it so), which stays.
         record->forwarded_snapshot_child = child;
-        record->generation = generation;
         record->message_id = message_id;
         record->occupied = true;
         for (u32 index = !child ? store->count : 0; index > search.order_index; --index) {
@@ -1543,7 +1545,7 @@ bool parse_record(ConstSlice<u8> input, MessageRichRecord* record, ConstSlice<u8
     copy_bytes(&header, input.data, sizeof(header));
     if (header.bytes < kPackedRichMinimum || header.bytes > input.count || header.string_bytes > header.bytes)
         return false;
-    reset_value<MessageRichRecord>(record);
+    // The slot is free, hence zero beyond what the head and tail copies set.
     const u8* cursor = input.data + sizeof(header);
     copy_bytes(record, cursor, kRichHead);
     cursor += kRichHead;

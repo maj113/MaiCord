@@ -137,5 +137,51 @@ void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexc
               animation_timeline_collect_due(&timeline, shown_at + 10000, {next, 4}).advances == 0,
           "hour-long hidden pause resumes on the next sequential frame without replay");
     animation_visual_runtime_release(&runtime);
+
+    // The visibility, due and wake sweeps stop after entry_count occupied
+    // entries, so the count must stay exact and entries behind freed slots
+    // must still be visited.
+    AnimationTimelineEntry sweep_entries[8]{};
+    u32 sweep_buckets[16]{};
+    AnimationTimeline sweep{};
+    const auto occupied_entries = [&]() noexcept {
+        u32 count = 0;
+        for (const auto& entry : sweep_entries)
+            count += (entry.flags & animation_timeline_entry_occupied) != 0;
+        return count;
+    };
+    check(animation_timeline_initialize(&sweep, {sweep_entries, 8}, {sweep_buckets, 16}),
+          "sweep timeline initializes");
+    animation_timeline_begin_visibility(&sweep);
+    animation_timeline_end_visibility(&sweep, 1000);
+    check(!sweep.entry_count && sweep.counters.pauses == 0 &&
+              animation_timeline_collect_due(&sweep, 1000, {next, 4}).advances == 0 &&
+              animation_timeline_next_wake_at_us(&sweep) == 0,
+          "empty timeline sweeps find nothing");
+    const auto sweep_key = [](u64 id) noexcept { return media_asset_custom_emoji(id, true); };
+    bool published = true;
+    for (u32 id = 0; id < 5; ++id)
+        published = published && animation_timeline_publish(&sweep, {sweep_key(910 + id), 10000, id + 1, 3, 0, true}, 1000).ok();
+    check(published && sweep.entry_count == 5 && occupied_entries() == 5,
+          "timeline entry count matches its occupied entries after publishing");
+    check(animation_timeline_publish(&sweep, {sweep_key(913), 10000, 9, 3, 0, true}, 1000).ok() &&
+              sweep.entry_count == 5 && occupied_entries() == 5 &&
+              animation_timeline_release(&sweep, sweep_key(910), 1).ok() &&
+              animation_timeline_release(&sweep, sweep_key(911), 2).ok() &&
+              animation_timeline_release(&sweep, sweep_key(912), 3).ok() &&
+              !animation_timeline_release(&sweep, sweep_key(912), 3).ok() &&
+              sweep.entry_count == 2 && occupied_entries() == 2,
+          "timeline entry count matches its occupied entries after republishing and releasing");
+    animation_timeline_begin_visibility(&sweep);
+    check(animation_timeline_observe_visible(&sweep, sweep_key(913), 2000), "sweep entry is observed");
+    animation_timeline_end_visibility(&sweep, 2000);
+    check(sweep.counters.pauses == 1 && animation_timeline_next_wake_at_us(&sweep) == 11000,
+          "visibility sweep pauses the unobserved entry behind freed slots");
+    collected = animation_timeline_collect_due(&sweep, 11000, {next, 4});
+    check(collected.advances == 1 && next[0].key.id == 913 && sweep.entry_count == 2,
+          "due sweep reaches the entry behind freed slots");
+    animation_timeline_reset(&sweep);
+    check(!sweep.entry_count && !occupied_entries() && animation_timeline_next_wake_at_us(&sweep) == 0,
+          "timeline reset clears the entry count with its entries");
 }
 } // namespace maicord

@@ -248,7 +248,7 @@ bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
     if (has_member && !user_appearance_decode(*a->document, member_value, id, a->guild, &guild)) return reject(&a->error);
     if (has_presence && presence_value.kind == JsonValueKind::object && !activity_decode(*a->document, presence_value, &guild)) return reject(&a->error);
     if (!guild.user_id) { guild.user_id = id; guild.guild_id = a->guild; }
-    u8 global_bytes[1024]{}, guild_bytes[1024]{};
+    u8 global_bytes[1024], guild_bytes[1024];
     m.user_appearance_bytes = static_cast<u16>(user_appearance_write(global, {global_bytes, sizeof(global_bytes)}));
     m.member_appearance_bytes = static_cast<u16>(user_appearance_write(guild, {guild_bytes, sizeof(guild_bytes)}));
     if ((global.fields && !m.user_appearance_bytes) || (guild.fields && !m.member_appearance_bytes)) return reject(&a->error);
@@ -371,7 +371,7 @@ bool gateway_client_event_thread_member_record(const GatewayClientEvent& event,
     *guild_extra = {payload.data + at, m->member_appearance_bytes}; at += m->member_appearance_bytes;
     if (!utf8_validate(*nickname).valid || !utf8_validate(*name).valid || !utf8_validate(*avatar).valid || !utf8_validate(*username).valid) return false;
     if (!gateway_avatar_hash_valid(*avatar)) return false;
-    UserAppearance decoded{};
+    UserAppearance decoded;
     if (!user_appearance_read(*global_extra, m->user_id, 0, &decoded) || !user_appearance_read(*guild_extra, m->user_id, event.thread_members.guild_id, &decoded)) return false;
     for (u32 i = 0; i < m->role_count; ++i) {
         const u64 id = byte_load_le64(roles->data + i * 8);
@@ -419,7 +419,7 @@ bool gateway_client_apply_thread_members(const GatewayClientEvent& input_event, 
         if ((m.hydration_flags & gateway_thread_username_known) && username.bytes && name.bytes)
             user_store_upsert(users, m.user_id, name, username);
         if ((m.hydration_flags & gateway_thread_avatar_known) && user_store_find(*users, m.user_id)) user_store_set_avatar(users, m.user_id, avatar);
-        UserAppearance appearance{};
+        UserAppearance appearance;
         if (global.count && user_appearance_read(global, m.user_id, 0, &appearance)) { user_appearance_upsert(&users->appearance, appearance); saturating_increment(users->revision); }
         if (guild.count && user_appearance_read(guild, m.user_id, event.thread_members.guild_id, &appearance)) { user_appearance_upsert(&users->appearance, appearance); saturating_increment(users->revision); }
         if (m.hydration_flags & gateway_thread_member_known) {

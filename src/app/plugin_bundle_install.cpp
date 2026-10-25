@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_bundle_install.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -15,7 +16,7 @@ using Error=NativePluginBundleInstallError;
 using Phase=NativePluginBundleInstallPhase;
 #if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
 volatile LONG failure_mask{};
-bool forced(u32 mask) noexcept {return (static_cast<u32>(InterlockedCompareExchange(&failure_mask,0,0))&mask)!=0;}
+bool forced(u32 mask) noexcept {return (static_cast<u32>(read_acquire(&failure_mask))&mask)!=0;}
 #else
 constexpr bool forced(u32) noexcept {return false;}
 #endif
@@ -44,9 +45,9 @@ struct Runtime {
 static_assert(sizeof(Runtime)<=96*1024,"Plugin bundle staging runtime must stay within 96 KiB");
 LONG phase_value(Phase phase) noexcept {return static_cast<LONG>(phase);}
 Phase phase(const NativePluginBundleInstall& owner) noexcept {
-    return static_cast<Phase>(InterlockedCompareExchange(const_cast<volatile LONG*>(&owner.phase),0,0));
+    return static_cast<Phase>(read_acquire(&owner.phase));
 }
-bool cancelled(const Runtime& r) noexcept {return InterlockedCompareExchange(&r.owner->cancelled,0,0)!=0;}
+bool cancelled(const Runtime& r) noexcept {return read_acquire(&r.owner->cancelled)!=0;}
 Error fail(Runtime& r,Error error,NativePluginCatalogResult detail={}) noexcept {r.result.error=error;r.result.filesystem=detail;return error;}
 bool same_dll(const NativePluginManifest& a,const NativePluginManifest& b) noexcept {
     if(a.dll_bytes!=b.dll_bytes)return false;
@@ -477,7 +478,7 @@ DWORD run(Runtime& r,Error (*prepare)(Runtime&),Error (*commit)(Runtime&)) noexc
                     InterlockedExchange(&r.wait_failed,1);InterlockedExchange(&r.owner->phase,phase_value(Phase::complete));
                     SetEvent(r.owner->notification);return 0;
                 }
-                if(cancelled(r)||!InterlockedCompareExchange(&r.owner->commit_requested,0,0))fail(r,Error::cancelled);
+                if(cancelled(r)||!read_acquire(&r.owner->commit_requested))fail(r,Error::cancelled);
                 else commit(r);
                 }
             }
@@ -613,7 +614,7 @@ NativePluginBundleRecoveryResult native_plugin_bundle_recover(u64 owner_id,Const
 NativePluginBundleInstallResult native_plugin_bundle_install_status(const NativePluginBundleInstall* owner) noexcept {
     NativePluginBundleInstallResult result{};if(!owner)return {Phase::empty,Error::invalid_input};result.phase=phase(*owner);
     if(readable(owner)){const auto& r=*static_cast<const Runtime*>(owner->runtime);result=r.result;result.phase=phase(*owner);
-        if(InterlockedCompareExchange(const_cast<volatile LONG*>(&r.wait_failed),0,0)){result.error=Error::wait;result.cleanup_pending=true;}}
+        if(read_acquire(&r.wait_failed)){result.error=Error::wait;result.cleanup_pending=true;}}
     return result;
 }
 bool native_plugin_bundle_install_catalog(const NativePluginBundleInstall* owner,NativePluginCatalog* catalog,
@@ -643,7 +644,7 @@ bool native_plugin_bundle_install_catalog(const NativePluginBundleInstall* owner
 }
 NativePluginBundleInstallError native_plugin_bundle_install_commit(NativePluginBundleInstall* owner) noexcept {
     if(!owner||!owner->runtime)return Error::invalid_input;
-    if(InterlockedCompareExchange(&owner->cancelled,0,0)||InterlockedCompareExchange(&owner->phase,phase_value(Phase::publishing),phase_value(Phase::prepared))!=phase_value(Phase::prepared))return Error::busy;
+    if(read_acquire(&owner->cancelled)||InterlockedCompareExchange(&owner->phase,phase_value(Phase::publishing),phase_value(Phase::prepared))!=phase_value(Phase::prepared))return Error::busy;
     InterlockedExchange(&owner->commit_requested,1);ResetEvent(owner->notification);
     if(!SetEvent(owner->command)){InterlockedExchange(&owner->cancelled,1);return Error::wait;}return Error::none;
 }
@@ -660,7 +661,7 @@ void native_plugin_bundle_install_acknowledge(NativePluginBundleInstall* owner) 
 NativePluginBundleInstallError native_plugin_bundle_install_retry_cleanup(NativePluginBundleInstall* owner) noexcept {
     if(!readable(owner)||phase(*owner)!=Phase::complete)return Error::busy;
     auto& r=*static_cast<Runtime*>(owner->runtime);
-    const bool wait_failed=InterlockedCompareExchange(&r.wait_failed,0,0)!=0;
+    const bool wait_failed=read_acquire(&r.wait_failed)!=0;
     if(!r.result.cleanup_pending&&!wait_failed)return Error::invalid_input;
     if(owner->thread){if(WaitForSingleObject(owner->thread,0)!=WAIT_OBJECT_0)return Error::busy;
         if(!CloseHandle(owner->thread))return Error::release;owner->thread=nullptr;}
@@ -673,7 +674,7 @@ NativePluginBundleInstallError native_plugin_bundle_install_retry_cleanup(Native
 bool native_plugin_bundle_install_release(NativePluginBundleInstall* owner,u32 timeout_ms) noexcept {
     if(!owner)return false;if(!owner->runtime)return !owner->thread&&!owner->notification&&!owner->command;
     if(owner->thread&&WaitForSingleObject(owner->thread,timeout_ms)!=WAIT_OBJECT_0)return false;
-    auto& r=*static_cast<Runtime*>(owner->runtime);if(r.result.cleanup_pending||InterlockedCompareExchange(&r.wait_failed,0,0))return false;
+    auto& r=*static_cast<Runtime*>(owner->runtime);if(r.result.cleanup_pending||read_acquire(&r.wait_failed))return false;
     if(owner->thread){if(!CloseHandle(owner->thread))return false;owner->thread=nullptr;}
     if(owner->command){if(!CloseHandle(owner->command))return false;owner->command=nullptr;}
     if(owner->notification){if(!CloseHandle(owner->notification))return false;owner->notification=nullptr;}

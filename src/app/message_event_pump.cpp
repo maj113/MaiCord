@@ -338,8 +338,12 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
              !user_store_set_avatar(pump->users, mutation.user_id, avatar_hash))) {
             return false;
         }
-        UserAppearance appearance{};
-        UserActivitySet activities{mutation.user_id};
+        UserAppearance appearance;
+        // Only these two fields are read when the record carries no trailer
+        // (an empty set clears); a trailer read fills the rest.
+        UserActivitySet activities;
+        activities.user_id = mutation.user_id;
+        activities.count = 0;
         u32 appearance_bytes = 0;
         const u32 appearance_revision = pump->users->appearance.revision;
         const u32 activity_revision = pump->users->activities.revision;
@@ -376,7 +380,7 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
             else
                 saturating_increment(pump->presence_offscreen);
         }
-        u64 role_ids[256]{};
+        u64 role_ids[256];
         for (u32 index = 0; index < mutation.role_count; ++index) {
             role_ids[index] = packed_u64(roles, index * 8u);
             if (role_ids[index] == 0) {
@@ -1340,8 +1344,9 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     }
     if (event.dispatch_kind == GatewayClientDispatchKind::presence_update) {
         const auto& presence = event.presence;
-        UserAppearance appearance{};
-        UserActivitySet activities{};
+        UserAppearance appearance;
+        appearance.fields = 0;
+        UserActivitySet activities;
         u32 appearance_bytes = 0;
         bool valid = presence.user_id != 0 && presence.status <= GatewayClientMemberListStatus::offline;
         bool has_activities = false;
@@ -1383,8 +1388,10 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             if (payload.count && !user_appearance_upsert(&pump->users->appearance, appearance))
                 return result;
             if (activity_update) {
-                if (!has_activities)
-                    activities = {presence.user_id};
+                if (!has_activities) {
+                    activities.user_id = presence.user_id;
+                    activities.count = 0;
+                }
                 user_activity_apply(&pump->users->activities, activities, presence.guild_id,
                                     presence.status == GatewayClientMemberListStatus::offline);
             }

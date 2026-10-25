@@ -587,7 +587,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     if (has_presence && !activity_decode(document, member.presence, &guild_appearance))
         return reject(error);
     writer->decode_detail = decode_detail(MemberDecodeStage::serialization);
-    u8 user_extra[1024]{}, member_extra[1024 + kUserActivityRecordMaximumBytes]{};
+    u8 user_extra[1024], member_extra[1024 + kUserActivityRecordMaximumBytes];
     const u32 user_extra_bytes =
         user_appearance_write(global_appearance, {user_extra, sizeof(user_extra)});
     u32 member_extra_bytes =
@@ -598,7 +598,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     // room for the rest of the list; without the flag the activities are unknown.
     bool activities_known = false;
     if (has_presence && (guild_appearance.fields & appearance_activity)) {
-        UserActivitySet activities{};
+        UserActivitySet activities;
         bool listed = false;
         if (user_activities_decode(document, member.presence, user.id, &activities, &listed)) {
             const u32 tail = activities.count ? user_activities_write(activities, {member_extra + member_extra_bytes,
@@ -1072,9 +1072,9 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     *cursor += mutation->user_appearance_bytes;
     const ConstSlice<u8> guild_extra{payload.data + *cursor, mutation->member_appearance_bytes};
     *cursor += mutation->member_appearance_bytes;
-    UserAppearance decoded{};
+    UserAppearance decoded;
     u32 appearance_bytes = 0;
-    UserActivitySet activities{};
+    UserActivitySet activities;
     if (member &&
         (!user_appearance_read(global_extra, mutation->user_id, 0, &decoded) ||
          !user_appearance_read_prefix(guild_extra, mutation->user_id, event.member_list.guild_id, &decoded,

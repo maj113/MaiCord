@@ -944,10 +944,11 @@ void test_controller() noexcept {
             g_app.preferences_save_pending && g_app.preferences_request_revision &&
             observed.layout_updates == theme_layouts && observed.account_text_updates == theme_account_text,
         "settings: theme applies palette and queues save without rebuilding hidden shell or account text");
-    check(await_save_retained() && !g_app.preferences_save_failed &&
+    g_app.frame_pending = false;
+    check(await_save_retained() && !g_app.preferences_save_failed && !g_app.frame_pending &&
               WaitForSingleObject(application_preferences_notification(), 0) == WAIT_TIMEOUT,
-          "settings: Appearance save completion preserves dormant Storage and current scene and resets "
-          "notification");
+          "settings: Appearance save completion preserves dormant Storage and current scene, requests no frame and "
+          "resets notification");
     ClientPreferences loaded{};
     check(client_preferences_load_file(cleanup.path, &loaded).ok() &&
               client_preferences_equal(loaded, g_app.preferences),

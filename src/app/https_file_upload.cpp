@@ -1,6 +1,7 @@
 #include "maicord/app/https_file_upload.hpp"
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/protocol/http1.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -44,7 +45,7 @@ void phase(HttpsFileUpload* upload, HttpsFileUploadPhase value) noexcept {
     InterlockedExchange(&upload->phase, static_cast<LONG>(value));
 }
 bool cancelled(HttpsFileUpload* upload) noexcept {
-    return InterlockedCompareExchange(&upload->cancelled, 0, 0) != 0;
+    return read_acquire(&upload->cancelled) != 0;
 }
 void drain(HttpsFileUpload* upload, Runtime* r, HttpsFileUploadError error, u32 native = 0) noexcept {
     if (r->draining) return;
@@ -60,7 +61,7 @@ NetworkWorkerStep finish(HttpsFileUpload* upload, Runtime* r) noexcept {
     if (r->draining) {
         r->result.elapsed_us = clock_microseconds(r->clock, r->started, clock_now());
         r->result.file_bytes = r->expected_bytes;
-        r->result.committed_bytes = static_cast<u64>(InterlockedCompareExchange64(&upload->committed_bytes, 0, 0));
+        r->result.committed_bytes = static_cast<u64>(read_acquire(&upload->committed_bytes));
         r->result.phase = HttpsFileUploadPhase::complete;
         SecureZeroMemory(r->head, sizeof(r->head));
         SecureZeroMemory(r->chunk, sizeof(r->chunk));
@@ -123,7 +124,7 @@ void drive(HttpsFileUpload* upload, Runtime* r, TlsStreamEvent event) noexcept {
             r->result.status_code = r->response.parsed_head.status_code;
             const bool accepted = (r->result.status_code == 200 || r->result.status_code == 201) &&
                 r->response.state == HttpResponseDecoderState::complete &&
-                static_cast<u64>(InterlockedCompareExchange64(&upload->committed_bytes, 0, 0)) == r->expected_bytes;
+                static_cast<u64>(read_acquire(&upload->committed_bytes)) == r->expected_bytes;
             drain(upload, r, accepted ? HttpsFileUploadError::none : HttpsFileUploadError::http);
             return;
         }
@@ -169,7 +170,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
         }
     } else if (event.kind == NetworkWorkerEventKind::stop_requested) {
         r->stopping = true;
-        if (static_cast<HttpsFileUploadPhase>(InterlockedCompareExchange(&upload->phase, 0, 0)) != HttpsFileUploadPhase::complete)
+        if (static_cast<HttpsFileUploadPhase>(read_acquire(&upload->phase)) != HttpsFileUploadPhase::complete)
             drain(upload, r, HttpsFileUploadError::cancelled, ERROR_OPERATION_ABORTED);
     } else if (event.kind == NetworkWorkerEventKind::poll_error) {
         drain(upload, r, HttpsFileUploadError::worker, static_cast<u32>(event.poll.completion.native_error));
@@ -195,7 +196,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
             if (!r->draining && !r->stopping) drive(upload, r, step);
         }
     }
-    const auto current = static_cast<HttpsFileUploadPhase>(InterlockedCompareExchange(&upload->phase, 0, 0));
+    const auto current = static_cast<HttpsFileUploadPhase>(read_acquire(&upload->phase));
     if (current != HttpsFileUploadPhase::complete && !r->draining) {
         if (cancelled(upload)) drain(upload, r, HttpsFileUploadError::cancelled, ERROR_OPERATION_ABORTED);
         else if (event.now_ms >= r->deadline) drain(upload, r, HttpsFileUploadError::timeout, WAIT_TIMEOUT);
@@ -245,13 +246,13 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
 }
 HttpsFileUploadResult https_file_upload_status(const HttpsFileUpload* upload) noexcept {
     if (!upload || !upload->runtime) return {};
-    const auto current = static_cast<HttpsFileUploadPhase>(InterlockedCompareExchange(const_cast<volatile LONG*>(&upload->phase), 0, 0));
+    const auto current = static_cast<HttpsFileUploadPhase>(read_acquire(&upload->phase));
     const auto* r = static_cast<const Runtime*>(upload->runtime);
     if (current == HttpsFileUploadPhase::complete) return r->result;
     HttpsFileUploadResult result{};
     result.phase = current;
     result.file_bytes = r->expected_bytes;
-    result.committed_bytes = static_cast<u64>(InterlockedCompareExchange64(const_cast<volatile LONG64*>(&upload->committed_bytes), 0, 0));
+    result.committed_bytes = static_cast<u64>(read_acquire(&upload->committed_bytes));
     return result;
 }
 bool https_file_upload_cancel(HttpsFileUpload* upload) noexcept {

@@ -105,29 +105,17 @@ AccountProfileResult account_profile_save(const wchar_t* path, const AccountProf
 
     u8 entropy[kProfileEntropyBytes]{};
     make_entropy(metadata, entropy);
-    const SecureBufferResult required = secure_buffer_protect_user_bound(
-        credential, ConstSlice<u8>{entropy, kProfileEntropyBytes}, Slice<u8>{nullptr, 0});
-    if (required.error != SecureBufferError::output_too_small || required.bytes == 0 ||
-        required.bytes > kAccountProfileMaximumFileBytes - kProfileHeaderBytes) {
-        secure_clear_bytes(entropy, sizeof(entropy));
-        return failure(AccountProfileError::protect, required.native_error, required.bytes);
-    }
-    const u32 allocation_bytes = kProfileHeaderBytes + required.bytes;
-    auto* file_bytes =
-        static_cast<u8*>(VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!file_bytes) {
-        secure_clear_bytes(entropy, sizeof(entropy));
-        return failure(AccountProfileError::memory, thread_last_error());
-    }
-    const SecureBufferResult protected_result =
-        secure_buffer_protect_user_bound(credential, ConstSlice<u8>{entropy, kProfileEntropyBytes},
-                                         Slice<u8>{file_bytes + kProfileHeaderBytes, required.bytes});
+    u8* file_bytes = nullptr;
+    u32 allocation_bytes = 0;
+    const SecureBufferResult protected_result = secure_buffer_protect_user_bound_block(
+        credential, ConstSlice<u8>{entropy, kProfileEntropyBytes}, kProfileHeaderBytes,
+        kAccountProfileMaximumFileBytes, &file_bytes, &allocation_bytes);
     secure_clear_bytes(entropy, sizeof(entropy));
-    if (!protected_result.ok() || protected_result.bytes == 0 || protected_result.bytes > required.bytes) {
-        const AccountProfileResult result =
-            failure(AccountProfileError::protect, protected_result.native_error, protected_result.bytes);
-        file_persistence_secure_release(file_bytes, allocation_bytes);
-        return result;
+    if (!protected_result.ok()) {
+        return protected_result.error == SecureBufferError::allocation_failed
+                   ? failure(AccountProfileError::memory, protected_result.native_error)
+                   : failure(AccountProfileError::protect, protected_result.native_error,
+                             protected_result.bytes);
     }
     const u32 file_size = kProfileHeaderBytes + protected_result.bytes;
     write_header(file_bytes, file_size, protected_result.bytes, metadata);

@@ -1430,22 +1430,22 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                                       typing.timestamp_seconds};
     } else if (late == 2 || late == 3) {
         GatewayMessageEvent message{};
-        GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum]{};
-        GatewayMessageReaction reactions[kGatewayMessageReactionMaximum]{};
-        GatewayMessageAttachment attachments[kGatewayMessageAttachmentMaximum]{};
-        GatewayMessageEmbed embeds[kGatewayMessageEmbedMaximum]{};
-        GatewayMessageEmbedField embed_fields[kGatewayMessageEmbedFieldMaximum]{};
-        GatewayMessageSticker stickers[kGatewayMessageStickerMaximum]{};
-        GatewayMessageComponent components[kGatewayMessageComponentMaximum]{};
-        GatewayMessageAttachment snapshot_attachments[kGatewayMessageAttachmentMaximum]{};
-        GatewayMessageEmbed snapshot_embeds[kGatewayMessageEmbedMaximum]{};
-        GatewayMessageEmbedField snapshot_fields[kGatewayMessageEmbedFieldMaximum]{};
-        GatewayMessageSticker snapshot_stickers[kGatewayMessageStickerMaximum]{};
-        GatewayMessageComponent snapshot_components[kGatewayMessageComponentMaximum]{};
-        GatewayMessageNamedUser snapshot_users[kGatewayMessageMentionUserMaximum]{};
-        GatewayMessagePollAnswer poll_answers[kGatewayMessagePollMaximumAnswers]{};
-        GatewayMessagePollAnswerCount poll_counts[kGatewayMessagePollMaximumAnswers]{};
-        u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
+        GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum];
+        GatewayMessageReaction reactions[kGatewayMessageReactionMaximum];
+        GatewayMessageAttachment attachments[kGatewayMessageAttachmentMaximum];
+        GatewayMessageEmbed embeds[kGatewayMessageEmbedMaximum];
+        GatewayMessageEmbedField embed_fields[kGatewayMessageEmbedFieldMaximum];
+        GatewayMessageSticker stickers[kGatewayMessageStickerMaximum];
+        GatewayMessageComponent components[kGatewayMessageComponentMaximum];
+        GatewayMessageAttachment snapshot_attachments[kGatewayMessageAttachmentMaximum];
+        GatewayMessageEmbed snapshot_embeds[kGatewayMessageEmbedMaximum];
+        GatewayMessageEmbedField snapshot_fields[kGatewayMessageEmbedFieldMaximum];
+        GatewayMessageSticker snapshot_stickers[kGatewayMessageStickerMaximum];
+        GatewayMessageComponent snapshot_components[kGatewayMessageComponentMaximum];
+        GatewayMessageNamedUser snapshot_users[kGatewayMessageMentionUserMaximum];
+        GatewayMessagePollAnswer poll_answers[kGatewayMessagePollMaximumAnswers];
+        GatewayMessagePollAnswerCount poll_counts[kGatewayMessagePollMaximumAnswers];
+        u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
         const GatewayMessageRichScratch rich_scratch{
             Slice<GatewayMessageReaction>{reactions, kGatewayMessageReactionMaximum},
             Slice<GatewayMessageAttachment>{attachments, kGatewayMessageAttachmentMaximum},

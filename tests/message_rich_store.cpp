@@ -262,5 +262,62 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
     check(message_rich_store_reset(&audio_store) && !audio_store.count && !audio_store.text_used,
           "audio account reset releases waveform logical ownership along with other rich metadata");
     message_rich_store_release(&audio_store);
+
+    // A record slot that is not in use is all zero except its (nonzero)
+    // generation: insert and unpack rely on it instead of clearing the slot.
+    static MessageRichRecord free_records[4];
+    static u16 free_order[4];
+    static u8 free_text[8192];
+    u8* const raw_records = reinterpret_cast<u8*>(free_records);
+    for (u32 index = 0; index < sizeof(free_records); ++index)
+        raw_records[index] = 0xA5;
+    const auto free_slots_clean = [](const MessageRichStore& owner) noexcept {
+        MessageRichRecord expected;
+        for (u32 index = 0; index < owner.record_extent; ++index) {
+            const MessageRichRecord& slot = owner.records[index];
+            if (slot.occupied)
+                continue;
+            reset_value<MessageRichRecord>(&expected);
+            expected.generation = slot.generation;
+            if (slot.generation == 0 || !bytes_equal(&slot, &expected, sizeof(slot)))
+                return false;
+        }
+        return true;
+    };
+    MessageRichStore free_store{};
+    check(message_rich_store_initialize(&free_store, {free_records, 4}, {free_order, 4}, {free_text, sizeof(free_text)}) &&
+              free_store.record_extent == 4 && free_slots_clean(free_store),
+          "rich free slots: initialization clears every slot to its generation");
+    auto forwarded = sparse_message();
+    GatewayMessageAttachment forwarded_attachment{};
+    forwarded_attachment.id = 911;
+    forwarded_attachment.filename = utf8_literal("a.png");
+    forwarded_attachment.url = utf8_literal("https://example.com/a.png");
+    forwarded_attachment.size = 8;
+    forwarded.attachments = {&forwarded_attachment, 1};
+    forwarded.snapshot.present = true;
+    forwarded.snapshot.content = utf8_literal("quoted");
+    forwarded.snapshot.fields = gateway_message_field_content;
+    u8 packed[4096];
+    u32 packed_bytes = 0;
+    check(message_rich_store_apply(&free_store, 900, 1, forwarded).ok() &&
+              message_rich_store_snapshot(free_store, 900) && free_slots_clean(free_store) &&
+              message_rich_store_pack(free_store, 900, {packed, sizeof(packed)}, &packed_bytes) && packed_bytes &&
+              message_rich_store_delete(&free_store, 900) && free_slots_clean(free_store),
+          "rich free slots: a deleted forwarded message leaves both slots clean");
+    check(message_rich_store_unpack(&free_store, 900, 2, {packed, packed_bytes}) &&
+              message_rich_store_snapshot(free_store, 900) && free_slots_clean(free_store) &&
+              message_rich_store_delete(&free_store, 900) && free_slots_clean(free_store),
+          "rich free slots: unpack writes a clean free slot and deleting it cleans it again");
+    bool corrupt_clean = true;
+    for (u32 at = 0; at < packed_bytes && corrupt_clean; ++at) {
+        const u8 original = packed[at];
+        packed[at] = 0xFF;
+        const bool admitted = message_rich_store_unpack(&free_store, 900, 3, {packed, packed_bytes});
+        packed[at] = original;
+        corrupt_clean = (!admitted || message_rich_store_delete(&free_store, 900)) && free_slots_clean(free_store) &&
+                        !free_store.count && !free_store.snapshot_count;
+    }
+    check(corrupt_clean, "rich free slots: a corrupted packed message is rejected or removed with every slot clean");
 }
 } // namespace maicord

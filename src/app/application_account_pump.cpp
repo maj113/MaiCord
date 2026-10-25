@@ -588,6 +588,8 @@ bool drain_account_events() noexcept {
         browser_drain.navigation_self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
         auto* previous_navigation_drain = navigation_gateway_drain;
         navigation_gateway_drain = &browser_drain;
+        // The Gateway pop signals nothing per record. A drain of the mailbox's capacity takes every record
+        // published before this wake; later ones carry their own notification, so none is left unsignaled.
         const MessageEventPumpDrainResult drained = message_event_pump_drain(
             &g_app.message_pump, &browser_drain, pop_browser_gateway, kGatewayClientEventCapacity);
         navigation_gateway_drain = previous_navigation_drain;

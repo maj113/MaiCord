@@ -642,7 +642,7 @@ void activate_request(CdnClient* client, CdnClientRuntime* runtime, NetworkLoop*
 }
 
 void cancel_request(CdnClient* client, CdnClientRuntime* runtime) noexcept {
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_cancel_active) {
+    if (read_acquire(&client->request_state) != request_state_cancel_active) {
         return;
     }
     begin_drain(client, runtime, CdnClientError::cancelled, CdnHttpError::none,
@@ -925,7 +925,7 @@ CdnClientTakeResult cdn_client_take_response(CdnClient* client,
     if (!client || !client->runtime || !response || (!body_output.data && body_output.count != 0)) {
         return CdnClientTakeResult{0, CdnClientTakeError::invalid_input};
     }
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready) {
+    if (read_acquire(&client->request_state) != request_state_ready) {
         return CdnClientTakeResult{0, CdnClientTakeError::empty};
     }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
@@ -947,7 +947,7 @@ CdnClientTakeResult cdn_client_consume_response(CdnClient* client,
     if (!client || !client->runtime || !consumer) {
         return CdnClientTakeResult{0, CdnClientTakeError::invalid_input};
     }
-    if (InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready) {
+    if (read_acquire(&client->request_state) != request_state_ready) {
         return CdnClientTakeResult{0, CdnClientTakeError::empty};
     }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);

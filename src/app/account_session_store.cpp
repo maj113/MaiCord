@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/account_session_store.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/app/client_session_metadata.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -202,32 +203,18 @@ AccountSessionStoreResult account_user_session_store_save(
     }
     u8 entropy[kEntropyBytes]{};
     make_entropy(snapshot.profile_id, flags, kUserAccountSessionStoreVersion, entropy);
-    const SecureBufferResult required =
-        secure_buffer_protect_user_bound(payload, ConstSlice<u8>{entropy, sizeof(entropy)}, {});
-    if (required.error != SecureBufferError::output_too_small || required.bytes == 0 ||
-        required.bytes > kAccountSessionStoreMaximumFileBytes - kHeaderBytes) {
-        secure_clear_bytes(entropy, sizeof(entropy));
-        secure_buffer_release(&payload);
-        return failure(AccountSessionStoreError::protect, required.native_error, required.bytes);
-    }
-    const u32 allocation_bytes = kHeaderBytes + required.bytes;
-    auto* file_bytes =
-        static_cast<u8*>(VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!file_bytes) {
-        secure_clear_bytes(entropy, sizeof(entropy));
-        secure_buffer_release(&payload);
-        return failure(AccountSessionStoreError::memory, thread_last_error());
-    }
-    const SecureBufferResult protected_result =
-        secure_buffer_protect_user_bound(payload, ConstSlice<u8>{entropy, sizeof(entropy)},
-                                         Slice<u8>{file_bytes + kHeaderBytes, required.bytes});
+    u8* file_bytes = nullptr;
+    u32 allocation_bytes = 0;
+    const SecureBufferResult protected_result = secure_buffer_protect_user_bound_block(
+        payload, ConstSlice<u8>{entropy, sizeof(entropy)}, kHeaderBytes, kAccountSessionStoreMaximumFileBytes,
+        &file_bytes, &allocation_bytes);
     secure_clear_bytes(entropy, sizeof(entropy));
     secure_buffer_release(&payload);
-    if (!protected_result.ok() || protected_result.bytes == 0 || protected_result.bytes > required.bytes) {
-        const AccountSessionStoreResult result = failure(
-            AccountSessionStoreError::protect, protected_result.native_error, protected_result.bytes);
-        file_persistence_secure_release(file_bytes, allocation_bytes);
-        return result;
+    if (!protected_result.ok()) {
+        return protected_result.error == SecureBufferError::allocation_failed
+                   ? failure(AccountSessionStoreError::memory, protected_result.native_error)
+                   : failure(AccountSessionStoreError::protect, protected_result.native_error,
+                             protected_result.bytes);
     }
     const u32 file_size = kHeaderBytes + protected_result.bytes;
     write_header(file_bytes, file_size, protected_result.bytes, flags, snapshot.profile_id);
@@ -325,6 +312,55 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
     if (heartbeat)
         *heartbeat = restored;
     return success(file_size);
+}
+
+namespace {
+
+template <typename T> u64 hash_value(u64 hash, const T& value) noexcept {
+    return hash64_bytes(hash, &value, static_cast<u32>(sizeof(value)));
+}
+
+// Everything a save writes except the Resume sequence.
+u64 save_fingerprint(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbeatSession* heartbeat,
+                     u32 cookie_revision) noexcept {
+    u64 hash = hash_value(kHash64Seed, cookie_revision);
+    if (heartbeat) {
+        hash = hash_value(hash, heartbeat->created_ms);
+        hash = hash_value(hash, heartbeat->last_used_ms);
+        hash = hash64_bytes(hash, heartbeat->uuid, kGatewayUserLaunchIdBytes);
+    }
+    hash = hash_value(hash, snapshot.profile_id);
+    hash = hash_value(hash, snapshot.self_user_id);
+    hash = hash_value(hash, snapshot.has_resume);
+    if (snapshot.has_resume) {
+        hash = hash_value(hash, snapshot.resume.session_id_bytes);
+        hash = hash64_bytes(hash, snapshot.resume.session_id, snapshot.resume.session_id_bytes);
+        hash = hash_value(hash, snapshot.resume.resume_url_bytes);
+        hash = hash64_bytes(hash, snapshot.resume.resume_url, snapshot.resume.resume_url_bytes);
+    }
+    return hash;
+}
+
+u64 save_sequence(const GatewayUserSessionSnapshot& snapshot) noexcept {
+    return snapshot.has_resume ? snapshot.resume.sequence : 0;
+}
+
+} // namespace
+
+bool account_session_save_state_current(const AccountSessionSaveState& state,
+                                        const GatewayUserSessionSnapshot& snapshot,
+                                        const ClientHeartbeatSession* heartbeat, u32 cookie_revision,
+                                        bool include_sequence) noexcept {
+    return state.known && state.fingerprint == save_fingerprint(snapshot, heartbeat, cookie_revision) &&
+           (!include_sequence || state.sequence == save_sequence(snapshot));
+}
+
+void account_session_save_state_record(AccountSessionSaveState* state,
+                                       const GatewayUserSessionSnapshot& snapshot,
+                                       const ClientHeartbeatSession* heartbeat, u32 cookie_revision) noexcept {
+    state->fingerprint = save_fingerprint(snapshot, heartbeat, cookie_revision);
+    state->sequence = save_sequence(snapshot);
+    state->known = true;
 }
 
 } // namespace maicord

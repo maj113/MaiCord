@@ -190,20 +190,45 @@ bool valid_stream_inputs(JsonValue relationships, JsonValue merged, Slice<u32> a
             byte_ranges_overlap(source, arrays) || byte_ranges_overlap(source, objects)) return false;
     return true;
 }
-// Wakes the consumer, then waits for it to free space; false on cancellation, timeout or failure.
-bool wait_for_space(HANDLE space, HANDLE cancel, HANDLE notification, u64 deadline_ms) noexcept {
+// The producer found no room. It announces the wait, re-checks, then wakes the consumer and blocks.
+// Returns true when room appeared (re-checked or signaled), false on cancellation, timeout or failure.
+template <typename Room>
+bool wait_for_space(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, HANDLE notification,
+    u64 deadline_ms, Room room) noexcept {
+    // The interlocked store is the barrier between the flag and the consumer's ownership store.
+    InterlockedExchange(&mailbox->space_waiting, 1);
+    if (room()) {
+        InterlockedExchange(&mailbox->space_waiting, 0);
+        return true;
+    }
     SetEvent(notification);
     const u64 now = GetTickCount64();
-    if (now >= deadline_ms) return false;
-    const HANDLE waits[]{cancel, space};
-    const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
-    return WaitForMultipleObjects(2, waits, FALSE, timeout) == WAIT_OBJECT_0 + 1;
+    bool woken = false;
+    if (now < deadline_ms) {
+        const HANDLE waits[]{cancel, space};
+        const DWORD timeout = static_cast<DWORD>(minimum<u64>(deadline_ms - now, INFINITE - 1ull));
+        woken = WaitForMultipleObjects(2, waits, FALSE, timeout) == WAIT_OBJECT_0 + 1;
+    }
+    // Only the consumer's wake clears it otherwise; a cancelled or timed-out wait must not leave a stale flag.
+    InterlockedExchange(&mailbox->space_waiting, 0);
+    return woken;
 }
 } // namespace
+void gateway_mailbox_signal_space(GatewayClientMailbox* mailbox, HANDLE space) noexcept {
+    if (InterlockedExchange(&mailbox->space_waiting, 0))
+        SetEvent(space);
+}
 bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, HANDLE notification,
     u64 deadline_ms, const GatewayClientEvent& event, ConstSlice<u8> payload, bool* deferred) noexcept {
     if (!mailbox || !space || !cancel || !notification || !byte_range_valid(payload) || payload.count > kGatewayClientDispatchPayloadCapacity)
         return false;
+    const auto room = [&]() noexcept {
+        const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
+        const u64 payload_write = spsc_mailbox_load_u64(&mailbox->payload_write_sequence), payload_read = spsc_mailbox_load_u64(&mailbox->payload_read_sequence);
+        return payload_write >= payload_read && payload_write - payload_read <= kGatewayClientDispatchPayloadCapacity &&
+               write - read < kGatewayClientEventCapacity &&
+               payload.count <= kGatewayClientDispatchPayloadCapacity - (payload_write - payload_read);
+    };
     for (;;) {
         if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
         const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
@@ -216,16 +241,17 @@ bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE
             else SetEvent(notification);
             return true;
         }
-        if (!wait_for_space(space, cancel, notification, deadline_ms)) return false;
+        if (!wait_for_space(mailbox, space, cancel, notification, deadline_ms, room)) return false;
     }
 }
-bool gateway_mailbox_wait_lease(HANDLE space, HANDLE cancel, HANDLE notification, u64 deadline_ms,
-    const volatile LONG* lease) noexcept {
-    if (!space || !cancel || !notification || !lease) return false;
+bool gateway_mailbox_wait_lease(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, HANDLE notification,
+    u64 deadline_ms, const volatile LONG* lease) noexcept {
+    if (!mailbox || !space || !cancel || !notification || !lease) return false;
+    const auto room = [&]() noexcept { return !read_acquire(lease); };
     for (;;) {
         if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
         if (!read_acquire(lease)) return true;
-        if (!wait_for_space(space, cancel, notification, deadline_ms)) return false;
+        if (!wait_for_space(mailbox, space, cancel, notification, deadline_ms, room)) return false;
     }
 }
 bool gateway_mailbox_publish_external(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel,
@@ -234,6 +260,10 @@ bool gateway_mailbox_publish_external(GatewayClientMailbox* mailbox, HANDLE spac
     if (!mailbox || !space || !cancel || !notification || !lease || !payload_bytes ||
         payload_bytes > kGatewayClientGuildRecordCapacity || read_acquire(lease))
         return false;
+    const auto room = [&]() noexcept {
+        const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
+        return write - read < kGatewayClientEventCapacity;
+    };
     for (;;) {
         if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
         const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
@@ -248,7 +278,7 @@ bool gateway_mailbox_publish_external(GatewayClientMailbox* mailbox, HANDLE spac
             else SetEvent(notification);
             return true;
         }
-        if (!wait_for_space(space, cancel, notification, deadline_ms)) return false;
+        if (!wait_for_space(mailbox, space, cancel, notification, deadline_ms, room)) return false;
     }
 }
 bool gateway_client_relationship_record(ConstSlice<u8> payload, u32* cursor, RelationshipMutation* output) noexcept {

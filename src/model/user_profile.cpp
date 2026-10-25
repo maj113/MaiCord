@@ -188,10 +188,11 @@ bool user_appearance_upsert(UserAppearanceStore* s, const UserAppearance& v) noe
         user_appearance_release(s);
         return false;
     }
-    UserAppearance next{};
+    UserAppearance next;
     if (found) {
         user_appearance_expand(*found, &next);
     } else {
+        reset_value(&next);
         next.user_id = v.user_id;
         next.guild_id = v.guild_id;
     }
@@ -378,13 +379,12 @@ namespace {
 bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* output, u32* consumed) noexcept {
     if (!output || !user || (!input.data && input.count))
         return false;
-    UserAppearance a{};
+    UserAppearance& a = *output;
+    reset_value(&a);
     a.user_id = user;
     a.guild_id = guild;
-    if (!input.count) {
-        copy_value(output, a);
+    if (!input.count)
         return true;
-    }
     AppearanceReader r{input};
     r.scalar(a.fields);
     if (a.fields & ~511u)
@@ -441,7 +441,6 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
         return false;
     if (consumed)
         *consumed = r.used;
-    copy_value(output, a);
     return true;
 }
 } // namespace

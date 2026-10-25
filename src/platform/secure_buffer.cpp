@@ -20,6 +20,8 @@ SecureBufferResult failure(SecureBufferError error, u32 native_error = 0, u32 by
 // keep the original one-call path and never change working-set policy.
 constexpr SIZE_T kLockRecoveryMinimumLimit = 1024 * 1024;
 constexpr u32 kLockRecoveryAttempts = 16;
+// A DPAPI blob is the plaintext plus a few hundred bytes; this leaves headroom.
+constexpr u32 kProtectedOverheadGuess = 1024;
 
 struct LockBudgetGuard {
     HANDLE mutex;
@@ -197,6 +199,48 @@ SecureBufferResult secure_buffer_protect_user_bound(const SecureBuffer& plaintex
     SecureZeroMemory(output.pbData, output.cbData);
     LocalFree(output.pbData);
     return result;
+}
+
+SecureBufferResult secure_buffer_protect_user_bound_block(const SecureBuffer& plaintext, ConstSlice<u8> entropy,
+                                                          u32 header_bytes, u32 maximum_bytes, u8** block,
+                                                          u32* block_bytes) noexcept {
+    if (!block || !block_bytes || header_bytes == 0 || header_bytes >= maximum_bytes) {
+        return failure(SecureBufferError::invalid_input, ERROR_INVALID_PARAMETER);
+    }
+    *block = nullptr;
+    *block_bytes = 0;
+    const u32 maximum_protected = maximum_bytes - header_bytes;
+    // DPAPI adds a few hundred bytes (description, GUIDs, salt, MAC, padding) to the plaintext:
+    // guess that, and retry once with the reported size when the guess was short.
+    u32 capacity = plaintext.bytes + kProtectedOverheadGuess;
+    if (capacity > maximum_protected) {
+        capacity = maximum_protected;
+    }
+    for (u32 attempt = 0; attempt < 2; ++attempt) {
+        const u32 total = header_bytes + capacity;
+        auto* bytes = static_cast<u8*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!bytes) {
+            return failure(SecureBufferError::allocation_failed, thread_last_error());
+        }
+        const SecureBufferResult result =
+            secure_buffer_protect_user_bound(plaintext, entropy, Slice<u8>{bytes + header_bytes, capacity});
+        if (result.ok() && result.bytes != 0) {
+            *block = bytes;
+            *block_bytes = total;
+            return result;
+        }
+        SecureZeroMemory(bytes, total);
+        VirtualFree(bytes, 0, MEM_RELEASE);
+        if (result.ok()) {
+            return failure(SecureBufferError::protect_failed);
+        }
+        if (result.error != SecureBufferError::output_too_small || result.bytes <= capacity ||
+            result.bytes > maximum_protected) {
+            return result;
+        }
+        capacity = result.bytes;
+    }
+    return failure(SecureBufferError::protect_failed);
 }
 
 SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_input,

@@ -207,6 +207,39 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
               !restored.has_resume && reloaded.count == 1 &&
               account_user_session_store_load(path, profile_id, &restored).ok(),
           "v4 session keeps persistent cookies encrypted beside or without resume state");
+    // The periodic autosave ignores the Resume sequence (it advances with
+    // every dispatch and a persisted resume is never replayed); the final
+    // save at shutdown still writes it.
+    AccountSessionSaveState save_state{};
+    GatewayUserSessionSnapshot advanced = current;
+    advanced.resume.sequence = current.resume.sequence + 100;
+    GatewayUserSessionSnapshot other_identity = current;
+    other_identity.self_user_id = current.self_user_id - 1;
+    check(!account_session_save_state_current(save_state, current, &heartbeat, 0, false) &&
+              !account_session_save_state_current(save_state, current, &heartbeat, 0, true),
+          "a save state that never recorded a save is never current");
+    account_session_save_state_record(&save_state, current, &heartbeat, 0);
+    check(account_session_save_state_current(save_state, current, &heartbeat, 0, false) &&
+              account_session_save_state_current(save_state, current, &heartbeat, 0, true) &&
+              account_session_save_state_current(save_state, advanced, &heartbeat, 0, false) &&
+              !account_session_save_state_current(save_state, advanced, &heartbeat, 0, true),
+          "a sequence-only change skips the periodic autosave but not the final save");
+    check(!account_session_save_state_current(save_state, other_identity, &heartbeat, 0, false) &&
+              !account_session_save_state_current(save_state, current, nullptr, 0, false) &&
+              !account_session_save_state_current(save_state, current, &heartbeat, 1, false),
+          "identity, heartbeat and cookie changes still trigger the periodic autosave");
+    GatewayUserSessionSnapshot persisted{};
+    check(account_user_session_store_save(path, current, &heartbeat).ok() &&
+              account_user_session_store_load(path, profile_id, &persisted).ok() &&
+              persisted.resume.sequence == current.resume.sequence &&
+              account_user_session_store_save(path, advanced, &heartbeat).ok() &&
+              account_user_session_store_load(path, profile_id, &persisted).ok() &&
+              persisted.resume.sequence == advanced.resume.sequence,
+          "the final save writes the advanced Resume sequence");
+    account_session_save_state_record(&save_state, advanced, &heartbeat, 0);
+    check(account_session_save_state_current(save_state, advanced, &heartbeat, 0, true) &&
+              !account_session_save_state_current(save_state, current, &heartbeat, 0, true),
+          "recording the final save makes the same sequence current");
     cookie_jar_clear(&jar);
     cookie_jar_clear(&reloaded);
     secure_clear_bytes(cookie, sizeof(cookie));

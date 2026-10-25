@@ -49,4 +49,21 @@ AccountSessionStoreResult account_user_session_store_load(
     const wchar_t* path, u64 expected_profile_id, GatewayUserSessionSnapshot* snapshot,
     ClientHeartbeatSession* heartbeat = nullptr, CookieJar* cookies = nullptr) noexcept;
 
+// What the session file last held, for skipping saves that would write the
+// same bytes. The Resume sequence advances after nearly every Gateway dispatch
+// and a persisted resume is never replayed, so a periodic save ignores it
+// (include_sequence false) and only the final save at shutdown records it.
+struct AccountSessionSaveState {
+    u64 fingerprint;
+    u64 sequence;
+    bool known;
+};
+bool account_session_save_state_current(const AccountSessionSaveState& state,
+                                        const GatewayUserSessionSnapshot& snapshot,
+                                        const ClientHeartbeatSession* heartbeat, u32 cookie_revision,
+                                        bool include_sequence) noexcept;
+void account_session_save_state_record(AccountSessionSaveState* state,
+                                       const GatewayUserSessionSnapshot& snapshot,
+                                       const ClientHeartbeatSession* heartbeat, u32 cookie_revision) noexcept;
+
 } // namespace maicord

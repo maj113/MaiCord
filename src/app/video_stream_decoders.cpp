@@ -1,4 +1,5 @@
 #include "maicord/app/video_stream_decoders.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/voice_log.hpp"
 #include "maicord/platform/gpu_stream_decoder.hpp"
@@ -85,7 +86,7 @@ GpuStreamDecoder* detach(VideoStreamDecoders::Stream* stream) noexcept {
 }
 
 bool decodable_codec(const VideoStreamDecoders& decoders, VoiceVideoCodec codec, GpuStreamCodec* output) noexcept {
-    const u32 bits = static_cast<u32>(InterlockedCompareExchange(const_cast<volatile LONG*>(&decoders.decodable), 0, 0));
+    const u32 bits = static_cast<u32>(read_acquire(&decoders.decodable));
     if (!(bits & voice_video_codec_bit(codec))) return false;
     *output = codec == VoiceVideoCodec::av1    ? GpuStreamCodec::av1
               : codec == VoiceVideoCodec::h265 ? GpuStreamCodec::h265
@@ -166,7 +167,7 @@ void end_stream(void* context, u32 ssrc) noexcept {
 
 u32 decodable(void* context) noexcept {
     auto* decoders = static_cast<VideoStreamDecoders*>(context);
-    return static_cast<u32>(InterlockedCompareExchange(&decoders->decodable, 0, 0));
+    return static_cast<u32>(read_acquire(&decoders->decodable));
 }
 
 } // namespace

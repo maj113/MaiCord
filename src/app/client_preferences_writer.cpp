@@ -1,4 +1,5 @@
 #include "maicord/app/client_preferences_writer.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/app/account_profile.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/win32_process.hpp"
@@ -18,7 +19,7 @@ struct ClientPreferencesWriter {
     u64 requested_revision;
     u64 completed_revision;
     bool pending_ready;
-    bool completion_ready;
+    long completion_ready;
     bool stopping;
     bool explicit_path;
     wchar_t path[kAccountProfileMaximumPathCharacters];
@@ -67,7 +68,7 @@ DWORD WINAPI write_preferences(void* context) noexcept {
         AcquireSRWLockExclusive(writer->lock.native());
         writer->completed_revision = revision;
         writer->completed_result = result;
-        writer->completion_ready = true;
+        write_release(&writer->completion_ready, 1);
         SetEvent(writer->completion_event);
         ReleaseSRWLockExclusive(writer->lock.native());
     }
@@ -118,8 +119,10 @@ bool client_preferences_writer_submit(ClientPreferencesWriter* writer,
     writer->pending = preferences;
     writer->pending_ready = true;
     *revision = ++writer->requested_revision;
-    SetEvent(writer->work_event);
     ReleaseSRWLockExclusive(writer->lock.native());
+    // The worker rechecks pending_ready under the lock before it waits, and the event stays
+    // signaled until it does.
+    SetEvent(writer->work_event);
     return true;
 }
 
@@ -133,13 +136,15 @@ bool client_preferences_writer_poll(ClientPreferencesWriter* writer,
                                     bool* ready) noexcept {
     if (!writer || !completed_revision || !result || !ready)
         return reject(ERROR_INVALID_PARAMETER);
+    // The main loop polls on every wake; only a published completion needs the lock. The worker
+    // sets the completion event after publishing, so a poll that misses it sees the event later.
+    *ready = read_acquire(&writer->completion_ready) != 0;
+    if (!*ready)
+        return true;
     AcquireSRWLockExclusive(writer->lock.native());
-    *ready = writer->completion_ready;
-    if (*ready) {
-        *completed_revision = writer->completed_revision;
-        *result = writer->completed_result;
-        writer->completion_ready = false;
-    }
+    *completed_revision = writer->completed_revision;
+    *result = writer->completed_result;
+    write_release(&writer->completion_ready, 0);
     ResetEvent(writer->completion_event);
     ReleaseSRWLockExclusive(writer->lock.native());
     return true;

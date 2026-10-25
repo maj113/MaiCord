@@ -1816,10 +1816,14 @@ void application_preferences_poll() noexcept {
         log_u64(LogLevel::warning, "preferences", "save_native_error", result.native_error);
     }
     if (g_app.settings) {
+        // Only the retry row reads the save flags, and it exists while a save has failed.
+        const bool retry_visible = g_app.settings->save_failed || !result.ok();
         g_app.settings->save_failed = !result.ok();
-        project(*g_app.settings);
-        if (g_app.settings->scene.active)
-            refresh();
+        if (retry_visible) {
+            project(*g_app.settings);
+            if (g_app.settings->scene.active)
+                refresh();
+        }
     }
 }
 void application_preferences_shutdown() noexcept {

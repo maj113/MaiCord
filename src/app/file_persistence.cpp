@@ -47,9 +47,10 @@ file_persistence_write_atomic(const wchar_t* path, u32 path_characters,
     temporary[path_characters + 2] = L'e';
     temporary[path_characters + 3] = L'w';
 
-    HANDLE file =
-        CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                    FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_WRITE_THROUGH, nullptr);
+    // No FILE_FLAG_WRITE_THROUGH: the flush below makes the data durable, and the flag made every
+    // write wait on the device on its own.
+    HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
         return {thread_last_error(), FilePersistenceWriteError::open};
     }

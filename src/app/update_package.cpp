@@ -17,13 +17,20 @@ struct Reader {
     u8 buffer[kUpdatePackageReadBufferBytes];
     UpdatePackageResult status{};
     BCRYPT_HASH_HANDLE hash = nullptr;
+    // File position after the last read of `file`; kUnknownCursor until a seek or after any failure.
+    static constexpr u64 kUnknownCursor = ~u64{0};
+    u64 cursor = kUnknownCursor;
     bool fail(UpdatePackageError error, DWORD native = 0, i32 crypto = 0) noexcept {
         status.error = error; status.native_error = native; status.crypto_status = crypto; return false;
     }
     bool read(u64 offset, void* output, u32 count) noexcept {
         if (offset > bytes || count > bytes - offset) return fail(UpdatePackageError::size);
-        LARGE_INTEGER position{}; position.QuadPart = static_cast<LONGLONG>(offset);
-        if (!SetFilePointerEx(file, position, nullptr, FILE_BEGIN)) return fail(UpdatePackageError::read, GetLastError());
+        if (cursor != offset) {
+            cursor = kUnknownCursor;
+            LARGE_INTEGER position{}; position.QuadPart = static_cast<LONGLONG>(offset);
+            if (!SetFilePointerEx(file, position, nullptr, FILE_BEGIN)) return fail(UpdatePackageError::read, GetLastError());
+        }
+        cursor = kUnknownCursor;
         u32 done = 0;
         while (done < count) {
             DWORD got = 0;
@@ -32,6 +39,7 @@ struct Reader {
             if (!got || got > count - done) return fail(UpdatePackageError::size);
             done += got;
         }
+        cursor = offset + count;
         return true;
     }
     bool begin_hash() noexcept {
@@ -236,12 +244,12 @@ bool inspect(Reader& reader, const UpdateManifest& manifest, Members* members, U
 }
 bool readback(HANDLE file, const UpdatePackageMember& member, Reader& reader) noexcept {
     const HANDLE previous = reader.file; const u64 previous_bytes = reader.bytes;
-    reader.file = file; reader.bytes = member.bytes;
+    reader.file = file; reader.bytes = member.bytes; reader.cursor = Reader::kUnknownCursor;
     u8 digest[32]{};
     bool ok = regular(file, member.bytes, &reader.status) && reader.stream(0, member.bytes, digest, nullptr);
     if (ok && !bytes_equal(digest, member.sha256, 32)) ok = reader.fail(UpdatePackageError::digest);
     if (ok && !image(reader, 0, member.bytes, update_package_member_name(member))) ok = reader.fail(UpdatePackageError::pe);
-    reader.file = previous; reader.bytes = previous_bytes; return ok;
+    reader.file = previous; reader.bytes = previous_bytes; reader.cursor = Reader::kUnknownCursor; return ok;
 }
 UpdatePackageResult finish(Reader& reader, HANDLE* files, u32 count) noexcept {
     if (reader.hash) {

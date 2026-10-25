@@ -1237,6 +1237,8 @@ GatewayClientResult gateway_client_status(const GatewayClient* client) noexcept;
 // Observer APIs are UI-thread operations. They must not race
 // gateway_client_stop(), which destroys the worker-owned runtime after joining.
 bool gateway_client_pop_event(GatewayClient* client, GatewayClientEvent* event) noexcept;
+// A pop never signals the notification handle: the worker signals once after each batch it publishes. A
+// consumer must therefore drain until empty (or at least the mailbox capacity), as the account pump does.
 GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, GatewayClientEvent* event,
                                                         Slice<u8> payload_output) noexcept;
 HANDLE gateway_client_notification_handle(const GatewayClient* client) noexcept;

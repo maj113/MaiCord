@@ -141,10 +141,9 @@ UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinato
     }
     if (coordinator->state.phase == UserAccountCoordinatorPhase::gateway_connecting ||
         coordinator->state.phase == UserAccountCoordinatorPhase::running) {
-        rest_client_set_required_action(&coordinator->rest,
-                                        gateway_client_required_action(&coordinator->gateway));
-        rest_client_set_required_action(&coordinator->details,
-                                        gateway_client_required_action(&coordinator->gateway));
+        const AccountRequirement required = gateway_client_required_action(&coordinator->gateway);
+        rest_client_set_required_action(&coordinator->rest, required);
+        rest_client_set_required_action(&coordinator->details, required);
         const GatewayClientResult gateway = gateway_client_status(&coordinator->gateway);
         coordinator->state.gateway_error = gateway.error;
         coordinator->state.native_error = gateway.native_error;

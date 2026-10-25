@@ -275,6 +275,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
     PluginProviderAddressError address_error = PluginProviderAddressError::none;
     PluginProviderAddResult add{};
     bool changed = false;
+    u64 forgotten_provider = 0; // its key-change notice is dropped with the command's result
     if (!op) {
         manager.error = PluginManagerError::storage;
         record.error = AcceptanceRecordError::open;
@@ -348,7 +349,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         if (add.error == PluginProviderAddError::none) {
             w->catalog_used = true;
             if (!w->next_check) w->next_check = update_next_check(now, 0, 0, random32());
-            publish(w, [id = w->probe_address.id](PluginBrowserWorkerView& v) noexcept { forget_key_change(v, id); });
+            forgotten_provider = w->probe_address.id;
         }
         free_probe(w);
         changed = true;
@@ -356,7 +357,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
     case Kind::cancel_probe: free_probe(w); break;
     case Kind::remove_provider:
         record = plugin_manager_remove_provider(op->paths, cmd.provider);
-        publish(w, [id = cmd.provider](PluginBrowserWorkerView& v) noexcept { forget_key_change(v, id); });
+        forgotten_provider = cmd.provider;
         changed = true;
         break;
     case Kind::official_flags: record = plugin_manager_set_official_flags(op->paths, cmd.set, cmd.clear); changed = true; break;
@@ -366,6 +367,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
     }
     close_operation(w, op);
     publish(w, [&](PluginBrowserWorkerView& v) noexcept {
+        if (forgotten_provider) forget_key_change(v, forgotten_provider);
         w->command_running = false;
         v.phase = PluginBrowserPhase::idle;
         v.command_serial = serial;

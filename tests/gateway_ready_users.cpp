@@ -165,7 +165,7 @@ bool projection_packet(bool malformed) noexcept {
     runtime.stopping = false;
     runtime.self_user_id = runtime.resume_user_id = 77;
     runtime.resume = {};
-    runtime.resume.sequence = 7;
+    runtime.resume_sequence = 7;
     runtime.voice_snapshot.user_id = 77;
     runtime.failure_stage = GatewayClientFailureStage::none;
     return gateway_session_push(&runtime.session, {output, writer.used + 4});
@@ -232,7 +232,7 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(accepted == PlaintextDrive::receive && ordered && completions == 1 && batches == 3 && users == 66 &&
         runtime.structural_scratch.capacity == 8192 && runtime.session.structural_scratch.count == 8192 &&
-        runtime.resume.valid && runtime.resume.sequence == 88 && runtime.resume_user_id == 1 &&
+        runtime.resume.valid && runtime.resume_sequence == 88 && runtime.resume_user_id == 1 &&
         runtime.self_user_id == 1 && runtime.resume.session_id_bytes == 17 &&
         load_phase(&client) == GatewayClientPhase::ready,
         "shipping READY checkpoints fresh sequence only after ordered complete projection enters the mailbox");
@@ -369,6 +369,74 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
     ResetEvent(runtime.mailbox_cancel);
     CloseHandle(client.state_event);
     client.state_event = nullptr;
+}
+
+struct SpaceProducer {
+    GatewayClientEvent event;
+    bool published;
+};
+DWORD WINAPI blocked_producer(void* opaque) noexcept {
+    auto& task = *static_cast<SpaceProducer*>(opaque);
+    task.published = publish_event_payload(&client, &runtime, task.event, {});
+    return 0;
+}
+// A drain costs the consumer no kernel call per record and leaves no stale wake, yet a producer blocked
+// on a full mailbox is still woken by the first pop that frees room.
+void mailbox_wakeups(void (*check)(bool, const char*) noexcept) noexcept {
+    client.runtime = &runtime;
+    secure_clear_bytes(&runtime.events, sizeof(runtime.events));
+    runtime.notify_pending = false;
+    ResetEvent(client.notification_event);
+    ResetEvent(runtime.mailbox_space);
+    ResetEvent(runtime.mailbox_cancel);
+    runtime.mailbox_deadline_ms = GetTickCount64() + 10'000;
+    GatewayClientEvent event{};
+    event.kind = GatewayClientEventKind::heartbeat_acknowledged;
+    bool published = true;
+    for (u32 i = 0; i < 16; ++i) published = publish_event_payload(&client, &runtime, event, {}) && published;
+    notify_consumer(&client, &runtime);
+    const bool woken = WaitForSingleObject(client.notification_event, 0) == WAIT_OBJECT_0;
+    u32 popped = 0;
+    for (;;) {
+        const auto result = gateway_client_pop_event_payload(&client, &event, {output, sizeof(output)});
+        if (!result.ok()) break;
+        ++popped;
+    }
+    check(published && woken && popped == 16 &&
+              WaitForSingleObject(client.notification_event, 0) == WAIT_TIMEOUT &&
+              WaitForSingleObject(runtime.mailbox_space, 0) == WAIT_TIMEOUT,
+          "Gateway drain that ends empty leaves no stale wake and signals no space nobody waits for");
+
+    bool filled = true;
+    for (u32 i = 0; i < kGatewayClientEventCapacity; ++i)
+        filled = spsc_mailbox_push(&runtime.events, event, {}).ok() && filled;
+    SpaceProducer task{event, false};
+    const HANDLE thread = CreateThread(nullptr, 0, blocked_producer, &task, 0, nullptr);
+    // The producer announces its wait before it blocks; the first pop must then signal space.
+    bool announced = false;
+    for (u32 i = 0; thread && !announced && i < 1000; ++i) {
+        announced = ReadAcquire(&runtime.events.space_waiting) != 0;
+        if (!announced) Sleep(1);
+    }
+    const auto freed = gateway_client_pop_event_payload(&client, &event, {output, sizeof(output)});
+    const bool joined = thread && WaitForSingleObject(thread, 3000) == WAIT_OBJECT_0;
+    if (thread && !joined) {
+        SetEvent(runtime.mailbox_cancel);
+        WaitForSingleObject(thread, 3000);
+    }
+    if (thread) CloseHandle(thread);
+    check(filled && announced && freed.ok() && joined && task.published &&
+              spsc_mailbox_size(runtime.events) == kGatewayClientEventCapacity &&
+              !ReadAcquire(&runtime.events.space_waiting),
+          "Gateway producer blocked on a full mailbox is woken by the consumer's first pop");
+    while (gateway_client_pop_event_payload(&client, &event, {output, sizeof(output)}).ok()) {
+    }
+    ResetEvent(runtime.mailbox_cancel);
+    ResetEvent(runtime.mailbox_space);
+    ResetEvent(client.notification_event);
+    runtime.notify_pending = false;
+    runtime.mailbox_deadline_ms = 0;
+    client.runtime = nullptr;
 }
 
 u32 index_growth_calls{};
@@ -839,6 +907,7 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     worker_projection(check);
     oversized_record(check);
     failure_receipt(check);
+    mailbox_wakeups(check);
     identify_sequence(check);
     release();
     check(!runtime.structural_scratch.arena.base && !runtime.structural_scratch.capacity &&

@@ -29,12 +29,11 @@ bool network_client_cancel(Client* client, NetworkSignal* cancel_signal, u32 can
                            u64 request_id) noexcept {
     LONG claimed_state = request_state_empty;
     for (;;) {
-        const LONG state = InterlockedCompareExchange(&client->request_state, 0, 0);
+        const LONG state = read_acquire(&client->request_state);
         if (state != request_state_pending && state != request_state_active) {
             return false;
         }
-        if (static_cast<u64>(InterlockedCompareExchange64(&client->current_request_id, 0, 0)) !=
-            request_id) {
+        if (static_cast<u64>(read_acquire(&client->current_request_id)) != request_id) {
             return false;
         }
         const LONG cancelling =

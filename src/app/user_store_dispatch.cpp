@@ -30,7 +30,7 @@ bool user_store_apply_gateway_snapshots(UserStore* store, ConstSlice<u8> payload
         ConstSlice<u8> appearance{};
         if (!gateway_client_user_record(payload, &cursor, &user, &name, &avatar, &username, &appearance)) return false;
         if (appearance.count) {
-            UserAppearance decoded{};
+            UserAppearance decoded;
             if (!user_appearance_read(appearance, user.id, 0, &decoded) || !user_appearance_upsert(&store->appearance, decoded)) return false;
             ++store->revision;
         }

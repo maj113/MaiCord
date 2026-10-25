@@ -32,7 +32,9 @@ bool key_down(VoiceSendShared& s, u8 key) noexcept {
     return s.probe ? s.probe(s.probe_context, key) : (GetAsyncKeyState(key) & 0x8000) != 0;
 }
 void wake_worker(const VoiceSend& send) noexcept {
-    if (send.loop && send.signal && !InterlockedCompareExchange(&send.signal->pending, 0, 0))
+    // The queue publication before this check is a full barrier (s.write is interlocked), so a
+    // worker that has cleared `pending` is guaranteed to see the new packet.
+    if (send.loop && send.signal && !read_acquire(&send.signal->pending))
         network_signal_post(send.loop, send.signal, 1);
 }
 // Capture thread: every frame pacing releases goes through meter, gate,
@@ -43,7 +45,7 @@ void process(VoiceSend& send, u64 now_us) noexcept {
     const VoiceSendControl c = s.control;
     ReleaseSRWLockShared(s.control_lock.native());
     const bool down = c.mode == VoiceInputMode::push_to_talk && key_down(s, c.key);
-    InterlockedExchange(&send.cells.key_down, down);
+    write_release(&send.cells.key_down, down);
     bool queued = false;
     u64 index = 0;
     while (voice_framer_pop(&s.framer, now_us, {s.frame, kVoiceFrameSamples}, &index, &s.wake_us)) {
@@ -53,10 +55,10 @@ void process(VoiceSend& send, u64 now_us) noexcept {
         const bool held = voice_push_to_talk_update(&s.push_to_talk, down, now_us, c.release_ms);
         const bool want = c.send && (c.mode == VoiceInputMode::push_to_talk ? held : active);
         const auto action = voice_transmit_next(&s.transmitter, want);
-        InterlockedExchange(&send.cells.level, static_cast<LONG>(level));
-        InterlockedExchange(&send.cells.threshold, s.activity.threshold);
-        InterlockedExchange(&send.cells.transmitting, s.transmitter.talking);
-        InterlockedExchange(&send.cells.announced, s.transmitter.announced);
+        write_release(&send.cells.level, static_cast<LONG>(level));
+        write_release(&send.cells.threshold, s.activity.threshold);
+        write_release(&send.cells.transmitting, s.transmitter.talking);
+        write_release(&send.cells.announced, s.transmitter.announced);
         if (action == VoiceTransmitAction::idle)
             continue;
         const u32 write = static_cast<u32>(read_acquire(&s.write));
@@ -89,7 +91,7 @@ void process(VoiceSend& send, u64 now_us) noexcept {
         wake_worker(send);
 }
 void discard(VoiceSendShared& s) noexcept {
-    InterlockedExchange(&s.read, read_acquire(&s.write));
+    write_release(&s.read, read_acquire(&s.write));
 }
 bool same_device(const wchar_t* a, const wchar_t* b) noexcept {
     u32 i = 0;
@@ -286,7 +288,7 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
         }
         if (packet.action == VoiceTransmitAction::tail_end)
             send->speaking_off_pending = send->speaking_on;
-        InterlockedExchange(&s->read, static_cast<LONG>(read + 1));
+        write_release(&s->read, static_cast<LONG>(read + 1));
     }
     if (send->speaking_off_pending) {
         const auto ended = t.speaking(t.context, 0);
@@ -321,7 +323,7 @@ void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const Gatewa
     media_ready = media_ready && connection && voice.setup.channel_id;
     const auto* heartbeat = connection ? &connection->socket.session.heartbeat : nullptr;
     const u64 round_trip = media_ready && heartbeat->has_round_trip ? minimum<u64>(heartbeat->round_trip_ms, 65535) : 0;
-    InterlockedExchange(&send->cells.round_trip, static_cast<LONG>(round_trip));
+    write_release(&send->cells.round_trip, static_cast<LONG>(round_trip));
     const bool sending = media_ready && !muted;
     // A mute mid-sentence still finishes the silence tail before closing.
     const bool tail = media_ready && send->shared && read_acquire(&send->cells.announced);

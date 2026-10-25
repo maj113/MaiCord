@@ -86,13 +86,12 @@ struct AccountModuleRuntime {
     AccountDownloadOwner* download;
     wchar_t session_path[kAccountProfileMaximumPathCharacters];
     u64 next_autosave_at_ms;
-    u64 persisted_fingerprint;
+    AccountSessionSaveState save_state;
     u32 session_saves;
     u32 session_save_skips;
     u32 session_save_failures;
     u32 session_native_error;
     AccountSessionStoreError session_error;
-    bool has_persisted_fingerprint;
     u64 logout_request_id;
     bool logout_submitted;
     AccountActionCaptcha action_captcha;
@@ -462,41 +461,17 @@ bool copy_path(const wchar_t* source, wchar_t* destination) noexcept {
            wide_append(destination, kAccountProfileMaximumPathCharacters, &length, source);
 }
 
-template <typename T> u64 hash_value(u64 hash, const T& value) noexcept {
-    return hash64_bytes(hash, &value, static_cast<u32>(sizeof(value)));
-}
-
 // The heartbeat session the session file keeps, or null.
 const ClientHeartbeatSession* persisted_heartbeat(const ClientHeartbeatSession& session) noexcept {
     return client_heartbeat_session_valid(session) ? &session : nullptr;
-}
-
-u64 snapshot_fingerprint(const GatewayUserSessionSnapshot& snapshot,
-                         const ClientHeartbeatSession* heartbeat, u32 cookie_revision) noexcept {
-    u64 hash = hash_value(kHash64Seed, cookie_revision);
-    if (heartbeat) {
-        hash = hash_value(hash, heartbeat->created_ms);
-        hash = hash_value(hash, heartbeat->last_used_ms);
-        hash = hash64_bytes(hash, heartbeat->uuid, kGatewayUserLaunchIdBytes);
-    }
-    hash = hash_value(hash, snapshot.profile_id);
-    hash = hash_value(hash, snapshot.self_user_id);
-    hash = hash_value(hash, snapshot.has_resume);
-    if (snapshot.has_resume) {
-        hash = hash_value(hash, snapshot.resume.sequence);
-        hash = hash_value(hash, snapshot.resume.session_id_bytes);
-        hash = hash64_bytes(hash, snapshot.resume.session_id, snapshot.resume.session_id_bytes);
-        hash = hash_value(hash, snapshot.resume.resume_url_bytes);
-        hash = hash64_bytes(hash, snapshot.resume.resume_url, snapshot.resume.resume_url_bytes);
-    }
-    return hash;
 }
 
 bool snapshot_is_persistable(const GatewayUserSessionSnapshot& snapshot) noexcept {
     return snapshot.profile_id != 0 && snapshot.has_resume && gateway_resume_validate(snapshot.resume);
 }
 
-bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot) noexcept {
+bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapshot& snapshot,
+                   bool include_sequence) noexcept {
     const ClientHeartbeatSession session = client_session_metadata_session(&runtime->client_metadata);
     const ClientHeartbeatSession* heartbeat = persisted_heartbeat(session);
     u32 cookie_revision = 0;
@@ -505,8 +480,8 @@ bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapsh
         snapshot.profile_id == 0 || (!snapshot_is_persistable(snapshot) && !heartbeat && !cookies)) {
         return true;
     }
-    const u64 fingerprint = snapshot_fingerprint(snapshot, heartbeat, cookie_revision);
-    if (runtime->has_persisted_fingerprint && runtime->persisted_fingerprint == fingerprint) {
+    if (account_session_save_state_current(runtime->save_state, snapshot, heartbeat, cookie_revision,
+                                           include_sequence)) {
         ++runtime->session_save_skips;
         return true;
     }
@@ -524,8 +499,7 @@ bool save_snapshot(AccountModuleRuntime* runtime, const GatewayUserSessionSnapsh
         ++runtime->session_save_failures;
         return false;
     }
-    runtime->persisted_fingerprint = fingerprint;
-    runtime->has_persisted_fingerprint = true;
+    account_session_save_state_record(&runtime->save_state, snapshot, heartbeat, cookie_revision);
     ++runtime->session_saves;
     return true;
 }
@@ -536,7 +510,7 @@ void autosave_if_due(AccountModuleRuntime* runtime, u64 monotonic_now_ms) noexce
     }
     GatewayUserSessionSnapshot snapshot{};
     const bool captured = user_account_coordinator_snapshot_session(&runtime->coordinator, &snapshot);
-    const bool saved = !captured || save_snapshot(runtime, snapshot);
+    const bool saved = !captured || save_snapshot(runtime, snapshot, false);
     runtime->next_autosave_at_ms =
         deadline_after(monotonic_now_ms, saved ? kSessionAutosaveIntervalMs : kSessionAutosaveRetryMs);
 }
@@ -641,8 +615,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     u32 cookie_revision = 0;
     const bool cookies = cookie_jar_has_persistent(&runtime->cookies, &cookie_revision);
     if (session.ok() && (snapshot_is_persistable(restored) || heartbeat || cookies)) {
-        runtime->persisted_fingerprint = snapshot_fingerprint(restored, heartbeat, cookie_revision);
-        runtime->has_persisted_fingerprint = true;
+        account_session_save_state_record(&runtime->save_state, restored, heartbeat, cookie_revision);
     }
 
     const AccountMediaRequestResult media_started = account_media_worker_initialize(&runtime->media);
@@ -1965,7 +1938,7 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
         user_account_coordinator_stop(&runtime->coordinator, timeout_ms, &snapshot);
     bool final_session_saved = true;
     if (!rejected)
-        final_session_saved = save_snapshot(runtime, snapshot);
+        final_session_saved = save_snapshot(runtime, snapshot, true);
     AccountModuleStatus status = build_status(runtime);
     if (!stopped.ok() || stopped.phase != UserAccountCoordinatorPhase::stopped) {
         // The gateway may still deliver frames: keep the decoders alive.

@@ -120,6 +120,8 @@ bool user_activities_decode(const JsonIndexedDocument& doc, JsonValue presence, 
 
 // Mailbox wire form (validated on read). An empty set writes a marker only.
 u32 user_activities_write(const UserActivitySet&, Slice<u8> output) noexcept;
+// Decodes straight into *output: on false it is unspecified, and on success
+// items past count and text past each field's length keep their old bytes.
 bool user_activities_read(ConstSlice<u8> input, u64 user_id, UserActivitySet* output) noexcept;
 
 // Users' activities in their wire form: a sorted index over one compacting
