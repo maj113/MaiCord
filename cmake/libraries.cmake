@@ -183,6 +183,7 @@ maicord_library(maicord_protocol
     src/protocol/oauth.cpp
     src/protocol/hls_playlist.cpp
     src/protocol/twitch_playback.cpp
+    src/protocol/cookie_jar.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)

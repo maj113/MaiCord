@@ -597,6 +597,12 @@ maicord_test(MaiCordPermissionComputeTests ENTRY maicord_permission_compute_entr
     BUNDLE MaiCordModelTests
     TIMEOUT 10
     TEST maicord_permission_compute)
+maicord_test(MaiCordCookieJarTests ENTRY maicord_cookie_jar_entry
+    SOURCES tests/cookie_jar.cpp
+    LIBS maicord_core maicord_protocol kernel32
+    BUNDLE MaiCordModelTests
+    TIMEOUT 10
+    TEST maicord_cookie_jar)
 maicord_test(MaiCordUserSettingsTests ENTRY maicord_user_settings_tests_entry
     SOURCES tests/user_settings_proto.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32
