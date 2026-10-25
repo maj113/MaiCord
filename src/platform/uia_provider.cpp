@@ -1082,7 +1082,7 @@ HRESULT STDMETHODCALLTYPE value_set(void* self, const wchar_t* text) noexcept {
     if (!text)
         return E_INVALIDARG;
     int units = 0;
-    while (text[units] && units < static_cast<int>(kUiAccessValueMaximumBytes))
+    while (units < static_cast<int>(kUiAccessValueMaximumBytes) && text[units])
         ++units;
     ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
     if (!scratch.data)
@@ -1581,7 +1581,7 @@ HRESULT STDMETHODCALLTYPE range_find_text(void* self, BSTR needle, BOOL backward
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
     int units = 0;
-    while (needle[units] && units < static_cast<int>(kUiAccessValueMaximumBytes))
+    while (units < static_cast<int>(kUiAccessValueMaximumBytes) && needle[units])
         ++units;
     ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
     if (!scratch.data)
