@@ -595,6 +595,7 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
                     static_cast<u64>(event.event_decode_error));
             log_u64(LogLevel::error, "gateway", "compression_error",
                     static_cast<u64>(event.compression_error));
+            log_u64(LogLevel::error, "gateway", "etf_error", static_cast<u64>(event.etf_error));
             log_u64(LogLevel::error, "gateway", "json_scan_error", static_cast<u64>(event.json_scan_error));
             log_u64(LogLevel::error, "gateway", "json_read_error", static_cast<u64>(event.json_read_error));
             log_u64(LogLevel::error, "gateway", "route_error_offset", event.route_error_offset);

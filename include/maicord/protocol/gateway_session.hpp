@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/byte_queue.hpp"
-#include "maicord/media/deflate.hpp"
 #include "maicord/media/zstd.hpp"
 #include "maicord/protocol/etf.hpp"
 #include "maicord/protocol/cookie_jar.hpp"
@@ -66,12 +65,11 @@ struct GatewaySession {
     Slice<u32> structural_scratch;
     GatewaySessionGrowIndex grow_index;
     void* grow_index_context;
-    ZlibStreamGrowOutput grow_output;
+    EtfGrowOutput grow_output;
     void* grow_output_context;
     u32 maximum_decoded_message_bytes;
     GatewayLifecycle lifecycle;
     WebSocketMessageTracker message_tracker;
-    ZlibStreamInflater* zlib_stream;
     // zstd-stream carrying ETF (the user Gateway): each complete binary
     // message decompresses and transcodes into message_storage.
     ZstdStreamDecoder* zstd_stream;
@@ -113,7 +111,6 @@ struct GatewaySessionEvent {
     GatewayDecodeError gateway_error;
     JsonScanError scan_error;  // why the envelope scan failed, for scan_failed
     GatewayEventDecodeError event_error;
-    ZlibInflateError compression_error;
     ZstdError zstd_error;
     EtfError etf_error;
     GatewaySessionError error;
@@ -129,19 +126,16 @@ bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage
                                 u64 maximum_frame_payload_bytes, u64 maximum_message_bytes,
                                 bool resume_available, bool has_sequence, u64 last_sequence) noexcept;
 bool gateway_session_push(GatewaySession* session, ConstSlice<u8> plaintext) noexcept;
-bool gateway_session_enable_zlib_stream(
-    GatewaySession* session, ZlibStreamInflater* inflater,
-    Slice<u8> compressed_storage) noexcept;
-// zstd-stream with ETF payloads instead of zlib-stream JSON. The decoder is
+// zstd-stream with ETF payloads instead of text JSON frames. The decoder is
 // initialized by the owner (its storage holds the window and each message's
 // ETF); a decoding error poisons it until the owner initializes it again.
 bool gateway_session_enable_zstd_etf(GatewaySession* session, ZstdStreamDecoder* decoder,
                                      Slice<u8> compressed_storage) noexcept;
-// Register before opening, after zlib is enabled. Wire/frame limits stay
+// Register before opening, after zstd-stream is enabled. Wire/frame limits stay
 // fixed; only the separate decoded buffer can grow, at a stable base address.
 bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> decoded_output,
-    u32 maximum_decoded_bytes, ZlibStreamGrowOutput grow, void* context) noexcept;
-// Register before opening, after zlib is enabled: compressed payloads larger
+    u32 maximum_decoded_bytes, EtfGrowOutput grow, void* context) noexcept;
+// Register before opening, after zstd-stream is enabled: compressed payloads larger
 // than the initial compressed storage spill into owner storage, up to
 // maximum_compressed_bytes, and return to the initial storage afterwards.
 bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maximum_compressed_bytes,

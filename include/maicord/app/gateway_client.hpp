@@ -29,7 +29,8 @@ struct RelationshipMutation;
 enum class GatewaySessionError : u8;
 enum class WebSocketError : u8;
 enum class WebSocketHandshakeError : u8;
-enum class ZlibInflateError : u8;
+enum class ZstdError : u8;
+enum class EtfError : u8;
 
 enum class VoiceSocketPhase : u8;
 enum class VoiceConnectionError : u8;
@@ -983,7 +984,8 @@ struct GatewayClientEvent {
     WebSocketError websocket_error;
     GatewayDecodeError gateway_decode_error;
     GatewayEventDecodeError event_decode_error;
-    ZlibInflateError compression_error;
+    ZstdError compression_error;
+    EtfError etf_error;
     JsonScanError json_scan_error;
     JsonReadError json_read_error;
     u32 route_error_offset;

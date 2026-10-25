@@ -939,6 +939,7 @@ bool replay_once(PhaseTotals (&totals)[kPhases], u64* committed_peak) noexcept {
                         .field("session", static_cast<u64>(runtime->session_error))
                         .field("websocket", static_cast<u64>(runtime->websocket_error))
                         .field("compression", static_cast<u64>(runtime->compression_error))
+                        .field("etf", static_cast<u64>(runtime->etf_error))
                         .field("event", static_cast<u64>(runtime->event_decode_error))
                         .field("read", static_cast<u64>(runtime->json_read_error)).emit();
                     ok = false;

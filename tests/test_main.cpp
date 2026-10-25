@@ -89,6 +89,7 @@
 #include "maicord/protocol/cdn_http.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
 #include "maicord/protocol/gateway_qos_token.hpp"
+#include "maicord/protocol/etf.hpp"
 #include "maicord/protocol/gateway_endpoint.hpp"
 #include "maicord/protocol/gateway_events.hpp"
 #include "maicord/protocol/gateway_lifecycle.hpp"
@@ -23191,130 +23192,13 @@ void test_gateway_session() noexcept {
                closed.lifecycle_step.action == GatewayLifecycleAction::reconnect_identify,
            "gateway_session_close_policy");
 
-    constexpr u8 compressed_hello[] = {
-        0x78, 0x9C, 0xAA, 0x56, 0xCA, 0x2F, 0x50, 0xB2, 0x32, 0x34, 0xD0, 0x51, 0x4A,
-        0x51, 0xB2, 0xAA, 0x56, 0xCA, 0x48, 0x4D, 0x2C, 0x2A, 0x49, 0x4A, 0x4D, 0x2C,
-        0x89, 0xCF, 0xCC, 0x2B, 0x49, 0x2D, 0x2A, 0x4B, 0xCC, 0x51, 0xB2, 0x32, 0x31,
-        0x34, 0x32, 0x35, 0xA8, 0xAD, 0x05, 0x00, 0x00, 0x00, 0xFF, 0xFF,
-    };
-    constexpr u8 compressed_ready[] = {
-        0x34, 0x8A, 0x4B, 0x0A, 0x83, 0x30, 0x10, 0x86, 0xEF, 0xF2, 0xAF, 0x07, 0xC5, 0x65, 0x67, 0x57,
-        0xA8, 0x17, 0xE8, 0xAE, 0x94, 0x12, 0x82, 0x09, 0x61, 0x20, 0x1A, 0xC9, 0x24, 0x15, 0x91, 0xDC,
-        0xBD, 0x54, 0xDA, 0xE5, 0xF7, 0x38, 0xCE, 0xF3, 0x3F, 0xBE, 0xC1, 0x17, 0x42, 0x55, 0x9F, 0xBF,
-        0x24, 0x0E, 0x8C, 0x01, 0x8D, 0x10, 0xAA, 0x44, 0xA7, 0xE0, 0xE7, 0x8B, 0xA0, 0x5E, 0x55, 0xD2,
-        0x62, 0xCE, 0xAA, 0x20, 0x64, 0xAF, 0x75, 0xF6, 0x26, 0xD8, 0xE2, 0x37, 0xBB, 0x9B, 0x9A, 0x23,
-        0x18, 0x9B, 0x2A, 0xF7, 0xFD, 0xCF, 0x75, 0x4E, 0x74, 0x4A, 0xD9, 0x75, 0x21, 0x80, 0x60, 0xD7,
-        0x35, 0xCA, 0x64, 0x8B, 0xA4, 0x05, 0x7C, 0xB4, 0x46, 0x50, 0xF0, 0x40, 0x28, 0x60, 0xDC, 0xC7,
-        0xEB, 0xED, 0x81, 0xF6, 0x01, 0x00, 0x00, 0xFF, 0xFF,
-    };
+    // zstd-stream sessions: tests/gateway_etf_session.cpp covers framing and errors.
     u8 compressed_input[8192]{};
-    u8 compressed_output[4096]{};
     u8 compressed_accumulation[4096]{};
     u32 compressed_scratch[512]{};
-    ZlibStreamInflater compressed_inflater{};
+    static ZstdStreamDecoder compressed_stream{};
+    static u8 compressed_stream_storage[kZstdMessageSlackBytes + 64 * 1024];
     GatewaySession compressed_session{};
-    expect(gateway_session_initialize(
-               &compressed_session, Slice<u8>{compressed_input, static_cast<u32>(sizeof(compressed_input))},
-               Slice<u8>{compressed_output, static_cast<u32>(sizeof(compressed_output))},
-               Slice<u32>{compressed_scratch,
-                          static_cast<u32>(sizeof(compressed_scratch) / sizeof(compressed_scratch[0]))},
-               key, 4096, 4096, false, false, 0) &&
-               gateway_session_enable_zlib_stream(
-                   &compressed_session, &compressed_inflater,
-                   Slice<u8>{compressed_accumulation, static_cast<u32>(sizeof(compressed_accumulation))}) &&
-               gateway_session_push(&compressed_session, response) &&
-               gateway_session_next(&compressed_session, 0, 1'000).kind == GatewaySessionEventKind::opened,
-           "gateway_session_compressed_open");
-
-    u8 compressed_frames[512]{};
-    u32 compressed_frame_bytes =
-        write_server_frame(WebSocketOpcode::binary, true, ConstSlice<u8>{compressed_hello, 17},
-                           Slice<u8>{compressed_frames, static_cast<u32>(sizeof(compressed_frames))});
-    compressed_frame_bytes += write_server_frame(
-        WebSocketOpcode::binary, true,
-        ConstSlice<u8>{compressed_hello + 17, static_cast<u32>(sizeof(compressed_hello) - 17)},
-        Slice<u8>{compressed_frames + compressed_frame_bytes,
-                  static_cast<u32>(sizeof(compressed_frames)) - compressed_frame_bytes});
-    expect(gateway_session_push(&compressed_session,
-                                ConstSlice<u8>{compressed_frames, compressed_frame_bytes}),
-           "gateway_session_compressed_push_split_messages");
-    const GatewaySessionEvent compressed_hello_event = gateway_session_next(&compressed_session, 0, 1'000);
-    expect(compressed_hello_event.kind == GatewaySessionEventKind::hello &&
-               compressed_hello_event.hello.heartbeat_interval_ms == 41'250 &&
-               compressed_hello_event.lifecycle_step.action == GatewayLifecycleAction::send_identify &&
-               compressed_session.compressed_bytes == 0 && compressed_inflater.window_bytes == 42,
-           "gateway_session_compressed_split_messages_hello");
-
-    compressed_frame_bytes =
-        write_server_frame(WebSocketOpcode::binary, false, ConstSlice<u8>{compressed_ready, 60},
-                           Slice<u8>{compressed_frames, static_cast<u32>(sizeof(compressed_frames))});
-    compressed_frame_bytes += write_server_frame(
-        WebSocketOpcode::continuation, true,
-        ConstSlice<u8>{compressed_ready + 60, static_cast<u32>(sizeof(compressed_ready) - 60)},
-        Slice<u8>{compressed_frames + compressed_frame_bytes,
-                  static_cast<u32>(sizeof(compressed_frames)) - compressed_frame_bytes});
-    expect(gateway_session_push(&compressed_session,
-                                ConstSlice<u8>{compressed_frames, compressed_frame_bytes}),
-           "gateway_session_compressed_push_fragmented_ready");
-    const GatewaySessionEvent compressed_ready_event = gateway_session_next(&compressed_session, 0, 1'001);
-    bool compressed_accumulation_cleared = true;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(compressed_accumulation)); ++index) {
-        compressed_accumulation_cleared =
-            compressed_accumulation_cleared && compressed_accumulation[index] == 0;
-    }
-    expect(compressed_ready_event.kind == GatewaySessionEventKind::ready &&
-               compressed_ready_event.ready.api_version == 9 &&
-               compressed_session.lifecycle.last_sequence == 1 &&
-               compressed_session.compressed_bytes == 0 && compressed_inflater.window_bytes == 192 &&
-               compressed_accumulation_cleared,
-           "gateway_session_compressed_fragmented_ready");
-
-    constexpr u8 malformed_compressed[] = {
-        0x07, 0x00, 0x00, 0xFF, 0xFF,
-    };
-    compressed_frame_bytes = write_server_frame(
-        WebSocketOpcode::binary, true,
-        ConstSlice<u8>{malformed_compressed, static_cast<u32>(sizeof(malformed_compressed))},
-        Slice<u8>{compressed_frames, static_cast<u32>(sizeof(compressed_frames))});
-    expect(gateway_session_push(&compressed_session,
-                                ConstSlice<u8>{compressed_frames, compressed_frame_bytes}),
-           "gateway_session_compressed_push_malformed");
-    const GatewaySessionEvent malformed_compressed_event =
-        gateway_session_next(&compressed_session, 0, 1'002);
-    expect(malformed_compressed_event.kind == GatewaySessionEventKind::error &&
-               malformed_compressed_event.error == GatewaySessionError::compression &&
-               malformed_compressed_event.compression_error == ZlibInflateError::invalid_flush &&
-               compressed_inflater.failed,
-           "gateway_session_compressed_error_propagation");
-
-    zlib_stream_clear(&compressed_inflater);
-    SecureZeroMemory(compressed_accumulation, sizeof(compressed_accumulation));
-    expect(gateway_session_initialize(
-               &compressed_session, Slice<u8>{compressed_input, static_cast<u32>(sizeof(compressed_input))},
-               Slice<u8>{compressed_output, static_cast<u32>(sizeof(compressed_output))},
-               Slice<u32>{compressed_scratch,
-                          static_cast<u32>(sizeof(compressed_scratch) / sizeof(compressed_scratch[0]))},
-               key, 4096, 4096, false, false, 0) &&
-               gateway_session_enable_zlib_stream(
-                   &compressed_session, &compressed_inflater,
-                   Slice<u8>{compressed_accumulation, static_cast<u32>(sizeof(compressed_accumulation))}) &&
-               gateway_session_push(&compressed_session, response) &&
-               gateway_session_next(&compressed_session, 0, 1'003).kind == GatewaySessionEventKind::opened,
-           "gateway_session_compressed_reinitialize");
-    compressed_frame_bytes =
-        write_server_frame(WebSocketOpcode::text, true, byte_literal(R"({"op":11,"d":null})"),
-                           Slice<u8>{compressed_frames, static_cast<u32>(sizeof(compressed_frames))});
-    expect(gateway_session_push(&compressed_session,
-                                ConstSlice<u8>{compressed_frames, compressed_frame_bytes}),
-           "gateway_session_compressed_push_wrong_encoding");
-    const GatewaySessionEvent wrong_compressed_encoding =
-        gateway_session_next(&compressed_session, 0, 1'004);
-    expect(wrong_compressed_encoding.kind == GatewaySessionEventKind::error &&
-               wrong_compressed_encoding.error == GatewaySessionError::unexpected_encoding &&
-               !gateway_session_enable_zlib_stream(
-                   &compressed_session, &compressed_inflater,
-                   Slice<u8>{compressed_accumulation, static_cast<u32>(sizeof(compressed_accumulation))}),
-           "gateway_session_compressed_encoding_and_enable_phase");
 
     // A compressed payload larger than the initial compressed storage and the
     // input queue: binary frames stream into an owner spill (one large frame,
@@ -23341,35 +23225,32 @@ void test_gateway_session() noexcept {
             *backed = {spill_storage, required};
             return true;
         };
-        // {"op":10,"d":{"heartbeat_interval":41250},"pad":"aaaa..."} as stored deflate blocks.
+        // {"op":10,"d":{"heartbeat_interval":41250},"pad":"aaaa..."} as ETF in raw zstd blocks.
         u8 json[10 * 1024];
         u32 json_bytes = 0;
         const auto put = [&](const char* text) noexcept { while (*text) json[json_bytes++] = static_cast<u8>(*text++); };
         put("{\"op\":10,\"d\":{\"heartbeat_interval\":41250},\"pad\":\"");
         while (json_bytes < 9000) json[json_bytes++] = 'a';
         put("\"}");
-        u32 payload_bytes = 0;
-        large_payload[payload_bytes++] = 0x78;
-        large_payload[payload_bytes++] = 0x01;
-        for (u32 offset = 0; offset < json_bytes;) {
-            const u32 block = minimum(json_bytes - offset, 4000u);
-            large_payload[payload_bytes++] = 0x00;
-            large_payload[payload_bytes++] = static_cast<u8>(block);
-            large_payload[payload_bytes++] = static_cast<u8>(block >> 8);
-            large_payload[payload_bytes++] = static_cast<u8>(~block);
-            large_payload[payload_bytes++] = static_cast<u8>(~block >> 8);
-            copy_bytes(large_payload + payload_bytes, json + offset, block);
+        static u8 term[10 * 1024];
+        const EtfResult packed = etf_from_json({reinterpret_cast<const char*>(json), json_bytes}, {term, sizeof(term)});
+        constexpr u8 frame_header[]{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x30};
+        u32 payload_bytes = sizeof(frame_header);
+        copy_bytes(large_payload, frame_header, sizeof(frame_header));
+        for (u32 offset = 0; packed.ok() && offset < packed.bytes;) {
+            const u32 block = minimum(packed.bytes - offset, 4000u);
+            const u32 header = block << 3; // raw, not the frame's last
+            large_payload[payload_bytes++] = static_cast<u8>(header);
+            large_payload[payload_bytes++] = static_cast<u8>(header >> 8);
+            large_payload[payload_bytes++] = static_cast<u8>(header >> 16);
+            copy_bytes(large_payload + payload_bytes, term + offset, block);
             payload_bytes += block;
             offset += block;
         }
-        constexpr u8 sync_flush[]{0x00, 0x00, 0x00, 0xFF, 0xFF};
-        copy_bytes(large_payload + payload_bytes, sync_flush, sizeof(sync_flush));
-        payload_bytes += sizeof(sync_flush);
 
         bool streamed = true;
         for (u32 layout = 0; layout < 2 && streamed; ++layout) {
             spill = {};
-            zlib_stream_clear(&compressed_inflater);
             SecureZeroMemory(compressed_accumulation, sizeof(compressed_accumulation));
             streamed = gateway_session_initialize(
                            &compressed_session, Slice<u8>{compressed_input, static_cast<u32>(sizeof(compressed_input))},
@@ -23377,8 +23258,11 @@ void test_gateway_session() noexcept {
                            Slice<u32>{compressed_scratch,
                                       static_cast<u32>(sizeof(compressed_scratch) / sizeof(compressed_scratch[0]))},
                            key, 4096, 4096, false, false, 0) &&
-                       gateway_session_enable_zlib_stream(
-                           &compressed_session, &compressed_inflater,
+                       zstd_stream_initialize(&compressed_stream,
+                                              {compressed_stream_storage, sizeof(compressed_stream_storage)},
+                                              sizeof(compressed_stream_storage), nullptr, nullptr) &&
+                       gateway_session_enable_zstd_etf(
+                           &compressed_session, &compressed_stream,
                            Slice<u8>{compressed_accumulation, static_cast<u32>(sizeof(compressed_accumulation))}) &&
                        gateway_session_enable_compressed_growth(&compressed_session, sizeof(spill_storage), grow,
                                                                 &spill) &&
@@ -23419,8 +23303,8 @@ void test_gateway_session() noexcept {
                        compressed_session.compressed_bytes == 0 &&
                        compressed_session.compressed_storage.data == compressed_accumulation;
         }
-        expect(streamed, "gateway_session_compressed_payload_streams_beyond_input_and_spills");
-        zlib_stream_clear(&compressed_inflater);
+        expect(packed.ok() && streamed, "gateway_session_compressed_payload_streams_beyond_input_and_spills");
+        zstd_stream_clear(&compressed_stream);
     }
 
     GatewaySession bad_handshake{};

@@ -80,19 +80,6 @@ bool stream_frame_payload(GatewaySession* session) noexcept {
     return byte_queue_consume(&session->input, take);
 }
 
-u32 complete_sync_flush_bytes(const GatewaySession& session) noexcept {
-    if (session.compressed_bytes < 4) {
-        return 0;
-    }
-    const u32 end = session.compressed_bytes;
-    return session.compressed_storage[end - 4] == 0x00 &&
-                   session.compressed_storage[end - 3] == 0x00 &&
-                   session.compressed_storage[end - 2] == 0xFF &&
-                   session.compressed_storage[end - 1] == 0xFF
-               ? end
-               : 0;
-}
-
 void consume_compressed(GatewaySession* session, u32 bytes) noexcept {
     const u32 remaining = session->compressed_bytes - bytes;
     copy_bytes(session->compressed_storage.data, session->compressed_storage.data + bytes, remaining);
@@ -114,7 +101,7 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
     GatewaySessionEvent& result = *out;
     GatewayDecodeResult decoded =
         gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
-    // The frame (or one persistent zlib flush) has already been consumed.
+    // The frame (or one zstd-stream message) has already been consumed.
     // Rescan the pinned JSON bytes only; never ask the transport to replay it.
     while (!decoded.ok() && decoded.error == GatewayDecodeError::scan_failed &&
            decoded.scan_error == JsonScanError::output_overflow && session->grow_index &&
@@ -206,12 +193,8 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
 bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcept {
     if (session.structural_scratch.count > ~0u / sizeof(u32)) return false;
     const ConstSlice<u8> output{candidate.data, candidate.count};
-    const ConstSlice<u8> decoder =
-        session.zlib_stream ? ConstSlice<u8>{reinterpret_cast<const u8*>(session.zlib_stream), sizeof(*session.zlib_stream)}
-                            : ConstSlice<u8>{reinterpret_cast<const u8*>(session.zstd_stream), sizeof(*session.zstd_stream)};
-    const ConstSlice<u8> zstd_storage = session.zstd_stream
-        ? ConstSlice<u8>{session.zstd_stream->storage.data, session.zstd_stream->maximum_storage}
-        : ConstSlice<u8>{reinterpret_cast<const u8*>(&session), sizeof(session)};
+    const ConstSlice<u8> decoder{reinterpret_cast<const u8*>(session.zstd_stream), sizeof(*session.zstd_stream)};
+    const ConstSlice<u8> zstd_storage{session.zstd_stream->storage.data, session.zstd_stream->maximum_storage};
     const ConstSlice<u8> others[]{
         {session.input.data, session.input.capacity},
         {session.compressed_storage.data, session.compressed_storage.count},
@@ -262,28 +245,6 @@ void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now
                             heartbeat_jitter, now_ms, out);
 }
 
-void process_compressed_message(
-    GatewaySession* session, u32 compressed_bytes,
-    u32 heartbeat_jitter, u64 now_ms, GatewaySessionEvent* out) noexcept {
-    const DeflateInputSpan span{session->compressed_storage.data,
-                                compressed_bytes};
-    const ZlibInflateResult inflated = session->grow_output ? zlib_stream_inflate_flush_growing(
-        session->zlib_stream, {&span, 1}, &session->message_storage,
-        session->maximum_decoded_message_bytes, grow_session_output, session) :
-        zlib_stream_inflate_flush(session->zlib_stream, {&span, 1}, session->message_storage);
-    if (!inflated.ok()) {
-        session_error(out, GatewaySessionError::compression);
-        out->compression_error = inflated.error;
-        return;
-    }
-    consume_compressed(session, compressed_bytes);
-    process_gateway_message(
-        session,
-        Utf8View{reinterpret_cast<const char*>(session->message_storage.data),
-                 inflated.output_bytes},
-        heartbeat_jitter, now_ms, out);
-}
-
 } // namespace
 
 bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage, Slice<u8> message_storage,
@@ -324,22 +285,6 @@ bool gateway_session_push(GatewaySession* session, ConstSlice<u8> plaintext) noe
     return byte_queue_append(&session->input, plaintext);
 }
 
-bool gateway_session_enable_zlib_stream(
-    GatewaySession* session, ZlibStreamInflater* inflater,
-    Slice<u8> compressed_storage) noexcept {
-    if (session->opened || session->transport_compressed || !inflater || !compressed_storage.data ||
-        compressed_storage.count == 0 || session->message_bytes != 0 || session->compressed_bytes != 0 ||
-        !zlib_stream_initialize(inflater)) {
-        return false;
-    }
-    session->zlib_stream = inflater;
-    session->compressed_storage = compressed_storage;
-    session->inline_compressed_storage = compressed_storage;
-    session->maximum_compressed_bytes = compressed_storage.count;
-    session->transport_compressed = true;
-    return true;
-}
-
 bool gateway_session_enable_zstd_etf(GatewaySession* session, ZstdStreamDecoder* decoder,
                                      Slice<u8> compressed_storage) noexcept {
     if (session->opened || session->transport_compressed || !decoder || !decoder->initialized || decoder->failed ||
@@ -367,8 +312,8 @@ bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maxim
 }
 
 bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> decoded_output,
-    u32 maximum_decoded_bytes, ZlibStreamGrowOutput grow, void* context) noexcept {
-    if (session->opened || !session->transport_compressed || (!session->zlib_stream && !session->zstd_stream) ||
+    u32 maximum_decoded_bytes, EtfGrowOutput grow, void* context) noexcept {
+    if (session->opened || !session->transport_compressed || !session->zstd_stream ||
         session->grow_output || !grow || maximum_decoded_bytes < decoded_output.count ||
         maximum_decoded_bytes > kGatewaySessionMaximumDecodedMessageBytes)
         return false;
@@ -421,19 +366,9 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
                 if (session->stream_remaining) return event(out, GatewaySessionEventKind::need_input);
                 continue;
             }
-            // A zstd-stream payload is one whole message; a zlib-stream one ends
-            // at a message boundary whose bytes end in Z_SYNC_FLUSH.
-            if (session->zstd_stream) {
-                if (session->compressed_message_ready)
-                    return process_zstd_message(session, heartbeat_jitter, now_ms, out);
-            }
-            const u32 pending = session->message_tracker.fragmented || session->zstd_stream
-                                    ? 0
-                                    : complete_sync_flush_bytes(*session);
-            if (pending != 0) {
-                return process_compressed_message(
-                    session, pending, heartbeat_jitter, now_ms, out);
-            }
+            // A zstd-stream payload is one whole message.
+            if (session->compressed_message_ready)
+                return process_zstd_message(session, heartbeat_jitter, now_ms, out);
             // Binary data frames stream their payload; control and text frames
             // take the complete-frame path below.
             const auto header = websocket_parse_frame_header(byte_queue_readable(session->input),
@@ -485,16 +420,9 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
             return;
         }
         const auto message = packet.payload;
-        if (session->transport_compressed) {
-            if (packet.opcode != WebSocketOpcode::binary) {
-                return session_error(out, GatewaySessionError::unexpected_encoding);
-            }
-            if (!append_compressed(session, message)) {
-                return session_error(out, GatewaySessionError::message_overflow);
-            }
-            session->message_bytes = 0;
-            continue;
-        }
+        // Binary messages of a compressed session were streamed above.
+        if (session->transport_compressed)
+            return session_error(out, GatewaySessionError::unexpected_encoding);
         if (packet.opcode != WebSocketOpcode::text) {
             return session_error(out, GatewaySessionError::unsupported_binary);
         }

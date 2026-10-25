@@ -335,7 +335,7 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.connection.socket = INVALID_SOCKET;
         runtime.failure_stage = GatewayClientFailureStage::session_event;
         runtime.session_error = GatewaySessionError::compression;
-        runtime.compression_error = ZlibInflateError::output_capacity;
+        runtime.compression_error = ZstdError::output_capacity;
         InterlockedExchange(&client.error, static_cast<LONG>(GatewayClientError::none));
         InterlockedExchange(&client.phase, static_cast<LONG>(GatewayClientPhase::ready));
         ResetEvent(client.state_event);
@@ -356,7 +356,7 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
             matching = matching && popped.ok() && !popped.payload_bytes && (full ?
                 receipt.kind == GatewayClientEventKind::heartbeat_acknowledged :
                 receipt.kind == GatewayClientEventKind::failed && receipt.failure_stage == GatewayClientFailureStage::session_event &&
-                receipt.session_error == GatewaySessionError::compression && receipt.compression_error == ZlibInflateError::output_capacity);
+                receipt.session_error == GatewaySessionError::compression && receipt.compression_error == ZstdError::output_capacity);
         }
         check(filled && matching && load_phase(&client) == GatewayClientPhase::failed &&
             load_error(&client) == GatewayClientError::session && WaitForSingleObject(client.state_event, 0) == WAIT_OBJECT_0 &&
@@ -398,15 +398,17 @@ u32 dense_packet(u32 values, bool malformed, bool compressed) noexcept {
                     !protocol_writer_append_literal(&writer, "]}")) return 0;
     u32 bytes = writer.used;
     if (compressed) {
-        if (bytes > 65535) return 0;
-        // One RFC1950 stored block plus Z_SYNC_FLUSH, with no final block.
-        output[4] = 0x78; output[5] = 0x01; output[6] = 0;
-        output[7] = static_cast<u8>(bytes); output[8] = static_cast<u8>(bytes >> 8);
-        output[9] = static_cast<u8>(~bytes); output[10] = static_cast<u8>((~bytes) >> 8);
-        copy_bytes(output + 11, json, bytes);
-        const u8 flush[]{0, 0, 0, 0xff, 0xff};
-        copy_bytes(output + 11 + bytes, flush, sizeof(flush));
-        bytes += 12;
+        // The term in one raw block of a zstd frame (64 KiB window) that does not end.
+        u8 term[2 * 4096 + 64];
+        const auto packed = etf_from_json({reinterpret_cast<const char*>(json), bytes}, {term, sizeof(term)});
+        if (!packed.ok()) return 0;
+        const u8 frame[]{0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x30};
+        copy_bytes(output + 4, frame, sizeof(frame));
+        const u32 block = packed.bytes << 3; // raw, not last
+        output[10] = static_cast<u8>(block); output[11] = static_cast<u8>(block >> 8);
+        output[12] = static_cast<u8>(block >> 16);
+        copy_bytes(output + 13, term, packed.bytes);
+        bytes = 9 + packed.bytes;
     } else {
         const u32 header = bytes > 65535 ? 10 : 4;
         copy_bytes(output + header, json, bytes);
@@ -423,15 +425,16 @@ u32 dense_packet(u32 values, bool malformed, bool compressed) noexcept {
 }
 
 bool index_session(GatewaySessionGrowIndex grow = counted_growth,
-                   ZlibStreamInflater* inflater = nullptr) noexcept {
+                   ZstdStreamDecoder* stream = nullptr, Slice<u8> stream_storage = {}) noexcept {
     const u8 key[kWebSocketClientKeyBytes]{};
     if (!gateway_session_initialize(&runtime.session, {runtime.session_input, kSessionInputBytes},
         {runtime.handshake_output, kMessageBytes}, main_index_view(&runtime), {key, sizeof(key)},
         kSessionInputBytes - 14, kMessageBytes, true, true, 7)) return false;
     runtime.session.grow_index = grow;
     runtime.session.grow_index_context = &runtime;
-    if (inflater && !gateway_session_enable_zlib_stream(&runtime.session, inflater,
-        {runtime.handshake_output + kMessageBytes, kHandshakeBytes - kMessageBytes})) return false;
+    if (stream && (!zstd_stream_initialize(stream, stream_storage, stream_storage.count, nullptr, nullptr) ||
+        !gateway_session_enable_zstd_etf(&runtime.session, stream,
+        {runtime.handshake_output + kMessageBytes, kHandshakeBytes - kMessageBytes}))) return false;
     runtime.session.opened = true;
     runtime.session.lifecycle.phase = GatewayLifecyclePhase::ready;
     runtime.mailbox_deadline_ms = 0;
@@ -738,18 +741,20 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(failed.kind == GatewaySessionEventKind::error && !index_growth_calls &&
         runtime.structural_scratch.capacity == 1024 && runtime.session.lifecycle.last_sequence == 7,
         "Gateway non-capacity scan errors do not request growth");
-    static ZlibStreamInflater inflater{};
-    check(fresh_index() && index_session(counted_growth, &inflater), "Gateway persistent inflater fixture initializes");
+    static ZstdStreamDecoder stream{};
+    static u8 stream_storage[kZstdMessageSlackBytes + 64 * 1024];
+    check(fresh_index() && index_session(counted_growth, &stream, {stream_storage, sizeof(stream_storage)}),
+        "Gateway persistent stream fixture initializes");
     bytes = dense_packet(4096, false, true);
-    const u32 json_bytes = bytes - 16;
-    check(bytes && gateway_session_push(&runtime.session, {output, bytes}), "Gateway one stored flush is accepted");
+    const u32 term_bytes = bytes - 13;
+    check(bytes && gateway_session_push(&runtime.session, {output, bytes}), "Gateway one raw block is accepted");
     const auto inflated = gateway_session_next(&runtime.session, 0, GetTickCount64());
     check(inflated.kind == GatewaySessionEventKind::dispatch && index_growth_calls == 3 &&
-        !inflater.failed && inflater.window_bytes == json_bytes && inflater.window_cursor == json_bytes &&
+        !stream.failed && stream.position == term_bytes && stream.frame_output == term_bytes &&
         !runtime.session.compressed_bytes &&
         gateway_session_next(&runtime.session, 0, GetTickCount64()).kind == GatewaySessionEventKind::need_input,
-        "Gateway index growth rescans immutable inflated bytes without replaying the persistent flush");
-    zlib_stream_clear(&inflater);
+        "Gateway index growth rescans immutable transcoded bytes without decoding the message again");
+    zstd_stream_clear(&stream);
     check(fresh_index(), "Gateway demand index fixture returns to one-page baseline");
 }
 

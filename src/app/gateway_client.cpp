@@ -206,7 +206,8 @@ struct GatewayClientRuntime {
     WebSocketError websocket_error;
     GatewayDecodeError gateway_decode_error;
     GatewayEventDecodeError event_decode_error;
-    ZlibInflateError compression_error;
+    ZstdError compression_error;
+    EtfError etf_error;
     JsonScanError json_scan_error;
     JsonReadError json_read_error;
     u32 route_error_offset;
@@ -1142,7 +1143,8 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     runtime->websocket_error = WebSocketError::none;
     runtime->gateway_decode_error = GatewayDecodeError::none;
     runtime->event_decode_error = GatewayEventDecodeError::none;
-    runtime->compression_error = ZlibInflateError::none;
+    runtime->compression_error = ZstdError::none;
+    runtime->etf_error = EtfError::none;
     runtime->json_scan_error = JsonScanError::none;
     runtime->json_read_error = JsonReadError::none;
     runtime->route_error_offset = 0;
@@ -1300,6 +1302,7 @@ NetworkWorkerStep fail_and_drain(GatewayClient* client, GatewayClientRuntime* ru
     event.gateway_decode_error = runtime->gateway_decode_error;
     event.event_decode_error = runtime->event_decode_error;
     event.compression_error = runtime->compression_error;
+    event.etf_error = runtime->etf_error;
     event.json_scan_error = runtime->json_scan_error;
     event.json_read_error = runtime->json_read_error;
     event.route_error_offset = runtime->route_error_offset;
@@ -1954,7 +1957,8 @@ PlaintextDrive fail_session_event(GatewayClientRuntime* runtime,
     runtime->gateway_decode_error = event.gateway_error;
     runtime->json_scan_error = event.scan_error;
     runtime->event_decode_error = event.event_error;
-    runtime->compression_error = event.compression_error;
+    runtime->compression_error = event.zstd_error;
+    runtime->etf_error = event.etf_error;
     return PlaintextDrive::failed;
 }
 
