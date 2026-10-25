@@ -171,6 +171,8 @@ struct GatewayClientRuntime {
     bool qos_known;
     // The heartbeat session opcode 41 announces.
     ClientHeartbeatSession time_spent;
+    // clips.allow_voice_recording is false (opcode 4 flags).
+    bool voice_recording_disallowed;
     GatewayReconnectBackoff reconnect_backoff;
     // Consecutive READY payloads that could not be projected.
     u32 ready_failures;
@@ -933,28 +935,38 @@ bool self_settings_json(Utf8View source, SelfSettingsJson* parsed) noexcept {
                                   parsed)
         .ok();
 }
-// The user's interface locale (localization.locale) becomes X-Discord-Locale;
-// settings without it leave the current one.
-void observe_settings_locale(const GatewayClientRuntime* runtime, JsonValue value) noexcept {
-    ClientSessionMetadata* metadata = session_metadata(runtime);
+// The user's interface locale (localization.locale) becomes X-Discord-Locale,
+// and clips.allow_voice_recording (true unless set) the opcode 4 flag;
+// settings without them leave the current values.
+void observe_settings_metadata(GatewayClientRuntime* runtime, JsonValue value, bool partial) noexcept {
     JsonString encoded{};
-    if (!metadata || !json_value_as_string(value, &encoded) || encoded.has_escapes)
+    if (!is_user(runtime) || !json_value_as_string(value, &encoded) || encoded.has_escapes)
         return;
     u8 extracted[1024];
-    const UserSettingsExtractResult localization = user_settings_proto_extract_base64(
-        encoded.encoded, user_settings_group_bit(user_settings_localization), {},
-        {extracted, sizeof(extracted)});
+    const UserSettingsExtractResult settings = user_settings_proto_extract_base64(
+        encoded.encoded,
+        user_settings_group_bit(user_settings_localization) | user_settings_group_bit(user_settings_clips),
+        {}, {extracted, sizeof(extracted)});
+    if (!settings.ok())
+        return;
+    const ConstSlice<u8> groups{extracted, settings.bytes};
     UserSettingsValue locale{};
-    if (localization.ok() &&
-        user_settings_proto_read(
-            user_settings_proto_group({extracted, localization.bytes}, user_settings_localization),
-            {user_settings_localization, 1, 0, UserSettingsKind::string}, &locale) &&
+    if (user_settings_proto_read(user_settings_proto_group(groups, user_settings_localization),
+                                 {user_settings_localization, 1, 0, UserSettingsKind::string}, &locale) &&
         locale.present)
-        client_session_metadata_set_locale(metadata, {locale.text, locale.text_bytes});
+        client_session_metadata_set_locale(session_metadata(runtime), {locale.text, locale.text_bytes});
+    const ConstSlice<u8> clips = user_settings_proto_group(groups, user_settings_clips);
+    if (partial && !clips.count)
+        return;
+    UserSettingsValue recording{};
+    const bool allowed = !user_settings_proto_read(
+                             clips, {user_settings_clips, 1, 0, UserSettingsKind::boolean}, &recording) ||
+                         !recording.present || recording.number != 0;
+    runtime->voice_recording_disallowed = !allowed;
 }
 
 bool self_settings_observe_locked(GatewayClientRuntime* runtime, JsonValue value, bool partial) noexcept {
-    observe_settings_locale(runtime, value);
+    observe_settings_metadata(runtime, value, partial);
     auto& owner = runtime->self_status;
     JsonString encoded{};
     u8 group[kSelfStatusSettingsMaximumGroupBytes];
@@ -1606,7 +1618,8 @@ OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* ru
     if (!acquire_send(runtime, now_ms))
         return OutboundDrive::rate_limited;
     const auto command = gateway_write_voice_state(
-        state, {runtime->gateway_payload, static_cast<u32>(sizeof(runtime->gateway_payload))});
+        state, runtime->voice_recording_disallowed ? 0 : kGatewayVoiceStateAllowVoiceRecording,
+        {runtime->gateway_payload, static_cast<u32>(sizeof(runtime->gateway_payload))});
     const auto result = send_control_command(runtime, command, SendPurpose::voice_state);
     if (result == OutboundDrive::sending && !gateway_voice_submitted(&runtime->voice, state, now_ms))
         return OutboundDrive::failed;

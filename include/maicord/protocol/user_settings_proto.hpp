@@ -16,6 +16,7 @@ enum UserSettingsGroup : u8 {
     user_settings_status = 11,
     user_settings_localization = 12,
     user_settings_appearance = 13,
+    user_settings_clips = 19,
 };
 constexpr u32 user_settings_group_bit(u32 group) noexcept {
     return group && group < 32 ? 1u << group : 0u;

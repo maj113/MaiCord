@@ -13,7 +13,9 @@ struct GatewayVoiceStateUpdate {
     // connection may negotiate DAVE protocol version 0 (no E2EE).
     bool stage;
 };
-GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state,
+// Voice state flags (opcode 4 "flags"): the user allows their voice in clips.
+inline constexpr u32 kGatewayVoiceStateAllowVoiceRecording = 1u << 1;
+GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state, u32 flags,
                                                     Slice<u8> output) noexcept;
 
 enum GatewayVoiceFlag : u32 {

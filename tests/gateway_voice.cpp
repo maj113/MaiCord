@@ -79,29 +79,30 @@ void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept {
                                                {~0ull, ~0ull, true, true, true}};
     const Utf8View expected[] = {
         utf8_literal(
-            R"({"op":4,"d":{"guild_id":"10","channel_id":"20","self_mute":false,"self_deaf":true,"self_video":false}})"),
+            R"({"op":4,"d":{"guild_id":"10","channel_id":"20","self_mute":false,"self_deaf":true,"self_video":false,"flags":2}})"),
         utf8_literal(
-            R"({"op":4,"d":{"guild_id":null,"channel_id":"20","self_mute":true,"self_deaf":false,"self_video":true}})"),
+            R"({"op":4,"d":{"guild_id":null,"channel_id":"20","self_mute":true,"self_deaf":false,"self_video":true,"flags":0}})"),
         utf8_literal(
-            R"({"op":4,"d":{"guild_id":null,"channel_id":null,"self_mute":false,"self_deaf":false,"self_video":false}})"),
+            R"({"op":4,"d":{"guild_id":null,"channel_id":null,"self_mute":false,"self_deaf":false,"self_video":false,"flags":2}})"),
         utf8_literal(
-            R"({"op":4,"d":{"guild_id":"18446744073709551615","channel_id":"18446744073709551615","self_mute":true,"self_deaf":true,"self_video":true}})")};
+            R"({"op":4,"d":{"guild_id":"18446744073709551615","channel_id":"18446744073709551615","self_mute":true,"self_deaf":true,"self_video":true,"flags":4294967295}})")};
+    const u32 flags[] = {kGatewayVoiceStateAllowVoiceRecording, 0, kGatewayVoiceStateAllowVoiceRecording, ~0u};
     u32 fixture = 0;
     for (const auto& update : updates) {
-        auto result = gateway_write_voice_state(update, {output, 256});
+        auto result = gateway_write_voice_state(update, flags[fixture], {output, 256});
         check(result.ok() && result.bytes < 256, "voice command bounds cover full-width snowflakes");
         const u32 required = result.bytes;
         for (u32 capacity = 0; capacity < required; ++capacity) {
             for (auto& byte : output)
                 byte = 0xA5;
-            result = gateway_write_voice_state(update, {output, capacity});
+            result = gateway_write_voice_state(update, flags[fixture], {output, capacity});
             bool intact = true;
             for (auto byte : output)
                 intact &= byte == 0xA5;
             check(result.error == GatewayCommandError::output_too_small && !result.bytes && intact,
                   "voice command is atomic at every insufficient capacity");
         }
-        result = gateway_write_voice_state(update, {output, required});
+        result = gateway_write_voice_state(update, flags[fixture], {output, required});
         check(result.ok() && result.bytes == required && output[required] == 0xA5,
               "voice command writes exactly its measured bytes");
         bool matches = result.bytes == expected[fixture].bytes;

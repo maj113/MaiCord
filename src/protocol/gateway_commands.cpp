@@ -51,16 +51,16 @@ bool launch_id_valid(Utf8View value) noexcept {
 
 } // namespace
 
-GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state,
+GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state, u32 flags,
                                                     Slice<u8> output) noexcept {
     if (!output.data)
         return {0, GatewayCommandError::invalid_input};
     const u32 guild_bytes = state.guild_id ? decimal_digits(state.guild_id) + 2 : 4;
     const u32 channel_bytes = state.channel_id ? decimal_digits(state.channel_id) + 2 : 4;
     const u32 required = sizeof("{\"op\":4,\"d\":{\"guild_id\":,\"channel_id\":,\"self_mute\":,\"self_"
-                                "deaf\":,\"self_video\":}}") -
+                                "deaf\":,\"self_video\":,\"flags\":}}") -
                          1 + guild_bytes + channel_bytes + (state.self_mute ? 4 : 5) +
-                         (state.self_deaf ? 4 : 5) + (state.self_video ? 4 : 5);
+                         (state.self_deaf ? 4 : 5) + (state.self_video ? 4 : 5) + decimal_digits(flags);
     if (required > output.count)
         return {0, GatewayCommandError::output_too_small};
     u32 at = 0;
@@ -83,6 +83,8 @@ GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdat
     write_boolean(output.data, &at, state.self_deaf);
     write_literal(output.data, &at, ",\"self_video\":");
     write_boolean(output.data, &at, state.self_video);
+    write_literal(output.data, &at, ",\"flags\":");
+    at += decimal_write(output.data + at, flags);
     write_literal(output.data, &at, "}}");
     return {at, GatewayCommandError::none};
 }
