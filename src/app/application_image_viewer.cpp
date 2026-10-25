@@ -16,9 +16,11 @@
 #include "maicord/render/media_atlas.hpp"
 #include "maicord/media/presentation_policy.hpp"
 #include "maicord/ui/clipboard.hpp"
+#include "maicord/render/text_form_surface.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/media/asset.hpp"
 namespace maicord::app_detail {
 namespace {
 // The official client's modal spring (tension 1000, friction 48); exit settles faster.

@@ -1,9 +1,9 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/media/asset.hpp"
 
 // Geometry of the profile editor page (the official Profiles settings layout:
 // tab bar, customization sections, captioned colour swatches, button groups

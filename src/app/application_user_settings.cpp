@@ -11,6 +11,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/account_settings.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

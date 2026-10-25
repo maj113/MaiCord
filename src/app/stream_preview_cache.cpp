@@ -1,5 +1,6 @@
 #include "maicord/app/stream_preview_cache.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

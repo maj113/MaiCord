@@ -4,11 +4,12 @@
 #include "maicord/platform/network_worker.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/protocol/rest.hpp"
-#include "maicord/protocol/user_auth.hpp"
 
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord {
+
+enum class UserAuthOperation : u8;
 
 using RestTraceFunction = void (*)(const char* record) noexcept;
 // Configure before creating any clients; callback remains valid until all

@@ -13,6 +13,7 @@
 #include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/navigation_context.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

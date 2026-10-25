@@ -27,6 +27,7 @@
 #include "application_plugins.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/user_context_menu.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

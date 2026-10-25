@@ -6,7 +6,6 @@
 
 #include "maicord/ui/button_keyboard.hpp"
 
-#include "account_ui_runtime.hpp"
 #include "application_message_delete.hpp"
 #include "application_image_viewer.hpp"
 #include "application_message_reaction.hpp"
@@ -37,6 +36,11 @@
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/ui/qr_code.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/toast.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/scene.hpp"
+#include "maicord/ui/member_list_scene.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/ui/secure_text_store.hpp"
@@ -46,8 +50,11 @@
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/thread_header.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/app/reaction_viewer_controller.hpp"
 
 namespace maicord::app_detail {
+
+struct AccountUiRuntime;
 struct ApplicationVideo;
 struct ApplicationTooltip;
 struct ApplicationAccountMenu;
@@ -481,19 +488,6 @@ inline u64 application_account_scope() noexcept {
 // The signed-in account UI can issue requests.
 inline bool application_account_available() noexcept {
     return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
-
-// Channel record of the active account, or null.
-inline const ChannelRecord* application_channel_record(u64 id) noexcept {
-    return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id) : nullptr;
-}
-
-// Next account REST request id; zero means "no request" and is skipped.
-inline u64 application_next_request_id() noexcept {
-    u64& id = g_app.account_ui->message_history_request_id;
-    if (!++id)
-        ++id;
-    return id;
 }
 
 const Theme& application_theme() noexcept;

@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/ui/friends_scene.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 struct UserStore;

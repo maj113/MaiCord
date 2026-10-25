@@ -5,6 +5,10 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/audio_presentation.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/ui/scene.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 

@@ -16,6 +16,7 @@
 #include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

@@ -5,6 +5,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

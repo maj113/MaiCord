@@ -2,6 +2,8 @@
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/settings_scene.hpp"
+#include "maicord/model/message_store.hpp"
 
 namespace maicord {
 namespace {

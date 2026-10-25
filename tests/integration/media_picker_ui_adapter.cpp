@@ -3,6 +3,7 @@
 // shipping-controller runtime test; they are deliberately absent here.
 #include "../../src/app/application_media_picker.hpp"
 #include "media_picker_ui_adapter.hpp"
+#include "maicord/ui/media_picker.hpp"
 
 namespace maicord::app_detail {
 namespace {MediaAssetKey probe_key{};u32 probe_rejections=0;}

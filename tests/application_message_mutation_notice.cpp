@@ -1,8 +1,6 @@
-#include "application_emoji_preferences.hpp"
 #include "application_message_mutation_notice.hpp"
 #include "application_message_delete.hpp"
 #include "application_message_reaction.hpp"
-#include "application_account_presentation.hpp"
 #include "application_state.hpp"
 #include "application_reply_draft.hpp"
 #include "application_text_form.hpp"
@@ -11,6 +9,7 @@
 #include "maicord/app/message_reaction_controller.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "application_message_navigation.hpp"
 
 namespace maicord::mutation_notice_test {
 using namespace app_detail;

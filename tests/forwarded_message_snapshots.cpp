@@ -2,6 +2,7 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/model/user_profile.hpp"
 
 namespace maicord {
 namespace {

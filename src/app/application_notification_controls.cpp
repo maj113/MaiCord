@@ -11,6 +11,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -1,9 +1,11 @@
 #pragma once
 
-#include "maicord/app/reaction_viewer_controller.hpp"
 #include "maicord/core/stable_storage.hpp"
 
 namespace maicord {
+
+struct ReactionViewer;
+struct ReactionViewerController;
 
 // Backing storage for the reaction modal is dormant until the modal is first
 // opened. The renderer may still bind the zeroed viewer while it is inactive.

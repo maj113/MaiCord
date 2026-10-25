@@ -1,7 +1,7 @@
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

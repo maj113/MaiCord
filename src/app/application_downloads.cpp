@@ -6,7 +6,6 @@
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_composer_text_input.hpp"
-#include "application_composer.hpp"
 #include "application_content_input.hpp"
 #include "application_media_policy.hpp"
 #include "application_message_interaction.hpp"
@@ -40,7 +39,12 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/render/forum_post_surface.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/ui/received_attachment_menu.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
+#include "maicord/app/account_media.hpp"
 
 namespace maicord::app_detail {
 namespace {

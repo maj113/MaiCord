@@ -4,6 +4,7 @@
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/list_navigation.hpp"
 #include "maicord/ui/virtual_list.hpp"
+#include "maicord/ui/widget_storage.hpp"
 
 namespace maicord {
 namespace {

@@ -4,7 +4,6 @@
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/theme.hpp"
 #include "maicord/ui/text_presentation.hpp"
-#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

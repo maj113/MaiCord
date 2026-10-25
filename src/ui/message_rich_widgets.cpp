@@ -1,4 +1,3 @@
-#include "maicord/ui/message_rich_widgets.hpp"
 
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/message_component_layout.hpp"

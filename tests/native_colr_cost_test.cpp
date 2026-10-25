@@ -3,7 +3,6 @@
 // --program-stages <n>] compares native and Windows paint programs over a whole font and times
 // them. Not part of the CTest suite.
 #include "../tools/colr_reference/native_source.hpp"
-#include "maicord/render/colr_paint.hpp"
 #include "../tools/colr_reference/dwrite_paint_builder.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "colr_program_equal.hpp"

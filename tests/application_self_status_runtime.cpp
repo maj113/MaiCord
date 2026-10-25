@@ -1,6 +1,7 @@
 #include "application_self_status.hpp"
 #include "application_state.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

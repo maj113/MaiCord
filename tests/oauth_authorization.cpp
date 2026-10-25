@@ -1,5 +1,4 @@
 #include "maicord/app/oauth_authorization.hpp"
-#include "maicord/core/data_path.hpp"
 #include "maicord/protocol/base64url.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"

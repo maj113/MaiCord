@@ -2,6 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/app/message_attachment_storage.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 namespace {

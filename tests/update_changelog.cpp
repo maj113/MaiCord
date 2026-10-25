@@ -3,7 +3,6 @@
 // domain, schema and bounds, untrusted-text cleanup, the display subset and
 // date text. Synthetic content and throwaway keys only.
 #include "maicord/app/update_changelog.hpp"
-#include "maicord/app/update_fetch.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

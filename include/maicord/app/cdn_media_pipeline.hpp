@@ -9,9 +9,10 @@
 #include "maicord/media/png.hpp"
 #include "maicord/media/encoded_audio.hpp"
 #include "maicord/media/webp.hpp"
-#include "maicord/protocol/cdn_http.hpp"
 
 namespace maicord {
+
+struct CdnResponseResult;
 
 enum class CdnStaticPngState : u8 {
     invalid,

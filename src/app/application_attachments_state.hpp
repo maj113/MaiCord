@@ -2,6 +2,7 @@
 #include "application_attachments.hpp"
 #include "maicord/app/message_attachment_drafts.hpp"
 #include "application_upload_lane.hpp"
+#include "maicord/ui/message_composer_scene.hpp"
 namespace maicord::app_detail {
 struct ApplicationAttachments {
     MessageAttachmentDraftStore drafts;

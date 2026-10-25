@@ -6,7 +6,6 @@
 #include "maicord/media/video_display.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
-#include "maicord/core/win32_process.hpp"
 #include "hevc_dxva_parameters.hpp"
 #include "gpu_decoder_fence.hpp"
 #include "gpu_decoder_surfaces.hpp"

@@ -6,6 +6,7 @@
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/text_style.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

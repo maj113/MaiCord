@@ -1,9 +1,10 @@
 #pragma once
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/icon.hpp"
 
 namespace maicord {
+enum class UiIcon : u8;
+
 // The status line under a user's name in the DM list and the member list.
 enum class UiActivityGlyph : u8 { none, game, music, screen };
 struct UiActivityStatus {

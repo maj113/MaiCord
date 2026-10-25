@@ -1,8 +1,10 @@
 #pragma once
 #include "maicord/model/chat_state.hpp"
-#include "maicord/model/relationship_store.hpp"
 
 namespace maicord {
+struct RelationshipStore;
+struct UserStore;
+
 inline constexpr u32 kQuickSwitcherMaximumResults = 100;
 inline constexpr u32 kQuickSwitcherQueryMaximumBytes = 128;
 inline constexpr u32 kQuickSwitcherRecentMaximum = 8;

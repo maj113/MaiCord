@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/model/chat_state.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/text_presentation.hpp"

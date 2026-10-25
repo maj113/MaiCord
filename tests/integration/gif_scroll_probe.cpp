@@ -3,9 +3,10 @@
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/media/presentation_policy.hpp"
-#include "../../src/render/d3d11_renderer_layout.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
+#include "maicord/ui/message_scene.hpp"
 
 namespace maicord {
 namespace {

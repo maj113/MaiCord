@@ -1,9 +1,11 @@
+#include "maicord/app/voice_packet_crypto.hpp"
 #include "maicord/app/voice_udp_media.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/winsock.hpp"
 #include "test_output.hpp"
+#include "maicord/protocol/voice_media_events.hpp"
 
 namespace maicord {
 namespace {

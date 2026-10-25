@@ -2,8 +2,6 @@
 // MaiCordJson*Benchmark programs (cmake/benchmarks.cmake).
 // Differential coverage against the previous scalar implementation.
 #include "../src/core/json_reader.cpp"
-#include "maicord/core/time.hpp"
-#include "maicord/core/trace_record.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

@@ -17,6 +17,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/scroll_host.hpp"
+#include "maicord/ui/inbox_scene.hpp"
 
 #include "maicord/core/win32_user.hpp"
 

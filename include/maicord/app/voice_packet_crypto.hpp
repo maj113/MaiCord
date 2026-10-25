@@ -2,7 +2,6 @@
 #include "maicord/platform/aes_gcm.hpp"
 #include "maicord/platform/xchacha20_poly1305.hpp"
 #include "maicord/protocol/media_packet.hpp"
-#include "maicord/protocol/voice_media_events.hpp"
 
 namespace maicord {
 enum class VoicePacketError : u8 {

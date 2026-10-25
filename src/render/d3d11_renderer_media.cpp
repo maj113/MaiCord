@@ -6,6 +6,7 @@
 #include "maicord/media/jpeg.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,5 @@
 #include "gpu_decoder_surfaces.hpp"
 
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 

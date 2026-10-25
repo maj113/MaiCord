@@ -6,7 +6,6 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/ole.hpp"
-#include "maicord/sys/winsock.hpp"
 
 #include <stddef.h>
 

@@ -6,13 +6,8 @@
 #include "application_content_input.hpp"
 #include "application_search_navigation.hpp"
 #include "application_thread_actions.hpp"
-#include "application_composer.hpp"
 #include "application_profile.hpp"
-#include "application_guild_card.hpp"
 #include "application_plugins.hpp"
-#include "application_quick_switcher.hpp"
-#include "application_message_forward.hpp"
-#include "application_link_trust.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -27,7 +22,7 @@
 #include "maicord/app/account_message_search.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/protocol/channel_overview.hpp"
-#include "maicord/protocol/message_pins.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};

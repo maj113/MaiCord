@@ -1,4 +1,3 @@
-#include "maicord/text/latin_line.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/latin_run.hpp"
 #include "maicord/text/alphabetic_run.hpp"

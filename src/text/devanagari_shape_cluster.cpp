@@ -1,4 +1,3 @@
-#include "maicord/text/devanagari_shape_cluster.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/devanagari_order.hpp"
 #include "devanagari_character.hpp"

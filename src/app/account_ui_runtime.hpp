@@ -10,7 +10,6 @@
 #include "maicord/app/private_conversation.hpp"
 #include "maicord/app/visible_author_hydration.hpp"
 #include "maicord/app/message_view_runtime.hpp"
-#include "maicord/app/reaction_viewer_controller.hpp"
 #include "maicord/model/typing_store.hpp"
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/model/thread_member_store.hpp"
@@ -18,10 +17,16 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/model/guild_detail_store.hpp"
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/renderer_text_storage.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/reaction_preferences.hpp"
+#include "maicord/ui/navigation_view.hpp"
+#include "maicord/model/member_list.hpp"
+#include "maicord/render/media_atlas.hpp"
+#include "maicord/render/glyph_atlas.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/core/base.hpp"
 
 namespace maicord::app_detail {
 

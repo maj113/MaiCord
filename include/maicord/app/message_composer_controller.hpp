@@ -1,12 +1,13 @@
 #pragma once
 
 #include "maicord/app/message_send_tracker.hpp"
-#include "maicord/model/message_composer.hpp"
 #include "maicord/model/message_draft_store.hpp"
 #include "maicord/protocol/attachment_upload.hpp"
 #include "maicord/protocol/message_create.hpp"
 
 namespace maicord {
+
+struct MessageComposer;
 
 inline constexpr u32 kMessageComposerRequestCapacity = 16;
 

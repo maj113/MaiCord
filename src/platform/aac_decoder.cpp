@@ -3,7 +3,6 @@
 #include "maicord/media/aac_configuration.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/media_foundation.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

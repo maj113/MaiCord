@@ -1,11 +1,12 @@
 #pragma once
-#include "maicord/platform/network.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/app/voice_packet_crypto.hpp"
 #include "maicord/protocol/voice_media_events.hpp"
-#include "maicord/protocol/voice_video_signaling.hpp"
 
 namespace maicord {
+struct VoiceSessionUpdate;
+enum class VoiceVideoCodec : u8;
+
 enum class VoiceMediaSetupError : u8 {
     none,
     decode,

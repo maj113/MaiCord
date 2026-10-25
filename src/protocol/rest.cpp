@@ -4,7 +4,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
-#include "maicord/protocol/writer.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
 #include "json_command_writer.hpp"

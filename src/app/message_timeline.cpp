@@ -1,6 +1,7 @@
 #include "maicord/app/message_timeline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/model/message_rich_store.hpp"
 
 namespace maicord {
 namespace {

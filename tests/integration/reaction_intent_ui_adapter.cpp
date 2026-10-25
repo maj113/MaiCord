@@ -1,12 +1,12 @@
 #include "reaction_intent_ui_adapter.hpp"
 #include "application_state.hpp"
-#include "application_message_interaction.hpp"
 #include "application_message_mutation_notice.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/model/reaction_preferences.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
 
 namespace maicord {
 namespace {

@@ -4,7 +4,6 @@
 // No worker thread, socket, DNS lookup or live HTTP is created.
 // Part of rest_client_fixtures.cpp.
 #include "rest_client_probe.hpp"
-#include "maicord/app/account_guild_invite.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/guild_invite.hpp"
 #include "test_output.hpp"

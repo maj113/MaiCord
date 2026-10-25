@@ -2,7 +2,6 @@
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "../../src/app/application_state.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
 
 namespace maicord {
 namespace {

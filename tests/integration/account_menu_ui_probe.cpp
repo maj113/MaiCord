@@ -6,6 +6,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/app/client_theme.hpp"
 #include "maicord/ui/surface_elevation.hpp"
+#include "maicord/ui/scene.hpp"
 #include "settings_theme_probe.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 

@@ -6,7 +6,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/guild_folder_edit.hpp"
-#include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/protocol/guild_folders.hpp"

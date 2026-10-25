@@ -13,16 +13,15 @@
 //   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
 //   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
 //     the pinned external flag corpus; registered only when the CMake option names it.
+#include "maicord/protocol/gateway_reaction_events.hpp"
 #include "../application_downloads_inactive.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
-#include "maicord/app/account_media_worker.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "standalone_title_geometry.hpp"
 #include "regional_flag_surfaces_probe.hpp"
 #include "media_picker_ui_adapter.hpp"
-#include "../../src/app/application_media_pump.hpp"
 #include "inline_flags_probe.hpp"
 #include "guild_rail_icon_probe.hpp"
 #include "background_theme_probe.hpp"
@@ -68,7 +67,6 @@
 #include "maicord/ui/native_text_candidate.hpp"
 #include "../../tools/font_reference/dwrite_text_system.hpp"
 #include "maicord/text/font_run.hpp"
-#include "../../tools/font_reference/native_run_reference.hpp"
 #include "font_identity_probe.hpp"
 #include "native_renderer_formats_probe.hpp"
 #include "maicord/render/native_glyph_outlines.hpp"
@@ -122,7 +120,6 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/gdi.hpp"
-#include "maicord/sys/winsock.hpp"
 #include "maicord/model/permission_bits.hpp"
 
 namespace maicord::app_detail {

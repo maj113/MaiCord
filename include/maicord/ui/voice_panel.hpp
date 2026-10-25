@@ -1,9 +1,10 @@
 #pragma once
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/paint.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct PaintStream;
+
 // Voice connection card floating above the account panel, plus the account
 // panel's microphone and deafen buttons. Geometry here is shared by paint,
 // text emission and input so all three agree.

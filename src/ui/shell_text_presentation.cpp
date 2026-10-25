@@ -25,7 +25,6 @@
 #include "maicord/ui/composer_voice_bar.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
 
 namespace maicord {
 namespace {

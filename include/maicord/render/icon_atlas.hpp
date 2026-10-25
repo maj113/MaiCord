@@ -2,9 +2,11 @@
 
 #include "maicord/render/glyph_atlas_gpu.hpp"
 #include "maicord/ui/icon_pack.hpp"
-#include "maicord/ui/paint.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 
 namespace maicord {
+
+struct PaintQuad;
 
 inline constexpr u16 kIconAtlasExtent = 512;
 inline constexpr u32 kIconAtlasEntries = 512;

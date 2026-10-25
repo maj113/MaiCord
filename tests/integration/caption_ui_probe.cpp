@@ -14,7 +14,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/ui/background_presentation.hpp"
+#include "maicord/ui/caption_bar.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
 namespace maicord {

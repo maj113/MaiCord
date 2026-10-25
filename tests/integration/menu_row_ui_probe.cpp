@@ -1,7 +1,6 @@
 #include "menu_row_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "maicord/ui/message_context_menu.hpp"
-#include "maicord/ui/popup_presentation.hpp"
 #include "maicord/protocol/application_commands.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"

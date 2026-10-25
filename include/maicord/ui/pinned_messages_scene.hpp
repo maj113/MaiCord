@@ -1,9 +1,10 @@
 #pragma once
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/scrollbar.hpp"
-#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct UiTextOutput;
+
 inline constexpr u32 kUiPinnedMessagesPageCapacity = 50;
 inline constexpr u32 kUiPinnedMessagesVisibleRows = 16;
 inline constexpr u32 kUiPinnedMessagesWidgetCapacity = 6 + 2 * kUiPinnedMessagesVisibleRows;

@@ -25,6 +25,7 @@
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/timestamp_format.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"

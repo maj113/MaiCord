@@ -18,6 +18,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/ui/tooltip.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

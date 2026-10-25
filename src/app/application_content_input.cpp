@@ -20,7 +20,6 @@
 #include "application_friends.hpp"
 #include "application_thread_browser.hpp"
 
-#include "application_account_module.hpp"
 #include "application_account_presentation.hpp"
 #include "application_channel_session.hpp"
 #include "application_composer.hpp"

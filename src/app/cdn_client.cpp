@@ -6,7 +6,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/tls_stream.hpp"
-#include "maicord/ui/regional_flag.hpp"
 #include "maicord/protocol/http1.hpp"
 #include "maicord/protocol/embed_player.hpp"
 #include "maicord/core/ascii.hpp"

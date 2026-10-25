@@ -1,6 +1,8 @@
 #pragma once
 #include "../src/app/application_account_presentation.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "../src/app/application_account_text_retry.hpp"
 #include "../src/app/application_composer_input.hpp"

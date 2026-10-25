@@ -14,6 +14,7 @@
 #include "application_message_interaction.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/plugin_slot_surfaces.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

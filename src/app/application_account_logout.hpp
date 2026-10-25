@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/app/account_paths.hpp"
-#include "maicord/app/account_host.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {

@@ -6,7 +6,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/spsc_queue.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/platform/network.hpp"
 #include "maicord/platform/random.hpp"
 #include "maicord/platform/tls_client.hpp"

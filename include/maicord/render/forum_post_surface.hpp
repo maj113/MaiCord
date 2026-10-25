@@ -1,8 +1,9 @@
 #pragma once
-#include "maicord/ui/forum_post_scene.hpp"
 #include "maicord/render/text_form_surface.hpp"
 
 namespace maicord {
+struct ForumPostScene;
+
 struct ForumPostSurface {
     const ForumPostScene* scene;
     TextEditLayoutOwner layouts[2];

@@ -2,6 +2,7 @@
 #include "settings_catalog.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord::app_detail {
 // Custom keybinds (keybinds.bin), loaded on first use. The revision advances

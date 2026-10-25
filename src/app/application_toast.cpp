@@ -3,6 +3,7 @@
 #include "application_account_presentation.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/layer_presentation.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 

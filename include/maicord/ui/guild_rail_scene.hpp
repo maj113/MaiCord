@@ -3,10 +3,11 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/navigation_drag.hpp"
 #include "maicord/ui/widget_manager.hpp"
-#include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/transition.hpp"
 
 namespace maicord {
+
+struct UiVirtualRowStorageOwner;
 
 inline constexpr u32 kGuildRailOverscanRows = 2;
 // Vertical gap between rail rows (drop lines sit in its middle).

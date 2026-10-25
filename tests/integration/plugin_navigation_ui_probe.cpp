@@ -4,6 +4,7 @@
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 namespace {

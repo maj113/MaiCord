@@ -1,6 +1,7 @@
 #pragma once
 
 #include "settings_catalog.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
 // Native settings pages are registered in catalog panel order, then search.

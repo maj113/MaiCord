@@ -8,8 +8,6 @@
 // native window and authoritative model/outbox storage. No network is created.
 #include "../src/app/application_message_forward.cpp"
 #include "application_input_routing.hpp"
-#include "application_scoped_read_menu.hpp"
-#include "application_private_conversation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 #include "test_output.hpp"

@@ -1,6 +1,5 @@
 #include "application_inbox.hpp"
 #include "application_downloads.hpp"
-#include "application_input_routing.hpp"
 #include "application_profile.hpp"
 
 #include "application_state.hpp"
@@ -35,6 +34,7 @@
 #include "maicord/app/input_layers.hpp"
 #include "maicord/app/navigation_shortcuts.hpp"
 #include "maicord/core/log.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 

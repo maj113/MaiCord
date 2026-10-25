@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/sys/wasapi.hpp"
-#include "maicord/sys/winrt.hpp"
 
 namespace maicord {
 namespace {

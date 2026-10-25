@@ -12,6 +12,7 @@
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/navigation_drag.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 

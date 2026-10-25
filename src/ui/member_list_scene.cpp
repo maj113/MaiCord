@@ -10,6 +10,7 @@
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/scene.hpp"
+#include "maicord/ui/activity_status.hpp"
 
 namespace maicord {
 namespace {

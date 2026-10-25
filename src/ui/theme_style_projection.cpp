@@ -1,4 +1,3 @@
-#include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/audio_controls.hpp"
 #include "maicord/ui/forum_post_scene.hpp"
 #include "maicord/ui/poll_controls.hpp"

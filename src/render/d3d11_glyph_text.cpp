@@ -12,6 +12,7 @@
 #include "maicord/text/font_run.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/ui/message_markdown.hpp"
 
 namespace maicord {
 struct D3D11ColorGlyphOwner {

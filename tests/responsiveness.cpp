@@ -8,6 +8,7 @@
 #include "../src/app/gateway_relationship_dispatch.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace {

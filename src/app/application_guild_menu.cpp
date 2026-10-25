@@ -19,6 +19,7 @@
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/message_context_menu.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

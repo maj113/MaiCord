@@ -10,6 +10,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

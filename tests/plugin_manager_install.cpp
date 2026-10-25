@@ -3,6 +3,7 @@
 // recovery. Versions are MaiCordPluginFixture with zero bytes appended; nothing
 // is loaded. Isolated TEMP files; test-only scalar-one key.
 #include "maicord/app/plugin_manager_install.hpp"
+#include "maicord/app/plugin_bundle_install.hpp"
 #include "plugin_manager_fixture.hpp"
 #include "plugin_fake_transport.hpp"
 #include "test_output.hpp"

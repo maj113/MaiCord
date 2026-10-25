@@ -1,6 +1,8 @@
 #include "application_message_mutation_notice.hpp"
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 #include "application_state.hpp"
+#include "application_message_navigation.hpp"
 
 namespace maicord::app_detail {
 namespace {

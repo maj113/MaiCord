@@ -1,5 +1,4 @@
 #include "maicord/ui/settings_choice.hpp"
-#include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/page_registry.hpp"
 #include "maicord/ui/settings_scene.hpp"
 

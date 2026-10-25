@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/tsf.hpp"
-#include "maicord/sys/winrt.hpp"
 
 namespace maicord {
 namespace {

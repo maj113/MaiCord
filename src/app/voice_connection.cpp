@@ -4,7 +4,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/random.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

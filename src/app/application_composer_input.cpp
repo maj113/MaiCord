@@ -1,5 +1,4 @@
 #include "application_guild_community.hpp"
-#include "application_composer_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_media_picker.hpp"
@@ -22,6 +21,7 @@
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/media_picker.hpp"
 
 namespace maicord::app_detail {
 namespace {

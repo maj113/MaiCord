@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/base64url.hpp"
+#include "maicord/protocol/remote_auth.hpp"
 
 
 namespace maicord {

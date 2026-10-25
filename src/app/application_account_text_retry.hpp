@@ -3,6 +3,8 @@
 #include "application_friends.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 // A new layout cannot present the previous projection's glyph positions.

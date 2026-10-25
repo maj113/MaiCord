@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/protocol/gateway_stream.hpp"
 
 namespace maicord {

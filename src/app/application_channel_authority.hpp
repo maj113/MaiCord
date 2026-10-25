@@ -1,6 +1,8 @@
 #pragma once
 #include "application_state.hpp"
 #include "application_search.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 // The containing message owns access, including forwarded snapshots. A CDN

@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/ui/image_viewer.hpp"
 #include "maicord/ui/transition.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "application_search.hpp"
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/core/win32_types.hpp"

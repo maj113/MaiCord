@@ -5,6 +5,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/sys/shell.hpp"
 namespace maicord::app_detail {
 namespace {

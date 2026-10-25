@@ -3,7 +3,6 @@
 #include "maicord/ui/code_highlight.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/text.hpp"
-#include "maicord/ui/native_text_candidate.hpp"
 
 
 namespace maicord {

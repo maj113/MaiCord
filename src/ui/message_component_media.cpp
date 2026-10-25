@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/protocol/guild_community.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

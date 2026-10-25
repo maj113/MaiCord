@@ -1,6 +1,5 @@
 #include "application_profile.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_keyboard_focus.hpp"
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
 #include "application_content_input.hpp"
@@ -12,8 +11,10 @@
 #include "maicord/app/navigation_shortcuts.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/widget_scroll.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/friends_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

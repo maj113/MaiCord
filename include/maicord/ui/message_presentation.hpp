@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/paint.hpp"
 
 namespace maicord {
+struct MessageScene;
+
 struct MessageTextPresentation;
 
 enum class MessageMediaCommandKind : u8 {

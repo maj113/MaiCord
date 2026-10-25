@@ -7,6 +7,8 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/media_picker.hpp"
+#include "maicord/ui/profile_scene.hpp"
 
 namespace maicord::surface_motion_host_test {
 using namespace app_detail;

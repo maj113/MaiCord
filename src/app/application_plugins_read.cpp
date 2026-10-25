@@ -10,6 +10,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/model/relationship_store.hpp"
 #include "maicord/protocol/client_status.hpp"
+#include "account_ui_runtime.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
 
 namespace maicord::app_detail {
 namespace {

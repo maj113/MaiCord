@@ -2,6 +2,10 @@
 #include "maicord/app/account_gif_favorites.hpp"
 #include "maicord/core/ascii.hpp"
 
+namespace maicord {
+struct RestClientResponse;
+} // namespace maicord
+
 namespace maicord::app_detail {
 struct ApplicationGifFavorites;
 struct ApplicationGifFavoritesView {

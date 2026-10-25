@@ -2,6 +2,7 @@
 #include "maicord/ui/inbox_avatar_media.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {

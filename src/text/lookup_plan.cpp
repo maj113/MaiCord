@@ -1,7 +1,6 @@
 #include "maicord/text/lookup_plan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/simple_script.hpp"
-#include "maicord/text/khmer_plan.hpp"
 #include "layout_language.hpp"
 #include "lookup_plan_finish.hpp"
 #include "maicord/text/base.hpp"

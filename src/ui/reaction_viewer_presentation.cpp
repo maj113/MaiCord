@@ -1,4 +1,3 @@
-#include "maicord/ui/reaction_viewer_presentation.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/text_presentation.hpp"

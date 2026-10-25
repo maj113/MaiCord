@@ -1,5 +1,6 @@
 #include "maicord/render/animation_frame_cache.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

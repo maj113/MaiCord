@@ -4,6 +4,9 @@
 #include "maicord/ui/message_context_menu.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/protocol/private_conversation.hpp"
+#include "maicord/protocol/relationships.hpp"
 
 namespace maicord {
 void test_private_conversation(void (*check)(bool, const char*) noexcept) noexcept {

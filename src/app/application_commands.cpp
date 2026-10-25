@@ -14,6 +14,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

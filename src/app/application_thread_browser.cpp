@@ -20,9 +20,11 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/app/shortcut_registry.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/thread_browser_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

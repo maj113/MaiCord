@@ -1,7 +1,6 @@
 // No argument runs the registered checks. Manual: MAICORD_KHMER_INPUT_STREAM=1|2 answers cluster
 // queries from stdin for the Python oracles (QA only).
 #include "maicord/text/khmer_input.hpp"
-#include "../src/text/khmer_character.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {

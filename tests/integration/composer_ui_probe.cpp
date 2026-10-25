@@ -7,14 +7,8 @@
 #include "application_state.hpp"
 #include "application_composer.hpp"
 #include "application_composer_input.hpp"
-#include "application_composer_edit_menu.hpp"
 #include "application_reply_draft.hpp"
-#include "application_attachments.hpp"
 #include "application_commands.hpp"
-#include "application_media_picker.hpp"
-#include "application_thread_actions.hpp"
-#include "application_profile.hpp"
-#include "application_composer_text_input.hpp"
 #include "application_plugins.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/background_color_math.hpp"
@@ -32,8 +26,8 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/sys/winsock.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/ui/media_picker.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};

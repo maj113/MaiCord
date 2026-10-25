@@ -1,3 +1,4 @@
+#include "maicord/ui/activity_status.hpp"
 #include "background_theme_probe.hpp"
 #include "settings_theme_probe.hpp"
 #include "theme_views_probe.hpp"
@@ -11,6 +12,8 @@
 #include "maicord/render/renderer_presentation.hpp"
 #include "maicord/render/content_text_retention.hpp"
 #include "maicord/render/background_fx.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "maicord/ui/member_list_scene.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 

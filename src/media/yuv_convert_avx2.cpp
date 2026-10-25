@@ -1,4 +1,3 @@
-#include "maicord/media/yuv_convert.hpp"
 #include "maicord/media/yuv_convert_common.hpp"
 
 #include "maicord/sys/simd.hpp"

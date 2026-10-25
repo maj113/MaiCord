@@ -18,6 +18,7 @@
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/platform/clipboard_attachment.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "application_state.hpp"
 #include "application_channel_overview.hpp"

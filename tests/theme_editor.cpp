@@ -2,7 +2,6 @@
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 namespace maicord {
 void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {

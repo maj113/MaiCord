@@ -10,6 +10,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/system_tray.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/sys/shell.hpp"
 

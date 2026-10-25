@@ -4,12 +4,14 @@
 #include "maicord/media/regional_flag_svg.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/popup_scene.hpp"
 #include "colr_binding_probe.hpp"
 #include "regional_flag_upload_probe.hpp"
 #include "probe_present.hpp"
 #include "standalone_title_geometry.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

@@ -1,8 +1,11 @@
 #pragma once
-#include "maicord/app/voice_packet_crypto.hpp"
 #include "maicord/app/voice_udp_discovery.hpp"
 
 namespace maicord {
+struct VoicePacketCrypto;
+enum class VoicePacketError : u8;
+struct VoicePacketResult;
+
 inline constexpr u32 kVoiceUdpMediaReceiveSlots = kNetworkDatagramReceiveSlots;
 inline constexpr u32 kVoiceUdpMediaKernelReceiveBytes = 2u << 20;
 enum class VoiceUdpMediaError : u8 {

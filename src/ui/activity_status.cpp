@@ -1,5 +1,6 @@
 #include "maicord/ui/activity_status.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/icon.hpp"
 
 namespace maicord {
 UiActivityGlyph ui_activity_glyph(UserActivityType type) noexcept {

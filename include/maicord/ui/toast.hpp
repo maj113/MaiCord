@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+
+struct PaintStream;
 
 struct UiTextMeasureCache;
 

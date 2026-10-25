@@ -1,9 +1,9 @@
-#include "application_plugins.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_state.hpp"
 #include "application_composer.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/message_composer.hpp"
+#include "account_ui_runtime.hpp"
 
 // Composer integration for ABI-5 plugins: local slash commands and the
 // pre-send transform run before application commands and the ordinary send.

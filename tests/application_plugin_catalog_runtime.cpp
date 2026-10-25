@@ -5,6 +5,7 @@
 #include "application_text_form.hpp"
 #include "fixtures/native_plugin_fixture.hpp"
 #include "maicord/core/utf.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/crypto.hpp"
 

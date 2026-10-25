@@ -1,6 +1,7 @@
 #include "maicord/app/account_gif_favorites.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/emoji_preferences.hpp"
+#include "maicord/app/rest_client.hpp"
 namespace maicord {
 namespace {
 using PatchValidator = bool (*)(ConstSlice<u8>) noexcept;

@@ -1,4 +1,3 @@
-#include "application_button_input.hpp"
 #include "application_state.hpp"
 #include "application_composer_input.hpp"
 #include "application_composer.hpp"
@@ -7,6 +6,7 @@
 #include "application_voice_message.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/profile_scene.hpp"
 
 #include "maicord/core/win32_user.hpp"
 

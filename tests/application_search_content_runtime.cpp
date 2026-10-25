@@ -2,6 +2,7 @@
 #include "application_search_content.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

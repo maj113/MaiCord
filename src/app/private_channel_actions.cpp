@@ -3,6 +3,7 @@
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

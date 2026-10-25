@@ -3,6 +3,9 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/render/renderer_presentation.hpp"
+#include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/render/text_form_surface.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 #include "d3d11_renderer_caption.hpp"
 #include "d3d11_renderer_edit.hpp"
 #include "d3d11_renderer_layout.hpp"
@@ -10,6 +13,7 @@
 #include "shaped_text_cache.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 
 namespace maicord {
 namespace {

@@ -24,8 +24,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/shortcuts_scene.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/media_picker.hpp"
 
 namespace maicord::app_detail {
 namespace {

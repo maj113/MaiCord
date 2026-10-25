@@ -1,6 +1,7 @@
 #include "maicord/ui/text_form.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 
 namespace maicord {
 namespace {

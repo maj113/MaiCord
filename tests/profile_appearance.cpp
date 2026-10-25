@@ -14,6 +14,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/media/asset.hpp"
 namespace maicord {
 namespace {
 bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {

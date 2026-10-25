@@ -5,6 +5,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/sys/crt.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

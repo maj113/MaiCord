@@ -7,6 +7,7 @@
 #include "maicord/core/win32_process.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

@@ -5,7 +5,6 @@
 #include "maicord/media/png.hpp"
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/protocol/base64.hpp"
-#include "maicord/protocol/guild_admin.hpp"
 #include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

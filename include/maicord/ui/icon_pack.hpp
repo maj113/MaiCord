@@ -1,9 +1,10 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/text/outline.hpp"
 
 namespace maicord {
+
+struct GlyphOutline;
 
 // MIPK v1, written by tools/generate_icon_pack.py. Coordinates are 1/64 units
 // on a 24-unit grid.

@@ -2,6 +2,7 @@
 #include "maicord/ui/settings_choice.hpp"
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
 namespace {

@@ -6,6 +6,8 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/crt.hpp"
+#include "maicord/media/asset.hpp"
+#include "maicord/protocol/cdn_http.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,6 @@
 #include "application_upload_lane.hpp"
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 #include "application_state.hpp"
 namespace maicord::app_detail {
 namespace {

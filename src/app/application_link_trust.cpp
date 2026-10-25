@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/sys/shell.hpp"
 

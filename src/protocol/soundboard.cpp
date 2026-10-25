@@ -6,6 +6,7 @@
 #include "json_helpers.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
 namespace {

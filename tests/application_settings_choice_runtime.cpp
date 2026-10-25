@@ -2,6 +2,7 @@
 #include "application_settings.hpp"
 #include "application_plugins.hpp"
 #include "maicord/ui/settings_choice.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "settings_runtime_keys.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/app/client_theme.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
 namespace {

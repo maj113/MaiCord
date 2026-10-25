@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/widget_storage.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 enum class UiPresence : u8;

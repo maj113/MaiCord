@@ -3,6 +3,7 @@
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/render/content_text_retention.hpp"
+#include "maicord/ui/message_scene.hpp"
 
 namespace maicord {
 namespace {

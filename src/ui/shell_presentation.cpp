@@ -24,8 +24,8 @@
 #include "maicord/ui/typing_indicator.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/activity_status.hpp"
 
 namespace maicord {
 namespace {

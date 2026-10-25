@@ -1,4 +1,3 @@
-#include "d3d11_renderer_caption.hpp"
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
@@ -10,6 +9,8 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/tooltip.hpp"
+#include "maicord/ui/caption_bar.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 

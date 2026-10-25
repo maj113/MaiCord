@@ -1,9 +1,9 @@
-#include "application_message_intro.hpp"
 
 #include "application_friends.hpp"
 #include "application_state.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/ui/message_scene.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

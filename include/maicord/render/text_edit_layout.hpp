@@ -3,9 +3,10 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/text/paragraph_hit_metric.hpp"
-#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
+
+struct TextStyleSpan;
 
 struct MessageComposerScene;
 struct TextSystem;

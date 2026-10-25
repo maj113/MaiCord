@@ -1,5 +1,4 @@
 #include "maicord/app/voice_media_setup.hpp"
-#include "maicord/protocol/voice_gateway.hpp"
 
 #include "maicord/sys/winsock.hpp"
 

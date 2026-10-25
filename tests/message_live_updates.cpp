@@ -2,8 +2,8 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/ui/message_markdown.hpp"
-#include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/message_rich_store.hpp"
 
 namespace maicord {
 namespace {

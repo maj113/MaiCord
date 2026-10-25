@@ -3,9 +3,13 @@
 #include "../src/app/application_text_form.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/render/forum_post_surface.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "file_drop_fixture.hpp"
 
 #include "maicord/sys/shell.hpp"
+#include "maicord/ui/attachment_menu.hpp"
 
 // Drive the shipping attachment owner with a deterministic account boundary.
 // No file dialog, DNS, credentials, or external service participates here.

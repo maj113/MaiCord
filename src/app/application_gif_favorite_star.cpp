@@ -1,4 +1,3 @@
-#include "application_gif_favorite_star.hpp"
 #include "application_gif_favorites.hpp"
 #include "application_channel_authority.hpp"
 #include "application_state.hpp"

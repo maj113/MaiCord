@@ -3,6 +3,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/remote_auth.hpp"
 
 namespace maicord {
 namespace {

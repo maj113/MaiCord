@@ -9,6 +9,7 @@
 #include "maicord/app/captcha_bridge.hpp"
 #include "maicord/app/remote_auth_client.hpp"
 #include "maicord/platform/random.hpp"
+#include "maicord/app/remote_auth_handshake.hpp"
 #include <stddef.h>
 
 // Shared login orchestration, kept local to this translation unit for the account module

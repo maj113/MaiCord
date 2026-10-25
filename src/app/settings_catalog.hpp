@@ -1,10 +1,13 @@
 #pragma once
 
-#include "maicord/app/client_preferences.hpp"
 #include "maicord/ui/settings_schema.hpp"
-#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
+
+struct ClientPreferences;
+enum class ClientTheme : u8;
+
+struct UiSettingsNavEntry;
 
 // Storage bindings of catalog nodes. Values live in a backend; local is the
 // ClientPreferences record. Synced account settings (settings-proto/1) and OS

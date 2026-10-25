@@ -1,9 +1,7 @@
-#include "maicord/core/win32_process.hpp"
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/app/account_module_version.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 

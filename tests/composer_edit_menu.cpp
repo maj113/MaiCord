@@ -5,6 +5,7 @@
 #include "maicord/protocol/message_create.hpp"
 #include "maicord/protocol/message_edit.hpp"
 #include "maicord/ui/popup_presentation.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord::app_detail {
 namespace { bool composing; u32 applied; }

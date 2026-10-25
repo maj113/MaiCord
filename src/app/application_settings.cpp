@@ -35,7 +35,6 @@
 #include "application_account_settings.hpp"
 #include "application_keybinds_settings.hpp"
 #include "application_desktop.hpp"
-#include "maicord/app/client_theme.hpp"
 #include "maicord/app/oauth_sign_in.hpp"
 #include "maicord/app/oauth_account.hpp"
 #include "maicord/app/plugin_settings_projection.hpp"
@@ -54,6 +53,7 @@
 #include "maicord/render/layer_presentation.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/ui/clipboard.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {

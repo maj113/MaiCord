@@ -1,4 +1,3 @@
-#include "application_attachment_probe.hpp"
 #include "application_attachments_state.hpp"
 #include "application_state.hpp"
 #include "maicord/app/attachment_media_probe.hpp"

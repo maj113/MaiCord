@@ -24,6 +24,8 @@
 #include "maicord/ui/message_forward_scene.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/render/text_form_surface.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"

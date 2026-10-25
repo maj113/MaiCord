@@ -1,4 +1,5 @@
 #include "maicord/media/presentation_policy.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

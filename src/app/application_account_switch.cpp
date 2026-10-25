@@ -20,6 +20,7 @@
 #include "maicord/core/win32_error.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {

@@ -8,10 +8,16 @@
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/media/regional_flag_svg.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/scene.hpp"
+#include "maicord/ui/reaction_viewer.hpp"
+#include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 #include "colr_binding_probe.hpp"
 #include "regional_flag_upload_probe.hpp"
 #include "probe_present.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

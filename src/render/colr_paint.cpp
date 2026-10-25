@@ -4,6 +4,7 @@
 #include "maicord/render/shader_bytecode.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 
 namespace maicord {
 namespace {

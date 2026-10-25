@@ -20,6 +20,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/time.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"

@@ -3,6 +3,7 @@
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_member_store.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

@@ -1,11 +1,9 @@
 #include "maicord/app/account_notification_settings.hpp"
-#include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/protocol/self_status_settings.hpp"
 
 namespace maicord {
 namespace notification_settings_account_test {

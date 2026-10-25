@@ -1,4 +1,3 @@
-#include "application_mention_confirmation.hpp"
 
 #include "application_message_send.hpp"
 #include "application_state.hpp"
@@ -6,6 +5,7 @@
 
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

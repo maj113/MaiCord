@@ -2,16 +2,21 @@
 
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/app/message_timeline.hpp"
-#include "maicord/app/message_send_tracker.hpp"
 #include "maicord/core/reserved_bytes.hpp"
-#include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/typing_store.hpp"
-#include "maicord/model/voice_state_store.hpp"
 #include "maicord/model/thread_member_store.hpp"
-#include "maicord/model/user_store.hpp"
-#include "maicord/model/message_notifications.hpp"
 
 namespace maicord {
+
+struct VoiceStateStore;
+
+struct MessageSendTracker;
+
+enum class MessageReadBadge : u8;
+
+struct GuildMemberStore;
+
+struct MessageRichReactionMutation;
 
 enum class GatewayClientEventKind : u8;
 struct GatewayClientEvent;

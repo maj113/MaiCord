@@ -3,6 +3,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/clipboard.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

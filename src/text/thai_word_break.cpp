@@ -1,4 +1,3 @@
-#include "maicord/text/detail/thai_word_break.hpp"
 #include "maicord/text/detail/thai_lexical.hpp"
 #include "maicord/text/detail/thai_syllable.hpp"
 #include "maicord/text/unicode.hpp"

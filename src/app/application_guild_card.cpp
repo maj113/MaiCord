@@ -19,6 +19,7 @@
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/guild_banner.hpp"
 #include "maicord/ui/profile_media.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 

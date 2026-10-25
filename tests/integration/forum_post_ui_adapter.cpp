@@ -17,6 +17,8 @@
 #include "../file_drop_fixture.hpp"
 #include "maicord/app/account_upload.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/ui/thread_browser_scene.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;

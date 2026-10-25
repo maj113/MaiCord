@@ -38,6 +38,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/account_media.hpp"
 
 #include <limits.h>
 

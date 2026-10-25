@@ -5,6 +5,7 @@
 #include "../src/app/gateway_ready_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 #if !defined(MAICORD_NOTIFICATION_FIXTURE)

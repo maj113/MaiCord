@@ -2,6 +2,7 @@
 #include "application_forum_form.hpp"
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/ui/button_keyboard.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 namespace maicord::app_detail {
 struct ApplicationForumFormField {
     SecureEdit edit;

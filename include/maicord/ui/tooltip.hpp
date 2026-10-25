@@ -4,7 +4,7 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/surface_geometry.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 

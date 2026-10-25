@@ -1,5 +1,6 @@
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/icon_pack.hpp"
+#include "maicord/text/outline.hpp"
 
 namespace maicord {
 namespace {

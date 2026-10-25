@@ -2,9 +2,11 @@
 
 #include "maicord/platform/remote_auth_crypto.hpp"
 #include "maicord/platform/secure_buffer.hpp"
-#include "maicord/protocol/remote_auth.hpp"
 
 namespace maicord {
+
+enum class Base64Error : u8;
+enum class RemoteAuthError : u8;
 
 inline constexpr u32 kRemoteAuthFingerprintEncodedBytes = 43;
 inline constexpr u32 kRemoteAuthMaximumCommandBytes = 512;

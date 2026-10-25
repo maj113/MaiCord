@@ -19,6 +19,7 @@
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/scene.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

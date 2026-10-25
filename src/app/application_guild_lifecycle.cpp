@@ -34,6 +34,7 @@
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/message_markdown.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

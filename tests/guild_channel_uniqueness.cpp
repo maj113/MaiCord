@@ -5,6 +5,7 @@
 #include "maicord/model/permission_bits.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

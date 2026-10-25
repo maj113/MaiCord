@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 // Field-wise chat-state record comparisons for mutation tests. Explicit fields

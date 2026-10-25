@@ -1,4 +1,3 @@
-#include "application_message_edit.hpp"
 
 #include "application_composer.hpp"
 #include "application_composer_text_input.hpp"

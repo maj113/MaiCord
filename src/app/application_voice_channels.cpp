@@ -13,6 +13,8 @@
 #include "maicord/ui/shell_navigation_scene.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {

@@ -10,6 +10,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/stage_policy.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

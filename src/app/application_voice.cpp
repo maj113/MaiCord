@@ -7,7 +7,6 @@
 #include "application_stage.hpp"
 #include "application_shortcuts.hpp"
 #include "application_account_presentation.hpp"
-#include "application_composer.hpp"
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
 #include "application_voice_settings.hpp"
@@ -18,9 +17,9 @@
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/app/account_soundboard.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

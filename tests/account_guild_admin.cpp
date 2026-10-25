@@ -1,14 +1,10 @@
 #include "maicord/app/account_guild_admin.hpp"
-#include "maicord/app/account_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/app/gateway_client.hpp"
 #include "maicord/protocol/cdn_url.hpp"
-#include "maicord/protocol/guild_assets.hpp"
-#include "maicord/protocol/stage_channel.hpp"
 
 namespace maicord {
 namespace guild_admin_test {

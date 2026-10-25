@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 #include "maicord/core/win32_records.hpp"
 

@@ -1,4 +1,3 @@
-#include "maicord/protocol/cdn_url.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/model/asset_hash.hpp"
 

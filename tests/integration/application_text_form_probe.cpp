@@ -4,7 +4,6 @@
 #include "reply_draft_ui_adapter.hpp"
 #include "thread_creation_ui_adapter.hpp"
 #include "../../src/app/application_profile.hpp"
-#include "../../src/app/application_friends.hpp"
 #include "../../src/app/application_text_form_state.hpp"
 #include "../../src/app/application_composer_text_input_state.hpp"
 #include "../../src/app/application_state.hpp"
@@ -13,9 +12,11 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/settings_scene.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/ui/friends_scene.hpp"
 
 namespace maicord::app_detail {
 u32 probe_button_actions;

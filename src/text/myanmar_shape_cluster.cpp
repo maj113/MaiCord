@@ -1,6 +1,5 @@
 #include "maicord/text/myanmar_input.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/myanmar_shape_run.hpp"
 #include "myanmar_character.hpp"
 #include "selector_slots.hpp"
 #include "use_shape_internal.hpp"

@@ -1,4 +1,3 @@
-#include "maicord/media/rtp_h264.hpp"
 #include "rtp_video_assembly_detail.hpp"
 
 namespace maicord {

@@ -6,7 +6,6 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
-#include "maicord/model/guild_settings_model.hpp"
 #include "maicord/ui/guild_banner.hpp"
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/shell_presentation.hpp"
@@ -14,6 +13,7 @@
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord::guild_banner_test {
 u32 failures = 0;

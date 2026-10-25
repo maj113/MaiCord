@@ -1,28 +1,20 @@
 #include "application_user_actions.hpp"
 #include "application_state.hpp"
 #include "application_friends.hpp"
-#include "application_settings.hpp"
-#include "application_account_presentation.hpp"
-#include "application_channel_session.hpp"
-#include "application_composer_text_input.hpp"
 #include "application_private_conversation.hpp"
 #include "application_profile.hpp"
 #include "application_message_interaction.hpp"
-#include "application_shell_input.hpp"
 #include "application_text_form.hpp"
-#include "application_composer.hpp"
 #include "application_friends_search.hpp"
 #include "application_friends_storage.hpp"
 #include "application_plugins.hpp"
 #include "maicord/app/account_relationships.hpp"
-#include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "application_action_captcha_stubs.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord::friends_runtime_test {
 using namespace app_detail;

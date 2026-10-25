@@ -1,6 +1,5 @@
 #include "maicord/ui/button_keyboard.hpp"
 #include "maicord/ui/button.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

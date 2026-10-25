@@ -3,7 +3,9 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/media/presentation_policy.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

@@ -1,4 +1,3 @@
-#include "application_composer_spellcheck.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_state.hpp"
 #include "maicord/platform/spell_checker.hpp"

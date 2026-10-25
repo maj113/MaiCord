@@ -3,7 +3,6 @@
 // No credential, worker thread, socket, DNS lookup or live HTTP is created.
 // Part of rest_client_fixtures.cpp.
 #include "rest_client_probe.hpp"
-#include "maicord/app/account_host.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

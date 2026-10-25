@@ -14,6 +14,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/media/asset.hpp"
 namespace maicord {
 bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept {
     if (!scene || scene->banner_compatibility) return false;

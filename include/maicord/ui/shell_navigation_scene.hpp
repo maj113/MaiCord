@@ -3,9 +3,10 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/navigation_drag.hpp"
 #include "maicord/ui/widget_manager.hpp"
-#include "maicord/ui/widget_storage.hpp"
 
 namespace maicord {
+
+struct UiVirtualRowStorageOwner;
 
 inline constexpr u32 kShellNavigationOverscanRows = 2;
 // Voice channel rows grow by one sub-row per connected user.

@@ -6,6 +6,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;

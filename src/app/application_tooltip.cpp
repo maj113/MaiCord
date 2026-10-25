@@ -1,4 +1,3 @@
-#include "application_tooltip.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_caption.hpp"
 #include "application_state.hpp"
@@ -19,9 +18,16 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"
 #include "maicord/ui/dm_profile_panel.hpp"
+#include "maicord/ui/media_picker.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "maicord/render/forum_post_surface.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/media/asset.hpp"
+#include "maicord/ui/thread_browser_scene.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationTooltip {

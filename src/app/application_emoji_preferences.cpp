@@ -8,6 +8,7 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/emoji_preferences.hpp"
 #include "maicord/ui/reaction_picker.hpp"
+#include "account_ui_runtime.hpp"
 
 
 namespace maicord::app_detail {

@@ -5,7 +5,6 @@
 #include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/app/account_download.hpp"
 
 namespace maicord {
 namespace relationship_account_test {

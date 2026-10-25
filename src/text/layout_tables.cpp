@@ -1,6 +1,5 @@
 #include "maicord/text/layout_tables.hpp"
 #include "maicord/core/memory.hpp"
-#include "coverage_index.hpp"
 #include "maicord/text/lookup_bounds.hpp"
 #include "maicord/text/base.hpp"
 

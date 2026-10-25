@@ -11,6 +11,7 @@
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/app/account_media.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 // Synthetic Search captures seed renderer resources directly. This offline

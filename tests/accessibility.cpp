@@ -17,7 +17,7 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/uia.hpp"
-#include "maicord/sys/winsock.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 
 namespace maicord::accessibility_test {
 namespace {

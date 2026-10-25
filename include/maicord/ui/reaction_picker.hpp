@@ -2,9 +2,10 @@
 
 #include "maicord/core/arena.hpp"
 #include "maicord/model/reaction_preferences.hpp"
-#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
+struct ChatStateStore;
+
 struct MessageComposer;
 
 // The emoji picker's data model. The expression picker's Emoji tab and the

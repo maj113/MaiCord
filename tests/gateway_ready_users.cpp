@@ -2,7 +2,6 @@
 // (cmake/benchmarks.cmake).
 // Exercise READY's shipping private batching path without opening a connection.
 #include "../src/app/gateway_client.cpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "fixtures/gateway_growth.hpp"

@@ -31,6 +31,8 @@
 #include "maicord/ui/voice_panel.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/render/inline_media.hpp"
+#include "maicord/ui/guild_banner.hpp"
+#include "maicord/ui/thread_header.hpp"
 
 #include "d3d11_renderer_draw.hpp"
 #include "d3d11_renderer_layout.hpp"

@@ -1,6 +1,7 @@
 #include "maicord/app/message_send_response.hpp"
 #include "maicord/app/message_history_sync.hpp"
 #include "maicord/app/rest_client.hpp"
+#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 void test_message_send_response(void (*check)(bool, const char*) noexcept) noexcept {

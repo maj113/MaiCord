@@ -2,6 +2,7 @@
 
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/protocol/account_requirement.hpp"
+#include "maicord/model/message_rich_store.hpp"
 
 namespace maicord {
 struct RestClientResponse;

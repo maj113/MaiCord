@@ -24,10 +24,11 @@
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/private_channel_title.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/d3d11.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord::app_detail {
 namespace {

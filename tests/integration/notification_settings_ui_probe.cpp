@@ -1,6 +1,7 @@
 #include "probe_present.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 namespace {

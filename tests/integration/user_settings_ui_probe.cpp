@@ -7,6 +7,7 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/text_form.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/app/client_preferences.hpp"
 
 namespace maicord {
 namespace app_detail {

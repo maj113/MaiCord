@@ -2,8 +2,12 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/protocol/user_social.hpp"
 #include "maicord/ui/profile_scene.hpp"
-#include "maicord/app/rest_client.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/button.hpp"
+
+namespace maicord {
+struct RestClientResponse;
+} // namespace maicord
 namespace maicord::app_detail {
 enum class ProfileAnchor : u8 {
     point,

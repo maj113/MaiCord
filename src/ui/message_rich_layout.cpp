@@ -7,6 +7,7 @@
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/audio_controls.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

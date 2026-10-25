@@ -36,6 +36,8 @@
 
 #include <stddef.h>
 #include "maicord/app/account_profile_edit.hpp"
+#include "application_account_access.hpp"
+#include "maicord/app/account_media.hpp"
 
 namespace maicord::app_detail {
 namespace {

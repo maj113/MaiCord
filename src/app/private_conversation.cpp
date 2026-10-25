@@ -3,6 +3,8 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/protocol/private_conversation.hpp"
 
 namespace maicord {
 static_assert(sizeof(PrivateConversationRequest) == 40);

@@ -1,6 +1,5 @@
 #include "maicord/app/update_changelog.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
 
 namespace maicord {

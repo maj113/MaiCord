@@ -1,6 +1,5 @@
 #include "../src/app/application_media_pump.hpp"
 #include "../src/app/application_forum_form.hpp"
-#include "../src/app/application_media_picker.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/model/typing_store.hpp"
 #include "maicord/media/presentation_policy.hpp"
@@ -12,7 +11,6 @@
 #include "maicord/ui/thread_browser_scene.hpp"
 #include "../src/app/application_search.hpp"
 #include "../src/app/application_image_viewer.hpp"
-#include "../src/app/application_profile_editor.hpp"
 #include "../src/app/application_profile.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/app/local_draft_preview.hpp"
@@ -26,6 +24,7 @@
 #include "maicord/render/renderer_presentation.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/app/account_media.hpp"
 
 namespace maicord::app_detail {
 ForumPostScene* fixture_forum_scene;

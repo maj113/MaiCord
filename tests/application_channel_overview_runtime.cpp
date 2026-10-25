@@ -1,13 +1,11 @@
 // Shipping host with fake account admission and renderer bindings. No live
 // account, network, GPU or shipping diagnostic hooks are involved.
 #include "application_profile_editor.hpp"
-#include "application_shell_input.hpp"
 #include "../src/app/application_channel_overview.cpp"
 #include "maicord/ui/clipboard.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord::channel_overview_runtime_test {
 using namespace app_detail;

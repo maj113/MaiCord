@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/media/ogg_opus.hpp"
 #include "maicord/media/mp3_stream.hpp"
 #include "maicord/media/wave_pcm.hpp"

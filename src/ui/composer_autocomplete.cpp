@@ -10,7 +10,6 @@
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/model/message_store.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {

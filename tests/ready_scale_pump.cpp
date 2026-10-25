@@ -14,6 +14,9 @@
 #include "fixtures/oversized_guild.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/user_store.hpp"
+#include "maicord/model/voice_state_store.hpp"
 
 namespace maicord::ready_scale_pump_test {
 u32 failures = 0;

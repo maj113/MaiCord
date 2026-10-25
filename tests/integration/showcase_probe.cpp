@@ -56,6 +56,7 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/virtual_list.hpp"
+#include "maicord/ui/caption_bar.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

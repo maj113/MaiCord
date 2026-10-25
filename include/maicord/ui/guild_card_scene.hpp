@@ -1,11 +1,12 @@
 #pragma once
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/transition.hpp"
 
 namespace maicord {
+struct UiTextMeasureCache;
+
 // Server tag popout, opened from a server tag chip: a card with the server's
 // banner (custom picture, else a gradient of its brand colour), icon, name, tag,
 // online/member counts, founding month, description, traits and one action. Pure

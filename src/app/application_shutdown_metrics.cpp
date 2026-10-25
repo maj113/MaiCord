@@ -1,7 +1,7 @@
-#include "application_shutdown_metrics.hpp"
 
 #include "application_accessibility.hpp"
 
+#include "account_ui_runtime.hpp"
 #include "application_state.hpp"
 #include "../render/shaped_text_cache.hpp"
 
@@ -10,7 +10,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/process_info.hpp"
 

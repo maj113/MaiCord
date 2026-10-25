@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/model/chat_state.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/text_flow_layout.hpp"
@@ -8,6 +7,8 @@
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct ChatStateStore;
+
 struct GuildMemberStore;
 struct NavigationView;
 struct UiTextMeasureCache;

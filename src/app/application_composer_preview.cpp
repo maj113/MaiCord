@@ -6,6 +6,7 @@
 #include "maicord/ui/composer_attachment_strip.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {

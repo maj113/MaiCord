@@ -1,4 +1,3 @@
-#include "maicord/text/visibility.hpp"
 #include "maicord/text/unicode.hpp"
 namespace maicord {
 bool native_text_nonvisual(u32 cp) noexcept {

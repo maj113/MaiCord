@@ -1,4 +1,3 @@
-#include "gateway_private_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "gateway_user_payload.hpp"
 #include "maicord/protocol/json_ids.hpp"

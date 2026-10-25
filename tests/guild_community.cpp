@@ -16,6 +16,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord::guild_community_test {
 u32 failures = 0;

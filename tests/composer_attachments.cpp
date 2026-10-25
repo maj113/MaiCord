@@ -2,6 +2,7 @@
 #include "maicord/app/message_attachment_storage.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
 #include "maicord/app/message_history_sync.hpp"
+#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 void test_composer_attachments(void (*check)(bool, const char*) noexcept) noexcept {

@@ -2,7 +2,6 @@
 // the picker rows after the built-ins, per-frame selection for the renderer,
 // and the GPU guard's and device's verdicts. No plugin code runs here: the
 // renderer builds a pixel shader from the runtime's validated bytecode copy.
-#include "application_plugins.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"

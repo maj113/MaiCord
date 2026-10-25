@@ -180,6 +180,7 @@
 #include "maicord/protocol/message_poll.hpp"
 #include "maicord/protocol/private_conversation.hpp"
 #include "maicord/core/win32_exception.hpp"
+#include "maicord/protocol/relationships.hpp"
 
 extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned long long count);
 extern "C" void* __cdecl memset(void* destination, int value, unsigned long long count);

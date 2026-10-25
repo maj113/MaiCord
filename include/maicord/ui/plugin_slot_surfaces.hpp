@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/model/chat_state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/plugin_slots.hpp"

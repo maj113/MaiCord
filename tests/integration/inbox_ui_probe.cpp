@@ -1,8 +1,8 @@
 #include "probe_present.hpp"
 #include "maicord/ui/inbox_scene.hpp"
 #include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 namespace {

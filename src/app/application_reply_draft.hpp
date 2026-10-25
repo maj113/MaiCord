@@ -5,6 +5,8 @@
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/user_store.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 

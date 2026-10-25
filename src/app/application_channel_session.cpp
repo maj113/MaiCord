@@ -1,6 +1,5 @@
 #include "application_load_trace.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_channel_session.hpp"
 #include "application_channel_snapshots.hpp"
 
 #include "application_account_module.hpp"
@@ -19,6 +18,7 @@
 #include "maicord/app/reaction_viewer_controller.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 

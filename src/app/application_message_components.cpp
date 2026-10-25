@@ -1,4 +1,3 @@
-#include "application_message_components.hpp"
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
 #include "application_content_input.hpp"
@@ -17,6 +16,7 @@
 #include "maicord/protocol/message_interaction.hpp"
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

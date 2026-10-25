@@ -4,6 +4,7 @@
 #include "maicord/media/deflate.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/text/outline.hpp"
 
 namespace maicord {
 namespace {

@@ -6,7 +6,9 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

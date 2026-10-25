@@ -10,6 +10,7 @@
 #include "maicord/ui/message_typing_presentation.hpp"
 #include "maicord/ui/typing_indicator.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

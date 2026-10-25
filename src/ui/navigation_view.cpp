@@ -11,7 +11,6 @@
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
-#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {

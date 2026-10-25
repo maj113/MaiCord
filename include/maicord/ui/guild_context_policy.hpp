@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/read_scope.hpp"
-#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 struct PopupItem;

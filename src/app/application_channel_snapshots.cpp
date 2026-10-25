@@ -8,6 +8,7 @@
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
 
 namespace maicord::app_detail {
 namespace {

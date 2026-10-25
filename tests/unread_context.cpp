@@ -1,6 +1,5 @@
 #include "maicord/ui/unread_context.hpp"
 #include "maicord/ui/message_context_controller.hpp"
-#include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/message_timeline.hpp"
 #include "maicord/model/message_store.hpp"

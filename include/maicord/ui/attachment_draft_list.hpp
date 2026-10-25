@@ -2,7 +2,7 @@
 #include "maicord/ui/widget_builder.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiAttachmentDraftMaximum = 10;

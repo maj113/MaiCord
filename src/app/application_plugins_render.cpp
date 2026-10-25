@@ -12,6 +12,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/plugin_render.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

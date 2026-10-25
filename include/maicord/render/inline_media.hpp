@@ -1,5 +1,20 @@
 #pragma once
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "maicord/ui/search_scene.hpp"
+#include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/media_picker.hpp"
+#include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/theme_editor.hpp"
+#include "maicord/ui/member_list_scene.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/friends_scene.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/ui/scene.hpp"
+#include "maicord/ui/profile_scene.hpp"
+#include "maicord/render/forum_post_surface.hpp"
+#include "maicord/render/text_form_surface.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord {
 // Match a live renderer surface before dereferencing a borrowed widget manager.

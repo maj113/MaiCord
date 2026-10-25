@@ -1,12 +1,15 @@
 #pragma once
-#include "maicord/ui/friends_scene.hpp"
 #include "maicord/ui/input_router.hpp"
-#include "maicord/app/rest_client.hpp"
-#include "maicord/app/gateway_client.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/model/relationship_store.hpp"
 #include "maicord/ui/presence.hpp"
 #include "maicord/core/win32_types.hpp"
+
+namespace maicord {
+struct RestClientResponse;
+
+struct GatewayClientEvent;
+} // namespace maicord
 
 namespace maicord::app_detail {
 struct ApplicationFriends;

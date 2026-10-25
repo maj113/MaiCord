@@ -4,7 +4,7 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/model/role_policy.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace {

@@ -13,6 +13,7 @@
 #include "gateway_relationship_dispatch.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/account_requirement.hpp"
+#include "maicord/model/user_profile.hpp"
 
 namespace maicord {
 namespace {

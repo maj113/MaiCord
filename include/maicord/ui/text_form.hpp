@@ -1,12 +1,13 @@
 #pragma once
 
 #include "maicord/ui/widget_storage.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_composition.hpp"
 
 namespace maicord {
+
+struct UiTextMeasureCache;
 
 enum class TextFormElement : u8 {
     root,

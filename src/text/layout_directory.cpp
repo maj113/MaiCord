@@ -1,6 +1,5 @@
 #include "maicord/text/layout_directory.hpp"
 #include "maicord/core/memory.hpp"
-#include "layout_language.hpp"
 #include "sfnt_read.hpp"
 
 namespace maicord {namespace {

@@ -3,6 +3,7 @@
 #include "maicord/protocol/thread_browser.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "thread_membership_ui_adapter.hpp"
+#include "maicord/ui/thread_browser_scene.hpp"
 
 namespace maicord {
 inline constexpr u64 kThreadBrowserProbeParent = kThreadMembershipProbeParent;

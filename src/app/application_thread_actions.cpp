@@ -7,6 +7,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/protocol/channel_overview.hpp"
+#include "application_account_access.hpp"
 
 namespace maicord::app_detail {
 namespace {

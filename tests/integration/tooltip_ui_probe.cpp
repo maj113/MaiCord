@@ -2,7 +2,9 @@
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/renderer_presentation.hpp"
+#include "maicord/ui/scene.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

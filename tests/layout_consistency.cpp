@@ -26,6 +26,7 @@
 #include "maicord/ui/tooltip.hpp"
 #include "maicord/ui/video_scene.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/ui/message_scene.hpp"
 
 namespace maicord {
 namespace layout_consistency_test {

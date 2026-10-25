@@ -3,7 +3,6 @@
 #include "maicord/ui/virtual_list.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/background_presentation.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

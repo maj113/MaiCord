@@ -2,11 +2,14 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/protocol/message_reaction.hpp"
-#include "maicord/protocol/gateway_reaction_events.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
-#include "maicord/model/message_store.hpp"
 
 namespace maicord {
+
+struct MessageHandle;
+
+struct GatewayMessageReactionEvent;
+
+struct GatewayMessageEvent;
 
 struct RestClientResponse;
 

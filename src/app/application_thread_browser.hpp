@@ -1,9 +1,14 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/scroll_host.hpp"
-#include "maicord/ui/thread_browser_scene.hpp"
 #include "maicord/core/win32_types.hpp"
+
+namespace maicord {
+struct UiThreadBrowserScene;
+struct UiThreadBrowserTarget;
+
+struct RestClientResponse;
+} // namespace maicord
 
 namespace maicord::app_detail {
 struct ApplicationThreadBrowser;

@@ -1,5 +1,4 @@
 #include "application_downloads.hpp"
-#include "application_account_menu.hpp"
 #include "application_toast.hpp"
 #include "application_account_logout.hpp"
 #include "application_state.hpp"
@@ -19,6 +18,8 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/render/text_form_surface.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

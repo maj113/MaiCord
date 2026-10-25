@@ -1,6 +1,6 @@
 #include "application_guild_settings_internal.hpp"
-#include "application_media_picker.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/app/account_media.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

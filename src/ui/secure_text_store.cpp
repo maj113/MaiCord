@@ -4,7 +4,6 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/tsf.hpp"
-#include "maicord/sys/winsock.hpp"
 #include "maicord/sys/crt.hpp"
 #include <stddef.h>
 

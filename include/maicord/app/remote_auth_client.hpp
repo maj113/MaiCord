@@ -2,13 +2,20 @@
 
 #include "maicord/app/account_profile.hpp"
 #include "maicord/app/captcha_challenge.hpp"
-#include "maicord/app/remote_auth_handshake.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/protocol/user_auth.hpp"
 #include "maicord/core/win32_records.hpp"
-#include "maicord/protocol/rest.hpp"
+#include "maicord/protocol/remote_auth.hpp"
 
 namespace maicord {
+
+enum class RemoteAuthCryptoError : u8;
+enum class RemoteAuthHandshakeError : u8;
+enum class RemoteAuthHandshakeStage : u8;
+
+enum class RestBodyKind : u8;
+enum class RestContentEncoding : u8;
+enum class RestContentType : u8;
 
 inline constexpr u32 kRemoteAuthQrUrlBytes = 66;
 inline constexpr u32 kRemoteAuthClientUserBytes = kRemoteAuthMaximumUserPayloadBytes;

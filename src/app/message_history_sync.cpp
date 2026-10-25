@@ -2,6 +2,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "maicord/model/user_store.hpp"
 
 namespace maicord {
 namespace {

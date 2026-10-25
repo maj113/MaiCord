@@ -1,11 +1,13 @@
 #pragma once
 
 #include "maicord/core/json_reader.hpp"
-#include "maicord/protocol/rest.hpp"
 #include "maicord/protocol/gateway_events.hpp"
 #include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
+enum class RestMethod : u8;
+struct RestRouteKey;
+
 // Soundboard: guild and default sounds, sending a sound into the current voice
 // channel and the Manage Expressions page. Default sounds belong to the
 // pseudo-guild 0.

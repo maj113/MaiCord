@@ -5,6 +5,7 @@
 #include "gateway_ready_projection.hpp"
 #include "gateway_user_payload.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/protocol/gateway_session.hpp"
 
 namespace maicord {
 namespace {

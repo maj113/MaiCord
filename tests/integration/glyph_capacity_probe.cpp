@@ -3,6 +3,7 @@
 #include "../test_output.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 namespace maicord { namespace {
 #define CHECK(x) do{if(!(x)){test_write_text("FAIL line ");test_write_u64(__LINE__);test_write_text("\n");return false;}}while(0)
 struct State {

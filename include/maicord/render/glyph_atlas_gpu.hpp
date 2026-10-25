@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/render/glyph_atlas.hpp"
 #include "maicord/render/glyph_raster.hpp"
 #include "maicord/core/win32_types.hpp"
 
@@ -13,6 +12,8 @@ struct ID3D11Texture2D;
 struct ID3D11UnorderedAccessView;
 
 namespace maicord {
+
+struct GlyphAtlasAllocation;
 
 struct GlyphAtlasGpu {
     ID3D11Texture2D* texture;

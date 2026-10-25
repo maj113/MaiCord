@@ -1,6 +1,9 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
-#include "application_message_navigation.hpp"
+
+namespace maicord::app_detail {
+enum class ApplicationMessageNavigationStage : u8;
+} // namespace maicord::app_detail
 
 namespace maicord::app_detail {
 enum class ApplicationMessageMutationKind : u8 {

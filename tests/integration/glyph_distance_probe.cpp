@@ -1,4 +1,5 @@
 // Glyph distance raster against a reference shader: exact texels over a random corpus.
+#include "maicord/render/glyph_atlas.hpp"
 #include "maicord/render/glyph_atlas_gpu.hpp"
 #include "glyph_raster_reference.hpp"
 #include "../test_output.hpp"

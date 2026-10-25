@@ -12,6 +12,7 @@
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/ui/member_context_policy.hpp"
+#include "account_ui_runtime.hpp"
 
 
 namespace maicord::app_detail {

@@ -1,5 +1,4 @@
 #include "maicord/protocol/emoji_preferences.hpp"
-#include "maicord/protocol/base64.hpp"
 #include "maicord/model/reaction_preferences.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/reaction_picker.hpp"

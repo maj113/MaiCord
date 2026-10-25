@@ -10,6 +10,8 @@
 #include "maicord/render/raster_clip.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 

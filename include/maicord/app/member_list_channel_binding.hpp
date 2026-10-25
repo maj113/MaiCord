@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/model/chat_state.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
 
 namespace maicord {
+
+struct ChatStateStore;
 
 inline constexpr u32 kMemberListSubscriptionRetryMinimumMs = 100;
 inline constexpr u32 kMemberListSubscriptionRetryMaximumMs = 1'600;

@@ -1,9 +1,14 @@
 #pragma once
-#include "maicord/app/plugin_host.hpp"
 #include "maicord/app/plugin_call_ledger.hpp"
 #include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord {
+
+struct NativePluginDefinition;
+enum class NativePluginError : u8;
+struct NativePluginHost;
+struct NativePluginResult;
+struct UiPageKey;
 
 // Host limits for ABI 5 (the SDK documents these as minimums).
 inline constexpr u32 kPluginSdkPages = 4;

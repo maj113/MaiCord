@@ -6,6 +6,7 @@
 #include "../src/app/application_forum_form.hpp"
 #include "../src/app/application_state.hpp"
 #include "maicord/core/utf.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "../src/app/application_forum_preview.cpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

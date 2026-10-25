@@ -1,10 +1,12 @@
 #pragma once
 
 #include "maicord/model/message_reconcile.hpp"
-#include "maicord/model/message_rich_store.hpp"
 #include "maicord/ui/virtual_list.hpp"
 
 namespace maicord {
+
+struct GatewayMessageAttachment;
+struct MessageRichStore;
 
 struct GatewayClientEvent;
 

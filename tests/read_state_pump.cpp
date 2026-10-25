@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/app/read_ack_controller.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/model/user_store.hpp"
 
 namespace maicord {
 namespace read_pump_probe {

@@ -30,7 +30,9 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/core/log.hpp"
+#include "account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/message_author.hpp"
 
 namespace maicord::app_detail {
 namespace {

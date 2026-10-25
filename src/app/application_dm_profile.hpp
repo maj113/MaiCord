@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/dm_profile_panel.hpp"
 #include "maicord/ui/profile_scene.hpp"

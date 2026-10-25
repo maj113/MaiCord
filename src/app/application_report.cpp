@@ -16,6 +16,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/render/layer_presentation.hpp"
+#include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

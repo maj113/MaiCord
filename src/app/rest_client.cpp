@@ -16,6 +16,7 @@
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/protocol/user_auth.hpp"
 
 namespace maicord {
 namespace {

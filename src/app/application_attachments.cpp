@@ -12,8 +12,11 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/ui/settings_scene.hpp"
+#include "maicord/render/forum_post_surface.hpp"
 #include "maicord/sys/shell.hpp"
-#include "maicord/sys/winsock.hpp"
+#include "maicord/ui/attachment_menu.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

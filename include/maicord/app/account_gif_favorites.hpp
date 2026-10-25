@@ -1,7 +1,9 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/protocol/gif_favorites.hpp"
 namespace maicord {
+struct RestClient;
+struct RestClientSubmitResult;
+
 enum class AccountGifFavoritesOperation : u8 {
     fetch,
     update,

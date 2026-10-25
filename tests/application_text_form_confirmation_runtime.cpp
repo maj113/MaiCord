@@ -1,17 +1,10 @@
 #include "application_state.hpp"
 #include "application_text_form_state.hpp"
-#include "application_account_presentation.hpp"
-#include "application_composer.hpp"
-#include "application_composer_input.hpp"
-#include "application_composer_text_input.hpp"
-#include "application_message_interaction.hpp"
-#include "application_scrolling.hpp"
-#include "application_shell_input.hpp"
 #include "maicord/ui/clipboard.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/winsock.hpp"
 
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;

@@ -1,9 +1,9 @@
 #include "application_self_status.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_state.hpp"
-#include "application_account_presentation.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -3,6 +3,7 @@
 #include "maicord/core/log.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 namespace maicord {
 inline bool colr_compute_bindings_empty(ID3D11DeviceContext* context) noexcept {
     ID3D11Buffer* constant=nullptr;ID3D11ComputeShader* shader=nullptr;

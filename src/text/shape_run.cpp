@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "gpos_validated.hpp"
 #include "gsub_validated.hpp"
-#include "shape_position.hpp"
 #include "maicord/text/base.hpp"
 
 namespace maicord {

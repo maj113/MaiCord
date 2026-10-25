@@ -3,6 +3,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/voice_packet_crypto.hpp"
 
 namespace maicord {
 namespace {

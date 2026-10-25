@@ -1,9 +1,10 @@
 #pragma once
 
 #include "maicord/app/account_profile.hpp"
-#include "maicord/model/message_draft_store.hpp"
 
 namespace maicord {
+
+struct MessageDraftStore;
 
 struct MessageDraftSession {
     u64 profile_id;

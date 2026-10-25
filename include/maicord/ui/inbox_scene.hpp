@@ -1,9 +1,10 @@
 #pragma once
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/scrollbar.hpp"
-#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct UiTextOutput;
+
 // Inbox popout: Mentions (recent mentions with filters and Load more) and
 // Unreads (unread channels grouped by server). Rows are borrowed from the host
 // under revision and current fences, as in the pinned messages popout.

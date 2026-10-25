@@ -2,7 +2,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 namespace {

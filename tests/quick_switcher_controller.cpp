@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/model/relationship_store.hpp"
 
 namespace maicord {
 namespace {

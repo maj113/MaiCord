@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/render/media_atlas.hpp"
 
 namespace maicord {
 namespace {

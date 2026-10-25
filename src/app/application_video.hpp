@@ -1,10 +1,13 @@
 #pragma once
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/ui/video_scene.hpp"
 #include "maicord/ui/tooltip.hpp"
 #include "maicord/ui/cursor.hpp"
-#include "maicord/ui/search_scene.hpp"
 #include "maicord/core/win32_types.hpp"
+
+namespace maicord {
+struct UiSearchTarget;
+} // namespace maicord
 namespace maicord::app_detail {
 struct ApplicationVideo;
 struct ApplicationSearchSourceTicket;

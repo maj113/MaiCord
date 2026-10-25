@@ -57,6 +57,8 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/unread_context.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/received_attachment_menu.hpp"
+#include "maicord/ui/message_author.hpp"
 
 namespace maicord::app_detail {
 

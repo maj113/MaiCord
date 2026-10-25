@@ -2,7 +2,6 @@
 
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/render/animation_frame_cache.hpp"
-#include "maicord/render/media_atlas.hpp"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext1;
@@ -10,6 +9,10 @@ struct ID3D11ShaderResourceView;
 struct ID3D11Texture2D;
 
 namespace maicord {
+
+struct MediaAtlas;
+struct MediaAtlasHandle;
+struct MediaAtlasResult;
 
 inline constexpr u32 kAnimationFrameCacheGpuEntryCapacity = 4'096;
 inline constexpr u32 kAnimationFrameCacheGpuBucketCapacity =

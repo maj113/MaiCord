@@ -1,4 +1,3 @@
-#include "application_captcha_auth.hpp"
 #include "application_account_logout.hpp"
 #include "application_login_ui.hpp"
 #include "application_login_auth.hpp"

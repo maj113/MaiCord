@@ -2,6 +2,8 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "maicord/model/voice_state_store.hpp"
 
 namespace maicord {
 namespace {

@@ -23,10 +23,10 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/ui/inline_flag_projection.hpp"
 #include "maicord/render/inline_media.hpp"
+#include "maicord/ui/thread_header.hpp"
 
 #include "d3d11_renderer_edit.hpp"
 #include "d3d11_renderer_interaction_state.hpp"
-#include "d3d11_renderer_layout.hpp"
 #include "d3d11_renderer_login_form.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

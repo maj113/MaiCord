@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/video_frame_sink.hpp"
-#include "maicord/model/user_profile.hpp"
 #include "maicord/model/upload_allowance.hpp"
 #include "maicord/app/gateway_state_recovery.hpp"
 #include "maicord/app/gateway_voice_control.hpp"
@@ -14,15 +13,23 @@
 #include "maicord/protocol/gateway_endpoint.hpp"
 #include "maicord/protocol/gateway_runtime.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
-#include "maicord/protocol/gateway_reaction_events.hpp"
 #include "maicord/protocol/gateway_typing_events.hpp"
-#include "maicord/protocol/gateway_session.hpp"
-#include "maicord/protocol/relationships.hpp"
 #include "maicord/model/message_notifications.hpp"
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/protocol/gateway_presence.hpp"
 
 namespace maicord {
+
+struct GatewayMessageReactionEvent;
+
+struct UserAppearance;
+
+struct RelationshipMutation;
+
+enum class GatewaySessionError : u8;
+enum class WebSocketError : u8;
+enum class WebSocketHandshakeError : u8;
+enum class ZlibInflateError : u8;
 
 enum class VoiceSocketPhase : u8;
 enum class VoiceConnectionError : u8;

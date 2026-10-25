@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/list_navigation.hpp"
 
 namespace maicord {
+
+struct NavigationView;
 
 enum class NavigationMode : u8 { none, channel, guild, unread, mention };
 struct NavigationShortcut { NavigationMode mode; bool reverse; };

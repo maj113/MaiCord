@@ -1,13 +1,18 @@
 #pragma once
 
-#include "maicord/app/account_media.hpp"
-#include "maicord/app/rest_client.hpp"
-#include "maicord/ui/media_picker.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord {
+struct RestClientResponse;
+
+enum class UiMediaPickerKind : u8;
+struct UiRect;
+
+struct AccountMediaCatalogPreviewRequest;
+struct MediaAssetKey;
+
 struct GatewayClientEvent;
 }
 

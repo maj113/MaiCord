@@ -9,6 +9,7 @@
 #include "maicord/ui/regional_flag.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

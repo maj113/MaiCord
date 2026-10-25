@@ -1,5 +1,4 @@
 #include "maicord/app/account_channel_overview.hpp"
-#include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "rest_submit_hook.hpp"
 #include "test_output.hpp"

@@ -1,7 +1,6 @@
 // No argument runs the registered checks. Manual: MAICORD_TIBETAN_INPUT_STREAM=1 answers cluster
 // boundary queries from stdin for the Python oracles (QA only).
 #include "maicord/text/tibetan_input.hpp"
-#include "../src/text/tibetan_character.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {

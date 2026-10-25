@@ -3,10 +3,12 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/model/stage_policy.hpp"
+#include "maicord/ui/stream_card_scene.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,7 @@
 #include "maicord/app/message_forward_controller.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,7 @@
 #include "../src/app/application_forum_form.hpp"
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord {
 void test_application_forum_form(void (*check)(bool, const char*) noexcept) noexcept {

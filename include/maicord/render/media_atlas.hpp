@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/render/glyph_atlas.hpp"
 
 namespace maicord {

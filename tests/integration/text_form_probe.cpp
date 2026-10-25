@@ -3,6 +3,7 @@
 #include "maicord/render/renderer_presentation.hpp"
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/render/text_form_surface.hpp"
 #include "../../tools/font_reference/dwrite_text_system.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

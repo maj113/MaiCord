@@ -5,6 +5,7 @@
 #include "maicord/app/plugin_settings_projection.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/app/plugin_host.hpp"
 #include <stddef.h>
 
 namespace maicord::plugin_sdk {

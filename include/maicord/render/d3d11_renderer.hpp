@@ -1,6 +1,4 @@
 #pragma once
-#include "maicord/ui/profile_scene.hpp"
-#include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/render/text_effect.hpp"
 
 #include "maicord/core/base.hpp"
@@ -13,59 +11,19 @@
 #include "maicord/render/d3d11_gpu_timer.hpp"
 #include "maicord/render/icon_atlas.hpp"
 #include "maicord/render/text_edit_layout.hpp"
-#include "maicord/render/text_form_surface.hpp"
-#include "maicord/render/forum_post_surface.hpp"
 #include "maicord/render/message_hit_test.hpp"
 #include "maicord/render/media_atlas_gpu.hpp"
 #include "maicord/render/presentation_damage.hpp"
 #include "maicord/render/renderer_media_draw_storage.hpp"
-#include "maicord/ui/caption_bar.hpp"
-#include "maicord/ui/login_scene.hpp"
+
+#include "maicord/render/renderer_text_storage.hpp"
+#include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/login_view.hpp"
-#include "maicord/ui/message_action_bar.hpp"
-#include "maicord/ui/message_scene.hpp"
-#include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/member_list_scene.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
-#include "maicord/ui/popup_scene.hpp"
-#include "maicord/ui/reaction_viewer.hpp"
-#include "maicord/ui/image_viewer.hpp"
-#include "maicord/ui/video_scene.hpp"
-#include "maicord/ui/audio_controls.hpp"
-#include "maicord/ui/poll_controls.hpp"
-#include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/theme_editor.hpp"
-#include "maicord/ui/tooltip.hpp"
-#include "maicord/ui/unread_banner_scene.hpp"
-#include "maicord/ui/toast.hpp"
-#include "maicord/ui/typing_indicator.hpp"
-#include "maicord/ui/friends_scene.hpp"
-#include "maicord/ui/search_scene.hpp"
-#include "maicord/ui/pinned_messages_scene.hpp"
-#include "maicord/ui/inbox_scene.hpp"
-#include "maicord/ui/thread_browser_scene.hpp"
-#include "maicord/ui/quick_switcher_scene.hpp"
-#include "maicord/ui/message_forward_scene.hpp"
-#include "maicord/ui/download_scene.hpp"
-#include "maicord/ui/shortcuts_scene.hpp"
-#include "maicord/ui/call_scene.hpp"
-#include "maicord/ui/stream_card_scene.hpp"
-#include "maicord/ui/guild_card_scene.hpp"
-#include "maicord/ui/guild_banner.hpp"
-#include "maicord/ui/media_picker.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/qr_code.hpp"
-#include "maicord/ui/navigation_view.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
-#include "maicord/ui/scene.hpp"
-#include "maicord/ui/shell_navigation_scene.hpp"
-#include "maicord/ui/virtual_list.hpp"
-#include "maicord/ui/theme.hpp"
-#include "maicord/ui/thread_header.hpp"
-
+#include "maicord/ui/typing_indicator.hpp"
+#include "maicord/ui/widget_manager.hpp"
 #include "maicord/core/win32_records.hpp"
-#include "maicord/sys/d3d11.hpp"
 #include <stddef.h>
 
 struct ID3D11Buffer;
@@ -74,6 +32,58 @@ struct ID3D11ShaderResourceView;
 struct ID3D11Texture2D;
 
 namespace maicord {
+
+struct ChatStateStore;
+struct ForumPostSurface;
+struct GuildRailScene;
+struct LoginScene;
+struct MemberListScene;
+struct MessageActionBar;
+struct MessageComposerScene;
+struct MessageScene;
+struct MessageTextHit;
+struct MessageTextPresentation;
+struct NavigationView;
+struct PopupScene;
+struct ProfileScene;
+struct ReactionViewer;
+struct ShellNavigationScene;
+struct TextFormSurface;
+struct Theme;
+struct UiAudioScene;
+struct UiCallScene;
+struct UiCaptionBarState;
+struct UiCaptionTitle;
+struct UiDownloadScene;
+struct UiFriendsScene;
+struct UiGuildBannerView;
+struct UiGuildCardScene;
+struct UiImageViewer;
+struct UiInboxScene;
+struct UiMediaPickerScene;
+struct UiMessageForwardScene;
+struct UiPinnedMessagesScene;
+struct UiPollScene;
+struct UiPollVotersScene;
+struct UiProfileDialogScene;
+struct UiQuickSwitcherScene;
+struct UiScene;
+struct UiSearchScene;
+struct UiSettingsScene;
+struct UiShortcutsScene;
+struct UiStreamCardScene;
+struct UiTextMeasureCache;
+struct UiTextMeasureRequest;
+struct UiTextMeasureValue;
+struct UiThemeEditorScene;
+struct UiThreadBrowserScene;
+struct UiThreadHeader;
+struct UiToastScene;
+struct UiTooltipScene;
+struct UiUnreadBannerScene;
+struct UiVideoScene;
+struct UiWidgetManager;
+struct UserStore;
 
 struct D3D11Renderer;
 struct RendererTypographyOwner;
@@ -85,17 +95,6 @@ struct RendererTypographyCandidate {
     bool prepared{};
 };
 
-inline constexpr u32 kRendererContentGlyphCapacity = 8 * 1024;
-inline constexpr u32 kRendererContentBatchCapacity = 128;
-inline constexpr u32 kRendererContentTextUnitCapacity = 4 * 1024;
-// One short inline-code range plus each separator can produce a separate
-// shaped run. A legal embed description can exceed 128 runs while fitting
-// comfortably in the existing text/glyph scratch. This storage shares the
-// larger REST-response arena, so this bound does not enlarge that allocation.
-inline constexpr u32 kRendererContentRunCapacity = 2'048;
-inline constexpr u32 kRendererTextDecorationCapacity = 1'024;
-inline constexpr u32 kRendererContentSemanticCapacity = 1024;
-inline constexpr u32 kRendererContentHitRegionCapacity = 2048;
 // One resident asset can be instanced many times (for example a repeated
 // custom emoji), so draw capacity is independent of atlas identity capacity.
 inline constexpr u32 kRendererMessageMediaCommandCapacity = 256;
@@ -107,12 +106,6 @@ inline constexpr u32 kRendererLoginCompositionCapacity = kTextCompositionSpanCap
 struct RendererLoginCompositionMetric {
     TextEditMetric metric;
     TextCompositionSpan span;
-};
-
-struct GlyphDrawBatch {
-    UiRect clip;
-    u32 first_quad;
-    u32 quad_count;
 };
 
 struct RendererPresentationStamp {
@@ -134,54 +127,6 @@ static_assert(sizeof(RendererPresentationStamp) == 40);
 
 using RendererLoginStatus = LoginStatus;
 using RendererLoginView = LoginView;
-
-enum class RendererTextBuildError : u8 {
-    none,
-    invalid_state,
-    layout,
-    shape,
-    capacity,
-    atlas,
-    composer,
-};
-
-struct RendererTextStorage {
-    GlyphQuad* quads;
-    GlyphDrawBatch* batches;
-    wchar_t* utf16;
-    TextGlyph* glyphs;
-    TextRun* runs;
-    u16* clusters;
-    TextHitSpan* hit_spans;
-    TextHitRegion* hit_region_scratch;
-    TextDecoration* decorations;
-    MessageTextSemantic* content_semantics;
-    TextHitRegion* content_hit_regions;
-    u32 quad_capacity;
-    u32 batch_capacity;
-    u32 utf16_capacity;
-    u32 glyph_capacity;
-    u32 run_capacity;
-    u32 cluster_capacity;
-    u32 hit_span_capacity;
-    u32 hit_region_scratch_capacity;
-    u32 decoration_capacity;
-    u32 content_semantic_capacity;
-    u32 content_hit_region_capacity;
-    u32 quad_count;
-    u32 batch_count;
-    u32 content_semantic_count;
-    u32 content_hit_region_count;
-    u32 rebuilds;
-    u32 rejected;
-    u32 semantic_truncations;
-    u32 message_geometry_quads;
-    HRESULT native_error;
-    RendererTextBuildError last_error;
-    TextShapeError last_shape_error;
-    u16 substitutions;
-    ShapedText scratch;
-};
 
 struct RendererLoginFormTextStorage;
 struct RendererLoginFormTextMetrics {
@@ -928,22 +873,5 @@ bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& th
 void renderer_pin_settings_backdrop_media(D3D11Renderer* renderer) noexcept;
 void renderer_bind_friends_scene(D3D11Renderer* renderer, const UiFriendsScene* scene) noexcept;
 void renderer_bind_friends_requests_scene(D3D11Renderer* renderer, const UiFriendsScene* scene) noexcept;
-
-// Rendering visibility only: Settings authority/read barriers remain active.
-inline bool renderer_theme_editor_visible(const D3D11Renderer& renderer) noexcept {
-    return !renderer.login_visible && renderer.theme_editor_scene &&
-           ui_theme_editor_current(*renderer.theme_editor_scene);
-}
-inline bool renderer_settings_page_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.settings_scene && renderer.settings_scene->active &&
-           !renderer_theme_editor_visible(renderer);
-}
-// Only a full-window settings layer hides the shell. Beneath a modal or a
-// dialog the shell stays live: its scenes, media and animations keep their
-// own cadence and the backdrop redraws when they change.
-inline bool renderer_settings_hides_shell(const D3D11Renderer& renderer) noexcept {
-    return renderer_settings_page_visible(renderer) &&
-           renderer.settings_scene->presentation == UiSettingsPresentation::layer;
-}
 
 } // namespace maicord

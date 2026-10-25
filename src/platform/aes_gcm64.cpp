@@ -4,7 +4,6 @@
 
 #include "maicord/sys/crypto.hpp"
 #include "maicord/sys/simd.hpp"
-#include "maicord/sys/winsock.hpp"
 
 #pragma intrinsic(_byteswap_ulong)
 

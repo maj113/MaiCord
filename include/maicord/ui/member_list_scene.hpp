@@ -1,14 +1,17 @@
 #pragma once
 
 #include "maicord/model/member_list.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
-#include "maicord/ui/badge.hpp"
-#include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/list_navigation.hpp"
 
 namespace maicord {
+struct UiTextMeasureCache;
+
+struct UiBadgeWidget;
+
+struct UiActivityStatus;
+
 struct UiPluginSlotBadge;
 
 inline constexpr u32 kMemberListSceneOverscanRows = 2;

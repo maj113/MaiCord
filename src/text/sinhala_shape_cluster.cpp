@@ -1,4 +1,3 @@
-#include "maicord/text/sinhala_shape_run.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/sinhala_input.hpp"
 #include "use_character.hpp"

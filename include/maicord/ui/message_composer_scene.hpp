@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/arena.hpp"
-#include "maicord/model/user_store.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
 #include "maicord/ui/composer_voice_bar.hpp"
@@ -11,6 +10,8 @@
 #include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
+struct UserStore;
+
 struct ChatStateStore;
 
 // Plugin composer-toolbar buttons sit before the GIF button.

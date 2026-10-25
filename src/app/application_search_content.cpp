@@ -6,6 +6,7 @@
 #include "application_state.hpp"
 #include "maicord/app/received_attachment_open.hpp"
 #include "maicord/core/time.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

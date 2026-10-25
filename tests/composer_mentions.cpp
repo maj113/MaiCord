@@ -11,6 +11,7 @@
 #include "maicord/ui/composer_autocomplete.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 namespace {

@@ -13,9 +13,15 @@
 #include "application_thread_browser.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/message_forward_scene.hpp"
+#include "maicord/ui/call_scene.hpp"
+#include "maicord/render/forum_post_surface.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/ui/friends_scene.hpp"
+#include "maicord/ui/media_picker.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

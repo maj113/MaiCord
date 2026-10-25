@@ -4,6 +4,7 @@
 #include "maicord/core/trace_record.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

@@ -3,7 +3,6 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/ui/regional_flag.hpp"
 #include "maicord/protocol/http1.hpp"
 #include "maicord/protocol/embed_player.hpp"
 

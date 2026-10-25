@@ -14,6 +14,7 @@
 #include "maicord/protocol/message_poll.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/scene_cursor.hpp"
+#include "application_account_access.hpp"
 #include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {

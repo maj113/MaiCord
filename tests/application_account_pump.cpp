@@ -4,20 +4,12 @@
 #include "application_guild_invite_inactive.hpp"
 #include "../src/app/application_account_pump.hpp"
 #include "../src/app/application_account_module.hpp"
-#include "../src/app/application_account_logout.hpp"
-#include "../src/app/application_account_reconnect.hpp"
-#include "../src/app/application_scoped_read.hpp"
-#include "../src/app/application_scoped_read_menu.hpp"
 #include "../src/app/application_media.hpp"
 #include "../src/app/application_state.hpp"
 #include "../src/app/application_scheduler.hpp"
-#include "../src/app/application_channel_overview.hpp"
 #include "../src/app/application_thread_browser.hpp"
-#include "../src/app/application_thread_creation.hpp"
 #include "../src/app/application_forum_post.hpp"
-#include "../src/app/application_notifications.hpp"
 #include "../src/app/application_thread_header_activation.hpp"
-#include "../src/app/application_video.hpp"
 #include "../src/app/application_toast.hpp"
 #include "../src/app/gateway_dispatch_common.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
@@ -29,7 +21,6 @@
 #include "application_action_captcha_stubs.hpp"
 #include "test_output.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include "maicord/protocol/message_pins.hpp"
 
 namespace maicord::app_detail {
 namespace {

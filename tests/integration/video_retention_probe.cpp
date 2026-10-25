@@ -6,6 +6,7 @@
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 bool video_display_extent_probe(D3D11Renderer& r) noexcept {

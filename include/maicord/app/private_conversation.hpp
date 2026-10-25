@@ -1,8 +1,9 @@
 #pragma once
 #include "maicord/app/chat_state_dispatch.hpp"
-#include "maicord/protocol/private_conversation.hpp"
 
 namespace maicord {
+enum class PrivateConversationOperation : u8;
+
 struct RestClientResponse;
 enum class PrivateConversationPhase : u8 { idle, queued, awaiting, retry_wait, failed };
 enum class PrivateConversationError : u8 { none, transport, http, response, capacity };

@@ -6,9 +6,9 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
-#include "maicord/ui/navigation_context.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 
 // Plugin rows in the native user, channel, DM and server menus, through the
 // real SDK registry (an in-process ABI-5 plugin), the shipping projection,

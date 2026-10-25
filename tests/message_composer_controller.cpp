@@ -1,5 +1,6 @@
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 namespace {

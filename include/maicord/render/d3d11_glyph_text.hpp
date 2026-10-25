@@ -4,9 +4,9 @@
 #include "maicord/render/glyph_atlas_gpu.hpp"
 #include "maicord/render/glyph_quad.hpp"
 #include "maicord/render/glyph_font_limits.hpp"
-#include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/text.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -14,6 +14,8 @@ struct ID3D11ShaderResourceView;
 struct ID3D11UnorderedAccessView;
 
 namespace maicord {
+
+struct MessageMarkdownSemantic;
 
 inline constexpr u32 kRendererGlyphCapacity = 384;
 inline constexpr u32 kRendererTextRunCapacity = 32;

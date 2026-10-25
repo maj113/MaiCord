@@ -13,6 +13,8 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/app/account_message_search.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "account_ui_runtime.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
 
 namespace maicord::app_detail {
 namespace {

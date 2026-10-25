@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "layout_read.hpp"
 #include "maicord/text/base.hpp"
-#include "gpos_validated.hpp"
 
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::tail;

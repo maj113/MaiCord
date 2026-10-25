@@ -10,6 +10,7 @@
 #include "maicord/media/animation_timeline.hpp"
 #include "maicord/media/jpeg.hpp"
 #include "maicord/render/colr_program.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
 
 namespace maicord::app_detail {
 

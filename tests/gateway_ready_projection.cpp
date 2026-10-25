@@ -7,6 +7,7 @@
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/protocol/gateway_runtime.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/gateway_session.hpp"
 
 namespace maicord {
 namespace ready_projection_probe {

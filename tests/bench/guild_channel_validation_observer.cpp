@@ -1,4 +1,5 @@
 #include "guild_channel_validation_observer.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord::guild_channel_validation_bench {
 __declspec(noinline) u64 observe(const ChatStateStore& state,

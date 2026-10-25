@@ -4,6 +4,7 @@
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/app/member_list_channel_binding.hpp"
 #include "maicord/model/guild_member_store.hpp"
+#include "maicord/ui/member_list_scene.hpp"
 
 namespace maicord {
 namespace {

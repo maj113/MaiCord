@@ -1,8 +1,12 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/ui/input_router.hpp"
-#include "maicord/ui/scroll_host.hpp"
 #include "maicord/core/win32_types.hpp"
+
+namespace maicord {
+struct UiScrollRange;
+
+struct RestClientResponse;
+} // namespace maicord
 namespace maicord::app_detail {
 struct ApplicationPinnedMessages;
 bool application_pinned_messages_active() noexcept;

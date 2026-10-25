@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/voice_media_events.hpp"
 
 
 namespace maicord {

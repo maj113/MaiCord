@@ -2,7 +2,6 @@
 #include "application_composer.hpp"
 #include "application_composer_input.hpp"
 #include "application_message_edit.hpp"
-#include "application_message_interaction.hpp"
 #include "application_thread_actions.hpp"
 
 namespace maicord::app_detail {

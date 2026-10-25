@@ -36,7 +36,6 @@
 #include "application_account_text_retry.hpp"
 #include "application_login_ui.hpp"
 #include "application_state.hpp"
-#include "application_ui_runtime.hpp"
 #include "application_shell_input.hpp"
 #include "application_text_form.hpp"
 #include "application_composer_text_input.hpp"

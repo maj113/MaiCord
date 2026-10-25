@@ -1,4 +1,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/ui/scene.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
 
 namespace maicord {
 namespace {

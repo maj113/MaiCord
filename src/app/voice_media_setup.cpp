@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "maicord/protocol/voice_video_signaling.hpp"
 
 static_assert(sizeof(maicord::VoiceEndpointAddress) == sizeof(sockaddr_storage) &&
               alignof(maicord::VoiceEndpointAddress) == alignof(sockaddr_storage));

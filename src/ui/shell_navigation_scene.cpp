@@ -5,6 +5,7 @@
 #include "maicord/ui/list_navigation.hpp"
 #include "maicord/ui/virtual_list.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
+#include "maicord/ui/widget_storage.hpp"
 
 namespace maicord {
 namespace {

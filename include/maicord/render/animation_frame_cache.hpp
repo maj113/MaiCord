@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/media/animated_webp.hpp"
 #include "maicord/media/apng.hpp"
 #include "maicord/media/gif.hpp"

@@ -2,10 +2,10 @@
 #include "application_state.hpp"
 #include "application_plugins.hpp"
 #include "application_plugins_runtime.hpp"
-#include "application_friends.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/model/relationship_store.hpp"
 #include "maicord/protocol/client_status.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {

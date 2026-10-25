@@ -6,8 +6,11 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/guild_banner.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord::app_detail {
 namespace {

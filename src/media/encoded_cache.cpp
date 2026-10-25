@@ -3,6 +3,7 @@
 #include "maicord/core/hash.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

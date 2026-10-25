@@ -1,14 +1,14 @@
 #include "application_downloads_inactive.hpp"
 #include "application_state.hpp"
 #include "application_read_state.hpp"
-#include "application_thread_browser.hpp"
-#include "application_account_presentation.hpp"
-#include "application_composer.hpp"
 #include "application_message_mutation_notice.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/protocol/message_ack.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/render/forum_post_surface.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 #include "test_output.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord::read_state_runtime_test {
 using namespace app_detail;

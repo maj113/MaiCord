@@ -9,6 +9,7 @@
 #include "maicord/app/dave_session.hpp"
 #include "maicord/app/voice_log.hpp"
 #include "maicord/protocol/rtcp_feedback.hpp"
+#include "maicord/protocol/voice_video_signaling.hpp"
 
 namespace maicord {
 inline constexpr u32 kVoiceDaveOutbox = 16;

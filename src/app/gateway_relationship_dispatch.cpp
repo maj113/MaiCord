@@ -9,6 +9,7 @@
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/protocol/relationships.hpp"
 
 namespace maicord {
 namespace {

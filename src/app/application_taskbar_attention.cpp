@@ -1,9 +1,9 @@
-#include "application_taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_friends.hpp"
 #include "application_state.hpp"
 #include "application_window_focus.hpp"
 #include "maicord/platform/taskbar_attention.hpp"
+#include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
 

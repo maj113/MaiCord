@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/transition.hpp"

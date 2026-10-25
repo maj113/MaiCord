@@ -1,5 +1,7 @@
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/user_store.hpp"
 
 namespace maicord {
 namespace thread_pump_probe {

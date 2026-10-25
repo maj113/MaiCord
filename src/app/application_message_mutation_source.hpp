@@ -1,5 +1,6 @@
 #pragma once
 #include "application_state.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 // The message and account state an edit or delete was accepted against.

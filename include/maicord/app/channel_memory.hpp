@@ -1,9 +1,10 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
+
+struct ChatStateStore;
 
 inline constexpr u32 kChannelMemoryCapacity = 64;
 // Magic, version, count, then three u64 per entry, then a 32-bit FNV-1a checksum.

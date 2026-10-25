@@ -1,6 +1,9 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/core/utf.hpp"
+
+namespace maicord {
+struct RestClientResponse;
+} // namespace maicord
 
 namespace maicord { struct GatewayMessageEvent; }
 

@@ -1,4 +1,3 @@
-#include "application_voice_settings.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "application_voice.hpp"

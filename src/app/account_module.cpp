@@ -1,7 +1,5 @@
 #include "maicord/app/account_user_social.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/protocol/embed_provider.hpp"
-#include "maicord/protocol/emoji_preferences.hpp"
 #include "maicord/protocol/gif_favorites.hpp"
 #include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
@@ -46,8 +44,6 @@
 #include "account_login_handoff.hpp"
 #include "account_login_captcha.hpp"
 
-#include "maicord/sys/d3d11.hpp"
-#include "maicord/sys/winsock.hpp"
 #include "maicord/app/account_action_captcha.hpp"
 #include "maicord/app/account_channel_overview.hpp"
 #include "maicord/app/account_download.hpp"

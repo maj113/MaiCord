@@ -9,6 +9,7 @@
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/model/permission_grid.hpp"
 #include "maicord/ui/icon.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {

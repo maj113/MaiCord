@@ -1,6 +1,7 @@
 #pragma once
 #include "settings_catalog.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord::app_detail {
 // Voice settings page glue for application_settings: projection of voice

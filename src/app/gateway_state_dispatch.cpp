@@ -6,7 +6,6 @@
 
 #include "gateway_guild_details.hpp"
 #include "gateway_dispatch_common.hpp"
-#include "gateway_ready_projection.hpp"
 #include "gateway_payload_writer.hpp"
 #include "gateway_state_payload.hpp"
 #include "gateway_user_payload.hpp"

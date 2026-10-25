@@ -6,6 +6,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/text_form.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 
 namespace maicord {
 namespace {

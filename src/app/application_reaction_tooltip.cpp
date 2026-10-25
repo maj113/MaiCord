@@ -8,6 +8,7 @@
 #include "maicord/protocol/reaction_users.hpp"
 #include "maicord/ui/message_reaction_presentation.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord::app_detail {
 namespace {

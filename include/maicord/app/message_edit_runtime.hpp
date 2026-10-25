@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
 

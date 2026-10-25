@@ -20,6 +20,7 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord::presence_wave_test {
 u32 failures = 0;

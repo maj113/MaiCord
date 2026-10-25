@@ -3,7 +3,6 @@
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/model/voice_channel_info_store.hpp"

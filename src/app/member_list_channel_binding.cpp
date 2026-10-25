@@ -5,6 +5,7 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

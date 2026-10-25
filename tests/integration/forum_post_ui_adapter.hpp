@@ -6,6 +6,8 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/render/forum_post_surface.hpp"
 #include "reply_draft_ui_adapter.hpp"
+#include "maicord/app/rest_client.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 namespace maicord {
 inline constexpr u64 kForumPostProbeParent = 97400;
 inline constexpr u64 kForumPostProbeThread = 97450;

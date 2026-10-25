@@ -5,6 +5,7 @@
 #include "test_output.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/core/slice.hpp"
 namespace maicord::forum_test {
 u64 now = 1000;
 }

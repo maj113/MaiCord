@@ -1,5 +1,6 @@
 #include "maicord/render/forum_post_surface.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord {
 bool forum_post_surface_update(ForumPostSurface* surface, const TextSystem& text) noexcept {

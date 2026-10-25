@@ -4,6 +4,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "../../src/app/account_ui_runtime.hpp"
 
 namespace maicord {
 namespace {

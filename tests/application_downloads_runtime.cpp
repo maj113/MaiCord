@@ -5,6 +5,8 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/render/text_form_surface.hpp"
+#include "../src/app/application_state.hpp"
 
 namespace maicord::downloads_runtime_test {
 using namespace app_detail;

@@ -2,7 +2,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/received_attachment_menu.hpp"
 
 #include "maicord/core/win32_types.hpp"
 namespace maicord::app_detail {

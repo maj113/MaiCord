@@ -2,7 +2,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 // Structured presence activities (rich presence). Custom status stays in

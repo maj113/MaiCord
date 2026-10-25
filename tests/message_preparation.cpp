@@ -2,6 +2,7 @@
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/media/animation_timeline.hpp"
 #include "../src/ui/message_scene_measurements.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

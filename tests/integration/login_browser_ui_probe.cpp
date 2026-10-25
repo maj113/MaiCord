@@ -1,5 +1,4 @@
 #include "probe_present.hpp"
-#include "maicord/ui/login_text_presentation.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {

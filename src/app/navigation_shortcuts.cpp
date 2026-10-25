@@ -1,6 +1,7 @@
 #include "maicord/app/navigation_shortcuts.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "maicord/ui/list_navigation.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
 namespace {

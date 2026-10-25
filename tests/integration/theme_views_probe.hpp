@@ -7,6 +7,12 @@
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/friends_scene.hpp"
 #include "maicord/ui/presence.hpp"
+#include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/model/message_composer.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/button.hpp"
+#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 
 namespace maicord {
 namespace theme_views_probe_detail {

@@ -5,7 +5,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
-#include "maicord/ui/message_rich_widgets.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

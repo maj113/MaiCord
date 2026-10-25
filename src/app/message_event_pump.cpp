@@ -6,6 +6,10 @@
 #include "maicord/app/gateway_thread_members.hpp"
 #include "maicord/model/read_state.hpp"
 #include "gateway_member_list_validation.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "maicord/model/voice_state_store.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
+#include "maicord/app/message_send_tracker.hpp"
 
 namespace maicord {
 namespace {

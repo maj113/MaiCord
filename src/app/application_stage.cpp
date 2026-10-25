@@ -9,6 +9,7 @@
 #include "maicord/protocol/stage_channel.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

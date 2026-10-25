@@ -4,6 +4,7 @@
 #include "maicord/protocol/json_ids.hpp"
 
 #include "gateway_dispatch_common.hpp"
+#include "maicord/model/user_profile.hpp"
 
 namespace maicord {
 namespace {

@@ -1,9 +1,6 @@
 #include "application_downloads_inactive.hpp"
 #include "application_state.hpp"
 #include "application_video.hpp"
-#include "application_settings.hpp"
-#include "application_friends.hpp"
-#include "application_composer_text_input.hpp"
 #include "application_search.hpp"
 #include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/protocol/embed_provider.hpp"
@@ -11,9 +8,12 @@
 #include "test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/winsock.hpp"
 #include "maicord/app/account_media.hpp"
 #include "maicord/app/account_video_playback.hpp"
+#include "maicord/ui/pinned_messages_scene.hpp"
+#include "maicord/ui/thread_browser_scene.hpp"
+#include "maicord/ui/quick_switcher_scene.hpp"
+#include "../src/app/account_ui_runtime.hpp"
 
 namespace maicord::video_focus_runtime_test {
 u32 confirmations, media_refreshes;

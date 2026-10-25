@@ -1,4 +1,3 @@
-#include "application_voice_message.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_composer.hpp"

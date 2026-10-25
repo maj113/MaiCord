@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/media/jpeg.hpp"
 #include "maicord/media/webp.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 static_assert(kUiGuildImageMaximumPixels <= kJpegDimensionMaximum &&

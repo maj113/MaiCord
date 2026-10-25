@@ -65,6 +65,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/render/renderer_settings_visibility.hpp"
 #include "maicord/core/win32_error.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

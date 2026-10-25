@@ -1,4 +1,3 @@
-#include "application_window.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "application_caption.hpp"

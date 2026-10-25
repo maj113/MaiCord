@@ -1,4 +1,3 @@
-#include "maicord/text/khmer_shape_run.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/khmer_input.hpp"
 #include "maicord/text/khmer_plan.hpp"
