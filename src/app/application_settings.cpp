@@ -794,7 +794,11 @@ bool begin_signed_out() noexcept {
     const bool created = !g_app.account_ui;
     if (!application_initialize_account_ui(g_app))
         return false;
+    // Settings enters over the sign-in screen, not the empty shell behind it.
+    if (!renderer_freeze_login_backdrop(&g_app.renderer, application_theme()))
+        log_write(LogLevel::warning, "ui", "login_backdrop_unavailable");
     if (!application_login_view_suspend(true)) {
+        renderer_release_settings_backdrop(&g_app.renderer);
         if (created)
             application_release_account_ui(g_app);
         return false;
@@ -806,6 +810,10 @@ bool begin_signed_out() noexcept {
 void end_signed_out() noexcept {
     if (g_signed_out.active)
         g_signed_out = {false, g_signed_out.created_runtime, true};
+    // An open that failed after the sign-in screen was frozen must not lend
+    // it to a later dialog.
+    if (g_app.renderer.settings_backdrop_frozen && !g_app.renderer.settings_scene)
+        renderer_release_settings_backdrop(&g_app.renderer);
 }
 
 void finish_signed_out() noexcept {

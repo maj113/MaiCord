@@ -693,12 +693,14 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
     const float dips = 96.f / static_cast<float>(maximum<u32>(renderer->dpi, 1));
     const float width = static_cast<float>(renderer->width) * dips;
     const float height = static_cast<float>(renderer->height) * dips;
-    // Layer entrance: the shell shrinks to 93% about the centre while fading.
+    // Layer entrance: the shell shrinks to 93% about the centre and stays
+    // opaque; the layer fading in over it is the cross-fade (fading both
+    // would dip through the cleared base).
     const float progress = layer ? renderer->settings_modal_progress : 0;
     const float inset = .035f * progress;
     const UiRect shell{width * inset, height * inset, width * (1 - inset), height * (1 - inset)};
     *static_cast<MediaQuad*>(mapped.pData) = {shell.left, shell.top, shell.right, shell.bottom, 0, 0, 1, 1,
-                                             layer ? 1 - progress : 1, 0, 0, 0, shell};
+                                             1, 0, 0, 0, shell};
     renderer->graphics.context->Unmap(renderer->settings_backdrop_quad, 0);
     const UINT stride = sizeof(MediaQuad), offset = 0;
     auto* context = renderer->graphics.context;
@@ -738,6 +740,7 @@ void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
     release_backdrop_target(renderer);
     reset_value(&renderer->settings_backdrop_stamp);
     renderer->settings_backdrop_media_count = 0;
+    renderer->settings_backdrop_frozen = false;
 }
 
 // Frames that draw only the modal begin a visibility epoch that pins just the
@@ -760,9 +763,29 @@ void renderer_pin_settings_backdrop_media(D3D11Renderer* renderer) noexcept {
     }
 }
 
+bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    if (!renderer || !renderer->graphics.target || !renderer->login_visible ||
+        !d3d11_renderer_build_paint(renderer, theme) || !create_backdrop_target(renderer))
+        return false;
+    const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
+    ID3D11RenderTargetView* presented = renderer->graphics.target;
+    const u32 origin = renderer->target_origin_y;
+    renderer->graphics.target = renderer->settings_backdrop_target;
+    renderer_bind_target_origin(renderer, 0);
+    renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
+    const bool drawn = d3d11_renderer_draw_stream(renderer, theme, true, true, nullptr);
+    renderer->graphics.target = presented;
+    renderer_bind_target_origin(renderer, origin);
+    renderer->graphics.context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
+    renderer->settings_backdrop_media_count = 0;
+    renderer->settings_backdrop_valid = renderer->settings_backdrop_frozen = drawn;
+    renderer->retained_presentation.valid = false;
+    return drawn;
+}
+
 bool renderer_settings_backdrop_stale(D3D11Renderer* renderer, const Theme& theme) noexcept {
     if (!renderer || !renderer->graphics.target || !renderer->glyph_text.ready ||
-        !settings_backdrop_wanted(*renderer))
+        renderer->settings_backdrop_frozen || !settings_backdrop_wanted(*renderer))
         return false;
     return !renderer->settings_backdrop_stamp.valid || shell_backdrop_media_changed(*renderer) ||
            !renderer_presentation_stamp_equal(shell_backdrop_stamp(renderer, theme), renderer->settings_backdrop_stamp);

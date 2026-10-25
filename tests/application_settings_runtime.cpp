@@ -2338,6 +2338,14 @@ HRESULT renderer_select_plugin_effect(D3D11Renderer*, u64, u64, u64, ConstSlice<
 }
 void renderer_clear_plugin_effect(D3D11Renderer*) noexcept {
 }
+// The sign-in backdrop is a GPU image; settings only freeze and release it.
+bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme&) noexcept {
+    renderer->settings_backdrop_frozen = renderer->login_visible;
+    return renderer->login_visible;
+}
+void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
+    renderer->settings_backdrop_frozen = false;
+}
 void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene* current) noexcept {
     using namespace settings_runtime_test;
     if (!current && renderer->settings_scene && observed.detaching_module && observed.audit) {

@@ -527,7 +527,10 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     // The back buffer still holds the bar unless it changed since that buffer
     // was presented (scrims of this frame's content draw included), the
     // content covered its tooltip or an animated backdrop moved under it.
-    const bool animated = renderer->present_full && renderer->background_fx.source != BackgroundFxSource::none;
+    // The bar's effect continues the content's: it moves whenever the content
+    // drew the effect this frame, full or partial present alike.
+    const bool animated = renderer->background_fx.source != BackgroundFxSource::none &&
+                          (renderer->present_full || renderer->background_fx.drawn_count != 0);
     if (!d3d11_renderer_caption_pending(renderer, theme) && !animated &&
         !content_covers_tooltip(*renderer, *caption))
         return true;

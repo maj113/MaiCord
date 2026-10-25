@@ -571,7 +571,9 @@ struct D3D11Renderer {
     u32 settings_backdrop_renders, settings_backdrop_media_count;
     MediaAtlasHandle settings_backdrop_media[kRendererMediaQuadCapacity];
     u8 settings_backdrop_media_domain[kRendererMediaQuadCapacity];
-    bool settings_backdrop_valid, settings_backdrop_failed;
+    // Frozen: the backdrop holds the sign-in screen settings opened over, so
+    // it is never redrawn from the (signed-out, empty) shell.
+    bool settings_backdrop_valid, settings_backdrop_failed, settings_backdrop_frozen;
     // Layer transform currently bound while drawing; scissors follow it.
     float draw_layer_scale, draw_layer_origin_x, draw_layer_origin_y;
     // Popup entrance: uniform scale about a DIP origin, 1 when settled.
@@ -867,6 +869,10 @@ bool renderer_settings_backdrop_stale(D3D11Renderer* renderer, const Theme& them
 // the modal's text. A shell that cannot draw yet leaves the previous image
 // (or a flat base) and returns true; false only when the modal text fails.
 bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept;
+// Draws the visible sign-in screen into the backdrop and freezes it there, so
+// Settings opened before sign-in enters over it. Call before hiding the
+// sign-in view; the next settings binding keeps it.
+bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept;
 // Keeps the media the backdrop was drawn from resident while it is in use.
 // Call after each visibility epoch begins on a frame that draws the modal
 // stream: those frames pin only the modal's own media.

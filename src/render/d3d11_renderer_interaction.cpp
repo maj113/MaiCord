@@ -170,8 +170,9 @@ void renderer_bind_text_form(D3D11Renderer* renderer, TextFormSurface* surface) 
 void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene* scene) noexcept {
     if (!renderer)
         return;
-    if (renderer->settings_scene != scene) {
-        // A newly opened dialog draws the live shell beneath it on its first frame.
+    if (renderer->settings_scene != scene && !(scene && renderer->settings_backdrop_frozen)) {
+        // A newly opened dialog draws the live shell beneath it on its first
+        // frame; one opened over the sign-in screen keeps that frozen image.
         renderer_release_settings_backdrop(renderer);
         renderer->settings_backdrop_failed = false;
     }
