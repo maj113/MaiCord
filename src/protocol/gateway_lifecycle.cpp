@@ -168,32 +168,102 @@ GatewayLifecycleStep gateway_lifecycle_closed(GatewayLifecycle* lifecycle, u16 c
     return step(reconnect_action(lifecycle, can_resume));
 }
 
-GatewayWriteResult gateway_write_heartbeat(const GatewayLifecycle& lifecycle, Slice<u8> output) noexcept {
+namespace {
+GatewayQosPayload consume(GatewayQosState* state) noexcept {
+    const GatewayQosPayload payload = state->current;
+    if (state->has_upcoming)
+        state->current = state->upcoming;
+    state->has_upcoming = false;
+    return payload;
+}
+} // namespace
+
+bool gateway_qos_update(GatewayQosState* state, GatewayQosPayload next, bool session_established) noexcept {
+    const bool was_active = state->has_current && state->current.active;
+    if (!state->has_current) {
+        state->current = next;
+        state->has_current = true;
+    }
+    const bool send = next.active && !was_active && session_established;
+    if (next.active) {
+        state->current.active = true;
+        state->current.reasons = static_cast<u8>(state->current.reasons | next.reasons);
+        if (send)
+            gateway_qos_send_now(state);
+    }
+    state->upcoming = next;
+    state->has_upcoming = true;
+    return send;
+}
+
+void gateway_qos_send_now(GatewayQosState* state) noexcept {
+    // A second immediate heartbeat before the first is written consumes when written.
+    if (state->has_current && !state->has_immediate) {
+        state->immediate = consume(state);
+        state->has_immediate = true;
+    }
+}
+
+bool gateway_qos_take(GatewayQosState* state, GatewayQosPayload* payload) noexcept {
+    if (state->has_immediate) {
+        state->has_immediate = false;
+        *payload = state->immediate;
+        return true;
+    }
+    if (!state->has_current)
+        return false;
+    *payload = consume(state);
+    return true;
+}
+
+GatewayWriteResult gateway_write_heartbeat(const GatewayLifecycle& lifecycle, const GatewayQosPayload* qos,
+                                           Slice<u8> output) noexcept {
     if (!output.data) {
         return GatewayWriteResult{0, GatewayLifecycleError::invalid_input};
     }
-    static constexpr u8 prefix[] = {'{', '"', 'o', 'p', '"', ':', '1', ',', '"', 'd', '"', ':'};
-    static constexpr u8 suffix[] = {'}'};
-    static constexpr u8 null_value[] = {'n', 'u', 'l', 'l'};
-    const u32 value_bytes = lifecycle.has_sequence ? decimal_digits(lifecycle.last_sequence)
-                                                   : static_cast<u32>(sizeof(null_value));
-    const u32 required = static_cast<u32>(sizeof(prefix)) + value_bytes + static_cast<u32>(sizeof(suffix));
+    static constexpr char prefix[] = "{\"op\":40,\"d\":{\"seq\":";
+    static constexpr char foregrounded[] = "\"foregrounded\"";
+    static constexpr char rtc_connected[] = "\"rtc_connected\"";
+    constexpr u32 object_bytes = sizeof("{\"active\":,\"ver\":31,\"reasons\":[]}") - 1;
+    const u64 sequence = lifecycle.has_sequence ? lifecycle.last_sequence : 0;
+    const bool foreground = qos && (qos->reasons & gateway_qos_foregrounded);
+    const bool rtc = qos && (qos->reasons & gateway_qos_rtc_connected);
+    u32 qos_bytes = 4;
+    if (qos)
+        qos_bytes = static_cast<u32>(object_bytes + (qos->active ? 4 : 5) +
+                                     (foreground ? sizeof(foregrounded) - 1 : 0) +
+                                     (rtc ? sizeof(rtc_connected) - 1 : 0) + (foreground && rtc ? 1 : 0));
+    const u32 required = static_cast<u32>(sizeof(prefix) - 1) + decimal_digits(sequence) +
+                         static_cast<u32>(sizeof(",\"qos\":}}") - 1) + qos_bytes;
     if (output.count < required) {
         return GatewayWriteResult{0, GatewayLifecycleError::output_too_small};
     }
     u32 offset = 0;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(prefix)); ++index) {
-        output[offset++] = prefix[index];
-    }
-    if (lifecycle.has_sequence) {
-        decimal_write(output.data + offset, lifecycle.last_sequence);
-        offset += value_bytes;
+    const auto literal = [&](const char* text, u32 bytes) noexcept {
+        copy_bytes(output.data + offset, text, bytes);
+        offset += bytes;
+    };
+    literal(prefix, sizeof(prefix) - 1);
+    offset += decimal_write(output.data + offset, sequence);
+    literal(",\"qos\":", 7);
+    if (!qos) {
+        literal("null", 4);
     } else {
-        for (u32 index = 0; index < static_cast<u32>(sizeof(null_value)); ++index) {
-            output[offset++] = null_value[index];
-        }
+        literal("{\"active\":", 10);
+        if (qos->active)
+            literal("true", 4);
+        else
+            literal("false", 5);
+        literal(",\"ver\":31,\"reasons\":[", 21);
+        if (foreground)
+            literal(foregrounded, sizeof(foregrounded) - 1);
+        if (foreground && rtc)
+            literal(",", 1);
+        if (rtc)
+            literal(rtc_connected, sizeof(rtc_connected) - 1);
+        literal("]}", 2);
     }
-    output[offset++] = suffix[0];
+    literal("}}", 2);
     return GatewayWriteResult{offset, GatewayLifecycleError::none};
 }
 

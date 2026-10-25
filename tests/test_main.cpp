@@ -21569,15 +21569,70 @@ void test_gateway_lifecycle() noexcept {
                GatewayLifecycleError::invalid_state,
            "gateway_lifecycle_duplicate_hello");
 
-    u8 heartbeat[64]{};
+    u8 heartbeat[128]{};
+    const GatewayQosPayload both = gateway_qos_payload(gateway_qos_foregrounded | gateway_qos_rtc_connected);
     GatewayWriteResult written =
-        gateway_write_heartbeat(lifecycle, Slice<u8>{heartbeat, static_cast<u32>(sizeof(heartbeat))});
+        gateway_write_heartbeat(lifecycle, &both, Slice<u8>{heartbeat, static_cast<u32>(sizeof(heartbeat))});
     expect(written.ok() &&
-               bytes_equal(ConstSlice<u8>{heartbeat, written.bytes}, byte_literal(R"({"op":1,"d":null})")),
-           "gateway_heartbeat_null_sequence");
-    expect(gateway_write_heartbeat(lifecycle, Slice<u8>{heartbeat, written.bytes - 1}).error ==
+               bytes_equal(ConstSlice<u8>{heartbeat, written.bytes},
+                           byte_literal(R"({"op":40,"d":{"seq":0,"qos":{"active":true,"ver":31,"reasons":["foregrounded","rtc_connected"]}}})")),
+           "gateway_qos_heartbeat_before_any_event");
+    expect(gateway_write_heartbeat(lifecycle, &both, Slice<u8>{heartbeat, written.bytes - 1}).error ==
                GatewayLifecycleError::output_too_small,
            "gateway_heartbeat_output_bound");
+    const GatewayQosPayload idle = gateway_qos_payload(0);
+    const GatewayQosPayload calling = gateway_qos_payload(gateway_qos_rtc_connected);
+    const auto heartbeat_equal = [&](const GatewayQosPayload* qos, ConstSlice<u8> expected) noexcept {
+        const GatewayWriteResult result =
+            gateway_write_heartbeat(lifecycle, qos, Slice<u8>{heartbeat, static_cast<u32>(sizeof(heartbeat))});
+        return result.ok() && bytes_equal(ConstSlice<u8>{heartbeat, result.bytes}, expected);
+    };
+    expect(heartbeat_equal(&idle, byte_literal(R"({"op":40,"d":{"seq":0,"qos":{"active":false,"ver":31,"reasons":[]}}})")) &&
+               heartbeat_equal(&calling, byte_literal(R"({"op":40,"d":{"seq":0,"qos":{"active":true,"ver":31,"reasons":["rtc_connected"]}}})")) &&
+               heartbeat_equal(nullptr, byte_literal(R"({"op":40,"d":{"seq":0,"qos":null}})")),
+           "gateway_qos_heartbeat_payloads");
+
+    // The QoS payload follows the desktop client: activity anywhere in an
+    // interval is reported, becoming active sends at once in a session.
+    GatewayQosState qos{};
+    GatewayQosPayload taken{};
+    const GatewayQosPayload focused = gateway_qos_payload(gateway_qos_foregrounded);
+    expect(!gateway_qos_take(&qos, &taken) && !gateway_qos_update(&qos, idle, true) &&
+               gateway_qos_take(&qos, &taken) && taken == idle,
+           "gateway_qos_initial_inactive_state");
+    expect(gateway_qos_update(&qos, focused, true) && gateway_qos_take(&qos, &taken) && taken == focused &&
+               gateway_qos_take(&qos, &taken) && taken == focused,
+           "gateway_qos_becoming_active_sends_now");
+    expect(!gateway_qos_update(&qos, calling, true) && gateway_qos_take(&qos, &taken) && taken == both &&
+               gateway_qos_take(&qos, &taken) && taken == calling,
+           "gateway_qos_merges_reasons_for_the_interval");
+    expect(!gateway_qos_update(&qos, idle, true) && gateway_qos_take(&qos, &taken) && taken == calling &&
+               gateway_qos_take(&qos, &taken) && taken == idle,
+           "gateway_qos_inactive_reported_after_the_active_interval");
+    expect(!gateway_qos_update(&qos, focused, false) && gateway_qos_take(&qos, &taken) && taken == focused,
+           "gateway_qos_no_immediate_heartbeat_without_session");
+    GatewayQosState pending{};
+    gateway_qos_update(&pending, idle, false);
+    expect(gateway_qos_update(&pending, focused, true) && (gateway_qos_send_now(&pending), true) &&
+               gateway_qos_take(&pending, &taken) && taken == focused && gateway_qos_take(&pending, &taken) &&
+               taken == idle && gateway_qos_take(&pending, &taken) && taken == focused,
+           "gateway_qos_second_immediate_heartbeat_consumes_when_written");
+    char time_spent[256]{};
+    const GatewayCommandWriteResult announced = gateway_write_time_spent_session(
+        1'700'000'000'123ull, utf8_literal("0123abcd-4567-4890-a123-456789abcdef"),
+        utf8_literal("00112233-4455-6677-8899-aabbccddeeff"),
+        Slice<u8>{reinterpret_cast<u8*>(time_spent), static_cast<u32>(sizeof(time_spent))});
+    expect(announced.ok() &&
+               utf8_equal({time_spent, announced.bytes},
+                          utf8_literal(R"({"op":41,"d":{"initialization_timestamp":1700000000123,"session_id":"0123abcd-4567-4890-a123-456789abcdef","client_launch_id":"00112233-4455-6677-8899-aabbccddeeff"}})")) &&
+               gateway_write_time_spent_session(1, utf8_literal("x"), utf8_literal("00112233-4455-6677-8899-aabbccddeeff"),
+                                                Slice<u8>{reinterpret_cast<u8*>(time_spent), 256})
+                       .error == GatewayCommandError::invalid_input &&
+               gateway_write_time_spent_session(1'700'000'000'123ull, utf8_literal("0123abcd-4567-4890-a123-456789abcdef"),
+                                                utf8_literal("00112233-4455-6677-8899-aabbccddeeff"),
+                                                Slice<u8>{reinterpret_cast<u8*>(time_spent), announced.bytes - 1})
+                       .error == GatewayCommandError::output_too_small,
+           "gateway_time_spent_session_write");
 
     expect(gateway_lifecycle_tick(&lifecycle, 999).action == GatewayLifecycleAction::none,
            "gateway_heartbeat_before_deadline");
@@ -21589,9 +21644,10 @@ void test_gateway_lifecycle() noexcept {
            "gateway_heartbeat_ack");
     expect(gateway_lifecycle_dispatch(&lifecycle, ~0ull).ok() && lifecycle.has_sequence,
            "gateway_dispatch_sequence_tracking");
-    written = gateway_write_heartbeat(lifecycle, Slice<u8>{heartbeat, static_cast<u32>(sizeof(heartbeat))});
-    expect(written.ok() && bytes_equal(ConstSlice<u8>{heartbeat, written.bytes},
-                                       byte_literal(R"({"op":1,"d":18446744073709551615})")),
+    written = gateway_write_heartbeat(lifecycle, &idle, Slice<u8>{heartbeat, static_cast<u32>(sizeof(heartbeat))});
+    expect(written.ok() &&
+               bytes_equal(ConstSlice<u8>{heartbeat, written.bytes},
+                           byte_literal(R"({"op":40,"d":{"seq":18446744073709551615,"qos":{"active":false,"ver":31,"reasons":[]}}})")),
            "gateway_heartbeat_u64_sequence");
 
     const u64 regular_deadline = lifecycle.next_heartbeat_ms;

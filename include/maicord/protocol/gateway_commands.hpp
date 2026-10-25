@@ -180,6 +180,11 @@ struct GatewayUserIdentify {
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
                                                       Slice<u8> output) noexcept;
 GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slice<u8> output) noexcept;
+// Opcode 41, the analytics heartbeat session: {"op":41,"d":{"initialization_timestamp":ms,
+// "session_id":uuid,"client_launch_id":uuid}}. Both IDs must be UUIDs.
+GatewayCommandWriteResult gateway_write_time_spent_session(u64 initialization_ms, Utf8View session_id,
+                                                           Utf8View client_launch_id,
+                                                           Slice<u8> output) noexcept;
 GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
     const GatewayGuildSubscription& subscription, Slice<u8> output) noexcept;
 

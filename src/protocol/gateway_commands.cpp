@@ -309,6 +309,30 @@ GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slic
     return GatewayCommandWriteResult{offset, GatewayCommandError::none};
 }
 
+GatewayCommandWriteResult gateway_write_time_spent_session(u64 initialization_ms, Utf8View session_id,
+                                                           Utf8View client_launch_id,
+                                                           Slice<u8> output) noexcept {
+    if (!output.data || !launch_id_valid(session_id) || !launch_id_valid(client_launch_id))
+        return {0, GatewayCommandError::invalid_input};
+    constexpr u32 fixed_bytes = sizeof("{\"op\":41,\"d\":{\"initialization_timestamp\":,\"session_id\":"
+                                       "\"\",\"client_launch_id\":\"\"}}") -
+                                1;
+    const u32 required = fixed_bytes + decimal_digits(initialization_ms) + 2 * kGatewayUserLaunchIdBytes;
+    if (required > output.count)
+        return {0, GatewayCommandError::output_too_small};
+    u32 offset = 0;
+    write_literal(output.data, &offset, "{\"op\":41,\"d\":{\"initialization_timestamp\":");
+    offset += decimal_write(output.data + offset, initialization_ms);
+    write_literal(output.data, &offset, ",\"session_id\":\"");
+    copy_bytes(output.data + offset, session_id.data, session_id.bytes);
+    offset += session_id.bytes;
+    write_literal(output.data, &offset, "\",\"client_launch_id\":\"");
+    copy_bytes(output.data + offset, client_launch_id.data, client_launch_id.bytes);
+    offset += client_launch_id.bytes;
+    write_literal(output.data, &offset, "\"}}");
+    return {offset, GatewayCommandError::none};
+}
+
 GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
     const GatewayGuildSubscription& subscription, Slice<u8> output) noexcept {
     if (!output.data || !subscription.guild_id ||

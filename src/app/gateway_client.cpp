@@ -165,6 +165,12 @@ struct GatewayClientRuntime {
     struct GatewayUserRuntime* user;
     GatewayClient* owner;
     GatewayOutboundQueue outbound;
+    // Heartbeat QoS, kept across reconnects; qos_reported is the last activity state.
+    GatewayQosState qos;
+    GatewayQosPayload qos_reported;
+    bool qos_known;
+    // The heartbeat session opcode 41 announces.
+    ClientHeartbeatSession time_spent;
     GatewayReconnectBackoff reconnect_backoff;
     // Consecutive READY payloads that could not be projected.
     u32 ready_failures;
@@ -377,11 +383,42 @@ ClientSessionMetadata* session_metadata(const GatewayClientRuntime* runtime) noe
     return is_user(runtime) ? runtime->user->session_metadata : nullptr;
 }
 
-// The desktop client is active while focused or connected to a call.
-bool client_active(const GatewayClientRuntime* runtime) noexcept {
+// The desktop client is active while focused (foregrounded) or connected to
+// a call (rtc_connected).
+u8 activity_reasons(const GatewayClientRuntime* runtime) noexcept {
     const VoiceConnection& voice = runtime->voice_connection;
-    return client_session_metadata_focused(session_metadata(runtime)) ||
-           (voice.socket.phase == VoiceSocketPhase::open && voice.udp.phase == VoiceUdpPhase::ready);
+    const bool rtc =
+        voice.socket.phase == VoiceSocketPhase::open && voice.udp.phase == VoiceUdpPhase::ready;
+    return static_cast<u8>(
+        (client_session_metadata_focused(session_metadata(runtime)) ? gateway_qos_foregrounded : 0) |
+        (rtc ? gateway_qos_rtc_connected : 0));
+}
+
+bool client_active(const GatewayClientRuntime* runtime) noexcept {
+    return activity_reasons(runtime) != 0;
+}
+
+// Identified or resuming.
+bool session_established(const GatewayClientRuntime* runtime) noexcept {
+    const GatewayLifecycle& lifecycle = runtime->session.lifecycle;
+    return lifecycle.phase == GatewayLifecyclePhase::ready ||
+           (lifecycle.phase == GatewayLifecyclePhase::awaiting_session && lifecycle.attempting_resume);
+}
+
+// A heartbeat outside the interval, as the desktop client sends one.
+void queue_heartbeat_now(GatewayClientRuntime* runtime) noexcept {
+    if (gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_heartbeat))
+        gateway_qos_send_now(&runtime->qos);
+}
+
+// Opcode 41 and a heartbeat, in an identified session.
+void queue_time_spent_session(GatewayClientRuntime* runtime,
+                              const ClientHeartbeatSession& session) noexcept {
+    if (!session.valid || runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
+        return;
+    runtime->time_spent = session;
+    if (gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_time_spent_session))
+        queue_heartbeat_now(runtime);
 }
 
 // While active, the heartbeat session is used every kClientHeartbeatIntervalMs,
@@ -394,22 +431,38 @@ u64 client_activity_deadline(const GatewayClientRuntime* runtime, u64 now_ms) no
     return due > now_ms ? due : now_ms;
 }
 
+// Reports activity changes to the heartbeat QoS (becoming active sends a
+// heartbeat at once), and uses the heartbeat session while active; a new
+// session is announced with opcode 41.
 void drive_client_activity(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    ClientSessionMetadata* metadata = session_metadata(runtime);
+    if (!metadata || runtime->stopping)
+        return;
+    const GatewayQosPayload reported = gateway_qos_payload(activity_reasons(runtime));
+    if (!runtime->qos_known || !(reported == runtime->qos_reported)) {
+        runtime->qos_known = true;
+        runtime->qos_reported = reported;
+        if (gateway_qos_update(&runtime->qos, reported, session_established(runtime)) &&
+            !gateway_outbound_enqueue(&runtime->outbound, GatewayLifecycleAction::send_heartbeat))
+            runtime->qos.has_immediate = false;
+    }
     const u64 due = client_activity_deadline(runtime, now_ms);
     if (!due || now_ms < due)
         return;
-    ClientSessionMetadata* metadata = session_metadata(runtime);
     client_session_metadata_refreshed(metadata, now_ms);
     ClientHeartbeatSession session{};
-    client_session_metadata_use_session(metadata, true, clock_unix_milliseconds(), &session);
+    if (client_session_metadata_use_session(metadata, true, clock_unix_milliseconds(), &session))
+        queue_time_spent_session(runtime, session);
 }
 
-// READY uses the heartbeat session too, starting one only when active.
+// READY uses the heartbeat session too, starting one only when active, and
+// announces it with opcode 41.
 void client_session_ready(GatewayClientRuntime* runtime) noexcept {
     if (ClientSessionMetadata* metadata = session_metadata(runtime)) {
         ClientHeartbeatSession session{};
         client_session_metadata_use_session(metadata, client_active(runtime), clock_unix_milliseconds(),
                                             &session);
+        queue_time_spent_session(runtime, session);
     }
 }
 
@@ -1028,6 +1081,7 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
         SecureZeroMemory(runtime->handshake_output, runtime->session.message_bytes);
     }
     gateway_outbound_reset(&runtime->outbound);
+    runtime->qos.has_immediate = false;
     runtime->send_data = nullptr;
     runtime->send_bytes = 0;
     runtime->send_offset = 0;
@@ -1085,6 +1139,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
     runtime->deadline_ms = 0;
     runtime->rate_deadline_ms = 0;
     gateway_outbound_reset(&runtime->outbound);
+    runtime->qos.has_immediate = false;
     if (runtime->resolver.pending) {
         network_resolver_cancel(&runtime->resolver);
     }
@@ -1444,11 +1499,18 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
         command = gateway_write_resume(
             resume, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     } else if (next.action == GatewayLifecycleAction::send_heartbeat) {
+        GatewayQosPayload qos{};
+        const bool has_qos = gateway_qos_take(&runtime->qos, &qos);
         const GatewayWriteResult heartbeat =
-            gateway_write_heartbeat(runtime->session.lifecycle,
+            gateway_write_heartbeat(runtime->session.lifecycle, has_qos ? &qos : nullptr,
                                     Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
         command.bytes = heartbeat.bytes;
         command.error = heartbeat.ok() ? GatewayCommandError::none : GatewayCommandError::output_too_small;
+    } else if (next.action == GatewayLifecycleAction::send_time_spent_session && is_user(runtime)) {
+        command = gateway_write_time_spent_session(
+            runtime->time_spent.created_ms, {runtime->time_spent.uuid, kGatewayUserLaunchIdBytes},
+            user_text(runtime->user->client_launch_id),
+            Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
     } else {
         return OutboundDrive::failed;
     }
@@ -1464,10 +1526,12 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     } else if (next.action == GatewayLifecycleAction::send_resume) {
         event.kind = GatewayClientEventKind::resuming;
         publish_phase(client, GatewayClientPhase::resuming);
-    } else {
+    } else if (next.action == GatewayLifecycleAction::send_heartbeat) {
         event.kind = GatewayClientEventKind::heartbeat_sent;
         event.has_sequence = runtime->session.lifecycle.has_sequence;
         event.sequence = runtime->session.lifecycle.last_sequence;
+    } else {
+        return OutboundDrive::sending;
     }
     publish_event(runtime, event);
     return OutboundDrive::sending;
