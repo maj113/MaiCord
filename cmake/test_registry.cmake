@@ -1460,6 +1460,11 @@ maicord_font_test(MaiCordEmojiParagraphTests maicord_emoji_paragraph_entry emoji
 maicord_font_test(MaiCordScriptTests maicord_script_tests_entry script_test UNICODE
     BUNDLE MaiCordTextUnitTests STANDALONE
     TEST maicord_native_scripts)
+maicord_test(MaiCordZstdStreamTests ENTRY maicord_zstd_stream_entry
+    SOURCES tests/zstd_stream.cpp
+    LIBS maicord_core maicord_compression kernel32
+    BUNDLE MaiCordCoreUnitTests
+    TEST maicord_zstd_stream)
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry
     SOURCES tests/byte_order_test.cpp
     LIBS maicord_core kernel32

@@ -43,7 +43,7 @@ target_link_libraries(maicord_sys_conformance PRIVATE maicord_compile_contract)
 target_include_directories(maicord_sys_conformance PRIVATE src/sys)
 set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON)
 
-maicord_library(maicord_compression src/media/deflate.cpp LIBS maicord_core)
+maicord_library(maicord_compression src/media/deflate.cpp src/media/zstd.cpp LIBS maicord_core)
 
 maicord_library(maicord_media_core
     src/media/animation_timeline.cpp src/media/encoded_cache.cpp src/media/presentation_policy.cpp
