@@ -1,3 +1,8 @@
+// The adapter, including the header functions it instantiates, is compiled for
+// size, except retained-layout publication in native_text_styled.inc and the
+// single-line entry native_text_candidate_line_once, which pop this.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 #include "maicord/core/memory.hpp"
 #include "native_text_span.hpp"
 #include "native_text_script.hpp"
@@ -851,6 +856,9 @@ bool native_text_prepare_trim_plan_once(const TextSystem& system,Utf8View text,C
 }
 #include "native_text_multiline_draw.inc"
 
+// Every single-line shape and measure enters here first, including cached
+// emoji and styled text: compiled for speed inside the size-optimized adapter.
+#pragma clang attribute pop
 bool native_text_candidate_line_once(const TextSystem& system,Utf8View text,float width,float height,ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow) noexcept {
     CatalogOperation catalog_operation(system.native_text);
     if(!system.native_text||!tracking_valid(system.tracking)||!text.bytes||text.bytes>native_text_maximum_bytes||!text.data)return false;
@@ -933,6 +941,7 @@ bool native_text_candidate_line_once(const TextSystem& system,Utf8View text,floa
     else return false;
     return true;
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 struct ShapeRequest {Utf8View text;ConstSlice<TextStyleSpan> styles;ConstSlice<TextHitRange> hits;float width,height;TextWrapping wrapping;};
 // Share the dispatcher between the first attempt and the erased retry callback.
@@ -974,3 +983,4 @@ bool native_text_prepare_trim_plan(const TextSystem& system,Utf8View text,ConstS
 }
 
 }
+#pragma clang attribute pop

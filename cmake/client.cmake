@@ -344,9 +344,13 @@ maicord_compact_sources(
         src/platform/file_identity.cpp src/platform/timezone.cpp src/platform/secure_buffer.cpp
     TARGETS maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
+    # The user store resolves every member name and presence update: member-list
+    # model time is 6% lower with it at /O2, for 2 KiB. The guild member store
+    # and member list compile for size through minsize attribute regions in
+    # their sources, which leave their member-list update and rebuild paths /O2.
     EXCLUDE
         "/application_(frame_presentation|scheduler|video)\\.cpp$"
-        "/model/message_(rich_)?store\\.cpp$"
+        "/model/(message_(rich_)?store|user_store|guild_member_store|member_list)\\.cpp$"
         "/protocol/(message_history|websocket_frame|websocket_message|http1|http_response_stream|json_write|writer|json_ids|gateway_payload|gateway_events|gateway_message_events|gateway_message_rich|gateway_reaction_events|gateway_typing_events|media_packet|dave_frame|dave_replay|voice_media_events|p256_signature|etf)\\.cpp$")
 # UI scenes, presentation, renderer and the message runtime: the offline perf
 # probe measured equal or lower main-thread CPU in every phase at /Os (smaller

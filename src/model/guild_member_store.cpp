@@ -1,3 +1,8 @@
+// The store is compiled for size, except the member-list update paths that
+// run for every list operation (lookup, row positions, range invalidation,
+// visible pins), which pop this region.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 #include "maicord/model/guild_member_store.hpp"
 
 #include "maicord/core/heap_sort.hpp"
@@ -11,6 +16,7 @@ namespace {
 bool status_valid(GuildMemberStatus status) noexcept {
     return status >= GuildMemberStatus::unknown && status <= GuildMemberStatus::offline;
 }
+#pragma clang attribute pop
 
 u32 find_order(const GuildMemberStore& store, u64 guild_id, u64 user_id, bool* found) noexcept {
     u32 first = 0;
@@ -30,6 +36,7 @@ u32 find_order(const GuildMemberStore& store, u64 guild_id, u64 user_id, bool* f
              store.records[store.order[first]].user_id == user_id;
     return first;
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 bool nickname_equal(const GuildMemberRecord& record, Utf8View nickname) noexcept {
     if (record.nickname_bytes != nickname.bytes) {
@@ -296,6 +303,7 @@ MemberListPosition* positions_evict_list(GuildMemberStore* store, u8 keep) noexc
             return &entry;
     return nullptr;
 }
+#pragma clang attribute pop
 // A list holds one row per position and one position per user. True when
 // the list's rows changed.
 bool position_set(GuildMemberStore* store, u8 scope, u32 index, u64 user_id) noexcept {
@@ -356,6 +364,7 @@ void positions_invalidate(GuildMemberStore* store, u64 guild_id, u64 list_id, u3
             position_drop(store, &entry);
     }
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void positions_shift(GuildMemberStore* store, u8 scope, u32 index, bool insert) noexcept {
     if (scope == kNoScope)
         return;
@@ -787,6 +796,7 @@ bool guild_member_store_remove(GuildMemberStore* store, u64 guild_id, u64 user_i
     return true;
 }
 
+#pragma clang attribute pop
 bool guild_member_store_invalidate_list_range(GuildMemberStore* store, u64 guild_id,
                                                       u32 first, u32 last, u64 list_id) noexcept {
     if (!store || !store->records || !store->order || guild_id == 0 || last < first) {
@@ -872,6 +882,7 @@ u32 guild_member_store_refresh_visible_users(const GuildMemberStore& members,
             }
     return count;
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 void guild_member_store_clear_pins(GuildMemberStore* store) noexcept {
     guild_member_store_clear_range_pins(store);
@@ -928,6 +939,7 @@ void drop_scope(GuildMemberStore* store, u8 scope) noexcept {
     reset_value(&list);
     saturating_increment(store->revision);
 }
+#pragma clang attribute pop
 // A header row at index displaces the member recorded there. True when a
 // member record or a position changed.
 bool displace_header_row(GuildMemberStore* store, u64 guild_id, u64 list_id, u32 index) noexcept {
@@ -944,6 +956,7 @@ bool displace_header_row(GuildMemberStore* store, u64 guild_id, u64 list_id, u32
     positions_invalidate(store, guild_id, list_id, index, index);
     return changed || positions_before != store->positions.count;
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 } // namespace
 u32 guild_member_store_list_users(const GuildMemberStore& store, u64 guild_id, u64 list_id, u32 first,
                                   u32 last, Slice<u64> output) noexcept {
@@ -1165,3 +1178,4 @@ bool guild_member_store_shift_list(GuildMemberStore* store, u64 guild_id, u64 li
 static_assert(sizeof(GuildMemberRecord) == 336);
 
 } // namespace maicord
+#pragma clang attribute pop

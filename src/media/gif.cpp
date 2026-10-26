@@ -75,6 +75,19 @@ struct GifFastReader {
 };
 
 __forceinline void fast_refill(GifFastReader* reader) noexcept {
+    // Inside a sub-block, take the whole bytes that fit from one 8-byte load.
+    // The bits loaded past them are the next byte's own bits at their own
+    // positions, so the next refill ORs in the same values.
+    if (reader->block_remaining >= 8 && reader->bit_count < 56) {
+        u64 word;
+        copy_bytes(&word, reader->bytes + reader->cursor, sizeof(word));
+        reader->bits |= word << reader->bit_count;
+        const u32 taken = (63u - reader->bit_count) >> 3;
+        reader->cursor += taken;
+        reader->block_remaining -= taken;
+        reader->bit_count += taken * 8u;
+        return;
+    }
     while (reader->bit_count <= 56 && !reader->exhausted) {
         if (reader->block_remaining == 0) {
             // A zero-size sub-block terminates the data.

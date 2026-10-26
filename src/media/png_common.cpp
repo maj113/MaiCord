@@ -285,6 +285,20 @@ void unfilter_paeth(u8* bytes, const u8* previous, u32 count, u32 bpp) noexcept 
     for (; x < bpp && x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + previous[x]);
     }
+    if (bpp == 1 && x < count) {
+        // Palette and 8-bit gray rows: the left byte stays in a register
+        // rather than being reloaded right after it was stored.
+        u32 left = bytes[x - 1];
+        u32 upper_left = previous[x - 1];
+        for (; x < count; ++x) {
+            const u32 above = previous[x];
+            left = static_cast<u8>(bytes[x] + paeth_predictor(static_cast<i32>(left), static_cast<i32>(above),
+                                                              static_cast<i32>(upper_left)));
+            bytes[x] = static_cast<u8>(left);
+            upper_left = above;
+        }
+        return;
+    }
     for (; x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + paeth_predictor(bytes[x - bpp], previous[x], previous[x - bpp]));
     }

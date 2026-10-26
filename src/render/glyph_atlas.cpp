@@ -4,35 +4,40 @@
 namespace maicord {
 namespace {
 
-u64 atlas_tick(GlyphAtlasAllocator* atlas) noexcept {
+__declspec(noinline) void renumber_row_clocks(GlyphAtlasAllocator* atlas) noexcept {
+    u32 maximum_rank = 0;
+    for (u32 index = 0; index < atlas->row_count; ++index) {
+        u32 rank = 1;
+        for (u32 other = 0; other < atlas->row_count; ++other) {
+            if (atlas->rows[other].last_used < atlas->rows[index].last_used) {
+                ++rank;
+            }
+        }
+        // Clock wrap is astronomically rare. Reuse the row pin counter as
+        // bounded scratch, then reconstruct current-epoch pin counts from
+        // entries before allocation can observe them.
+        atlas->rows[index].pinned_entries = rank;
+        maximum_rank = maximum(maximum_rank, rank);
+    }
+    for (u32 index = 0; index < atlas->row_count; ++index) {
+        atlas->rows[index].last_used = atlas->rows[index].pinned_entries;
+        atlas->rows[index].pinned_entries = 0;
+    }
+    for (u32 index = 0; index < atlas->entry_capacity; ++index) {
+        const GlyphAtlasEntry& entry = atlas->entries[index];
+        if (entry.occupied && entry.row < atlas->row_count &&
+            entry.visibility_epoch == atlas->visibility_epoch) {
+            ++atlas->rows[entry.row].pinned_entries;
+        }
+    }
+    atlas->clock = maximum_rank;
+    atlas->protect_after = 0; // Row clocks were renumbered.
+}
+
+// Lookups inline only the increment.
+__forceinline u64 atlas_tick(GlyphAtlasAllocator* atlas) noexcept {
     if (atlas->clock == ~0ull) {
-        u32 maximum_rank = 0;
-        for (u32 index = 0; index < atlas->row_count; ++index) {
-            u32 rank = 1;
-            for (u32 other = 0; other < atlas->row_count; ++other) {
-                if (atlas->rows[other].last_used < atlas->rows[index].last_used) {
-                    ++rank;
-                }
-            }
-            // Clock wrap is astronomically rare. Reuse the row pin counter as
-            // bounded scratch, then reconstruct current-epoch pin counts from
-            // entries before allocation can observe them.
-            atlas->rows[index].pinned_entries = rank;
-            maximum_rank = maximum(maximum_rank, rank);
-        }
-        for (u32 index = 0; index < atlas->row_count; ++index) {
-            atlas->rows[index].last_used = atlas->rows[index].pinned_entries;
-            atlas->rows[index].pinned_entries = 0;
-        }
-        for (u32 index = 0; index < atlas->entry_capacity; ++index) {
-            const GlyphAtlasEntry& entry = atlas->entries[index];
-            if (entry.occupied && entry.row < atlas->row_count &&
-                entry.visibility_epoch == atlas->visibility_epoch) {
-                ++atlas->rows[entry.row].pinned_entries;
-            }
-        }
-        atlas->clock = maximum_rank;
-        atlas->protect_after = 0; // Row clocks were renumbered.
+        renumber_row_clocks(atlas);
     }
     return ++atlas->clock;
 }
@@ -200,8 +205,8 @@ void invalidate_all(GlyphAtlasAllocator* atlas, bool count_reset) noexcept {
     }
 }
 
-GlyphAtlasAllocation allocation_from_entry(const GlyphAtlasEntry& entry, u32 slot,
-                                           bool cached) noexcept {
+__forceinline GlyphAtlasAllocation allocation_from_entry(const GlyphAtlasEntry& entry, u32 slot,
+                                                         bool cached) noexcept {
     return GlyphAtlasAllocation{
         GlyphAtlasHandle{static_cast<u16>(slot), entry.generation},
         entry.x,

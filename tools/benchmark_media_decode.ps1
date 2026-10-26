@@ -13,7 +13,10 @@ param(
     [string]$CorpusPath = '',
     # Also print per-stage cycles where the benchmark measures them (lossy WebP).
     [switch]$Stages,
-    [switch]$Raw
+    [switch]$Raw,
+    # Runs the built benchmark this many times back to back; each item reports
+    # its fastest run (one build, min-of-N).
+    [ValidateRange(1, 20)][int]$Repeat = 1
 )
 
 # Builds the opt-in decode benchmark inside the single Release cache under the
@@ -56,32 +59,43 @@ try {
     $env:MAICORD_DECODE_FILTER = $Filter
     $env:MAICORD_DECODE_BUDGET_MS = [string]$BudgetMs
     $env:MAICORD_DECODE_STAGES = if ($Stages) { '1' } else { '0' }
-    $output = @(& $binary)
-    $exit = $LASTEXITCODE
-    if ($Raw) { $output | ForEach-Object { Write-Host $_ } }
-    $rows = foreach ($line in $output) {
-        if ($line -notmatch '^decode name=') { continue }
-        $fields = @{}
-        foreach ($pair in ($line -split ' ' | Select-Object -Skip 1)) {
-            $key, $value = $pair -split '=', 2
-            $fields[$key] = $value
-        }
-        $pixels = [double]$fields.pixels
-        [pscustomobject]@{
-            Name = $fields.name
-            Ok = $fields.ok
-            Frames = [int]$fields.frames
-            MinUs = [int64]$fields.min_us
-            CyclesPerPixel = if ($pixels) { [math]::Round([double]$fields.min_cycles / $pixels, 2) } else { 0 }
-            MedianVsMin = if ([double]$fields.min_cycles) { [math]::Round([double]$fields.median_cycles / [double]$fields.min_cycles, 3) } else { 0 }
-            OutputKiB = [math]::Round([double]$fields.output_bytes / 1024, 1)
-            ScratchKiB = [math]::Round([double]$fields.scratch_bytes / 1024, 1)
-            # Animations: container parse cycles as a share of one average frame decode.
-            ParsePerFrame = if ($fields.parse_cycles -and [int]$fields.frames) { [math]::Round([double]$fields.parse_cycles * [int]$fields.frames / [double]$fields.min_cycles, 3) } else { '' }
-            Runs = [int]$fields.runs
-            Hash = $fields.hash
+    $output = @()
+    $exit = 0
+    $runs = for ($attempt = 1; $attempt -le $Repeat; $attempt++) {
+        $pass = @(& $binary)
+        if ($LASTEXITCODE -ne 0) { $exit = $LASTEXITCODE }
+        $output += $pass
+        foreach ($line in $pass) {
+            if ($line -notmatch '^decode name=') { continue }
+            $fields = @{}
+            foreach ($pair in ($line -split ' ' | Select-Object -Skip 1)) {
+                $key, $value = $pair -split '=', 2
+                $fields[$key] = $value
+            }
+            $pixels = [double]$fields.pixels
+            [pscustomobject]@{
+                Name = $fields.name
+                Ok = $fields.ok
+                Frames = [int]$fields.frames
+                MinUs = [int64]$fields.min_us
+                CyclesPerPixel = if ($pixels) { [math]::Round([double]$fields.min_cycles / $pixels, 2) } else { 0 }
+                MedianVsMin = if ([double]$fields.min_cycles) { [math]::Round([double]$fields.median_cycles / [double]$fields.min_cycles, 3) } else { 0 }
+                OutputKiB = [math]::Round([double]$fields.output_bytes / 1024, 1)
+                ScratchKiB = [math]::Round([double]$fields.scratch_bytes / 1024, 1)
+                # Animations: container parse cycles as a share of one average frame decode.
+                ParsePerFrame = if ($fields.parse_cycles -and [int]$fields.frames) { [math]::Round([double]$fields.parse_cycles * [int]$fields.frames / [double]$fields.min_cycles, 3) } else { '' }
+                Runs = [int]$fields.runs
+                Hash = $fields.hash
+            }
         }
     }
+    if ($Raw) { $output | ForEach-Object { Write-Host $_ } }
+    # With -Repeat, each item keeps its fastest process (groups keep corpus order).
+    $rows = foreach ($group in ($runs | Group-Object Name)) {
+        $group.Group | Sort-Object MinUs | Select-Object -First 1
+    }
+    $hashes = @($runs | Group-Object Name | Where-Object { @($_.Group.Hash | Sort-Object -Unique).Count -ne 1 })
+    if ($hashes.Count) { throw "Decode outputs differ between repeats: $($hashes.Name -join ', ')." }
     $rows | Format-Table -AutoSize | Out-String -Width 220 | Write-Host
     $output | Where-Object { $_ -match '^decode_(header|memory|stages)' } | ForEach-Object { Write-Host $_ }
     if ($SaveGolden) {

@@ -765,11 +765,12 @@ __forceinline u8 channel(u32 pixel, u32 shift) noexcept {
     return static_cast<u8>(pixel >> shift);
 }
 
-// Per-channel sums and floor averages without carries between channels.
+// Per-channel sums and floor averages without carries between channels. The
+// sum adds the low seven bits of each byte and sets bit 7 by xor; its masked
+// alpha/green plus red/blue form was turned by clang's SLP vectorizer into a
+// two-lane vector sum, slow on the serial left-pixel chain.
 __forceinline u32 add_pixels(u32 first, u32 second) noexcept {
-    const u32 alpha_green = (first & 0xFF00FF00u) + (second & 0xFF00FF00u);
-    const u32 red_blue = (first & 0x00FF00FFu) + (second & 0x00FF00FFu);
-    return (alpha_green & 0xFF00FF00u) | (red_blue & 0x00FF00FFu);
+    return ((first & 0x7F7F7F7Fu) + (second & 0x7F7F7F7Fu)) ^ ((first ^ second) & 0x80808080u);
 }
 
 __forceinline u32 average_pixels(u32 first, u32 second) noexcept {
@@ -809,10 +810,11 @@ __forceinline u32 clamp_add_half(u32 average, u32 top_left) noexcept {
 
 // One run of pixels sharing a predictor mode; top_right of the last pixel in a
 // row is the first pixel of the current row, which is pixels[p - width + 1].
+// The left pixel stays in a register from one pixel to the next.
 template <u32 Mode>
 void predict_run(u32* pixels, u32 begin, u32 end, u32 width) noexcept {
+    u32 left = pixels[begin - 1];
     for (u32 p = begin; p < end; ++p) {
-        const u32 left = pixels[p - 1];
         const u32 top = pixels[p - width];
         u32 predicted = 0;
         if constexpr (Mode == 0) {
@@ -845,7 +847,8 @@ void predict_run(u32* pixels, u32 begin, u32 end, u32 width) noexcept {
         } else {
             predicted = clamp_add_half(average_pixels(left, top), pixels[p - width - 1]);
         }
-        pixels[p] = add_pixels(pixels[p], predicted);
+        left = add_pixels(pixels[p], predicted);
+        pixels[p] = left;
     }
 }
 
@@ -873,9 +876,11 @@ void inverse_predictor(const Transform& transform, const Vp8lWorkspace* workspac
     const u32 block = 1u << transform.size_bits;
     const u32 blocks_wide = (width + block - 1) >> transform.size_bits;
     // read_transforms admitted only modes 0..13 and a map within capacity.
-    pixels[0] = add_pixels(pixels[0], 0xFF000000u);
+    u32 left = add_pixels(pixels[0], 0xFF000000u);
+    pixels[0] = left;
     for (u32 x = 1; x < width; ++x) {
-        pixels[x] = add_pixels(pixels[x], pixels[x - 1]);
+        left = add_pixels(pixels[x], left);
+        pixels[x] = left;
     }
     for (u32 y = 1; y < transform.height; ++y) {
         const u32 row = y * width;

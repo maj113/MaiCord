@@ -1,3 +1,5 @@
+// The view rebuild and its sorts are compiled for speed; the rest of the file
+// is compiled for size by the minsize attribute region after it.
 #include "maicord/model/member_list.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
@@ -221,6 +223,7 @@ MemberListViewResult member_list_view_rebuild(
     return MemberListViewResult{MemberListViewError::none, row_count,
                                              member_count, true};
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace {
 // The status the user's latest presence from any scope implies: one online
@@ -432,3 +435,4 @@ Utf8View member_list_row_label(const MemberListRow& row,
 static_assert(sizeof(MemberListRow) == 40);
 
 } // namespace maicord
+#pragma clang attribute pop

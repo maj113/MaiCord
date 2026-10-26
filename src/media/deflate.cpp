@@ -509,7 +509,11 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             u8* const out = state->output.data;
             u32 position = state->output_bytes;
             const u32 out_limit = state->output.count - kFastOutputMargin;
-            u32 literals = 0, copies = 0;
+            // Output bytes may alias *state, so the window size is read once.
+            const u32 window_size = state->window_size;
+            // Copies in the high half, copied bytes in the low half; every other
+            // output byte is a literal. One register instead of two counters.
+            u64 copied = 0;
             ZlibInflateError error = ZlibInflateError::none;
             bool finished = false;
             do {
@@ -526,13 +530,11 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
                 count -= entry_bits(entry);
                 if (entry_kind(entry) == kEntryLiteral) {
                     out[position++] = static_cast<u8>(entry_value(entry));
-                    ++literals;
                     entry = litlen[bits & kLitlenMask];
                     if (entry_kind(entry) == kEntryLiteral) {
                         bits >>= entry_bits(entry);
                         count -= entry_bits(entry);
                         out[position++] = static_cast<u8>(entry_value(entry));
-                        ++literals;
                     }
                     continue;
                 }
@@ -563,20 +565,20 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
                 const u32 distance = entry_value(entry) + static_cast<u32>(low_bits(bits, entry_extra(entry)));
                 bits >>= entry_extra(entry);
                 count -= entry_extra(entry);
-                if (!distance_available(*state, distance, position)) {
+                if (distance > window_size || distance > position) {
                     error = ZlibInflateError::invalid_distance;
                     break;
                 }
                 copy_match_fast(out + position, distance, length);
                 position += length;
-                ++copies;
+                copied += (u64{1} << 32) | length;
             } while (in <= in_limit && position <= out_limit);
             reader.bit_buffer = low_bits(bits, count);
             reader.bit_count = count;
             reader.next = in;
+            state->literals += position - state->output_bytes - static_cast<u32>(copied);
+            state->copies += static_cast<u32>(copied >> 32);
             state->output_bytes = position;
-            state->literals += literals;
-            state->copies += copies;
             if (finished)
                 return true;
             if (error != ZlibInflateError::none) {

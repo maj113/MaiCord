@@ -84,6 +84,10 @@ maicord_library(maicord_media_codec
     LIBS maicord_core maicord_compression maicord_opus_decoder ntdll
     INCLUDES third_party/minimp3)
 set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+# minimp3's static helpers (bit reader, IMDCT and synthesis stages) inline into
+# the frame decoder (/Ob2), with bit-identical PCM: at /Ob1 MP3 decode takes 25%
+# longer (13,495 vs 10,802 us), slower than the MSVC build, for about 4 KiB.
+set_property(SOURCE src/media/mp3_stream.cpp APPEND PROPERTY COMPILE_OPTIONS /Ob2)
 
 # Voice send encoder; linked only through the account module.
 maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
@@ -324,9 +328,10 @@ set_property(SOURCE src/text/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTION
 maicord_library(maicord_text
     src/ui/text.cpp src/ui/native_text_candidate.cpp src/ui/native_text_catalog.cpp src/core/log.cpp
     LIBS maicord_core maicord_font maicord_ui advapi32 gdi32)
-# Keep the native layout adapter compact while retaining optimization and LTO,
-# and compact only the explicitly scoped cold catalog discovery/publication.
-set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
+# The native layout adapter is compiled for size by a minsize attribute region
+# in its source, which leaves retained-layout publication and the single-line
+# entry optimized for speed; compact only the explicitly scoped cold catalog
+# discovery/publication.
 set_property(SOURCE src/ui/native_text_catalog.cpp APPEND PROPERTY
     COMPILE_DEFINITIONS MAICORD_COMPACT_CATALOG_SETUP=1)
 

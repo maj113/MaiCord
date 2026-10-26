@@ -444,12 +444,16 @@ Mp3DecodeResult mp3_decoder_decode(Mp3Decoder* decoder, ConstSlice<u8> packet, S
         return {Mp3Error::need_preroll};
     if (samples != f.samples)
         return {Mp3Error::malformed};
+    // Reject NaN and infinite samples. The OR has no early exit, so the scan
+    // vectorizes.
+    u32 nonfinite = 0;
     for (u32 i = 0; i < static_cast<u32>(samples) * decoder->channels; ++i) {
         u32 bits{};
         copy_bytes(&bits, pcm.data + i, sizeof(bits));
-        if ((bits & 0x7f800000u) == 0x7f800000u)
-            return {Mp3Error::malformed};
+        nonfinite |= static_cast<u32>((bits & 0x7f800000u) == 0x7f800000u);
     }
+    if (nonfinite)
+        return {Mp3Error::malformed};
     return {Mp3Error::none, static_cast<u32>(samples)};
 }
 void mp3_decoder_release(Mp3Decoder* decoder) noexcept {

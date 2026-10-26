@@ -353,17 +353,50 @@ bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
     return true;
 }
 
+__forceinline u8 huffman_symbol(const ZstdStreamDecoder& d, BackBits* r, u32 bits) noexcept {
+    const ZstdHuffmanEntry entry = d.huffman[back_peek(*r, r->bits - bits, bits)];
+    r->bits -= entry.bits;
+    return entry.symbol;
+}
+
+// Decodes output[from, to) and reports whether the stream ended exactly there.
+// The reader is a local copy: output bytes may alias the caller's.
+__declspec(noinline) bool huffman_finish(const ZstdStreamDecoder& d, BackBits reader, u8* output, u32 from,
+                                         u32 to) noexcept {
+    const u32 bits = d.huffman_bits;
+    for (u32 i = from; i < to; ++i)
+        output[i] = huffman_symbol(d, &reader, bits);
+    return reader.bits == 0;
+}
+
 bool huffman_stream(const ZstdStreamDecoder& d, const u8* source, u32 size, u8* output, u32 count) noexcept {
     BackBits r;
-    if (!back_init(&r, source, size))
+    return back_init(&r, source, size) && huffman_finish(d, r, output, 0, count);
+}
+
+// The four streams of a block in lockstep: each symbol waits on its stream's
+// previous one, so interleaving keeps four lookups in flight instead of one.
+// The last stream is shorter by at most three symbols.
+bool huffman_four_streams(const ZstdStreamDecoder& d, const u8* source, const u32 sizes[4], u8* output,
+                          u32 segment, u32 last) noexcept {
+    BackBits r0, r1, r2, r3;
+    if (!back_init(&r0, source, sizes[0]) || !back_init(&r1, source + sizes[0], sizes[1]) ||
+        !back_init(&r2, source + sizes[0] + sizes[1], sizes[2]) ||
+        !back_init(&r3, source + sizes[0] + sizes[1] + sizes[2], sizes[3]))
         return false;
     const u32 bits = d.huffman_bits;
-    for (u32 i = 0; i < count; ++i) {
-        const ZstdHuffmanEntry entry = d.huffman[back_peek(r, r.bits - bits, bits)];
-        output[i] = entry.symbol;
-        r.bits -= entry.bits;
+    u8* const o1 = output + segment;
+    u8* const o2 = o1 + segment;
+    u8* const o3 = o2 + segment;
+    u32 i = 0;
+    for (; i < last; ++i) {
+        output[i] = huffman_symbol(d, &r0, bits);
+        o1[i] = huffman_symbol(d, &r1, bits);
+        o2[i] = huffman_symbol(d, &r2, bits);
+        o3[i] = huffman_symbol(d, &r3, bits);
     }
-    return r.bits == 0;
+    return huffman_finish(d, r0, output, i, segment) && huffman_finish(d, r1, o1, i, segment) &&
+           huffman_finish(d, r2, o2, i, segment) && r3.bits == 0;
 }
 
 // --------------------------------------------------------------- blocks
@@ -452,21 +485,16 @@ bool decode_literals(ZstdStreamDecoder* d, const u8* source, u32 size, u8* scrat
     } else {
         if (left < 6 || regenerated < 6)
             return false;
-        const u32 sizes[3] = {p[0] | static_cast<u32>(p[1]) << 8, p[2] | static_cast<u32>(p[3]) << 8,
-                              p[4] | static_cast<u32>(p[5]) << 8};
+        u32 sizes[4] = {p[0] | static_cast<u32>(p[1]) << 8, p[2] | static_cast<u32>(p[3]) << 8,
+                        p[4] | static_cast<u32>(p[5]) << 8, 0};
         p += 6;
         left -= 6;
+        if (sizes[0] > left || sizes[1] > left - sizes[0] || sizes[2] > left - sizes[0] - sizes[1])
+            return false;
+        sizes[3] = left - sizes[0] - sizes[1] - sizes[2];
         const u32 segment = (regenerated + 3) / 4;
-        u32 out = 0;
-        for (u32 s = 0; s < 4; ++s) {
-            const u32 stream = s < 3 ? sizes[s] : left;
-            const u32 count = s < 3 ? segment : regenerated - 3 * segment;
-            if (stream > left || !huffman_stream(*d, p, stream, scratch + out, count))
-                return false;
-            p += stream;
-            left -= stream;
-            out += count;
-        }
+        if (!huffman_four_streams(*d, p, sizes, scratch, segment, regenerated - 3 * segment))
+            return false;
     }
     *literals = {scratch, regenerated};
     *consumed = header + compressed;

@@ -2363,6 +2363,21 @@ u8 clamp_sample(float value) noexcept {
     return value <= 0.f ? 0 : value >= 255.f ? 255 : static_cast<u8>(value);
 }
 
+// Box averages of an IDCT block, each summed in y-then-x order. A constant
+// sample count unrolls the sums into independent chains.
+template <u32 Samples> void store_box_totals(const float* columns, u8* plane, u32 pitch) noexcept {
+    constexpr u32 step = 8 / Samples;
+    constexpr float scale = 1.f / static_cast<float>(step * step);
+    for (u32 sy = 0; sy < Samples; ++sy)
+        for (u32 sx = 0; sx < Samples; ++sx) {
+            float total = 0;
+            for (u32 y = sy * step; y < (sy + 1) * step; ++y)
+                for (u32 x = sx * step; x < (sx + 1) * step; ++x)
+                    total += columns[y * 8 + x];
+            plane[sy * pitch + sx] = clamp_sample(total * scale + 128.f);
+        }
+}
+
 // Exact 8x8 IDCT, box-averaged to samples x samples (DC alone at one sample).
 void reconstruct_block(const JpegCoefficientBlock& block, const JpegQuantizationTable& table, u32 samples,
                        u8* plane, u32 pitch) noexcept {
@@ -2414,16 +2429,11 @@ void reconstruct_block(const JpegCoefficientBlock& block, const JpegQuantization
             sum = _mm256_add_ps(sum, _mm256_mul_ps(_mm256_set1_ps(kIdctBasis[y][v]), _mm256_load_ps(rows + v * 8)));
         _mm256_store_ps(columns + y * 8, sum);
     }
-    const u32 step = 8 / samples;
-    const float scale = 1.f / static_cast<float>(step * step);
-    for (u32 sy = 0; sy < samples; ++sy)
-        for (u32 sx = 0; sx < samples; ++sx) {
-            float total = 0;
-            for (u32 y = sy * step; y < (sy + 1) * step; ++y)
-                for (u32 x = sx * step; x < (sx + 1) * step; ++x)
-                    total += columns[y * 8 + x];
-            plane[sy * pitch + sx] = clamp_sample(total * scale + 128.f);
-        }
+    switch (samples) {
+    case 2: store_box_totals<2>(columns, plane, pitch); break;
+    case 4: store_box_totals<4>(columns, plane, pitch); break;
+    default: store_box_totals<8>(columns, plane, pitch); break;
+    }
 }
 
 void reconstruct_component_block(const JpegImage& image, const JpegThumbnailLayout& layout, u8* planes,

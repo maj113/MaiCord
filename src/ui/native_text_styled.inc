@@ -821,7 +821,9 @@ u32 native_text_candidate_hit_style_capacity(const TextSystem& system) noexcept 
     const auto* owner=system.native_text;
     return owner&&owner->last_valid&&owner->last_styled&&(owner->last_mode&1)?owner->styled_parts.count:0;
 }
-// Retained-layout publication is a hot path even when shape preparation is cached.
+// Retained-layout publication is a hot path even when shape preparation is
+// cached: compiled for speed inside the size-optimized adapter.
+#pragma clang attribute pop
 bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
     ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow,ConstSlice<TextHitRange> hits,NativeParagraphHitStorage* editor,
     Slice<NativeParagraphLineFit> fit,NativeParagraphLayout* planning,NativeTrimPlanScratch* plan_storage=nullptr,bool require_styled=false) noexcept {
@@ -927,6 +929,7 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     }else{*measure={S_OK,layout.width,layout.extent,layout.height,shape.source_units,layout.line_count,TextShapeError::none};++owner.measured;++owner.paragraphs_measured;}
     return true;
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 bool native_text_candidate_styled_once(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
     ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow,ConstSlice<TextHitRange> hits,NativeParagraphHitStorage* editor) noexcept {
