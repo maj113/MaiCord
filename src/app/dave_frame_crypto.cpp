@@ -7,9 +7,12 @@
 
 namespace maicord {
 namespace {
-DaveOpenResult failure(DaveOpenError error, u32 scratch = 0, DaveFrameError frame = DaveFrameError::none,
-                       AeadResult crypto = {}, bool attempted = false) noexcept {
+DaveOpenResult failure(DaveOpenError error, u32 scratch, DaveFrameError frame, const AeadResult& crypto,
+                       bool attempted) noexcept {
     return {0, 0, scratch, error, frame, crypto, attempted};
+}
+DaveOpenResult failure(DaveOpenError error, u32 scratch = 0, DaveFrameError frame = DaveFrameError::none) noexcept {
+    return {0, 0, scratch, error, frame, {}, false};
 }
 bool protected_alias(ConstSlice<u8> span, const DaveFrameKey& key, const DaveReplay& replay,
                      const DaveFrameView& view, ConstSlice<u8> ranges) noexcept {

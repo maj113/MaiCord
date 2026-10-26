@@ -3,6 +3,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/client_session_metadata.hpp"
+#include "maicord/app/user_client_configuration.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/app/voice_receive.hpp"
 #include "maicord/app/gateway_stream_session.hpp"
@@ -28,6 +29,7 @@
 #include "gateway_dispatch_common.hpp"
 #include "gateway_relationship_dispatch.hpp"
 #include "gateway_ready_projection.hpp"
+#include "../protocol/json_field_lists.hpp"
 #include "gateway_subscription_thread_owner.hpp"
 #include "gateway_self_status_owner.hpp"
 #include "maicord/app/gateway_member_request_owner.hpp"
@@ -374,30 +376,26 @@ void trim_message_banks(GatewayClientRuntime* runtime) noexcept {
     }
 }
 
-void release_main_index(GatewayClientRuntime* runtime) noexcept {
-    if (runtime->structural_scratch.arena.base)
-        SecureZeroMemory(runtime->structural_scratch.arena.base,
-                         runtime->structural_scratch.arena.committed);
-    stable_storage_release(&runtime->structural_scratch);
+void wipe_storage(const StableStorage& storage) noexcept {
+    if (storage.arena.base)
+        SecureZeroMemory(storage.arena.base, storage.arena.committed);
+}
+
+void release_wiped_storage(StableStorage* storage) noexcept {
+    wipe_storage(*storage);
+    stable_storage_release(storage);
 }
 
 void release_runtime_allocation(GatewayClient* client) noexcept {
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     const u32 bytes = runtime->allocation_bytes;
-    release_main_index(runtime);
+    release_wiped_storage(&runtime->structural_scratch);
     reserved_bytes_release(&runtime->large_record);
     reserved_bytes_release(&runtime->ready_staging);
     reserved_bytes_release(&runtime->compressed_spill);
-    if (runtime->decoded_message.arena.base)
-        SecureZeroMemory(runtime->decoded_message.arena.base, runtime->decoded_message.arena.committed);
-    stable_storage_release(&runtime->decoded_message);
-    if (runtime->zstd_storage.arena.base)
-        SecureZeroMemory(runtime->zstd_storage.arena.base, runtime->zstd_storage.arena.committed);
-    stable_storage_release(&runtime->zstd_storage);
-    if (runtime->ready_record_index.arena.base)
-        SecureZeroMemory(runtime->ready_record_index.arena.base,
-                         runtime->ready_record_index.arena.committed);
-    stable_storage_release(&runtime->ready_record_index);
+    release_wiped_storage(&runtime->decoded_message);
+    release_wiped_storage(&runtime->zstd_storage);
+    release_wiped_storage(&runtime->ready_record_index);
     if (runtime->self_status_group) {
         SecureZeroMemory(runtime->self_status_group, kSelfStatusSettingsMaximumGroupBytes);
         VirtualFree(runtime->self_status_group, 0, MEM_RELEASE);
@@ -415,6 +413,16 @@ GatewayClientRuntime* user_runtime(const GatewayClient* client) noexcept {
     auto* runtime =
         client && client->runtime ? static_cast<GatewayClientRuntime*>(client->runtime) : nullptr;
     return is_user(runtime) ? runtime : nullptr;
+}
+
+// The runtime of a started user client whose worker is neither stopping nor failed.
+GatewayClientRuntime* live_user_runtime(GatewayClient* client) noexcept {
+    if (!client || !client->runtime || !client->worker.thread)
+        return nullptr;
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    return runtime->identity == GatewayClientIdentity::normal_user && !runtime->stopping && !runtime->failed
+               ? runtime
+               : nullptr;
 }
 
 ClientSessionMetadata* session_metadata(const GatewayClientRuntime* runtime) noexcept {
@@ -524,23 +532,8 @@ template <u32 Capacity> Utf8View user_text(const GatewayUserTextStorage<Capacity
 // The launch's first identify is the desktop page's fast-connect one; the
 // page's own module instance gives it a launch ID of its own.
 volatile LONG fast_connect_taken;
-bool take_fast_connect(char (&launch_id)[kGatewayUserLaunchIdBytes]) noexcept {
-    if (InterlockedCompareExchange(&fast_connect_taken, 1, 0) != 0)
-        return false;
-    u8 uuid[16];
-    if (!secure_random_fill(Slice<u8>{uuid, sizeof(uuid)}).ok())
-        return false;
-    uuid[6] = static_cast<u8>((uuid[6] & 0x0F) | 0x40);
-    uuid[8] = static_cast<u8>((uuid[8] & 0x3F) | 0x80);
-    u32 at = 0;
-    for (u32 i = 0; i < 16; ++i) {
-        if (i == 4 || i == 6 || i == 8 || i == 10)
-            launch_id[at++] = '-';
-        launch_id[at++] = ascii_hex_digit(uuid[i] >> 4);
-        launch_id[at++] = ascii_hex_digit(uuid[i]);
-    }
-    SecureZeroMemory(uuid, sizeof(uuid));
-    return true;
+bool take_fast_connect(char (&launch_id)[kGatewayUserLaunchIdBytes + 1]) noexcept {
+    return InterlockedCompareExchange(&fast_connect_taken, 1, 0) == 0 && user_client_random_uuid(launch_id);
 }
 
 // The heartbeat QoS activity identify reports (the upcoming state, else the current one).
@@ -548,22 +541,49 @@ bool qos_active(const GatewayQosState& qos) noexcept {
     return qos.has_upcoming ? qos.upcoming.active : qos.has_current && qos.current.active;
 }
 
+// The user text fields in GatewayUserProperties order (its first twelve views, then launch_signature) and where
+// each lives in GatewayUserRuntime.
+struct UserTextSlot {
+    u16 data, bytes;
+};
+#define MAICORD_USER_TEXT_SLOT(field)                                                       \
+    {static_cast<u16>(__builtin_offsetof(GatewayUserRuntime, field.data)),                   \
+     static_cast<u16>(__builtin_offsetof(GatewayUserRuntime, field.bytes))}
+constexpr UserTextSlot kUserTextSlots[]{
+    MAICORD_USER_TEXT_SLOT(operating_system), MAICORD_USER_TEXT_SLOT(browser),
+    MAICORD_USER_TEXT_SLOT(release_channel),  MAICORD_USER_TEXT_SLOT(client_version),
+    MAICORD_USER_TEXT_SLOT(os_version),       MAICORD_USER_TEXT_SLOT(os_arch),
+    MAICORD_USER_TEXT_SLOT(app_arch),         MAICORD_USER_TEXT_SLOT(system_locale),
+    MAICORD_USER_TEXT_SLOT(client_launch_id), MAICORD_USER_TEXT_SLOT(browser_user_agent),
+    MAICORD_USER_TEXT_SLOT(browser_version),  MAICORD_USER_TEXT_SLOT(os_sdk_version),
+    MAICORD_USER_TEXT_SLOT(launch_signature)};
+#undef MAICORD_USER_TEXT_SLOT
+inline constexpr u32 kUserTextViews = 12;
+static_assert(__builtin_offsetof(GatewayUserProperties, operating_system) == 0 &&
+              __builtin_offsetof(GatewayUserProperties, os_sdk_version) == (kUserTextViews - 1) * sizeof(Utf8View));
+
+Utf8View load_user_text(const GatewayUserRuntime& user, const UserTextSlot& slot) noexcept {
+    const auto* storage = reinterpret_cast<const u8*>(&user);
+    return {reinterpret_cast<const char*>(storage + slot.data), *reinterpret_cast<const u32*>(storage + slot.bytes)};
+}
+
+void store_user_text(GatewayUserRuntime* user, const UserTextSlot& slot, const Utf8View& text) noexcept {
+    auto* storage = reinterpret_cast<u8*>(user);
+    copy_bytes(storage + slot.data, text.data, text.bytes);
+    *reinterpret_cast<u32*>(storage + slot.bytes) = text.bytes;
+}
+
 // heartbeat_id backs the request-time heartbeat session the live metadata reports.
 GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token,
                                   char (&heartbeat_id)[kGatewayUserLaunchIdBytes]) noexcept {
-    GatewayUserIdentify identify{
-        token,
-        GatewayUserProperties{user_text(user.operating_system), user_text(user.browser),
-                              user_text(user.release_channel), user_text(user.client_version),
-                              user_text(user.os_version), user_text(user.os_arch), user_text(user.app_arch),
-                              user_text(user.system_locale), user_text(user.client_launch_id),
-                              user_text(user.browser_user_agent), user_text(user.browser_version),
-                              user_text(user.os_sdk_version), user.client_build_number,
-                              user.native_build_number, user_text(user.launch_signature)},
-        user.since_ms,
-        user.status,
-        user.has_since,
-        user.afk};
+    GatewayUserIdentify identify{token, {}, user.since_ms, user.status, user.has_since, user.afk};
+    auto& properties = identify.properties;
+    auto* views = reinterpret_cast<Utf8View*>(&properties);
+    for (u32 i = 0; i != kUserTextViews; ++i)
+        views[i] = load_user_text(user, kUserTextSlots[i]);
+    properties.launch_signature = load_user_text(user, kUserTextSlots[kUserTextViews]);
+    properties.client_build_number = user.client_build_number;
+    properties.native_build_number = user.native_build_number;
     if (user.session_metadata) {
         const GatewayUserProperties live =
             client_session_metadata_properties(user.session_metadata, heartbeat_id);
@@ -577,28 +597,13 @@ GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token
     return identify;
 }
 
-template <u32 Capacity>
-void copy_user_text(GatewayUserTextStorage<Capacity>* output, Utf8View input) noexcept {
-    copy_bytes(output->data, input.data, input.bytes);
-    output->bytes = input.bytes;
-}
-
 void store_user_configuration(GatewayUserRuntime* user,
                               const GatewayUserClientConfiguration& configuration) noexcept {
     const GatewayUserProperties& properties = configuration.properties;
-    copy_user_text(&user->operating_system, properties.operating_system);
-    copy_user_text(&user->browser, properties.browser);
-    copy_user_text(&user->release_channel, properties.release_channel);
-    copy_user_text(&user->client_version, properties.client_version);
-    copy_user_text(&user->os_version, properties.os_version);
-    copy_user_text(&user->os_arch, properties.os_arch);
-    copy_user_text(&user->app_arch, properties.app_arch);
-    copy_user_text(&user->system_locale, properties.system_locale);
-    copy_user_text(&user->client_launch_id, properties.client_launch_id);
-    copy_user_text(&user->browser_user_agent, properties.browser_user_agent);
-    copy_user_text(&user->browser_version, properties.browser_version);
-    copy_user_text(&user->os_sdk_version, properties.os_sdk_version);
-    copy_user_text(&user->launch_signature, properties.launch_signature);
+    const auto* views = reinterpret_cast<const Utf8View*>(&properties);
+    for (u32 i = 0; i != kUserTextViews; ++i)
+        store_user_text(user, kUserTextSlots[i], views[i]);
+    store_user_text(user, kUserTextSlots[kUserTextViews], properties.launch_signature);
     user->client_build_number = properties.client_build_number;
     user->native_build_number = properties.native_build_number;
     user->session_metadata = configuration.metadata;
@@ -947,14 +952,10 @@ void clear_user_transport(GatewayClientRuntime* runtime) noexcept {
         return;
     }
     zstd_stream_clear(&runtime->user->zstd);
-    if (runtime->zstd_storage.arena.base)
-        SecureZeroMemory(runtime->zstd_storage.arena.base, runtime->zstd_storage.arena.committed);
+    wipe_storage(runtime->zstd_storage);
     SecureZeroMemory(runtime->handshake_output, kHandshakeBytes);
-    if (runtime->decoded_message.arena.base)
-        SecureZeroMemory(runtime->decoded_message.arena.base, runtime->decoded_message.arena.committed);
-    if (runtime->ready_record_index.arena.base)
-        SecureZeroMemory(runtime->ready_record_index.arena.base,
-                         runtime->ready_record_index.arena.committed);
+    wipe_storage(runtime->decoded_message);
+    wipe_storage(runtime->ready_record_index);
 }
 
 struct SelfSettingsJson {
@@ -966,12 +967,8 @@ struct SelfSettingsJson {
 };
 bool self_settings_json_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& parsed = *static_cast<SelfSettingsJson*>(opaque);
-    const u8 field = json_string_equals_ascii(key, utf8_literal("settings"))      ? 1
-                     : json_string_equals_ascii(key, utf8_literal("proto"))       ? 2
-                     : json_string_equals_ascii(key, utf8_literal("type"))        ? 4
-                     : json_string_equals_ascii(key, utf8_literal("partial"))     ? 8
-                     : json_string_equals_ascii(key, utf8_literal("out_of_date")) ? 16
-                                                                                  : 0;
+    const u8 field = static_cast<u8>(
+        protocol_detail::member_bit<"settings", "proto", "type", "partial", "out_of_date">(key));
     if (!field)
         return true;
     if (parsed.seen & field)
@@ -1587,7 +1584,7 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
 // fast-connect one, later ones carry the connect reasons and QoS token.
 GatewayCommandWriteResult write_user_identify_command(GatewayClientRuntime* runtime, Utf8View token) noexcept {
     char heartbeat_id[kGatewayUserLaunchIdBytes];
-    char fast_connect_id[kGatewayUserLaunchIdBytes];
+    char fast_connect_id[kGatewayUserLaunchIdBytes + 1];
     char qos_token[kGatewayQosTokenMaximumBytes];
     auto identify = user_identify(*runtime->user, token, heartbeat_id);
     if (take_fast_connect(fast_connect_id)) {
@@ -2114,6 +2111,32 @@ void checkpoint_resume_sequence(GatewayClientRuntime* runtime) noexcept {
         publish_resume_sequence(runtime, runtime->session.lifecycle.last_sequence);
 }
 
+// A decode failure as a route failure.
+void set_decode_failure(GatewayClientDispatchRouteResult* routed, const GatewayEventDecodeResult& decoded) noexcept {
+    routed->error = GatewayClientDispatchRouteError::decode;
+    routed->event_error = decoded.error;
+    routed->scan_error = decoded.scan_error;
+    routed->read_error = decoded.read_error;
+    routed->error_offset = decoded.error_offset;
+}
+
+// A route failure's categorical codes, kept for the terminal failure report.
+void note_route_error(GatewayClientRuntime* runtime, const GatewayClientDispatchRouteResult& route) noexcept {
+    runtime->event_decode_error = route.event_error;
+    runtime->json_scan_error = route.scan_error;
+    runtime->json_read_error = route.read_error;
+    runtime->route_error_offset = route.error_offset;
+    runtime->route_detail = route.detail;
+}
+
+void set_route_error(GatewayClientEvent* event, const GatewayClientDispatchRouteResult& route) noexcept {
+    event->event_decode_error = route.event_error;
+    event->json_scan_error = route.scan_error;
+    event->json_read_error = route.read_error;
+    event->route_error_offset = route.error_offset;
+    event->route_detail = route.detail;
+}
+
 PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     for (;;) {
         trim_message_banks(runtime);
@@ -2231,11 +2254,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 captured_state.sequence, now_ms, publish_ready_projection, ready_projection_work, &binding);
             settle_large_record(runtime);
             if (!projection.ok()) {
-                runtime->event_decode_error = projection.route.event_error;
-                runtime->json_scan_error = projection.route.scan_error;
-                runtime->json_read_error = projection.route.read_error;
-                runtime->route_error_offset = projection.route.error_offset;
-                runtime->route_detail = projection.route.detail;
+                note_route_error(runtime, projection.route);
                 const GatewayClientFailureStage stage =
                     projection.failure_stage == GatewayClientFailureStage::none ? GatewayClientFailureStage::ready_route
                                                                                 : projection.failure_stage;
@@ -2257,11 +2276,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 diagnostic.kind = GatewayClientEventKind::reconnecting;
                 diagnostic.error = GatewayClientError::session;
                 diagnostic.failure_stage = stage;
-                diagnostic.event_decode_error = projection.route.event_error;
-                diagnostic.json_scan_error = projection.route.scan_error;
-                diagnostic.json_read_error = projection.route.read_error;
-                diagnostic.route_error_offset = projection.route.error_offset;
-                diagnostic.route_detail = projection.route.detail;
+                set_route_error(&diagnostic, projection.route);
                 publish_event(runtime, diagnostic);
                 u32 random = 0;
                 if (!secure_random_u32(&random).ok())
@@ -2283,14 +2298,9 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 degraded.kind = GatewayClientEventKind::dispatch;
                 degraded.dispatch_kind = GatewayClientDispatchKind::unknown;
                 degraded.failure_stage = GatewayClientFailureStage::ready_guild_route;
-                degraded.event_decode_error =
-                    projection.degraded_route.event_error != GatewayEventDecodeError::none
-                        ? projection.degraded_route.event_error
-                        : GatewayEventDecodeError::invalid_data;
-                degraded.json_scan_error = projection.degraded_route.scan_error;
-                degraded.json_read_error = projection.degraded_route.read_error;
-                degraded.route_error_offset = projection.degraded_route.error_offset;
-                degraded.route_detail = projection.degraded_route.detail;
+                set_route_error(&degraded, projection.degraded_route);
+                if (degraded.event_decode_error == GatewayEventDecodeError::none)
+                    degraded.event_decode_error = GatewayEventDecodeError::invalid_data;
                 degraded.native_error = projection.degraded_guilds;
                 degraded.sequence = captured_state.sequence;
                 degraded.has_sequence = true;
@@ -2344,10 +2354,27 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             continue;
         }
         if (event.kind == GatewaySessionEventKind::dispatch) {
-            const auto named = [&](Utf8View name) noexcept {
-                return json_string_equals_ascii(event.envelope.event_name, name);
+            // The events this handler routes itself, in list order.
+            enum class Named : u32 {
+                rate_limited,
+                user_settings,
+                voice_batch,
+                voice_update,
+                passive_update,
+                supplemental,
+                poll_votes,
+                reactions,
+                guild_create
             };
-            if (named(utf8_literal("RATE_LIMITED"))) {
+            const auto named = static_cast<Named>(protocol_detail::member_index<
+                "RATE_LIMITED", "USER_SETTINGS_PROTO_UPDATE", "VOICE_STATE_UPDATE_BATCH", "VOICE_STATE_UPDATE",
+                "PASSIVE_UPDATE_V2", "READY_SUPPLEMENTAL", "MESSAGE_POLL_VOTE_ADD_MANY",
+                "MESSAGE_REACTION_ADD_MANY", "GUILD_CREATE">(event.envelope.event_name));
+            // Neither grows while one dispatch is handled.
+            const Slice<u32> index = main_index_view(runtime);
+            const Slice<char> scratch = dispatch_scratch(runtime);
+            RelationshipStreamBinding binding{client, runtime};
+            if (named == Named::rate_limited) {
                 GatewayRateLimited limited{};
                 u32 rate_structurals[64]{};
                 const auto decoded =
@@ -2364,58 +2391,55 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 checkpoint_resume_sequence(runtime);
                 continue;
             }
-            if (named(utf8_literal("USER_SETTINGS_PROTO_UPDATE"))) {
+            if (named == Named::user_settings) {
                 self_settings_dispatch(client, runtime, event.envelope.data.source);
                 settings_stores_dispatch(client, runtime, event.envelope, now_ms);
             }
             // STREAM_* carry the stream token: consumed here, never mailboxed.
-            if (gateway_stream_dispatch(&runtime->stream.control, event.envelope, main_index_view(runtime), 64,
+            if (gateway_stream_dispatch(&runtime->stream.control, event.envelope, index, 64,
                                         now_ms)) {
                 publish_voice_snapshot(client, runtime);
                 checkpoint_resume_sequence(runtime);
                 continue;
             }
-            if (gateway_voice_dispatch(&runtime->voice, event.envelope, main_index_view(runtime), 64,
+            if (gateway_voice_dispatch(&runtime->voice, event.envelope, index, 64,
                                        now_ms)) {
                 publish_voice_snapshot(client, runtime);
-                const bool batch = named(utf8_literal("VOICE_STATE_UPDATE_BATCH"));
-                RelationshipStreamBinding voice_binding{client, runtime};
-                if ((batch || named(utf8_literal("VOICE_STATE_UPDATE"))) &&
+                const bool batch = named == Named::voice_batch;
+                if ((batch || named == Named::voice_update) &&
                     !gateway_client_publish_voice_states(
                         event.envelope.data,
                         batch ? GatewayVoiceStateSource::batch : GatewayVoiceStateSource::update, 0,
-                        main_index_view(runtime), dispatch_scratch(runtime), event.envelope.sequence,
-                        now_ms, publish_relationship_stream, &voice_binding))
+                        index, scratch, event.envelope.sequence,
+                        now_ms, publish_relationship_stream, &binding))
                     return resume_reconnect(client, runtime, now_ms);
                 checkpoint_resume_sequence(runtime);
                 continue;
             }
-            if (named(utf8_literal("PASSIVE_UPDATE_V2"))) {
+            if (named == Named::passive_update) {
                 // Other members' voice joins/moves/leaves in passively synced
                 // guilds; the rest of the document keeps its existing route.
-                RelationshipStreamBinding passive_binding{client, runtime};
                 if (!gateway_client_publish_passive_voice_states(
-                        event.envelope.data, main_index_view(runtime), dispatch_scratch(runtime),
-                        event.envelope.sequence, now_ms, publish_relationship_stream, &passive_binding))
+                        event.envelope.data, index, scratch,
+                        event.envelope.sequence, now_ms, publish_relationship_stream, &binding))
                     return resume_reconnect(client, runtime, now_ms);
             }
             GatewayClientEvent dispatch{};
             ConstSlice<u8> dispatch_payload{};
-            u64 bulk_ids[kGatewayBulkDeleteMaximumIds]{};
+            u64 bulk_ids[kGatewayBulkDeleteMaximumIds]; // Only the ids the decoder counts are ever read.
             GatewayClientDispatchRouteResult routed{};
-            const bool supplemental = named(utf8_literal("READY_SUPPLEMENTAL"));
-            const bool vote_batch = named(utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY"));
-            const bool reaction_batch = vote_batch || named(utf8_literal("MESSAGE_REACTION_ADD_MANY"));
+            const bool supplemental = named == Named::supplemental;
+            const bool vote_batch = named == Named::poll_votes;
+            const bool reaction_batch = vote_batch || named == Named::reactions;
             if (reaction_batch) {
                 runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
-                RelationshipStreamBinding binding{client, runtime};
                 const auto batch =
                     vote_batch
-                        ? gateway_client_publish_poll_vote_batch(event.envelope, main_index_view(runtime), 64,
+                        ? gateway_client_publish_poll_vote_batch(event.envelope, index, 64,
                                                                  now_ms, publish_relationship_stream, &binding,
                                                                  &runtime->reaction_batch)
                         : gateway_client_publish_reaction_batch(
-                              event.envelope, main_index_view(runtime), 64,
+                              event.envelope, index, 64,
                               {reinterpret_cast<char*>(runtime->handshake_output + kMessageBytes),
                                kMessageReactionMaximumEmojiNameBytes},
                               now_ms, publish_relationship_stream, &binding, &runtime->reaction_batch);
@@ -2426,25 +2450,15 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     checkpoint_resume_sequence(runtime);
                     continue;
                 }
-                routed.error = GatewayClientDispatchRouteError::decode;
-                routed.event_error = batch.decoded.error;
-                routed.scan_error = batch.decoded.scan_error;
-                routed.read_error = batch.decoded.read_error;
-                routed.error_offset = batch.decoded.error_offset;
-                dispatch.kind = GatewayClientEventKind::dispatch;
-                dispatch.sequence = event.envelope.sequence;
-                dispatch.has_sequence = event.envelope.has_sequence;
+                set_decode_failure(&routed, batch.decoded);
             } else if (supplemental) {
                 runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+                const Slice<u32> objects = object_scratch(runtime);
                 JsonValue channels{};
                 const auto decoded = gateway_decode_supplemental_private_channels(
-                    event.envelope.data, main_index_view(runtime), 64, &channels);
+                    event.envelope.data, index, 64, &channels);
                 if (!decoded.ok()) {
-                    routed.error = GatewayClientDispatchRouteError::decode;
-                    routed.event_error = decoded.error;
-                    routed.scan_error = decoded.scan_error;
-                    routed.read_error = decoded.read_error;
-                    routed.error_offset = decoded.error_offset;
+                    set_decode_failure(&routed, decoded);
                 } else if (channels.kind == JsonValueKind::array) {
                     const auto published =
                         publish_ready_state(client, runtime, channels, ReadyRecordKind::private_channel,
@@ -2456,37 +2470,33 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 if (routed.ok()) {
                     JsonValue merged{};
                     routed = gateway_relationship_merged_presences(event.envelope.data,
-                                                                   main_index_view(runtime), &merged);
+                                                                   index, &merged);
                     if (routed.ok()) {
-                        RelationshipStreamBinding binding{client, runtime};
                         routed = gateway_client_publish_friend_presences(
-                            merged, main_index_view(runtime), object_scratch(runtime),
+                            merged, index, objects,
                             event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
                     }
                 }
                 // Server presences' rich activities; the member list carries their status.
                 if (routed.ok()) {
-                    RelationshipStreamBinding binding{client, runtime};
                     routed = gateway_client_publish_guild_presences(
-                        event.envelope.data, main_index_view(runtime), object_scratch(runtime),
+                        event.envelope.data, index, objects,
                         event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
                 }
                 // Initial voice states of the other members arrive only here;
                 // READY guilds carry none. Malformed guild rows are skipped.
                 if (routed.ok()) {
-                    RelationshipStreamBinding voice_binding{client, runtime};
                     if (!gateway_client_publish_supplemental_voice_states(
-                            event.envelope.data, main_index_view(runtime), object_scratch(runtime),
-                            dispatch_scratch(runtime), event.envelope.sequence, now_ms,
-                            publish_relationship_stream, &voice_binding))
+                            event.envelope.data, index, objects,
+                            scratch, event.envelope.sequence, now_ms,
+                            publish_relationship_stream, &binding))
                         return resume_reconnect(client, runtime, now_ms);
                 }
                 if (routed.ok()) {
-                    RelationshipStreamBinding member_binding{client, runtime};
                     if (!gateway_ready_publish_supplemental_members(
-                             event.envelope.data, runtime->self_user_id, main_index_view(runtime),
-                             object_scratch(runtime), dispatch_scratch(runtime), event.envelope.sequence,
-                             now_ms, publish_relationship_stream, &member_binding)
+                             event.envelope.data, runtime->self_user_id, index,
+                             objects, scratch, event.envelope.sequence,
+                             now_ms, publish_relationship_stream, &binding)
                              .ok())
                         return resume_reconnect(client, runtime, now_ms);
                 }
@@ -2504,27 +2514,20 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     continue;
                 }
                 runtime->mailbox_deadline_ms = 0;
-                dispatch.kind = GatewayClientEventKind::dispatch;
-                dispatch.sequence = event.envelope.sequence;
-                dispatch.has_sequence = event.envelope.has_sequence;
             } else
                 routed = gateway_client_route_dispatch_large(
-                    event.envelope, main_index_view(runtime), 64,
+                    event.envelope, index, 64,
                     // The first half owns the decompressed envelope until routing
                     // completes. Message decoding revisits author/mention/rich
                     // JsonValue slices after copying content, so its output must
                     // use the disjoint second half. Aliasing these buffers
                     // corrupts the source in place and surfaces later as an
                     // unterminated string.
-                    dispatch_scratch(runtime), Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds},
+                    scratch, Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds},
                     runtime->self_user_id, {acquire_large_record, runtime}, &dispatch, &dispatch_payload);
             if (!routed.ok()) {
                 settle_large_record(runtime);
-                runtime->event_decode_error = routed.event_error;
-                runtime->json_scan_error = routed.scan_error;
-                runtime->json_read_error = routed.read_error;
-                runtime->route_error_offset = routed.error_offset;
-                runtime->route_detail = routed.detail;
+                note_route_error(runtime, routed);
                 // A schema/size failure in one evolving server dispatch must
                 // not tear down an otherwise healthy Gateway. Queue a
                 // pointer-free recovery marker; the UI catches up message
@@ -2538,8 +2541,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 // A joined guild that cannot be projected is still listed,
                 // as unavailable, instead of silently missing.
                 GatewayClientEvent placeholder{};
-                if (named(utf8_literal("GUILD_CREATE")) &&
-                    gateway_client_route_guild_placeholder(event.envelope.data, main_index_view(runtime), 64,
+                if (named == Named::guild_create &&
+                    gateway_client_route_guild_placeholder(event.envelope.data, index, 64,
                                                            &placeholder)) {
                     placeholder.timestamp_ms = now_ms;
                     placeholder.sequence = event.envelope.sequence;
@@ -2554,7 +2557,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 InterlockedExchange(&client->required_action, static_cast<LONG>(dispatch.required_action));
             if (dispatch.dispatch_kind == GatewayClientDispatchKind::guild_members_chunk) {
                 GatewayMemberChunkReceipt receipt{};
-                if (gateway_decode_member_chunk_receipt(event.envelope.data, main_index_view(runtime), 64,
+                if (gateway_decode_member_chunk_receipt(event.envelope.data, index, 64,
                                                         &receipt)
                         .ok()) {
                     AcquireSRWLockExclusive(&runtime->subscription_lock);
@@ -2574,23 +2577,22 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 AcquireSRWLockExclusive(&runtime->subscription_lock);
                 gateway_channel_info_forget(&runtime->channel_info, dispatch.state.id);
                 ReleaseSRWLockExclusive(&runtime->subscription_lock);
-                RelationshipStreamBinding guild_voice{client, runtime};
                 if (!gateway_client_publish_stage_instances(
-                        event.envelope.data, dispatch.state.id, main_index_view(runtime),
-                        dispatch_scratch(runtime), event.envelope.sequence, now_ms,
-                        publish_relationship_stream, &guild_voice) ||
+                        event.envelope.data, dispatch.state.id, index,
+                        scratch, event.envelope.sequence, now_ms,
+                        publish_relationship_stream, &binding) ||
                     !gateway_client_publish_scheduled_events(
-                        event.envelope.data, dispatch.state.id, main_index_view(runtime),
-                        dispatch_scratch(runtime), event.envelope.sequence, now_ms,
-                        publish_relationship_stream, &guild_voice) ||
+                        event.envelope.data, dispatch.state.id, index,
+                        scratch, event.envelope.sequence, now_ms,
+                        publish_relationship_stream, &binding) ||
                     !gateway_client_publish_voice_states(
                         event.envelope.data, GatewayVoiceStateSource::guild, dispatch.state.id,
-                        main_index_view(runtime), dispatch_scratch(runtime), event.envelope.sequence,
-                        now_ms, publish_relationship_stream, &guild_voice) ||
+                        index, scratch, event.envelope.sequence,
+                        now_ms, publish_relationship_stream, &binding) ||
                     !gateway_client_publish_guild_stickers(
-                        event.envelope.data, dispatch.state.id, main_index_view(runtime),
-                        dispatch_scratch(runtime), event.envelope.sequence, now_ms,
-                        publish_relationship_stream, &guild_voice))
+                        event.envelope.data, dispatch.state.id, index,
+                        scratch, event.envelope.sequence, now_ms,
+                        publish_relationship_stream, &binding))
                     return resume_reconnect(client, runtime, now_ms);
             }
             checkpoint_resume_sequence(runtime);
@@ -3009,6 +3011,19 @@ GatewayClientResult fail_start(GatewayClient* client, GatewayClientError error, 
     return result(client);
 }
 
+// Closes the events a failed start created so far; the ones not created yet are null.
+void close_start_events(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
+    if (runtime->mailbox_space)
+        CloseHandle(runtime->mailbox_space);
+    if (runtime->mailbox_cancel)
+        CloseHandle(runtime->mailbox_cancel);
+    if (client->notification_event)
+        CloseHandle(client->notification_event);
+    if (client->state_event)
+        CloseHandle(client->state_event);
+    client->state_event = client->notification_event = nullptr;
+}
+
 GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential,
                                  const AccountProfileMetadata* user_metadata,
                                  const GatewayUserClientConfiguration* user_configuration,
@@ -3093,8 +3108,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     client->notification_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!client->notification_event) {
         const u32 native_error = thread_last_error();
-        CloseHandle(client->state_event);
-        client->state_event = nullptr;
+        close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::event, native_error);
     }
     runtime->mailbox_space = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -3102,21 +3116,12 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         runtime->mailbox_space ? CreateEventW(nullptr, TRUE, FALSE, nullptr) : nullptr;
     if (!runtime->mailbox_space || !runtime->mailbox_cancel) {
         const u32 native_error = thread_last_error();
-        if (runtime->mailbox_space)
-            CloseHandle(runtime->mailbox_space);
-        if (runtime->mailbox_cancel)
-            CloseHandle(runtime->mailbox_cancel);
-        CloseHandle(client->notification_event);
-        CloseHandle(client->state_event);
-        client->state_event = client->notification_event = nullptr;
+        close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::event, native_error);
     }
     if (credential) {
         if (!secure_buffer_transfer(&runtime->credential, credential)) {
-            CloseHandle(runtime->mailbox_space);
-            CloseHandle(runtime->mailbox_cancel);
-            CloseHandle(client->notification_event);
-            CloseHandle(client->state_event);
+            close_start_events(client, runtime);
             release_runtime_allocation(client);
             reset_value<GatewayClient>(client);
             return invalid_input_result();
@@ -3129,12 +3134,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         if (credential && runtime->credential.data) {
             secure_buffer_transfer(credential, &runtime->credential);
         }
-        CloseHandle(client->notification_event);
-        CloseHandle(client->state_event);
-        CloseHandle(runtime->mailbox_space);
-        CloseHandle(runtime->mailbox_cancel);
-        client->state_event = nullptr;
-        client->notification_event = nullptr;
+        close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::worker, started.native_error);
     }
     return result(client);
@@ -3165,18 +3165,6 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
 bool gateway_client_ready_matches_identity(GatewayClientIdentity identity,
                                            const GatewayReady& ready) noexcept {
     return identity == GatewayClientIdentity::normal_user && ready.api_version == 9;
-}
-
-GatewayClientResult gateway_client_wait_hello(GatewayClient* client, u32 timeout_milliseconds) noexcept {
-    if (!client || !client->state_event)
-        return invalid_input_result();
-    const DWORD waited = WaitForSingleObject(client->state_event, timeout_milliseconds);
-    GatewayClientResult value = result(client);
-    if (waited == WAIT_TIMEOUT && value.error == GatewayClientError::none) {
-        value.error = GatewayClientError::timeout;
-        value.native_error = WAIT_TIMEOUT;
-    }
-    return value;
 }
 
 GatewayClientResult stop_client(GatewayClient* client, u32 timeout_milliseconds,
@@ -3357,12 +3345,8 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
 
 bool gateway_client_subscribe_guild_members(GatewayClient* client,
                                             const GatewayGuildSubscription& subscription) noexcept {
-    if (!client || !client->runtime || !client->worker.thread || subscription.guild_id == 0 ||
-        subscription.clear_thread_guild_id != 0) {
-        return false;
-    }
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    if (runtime->identity != GatewayClientIdentity::normal_user || runtime->stopping || runtime->failed) {
+    auto* runtime = live_user_runtime(client);
+    if (!runtime || subscription.guild_id == 0 || subscription.clear_thread_guild_id != 0) {
         return false;
     }
     u8 validation[kGatewayUserMaximumCommandBytes]{};
@@ -3387,11 +3371,8 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
 
 bool gateway_client_request_guild_members(GatewayClient* client,
                                           const GatewayGuildMemberRequest& request) noexcept {
-    if (!client || !client->runtime || !client->worker.thread ||
-        !gateway_guild_member_request_valid(request))
-        return false;
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    if (runtime->identity != GatewayClientIdentity::normal_user || runtime->stopping || runtime->failed)
+    auto* runtime = live_user_runtime(client);
+    if (!runtime || !gateway_guild_member_request_valid(request))
         return false;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     const auto prior = runtime->member_requests;
@@ -3405,10 +3386,8 @@ bool gateway_client_request_guild_members(GatewayClient* client,
 }
 
 bool gateway_client_request_channel_info(GatewayClient* client, u64 guild_id) noexcept {
-    if (!client || !client->runtime || !client->worker.thread || !guild_id)
-        return false;
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    if (runtime->identity != GatewayClientIdentity::normal_user || runtime->stopping || runtime->failed)
+    auto* runtime = live_user_runtime(client);
+    if (!runtime || !guild_id)
         return false;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     bool admitted = gateway_channel_info_admit(&runtime->channel_info, guild_id);
@@ -3493,11 +3472,13 @@ RestClientSubmitResult submit_self_settings_locked(GatewayClientRuntime* runtime
     return submitted;
 }
 
-// A settings-proto PATCH that rewrites one part of the observed status group: `encode(group, scratch,
-// body)` writes it under the same lock as the checks and the enqueue.
-template <typename Encode>
+// A settings-proto PATCH that rewrites one part of the observed status group: `encode(argument, group,
+// scratch, body)` writes it under the same lock as the checks and the enqueue.
+using StatusGroupEncode = GatewayCommandWriteResult (*)(const void* argument, ConstSlice<u8> group,
+                                                        Slice<u8> scratch, Slice<u8> body) noexcept;
 RestClientSubmitResult submit_status_group_patch(GatewayClient* client, RestClient* rest, u64 profile,
-                                                 u64 self, u64 request_id, Encode encode) noexcept {
+                                                 u64 self, u64 request_id, StatusGroupEncode encode,
+                                                 const void* argument) noexcept {
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = user_runtime(client);
     if (!runtime || !rest || !request_id || !profile || !self ||
@@ -3513,7 +3494,7 @@ RestClientSubmitResult submit_status_group_patch(GatewayClient* client, RestClie
         return invalid;
     }
     const auto encoded =
-        encode(ConstSlice<u8>{runtime->self_status_group, runtime->self_status_group_bytes},
+        encode(argument, ConstSlice<u8>{runtime->self_status_group, runtime->self_status_group_bytes},
                Slice<u8>{scratch, sizeof(scratch)}, Slice<u8>{body, sizeof(body)});
     if (!encoded.ok()) {
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
@@ -3637,9 +3618,11 @@ RestClientSubmitResult gateway_client_custom_status_submit(GatewayClient* client
                                                            u64 request_id) noexcept {
     return submit_status_group_patch(
         client, rest, profile, self, request_id,
-        [custom](ConstSlice<u8> group, Slice<u8> scratch, Slice<u8> body) noexcept {
-            return self_status_settings_write_custom_patch(group, custom, scratch, body);
-        });
+        [](const void* argument, ConstSlice<u8> group, Slice<u8> scratch, Slice<u8> body) noexcept {
+            return self_status_settings_write_custom_patch(
+                group, static_cast<const SelfCustomStatus*>(argument), scratch, body);
+        },
+        custom);
 }
 
 bool gateway_client_local_presence(GatewayClient* client, const GatewayLocalPresence* input,
@@ -3683,9 +3666,11 @@ RestClientSubmitResult gateway_client_activity_sharing_submit(GatewayClient* cli
                                                               u64 request_id) noexcept {
     return submit_status_group_patch(
         client, rest, profile, self, request_id,
-        [share](ConstSlice<u8> group, Slice<u8> scratch, Slice<u8> body) noexcept {
-            return self_status_settings_write_show_game_patch(group, share, scratch, body);
-        });
+        [](const void* argument, ConstSlice<u8> group, Slice<u8> scratch, Slice<u8> body) noexcept {
+            return self_status_settings_write_show_game_patch(group, *static_cast<const bool*>(argument),
+                                                              scratch, body);
+        },
+        &share);
 }
 
 #if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)

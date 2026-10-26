@@ -7,7 +7,12 @@
 
 namespace maicord {
 namespace {
-VoicePacketResult failure(VoicePacketError error, AeadResult crypto = {}) noexcept {
+VoicePacketResult failure(VoicePacketError error) noexcept {
+    VoicePacketResult result{};
+    result.error = error;
+    return result;
+}
+VoicePacketResult failure(VoicePacketError error, const AeadResult& crypto) noexcept {
     VoicePacketResult result{};
     result.error = error;
     result.crypto = crypto;

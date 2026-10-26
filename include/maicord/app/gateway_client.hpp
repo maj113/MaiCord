@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/memory.hpp"
 #include "maicord/app/video_frame_sink.hpp"
 #include "maicord/model/upload_allowance.hpp"
 #include "maicord/app/gateway_state_recovery.hpp"
@@ -1226,7 +1227,6 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
                                               const GatewayUserClientConfiguration* configuration,
                                               const GatewayEndpoint* gateway_endpoint,
                                               const GatewayUserSessionSnapshot* session) noexcept;
-GatewayClientResult gateway_client_wait_hello(GatewayClient* client, u32 timeout_milliseconds) noexcept;
 GatewayClientResult gateway_client_stop(GatewayClient* client, u32 timeout_milliseconds) noexcept;
 // User-only counterpart. After the worker finishes, the profile metadata
 // and locked credential are returned together. A client that is not a user
@@ -1305,9 +1305,13 @@ struct GatewayClientVoiceVideoSnapshot {
     u8 reserved[3];
     GatewayVoiceVideoUser users[kGatewayVoiceVideoUsers];
     u64 frames_delivered, frames_rejected; // Decoder hand-offs; DAVE rejections.
-    constexpr bool operator==(const GatewayClientVoiceVideoSnapshot&) const noexcept = default;
+    // Integers without padding (asserted below): one byte compare instead of one per listed user.
+    bool operator==(const GatewayClientVoiceVideoSnapshot& other) const noexcept {
+        return bytes_equal(this, &other, sizeof(*this));
+    }
 };
 static_assert(sizeof(GatewayVoiceVideoUser) == 24 && sizeof(GatewayClientVoiceVideoSnapshot) == 416); // ABI.
+static_assert(__has_unique_object_representations(GatewayClientVoiceVideoSnapshot));
 // UI-thread APIs, with the same stop/join exclusion as the observer APIs above.
 // No capture is enabled here. Credentials-ready is not a connected voice call.
 bool gateway_client_request_voice_state(GatewayClient* client,

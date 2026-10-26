@@ -103,7 +103,7 @@ bool initialize() noexcept {
                                   kInitialStructuralCount, sizeof(u32), alignof(u32))) return false;
     if (!stable_storage_initialize(&runtime.ready_record_index, kStructuralCount,
         kInitialStructuralCount, sizeof(u32), alignof(u32))) {
-        release_main_index(&runtime);
+        release_wiped_storage(&runtime.structural_scratch);
         return false;
     }
     client.notification_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -114,14 +114,14 @@ bool initialize() noexcept {
     if (runtime.mailbox_space) CloseHandle(runtime.mailbox_space);
     if (client.notification_event) CloseHandle(client.notification_event);
     runtime.mailbox_cancel = runtime.mailbox_space = client.notification_event = nullptr;
-    release_main_index(&runtime);
+    release_wiped_storage(&runtime.structural_scratch);
     stable_storage_release(&runtime.ready_record_index);
     return false;
 }
 void release() noexcept {
     CloseHandle(runtime.mailbox_cancel);CloseHandle(runtime.mailbox_space);CloseHandle(client.notification_event);
     runtime.mailbox_cancel = runtime.mailbox_space = client.notification_event = nullptr;
-    release_main_index(&runtime);
+    release_wiped_storage(&runtime.structural_scratch);
     if (runtime.ready_record_index.arena.base)
         SecureZeroMemory(runtime.ready_record_index.arena.base, runtime.ready_record_index.arena.committed);
     stable_storage_release(&runtime.ready_record_index);
@@ -150,7 +150,7 @@ bool projection_packet(bool malformed) noexcept {
     output[2] = static_cast<u8>(writer.used >> 8); output[3] = static_cast<u8>(writer.used);
     copy_bytes(output + 4, json, writer.used);
     const u8 key[kWebSocketClientKeyBytes]{};
-    release_main_index(&runtime);
+    release_wiped_storage(&runtime.structural_scratch);
     if (!stable_storage_initialize(&runtime.structural_scratch, kStructuralCount,
         kInitialStructuralCount, sizeof(u32), alignof(u32))) return false;
     if (!gateway_session_initialize(&runtime.session, {runtime.session_input, kSessionInputBytes},
@@ -443,7 +443,7 @@ bool index_session(GatewaySessionGrowIndex grow = counted_growth,
 }
 
 bool fresh_index() noexcept {
-    release_main_index(&runtime);
+    release_wiped_storage(&runtime.structural_scratch);
     return stable_storage_initialize(&runtime.structural_scratch, kStructuralCount,
         kInitialStructuralCount, sizeof(u32), alignof(u32));
 }

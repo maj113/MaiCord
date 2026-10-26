@@ -7,8 +7,11 @@
 
 namespace maicord {
 namespace {
-DaveWelcomeResult failure(DaveWelcomeError error, i32 status = 0, MlsDecodeResult wire = {}) noexcept {
+DaveWelcomeResult failure(DaveWelcomeError error, i32 status, const MlsDecodeResult& wire) noexcept {
     return {0, status, 0, wire, error};
+}
+DaveWelcomeResult failure(DaveWelcomeError error, i32 status = 0) noexcept {
+    return {0, status, 0, {}, error};
 }
 KdfResult welcome_key_nonce(KdfSha256Workspace& workspace, ConstSlice<u8> joiner, u8* key,
                             u8* nonce) noexcept {
