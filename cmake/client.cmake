@@ -275,8 +275,8 @@ endfunction()
 maicord_copy_fonts(MaiCord)
 
 # Cold code is compiled for size: source-level /Os lands after the contract's
-# /O2 /Ob1 /GL. Parsing, crypto, codecs, text, render and per-frame UI/input
-# paths stay /O2; each exclusion below is a hot byte or frame loop.
+# /O2 /Ob1 /GL. Parsing, crypto, codecs, compression and text shaping stay
+# /O2; each exclusion below is a hot byte or frame loop.
 function(maicord_compact_sources)
     cmake_parse_arguments(ARG "" "" "TARGETS;SOURCES;EXCLUDE" ${ARGN})
     set(files ${ARG_SOURCES})
@@ -310,50 +310,28 @@ maicord_compact_sources(
     TARGETS maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     EXCLUDE
-        "/application_(frame_presentation|scrolling|scroll_host|surface_motion|ui_runtime|input_routing|scheduler|media_animation|account_pump|window_runtime|composer_input|composer_text_input|content_input|shell_input|keyboard_focus|video|image_viewer|tooltip|pane_resize)\\.cpp$"
+        "/application_(frame_presentation|scheduler|video)\\.cpp$"
         "/model/message_(rich_)?store\\.cpp$"
         "/protocol/(message_history|websocket_frame|websocket_message|http1|http_response_stream|json_write|writer|json_ids|gateway_payload|gateway_events|gateway_message_events|gateway_message_rich|gateway_reaction_events|gateway_typing_events|media_packet|dave_frame|dave_replay|voice_media_events|p256_signature)\\.cpp$")
-# Cold pages, overlays and popups rebuilt on interaction (settings, server and
-# channel settings, search, inbox, pins, threads, forum, quick switcher,
-# forwarding, downloads, login, profile, poll creation/voters, context menus),
-# their controllers, sign-in/captcha/remote auth, DAVE/MLS group setup (not
-# frame crypto), voice setup, notifications, history page merges (their JSON
-# decode stays /O2) and one-shot account requests.
-# The message scene, composer, pickers, gateway dispatch, media and text stay /O2.
+# UI scenes, presentation, renderer and the message runtime: the offline perf
+# probe measured equal or lower main-thread CPU in every phase at /Os (smaller
+# code and no chained unwind records). The parsers and tokenizers they run per
+# message and glyph outlines stay /O2, as does the GPU atlas code.
+# Elsewhere: cold controllers, sign-in/captcha/remote auth, DAVE/MLS group
+# setup (not frame crypto), voice setup, notifications and one-shot account
+# requests. Gateway dispatch, media decode and text shaping stay /O2.
 maicord_compact_sources(
+    TARGETS maicord_ui maicord_renderer maicord_message_runtime maicord_message_media
+    EXCLUDE "/(message_markdown|code_highlight|spell_tokenize|ansi_text|text_measure_cache)\\.cpp$"
+        "/(native_glyph_outlines|colr_paint)\\.cpp$"
     SOURCES
-        src/ui/settings_scene.cpp src/ui/theme_editor.cpp src/ui/theme_style_projection.cpp
-        src/ui/settings_choice.cpp src/ui/settings_schema.cpp src/ui/page_registry.cpp
-        src/ui/friends_scene.cpp src/ui/friends_media.cpp
-        src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp src/ui/controls/radio.cpp
-        src/ui/controls/slider.cpp src/ui/controls/input.cpp src/ui/controls/swatch.cpp
-        src/ui/controls/navigation.cpp src/ui/controls/text_metrics.cpp
-        src/ui/controls/permission_grid.cpp src/ui/controls/admin_list.cpp
-        src/ui/account_menu.cpp src/ui/search_scene.cpp src/ui/search_query.cpp
-        src/ui/search_filter_context.cpp src/ui/pinned_messages_scene.cpp src/ui/inbox_scene.cpp
-        src/ui/thread_browser_scene.cpp src/ui/forum_channel_scene.cpp src/ui/forum_post_scene.cpp src/ui/quick_switcher_scene.cpp
-        src/ui/message_forward_scene.cpp src/ui/download_scene.cpp src/ui/attachment_draft_list.cpp
-        src/ui/shortcuts_scene.cpp src/app/application_keybinds_settings.cpp
-        src/ui/login_scene.cpp src/ui/login_presentation.cpp src/ui/login_text_presentation.cpp
-        src/ui/login_view.cpp src/ui/qr_code.cpp src/ui/profile_scene.cpp src/ui/profile_media.cpp
-        src/ui/profile_dialog_scene.cpp src/ui/profile_activity.cpp
-        src/ui/poll_controls.cpp src/ui/poll_voters.cpp
-        src/ui/reaction_viewer.cpp src/ui/reaction_viewer_presentation.cpp
-        src/ui/message_context_menu.cpp src/ui/attachment_menu.cpp src/ui/received_attachment_menu.cpp
-        src/ui/text_edit_menu.cpp src/ui/toast.cpp src/app/channel_memory.cpp
-        src/app/startup_shell.cpp src/app/startup_shell_state.cpp
-        src/ui/channel_context_policy.cpp src/ui/guild_context_policy.cpp
-        src/ui/member_context_policy.cpp src/ui/private_channel_title.cpp
+        src/app/channel_memory.cpp
         src/app/quick_switcher_controller.cpp src/app/message_forward_controller.cpp
         src/app/pinned_message_controller.cpp src/app/poll_controller.cpp src/app/poll_draft.cpp
         src/app/channel_overview_controller.cpp src/app/search_recent.cpp src/app/link_trust.cpp
         src/app/received_attachment_open.cpp src/app/account_credential_forget.cpp
         src/app/login_mfa_policy.cpp src/app/navigation_shortcuts.cpp src/app/login_continuations.cpp
         src/app/settings_catalog.cpp src/app/voice_settings_binding.cpp
-        src/app/private_channel_actions.cpp src/app/private_conversation.cpp
-        src/app/message_draft_persistence.cpp src/app/message_attachment_drafts.cpp
-        src/app/bulk_read_ack_controller.cpp src/app/message_history_sync.cpp src/app/reaction_viewer_controller.cpp
-        src/app/reaction_viewer_storage.cpp src/app/command_autocomplete.cpp
         src/platform/desktop_notifications.cpp src/platform/notification_identity.cpp
         src/platform/taskbar_attention.cpp src/platform/clipboard_image.cpp
         src/app/user_auth_coordinator.cpp src/app/user_account_coordinator.cpp
@@ -376,28 +354,22 @@ maicord_compact_sources(
         src/app/mls_exporter.cpp src/app/dave_key_package.cpp src/app/dave_welcome.cpp
         src/app/dave_receive_epoch.cpp src/app/voice_connection_setup.cpp src/app/voice_media_setup.cpp
         src/app/voice_udp_discovery.cpp
-        # Rebuilt on change, not per frame: UI Automation trees and provider,
-        # call/stage/Go Live card layout (the video presenter stays /O2),
-        # sign-in secure text input, theme import/apply, keybind registry,
-        # notification sounds, stage/stream/voice signaling and guild assets.
-        src/platform/uia_provider.cpp src/ui/accessibility.cpp src/ui/accessibility_scenes.cpp
-        src/ui/call_scene.cpp src/ui/call_stage.cpp src/ui/stream_card_scene.cpp
+        # Rebuilt on change, not per frame: the UI Automation provider,
+        # sign-in secure text input, keybind registry, notification sounds,
+        # stage/stream/voice signaling and guild assets.
+        src/platform/uia_provider.cpp
         src/ui/secure_text_store.cpp src/ui/secure_edit.cpp src/ui/secure_edit_history.cpp
-        src/ui/secure_edit_target.cpp src/ui/theme_styles.cpp src/app/shortcut_registry.cpp
+        src/ui/secure_edit_target.cpp src/app/shortcut_registry.cpp
         src/platform/notification_audio.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
         src/app/account_stage.cpp src/app/gateway_stage_dispatch.cpp src/app/gateway_stream_control.cpp
         src/app/gateway_stream_session.cpp src/app/gateway_voice_control.cpp
-        src/app/account_guild_assets.cpp src/ui/text_form.cpp src/media/regional_flag_svg.cpp
-        # Opened on a click: context menus and popups, the user menu, the
-        # account switcher and the server profile card; the staged-attachment
-        # strip; the user's own reaction requests; shell/tray registration;
+        src/app/account_guild_assets.cpp src/media/regional_flag_svg.cpp
+        # Opened on a click: the user's own reaction requests; shell/tray registration;
         # the account module's API wrappers (its pump only forwards), the REST
         # request queue, the TLS handshake, soundboard and voice-message
         # requests and network-bound file transfers; H.264/H.265 parameter
         # sets and avcC, parsed once per stream or keyframe (slices and pixel
         # paths stay /O2).
-        src/ui/popup_scene.cpp src/ui/popup_presentation.cpp src/ui/user_context_menu.cpp
-        src/ui/account_switcher.cpp src/ui/guild_card_scene.cpp src/ui/composer_attachment_strip.cpp
         src/app/message_reaction_controller.cpp
         src/platform/desktop_integration.cpp src/platform/system_tray.cpp src/platform/tls_client.cpp
         src/app/account_module.cpp src/app/rest_client.cpp
@@ -413,7 +385,23 @@ maicord_compact_sources(
         # catalog records, seac charsets and face preparation.
         src/text/font_names.cpp src/text/font_family.cpp src/text/font_candidates.cpp
         src/text/font_catalog.cpp src/text/font_prepare.cpp src/text/cff_charset.cpp
-        src/ui/native_text_catalog.cpp)
+        src/ui/native_text_catalog.cpp
+        # Signaling, setup and per-surface control around byte paths that stay
+        # /O2: OAuth, member-list channel binding, guild details, voice socket
+        # and participants, progressive video requests, spell checking, P-256
+        # and HKDF, socket setup, profile and guild image preparation, posters,
+        # Lottie and COLR program building, the encoded-media cache and
+        # upload-only PNG encoding (perf probe phases equal or lower). Gateway
+        # dispatch (3-9% slower) and the video presenter, session and decoder
+        # control (call phases ~3% slower) measured worse at /Os and stay /O2.
+        src/app/oauth_sign_in.cpp src/app/member_list_channel_binding.cpp src/app/gateway_guild_details.cpp
+        src/app/voice_socket.cpp src/app/voice_participants.cpp src/app/progressive_video_fetch.cpp
+        src/media/png_encode.cpp
+        src/platform/spell_checker.cpp src/platform/p256.cpp src/platform/hkdf_sha256.cpp
+        src/platform/network.cpp src/platform/network_worker.cpp
+        src/app/guild_image.cpp src/app/profile_image.cpp src/app/account_profile_edit.cpp
+        src/app/local_video_poster.cpp
+        src/render/lottie_program.cpp src/render/colr_source.cpp src/media/encoded_cache.cpp)
 
 # maicord_application_state_headers(<variable> <glob>...): the file names of
 # application_state.hpp and of the globbed headers that include it, directly

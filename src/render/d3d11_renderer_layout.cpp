@@ -2720,11 +2720,15 @@ bool retained_root_is_opaque(const D3D11Renderer& renderer, float viewport_width
         return false;
     }
     const PaintClip& clip = renderer.paint_stream.clips[batch.clip_index];
+    // The viewport size is derived from pixels and DPI; /fp:fast may round that
+    // quotient one ulp above the layout's own edge, so compare with a tolerance
+    // far below a physical pixel rather than exactly.
+    constexpr float kEdgeTolerance = 1.0f / 64.0f;
     return batch.first_quad == 0 && batch.quad_count != 0 &&
            batch.clip_index < renderer.paint_stream.clip_count && root.left <= 0.0f && root.top <= 0.0f &&
-           root.right >= viewport_width && root.bottom >= viewport_height && root.fill.alpha >= 1.0f &&
-           root.radius == 0.0f && clip.left <= 0.0f && clip.top <= 0.0f && clip.right >= viewport_width &&
-           clip.bottom >= viewport_height;
+           root.right + kEdgeTolerance >= viewport_width && root.bottom + kEdgeTolerance >= viewport_height &&
+           root.fill.alpha >= 1.0f && root.radius == 0.0f && clip.left <= 0.0f && clip.top <= 0.0f &&
+           clip.right + kEdgeTolerance >= viewport_width && clip.bottom + kEdgeTolerance >= viewport_height;
 }
 
 } // namespace
