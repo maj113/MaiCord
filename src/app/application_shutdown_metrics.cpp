@@ -16,6 +16,7 @@
 #if defined(MAICORD_STARTUP_PROBE)
 #include "application_desktop.hpp"
 #include "maicord/core/trace_record.hpp"
+#include "maicord/core/win32_user.hpp"
 #endif
 
 namespace maicord::app_detail {

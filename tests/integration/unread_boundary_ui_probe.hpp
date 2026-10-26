@@ -357,6 +357,15 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     if (!require(scroll_step(2.5f,false) && f.presentation.builds == projections &&
         renderer.text_message_shift_px == 0 && !renderer.text_message_shiftable && text.quad_count <= quads &&
         verify_boundary(),27)) return false;
+    // A projection rebuilt with unchanged text keeps the glyphs rastered from
+    // the previous build; the next scroll steps must still move them.
+    if (!require(project() && project() && renderer.text_message_builds != f.presentation.builds,29))
+        return false;
+    if (!require(scroll_step(5.f,true) && renderer.text_message_builds == f.presentation.builds && verify_boundary(),30))
+        return false;
+    if (!require(scroll_step(2.5f,false) && renderer.text_message_builds == f.presentation.builds &&
+        renderer.text_message_shift_px == 0 && renderer.text_message_shift_base == f.presentation.scroll_shift_dips,31))
+        return false;
     const auto last = message_scene_navigate(&f.scene,UiListMove::last);
     if (!require(last.message_id == first + 3 && project(),15)) return false;
     const auto* last_row = message_scene_find_row(f.scene,3);

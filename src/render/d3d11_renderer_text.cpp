@@ -1998,7 +1998,9 @@ void sync_message_scroll(D3D11Renderer* renderer) noexcept {
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
     const float moved = presentation.scroll_shift_dips - renderer->text_message_shift_base;
     const bool same_build = presentation.builds == renderer->text_message_builds;
-    if (same_build ? moved == 0.0f && renderer->text_message_shift_px == 0 : renderer->text_message_shift_px == 0)
+    // Glyphs rastered from an earlier build that a later, identical build kept
+    // still sit where that build's commands were; once either moved, raster.
+    if (moved == 0.0f && renderer->text_message_shift_px == 0)
         return;
     const i32 target = static_cast<i32>(moved * scale + (moved < 0 ? -0.5f : 0.5f));
     if (same_build && presentation.scroll_moving && target == renderer->text_message_shift_px)
