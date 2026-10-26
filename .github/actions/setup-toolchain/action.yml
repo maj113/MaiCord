@@ -1,8 +1,10 @@
 name: Set up MaiCord toolchain
 description: >
-  Ensures Python 3 and a Visual Studio C++ toolset (MSVC x64, Windows SDK,
-  CMake and Ninja) of at least the requested major version. tools/build.ps1
-  enters the developer shell itself, so no msvc-dev-cmd action is needed.
+  Ensures Python 3, a Visual Studio installation of at least the requested
+  major version (Windows SDK, MASM, rc, mt, dumpbin, CMake and Ninja) and the
+  pinned LLVM toolchain release (clang-cl, lld-link, llvm-lib), whose bin
+  directory goes on PATH and into MAICORD_LLVM_BIN for tools/build.ps1.
+  tools/build.ps1 enters the developer shell itself.
 
 inputs:
   minimum-vs-major:
@@ -61,10 +63,20 @@ runs:
         }
         $msvc = Get-ChildItem -LiteralPath (Join-Path $toolset.installationPath 'VC\Tools\MSVC') -Directory |
           Sort-Object { [version]$_.Name } | Select-Object -Last 1
-        Write-Host "MSVC toolset: $($msvc.Name)"
-        [IO.File]::AppendAllText($env:GITHUB_ENV, "MAICORD_MSVC_VERSION=$($msvc.Name)`n")
-        # cl and link start vctip.exe (compiler telemetry) on every launch unless it is missing.
+        # link and other Visual Studio tools start vctip.exe (telemetry) on every launch unless it is missing.
         Get-ChildItem -LiteralPath (Join-Path $msvc.FullName 'bin') -Recurse -Filter vctip.exe |
           Rename-Item -NewName 'vctip.exe.disabled'
         # Read all of the output: stopping the pipe early can leave a failing exit code.
         (cmake --version)[0]
+
+    # The one supported compiler: the release of the LLVM fork at github.com/maj113/llvm-pe pinned in
+    # tools/llvm_toolchain.json, fetched and SHA-256 checked by the same script local builds use.
+    - name: Fetch the pinned LLVM toolchain
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $bin = & (Join-Path $env:GITHUB_WORKSPACE 'tools\resolve_llvm_toolchain.ps1') -Root (Join-Path $env:RUNNER_TEMP 'llvm-pe')
+        $version = (& (Join-Path $bin 'clang-cl.exe') --version 2>&1 | Out-String).Split("`n")[0].Trim()
+        Write-Host $version
+        [IO.File]::AppendAllText($env:GITHUB_PATH, "$bin`n")
+        [IO.File]::AppendAllText($env:GITHUB_ENV, "MAICORD_LLVM_BIN=$bin`nMAICORD_LLVM_VERSION=$version`n")

@@ -9,6 +9,11 @@ has the same rules in more detail.
   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1`
   builds the Release client; add `-Test` for the whole suite and
   `-TestNames a,b` for single tests.
+- The only toolchain is clang-cl with lld-link and llvm-lib from the
+  maj113/llvm-pe fork: `-LlvmBin`, `MAICORD_LLVM_BIN`, else the release pinned
+  in `tools/llvm_toolchain.json` (fetched once into
+  `%LOCALAPPDATA%\MaiCord-toolchain`); Visual Studio supplies the SDK, MASM,
+  rc and mt.
 - The only build directory is the sibling `..\MaiCord-build\Release`. Don't
   create other build trees, staging copies, QA directories or archives, and
   don't move unwanted output elsewhere: delete it.

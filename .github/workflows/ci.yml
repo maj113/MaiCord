@@ -25,8 +25,8 @@ concurrency:
   cancel-in-progress: true
 
 # Hosted Windows runners for this private repository have 2 vCPUs. The client
-# build (about 8 minutes: /GL front-end work plus the LTCG link) and the
-# temporary test build (non-/GL copies of the same libraries plus about 200
+# build (about 8 minutes: front-end work plus the LTO link) and the
+# temporary test build (non-LTO copies of the same libraries plus about 200
 # test executables, about 11 minutes, then about 3 minutes of tests) are
 # independent, so three jobs run side by side for about 10 minutes each:
 #   client     MaiCord.exe, PE audits and the artifact;
@@ -46,8 +46,8 @@ concurrency:
 # Pull requests run the same full suite: the jobs already run side by side,
 # so a pull-request subset would skip coverage without shortening the run.
 # The build tree is deliberately not cached: checkout gives every source a
-# fresh timestamp (so Ninja would rebuild anyway) and Release uses LTCG.
-# sccache was measured and rejected: it treats every CMake/MSVC compile here
+# fresh timestamp (so Ninja would rebuild anyway) and Release uses LTO.
+# sccache was measured and rejected: it treats every CMake clang-cl compile here
 # as "multiple input files" (nothing cacheable) and cannot cache PCH compiles.
 
 jobs:
@@ -96,7 +96,7 @@ jobs:
       # build.ps1 configures the x64-release preset in ../MaiCord-build/Release,
       # builds MaiCord.exe and runs the PE audits
       # (D3D11-only imports, no Media Foundation/DirectWrite, no debug info).
-      # Every test links the non-/GL test copies of the libraries, so the
+      # Every test links the non-LTO test copies of the libraries, so the
       # test jobs cover them all.
       - name: Build and audit
         shell: powershell
@@ -118,7 +118,7 @@ jobs:
             Copy-Item -LiteralPath (Join-Path $build $item) -Destination $target -Recurse
           }
           $client = (Get-Item (Join-Path $target 'MaiCord.exe')).Length
-          "### MaiCord build`n`n- MSVC $env:MAICORD_MSVC_VERSION`n- MaiCord.exe: $client bytes ($([math]::Round($client / 1MB, 2)) MiB)" |
+          "### MaiCord build`n`n- $env:MAICORD_LLVM_VERSION`n- MaiCord.exe: $client bytes ($([math]::Round($client / 1MB, 2)) MiB)" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding ascii
           [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "path=$target`nname=MaiCord-x64-$short`n")
 
@@ -148,7 +148,7 @@ jobs:
         with:
           minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
 
-      # Tests link non-/GL copies of the shipping libraries, so these jobs never
+      # Tests link non-LTO copies of the shipping libraries, so these jobs never
       # build the client. For the app shard a background job fetches the client
       # job's artifact into the build directory while the tests build.
       - name: Build and run the ${{ matrix.shard }} tests

@@ -38,6 +38,36 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
   `-Test` run; otherwise the script refuses to rebuild over it.
 - `.\tools\build.ps1 -Test -TestNames name1,name2`, run from a PowerShell
   prompt, runs only the named CTest cases while you iterate.
+- MaiCord builds only with the LLVM fork at
+  [maj113/llvm-pe](https://github.com/maj113/llvm-pe): clang-cl, lld-link and
+  llvm-lib from `-LlvmBin`, else `MAICORD_LLVM_BIN`, else the release pinned
+  in `tools/llvm_toolchain.json`, which `tools/resolve_llvm_toolchain.ps1`
+  downloads once, checks against the pinned SHA-256 and keeps in
+  `%LOCALAPPDATA%\MaiCord-toolchain\<tag>`. Another toolchain directory
+  reconfigures the build directory from scratch. Visual Studio still supplies
+  the Windows SDK, MASM (`ml64`), `rc`, `mt` and `dumpbin`.
+
+### The toolchain release
+
+Local builds and CI (`.github/actions/setup-toolchain/action.yml`, used by
+`ci.yml`, `release.yml` and `analysis.yml`) fetch the same pinned release of
+the fork through `tools/resolve_llvm_toolchain.ps1`; CI puts its `bin` on
+`PATH` and in `MAICORD_LLVM_BIN`.
+
+Each toolchain release of `maj113/llvm-pe` must provide:
+
+- a tag `toolchain-YYYY.MM.DD`;
+- the asset `llvm-pe-x86_64-windows.zip`, whose root is the toolchain
+  directory: `bin\clang-cl.exe`, `bin\clang.exe`, `bin\lld-link.exe`,
+  `bin\llvm-lib.exe`, `bin\llvm-ar.exe` (`bin\llvm-rc.exe` and
+  `bin\llvm-ml.exe` optional; the build uses Visual Studio's) and clang's
+  resource headers in `lib\clang\<major>\include`, which clang-cl finds
+  relative to `bin`. The executables link the static MSVC runtime, so no
+  redistributable is needed;
+- the asset `llvm-pe-x86_64-windows.zip.sha256`, the archive's hex SHA-256.
+
+To move to a new release, set `tag` and `sha256` in `tools/llvm_toolchain.json`
+to the tag and the `.sha256` value.
 
 ### Build files
 
@@ -48,13 +78,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
 | `build_contract.cmake` | Compiler/linker contract, `maicord_library()`, `maicord_program()` |
 | `generated_sources.cmake` | Packed UI data, shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
-| `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `/Os` |
+| `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `-Oz` |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
 | `test_registry.cmake` | Every test executable and CTest case |
 | `perf_probe.cmake`, `benchmarks.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools |
 
 A test is one `maicord_test()` call; more cases on the same executable use
-`maicord_add_tests()`. Tests link non-`/GL` copies of the shipping libraries
+`maicord_add_tests()`. Tests link non-LTO copies of the shipping libraries
 automatically. Small tests share an executable with `BUNDLE <name>` on their
 `maicord_test()`; each case then runs its own entry symbol (`MAICORD_TEST_ENTRY`),
 so a bundled test must not define symbols another member or library defines.

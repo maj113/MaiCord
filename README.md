@@ -121,9 +121,13 @@ and [`samples/plugins/showcase`](samples/plugins/showcase) uses every part of it
 
 You need:
 
+- **The MaiCord LLVM toolchain**: clang-cl, lld-link and llvm-lib from a
+  [maj113/llvm-pe](https://github.com/maj113/llvm-pe/releases) release. The
+  build fetches the release pinned in `tools/llvm_toolchain.json` on first use
+  (into `%LOCALAPPDATA%\MaiCord-toolchain`); pass another `bin` directory as
+  `-LlvmBin` (or set `MAICORD_LLVM_BIN`) to override it
 - **Visual Studio 2026** (version 18) or its Build Tools, with the
-  *Desktop development with C++* workload (MSVC 14.5x, Windows SDK, CMake and
-  Ninja)
+  *Desktop development with C++* workload (Windows SDK, MASM, CMake and Ninja)
 - **Python 3.10+** on `PATH`
 - **Windows PowerShell 5.1** (included with Windows)
 
@@ -133,9 +137,9 @@ cd MaiCord
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-The script finds Visual Studio, builds `MaiCord.exe` into the sibling
-directory `..\MaiCord-build\Release`, and audits it. Close MaiCord before
-rebuilding.
+The script finds Visual Studio and the LLVM toolchain, builds `MaiCord.exe`
+into the sibling directory `..\MaiCord-build\Release`, and audits it. Close
+MaiCord before rebuilding.
 
 Run the test suite with `tools\build.ps1 -Test` (add `-TestNames <name>` for a
 single test). It finishes in under 20 seconds and removes its output

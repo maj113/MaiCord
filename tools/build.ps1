@@ -35,8 +35,9 @@ param(
     [switch]$StartupProbe,
     # Print shipping PE sections and linker-map code extents before cleanup.
     [switch]$SizeReport,
-    # The LLVM toolchain directory: clang-cl, lld-link and llvm-lib (default: $env:MAICORD_LLVM_BIN, else the sibling
-    # ..\llvm-pe-build\bin). Another toolchain directory reconfigures the build directory from scratch.
+    # The LLVM toolchain directory: clang-cl, lld-link and llvm-lib (default: $env:MAICORD_LLVM_BIN, else the release
+    # pinned in tools/llvm_toolchain.json, fetched once into %LOCALAPPDATA%\MaiCord-toolchain). Another toolchain
+    # directory reconfigures the build directory from scratch.
     [string]$LlvmBin = '',
     [hashtable]$PerfArguments = @{}
 )
@@ -65,10 +66,7 @@ $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
 $testProfile = $null
 $restoreClient = $false
-$llvm = [IO.Path]::GetFullPath($(if ($LlvmBin) { $LlvmBin } elseif ($env:MAICORD_LLVM_BIN) { $env:MAICORD_LLVM_BIN } else { "$repository\..\llvm-pe-build\bin" }))
-foreach ($tool in 'clang-cl.exe', 'lld-link.exe', 'llvm-lib.exe') {
-    if (!(Test-Path -LiteralPath "$llvm\$tool" -PathType Leaf)) { throw "The build needs $tool in $llvm (-LlvmBin)." }
-}
+$llvm = & (Join-Path $PSScriptRoot 'resolve_llvm_toolchain.ps1') -LlvmBin $LlvmBin
 $toolchainOptions = @("-DCMAKE_C_COMPILER=$llvm\clang-cl.exe", "-DCMAKE_CXX_COMPILER=$llvm\clang-cl.exe",
     "-DCMAKE_LINKER=$llvm\lld-link.exe", "-DCMAKE_AR=$llvm\llvm-lib.exe")
 

@@ -18,3 +18,9 @@ Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation `
 if (-not $SkipNinjaFallback -and -not (Get-Command ninja -ErrorAction SilentlyContinue)) {
     $env:PATH = (Join-Path $installation 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') + ';' + $env:PATH
 }
+# A fresh Release cache configures with the LLVM toolchain tools/build.ps1 uses
+# (MAICORD_LLVM_BIN, else the pinned release; see resolve_llvm_toolchain.ps1):
+# CMake takes the compiler from CC/CXX and finds lld-link and llvm-lib beside it on PATH.
+$llvm = & (Join-Path $PSScriptRoot 'resolve_llvm_toolchain.ps1')
+$env:PATH = "$llvm;$env:PATH"
+$env:CC = $env:CXX = Join-Path $llvm 'clang-cl.exe'
