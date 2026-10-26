@@ -2,6 +2,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/cdn_url.hpp"
 #include "maicord/core/memory.hpp"
+#include "../protocol/json_field_lists.hpp"
 #include "maicord/model/user_profile.hpp"
 
 namespace maicord {
@@ -9,8 +10,7 @@ namespace {
 struct LinkedRow { u64 status, type; u8 seen; };
 bool linked_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& row = *static_cast<LinkedRow*>(opaque);
-    const u8 bit = json_string_equals_ascii(name, utf8_literal("link_status")) ? 1 :
-                   json_string_equals_ascii(name, utf8_literal("link_type")) ? 2 : 0;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"link_status", "link_type">(name));
     if (!bit) return true;
     if (row.seen & bit) return false;
     row.seen |= bit;
@@ -41,15 +41,10 @@ struct User {
 };
 bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& user = *static_cast<User*>(opaque);
-    const u16 field = json_string_equals_ascii(key, utf8_literal("id")) ? 1 :
-        json_string_equals_ascii(key, utf8_literal("username")) ? 2 :
-        json_string_equals_ascii(key, utf8_literal("global_name")) ? 4 :
-        json_string_equals_ascii(key, utf8_literal("avatar")) ? 8 :
-        json_string_equals_ascii(key, utf8_literal("premium_type")) ? 16 :
-        json_string_equals_ascii(key, utf8_literal("mfa_enabled")) ? 32 :
-        json_string_equals_ascii(key, utf8_literal("nsfw_allowed")) ? 64 :
-        json_string_equals_ascii(key, utf8_literal("age_verification_status")) ? 128 :
-        json_string_equals_ascii(key, utf8_literal("linked_users")) ? 256 : 0;
+    const u32 index = protocol_detail::skim_member_index<"id", "username", "global_name", "avatar", "premium_type",
+                                                         "mfa_enabled", "nsfw_allowed", "age_verification_status",
+                                                         "linked_users">(key);
+    const u16 field = index < 9 ? static_cast<u16>(1u << index) : u16{0};
     if (!field) return true;
     if (user.seen & field) { user.error = GatewayEventDecodeError::duplicate_field; return false; }
     user.seen |= field;

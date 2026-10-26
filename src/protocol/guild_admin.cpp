@@ -7,6 +7,7 @@
 #include "maicord/protocol/guild_invite.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 
 namespace maicord {
@@ -780,24 +781,21 @@ bool decode_permissions(JsonValue value, PermissionSet* output) noexcept {
 
 // Field lookup with duplicate detection over a fixed key table.
 struct Fields {
-    const char* const* names;
-    u32 count;
+    const u8* names; // MemberNames bytes: the count, then the length-prefixed names
     u64 seen;
     GuildAdminError* error;
 
     // Returns the field index, count for unknown keys, or ~0u after a duplicate.
-    u32 find(JsonString name) noexcept {
-        for (u32 i = 0; i < count; ++i) {
-            if (!name_is(name, names[i]))
-                continue;
-            if (seen & (1ull << i)) {
-                *error = GuildAdminError::duplicate;
-                return ~0u;
-            }
-            seen |= 1ull << i;
+    __declspec(noinline) u32 find(JsonString name) noexcept {
+        const u32 i = member_index(name, names);
+        if (i == names[0])
             return i;
+        if (seen & (1ull << i)) {
+            *error = GuildAdminError::duplicate;
+            return ~0u;
         }
-        return count;
+        seen |= 1ull << i;
+        return i;
     }
 };
 
@@ -814,7 +812,7 @@ struct UserParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kUserFields[] = {"id", "username", "global_name", "avatar", "discriminator"};
+constexpr const u8* kUserFields = MemberNames<"id", "username", "global_name", "avatar", "discriminator">::data.bytes;
 
 // "0" (migrated username) or up to four digits.
 bool decode_discriminator(JsonValue value, u16* output) noexcept {
@@ -861,7 +859,7 @@ bool decode_user(const JsonIndexedDocument& document, JsonValue value, GuildAdmi
     if (value.kind != JsonValueKind::object)
         return fail(error);
     reset_value(user);
-    UserParse p{user, {kUserFields, 5, 0, nullptr}, GuildAdminError::none};
+    UserParse p{user, {kUserFields, 0, nullptr}, GuildAdminError::none};
     p.fields.error = &p.error;
     const auto read = json_visit_indexed_object(document, value, kDepth, visit_user, &p);
     if (!read.ok())
@@ -876,7 +874,7 @@ struct WidgetParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kWidgetFields[] = {"enabled", "channel_id"};
+constexpr const u8* kWidgetFields = MemberNames<"enabled", "channel_id">::data.bytes;
 
 bool visit_widget(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<WidgetParse*>(opaque);
@@ -895,9 +893,9 @@ struct ProfileParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kProfileFields[] = {"visibility",    "name",   "description",          "icon_hash",
-                                          "custom_banner_hash", "brand_color_primary", "traits",
-                                          "game_application_ids", "features"};
+constexpr const u8* kProfileFields = MemberNames<"visibility", "name", "description", "icon_hash", "custom_banner_hash",
+                                                 "brand_color_primary", "traits", "game_application_ids",
+                                                 "features">::data.bytes;
 
 struct TraitParse {
     GuildAdminProfileTrait trait;
@@ -905,7 +903,8 @@ struct TraitParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kTraitFields[] = {"label", "position", "emoji_id", "emoji_name", "emoji_animated"};
+constexpr const u8* kTraitFields =
+    MemberNames<"label", "position", "emoji_id", "emoji_name", "emoji_animated">::data.bytes;
 
 bool visit_trait(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<TraitParse*>(opaque);
@@ -936,7 +935,7 @@ bool visit_trait_item(void* opaque, u32, JsonValue value) noexcept {
         return fail(&p.error);
     TraitParse trait{};
     trait.position = ~0u;
-    trait.fields = {kTraitFields, 5, 0, &trait.error};
+    trait.fields = {kTraitFields, 0, &trait.error};
     if (!json_visit_indexed_object(*p.document, value, kDepth, visit_trait, &trait).ok())
         return fail(&p.error, trait.error == GuildAdminError::none ? GuildAdminError::json : trait.error);
     if (trait.position < kGuildAdminProfileTraits)
@@ -1023,7 +1022,7 @@ struct VanityParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kVanityFields[] = {"code", "uses"};
+constexpr const u8* kVanityFields = MemberNames<"code", "uses">::data.bytes;
 
 bool visit_vanity(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<VanityParse*>(opaque);
@@ -1045,8 +1044,8 @@ struct RoleParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kRoleFields[] = {"id", "name", "permissions", "position", "color", "hoist",
-                                       "managed", "mentionable", "icon", "unicode_emoji", "flags"};
+constexpr const u8* kRoleFields = MemberNames<"id", "name", "permissions", "position", "color", "hoist", "managed",
+                                              "mentionable", "icon", "unicode_emoji", "flags">::data.bytes;
 
 bool visit_role(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<RoleParse*>(opaque);
@@ -1103,7 +1102,7 @@ struct BanParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kBanFields[] = {"user", "reason"};
+constexpr const u8* kBanFields = MemberNames<"user", "reason">::data.bytes;
 
 bool visit_ban(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<BanParse*>(opaque);
@@ -1125,7 +1124,7 @@ bool visit_ban_item(void* opaque, u32, JsonValue value) noexcept {
     if (value.kind != JsonValueKind::object)
         return fail(&p.error);
     GuildAdminBan ban{};
-    BanParse parse{p.document, &ban, {kBanFields, 2, 0, nullptr}, GuildAdminError::none};
+    BanParse parse{p.document, &ban, {kBanFields, 0, nullptr}, GuildAdminError::none};
     parse.fields.error = &parse.error;
     const auto read = json_visit_indexed_object(*p.document, value, kDepth, visit_ban, &parse);
     if (!read.ok())
@@ -1146,7 +1145,8 @@ struct AuditEntryParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kAuditEntryFields[] = {"id", "user_id", "target_id", "action_type", "reason"};
+constexpr const u8* kAuditEntryFields =
+    MemberNames<"id", "user_id", "target_id", "action_type", "reason">::data.bytes;
 
 bool visit_audit_entry(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<AuditEntryParse*>(opaque);
@@ -1181,7 +1181,7 @@ bool visit_audit_entry_item(void* opaque, u32, JsonValue value) noexcept {
     if (value.kind != JsonValueKind::object)
         return fail(&p.error);
     AuditEntryParse entry{};
-    entry.fields = {kAuditEntryFields, 5, 0, &entry.error};
+    entry.fields = {kAuditEntryFields, 0, &entry.error};
     const auto read = json_visit_indexed_object(*p.document, value, kDepth, visit_audit_entry, &entry);
     if (!read.ok())
         return fail(&p.error, entry.error == GuildAdminError::none ? GuildAdminError::json : entry.error);
@@ -1249,8 +1249,8 @@ struct InviteParse {
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kInviteFields[] = {"code", "channel", "inviter", "uses", "max_uses", "max_age",
-                                         "temporary", "expires_at"};
+constexpr const u8* kInviteFields = MemberNames<"code", "channel", "inviter", "uses", "max_uses", "max_age",
+                                                "temporary", "expires_at">::data.bytes;
 
 bool visit_invite(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<InviteParse*>(opaque);
@@ -1297,7 +1297,7 @@ bool visit_invite_item(void* opaque, u32, JsonValue value) noexcept {
         return fail(&p.error, GuildAdminError::capacity);
     if (value.kind != JsonValueKind::object)
         return fail(&p.error);
-    InviteParse parse{p.document, {}, {kInviteFields, 8, 0, nullptr}, GuildAdminError::none};
+    InviteParse parse{p.document, {}, {kInviteFields, 0, nullptr}, GuildAdminError::none};
     parse.fields.error = &parse.error;
     const auto read = json_visit_indexed_object(*p.document, value, kDepth, visit_invite, &parse);
     if (!read.ok())
@@ -1731,7 +1731,7 @@ GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, Gu
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     WidgetParse p{};
-    p.fields = {kWidgetFields, 2, 0, &p.error};
+    p.fields = {kWidgetFields, 0, &p.error};
     const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_widget, &p);
     if (!read.ok())
         return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
@@ -1749,7 +1749,7 @@ GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, G
         return {0, 0, s.error};
     GuildAdminProfile value{};
     ProfileParse p{&s.document, &value, {}, GuildAdminError::none};
-    p.fields = {kProfileFields, 9, 0, &p.error};
+    p.fields = {kProfileFields, 0, &p.error};
     const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_profile, &p);
     if (!read.ok())
         return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
@@ -1764,7 +1764,7 @@ GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, Gu
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     VanityParse p{};
-    p.fields = {kVanityFields, 2, 0, &p.error};
+    p.fields = {kVanityFields, 0, &p.error};
     const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_vanity, &p);
     if (!read.ok())
         return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
@@ -1779,7 +1779,7 @@ GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, Guil
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     RoleParse p{};
-    p.fields = {kRoleFields, 11, 0, &p.error};
+    p.fields = {kRoleFields, 0, &p.error};
     const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_role, &p);
     if (!read.ok())
         return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
@@ -1837,7 +1837,7 @@ GuildAdminResult guild_admin_decode_invite(Utf8View body, Slice<u32> scratch, Gu
     const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
-    InviteParse parse{&s.document, {}, {kInviteFields, 8, 0, nullptr}, GuildAdminError::none};
+    InviteParse parse{&s.document, {}, {kInviteFields, 0, nullptr}, GuildAdminError::none};
     parse.fields.error = &parse.error;
     const auto read =
         json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_invite, &parse);

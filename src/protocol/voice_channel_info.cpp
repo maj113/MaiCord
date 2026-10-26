@@ -2,6 +2,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 #include "maicord/core/memory.hpp"
 
@@ -30,25 +31,32 @@ struct Decode {
 bool visit_fields(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& f = *static_cast<Fields*>(opaque);
     bool valid = true;
-    if (name_is(name, "id")) {
+    switch (member_index<"id", "guild_id", "voice_start_time", "status", "channels">(name)) {
+    case 0:
         valid = !f.has_id && json_value_to_snowflake(value, &f.id);
         f.has_id = true;
-    } else if (name_is(name, "guild_id")) {
+        break;
+    case 1:
         valid = !f.has_guild && json_value_to_snowflake(value, &f.guild_id);
         f.has_guild = true;
-    } else if (name_is(name, "voice_start_time")) {
+        break;
+    case 2:
         valid = !f.has_start &&
                 (value.kind == JsonValueKind::null_value || json_value_to_u64_or_string(value, &f.start_s));
         f.has_start = true;
-    } else if (name_is(name, "status")) {
+        break;
+    case 3:
         valid = !f.has_status &&
                 (value.kind == JsonValueKind::null_value || value.kind == JsonValueKind::string);
         f.status = value;
         f.has_status = true;
-    } else if (name_is(name, "channels")) {
+        break;
+    case 4:
         valid = !f.has_channels && value.kind == JsonValueKind::array;
         f.channels = value;
         f.has_channels = true;
+        break;
+    default: break;
     }
     return valid;
 }

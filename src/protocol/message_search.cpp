@@ -5,6 +5,7 @@
 
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -80,26 +81,31 @@ struct HitContext {
 
 bool visit_hit(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* hit = static_cast<HitContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("message_snapshots"))) {
+    switch (protocol_detail::member_index<"message_snapshots", "guild_id", "hit">(name)) {
+    case 0:
         if (hit->snapshots_seen) {
             hit->valid = false;
             return false;
         }
         hit->snapshots_seen = true;
         hit->snapshots = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
+        break;
+    case 1:
         if (hit->guild_seen || (value.kind != JsonValueKind::null_value &&
                                 !json_value_to_snowflake(value, &hit->guild_id))) {
             hit->valid = false;
             return false;
         }
         hit->guild_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("hit"))) {
+        break;
+    case 2:
         if (hit->seen || !json_value_to_bool(value, &hit->hit)) {
             hit->valid = false;
             return false;
         }
         hit->seen = true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -119,11 +125,8 @@ bool count_media(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool visit_snapshot_media(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<SnapshotCounts*>(opaque);
-    const Utf8View names[]{utf8_literal("attachments"), utf8_literal("embeds"),
-                           utf8_literal("sticker_items"), utf8_literal("components")};
-    for (u32 i = 0; i < 4; ++i) {
-        if (!json_string_equals_ascii(name, names[i]))
-            continue;
+    const u32 i = protocol_detail::member_index<"attachments", "embeds", "sticker_items", "components">(name);
+    if (i < 4) {
         const u32 field = 1u << i;
         if ((context.fields & field) || value.kind != JsonValueKind::array) {
             context.valid = false;
@@ -365,18 +368,9 @@ bool visit_group(void* opaque, u32 index, JsonValue value) noexcept {
 
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<DecodeContext*>(opaque);
-    u32 field = 0;
-    if (json_string_equals_ascii(name, utf8_literal("messages"))) {
-        field = 1;
-    } else if (json_string_equals_ascii(name, utf8_literal("total_results"))) {
-        field = 2;
-    } else if (json_string_equals_ascii(name, utf8_literal("doing_deep_historical_index"))) {
-        field = 4;
-    } else if (json_string_equals_ascii(name, utf8_literal("documents_indexed"))) {
-        field = 8;
-    } else if (json_string_equals_ascii(name, utf8_literal("tabs"))) {
-        field = 16;
-    } else {
+    const u32 field = protocol_detail::member_bit<"messages", "total_results", "doing_deep_historical_index",
+                                                  "documents_indexed", "tabs">(name);
+    if (!field) {
         return true;
     }
     if (context->fields & field) {
@@ -414,9 +408,7 @@ struct TabContext {
 };
 bool visit_tab_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* tab = static_cast<TabContext*>(opaque);
-    const u32 field = json_string_equals_ascii(name, utf8_literal("messages"))        ? 1u
-                      : json_string_equals_ascii(name, utf8_literal("total_results")) ? 2u
-                                                                                      : 0u;
+    const u32 field = protocol_detail::member_bit<"messages", "total_results">(name);
     if (!field)
         return true;
     if (tab->fields & field)
@@ -430,11 +422,9 @@ bool visit_tab_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool visit_tab(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<DecodeContext*>(opaque);
-    static constexpr Utf8View names[] = {utf8_literal("messages"), utf8_literal("media"), utf8_literal("files"),
-                                  utf8_literal("links"), utf8_literal("pins")};
-    for (u32 index = 0; index < kMessageSearchTabCount; ++index) {
-        if (!json_string_equals_ascii(name, names[index]))
-            continue;
+    const u32 index = protocol_detail::member_index<"messages", "media", "files", "links", "pins">(name);
+    static_assert(kMessageSearchTabCount == 5);
+    if (index < kMessageSearchTabCount) {
         auto& page = context->result.page;
         if (page.tab_known & (1u << index))
             return reject(context, MessageSearchDecodeError::duplicate_field, value.source_offset);

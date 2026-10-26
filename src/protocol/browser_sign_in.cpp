@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/http1.hpp"
 #include "json_write.hpp"
+#include "json_field_lists.hpp"
 
 
 namespace maicord {
@@ -69,8 +70,7 @@ bool bounded_string(JsonValue value, u32 maximum, bool nonempty, JsonString* out
 }
 bool args_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* payload = static_cast<Payload*>(opaque);
-    const u32 bit = json_string_equals_ascii(name, utf8_literal("handoffToken")) ? 1u :
-        json_string_equals_ascii(name, utf8_literal("fingerprint")) ? 2u : 0u;
+    const u32 bit = member_bit<"handoffToken", "fingerprint">(name);
     if (!bit || (payload->args_fields & bit)) return false;
     payload->args_fields |= bit;
     if (value.kind == JsonValueKind::null_value) return true;
@@ -81,10 +81,7 @@ bool args_member(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool payload_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* payload = static_cast<Payload*>(opaque);
-    const u32 bit = json_string_equals_ascii(name, utf8_literal("cmd")) ? 1u :
-        json_string_equals_ascii(name, utf8_literal("args")) ? 2u :
-        json_string_equals_ascii(name, utf8_literal("nonce")) ? 4u :
-        json_string_equals_ascii(name, utf8_literal("evt")) ? 8u : 0u;
+    const u32 bit = member_bit<"cmd", "args", "nonce", "evt">(name);
     if (!bit || (payload->fields & bit)) return false;
     payload->fields |= bit;
     if (bit == 1) { JsonString command{}; return json_value_as_string(value, &command) && json_string_equals_ascii(command, utf8_literal("BROWSER_HANDOFF")); }

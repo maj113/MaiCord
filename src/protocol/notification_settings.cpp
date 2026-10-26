@@ -4,6 +4,7 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "proto_wire.hpp"
+#include "json_field_lists.hpp"
 namespace maicord {
 namespace {
 using E=NotificationSettingsDecodeError;
@@ -25,27 +26,28 @@ bool mute_member(void*opaque,JsonString name,JsonValue v) noexcept {
     JsonString str{};if(!json_value_as_string(v,&str)||!parse_iso_timestamp(str,&p.setting.mute_end_ms)){p.error=E::field;return false;}return true;
 }
 bool member(void*opaque,JsonString name,JsonValue v) noexcept {
-    auto&p=*static_cast<Parse*>(opaque);u32 bit=0;bool ok=true;
-    if(json_string_equals_ascii(name,utf8_literal("guild_id"))){bit=1u<<8;if(!mark(p,bit))return false;p.guild_seen=true;
-        ok=v.kind==JsonValueKind::null_value?(p.guild=0,true):json_value_to_snowflake(v,&p.guild);}
-    else if(json_string_equals_ascii(name,utf8_literal("channel_id"))||json_string_equals_ascii(name,utf8_literal("id"))){bit=1u<<9;if(!mark(p,bit))return false;p.id_seen=true;ok=json_value_to_snowflake(v,&p.id)&&p.id;}
-    else if(json_string_equals_ascii(name,utf8_literal("channel_overrides"))){bit=1u<<10;if(!mark(p,bit))return false;p.overrides_seen=true;p.overrides=v;ok=v.kind==JsonValueKind::array;}
-    else if(json_string_equals_ascii(name,utf8_literal("version"))){bit=1u<<12;if(!mark(p,bit))return false;ok=json_value_to_u64(v,&p.version);p.version_known=ok;}
-    else if(json_string_equals_ascii(name,utf8_literal("message_notifications"))){bit=notification_level;if(!mark(p,bit))return false;
+    auto&p=*static_cast<Parse*>(opaque);u32 bit=0;bool ok=true;bool*dest=nullptr;
+    switch(protocol_detail::member_index<"guild_id","channel_id","id","channel_overrides","version","message_notifications","flags","mute_config","muted","suppress_everyone","suppress_roles","mobile_push","hide_muted_channels">(name)){
+    case 0:bit=1u<<8;if(!mark(p,bit))return false;p.guild_seen=true;
+        ok=v.kind==JsonValueKind::null_value?(p.guild=0,true):json_value_to_snowflake(v,&p.guild);break;
+    case 1:case 2:bit=1u<<9;if(!mark(p,bit))return false;p.id_seen=true;ok=json_value_to_snowflake(v,&p.id)&&p.id;break;
+    case 3:bit=1u<<10;if(!mark(p,bit))return false;p.overrides_seen=true;p.overrides=v;ok=v.kind==JsonValueKind::array;break;
+    case 4:bit=1u<<12;if(!mark(p,bit))return false;ok=json_value_to_u64(v,&p.version);p.version_known=ok;break;
+    case 5:bit=notification_level;if(!mark(p,bit))return false;
         if(v.kind==JsonValueKind::null_value)p.setting.level=MessageNotificationLevel::inherit;
-        else {u64 n=0;ok=json_value_to_u64(v,&n)&&n<=3;p.setting.level=static_cast<MessageNotificationLevel>(n);}p.setting.fields|=static_cast<u16>(bit);}
-    else if(json_string_equals_ascii(name,utf8_literal("flags"))){bit=notification_flags;if(!mark(p,bit))return false;u64 n=0;ok=json_value_to_u64(v,&n)&&n<=~u32{0};p.setting.flags=static_cast<u32>(n);p.setting.fields|=static_cast<u16>(bit);}
-    else if(json_string_equals_ascii(name,utf8_literal("mute_config"))){bit=1u<<11;if(!mark(p,bit))return false;
+        else {u64 n=0;ok=json_value_to_u64(v,&n)&&n<=3;p.setting.level=static_cast<MessageNotificationLevel>(n);}p.setting.fields|=static_cast<u16>(bit);break;
+    case 6:{bit=notification_flags;if(!mark(p,bit))return false;u64 n=0;ok=json_value_to_u64(v,&n)&&n<=~u32{0};p.setting.flags=static_cast<u32>(n);p.setting.fields|=static_cast<u16>(bit);break;}
+    case 7:bit=1u<<11;if(!mark(p,bit))return false;
         if(v.kind==JsonValueKind::null_value){p.setting.fields|=notification_mute_end;p.setting.mute_end_ms=0;}
         else if(v.kind==JsonValueKind::object){const auto r=json_visit_indexed_object(*p.doc,v,64,mute_member,&p);ok=r.ok();}
-        else ok=false;}
-    else {bool*dest=nullptr;
-        if(json_string_equals_ascii(name,utf8_literal("muted"))){bit=notification_muted;dest=&p.setting.muted;}
-        else if(json_string_equals_ascii(name,utf8_literal("suppress_everyone"))){bit=notification_suppress_everyone;dest=&p.setting.suppress_everyone;}
-        else if(json_string_equals_ascii(name,utf8_literal("suppress_roles"))){bit=notification_suppress_roles;dest=&p.setting.suppress_roles;}
-        else if(json_string_equals_ascii(name,utf8_literal("mobile_push"))){bit=notification_mobile_push;dest=&p.setting.mobile_push;}
-        else if(json_string_equals_ascii(name,utf8_literal("hide_muted_channels"))){bit=notification_hide_muted;dest=&p.setting.hide_muted_channels;}
-        if(dest){if(!mark(p,bit))return false;ok=json_value_to_bool(v,dest);p.setting.fields|=static_cast<u16>(bit);}}
+        else ok=false;break;
+    case 8:bit=notification_muted;dest=&p.setting.muted;break;
+    case 9:bit=notification_suppress_everyone;dest=&p.setting.suppress_everyone;break;
+    case 10:bit=notification_suppress_roles;dest=&p.setting.suppress_roles;break;
+    case 11:bit=notification_mobile_push;dest=&p.setting.mobile_push;break;
+    case 12:bit=notification_hide_muted;dest=&p.setting.hide_muted_channels;break;
+    default:break;}
+    if(dest){if(!mark(p,bit))return false;ok=json_value_to_bool(v,dest);p.setting.fields|=static_cast<u16>(bit);}
     if(!ok&&p.error==E::none)p.error=E::field;return ok;
 }
 E parse(const JsonIndexedDocument&d,JsonValue v,Parse*out) noexcept {
@@ -74,10 +76,8 @@ bool guild_item(void*opaque,u32,JsonValue v) noexcept {
 }
 struct Ready {Batch*batch;JsonValue entries;u32 seen;E error;};
 bool ready_member(void*opaque,JsonString name,JsonValue v) noexcept {
-    auto&r=*static_cast<Ready*>(opaque);u32 bit=0;
-    if(json_string_equals_ascii(name,utf8_literal("entries")))bit=1;
-    else if(json_string_equals_ascii(name,utf8_literal("partial")))bit=2;
-    else if(json_string_equals_ascii(name,utf8_literal("version")))bit=4;else return true;
+    auto&r=*static_cast<Ready*>(opaque);
+    const u32 bit=protocol_detail::member_bit<"entries","partial","version">(name);if(!bit)return true;
     if(r.seen&bit){r.error=E::duplicate;return false;}r.seen|=bit;bool ok=true;
     if(bit==1){r.entries=v;ok=v.kind==JsonValueKind::array;}
     else if(bit==2)ok=json_value_to_bool(v,&r.batch->packet.partial);

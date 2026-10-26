@@ -3,6 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/name_list.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -72,12 +73,8 @@ bool decode(JsonValue value, char* target, u32 capacity, u32* count, bool requir
 }
 bool visit(void* context, JsonString key, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(context);
-    static constexpr Utf8View keys[]{utf8_literal("schema"), utf8_literal("owner_id"), utf8_literal("abi"),
-        utf8_literal("name"), utf8_literal("version"), utf8_literal("description"),
-        utf8_literal("dll"), utf8_literal("sha256"), utf8_literal("permissions"), utf8_literal("min_host_abi"),
-        utf8_literal("publisher")};
-    u32 field = field_count;
-    for (u32 i = 0; i < field_count; ++i) if (json_string_equals_ascii(key, keys[i])) { field = i; break; }
+    const u32 field = protocol_detail::member_index<"schema", "owner_id", "abi", "name", "version", "description", "dll",
+                                                    "sha256", "permissions", "min_host_abi", "publisher">(key);
     if (field == field_count) { parse.error = NativePluginManifestError::unknown_field; return false; }
     if (parse.seen & (1u << field)) { parse.error = NativePluginManifestError::duplicate_field; return false; }
     parse.seen |= 1u << field;

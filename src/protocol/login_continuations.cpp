@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_write.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -53,12 +54,8 @@ bool mark_assertion(AssertionContext* context, u32 bit) noexcept {
 }
 bool visit_assertion_response(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<AssertionContext*>(opaque);
-    u32 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("authenticatorData"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("clientDataJSON"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("signature"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("userHandle"))) bit = 8;
-    else return false;
+    const u32 bit = member_bit<"authenticatorData", "clientDataJSON", "signature", "userHandle">(name);
+    if (!bit) return false;
     if (!mark_assertion(context, bit)) return false;
     if (bit == 8 && value.kind == JsonValueKind::null_value) return true;
     Utf8View binary{};
@@ -66,14 +63,8 @@ bool visit_assertion_response(void* opaque, JsonString name, JsonValue value) no
 }
 bool visit_assertion(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<AssertionContext*>(opaque);
-    u32 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("rawId"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("response"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("type"))) bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("clientExtensionResults"))) bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("authenticatorAttachment"))) bit = 32;
-    else return false;
+    const u32 bit = member_bit<"id", "rawId", "response", "type", "clientExtensionResults", "authenticatorAttachment">(name);
+    if (!bit) return false;
     if (!mark_assertion(context, bit)) return false;
     if (bit == 1 || bit == 2) return binary_string(value, bit == 1 ? &context->id : &context->raw_id);
     if (bit == 4) {
@@ -92,8 +83,7 @@ bool visit_assertion(void* opaque, JsonString name, JsonValue value) noexcept {
     JsonString string{};
     return json_value_as_string(value, &string) &&
         (bit == 8 ? json_string_equals_ascii(string, utf8_literal("public-key")) :
-         json_string_equals_ascii(string, utf8_literal("platform")) ||
-         json_string_equals_ascii(string, utf8_literal("cross-platform")));
+         member_index<"platform", "cross-platform">(string) < 2);
 }
 bool native_assertion_valid(Utf8View credential) noexcept {
     u32 scratch[128]{};

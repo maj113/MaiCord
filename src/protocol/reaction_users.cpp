@@ -4,6 +4,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -65,25 +66,32 @@ bool visit_user_member(void* opaque, JsonString name,
                        JsonValue value) noexcept {
     auto* user = static_cast<UserObject*>(opaque);
     bool valid = true;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (protocol_detail::member_index<"id", "username", "global_name", "avatar", "bot">(name)) {
+    case 0:
         valid = !user->id_seen && json_value_to_snowflake(value, &user->id);
         user->id_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("username"))) {
+        break;
+    case 1:
         valid = !user->username_seen && json_value_as_string(value, &user->username);
         user->username_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("global_name"))) {
+        break;
+    case 2:
         valid = !user->global_name_seen;
         user->global_name_seen = true;
         user->global_name_null = value.kind == JsonValueKind::null_value;
         valid = valid && (user->global_name_null || json_value_as_string(value, &user->global_name));
-    } else if (json_string_equals_ascii(name, utf8_literal("avatar"))) {
+        break;
+    case 3:
         valid = !user->avatar_seen;
         user->avatar_seen = true;
         user->avatar_null = value.kind == JsonValueKind::null_value;
         valid = valid && (user->avatar_null || json_value_as_string(value, &user->avatar));
-    } else if (json_string_equals_ascii(name, utf8_literal("bot"))) {
+        break;
+    case 4:
         valid = !user->bot_seen && json_value_to_bool(value, &user->bot);
         user->bot_seen = true;
+        break;
+    default: break;
     }
     if (!valid)
         user->error = ReactionUsersDecodeError::invalid_user;

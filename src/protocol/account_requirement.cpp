@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/user_auth.hpp"
+#include "json_field_lists.hpp"
 namespace maicord {
 namespace {
 struct Update {
@@ -20,16 +21,19 @@ bool action_member(void* context, JsonString name, JsonValue value) noexcept {
 }
 bool error_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& result = *static_cast<ApiRejection*>(context);
-    if (json_string_equals_ascii(name, utf8_literal("code"))) {
+    switch (protocol_detail::member_index<"code", "captcha_key", "captcha_sitekey", "captcha_rqtoken">(name)) {
+    case 0: {
         u64 code = 0;
         if (result.has_code || !json_value_to_u64(value, &code) || code > 0xffffffffull)
             return false;
         result.code = static_cast<u32>(code);
         result.has_code = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("captcha_key")) ||
-               json_string_equals_ascii(name, utf8_literal("captcha_sitekey")) ||
-               json_string_equals_ascii(name, utf8_literal("captcha_rqtoken"))) {
-        result.captcha |= value.kind != JsonValueKind::null_value;
+        break;
+    }
+    case 1:
+    case 2:
+    case 3: result.captcha |= value.kind != JsonValueKind::null_value; break;
+    default: break;
     }
     return true;
 }
@@ -46,10 +50,7 @@ struct MfaMethod {
 };
 bool mfa_method_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& method = *static_cast<MfaMethod*>(context);
-    const u8 field = json_string_equals_ascii(name, utf8_literal("type"))                   ? 1
-                     : json_string_equals_ascii(name, utf8_literal("challenge"))            ? 2
-                     : json_string_equals_ascii(name, utf8_literal("backup_codes_allowed")) ? 4
-                                                                                            : 0;
+    const u8 field = static_cast<u8>(protocol_detail::member_bit<"type", "challenge", "backup_codes_allowed">(name));
     if (!field)
         return true;
     if (method.fields & field)
@@ -73,9 +74,7 @@ struct MfaRequest {
 };
 bool mfa_request_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& request = *static_cast<MfaRequest*>(context);
-    const u8 field = json_string_equals_ascii(name, utf8_literal("ticket"))    ? 1
-                     : json_string_equals_ascii(name, utf8_literal("methods")) ? 2
-                                                                               : 0;
+    const u8 field = static_cast<u8>(protocol_detail::member_bit<"ticket", "methods">(name));
     if (!field)
         return true;
     if (request.fields & field)
@@ -112,20 +111,12 @@ AccountRequirement decode_account_requirement(JsonValue value) noexcept {
     JsonString text{};
     if (!json_value_as_string(value, &text))
         return AccountRequirement::other;
-    static constexpr Utf8View names[] = {utf8_literal("REQUIRE_CAPTCHA"),
-                                  utf8_literal("REQUIRE_VERIFIED_EMAIL"),
-                                  utf8_literal("REQUIRE_VERIFIED_PHONE"),
-                                  utf8_literal("REQUIRE_REVERIFIED_EMAIL"),
-                                  utf8_literal("REQUIRE_REVERIFIED_PHONE"),
-                                  utf8_literal("REQUIRE_VERIFIED_EMAIL_OR_VERIFIED_PHONE"),
-                                  utf8_literal("REQUIRE_REVERIFIED_EMAIL_OR_VERIFIED_PHONE"),
-                                  utf8_literal("REQUIRE_VERIFIED_EMAIL_OR_REVERIFIED_PHONE"),
-                                  utf8_literal("REQUIRE_REVERIFIED_EMAIL_OR_REVERIFIED_PHONE"),
-                                  utf8_literal("AGREEMENTS"),
-                                  utf8_literal("REQUIRE_SAFETY_FLOWS")};
-    for (u32 n = 0; n < sizeof(names) / sizeof(names[0]); ++n)
-        if (json_string_equals_ascii(text, names[n]))
-            return static_cast<AccountRequirement>(n + 1);
+    const u32 n = protocol_detail::member_index<"REQUIRE_CAPTCHA", "REQUIRE_VERIFIED_EMAIL", "REQUIRE_VERIFIED_PHONE",
+        "REQUIRE_REVERIFIED_EMAIL", "REQUIRE_REVERIFIED_PHONE", "REQUIRE_VERIFIED_EMAIL_OR_VERIFIED_PHONE",
+        "REQUIRE_REVERIFIED_EMAIL_OR_VERIFIED_PHONE", "REQUIRE_VERIFIED_EMAIL_OR_REVERIFIED_PHONE",
+        "REQUIRE_REVERIFIED_EMAIL_OR_REVERIFIED_PHONE", "AGREEMENTS", "REQUIRE_SAFETY_FLOWS">(text);
+    if (n < 11)
+        return static_cast<AccountRequirement>(n + 1);
     return AccountRequirement::other;
 }
 bool account_requirement_update(JsonValue data, Slice<u32> scratch, AccountRequirement* output) noexcept {

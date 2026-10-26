@@ -1,5 +1,6 @@
 #include "maicord/protocol/gateway_voice.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "json_field_lists.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
@@ -19,32 +20,16 @@ bool nonempty_string(JsonValue value, JsonString* output) noexcept {
 }
 bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& d = *static_cast<Decode*>(opaque);
-    u32 field = 0;
-    if (json_string_equals_ascii(key, utf8_literal("guild_id")))
-        field = guild;
-    else if (json_string_equals_ascii(key, utf8_literal("channel_id")))
-        field = channel;
-    else if (!d.server_event && json_string_equals_ascii(key, utf8_literal("user_id")))
-        field = user;
-    else if (!d.server_event && json_string_equals_ascii(key, utf8_literal("session_id")))
-        field = session;
-    else if (d.server_event && json_string_equals_ascii(key, utf8_literal("token")))
-        field = token;
-    else if (d.server_event && json_string_equals_ascii(key, utf8_literal("endpoint")))
-        field = endpoint;
-    else if (!d.server_event) {
-        const Utf8View names[] = {utf8_literal("deaf"),        utf8_literal("mute"),
-                                  utf8_literal("self_deaf"),   utf8_literal("self_mute"),
-                                  utf8_literal("self_stream"), utf8_literal("self_video"),
-                                  utf8_literal("suppress")};
-        for (u32 i = 0; i < 7; ++i)
-            if (json_string_equals_ascii(key, names[i])) {
-                field = 1u << (i + 6);
-                break;
-            }
-        if (!field && json_string_equals_ascii(key, utf8_literal("request_to_speak_timestamp")))
-            field = 1u << 13; // gateway_voice_request_to_speak << 6
-    }
+    static constexpr u32 fields[] = {guild,    channel,   user,      session,    token,      endpoint,   1u << 6,
+                                     1u << 7,  1u << 8,   1u << 9,   1u << 10,   1u << 11,   1u << 12,
+                                     1u << 13}; // the last is gateway_voice_request_to_speak << 6
+    const u32 index = protocol_detail::wide_member_index<
+        "guild_id", "channel_id", "user_id", "session_id", "token", "endpoint", "deaf", "mute", "self_deaf",
+        "self_mute", "self_stream", "self_video", "suppress", "request_to_speak_timestamp">(key);
+    u32 field = index < sizeof(fields) / sizeof(fields[0]) ? fields[index] : 0;
+    // The token and endpoint belong to server updates; every name after the channel but those, to state updates.
+    if (index >= 2 && (index == 4 || index == 5) != d.server_event)
+        field = 0;
     if (!field)
         return true;
     if (d.seen & field) {

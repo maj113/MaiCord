@@ -2,6 +2,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 bool twitch_vod_id(Utf8View id) noexcept {
@@ -33,19 +34,12 @@ u32 twitch_playback_body(Utf8View id, Slice<u8> output, bool live) noexcept {
     copy_bytes(output.data, staged, w.used); return w.used;
 }
 namespace {
-struct Field { Utf8View name; JsonValue value{}; bool seen{}; };
-struct Fields { Field* data; u32 count; };
-bool member(void* context, JsonString name, JsonValue value) noexcept {
-    auto& fields = *static_cast<Fields*>(context);
-    for (u32 i = 0; i < fields.count; ++i) if (json_name_is(name, fields.data[i].name)) {
-        if (fields.data[i].seen) return false;
-        fields.data[i].seen = true; fields.data[i].value = value; break;
-    }
-    return true;
-}
-template<usize N> bool fields(const JsonIndexedDocument& doc, JsonValue object, Field (&entries)[N]) noexcept {
-    Fields list{entries, static_cast<u32>(N)};
-    return json_visit_indexed_object(doc, object, 16, member, &list).ok();
+using protocol_detail::FieldSet;
+using protocol_detail::FieldValue;
+using protocol_detail::MemberNames;
+template <protocol_detail::MemberName... Names>
+__forceinline bool fields(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {
+    return protocol_detail::fields_at<16>(doc, value, set);
 }
 struct Scratch {
     char signature[128]{}, token[2048]{};
@@ -61,14 +55,16 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
     const auto scan = json_scan_structurals_avx1(json, scratch);
     if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field root[]{{utf8_literal("data")}, {utf8_literal("errors")}};
+    FieldSet<"data", "errors"> root;
     if (!fields(doc, {json, 0, JsonValueKind::object}, root)) return E::malformed;
     if (root[1].seen) return E::unavailable;
-    Field data[]{{live ? utf8_literal("streamPlaybackAccessToken") : utf8_literal("videoPlaybackAccessToken")}};
-    if (!root[0].seen || !fields(doc, root[0].value, data) || !data[0].seen) return E::malformed;
-    if (data[0].value.kind == JsonValueKind::null_value) return E::unavailable;
-    Field access[]{{utf8_literal("signature")}, {utf8_literal("value")}}; JsonString signature{}, token{};
-    if (!fields(doc, data[0].value, access) || !access[0].seen || !access[1].seen ||
+    FieldValue data;
+    if (!root[0].seen || !protocol_detail::fields_n(doc, root[0].value, 16, &data, 1,
+            (live ? MemberNames<"streamPlaybackAccessToken">::data.bytes : MemberNames<"videoPlaybackAccessToken">::data.bytes) + 1) ||
+        !data.seen) return E::malformed;
+    if (data.value.kind == JsonValueKind::null_value) return E::unavailable;
+    FieldSet<"signature", "value"> access; JsonString signature{}, token{};
+    if (!fields(doc, data.value, access) || !access[0].seen || !access[1].seen ||
         !json_value_as_string(access[0].value, &signature) || !json_value_as_string(access[1].value, &token)) return E::malformed;
     Scratch s;
     const auto sig = json_string_decode_utf8(signature, {s.signature, sizeof(s.signature)});
@@ -79,10 +75,12 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
     const auto token_scan = json_scan_structurals_avx1(token_json, scratch);
     if (!token_scan.ok()) return token_scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument claims_doc{token_json, {scratch.data, token_scan.count}};
-    Field claims[]{{live ? utf8_literal("channel") : utf8_literal("vod_id")}, {utf8_literal("expires")}, {utf8_literal("authorization")}};
-    Field authorization[]{{utf8_literal("forbidden")}};
+    FieldValue claims[3];
+    FieldSet<"forbidden"> authorization;
     u64 expires{}, identity{}, requested{}; bool forbidden = true;
-    if (!fields(claims_doc, {token_json, 0, JsonValueKind::object}, claims) || !claims[0].seen ||
+    if (!protocol_detail::fields_n(claims_doc, {token_json, 0, JsonValueKind::object}, 16, claims, 3,
+            (live ? MemberNames<"channel", "expires", "authorization">::data.bytes : MemberNames<"vod_id", "expires", "authorization">::data.bytes) + 1) ||
+        !claims[0].seen ||
         !claims[1].seen || !json_value_to_u64(claims[1].value, &expires) || !claims[2].seen ||
         !fields(claims_doc, claims[2].value, authorization) || !authorization[0].seen ||
         !json_value_to_bool(authorization[0].value, &forbidden)) return E::malformed;

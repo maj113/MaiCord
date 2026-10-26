@@ -1,23 +1,24 @@
 #include "maicord/app/gateway_client.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "maicord/core/memory.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 constexpr u32 kDepth = 32;
 bool events_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("guild_scheduled_events")))
+    if (json_name_is(name, utf8_literal("guild_scheduled_events")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }
 bool arrays_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& arrays = *static_cast<GatewayGuildArrays*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("voice_states")))
-        arrays.voice_states = value;
-    else if (json_string_equals_ascii(name, utf8_literal("stage_instances")))
-        arrays.stage_instances = value;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_scheduled_events")))
-        arrays.scheduled_events = value;
+    switch (protocol_detail::member_index<"voice_states", "stage_instances", "guild_scheduled_events">(name)) {
+    case 0: arrays.voice_states = value; break;
+    case 1: arrays.stage_instances = value; break;
+    case 2: arrays.scheduled_events = value; break;
+    default: break;
+    }
     return true;
 }
 } // namespace

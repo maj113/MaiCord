@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway_events.hpp"
 #include "json_command_writer.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 GatewayEndpointError voice_gateway_endpoint(Utf8View authority, GatewayEndpoint* output) noexcept {
@@ -42,10 +43,7 @@ struct EnvelopeRead {
 };
 bool field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<EnvelopeRead*>(opaque);
-    const u32 bit = json_string_equals_ascii(name, utf8_literal("op"))    ? 1u
-                    : json_string_equals_ascii(name, utf8_literal("d"))   ? 2u
-                    : json_string_equals_ascii(name, utf8_literal("seq")) ? 4u
-                                                                          : 0u;
+    const u32 bit = protocol_detail::member_bit<"op", "d", "seq">(name);
     if (!bit)
         return true;
     read.offset = value.source_offset;

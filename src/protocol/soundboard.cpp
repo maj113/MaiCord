@@ -4,6 +4,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/rest.hpp"
@@ -359,9 +360,7 @@ bool parse_optional_id(JsonValue value, u64* output) noexcept {
     return json_value_to_u64_or_string(value, output);
 }
 
-constexpr const char* kSoundFields[] = {"sound_id", "name",      "volume",  "emoji_id",
-                                        "emoji_name", "guild_id", "available", "user_id"};
-constexpr u32 kSoundFieldCount = sizeof(kSoundFields) / sizeof(kSoundFields[0]);
+constexpr u32 kSoundFieldCount = 8;
 struct SoundParse {
     SoundboardSound value;
     u32 seen;
@@ -369,10 +368,8 @@ struct SoundParse {
 };
 bool visit_sound(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<SoundParse*>(opaque);
-    u32 field = kSoundFieldCount;
-    for (u32 i = 0; i < kSoundFieldCount && field == kSoundFieldCount; ++i)
-        if (name_is(name, kSoundFields[i]))
-            field = i;
+    const u32 field =
+        member_index<"sound_id", "name", "volume", "emoji_id", "emoji_name", "guild_id", "available", "user_id">(name);
     if (field == kSoundFieldCount)
         return true;
     if (p.seen & (1u << field)) {
@@ -455,16 +452,23 @@ struct ListEnvelope {
 };
 bool visit_envelope(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& e = *static_cast<ListEnvelope*>(opaque);
-    if (name_is(name, "items") || name_is(name, "soundboard_sounds")) {
+    switch (member_index<"items", "soundboard_sounds", "guild_id">(name)) {
+    case 0:
+    case 1:
         if (e.has_items || value.kind != JsonValueKind::array) {
             e.error = SoundboardDecodeError::field;
             return false;
         }
         e.items = value;
         e.has_items = true;
-    } else if (name_is(name, "guild_id") && !parse_optional_id(value, &e.guild_id)) {
-        e.error = SoundboardDecodeError::field;
-        return false;
+        break;
+    case 2:
+        if (!parse_optional_id(value, &e.guild_id)) {
+            e.error = SoundboardDecodeError::field;
+            return false;
+        }
+        break;
+    default: break;
     }
     return true;
 }
@@ -535,10 +539,11 @@ struct DeleteParse {
 bool visit_delete(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<DeleteParse*>(opaque);
     bool valid = true;
-    if (name_is(name, "sound_id"))
-        valid = json_value_to_u64_or_string(value, &d.sound_id);
-    else if (name_is(name, "guild_id"))
-        valid = parse_optional_id(value, &d.guild_id);
+    switch (member_index<"sound_id", "guild_id">(name)) {
+    case 0: valid = json_value_to_u64_or_string(value, &d.sound_id); break;
+    case 1: valid = parse_optional_id(value, &d.guild_id); break;
+    default: break;
+    }
     if (!valid)
         d.error = SoundboardDecodeError::field;
     return valid;
@@ -552,12 +557,12 @@ struct EffectParse {
 bool visit_effect_emoji(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& e = *static_cast<EffectParse*>(opaque);
     bool valid = true;
-    if (name_is(name, "id"))
-        valid = parse_optional_id(value, &e.value.emoji_id);
-    else if (name_is(name, "name"))
-        valid = decode_text(value, e.value.emoji_name, kSoundboardEmojiNameBytes, &e.value.emoji_name_bytes);
-    else if (name_is(name, "animated"))
-        valid = value.kind == JsonValueKind::null_value || json_value_to_bool(value, &e.value.emoji_animated);
+    switch (member_index<"id", "name", "animated">(name)) {
+    case 0: valid = parse_optional_id(value, &e.value.emoji_id); break;
+    case 1: valid = decode_text(value, e.value.emoji_name, kSoundboardEmojiNameBytes, &e.value.emoji_name_bytes); break;
+    case 2: valid = value.kind == JsonValueKind::null_value || json_value_to_bool(value, &e.value.emoji_animated); break;
+    default: break;
+    }
     if (!valid)
         e.error = SoundboardDecodeError::field;
     return valid;
@@ -567,31 +572,33 @@ bool visit_effect(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& v = e.value;
     bool valid = true;
     u64 number = 0;
-    if (name_is(name, "channel_id"))
-        valid = json_value_to_u64_or_string(value, &v.channel_id);
-    else if (name_is(name, "guild_id"))
-        valid = parse_optional_id(value, &v.guild_id);
-    else if (name_is(name, "user_id"))
-        valid = json_value_to_u64_or_string(value, &v.user_id);
-    else if (name_is(name, "sound_id"))
-        valid = parse_optional_id(value, &v.sound_id);
-    else if (name_is(name, "animation_id"))
-        valid = value.kind == JsonValueKind::null_value || json_value_to_u64_or_string(value, &v.animation_id);
-    else if (name_is(name, "animation_type")) {
+    switch (member_index<"channel_id", "guild_id", "user_id", "sound_id", "animation_id", "animation_type",
+                         "sound_volume", "emoji">(name)) {
+    case 0: valid = json_value_to_u64_or_string(value, &v.channel_id); break;
+    case 1: valid = parse_optional_id(value, &v.guild_id); break;
+    case 2: valid = json_value_to_u64_or_string(value, &v.user_id); break;
+    case 3: valid = parse_optional_id(value, &v.sound_id); break;
+    case 4: valid = value.kind == JsonValueKind::null_value || json_value_to_u64_or_string(value, &v.animation_id); break;
+    case 5:
         valid = value.kind == JsonValueKind::null_value || (json_value_to_u64(value, &number) && number <= 255);
         v.animation_type = static_cast<u8>(number);
-    } else if (name_is(name, "sound_volume")) {
+        break;
+    case 6: {
         u32 volume = kSoundboardVolumeScale;
         valid = value.kind == JsonValueKind::null_value ||
                 (value.kind == JsonValueKind::number && soundboard_parse_volume(value.source, &volume));
         v.sound_volume = static_cast<u16>(volume);
         v.has_sound_volume = value.kind != JsonValueKind::null_value;
-    } else if (name_is(name, "emoji")) {
+        break;
+    }
+    case 7:
         if (value.kind == JsonValueKind::object) {
             const auto read = json_visit_indexed_object(*e.document, value, kDepth, visit_effect_emoji, &e);
             valid = read.ok();
         } else
             valid = value.kind == JsonValueKind::null_value;
+        break;
+    default: break;
     }
     if (!valid && e.error == SoundboardDecodeError::none)
         e.error = SoundboardDecodeError::field;

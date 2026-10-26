@@ -1,6 +1,7 @@
 #include "maicord/protocol/gateway_stream.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_field_lists.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
 
@@ -66,15 +67,14 @@ bool nullable_bool(JsonValue value, bool* output) noexcept {
     return json_value_to_bool(value, output);
 }
 GatewayStreamDeleteReason reason_of(JsonString text) noexcept {
-    if (json_string_equals_ascii(text, utf8_literal("user_requested")))
-        return GatewayStreamDeleteReason::user_requested;
-    if (json_string_equals_ascii(text, utf8_literal("stream_full")))
-        return GatewayStreamDeleteReason::stream_full;
-    if (json_string_equals_ascii(text, utf8_literal("unauthorized")))
-        return GatewayStreamDeleteReason::unauthorized;
-    if (json_string_equals_ascii(text, utf8_literal("safety_guild_rate_limited")))
-        return GatewayStreamDeleteReason::safety_guild_rate_limited;
-    return GatewayStreamDeleteReason::other;
+    switch (protocol_detail::member_index<"user_requested", "stream_full", "unauthorized",
+                                          "safety_guild_rate_limited">(text)) {
+    case 0: return GatewayStreamDeleteReason::user_requested;
+    case 1: return GatewayStreamDeleteReason::stream_full;
+    case 2: return GatewayStreamDeleteReason::unauthorized;
+    case 3: return GatewayStreamDeleteReason::safety_guild_rate_limited;
+    default: return GatewayStreamDeleteReason::other;
+    }
 }
 // Keys are plain ASCII; an escaped key is decoded before parsing.
 bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) noexcept {
@@ -87,23 +87,19 @@ bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) no
 bool visit_stream(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<StreamDecode*>(opaque);
     struct Field {
-        Utf8View name;
         u32 bit;
         u8 kinds; // Bit per decode kind.
     };
     static constexpr Field fields[]{
-        {utf8_literal("stream_key"), f_key, 0xF},       {utf8_literal("rtc_server_id"), f_server, 1},
-        {utf8_literal("rtc_channel_id"), f_channel, 1}, {utf8_literal("region"), f_region, 5},
-        {utf8_literal("viewer_ids"), f_viewers, 5},     {utf8_literal("paused"), f_paused, 5},
-        {utf8_literal("token"), f_token, 2},            {utf8_literal("endpoint"), f_endpoint, 2},
-        {utf8_literal("reason"), f_reason, 8},          {utf8_literal("unavailable"), f_unavailable, 8},
+        {f_key, 0xF},      {f_server, 1}, {f_channel, 1}, {f_region, 5},  {f_viewers, 5},
+        {f_paused, 5},     {f_token, 2},  {f_endpoint, 2}, {f_reason, 8}, {f_unavailable, 8},
     };
-    u32 bit = 0;
-    for (const auto& field : fields)
-        if ((field.kinds >> d.kind & 1) && json_string_equals_ascii(name, field.name)) {
-            bit = field.bit;
-            break;
-        }
+    const u32 index = protocol_detail::member_index<"stream_key", "rtc_server_id", "rtc_channel_id", "region",
+                                                    "viewer_ids", "paused", "token", "endpoint", "reason",
+                                                    "unavailable">(name);
+    const u32 bit = index < sizeof(fields) / sizeof(fields[0]) && (fields[index].kinds >> d.kind & 1)
+                        ? fields[index].bit
+                        : 0;
     if (!bit)
         return true;
     if (d.seen & bit) {
@@ -329,7 +325,7 @@ struct PreviewDecode {
 };
 bool visit_preview(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<PreviewDecode*>(opaque);
-    if (!json_string_equals_ascii(name, utf8_literal("url")))
+    if (!json_name_is(name, utf8_literal("url")))
         return true;
     if (d.seen || !json_value_as_string(value, &d.url)) {
         d.valid = false;

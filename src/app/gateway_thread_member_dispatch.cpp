@@ -6,6 +6,7 @@
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "gateway_dispatch_common.hpp"
+#include "../protocol/json_field_lists.hpp"
 #include "gateway_payload_writer.hpp"
 namespace maicord {
 namespace {
@@ -47,19 +48,17 @@ struct PresenceObject {
 
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MemberObject*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("user"))) {
+    switch (protocol_detail::member_index<"user", "roles", "presence", "nick">(name)) {
+    case 0:
         return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
                                    value.kind == JsonValueKind::object);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("roles"))) {
+    case 1:
         return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
                                    value.kind == JsonValueKind::array);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("presence"))) {
+    case 2:
         return gateway_keep_member(&context->error, &context->presence_seen, &context->presence, value,
                                    value.kind == JsonValueKind::object);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("nick"))) {
+    case 3:
         if (context->nickname_seen) {
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         }
@@ -68,23 +67,30 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
         if (!context->nickname_null && !json_value_as_string(value, &context->nickname)) {
             return reject(&context->error);
         }
+        break;
+    default: break;
     }
     return true;
 }
 
 bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<PresenceObject*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("user"))) {
+    switch (protocol_detail::member_index<"user", "status", "client_status">(name)) {
+    case 0:
         if (context->user_seen || value.kind != JsonValueKind::object) return reject(&context->error);
         context->user = value; context->user_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("status"))) {
+        break;
+    case 1:
         if (context->status_seen || !json_value_as_string(value, &context->status))
             return reject(&context->error, gateway_field_error(context->status_seen));
         context->status_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("client_status"))) {
+        break;
+    case 2:
         if (context->client_status_seen) return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         context->client_status_seen = true;
         if (!client_status_decode(value, &context->client_status)) context->client_status = 0;
+        break;
+    default: break;
     }
     return true;
 }
@@ -97,22 +103,30 @@ struct Outer {
 };
 bool visit_outer(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& o = *static_cast<Outer*>(opaque);
-    if (json_string_equals_ascii(key, utf8_literal("user_id"))) {
+    switch (protocol_detail::member_index<"user_id", "id", "join_timestamp", "member", "presence">(key)) {
+    case 0:
         if (o.id_seen || !json_value_to_snowflake(value, &o.user_id)) return reject(&o.error);
         o.id_seen = true;
-    } else if (json_string_equals_ascii(key, utf8_literal("id"))) {
+        break;
+    case 1:
         if (o.thread_seen || !json_value_to_snowflake(value, &o.thread_id)) return reject(&o.error);
         o.thread_seen = true;
-    } else if (json_string_equals_ascii(key, utf8_literal("join_timestamp"))) {
+        break;
+    case 2: {
         // Advisory: an unreadable time only leaves the join order unknown.
         JsonString text{};
         if (!json_value_as_string(value, &text) || !parse_iso_timestamp(text, &o.join_ms)) o.join_ms = 0;
-    } else if (json_string_equals_ascii(key, utf8_literal("member"))) {
+        break;
+    }
+    case 3:
         if (o.member_seen || value.kind != JsonValueKind::object) return reject(&o.error);
         o.member_seen = true; o.member = value;
-    } else if (json_string_equals_ascii(key, utf8_literal("presence"))) {
+        break;
+    case 4:
         if (o.presence_seen || (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)) return reject(&o.error);
         o.presence_seen = true; o.presence = value;
+        break;
+    default: break;
     }
     return true;
 }
@@ -133,21 +147,36 @@ struct Root {
 };
 bool visit_root(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& r = *static_cast<Root*>(opaque);
-    if (json_string_equals_ascii(key, utf8_literal("guild_id"))) {
+    const u32 index = protocol_detail::member_index<"guild_id", "thread_id", "members", "id", "added_members",
+                                                    "removed_member_ids", "presences">(key);
+    switch (index) {
+    case 0:
         if (r.guild_seen || !json_value_to_snowflake(value, &r.guild)) return reject(&r.error);
         r.guild_seen = true;
-    } else if (json_string_equals_ascii(key, r.snapshot ? utf8_literal("thread_id") : utf8_literal("id"))) {
+        break;
+    case 1:
+    case 3:
+        // A snapshot names its thread thread_id; an update names it id.
+        if ((index == 1) != r.snapshot) return true;
         if (r.thread_seen || !json_value_to_snowflake(value, &r.thread)) return reject(&r.error);
         r.thread_seen = true;
-    } else if (json_string_equals_ascii(key, r.snapshot ? utf8_literal("members") : utf8_literal("added_members"))) {
+        break;
+    case 2:
+    case 4:
+        if ((index == 2) != r.snapshot) return true;
         if (r.members_seen || value.kind != JsonValueKind::array) return reject(&r.error);
         r.members_seen = true; r.members = value;
-    } else if (!r.snapshot && json_string_equals_ascii(key, utf8_literal("removed_member_ids"))) {
+        break;
+    case 5:
+        if (r.snapshot) return true;
         if (r.removed_seen || value.kind != JsonValueKind::array) return reject(&r.error);
         r.removed_seen = true; r.removed = value;
-    } else if (json_string_equals_ascii(key, utf8_literal("presences"))) {
+        break;
+    case 6:
         if (r.presences_seen || value.kind != JsonValueKind::array) return reject(&r.error);
         r.presences_seen = true; r.presences = value;
+        break;
+    default: break;
     }
     return true;
 }
@@ -254,8 +283,9 @@ GatewayClientDispatchRouteResult gateway_client_route_thread_member_dispatch(con
     Slice<u32> scratch, u32 depth, Slice<char> storage, u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload, bool* handled) noexcept {
     if (!event || !payload || !handled || !scratch.data || !scratch.count || !storage.data || !depth) return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
     Root root{};
-    root.snapshot = json_string_equals_ascii(envelope.event_name, utf8_literal("THREAD_MEMBER_LIST_UPDATE"));
-    *handled = root.snapshot || json_string_equals_ascii(envelope.event_name, utf8_literal("THREAD_MEMBERS_UPDATE"));
+    const u32 event_index = protocol_detail::skim_member_index<"THREAD_MEMBER_LIST_UPDATE", "THREAD_MEMBERS_UPDATE">(envelope.event_name);
+    root.snapshot = event_index == 0;
+    *handled = event_index < 2;
     if (!*handled) return {};
     const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);
     if (!scan.ok()) return {GatewayEventDecodeError::scan_failed, GatewayClientDispatchRouteError::decode, scan.error};

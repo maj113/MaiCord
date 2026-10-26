@@ -11,9 +11,15 @@
 #include "gateway_user_payload.hpp"
 #include "maicord/protocol/upload_allowance.hpp"
 #include "maicord/protocol/thread_actions.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
+
+using protocol_detail::member_bit;
+using protocol_detail::member_index;
+using protocol_detail::skim_member_index;
+using protocol_detail::wide_member_index;
 
 static_assert(sizeof(GatewayClientStateMutation) == 168);
 static_assert(sizeof(GatewayClientRoleMutation) == 40);
@@ -151,7 +157,10 @@ void member_state_from_flags(GatewayClientStateMutation* m) noexcept {
 // Guild settings and member timeout keys. Null channel IDs and a null timeout
 // are explicit observations of "none".
 bool visit_guild_setting(StateObjectContext* context, JsonString name, JsonValue value, bool* handled) noexcept {
-    if (json_name_is(name, utf8_literal("pending"))) {
+    const u32 index = wide_member_index<"pending", "mfa_level", "verification_level", "default_message_notifications",
+                                   "explicit_content_filter", "system_channel_id", "afk_channel_id", "afk_timeout",
+                                   "communication_disabled_until">(name);
+    if (index == 0) {
         *handled = true;
         bool pending = false;
         if (value.kind == JsonValueKind::null_value)
@@ -165,25 +174,22 @@ bool visit_guild_setting(StateObjectContext* context, JsonString name, JsonValue
         return true;
     }
     struct Key {
-        Utf8View name;
         u16 field;
         u8 maximum;
     };
-    // Runs for every member of every visited state object: lengths are
-    // compile-time so most probes end at the first byte.
+    // Runs for every member of every visited state object.
     static constexpr Key keys[] = {
-        {utf8_literal("mfa_level"), guild_settings_mfa_level, 1},
-        {utf8_literal("verification_level"), guild_settings_verification_level, 4},
-        {utf8_literal("default_message_notifications"), guild_settings_default_notifications, 1},
-        {utf8_literal("explicit_content_filter"), guild_settings_explicit_content_filter, 2},
-        {utf8_literal("system_channel_id"), guild_settings_system_channel, 0},
-        {utf8_literal("afk_channel_id"), guild_settings_afk_channel, 0},
-        {utf8_literal("afk_timeout"), guild_settings_afk_timeout, 0},
-        {utf8_literal("communication_disabled_until"), guild_settings_self_timeout, 0},
+        {guild_settings_mfa_level, 1},
+        {guild_settings_verification_level, 4},
+        {guild_settings_default_notifications, 1},
+        {guild_settings_explicit_content_filter, 2},
+        {guild_settings_system_channel, 0},
+        {guild_settings_afk_channel, 0},
+        {guild_settings_afk_timeout, 0},
+        {guild_settings_self_timeout, 0},
     };
-    for (const Key& key : keys) {
-        if (!json_name_is(name, key.name))
-            continue;
+    if (index < 9) {
+        const Key& key = keys[index - 1];
         *handled = true;
         auto& m = context->mutation;
         if (m.guild_settings_known & key.field)
@@ -241,25 +247,180 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         return false;
     if (setting || gateway_guild_detail_visit(&context->details, name, value))
         return true;
-    // Message request and DM safety fields are advisory: malformed values are
-    // ignored rather than rejecting the channel.
-    if (json_name_is(name, utf8_literal("is_message_request"))) {
-        context->message_request_seen = json_value_to_bool(value, &context->message_request) ||
-                                        value.kind == JsonValueKind::null_value;
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("is_spam"))) {
-        context->spam_seen = json_value_to_bool(value, &context->spam) || value.kind == JsonValueKind::null_value;
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("safety_warnings"))) {
-        if (value.kind == JsonValueKind::array || value.kind == JsonValueKind::null_value) {
-            context->safety_warnings_seen = true;
-            context->safety_warnings = value;
+    // Ordering, flag and color values outside the native range (a negative
+    // position, a future 64-bit flag) degrade to "absent" for that record.
+    const bool array = value.kind == JsonValueKind::array;
+    const bool object = value.kind == JsonValueKind::object;
+    switch (wide_member_index<"id", "name", "type", "guild_id", "parent_id", "flags", "position", "permissions",
+                         "last_message_id", "user", "roles", "channels", "members", "threads", "emojis",
+                         "permission_overwrites", "features", "icon", "banner", "owner_id", "role_id", "color",
+                         "colors", "tags", "hoist", "managed", "mentionable", "unicode_emoji", "allow", "deny",
+                         "rate_limit_per_user", "nsfw", "nsfw_level", "member", "thread_metadata", "newly_created",
+                         "member_list_id", "animated", "available", "require_colons", "joined_at", "unavailable",
+                         "role", "nicks", "recipients", "recipient_ids", "properties", "is_message_request",
+                         "is_spam", "safety_warnings">(name)) {
+    case 0:
+        return mark_field(context, gateway_client_state_field_id) &&
+                       json_value_to_snowflake(value, &context->mutation.id)
+                   ? true
+                   : reject(context);
+    case 1:
+        if (!mark_field(context, gateway_client_state_field_name))
+            return false;
+        if (value.kind == JsonValueKind::null_value) {
+            context->name_null = true;
+            return true;
         }
+        return json_value_as_string(value, &context->name) ? true : reject(context);
+    case 2: {
+        u64 decoded = 0;
+        if (!mark_field(context, gateway_client_state_field_type) || !json_value_to_u64(value, &decoded) ||
+            decoded > 0xFFu) {
+            return reject(context);
+        }
+        context->mutation.type = static_cast<u8>(decoded);
         return true;
     }
-    if (json_name_is(name, utf8_literal("mentionable"))) {
+    case 3:
+        return mark_field(context, gateway_client_state_field_guild_id) &&
+                       json_value_to_snowflake(value, &context->mutation.guild_id)
+                   ? true
+                   : reject(context);
+    case 4:
+        if (!mark_field(context, gateway_client_state_field_parent_id)) {
+            return false;
+        }
+        return value.kind == JsonValueKind::null_value ||
+                       json_value_to_snowflake(value, &context->mutation.parent_id)
+                   ? true
+                   : reject(context);
+    case 5: {
+        u64 decoded = 0;
+        if (!mark_field(context, gateway_client_state_field_flags))
+            return false;
+        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
+            context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_flags);
+            return true;
+        }
+        context->mutation.flags = static_cast<u32>(decoded);
+        return true;
+    }
+    case 6: {
+        u64 decoded = 0;
+        if (!mark_field(context, gateway_client_state_field_position))
+            return false;
+        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
+            context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_position);
+            return true;
+        }
+        context->mutation.position = static_cast<u32>(decoded);
+        return true;
+    }
+    case 7:
+        return mark_field(context, gateway_client_state_field_permissions) &&
+                       value_to_permission(value, &context->mutation.permissions)
+                   ? true
+                   : reject(context);
+    case 8:
+        if (!mark_field(context, gateway_client_state_field_last_message_id)) {
+            return false;
+        }
+        return value.kind == JsonValueKind::null_value ||
+                       json_value_to_snowflake(value, &context->mutation.last_message_id)
+                   ? true
+                   : reject(context);
+    case 9:
+        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value, object);
+    case 10:
+        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value, array);
+    case 11:
+        return gateway_keep_member(&context->error, &context->channels_seen, &context->channels, value, array);
+    case 12:
+        return gateway_keep_member(&context->error, &context->members_seen, &context->members, value, array);
+    case 13:
+        return gateway_keep_member(&context->error, &context->threads_seen, &context->threads, value, array);
+    case 14:
+        return gateway_keep_member(&context->error, &context->emojis_seen, &context->emojis, value,
+                                   array || object);
+    case 15:
+        if (!mark_field(context, gateway_client_state_field_permission_overwrites) || !array) {
+            if (context->error == GatewayEventDecodeError::none) {
+                context->error = GatewayEventDecodeError::invalid_data;
+            }
+            return false;
+        }
+        context->permission_overwrites_seen = true;
+        context->permission_overwrites = value;
+        return true;
+    case 16:
+        if (context->features_seen)
+            return reject(context);
+        if (!array)
+            return true;
+        context->features_seen = true;
+        context->features = value;
+        return true;
+    case 17:
+        if (!mark_field(context, gateway_client_state_field_icon)) {
+            return false;
+        }
+        if (value.kind == JsonValueKind::null_value) {
+            return true;
+        }
+        return json_value_as_string(value, &context->icon) ? true : reject(context);
+    case 18:
+        // Presentation only (guilds; users and members carry their own): a
+        // repeated or non-string banner is ignored rather than rejecting.
+        if (context->banner_seen)
+            return true;
+        context->banner_seen = value.kind == JsonValueKind::null_value ||
+                               json_value_as_string(value, &context->banner);
+        if (!context->banner_seen)
+            reset_value(&context->banner);
+        return true;
+    case 19:
+        return mark_field(context, gateway_client_state_field_owner_id) &&
+                       json_value_to_snowflake(value, &context->mutation.owner_id)
+                   ? true
+                   : reject(context);
+    case 20:
+        return mark_field(context, gateway_client_state_field_id) &&
+                       json_value_to_snowflake(value, &context->mutation.id)
+                   ? true
+                   : reject(context);
+    case 21: {
+        u64 decoded = 0;
+        if (!mark_field(context, gateway_client_state_field_color))
+            return false;
+        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFu) {
+            context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_color);
+            return true;
+        }
+        context->mutation.color = static_cast<u32>(decoded);
+        return true;
+    }
+    case 22:
+        return gateway_keep_member(&context->error, &context->colors_seen, &context->colors, value, object);
+    case 23:
+        // Only an object carries role tags; other shapes are ignored.
+        if (!object)
+            return true;
+        if (context->tags_seen)
+            return gateway_duplicate_member(&context->error);
+        context->tags_seen = true;
+        context->tags = value;
+        return true;
+    case 24:
+        return mark_field(context, gateway_client_state_field_hoist) &&
+                       json_value_to_bool(value, &context->mutation.hoist)
+                   ? true
+                   : reject(context);
+    case 25:
+        return mark_field(context, gateway_client_state_field_managed) &&
+                       json_value_to_bool(value, &context->mutation.managed)
+                   ? true
+                   : reject(context);
+    case 26: {
         bool mentionable = false;
         if (context->mentionable_seen)
             return gateway_duplicate_member(&context->error);
@@ -270,7 +431,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
             context->mutation.role_flags |= gateway_client_role_mentionable;
         return true;
     }
-    if (json_name_is(name, utf8_literal("unicode_emoji"))) {
+    case 27: {
         JsonString emoji{};
         if (context->unicode_emoji_seen)
             return gateway_duplicate_member(&context->error);
@@ -282,49 +443,28 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->unicode_emoji_present = emoji.encoded.bytes != 0;
         return true;
     }
-    if (json_name_is(name, utf8_literal("id"))) {
-        return mark_field(context, gateway_client_state_field_id) &&
-                       json_value_to_snowflake(value, &context->mutation.id)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("guild_id"))) {
-        return mark_field(context, gateway_client_state_field_guild_id) &&
-                       json_value_to_snowflake(value, &context->mutation.guild_id)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("features"))) {
-        if (context->features_seen)
-            return reject(context);
-        if (value.kind != JsonValueKind::array)
-            return true;
-        context->features_seen = true;
-        context->features = value;
+    case 28:
+        if (context->allow_seen || !value_to_permission(value, &context->allow)) {
+            context->error = gateway_field_error(context->allow_seen);
+            return false;
+        }
+        context->allow_seen = true;
+        return true;
+    case 29:
+        if (context->deny_seen || !value_to_permission(value, &context->deny)) {
+            context->error = gateway_field_error(context->deny_seen);
+            return false;
+        }
+        context->deny_seen = true;
+        return true;
+    case 30: {
+        // Presentation-only: a malformed value must not reject the channel.
+        u64 decoded = 0;
+        if (json_value_to_u64(value, &decoded) && decoded <= 21600)
+            context->mutation.rate_limit_per_user = static_cast<u16>(decoded + 1);
         return true;
     }
-    if (json_name_is(name, utf8_literal("thread_metadata"))) {
-        return gateway_keep_member(&context->error, &context->thread_metadata_seen,
-                                   &context->thread_metadata, value, value.kind == JsonValueKind::object);
-    }
-    if (json_name_is(name, utf8_literal("newly_created"))) {
-        if (context->newly_created_seen)
-            return gateway_duplicate_member(&context->error);
-        context->newly_created_seen = true;
-        return json_value_to_bool(value, &context->newly_created) || reject(context);
-    }
-    if (json_name_is(name, utf8_literal("member"))) {
-        if (context->thread_member_seen)
-            return reject(context);
-        // Only an object can describe the current thread member; other
-        // shapes are advisory and ignored.
-        if (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)
-            return true;
-        context->thread_member_seen = true;
-        context->thread_member = value;
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("nsfw"))) {
+    case 31: {
         if (context->mutation.content_policy_known)
             return gateway_duplicate_member(&context->error);
         bool age_restricted = false;
@@ -333,7 +473,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->mutation.content_policy = age_restricted ? 1u : 0u;
         return true;
     }
-    if (json_name_is(name, utf8_literal("nsfw_level"))) {
+    case 32: {
         if (context->guild_nsfw_level_seen)
             return gateway_duplicate_member(&context->error);
         u64 level = 0;
@@ -343,59 +483,25 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->guild_nsfw_level_seen = true;
         return true;
     }
-    if (json_name_is(name, utf8_literal("owner_id"))) {
-        return mark_field(context, gateway_client_state_field_owner_id) &&
-                       json_value_to_snowflake(value, &context->mutation.owner_id)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("role_id"))) {
-        return mark_field(context, gateway_client_state_field_id) &&
-                       json_value_to_snowflake(value, &context->mutation.id)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("permissions"))) {
-        return mark_field(context, gateway_client_state_field_permissions) &&
-                       value_to_permission(value, &context->mutation.permissions)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("allow"))) {
-        if (context->allow_seen || !value_to_permission(value, &context->allow)) {
-            context->error = gateway_field_error(context->allow_seen);
-            return false;
-        }
-        context->allow_seen = true;
+    case 33:
+        if (context->thread_member_seen)
+            return reject(context);
+        // Only an object can describe the current thread member; other
+        // shapes are advisory and ignored.
+        if (!object && value.kind != JsonValueKind::null_value)
+            return true;
+        context->thread_member_seen = true;
+        context->thread_member = value;
         return true;
-    }
-    if (json_name_is(name, utf8_literal("deny"))) {
-        if (context->deny_seen || !value_to_permission(value, &context->deny)) {
-            context->error = gateway_field_error(context->deny_seen);
-            return false;
-        }
-        context->deny_seen = true;
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("parent_id"))) {
-        if (!mark_field(context, gateway_client_state_field_parent_id)) {
-            return false;
-        }
-        return value.kind == JsonValueKind::null_value ||
-                       json_value_to_snowflake(value, &context->mutation.parent_id)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("last_message_id"))) {
-        if (!mark_field(context, gateway_client_state_field_last_message_id)) {
-            return false;
-        }
-        return value.kind == JsonValueKind::null_value ||
-                       json_value_to_snowflake(value, &context->mutation.last_message_id)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("member_list_id"))) {
+    case 34:
+        return gateway_keep_member(&context->error, &context->thread_metadata_seen, &context->thread_metadata,
+                                   value, object);
+    case 35:
+        if (context->newly_created_seen)
+            return gateway_duplicate_member(&context->error);
+        context->newly_created_seen = true;
+        return json_value_to_bool(value, &context->newly_created) || reject(context);
+    case 36:
         if (context->mutation.member_list_id_known)
             return gateway_duplicate_member(&context->error);
         context->mutation.member_list_id_known = true;
@@ -403,138 +509,28 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
                        json_value_to_member_list_id(value, &context->mutation.member_list_id)
                    ? true
                    : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("name"))) {
-        if (!mark_field(context, gateway_client_state_field_name))
-            return false;
-        if (value.kind == JsonValueKind::null_value) {
-            context->name_null = true;
-            return true;
-        }
-        return json_value_as_string(value, &context->name) ? true : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("icon"))) {
-        if (!mark_field(context, gateway_client_state_field_icon)) {
-            return false;
-        }
-        if (value.kind == JsonValueKind::null_value) {
-            return true;
-        }
-        return json_value_as_string(value, &context->icon) ? true : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("banner"))) {
-        // Presentation only (guilds; users and members carry their own): a
-        // repeated or non-string banner is ignored rather than rejecting.
-        if (context->banner_seen)
-            return true;
-        context->banner_seen = value.kind == JsonValueKind::null_value ||
-                               json_value_as_string(value, &context->banner);
-        if (!context->banner_seen)
-            reset_value(&context->banner);
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("rate_limit_per_user"))) {
-        // Presentation-only: a malformed value must not reject the channel.
-        u64 decoded = 0;
-        if (json_value_to_u64(value, &decoded) && decoded <= 21600)
-            context->mutation.rate_limit_per_user = static_cast<u16>(decoded + 1);
-        return true;
-    }
-    // Ordering, flag and color values outside the native range (a negative
-    // position, a future 64-bit flag) degrade to "absent" for that record.
-    if (json_name_is(name, utf8_literal("position"))) {
-        u64 decoded = 0;
-        if (!mark_field(context, gateway_client_state_field_position))
-            return false;
-        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
-            context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_position);
-            return true;
-        }
-        context->mutation.position = static_cast<u32>(decoded);
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("flags"))) {
-        u64 decoded = 0;
-        if (!mark_field(context, gateway_client_state_field_flags))
-            return false;
-        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
-            context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_flags);
-            return true;
-        }
-        context->mutation.flags = static_cast<u32>(decoded);
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("color"))) {
-        u64 decoded = 0;
-        if (!mark_field(context, gateway_client_state_field_color))
-            return false;
-        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFu) {
-            context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_color);
-            return true;
-        }
-        context->mutation.color = static_cast<u32>(decoded);
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("colors"))) {
-        return gateway_keep_member(&context->error, &context->colors_seen, &context->colors, value,
-                                   value.kind == JsonValueKind::object);
-    }
-    if (json_name_is(name, utf8_literal("tags"))) {
-        // Only an object carries role tags; other shapes are ignored.
-        if (value.kind != JsonValueKind::object)
-            return true;
-        if (context->tags_seen)
-            return gateway_duplicate_member(&context->error);
-        context->tags_seen = true;
-        context->tags = value;
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("hoist"))) {
-        return mark_field(context, gateway_client_state_field_hoist) &&
-                       json_value_to_bool(value, &context->mutation.hoist)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("managed"))) {
-        return mark_field(context, gateway_client_state_field_managed) &&
-                       json_value_to_bool(value, &context->mutation.managed)
-                   ? true
-                   : reject(context);
-    }
-    if (json_name_is(name, utf8_literal("animated"))) {
+    case 37:
         if (context->animated_seen || !json_value_to_bool(value, &context->animated)) {
             context->error = gateway_field_error(context->animated_seen);
             return false;
         }
         context->animated_seen = true;
         return true;
-    }
-    if (json_name_is(name, utf8_literal("available"))) {
+    case 38:
         if (context->available_seen || !json_value_to_bool(value, &context->available)) {
             context->error = gateway_field_error(context->available_seen);
             return false;
         }
         context->available_seen = true;
         return true;
-    }
-    if (json_name_is(name, utf8_literal("require_colons"))) {
+    case 39:
         if (context->require_colons_seen || !json_value_to_bool(value, &context->require_colons)) {
             context->error = gateway_field_error(context->require_colons_seen);
             return false;
         }
         context->require_colons_seen = true;
         return true;
-    }
-    if (json_name_is(name, utf8_literal("type"))) {
-        u64 decoded = 0;
-        if (!mark_field(context, gateway_client_state_field_type) || !json_value_to_u64(value, &decoded) ||
-            decoded > 0xFFu) {
-            return reject(context);
-        }
-        context->mutation.type = static_cast<u8>(decoded);
-        return true;
-    }
-    if (json_name_is(name, utf8_literal("joined_at"))) {
+    case 40: {
         if (context->joined_at_seen)
             return gateway_duplicate_member(&context->error);
         JsonString joined{};
@@ -542,61 +538,42 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->joined = json_value_as_string(value, &joined) && joined.encoded.bytes != 0;
         return true;
     }
-    if (json_name_is(name, utf8_literal("unavailable"))) {
+    case 41:
         return mark_field(context, gateway_client_state_field_unavailable) &&
                        json_value_to_bool(value, &context->mutation.unavailable)
                    ? true
                    : reject(context);
-    }
-    const bool array = value.kind == JsonValueKind::array;
-    if (json_name_is(name, utf8_literal("channels")))
-        return gateway_keep_member(&context->error, &context->channels_seen, &context->channels, value,
-                                   array);
-    if (json_name_is(name, utf8_literal("threads")))
-        return gateway_keep_member(&context->error, &context->threads_seen, &context->threads, value,
-                                   array);
-    if (json_name_is(name, utf8_literal("roles")))
-        return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value, array);
-    if (json_name_is(name, utf8_literal("members")))
-        return gateway_keep_member(&context->error, &context->members_seen, &context->members, value,
-                                   array);
-    if (json_name_is(name, utf8_literal("emojis"))) {
-        return gateway_keep_member(&context->error, &context->emojis_seen, &context->emojis, value,
-                                   array || value.kind == JsonValueKind::object);
-    }
-    if (json_name_is(name, utf8_literal("permission_overwrites"))) {
-        if (!mark_field(context, gateway_client_state_field_permission_overwrites) || !array) {
-            if (context->error == GatewayEventDecodeError::none) {
-                context->error = GatewayEventDecodeError::invalid_data;
-            }
-            return false;
-        }
-        context->permission_overwrites_seen = true;
-        context->permission_overwrites = value;
-        return true;
-    }
-    const bool object = value.kind == JsonValueKind::object;
-    if (json_name_is(name, utf8_literal("role")))
+    case 42:
         return gateway_keep_member(&context->error, &context->role_seen, &context->role, value, object);
-    if (json_name_is(name, utf8_literal("user")))
-        return gateway_keep_member(&context->error, &context->user_seen, &context->user, value, object);
-    if (json_name_is(name, utf8_literal("nicks"))) {
+    case 43:
         return gateway_keep_member(&context->error, &context->nicks_seen, &context->nicks, value,
                                    array || value.kind == JsonValueKind::null_value);
-    }
-    if (json_name_is(name, utf8_literal("recipients"))) {
+    case 44:
         return gateway_keep_member(&context->error, &context->recipients_seen, &context->recipients, value,
                                    array);
-    }
-    if (json_name_is(name, utf8_literal("recipient_ids"))) {
-        return gateway_keep_member(&context->error, &context->recipient_ids_seen, &context->recipient_ids,
-                                   value, array);
-    }
-    if (json_name_is(name, utf8_literal("properties"))) {
+    case 45:
+        return gateway_keep_member(&context->error, &context->recipient_ids_seen, &context->recipient_ids, value,
+                                   array);
+    case 46:
         return gateway_keep_member(&context->error, &context->properties_seen, &context->properties, value,
                                    object);
+    // Message request and DM safety fields are advisory: malformed values are
+    // ignored rather than rejecting the channel.
+    case 47:
+        context->message_request_seen = json_value_to_bool(value, &context->message_request) ||
+                                        value.kind == JsonValueKind::null_value;
+        return true;
+    case 48:
+        context->spam_seen = json_value_to_bool(value, &context->spam) || value.kind == JsonValueKind::null_value;
+        return true;
+    case 49:
+        if (array || value.kind == JsonValueKind::null_value) {
+            context->safety_warnings_seen = true;
+            context->safety_warnings = value;
+        }
+        return true;
+    default: return true;
     }
-    return true;
 }
 
 // The first undismissed DM safety warning: {"id","type","dismiss_timestamp"}.
@@ -612,12 +589,12 @@ struct SafetyWarningFields {
 };
 bool safety_warning_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& f = *static_cast<SafetyWarningFields*>(opaque);
-    if (json_name_is(name, utf8_literal("id")))
-        f.id_seen = json_value_to_snowflake(value, &f.id);
-    else if (json_name_is(name, utf8_literal("type")))
-        json_value_to_u64(value, &f.type);
-    else if (json_name_is(name, utf8_literal("dismiss_timestamp")))
-        f.dismissed = value.kind != JsonValueKind::null_value;
+    switch (member_index<"id", "type", "dismiss_timestamp">(name)) {
+    case 0: f.id_seen = json_value_to_snowflake(value, &f.id); break;
+    case 1: json_value_to_u64(value, &f.type); break;
+    case 2: f.dismissed = value.kind != JsonValueKind::null_value; break;
+    default: break;
+    }
     return true;
 }
 bool safety_warning_item(void* opaque, u32, JsonValue value) noexcept {
@@ -658,18 +635,22 @@ struct NicknameFields {
 };
 bool nickname_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& fields = *static_cast<NicknameFields*>(opaque);
-    if (json_name_is(key, utf8_literal("id"))) {
+    switch (member_index<"id", "nick">(key)) {
+    case 0:
         if (fields.id_seen || !json_value_to_snowflake(value, &fields.id) || !fields.id) {
             fields.error = gateway_field_error(fields.id_seen);
             return false;
         }
         fields.id_seen = true;
-    } else if (json_name_is(key, utf8_literal("nick"))) {
+        break;
+    case 1:
         if (fields.name_seen || !json_value_as_string(value, &fields.name)) {
             fields.error = gateway_field_error(fields.name_seen);
             return false;
         }
         fields.name_seen = true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -742,17 +723,20 @@ struct EmojiSetContext {
 
 bool visit_emoji_set_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmojiSetContext*>(opaque);
-    if (json_name_is(name, utf8_literal("items"))) {
+    switch (member_index<"items", "op">(name)) {
+    case 0:
         return gateway_keep_member(&context->error, &context->items_seen, &context->items, value,
                                    value.kind == JsonValueKind::array);
-    }
-    if (json_name_is(name, utf8_literal("op"))) {
+    case 1: {
         u64 op = 0;
         if (context->op_seen || !json_value_to_u64(value, &op) || op > 2) {
             context->error = gateway_field_error(context->op_seen);
             return false;
         }
         context->op_seen = true;
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -772,13 +756,12 @@ struct RoleColorsContext {
 // gradient and tertiary_color for the holographic style.
 bool visit_role_color(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RoleColorsContext*>(opaque);
-    const bool primary = json_name_is(name, utf8_literal("primary_color"));
-    const bool secondary = !primary && json_name_is(name, utf8_literal("secondary_color"));
-    const bool tertiary =
-        !primary && !secondary && json_name_is(name, utf8_literal("tertiary_color"));
-    if (!primary && !secondary && !tertiary) {
+    const u32 index = member_index<"primary_color", "secondary_color", "tertiary_color">(name);
+    if (index > 2) {
         return true;
     }
+    const bool primary = index == 0;
+    const bool secondary = index == 1;
     bool& seen = primary ? context->primary_seen : secondary ? context->secondary_seen : context->tertiary_seen;
     if (seen)
         return gateway_duplicate_member(&context->error);
@@ -860,9 +843,10 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
             context.thread_metadata, {scratch.data, metadata_scan.count}, maximum_depth,
             +[](void* opaque, JsonString name, JsonValue item) noexcept {
                 auto* target = static_cast<ThreadMetadataContext*>(opaque);
-                const bool locked = json_name_is(name, utf8_literal("locked"));
-                if (!locked && !json_name_is(name, utf8_literal("archived")))
+                const u32 index = member_index<"archived", "locked">(name);
+                if (index > 1)
                     return true;
+                const bool locked = index == 1;
                 if (locked ? target->locked_seen : target->seen)
                     return gateway_duplicate_member(&target->error);
                 if (locked) target->locked_seen = true;
@@ -971,22 +955,15 @@ GatewayEventDecodeResult decode_state_object(JsonValue value, Slice<u32> scratch
                      // Unknown feature shapes are ignored like unknown names.
                      if (!json_value_as_string(value, &name))
                          return true;
-                     if (json_name_is(name, utf8_literal("MAX_FILE_SIZE_50_MB")))
-                         *flags |= 1;
-                     if (json_name_is(name, utf8_literal("MAX_FILE_SIZE_100_MB")))
-                         *flags |= 2;
-                     if (json_name_is(name, utf8_literal("MAX_FILE_SIZE_250_MB")))
-                         *flags |= 4;
-                     if (json_name_is(name, utf8_literal("COMMUNITY")))
-                         *flags |= guild_record_community;
-                     if (json_name_is(name, utf8_literal("GUILD_ONBOARDING")))
-                         *flags |= guild_record_onboarding;
-                     if (json_name_is(name, utf8_literal("MEMBER_VERIFICATION_GATE_ENABLED")))
-                         *flags |= guild_record_verification_gate;
-                     if (json_name_is(name, utf8_literal("GUILD_ONBOARDING_HAS_PROMPTS")))
-                         *flags |= guild_record_onboarding_prompts;
-                     if (json_name_is(name, utf8_literal("ANIMATED_BANNER")))
-                         *flags |= guild_record_animated_banner;
+                     static constexpr u8 bits[] = {1, 2, 4, guild_record_community, guild_record_onboarding,
+                                                   guild_record_verification_gate, guild_record_onboarding_prompts,
+                                                   guild_record_animated_banner};
+                     const u32 index = member_index<"MAX_FILE_SIZE_50_MB", "MAX_FILE_SIZE_100_MB",
+                                                    "MAX_FILE_SIZE_250_MB", "COMMUNITY", "GUILD_ONBOARDING",
+                                                    "MEMBER_VERIFICATION_GATE_ENABLED",
+                                                    "GUILD_ONBOARDING_HAS_PROMPTS", "ANIMATED_BANNER">(name);
+                     if (index < 8)
+                         *flags |= bits[index];
                      return true;
                  },
                  &context.mutation.upload_features)
@@ -1473,13 +1450,14 @@ bool visit_member_identity_id(void* opaque, JsonString name, JsonValue value) no
 }
 bool visit_member_identity(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& identity = *static_cast<MemberIdentity*>(opaque);
-    if (json_name_is(name, utf8_literal("user_id"))) {
+    const u32 index = member_index<"user_id", "user">(name);
+    if (index == 0) {
         if (identity.user_id_seen)
             return false;
         identity.user_id_seen = true;
         return json_value_to_snowflake(value, &identity.user_id);
     }
-    if (!json_name_is(name, utf8_literal("user")))
+    if (index != 1)
         return true;
     if (identity.user_seen || value.kind != JsonValueKind::object)
         return false;
@@ -1769,12 +1747,8 @@ struct ThreadSyncRoot {
 };
 bool thread_sync_field(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& root = *static_cast<ThreadSyncRoot*>(opaque);
-    u8 bit = 0;
-    if (json_name_is(key, utf8_literal("guild_id"))) bit = 1;
-    else if (json_name_is(key, utf8_literal("channel_ids"))) bit = 2;
-    else if (json_name_is(key, utf8_literal("threads"))) bit = 4;
-    else if (json_name_is(key, utf8_literal("members"))) bit = 8;
-    else return true;
+    const u32 bit = member_bit<"guild_id", "channel_ids", "threads", "members">(key);
+    if (!bit) return true;
     if (root.seen & bit) { root.error = GatewayEventDecodeError::duplicate_field; return false; }
     root.seen |= bit;
     if (bit == 1) {
@@ -2016,12 +1990,17 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
     if (!event || !payload || !handled) {
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     }
-    const bool ready_guild = json_name_is(envelope.event_name, utf8_literal("READY_GUILD"));
-    if (json_name_is(envelope.event_name, utf8_literal("THREAD_LIST_SYNC"))) {
+    const u32 event_index =
+        skim_member_index<"READY_GUILD", "THREAD_LIST_SYNC", "THREAD_MEMBER_UPDATE", "GUILD_CREATE", "GUILD_UPDATE",
+                          "GUILD_DELETE", "THREAD_CREATE", "CHANNEL_CREATE", "CHANNEL_UPDATE", "THREAD_UPDATE",
+                          "CHANNEL_DELETE", "THREAD_DELETE", "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE",
+                          "GUILD_ROLE_DELETE", "GUILD_MEMBER_UPDATE", "GUILD_EMOJIS_UPDATE">(envelope.event_name);
+    const bool ready_guild = event_index == 0;
+    if (event_index == 1) {
         *handled = true;
         return route_thread_sync(envelope, structural_scratch, maximum_depth, payload_scratch, self_user_id, event, payload);
     }
-    if (json_name_is(envelope.event_name, utf8_literal("THREAD_MEMBER_UPDATE"))) {
+    if (event_index == 2) {
         *handled = true;
         StateObjectContext member;
         const auto decoded = decode_state_object(envelope.data, structural_scratch, maximum_depth, &member);
@@ -2036,22 +2015,18 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
         reset_value(payload); event->dispatch_payload_bytes = 0;
         return {};
     }
-    const bool guild_create =
-        ready_guild || json_name_is(envelope.event_name, utf8_literal("GUILD_CREATE"));
-    const bool guild_update = json_name_is(envelope.event_name, utf8_literal("GUILD_UPDATE"));
-    const bool guild_delete = json_name_is(envelope.event_name, utf8_literal("GUILD_DELETE"));
-    const bool thread_create = json_name_is(envelope.event_name, utf8_literal("THREAD_CREATE"));
-    const bool channel_create = json_name_is(envelope.event_name, utf8_literal("CHANNEL_CREATE")) ||
-                                thread_create;
-    const bool channel_update = json_name_is(envelope.event_name, utf8_literal("CHANNEL_UPDATE")) ||
-                                json_name_is(envelope.event_name, utf8_literal("THREAD_UPDATE"));
-    const bool channel_delete = json_name_is(envelope.event_name, utf8_literal("CHANNEL_DELETE")) ||
-                                json_name_is(envelope.event_name, utf8_literal("THREAD_DELETE"));
-    const bool role_create = json_name_is(envelope.event_name, utf8_literal("GUILD_ROLE_CREATE"));
-    const bool role_update = json_name_is(envelope.event_name, utf8_literal("GUILD_ROLE_UPDATE"));
-    const bool role_delete = json_name_is(envelope.event_name, utf8_literal("GUILD_ROLE_DELETE"));
-    const bool member_update = json_name_is(envelope.event_name, utf8_literal("GUILD_MEMBER_UPDATE"));
-    const bool guild_emojis_update = json_name_is(envelope.event_name, utf8_literal("GUILD_EMOJIS_UPDATE"));
+    const bool guild_create = ready_guild || event_index == 3;
+    const bool guild_update = event_index == 4;
+    const bool guild_delete = event_index == 5;
+    const bool thread_create = event_index == 6;
+    const bool channel_create = event_index == 7 || thread_create;
+    const bool channel_update = event_index == 8 || event_index == 9;
+    const bool channel_delete = event_index == 10 || event_index == 11;
+    const bool role_create = event_index == 12;
+    const bool role_update = event_index == 13;
+    const bool role_delete = event_index == 14;
+    const bool member_update = event_index == 15;
+    const bool guild_emojis_update = event_index == 16;
     *handled = guild_create || guild_update || guild_delete || channel_create || channel_update ||
                channel_delete || role_create || role_update || role_delete || member_update ||
                guild_emojis_update;
@@ -2497,11 +2472,10 @@ struct RegionalContentPolicy {
 };
 bool regional_content_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& policy = *static_cast<RegionalContentPolicy*>(opaque);
-    const u8 bit = json_string_equals_ascii(name, utf8_literal("teen_by_default_settings")) ? 1 :
-                   json_string_equals_ascii(name, utf8_literal("age_gated_features")) ? 2 : 0;
+    const u32 bit = member_bit<"teen_by_default_settings", "age_gated_features">(name);
     if (!bit) return true;
     if (policy.seen & bit) return false;
-    policy.seen |= bit;
+    policy.seen = static_cast<u8>(policy.seen | bit);
     u64 flags = 0;
     if (!json_value_to_u64(value, &flags) || flags > 0xffffffffu) return false;
     if (bit == 1 && (flags & 1)) policy.flags |= account_content_teen_defaults;

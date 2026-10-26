@@ -1,8 +1,10 @@
 #include "maicord/protocol/client_status.hpp"
 
 #include "maicord/core/json_scan.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
+static_assert(kClientPlatformCount == 4);
 namespace {
 
 struct ClientStatusContext {
@@ -12,11 +14,7 @@ struct ClientStatusContext {
 
 bool visit_platform(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<ClientStatusContext*>(opaque);
-    const Utf8View names[kClientPlatformCount]{utf8_literal("desktop"), utf8_literal("mobile"), utf8_literal("web"),
-                                               utf8_literal("embedded")};
-    u32 platform = 0;
-    while (platform < kClientPlatformCount && !json_string_equals_ascii(name, names[platform]))
-        ++platform;
+    const u32 platform = protocol_detail::member_index<"desktop", "mobile", "web", "embedded">(name);
     if (platform == kClientPlatformCount)
         return true;
     const u8 bit = static_cast<u8>(1u << platform);
@@ -26,10 +24,13 @@ bool visit_platform(void* opaque, JsonString name, JsonValue value) noexcept {
     JsonString text{};
     if (!json_value_as_string(value, &text))
         return true;
-    const ClientPlatformStatus status = json_string_equals_ascii(text, utf8_literal("online")) ? ClientPlatformStatus::online
-                                        : json_string_equals_ascii(text, utf8_literal("idle")) ? ClientPlatformStatus::idle
-                                        : json_string_equals_ascii(text, utf8_literal("dnd"))  ? ClientPlatformStatus::dnd
-                                                                                               : ClientPlatformStatus::offline;
+    ClientPlatformStatus status = ClientPlatformStatus::offline;
+    switch (protocol_detail::member_index<"online", "idle", "dnd">(text)) {
+    case 0: status = ClientPlatformStatus::online; break;
+    case 1: status = ClientPlatformStatus::idle; break;
+    case 2: status = ClientPlatformStatus::dnd; break;
+    default: break;
+    }
     context.packed = client_status_with(context.packed, static_cast<ClientPlatform>(platform), status);
     return true;
 }

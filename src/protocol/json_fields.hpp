@@ -1,5 +1,6 @@
 #pragma once
 
+#include "json_field_lists.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
@@ -10,33 +11,20 @@ inline bool filled(JsonValue v) noexcept {
     return v.source.data && v.kind != JsonValueKind::null_value;
 }
 
-// One named member of an object; value stays empty while the member is absent.
-struct Field {
-    Utf8View key;
-    JsonValue value;
-};
-struct Fields {
-    Field* data;
-    u32 count;
-};
-__declspec(noinline) inline bool collect(void* opaque, JsonString key, JsonValue value) noexcept {
-    auto& f = *static_cast<Fields*>(opaque);
-    for (u32 i = 0; i < f.count; ++i)
-        if (json_string_equals_ascii(key, f.data[i].key)) {
-            if (f.data[i].value.source.data)
-                return false;
-            f.data[i].value = value;
-            break;
-        }
-    return true;
-}
-// Fills fields from an object in one pass; a repeated named member fails.
-// An absent or null object leaves them empty.
-template <u32 N> __declspec(noinline) bool object(const JsonIndexedDocument& doc, const JsonValue& value, Field (&fields)[N]) noexcept {
-    if (!filled(value))
+// Fills a FieldSet from an object in one pass; a repeated named member fails.
+// An absent or null object leaves every field empty (no source text).
+__declspec(noinline) inline bool object_list(const JsonIndexedDocument& doc, const JsonValue& value, FieldValue* out,
+                                             const u8* list) noexcept {
+    if (!filled(value)) {
+        for (u32 i = 0; i < list[0]; ++i)
+            out[i] = FieldValue{};
         return true;
-    Fields context{fields, N};
-    return json_visit_indexed_object(doc, value, 64, collect, &context).ok();
+    }
+    return fields_n(doc, value, 64, out, list[0], list + 1);
+}
+template <MemberName... Names>
+__forceinline bool object(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {
+    return object_list(doc, value, set.fields, MemberNames<Names...>::data.bytes);
 }
 // An integer sent as a JSON number or as a snowflake string; absent or null is 0.
 __declspec(noinline) inline bool number(const JsonValue& v, u64* n) noexcept {

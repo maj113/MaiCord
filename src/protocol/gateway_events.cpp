@@ -3,11 +3,14 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/account_requirement.hpp"
 #include "gateway_decode.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 
 using protocol_detail::accept_member;
+using protocol_detail::member_bit;
+using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::mark_seen;
 using protocol_detail::read_failure;
@@ -92,38 +95,49 @@ bool rate_seconds(JsonValue value, u64* output) noexcept {
 
 bool visit_rate_limited(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<RateLimitedContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("opcode"))) {
+    switch (member_index<"opcode", "retry_after", "meta">(name)) {
+    case 0: {
         u64 opcode = 0;
         if (!mark_seen(&context.fields, 1, &context.error))
             return false;
         if (!json_value_to_u64(value, &opcode) || opcode > ~u32{0})
             return false;
         context.value.opcode = static_cast<u32>(opcode);
-    } else if (json_string_equals_ascii(name, utf8_literal("retry_after"))) {
+        break;
+    }
+    case 1:
         if (!mark_seen(&context.fields, 2, &context.error) ||
             !rate_seconds(value, &context.value.retry_after_ms))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("meta"))) {
+        break;
+    case 2:
         if (!mark_seen(&context.fields, 4, &context.error) || value.kind != JsonValueKind::object)
             return false;
         context.meta = value;
+        break;
+    default: break;
     }
     return true;
 }
 
 bool visit_rate_meta(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<RateLimitedContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
+    switch (member_index<"guild_id", "nonce">(name)) {
+    case 0:
         if (!mark_seen(&context.fields, 8, &context.error) ||
             !json_value_to_snowflake(value, &context.value.guild_id) || !context.value.guild_id)
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("nonce"))) {
+        break;
+    case 1: {
         JsonString nonce{};
         if (!mark_seen(&context.fields, 16, &context.error) || !json_value_as_string(value, &nonce))
             return false;
         // Non-decimal peer nonces still carry an authoritative guild deadline.
         if (!json_string_to_u64(nonce, &context.value.nonce))
             context.value.nonce = 0;
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -135,11 +149,7 @@ struct MemberChunkContext {
 };
 bool visit_member_chunk_receipt(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<MemberChunkContext*>(opaque);
-    const u32 bit = json_string_equals_ascii(name, utf8_literal("guild_id"))      ? 1u
-                    : json_string_equals_ascii(name, utf8_literal("nonce"))       ? 2u
-                    : json_string_equals_ascii(name, utf8_literal("chunk_index")) ? 4u
-                    : json_string_equals_ascii(name, utf8_literal("chunk_count")) ? 8u
-                                                                                  : 0u;
+    const u32 bit = member_bit<"guild_id", "nonce", "chunk_index", "chunk_count">(name);
     if (!bit)
         return true;
     if (!mark_seen(&context.fields, bit, &context.error))
@@ -252,100 +262,113 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
     auto& error = context->error;
     // Policy fields are kept raw for the preflight producer, so one malformed
     // optional field cannot fail READY.
-    u32 policy_bit = 0;
-    JsonValue* policy = nullptr;
-    if (json_string_equals_ascii(name, utf8_literal("user_guild_settings"))) {
-        policy_bit = 1u << 15;
-        policy = &ready.user_guild_settings;
-    } else if (json_string_equals_ascii(name, utf8_literal("user_settings_proto"))) {
-        policy_bit = 1u << 16;
-        policy = &ready.user_settings_proto;
-    } else if (json_string_equals_ascii(name, utf8_literal("notification_settings"))) {
-        policy_bit = 1u << 17;
-        policy = &ready.notification_settings;
-    }
-    if (policy) {
+    const u32 index = member_index<"user_guild_settings", "user_settings_proto", "notification_settings", "v", "user",
+                                   "guilds", "private_channels", "required_action", "relationships",
+                                   "merged_presences", "merged_members", "read_state", "linked_users",
+                                   "regional_feature_config", "apex_experiments", "users", "session_id",
+                                   "resume_gateway_url", "auth_session_id_hash", "qos_token">(name);
+    if (index < 3) {
+        const u32 policy_bit = 1u << (15 + index);
+        JsonValue* const policy = index == 0   ? &ready.user_guild_settings
+                                  : index == 1 ? &ready.user_settings_proto
+                                               : &ready.notification_settings;
         if (fields & policy_bit)
             ready.notification_policy_invalid = true;
         fields |= policy_bit;
         *policy = value;
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("v"))) {
+    switch (index) {
+    case 3: {
         u64 version = 0;
         if (!accept_member(&fields, 1u << 0,
                            json_value_to_u64(value, &version) && version != 0 && version <= 0xFFFFFFFFull,
                            &error, GatewayEventDecodeError::invalid_api_version))
             return false;
         ready.api_version = static_cast<u32>(version);
-    } else if (json_string_equals_ascii(name, utf8_literal("user"))) {
+        break;
+    }
+    case 4:
         if (!accept_member(&fields, 1u << 1, value.kind == JsonValueKind::object, &error,
                            GatewayEventDecodeError::invalid_user))
             return false;
         ready.user = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("guilds"))) {
+        break;
+    case 5:
         if (!accept_member(&fields, 1u << 2, value.kind == JsonValueKind::array, &error,
                            GatewayEventDecodeError::invalid_guilds))
             return false;
         ready.guilds = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("private_channels"))) {
+        break;
+    case 6:
         if (!accept_member(&fields, 1u << 5, value.kind == JsonValueKind::array, &error))
             return false;
         ready.private_channels = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("required_action"))) {
+        break;
+    case 7:
         if (!mark_seen(&fields, 1u << 11, &error))
             return false;
         ready.required_action = decode_account_requirement(value);
-    } else if (json_string_equals_ascii(name, utf8_literal("relationships"))) {
+        break;
+    case 8:
         if (!accept_member(&fields, 1u << 12,
                            value.kind == JsonValueKind::array || value.kind == JsonValueKind::null_value,
                            &error))
             return false;
         ready.relationships = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("merged_presences"))) {
+        break;
+    case 9:
         if (!accept_member(&fields, 1u << 13,
                            value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value,
                            &error))
             return false;
         ready.merged_presences = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("merged_members"))) {
+        break;
+    case 10:
         // Optional member authority is checked per guild during projection.
         keep_first(context, 1u << 18, &ready.merged_members, value);
-    } else if (json_string_equals_ascii(name, utf8_literal("read_state"))) {
+        break;
+    case 11:
         if (!accept_member(&fields, 1u << 14, value.kind == JsonValueKind::object, &error))
             return false;
         ready.read_state = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("linked_users"))) {
-        keep_first(context, 1u << 20, &ready.linked_users, value);
-    } else if (json_string_equals_ascii(name, utf8_literal("regional_feature_config"))) {
+        break;
+    case 12: keep_first(context, 1u << 20, &ready.linked_users, value); break;
+    case 13:
         // Ancillary account policy is normalized during READY projection.
         keep_first(context, 1u << 19, &ready.regional_feature_config, value);
-    } else if (json_string_equals_ascii(name, utf8_literal("apex_experiments"))) {
+        break;
+    case 14:
         if (!mark_seen(&fields, 1u << 10, &error))
             return false;
         ready.apex_experiments = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("users"))) {
+        break;
+    case 15:
         if (!accept_member(&fields, 1u << 6, value.kind == JsonValueKind::array, &error,
                            GatewayEventDecodeError::invalid_user))
             return false;
         ready.users = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("session_id"))) {
+        break;
+    case 16:
         if (!accept_member(&fields, 1u << 3,
                            json_value_as_string(value, &ready.session_id) &&
                                ready.session_id.encoded.bytes != 0,
                            &error, GatewayEventDecodeError::invalid_session_id))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("resume_gateway_url"))) {
+        break;
+    case 17:
         if (!accept_member(&fields, 1u << 4,
                            json_value_as_string(value, &ready.resume_gateway_url) &&
                                ready.resume_gateway_url.encoded.bytes != 0,
                            &error, GatewayEventDecodeError::invalid_resume_gateway_url))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("auth_session_id_hash"))) {
+        break;
+    case 18:
         // Optional; identifies this session in the Devices list.
         ready.auth_session_id_hash = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("qos_token"))) {
-        ready.qos_token = value;
+        break;
+    case 19: ready.qos_token = value; break;
+    default: break;
     }
     return true;
 }

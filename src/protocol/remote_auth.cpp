@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/asset_hash.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -77,32 +78,26 @@ bool read_u64(DecodeContext* context, JsonString name, JsonValue value, u32 fiel
 
 bool visit_packet(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<DecodeContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("op"))) {
-        return read_string(context, name, value, field_op, &context->op);
+    const u32 index = protocol_detail::member_index<"op", "timeout_ms", "heartbeat_interval", "encrypted_nonce",
+                                                    "fingerprint", "encrypted_user_payload", "ticket",
+                                                    "encrypted_token">(name);
+    if (index > 7) {
+        return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("timeout_ms"))) {
-        return read_u64(context, name, value, field_timeout, &context->timeout_ms);
+    if (index == 1 || index == 2) {
+        return read_u64(context, name, value, 1u << index,
+                        index == 1 ? &context->timeout_ms : &context->heartbeat_interval_ms);
     }
-    if (json_string_equals_ascii(name, utf8_literal("heartbeat_interval"))) {
-        return read_u64(context, name, value, field_heartbeat_interval, &context->heartbeat_interval_ms);
+    JsonString* output = &context->op;
+    switch (index) {
+    case 3: output = &context->encrypted_nonce; break;
+    case 4: output = &context->fingerprint; break;
+    case 5: output = &context->encrypted_user_payload; break;
+    case 6: output = &context->ticket; break;
+    case 7: output = &context->encrypted_token; break;
+    default: break;
     }
-    if (json_string_equals_ascii(name, utf8_literal("encrypted_nonce"))) {
-        return read_string(context, name, value, field_encrypted_nonce, &context->encrypted_nonce);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("fingerprint"))) {
-        return read_string(context, name, value, field_fingerprint, &context->fingerprint);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("encrypted_user_payload"))) {
-        return read_string(context, name, value, field_encrypted_user_payload,
-                           &context->encrypted_user_payload);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("ticket"))) {
-        return read_string(context, name, value, field_ticket, &context->ticket);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("encrypted_token"))) {
-        return read_string(context, name, value, field_encrypted_token, &context->encrypted_token);
-    }
-    return true;
+    return read_string(context, name, value, 1u << index, output);
 }
 
 bool string_equals(const JsonString& string, const Utf8View& expected) noexcept {

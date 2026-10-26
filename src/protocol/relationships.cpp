@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
@@ -28,29 +29,30 @@ bool mark(Parse& parse, u32* seen, u32 bit) noexcept {
 bool visit_user(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
     auto& user = parse.mutation.user;
+    const u32 index = protocol_detail::member_index<"id", "username", "global_name", "avatar">(name);
+    if (index > 3) return true;
+    if (!mark(parse, &parse.user_seen, 1u << index)) return false;
     bool valid = true;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (!mark(parse, &parse.user_seen, 1)) return false;
-        valid = json_value_to_snowflake(value, &user.id) && user.id;
-    } else if (json_string_equals_ascii(name, utf8_literal("username"))) {
-        if (!mark(parse, &parse.user_seen, 2)) return false;
+    switch (index) {
+    case 0: valid = json_value_to_snowflake(value, &user.id) && user.id; break;
+    case 1:
         valid = decode_text(value, user.username, sizeof(user.username), &user.username_bytes, false) && user.username_bytes;
-    } else if (json_string_equals_ascii(name, utf8_literal("global_name"))) {
-        if (!mark(parse, &parse.user_seen, 4)) return false;
-        valid = decode_text(value, user.display_name, sizeof(user.display_name), &user.display_name_bytes, true);
-    } else if (json_string_equals_ascii(name, utf8_literal("avatar"))) {
-        if (!mark(parse, &parse.user_seen, 8)) return false;
+        break;
+    case 2: valid = decode_text(value, user.display_name, sizeof(user.display_name), &user.display_name_bytes, true); break;
+    default: {
         user.avatar_seen = true;
         u16 bytes = 0;
         valid = decode_text(value, user.avatar, sizeof(user.avatar), &bytes, true);
         if (valid && bytes) {
             const u32 prefix = bytes == 34 && user.avatar[0] == 'a' && user.avatar[1] == '_' ? 2u : 0u;
             valid = bytes == 32 || prefix == 2;
-            for (u32 index = prefix; valid && index < bytes; ++index)
-                valid = (user.avatar[index] >= '0' && user.avatar[index] <= '9') ||
-                    (user.avatar[index] >= 'a' && user.avatar[index] <= 'f');
+            for (u32 at = prefix; valid && at < bytes; ++at)
+                valid = (user.avatar[at] >= '0' && user.avatar[at] <= '9') ||
+                    (user.avatar[at] >= 'a' && user.avatar[at] <= 'f');
         }
         user.avatar_bytes = static_cast<u8>(bytes);
+        break;
+    }
     }
     if (!valid) parse.error = RelationshipsDecodeError::record;
     return valid;
@@ -58,33 +60,33 @@ bool visit_user(void* opaque, JsonString name, JsonValue value) noexcept {
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
     auto& record = parse.mutation.record;
+    const u32 index = protocol_detail::member_index<"id", "type", "nickname", "is_spam_request", "user_ignored",
+                                                    "is_stranger_request", "user">(name);
+    if (index > 6) return true;
+    if (!mark(parse, &parse.seen, 1u << index)) return false;
     bool valid = true;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (!mark(parse, &parse.seen, 1)) return false;
-        valid = json_value_to_snowflake(value, &record.user_id) && record.user_id;
-    } else if (json_string_equals_ascii(name, utf8_literal("type"))) {
-        if (!mark(parse, &parse.seen, 2)) return false;
+    switch (index) {
+    case 0: valid = json_value_to_snowflake(value, &record.user_id) && record.user_id; break;
+    case 1: {
         u64 type = 0;
         valid = json_value_to_u64(value, &type) && type <= static_cast<u8>(RelationshipType::suggestion);
         if (valid) record.type = static_cast<RelationshipType>(type);
-    } else if (json_string_equals_ascii(name, utf8_literal("nickname"))) {
-        if (!mark(parse, &parse.seen, 4)) return false;
+        break;
+    }
+    case 2:
         parse.nickname_null = value.kind == JsonValueKind::null_value;
         valid = decode_text(value, record.nickname, sizeof(record.nickname), &record.nickname_bytes, true);
-    } else if (json_string_equals_ascii(name, utf8_literal("is_spam_request"))) {
-        if (!mark(parse, &parse.seen, 8)) return false;
-        valid = json_value_to_bool(value, &record.spam);
-    } else if (json_string_equals_ascii(name, utf8_literal("user_ignored"))) {
-        if (!mark(parse, &parse.seen, 16)) return false;
-        valid = json_value_to_bool(value, &record.ignored);
-    } else if (json_string_equals_ascii(name, utf8_literal("is_stranger_request"))) {
-        if (!mark(parse, &parse.seen, 32)) return false;
+        break;
+    case 3: valid = json_value_to_bool(value, &record.spam); break;
+    case 4: valid = json_value_to_bool(value, &record.ignored); break;
+    case 5:
         valid = json_value_to_bool(value, &record.stranger);
         record.stranger_known = valid;
-    } else if (json_string_equals_ascii(name, utf8_literal("user"))) {
-        if (!mark(parse, &parse.seen, 64)) return false;
+        break;
+    default:
         valid = value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value;
         parse.user = value;
+        break;
     }
     if (!valid) parse.error = RelationshipsDecodeError::record;
     return valid;

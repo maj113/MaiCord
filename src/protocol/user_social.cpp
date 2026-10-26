@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/rest.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -271,27 +272,13 @@ ReportElementKind element_kind(JsonValue value) noexcept {
     JsonString s{};
     if (!json_value_as_string(value, &s))
         return ReportElementKind::unknown;
-    struct Name {
-        const char* text;
-        ReportElementKind kind;
-    };
-    static constexpr Name names[]{{"checkbox", ReportElementKind::checkbox},
-                           {"text", ReportElementKind::text},
-                           {"free_text", ReportElementKind::free_text},
-                           {"external_link", ReportElementKind::external_link},
-                           {"breadcrumbs", ReportElementKind::breadcrumbs},
-                           {"message_preview", ReportElementKind::message_preview},
-                           {"user_preview", ReportElementKind::user_preview},
-                           {"success", ReportElementKind::success},
-                           {"fail", ReportElementKind::fail}};
-    for (const auto& name : names) {
-        u32 bytes = 0;
-        while (name.text[bytes])
-            ++bytes;
-        if (json_string_equals_ascii(s, {name.text, bytes}))
-            return name.kind;
-    }
-    return ReportElementKind::unknown;
+    static constexpr ReportElementKind kinds[]{
+        ReportElementKind::checkbox,        ReportElementKind::text,         ReportElementKind::free_text,
+        ReportElementKind::external_link,   ReportElementKind::breadcrumbs,  ReportElementKind::message_preview,
+        ReportElementKind::user_preview,    ReportElementKind::success,      ReportElementKind::fail,
+        ReportElementKind::unknown};
+    return kinds[protocol_detail::member_index<"checkbox", "text", "free_text", "external_link", "breadcrumbs",
+                                               "message_preview", "user_preview", "success", "fail">(s)];
 }
 bool element_item(void* p, u32, JsonValue value) noexcept {
     auto& c = *static_cast<ListContext*>(p);
@@ -341,15 +328,9 @@ ReportButtonKind button_kind(ReportMenu& menu, JsonValue button) noexcept {
     JsonString s{};
     if (!json_value_as_string(field(menu.document, button, "type"), &s))
         return ReportButtonKind::none;
-    if (json_string_equals_ascii(s, utf8_literal("next")))
-        return ReportButtonKind::next;
-    if (json_string_equals_ascii(s, utf8_literal("submit")))
-        return ReportButtonKind::submit;
-    if (json_string_equals_ascii(s, utf8_literal("done")))
-        return ReportButtonKind::done;
-    if (json_string_equals_ascii(s, utf8_literal("cancel")))
-        return ReportButtonKind::cancel;
-    return ReportButtonKind::none;
+    static constexpr ReportButtonKind kinds[]{ReportButtonKind::next, ReportButtonKind::submit, ReportButtonKind::done,
+                                              ReportButtonKind::cancel, ReportButtonKind::none};
+    return kinds[protocol_detail::member_index<"next", "submit", "done", "cancel">(s)];
 }
 bool node_member(void* p, JsonString, JsonValue value) noexcept {
     auto& d = *static_cast<Decoder*>(p);

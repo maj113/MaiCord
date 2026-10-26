@@ -5,6 +5,7 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -26,11 +27,8 @@ struct Response {
 };
 bool field(void* context, JsonString name, JsonValue value) noexcept {
     auto& r = *static_cast<Response*>(context);
-    u8 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("upload_url"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("upload_filename"))) bit = 4;
-    else return true;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"id", "upload_url", "upload_filename">(name));
+    if (!bit) return true;
     if (r.fields & bit) return false;
     r.fields |= bit;
     if (bit == 1) return json_value_to_u64_or_string(value, &r.id);

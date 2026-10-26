@@ -1,5 +1,6 @@
 #include "maicord/protocol/gateway_payload.hpp"
 #include "maicord/core/memory.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -34,7 +35,8 @@ bool accept_once(GatewayVisitorContext* context, u32 field, u32 offset) noexcept
 
 bool visit_gateway_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<GatewayVisitorContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("op"))) {
+    switch (protocol_detail::member_index<"op", "d", "s", "t">(name)) {
+    case 0: {
         if (!accept_once(context, gateway_field_opcode, name.source_offset)) {
             return false;
         }
@@ -45,14 +47,13 @@ bool visit_gateway_member(void* opaque, JsonString name, JsonValue value) noexce
         context->envelope.opcode = static_cast<u32>(opcode);
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("d"))) {
+    case 1:
         if (!accept_once(context, gateway_field_data, name.source_offset)) {
             return false;
         }
         context->envelope.data = value;
         return true;
-    }
-    if (json_string_equals_ascii(name, utf8_literal("s"))) {
+    case 2: {
         if (!accept_once(context, gateway_field_sequence, name.source_offset)) {
             return false;
         }
@@ -68,7 +69,7 @@ bool visit_gateway_member(void* opaque, JsonString name, JsonValue value) noexce
         context->envelope.has_sequence = true;
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("t"))) {
+    case 3:
         if (!accept_once(context, gateway_field_event_name, name.source_offset)) {
             return false;
         }
@@ -81,8 +82,8 @@ bool visit_gateway_member(void* opaque, JsonString name, JsonValue value) noexce
         }
         context->envelope.has_event_name = true;
         return true;
+    default: return true;
     }
-    return true;
 }
 
 } // namespace

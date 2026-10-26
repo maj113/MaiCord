@@ -3,6 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "json_command_writer.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -202,12 +203,8 @@ struct UpdateRead {
 };
 bool update_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<UpdateRead*>(opaque);
-    const Utf8View names[]{utf8_literal("audio_codec"), utf8_literal("video_codec"),
-                           utf8_literal("media_session_id"), utf8_literal("keyframe_interval")};
-    u32 index = 0;
-    for (; index != 4; ++index)
-        if (json_string_equals_ascii(name, names[index]))
-            break;
+    const u32 index = protocol_detail::member_index<"audio_codec", "video_codec", "media_session_id",
+                                                    "keyframe_interval">(name);
     if (index == 4)
         return true;
     read.offset = value.source_offset;

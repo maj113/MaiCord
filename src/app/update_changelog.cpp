@@ -1,6 +1,7 @@
 #include "maicord/app/update_changelog.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -48,10 +49,7 @@ u32 sanitize(char* text, u32 bytes) noexcept {
 bool visit_entry(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& e = *static_cast<EntryParse*>(opaque);
     auto& parse = *e.parse;
-    static constexpr Utf8View names[]{utf8_literal("version"), utf8_literal("date"), utf8_literal("commit"), utf8_literal("text")};
-    u32 field = entry_field_count;
-    for (u32 i = 0; i < entry_field_count; ++i)
-        if (json_string_equals_ascii(name, names[i])) { field = i; break; }
+    const u32 field = protocol_detail::member_index<"version", "date", "commit", "text">(name);
     if (field == entry_field_count || (e.seen & (1u << field))) return fail(parse, UpdateChangelogError::field);
     e.seen |= 1u << field;
     switch (field) {
@@ -102,11 +100,7 @@ bool visit_entries(void* opaque, u32, JsonValue value) noexcept {
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
     auto& log = *parse.log;
-    static constexpr Utf8View names[]{utf8_literal("format"), utf8_literal("product"), utf8_literal("channel"),
-        utf8_literal("version"), utf8_literal("base"), utf8_literal("entries")};
-    u32 field = field_count;
-    for (u32 i = 0; i < field_count; ++i)
-        if (json_string_equals_ascii(name, names[i])) { field = i; break; }
+    const u32 field = protocol_detail::member_index<"format", "product", "channel", "version", "base", "entries">(name);
     if (field == field_count || (parse.seen & (1u << field))) return fail(parse, UpdateChangelogError::field);
     parse.seen |= 1u << field;
     Utf8View text{};

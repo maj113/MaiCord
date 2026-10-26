@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "gateway_decode.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -14,6 +15,8 @@ template<class T, u32 Count> struct DecodeScratch {
 };
 
 using protocol_detail::accept_member;
+using protocol_detail::member_bit;
+using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::read_failure;
 
@@ -173,11 +176,14 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     u64 bit = 0;
     JsonValue* target = nullptr;
     JsonValueKind expected = JsonValueKind::array;
-    if (json_string_equals_ascii(name, utf8_literal("message_reference"))) {
+    switch (member_index<"message_reference", "referenced_message", "reactions", "attachments", "embeds",
+                         "sticker_items", "components", "message_snapshots", "poll", "interaction", "thread">(name)) {
+    case 0:
         bit = gateway_message_field_message_reference;
         target = &context->message_reference;
         expected = JsonValueKind::object;
-    } else if (json_string_equals_ascii(name, utf8_literal("referenced_message"))) {
+        break;
+    case 1:
         bit = gateway_message_field_referenced_message;
         target = &context->referenced_message;
         expected = value.kind;
@@ -185,38 +191,48 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
             context->error = GatewayEventDecodeError::invalid_data;
             return false;
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("reactions"))) {
+        break;
+    case 2:
         bit = gateway_message_field_reactions;
         target = &context->reactions;
-    } else if (json_string_equals_ascii(name, utf8_literal("attachments"))) {
+        break;
+    case 3:
         bit = gateway_message_field_attachments;
         target = &context->attachments;
-    } else if (json_string_equals_ascii(name, utf8_literal("embeds"))) {
+        break;
+    case 4:
         bit = gateway_message_field_embeds;
         target = &context->embeds;
-    } else if (json_string_equals_ascii(name, utf8_literal("sticker_items"))) {
+        break;
+    case 5:
         bit = gateway_message_field_sticker_items;
         target = &context->stickers;
-    } else if (json_string_equals_ascii(name, utf8_literal("components"))) {
+        break;
+    case 6:
         bit = gateway_message_field_components;
         target = &context->components;
-    } else if (json_string_equals_ascii(name, utf8_literal("message_snapshots"))) {
+        break;
+    case 7:
         bit = gateway_message_field_message_snapshots;
         target = &context->snapshots;
         expected = value.kind == JsonValueKind::null_value ? value.kind : JsonValueKind::array;
-    } else if (json_string_equals_ascii(name, utf8_literal("poll"))) {
+        break;
+    case 8:
         bit = gateway_message_field_poll;
         target = &context->poll;
         expected = value.kind == JsonValueKind::null_value ? value.kind : JsonValueKind::object;
-    } else if (json_string_equals_ascii(name, utf8_literal("interaction"))) {
+        break;
+    case 9:
         bit = gateway_message_field_interaction;
         target = &context->interaction;
         expected = value.kind == JsonValueKind::null_value ? value.kind : JsonValueKind::object;
-    } else if (json_string_equals_ascii(name, utf8_literal("thread"))) {
+        break;
+    case 10:
         bit = gateway_message_field_thread;
         target = &context->thread;
         expected = value.kind == JsonValueKind::null_value ? value.kind : JsonValueKind::object;
-    } else {
+        break;
+    default:
         return true;
     }
     if (!accept_member(&context->seen, bit, value.kind == expected, &context->error)) {
@@ -234,24 +250,28 @@ struct ReferenceContext {
 
 bool visit_reference(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferenceContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("type"))) {
+    switch (member_index<"type", "message_id", "channel_id", "guild_id">(name)) {
+    case 0: {
         u32 type = 0;
         if (!accept_member(&context->seen, 1ull << 0, value_u32(value, &type) && type <= 1,
                            &context->error)) {
             return false;
         }
         context->value.type = static_cast<u8>(type);
-    } else if (json_string_equals_ascii(name, utf8_literal("message_id"))) {
+        break;
+    }
+    case 1:
         return accept_member(&context->seen, 1ull << 1,
                              json_value_to_snowflake(value, &context->value.message_id), &context->error,
                              GatewayEventDecodeError::invalid_message_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2,
                              json_value_to_snowflake(value, &context->value.channel_id), &context->error,
                              GatewayEventDecodeError::invalid_channel_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
+    case 3:
         return accept_member(&context->seen, 1ull << 3,
                              json_value_to_snowflake(value, &context->value.guild_id), &context->error);
+    default: break;
     }
     return true;
 }
@@ -269,23 +289,25 @@ struct AuthorContext {
 
 bool visit_author(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<AuthorContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "username", "global_name", "avatar">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_to_snowflake(value, &context->id),
                              &context->error, GatewayEventDecodeError::invalid_author_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("username"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, json_value_as_string(value, &context->username),
                              &context->error, GatewayEventDecodeError::invalid_user_name);
-    } else if (json_string_equals_ascii(name, utf8_literal("global_name"))) {
+    case 2:
         context->global_name_null = value.kind == JsonValueKind::null_value;
         return accept_member(&context->seen, 1ull << 2,
                              context->global_name_null ||
                                  json_value_as_string(value, &context->global_name),
                              &context->error, GatewayEventDecodeError::invalid_user_name);
-    } else if (json_string_equals_ascii(name, utf8_literal("avatar"))) {
+    case 3:
         context->avatar_null = value.kind == JsonValueKind::null_value;
         return accept_member(&context->seen, 1ull << 3,
                              context->avatar_null || json_value_as_string(value, &context->avatar),
                              &context->error);
+    default: break;
     }
     return true;
 }
@@ -319,46 +341,58 @@ bool json_array_nonempty(const JsonValue& value) noexcept {
 
 bool visit_referenced(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "channel_id", "author", "content", "attachments", "embeds", "sticker_items", "poll",
+                         "interaction", "interaction_metadata", "flags", "type">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_to_snowflake(value, &context->id),
                              &context->error, GatewayEventDecodeError::invalid_message_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1,
                              json_value_to_snowflake(value, &context->channel_id), &context->error,
                              GatewayEventDecodeError::invalid_channel_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("author"))) {
+    case 2:
         if (!accept_member(&context->seen, 1ull << 2, value.kind == JsonValueKind::object, &context->error,
                            GatewayEventDecodeError::invalid_author))
             return false;
         context->author = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("content"))) {
+        break;
+    case 3:
         return accept_member(&context->seen, 1ull << 3, json_value_as_string(value, &context->content),
                              &context->error, GatewayEventDecodeError::invalid_message_content);
-    } else if (json_string_equals_ascii(name, utf8_literal("attachments"))) {
+    case 4:
         if (json_array_nonempty(value))
             context->content_flags |= gateway_reference_attachments;
-    } else if (json_string_equals_ascii(name, utf8_literal("embeds"))) {
+        break;
+    case 5:
         if (json_array_nonempty(value)) {
             context->content_flags |= gateway_reference_embeds;
             context->embeds = value;
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("sticker_items"))) {
+        break;
+    case 6:
         if (json_array_nonempty(value))
             context->content_flags |= gateway_reference_stickers;
-    } else if (json_string_equals_ascii(name, utf8_literal("poll"))) {
+        break;
+    case 7:
         if (value.kind == JsonValueKind::object)
             context->poll = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("interaction")) ||
-               json_string_equals_ascii(name, utf8_literal("interaction_metadata"))) {
+        break;
+    case 8:
+    case 9:
         if (value.kind == JsonValueKind::object)
             context->content_flags |= gateway_reference_interaction;
-    } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+        break;
+    case 10:
         // Preview hints only: a malformed value never rejects the reply.
         if (!json_value_to_u64(value, &context->flags))
             context->flags = 0;
-    } else if (json_string_equals_ascii(name, utf8_literal("type"))) {
+        break;
+    case 11: {
         u64 type = 0;
         context->type = json_value_to_u64(value, &type) && type < 256 ? static_cast<u32>(type) : 0;
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -375,22 +409,37 @@ struct ReferencedPreviewContext {
 };
 bool visit_referenced_question(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("question")) && value.kind == JsonValueKind::object)
-        context->question = value;
-    else if (json_string_equals_ascii(name, utf8_literal("text")) && value.kind == JsonValueKind::string)
-        json_value_as_string(value, &context->text);
+    switch (member_index<"question", "text">(name)) {
+    case 0:
+        if (value.kind == JsonValueKind::object)
+            context->question = value;
+        break;
+    case 1:
+        if (value.kind == JsonValueKind::string)
+            json_value_as_string(value, &context->text);
+        break;
+    default: break;
+    }
     return true;
 }
 bool visit_referenced_embed(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("type")) && value.kind == JsonValueKind::string)
-        json_value_as_string(value, &context->type);
-    else if (json_string_equals_ascii(name, utf8_literal("url")) && value.kind == JsonValueKind::string)
-        json_value_as_string(value, &context->url);
-    else if ((json_string_equals_ascii(name, utf8_literal("title")) ||
-              json_string_equals_ascii(name, utf8_literal("description"))) &&
-             value.kind == JsonValueKind::string)
-        context->described = true;
+    switch (member_index<"type", "url", "title", "description">(name)) {
+    case 0:
+        if (value.kind == JsonValueKind::string)
+            json_value_as_string(value, &context->type);
+        break;
+    case 1:
+        if (value.kind == JsonValueKind::string)
+            json_value_as_string(value, &context->url);
+        break;
+    case 2:
+    case 3:
+        if (value.kind == JsonValueKind::string)
+            context->described = true;
+        break;
+    default: break;
+    }
     return true;
 }
 bool visit_referenced_embed_item(void* opaque, u32 index, JsonValue value) noexcept {
@@ -558,18 +607,8 @@ struct InteractionContext {
 
 bool visit_interaction(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<InteractionContext*>(opaque);
-    u64 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("type")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("user")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("name_localized")))
-        bit = 16;
-    else
+    const u64 bit = member_bit<"id", "type", "user", "name", "name_localized">(name);
+    if (!bit)
         return true;
     bool valid = true;
     switch (bit) {
@@ -643,9 +682,10 @@ struct ThreadContext {
 
 bool visit_thread_metadata(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ThreadContext*>(opaque);
-    const bool archived = json_string_equals_ascii(name, utf8_literal("archived"));
-    if (!archived && !json_string_equals_ascii(name, utf8_literal("locked")))
+    const u32 which = member_index<"archived", "locked">(name);
+    if (which > 1)
         return true;
+    const bool archived = which == 0;
     if (value.kind == JsonValueKind::null_value)
         return true;
     if (!json_value_to_bool(value, archived ? &context->archived : &context->locked)) {
@@ -657,20 +697,8 @@ bool visit_thread_metadata(void* opaque, JsonString name, JsonValue value) noexc
 
 bool visit_thread(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ThreadContext*>(opaque);
-    u64 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("message_count")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("member_count")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("last_message_id")))
-        bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("thread_metadata")))
-        bit = 32;
-    else
+    const u64 bit = member_bit<"id", "name", "message_count", "member_count", "last_message_id", "thread_metadata">(name);
+    if (!bit)
         return true;
     bool valid = true;
     switch (bit) {
@@ -785,19 +813,21 @@ struct EmojiContext {
 
 bool visit_emoji(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmojiContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "name", "animated">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0,
                              value.kind == JsonValueKind::null_value ||
                                  json_value_to_snowflake(value, &context->id),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("name"))) {
+    case 1:
         context->name_null = value.kind == JsonValueKind::null_value;
         return accept_member(&context->seen, 1ull << 1,
                              context->name_null || json_value_as_string(value, &context->name),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("animated"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2, json_value_to_bool(value, &context->animated),
                              &context->error);
+    default: break;
     }
     return true;
 }
@@ -811,11 +841,13 @@ struct CountDetailsContext {
 
 bool visit_count_details(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<CountDetailsContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("normal"))) {
+    switch (member_index<"normal", "burst">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, value_u32(value, &context->normal),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("burst"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, value_u32(value, &context->burst), &context->error);
+    default: break;
     }
     return true;
 }
@@ -832,22 +864,26 @@ struct ReactionContext {
 
 bool visit_reaction(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReactionContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("count"))) {
+    switch (member_index<"count", "me", "me_burst", "emoji", "count_details">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, value_u32(value, &context->count), &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("me"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, json_value_to_bool(value, &context->me),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("me_burst"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2, json_value_to_bool(value, &context->me_burst),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("emoji"))) {
+    case 3:
         if (!accept_member(&context->seen, 1ull << 3, value.kind == JsonValueKind::object, &context->error))
             return false;
         context->emoji = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("count_details"))) {
+        break;
+    case 4:
         if (!accept_member(&context->seen, 1ull << 4, value.kind == JsonValueKind::object, &context->error))
             return false;
         context->count_details = value;
+        break;
+    default: break;
     }
     return true;
 }
@@ -933,59 +969,66 @@ struct AttachmentContext {
 
 bool visit_attachment(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<AttachmentContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "filename", "title", "description", "content_type", "size", "url", "width", "height",
+                         "flags", "ephemeral", "duration_secs", "waveform">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_to_snowflake(value, &context->value.id),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("filename"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, json_value_as_string(value, &context->filename),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("title"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2, json_value_as_string(value, &context->title),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("description"))) {
+    case 3:
         return accept_member(&context->seen, 1ull << 3, json_value_as_string(value, &context->description),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("content_type"))) {
+    case 4:
         return accept_member(&context->seen, 1ull << 4, json_value_as_string(value, &context->content_type),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("size"))) {
+    case 5:
         return accept_member(&context->seen, 1ull << 5, json_value_to_u64(value, &context->value.size),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("url"))) {
+    case 6:
         return accept_member(&context->seen, 1ull << 6, json_value_as_string(value, &context->url),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("width"))) {
+    case 7:
         if (!accept_member(&context->seen, 1ull << 7,
                            value.kind == JsonValueKind::null_value ||
                                value_u32(value, &context->value.width),
                            &context->error))
             return false;
         context->value.has_width = context->value.width != 0;
-    } else if (json_string_equals_ascii(name, utf8_literal("height"))) {
+        break;
+    case 8:
         if (!accept_member(&context->seen, 1ull << 8,
                            value.kind == JsonValueKind::null_value ||
                                value_u32(value, &context->value.height),
                            &context->error))
             return false;
         context->value.has_height = context->value.height != 0;
-    } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+        break;
+    case 9:
         return accept_member(&context->seen, 1ull << 9, value_u32(value, &context->value.flags),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("duration_secs"))) {
+    case 10:
+        return accept_member(&context->seen, 1ull << 10,
+                             json_value_to_bool(value, &context->value.ephemeral), &context->error);
+    case 11: {
         const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&context->seen, 1ull << 11,
                            null || duration_milliseconds(value, &context->value.duration_ms),
                            &context->error))
             return false;
         context->value.has_duration = !null;
-    } else if (json_string_equals_ascii(name, utf8_literal("waveform"))) {
+        break;
+    }
+    case 12:
         return accept_member(&context->seen, 1ull << 12,
                              value.kind == JsonValueKind::null_value ||
                                  json_value_as_string(value, &context->waveform),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("ephemeral"))) {
-        return accept_member(&context->seen, 1ull << 10,
-                             json_value_to_bool(value, &context->value.ephemeral), &context->error);
+    default: break;
     }
     return true;
 }
@@ -1058,15 +1101,17 @@ struct EmbedFieldContext {
 
 bool visit_embed_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmbedFieldContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("name"))) {
+    switch (member_index<"name", "value", "inline">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_as_string(value, &context->name),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("value"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, json_value_as_string(value, &context->value),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("inline"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2, json_value_to_bool(value, &context->inline_field),
                              &context->error);
+    default: break;
     }
     return true;
 }
@@ -1104,23 +1149,15 @@ struct EmbedPartContext {
 
 bool visit_embed_part(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmbedPartContext*>(opaque);
-    u64 bit = 0;
-    JsonString* target = nullptr;
-    if (json_string_equals_ascii(name, utf8_literal("name"))) {
-        bit = 1ull << 0;
-        target = &context->name;
-    } else if (json_string_equals_ascii(name, utf8_literal("text"))) {
-        bit = 1ull << 1;
-        target = &context->text;
-    } else if (json_string_equals_ascii(name, utf8_literal("url"))) {
-        bit = 1ull << 2;
-        target = &context->url;
-    } else if (json_string_equals_ascii(name, utf8_literal("proxy_icon_url"))) {
-        bit = 1ull << 3;
-        target = &context->proxy_icon_url;
-    }
-    return !target || value.kind == JsonValueKind::null_value ||
-           accept_member(&context->seen, bit, json_value_as_string(value, target), &context->error);
+    const u32 index = member_index<"name", "text", "url", "proxy_icon_url">(name);
+    if (index > 3)
+        return true;
+    JsonString* const target = index == 0   ? &context->name
+                               : index == 1 ? &context->text
+                               : index == 2 ? &context->url
+                                            : &context->proxy_icon_url;
+    return value.kind == JsonValueKind::null_value ||
+           accept_member(&context->seen, 1ull << index, json_value_as_string(value, target), &context->error);
 }
 
 // Optional embed URLs degrade to absent instead of rejecting the message.
@@ -1142,52 +1179,60 @@ bool embed_part_url(const EmbedPartContext& part, u64 bit, JsonString source, Sl
 
 bool visit_embed(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmbedContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("flags"))) {
-        return accept_member(&context->seen, 1ull << 11,
-                             value.kind == JsonValueKind::null_value || value_u32(value, &context->flags),
-                             &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("title"))) {
+    switch (member_index<"title", "description", "url", "type", "color", "author", "footer", "fields", "image",
+                         "thumbnail", "video", "flags", "provider", "timestamp", "components">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_as_string(value, &context->title),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("description"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, json_value_as_string(value, &context->description),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("url"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2, json_value_as_string(value, &context->url),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("type"))) {
+    case 3:
         return accept_member(&context->seen, 1ull << 3, json_value_as_string(value, &context->type),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("color"))) {
+    case 4:
         return accept_member(&context->seen, 1ull << 4,
                              value_u32(value, &context->color) && context->color <= 0xFFFFFFu,
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("author"))) {
+    case 5:
         if (!accept_member(&context->seen, 1ull << 5, value.kind == JsonValueKind::object, &context->error))
             return false;
         context->author = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("footer"))) {
+        break;
+    case 6:
         if (!accept_member(&context->seen, 1ull << 6, value.kind == JsonValueKind::object, &context->error))
             return false;
         context->footer = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("fields"))) {
+        break;
+    case 7:
         if (!accept_member(&context->seen, 1ull << 7, value.kind == JsonValueKind::array, &context->error))
             return false;
         context->fields = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("image"))) {
+        break;
+    case 8:
         if (!accept_member(&context->seen, 1ull << 8, value.kind == JsonValueKind::object, &context->error))
             return false;
         context->image = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("thumbnail"))) {
+        break;
+    case 9:
         if (!accept_member(&context->seen, 1ull << 9, value.kind == JsonValueKind::object, &context->error))
             return false;
         context->thumbnail = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("video"))) {
+        break;
+    case 10:
         if (!accept_member(&context->seen, 1ull << 10, value.kind == JsonValueKind::object,
                            &context->error))
             return false;
         context->video = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("provider"))) {
+        break;
+    case 11:
+        return accept_member(&context->seen, 1ull << 11,
+                             value.kind == JsonValueKind::null_value || value_u32(value, &context->flags),
+                             &context->error);
+    case 12:
         if (value.kind == JsonValueKind::null_value) {
             return true;
         }
@@ -1195,17 +1240,20 @@ bool visit_embed(void* opaque, JsonString name, JsonValue value) noexcept {
                            &context->error))
             return false;
         context->provider = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("components"))) {
-        if (value.kind == JsonValueKind::array && !(context->seen & (1ull << 14))) {
-            context->seen |= 1ull << 14;
-            context->components = value;
-        }
-    } else if (json_string_equals_ascii(name, utf8_literal("timestamp"))) {
+        break;
+    case 13:
         if (value.kind == JsonValueKind::null_value) {
             return true;
         }
         return accept_member(&context->seen, 1ull << 13, json_value_as_string(value, &context->timestamp),
                              &context->error);
+    case 14:
+        if (value.kind == JsonValueKind::array && !(context->seen & (1ull << 14))) {
+            context->seen |= 1ull << 14;
+            context->components = value;
+        }
+        break;
+    default: break;
     }
     return true;
 }
@@ -1224,32 +1272,27 @@ struct EmbedMediaContext {
 
 bool visit_embed_media(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmbedMediaContext*>(opaque);
-    u64 bit = 0;
-    JsonString* text = nullptr;
-    if (json_string_equals_ascii(name, utf8_literal("url"))) {
-        bit = 1ull << 0;
-        text = &context->url;
-    } else if (json_string_equals_ascii(name, utf8_literal("proxy_url"))) {
-        bit = 1ull << 1;
-        text = &context->proxy_url;
-    } else if (json_string_equals_ascii(name, utf8_literal("content_type"))) {
-        bit = 1ull << 2;
-        text = &context->content_type;
-    } else if (json_string_equals_ascii(name, utf8_literal("description"))) {
-        bit = 1ull << 3;
-        text = &context->description;
-    } else if (json_string_equals_ascii(name, utf8_literal("width"))) {
+    const u32 index = member_index<"url", "proxy_url", "content_type", "description", "width", "height", "flags">(name);
+    if (index > 6)
+        return true;
+    if (index == 4) {
         return accept_member(&context->seen, 1ull << 4,
                              value.kind == JsonValueKind::null_value || value_u32(value, &context->width),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("height"))) {
+    }
+    if (index == 5) {
         return accept_member(&context->seen, 1ull << 5,
                              value.kind == JsonValueKind::null_value || value_u32(value, &context->height),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+    }
+    if (index == 6) {
         return accept_member(&context->seen, 1ull << 6, value_u32(value, &context->flags), &context->error);
     }
-    return !text || accept_member(&context->seen, bit, json_value_as_string(value, text), &context->error);
+    JsonString* const text = index == 0   ? &context->url
+                             : index == 1 ? &context->proxy_url
+                             : index == 2 ? &context->content_type
+                                          : &context->description;
+    return accept_member(&context->seen, 1ull << index, json_value_as_string(value, text), &context->error);
 }
 
 GatewayEventDecodeResult decode_embed_media(JsonValue object, const JsonIndexedDocument& scratch,
@@ -1350,25 +1393,32 @@ struct EmbedComponentNode {
 bool visit_embed_component_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& node = *static_cast<EmbedComponentNode*>(opaque);
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("type"))) {
+    switch (member_index<"type", "content", "components", "accessory", "items", "media", "accent_color">(name)) {
+    case 0:
         node.type = json_value_to_u64(value, &number) && number < 256 ? static_cast<u32>(number) : 0;
-    } else if (json_string_equals_ascii(name, utf8_literal("content"))) {
-        node.content_seen = value.kind == JsonValueKind::string && json_value_as_string(value, &node.content);
-    } else if (json_string_equals_ascii(name, utf8_literal("components"))) {
+        break;
+    case 1: node.content_seen = value.kind == JsonValueKind::string && json_value_as_string(value, &node.content); break;
+    case 2:
         node.components_seen = value.kind == JsonValueKind::array;
         node.components = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("accessory"))) {
+        break;
+    case 3:
         node.accessory_seen = value.kind == JsonValueKind::object;
         node.accessory = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("items"))) {
+        break;
+    case 4:
         node.items_seen = value.kind == JsonValueKind::array;
         node.items = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("media"))) {
+        break;
+    case 5:
         node.media_seen = value.kind == JsonValueKind::object;
         node.media = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("accent_color"))) {
+        break;
+    case 6:
         node.accent_seen = json_value_to_u64(value, &number) && number <= 0xFFFFFFu;
         node.accent = static_cast<u32>(number);
+        break;
+    default: break;
     }
     return true;
 }
@@ -1643,17 +1693,19 @@ struct StickerContext {
 
 bool visit_sticker(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<StickerContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "name", "format_type">(name)) {
+    case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_to_snowflake(value, &context->id),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("name"))) {
+    case 1:
         return accept_member(&context->seen, 1ull << 1, json_value_as_string(value, &context->name),
                              &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("format_type"))) {
+    case 2:
         return accept_member(&context->seen, 1ull << 2,
                              value_u32(value, &context->format_type) && context->format_type >= 1 &&
                                  context->format_type <= 4,
                              &context->error);
+    default: break;
     }
     return true;
 }
@@ -1705,9 +1757,9 @@ struct UrlObjectContext {
 // the proxy is fetchable through the CDN pipeline, so it is preferred.
 bool visit_url_object(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<UrlObjectContext*>(opaque);
-    const bool url = json_string_equals_ascii(name, utf8_literal("url"));
-    const bool proxy = !url && json_string_equals_ascii(name, utf8_literal("proxy_url"));
-    if (url || proxy) {
+    const u32 which = member_index<"url", "proxy_url">(name);
+    const bool url = which == 0;
+    if (which < 2) {
         const u64 bit = url ? 1ull : 2ull;
         const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&context->seen, bit,
@@ -1817,75 +1869,56 @@ bool component_value(ComponentContext* context, u64 bit, JsonValue value, JsonVa
     return true;
 }
 
-template <usize Count> bool component_key(JsonString name, const char (&key)[Count]) noexcept {
-    return json_string_equals_ascii(name, utf8_literal(key));
-}
-
 bool visit_component(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ComponentContext*>(opaque);
-    if (component_key(name, "accent_color")) {
+    switch (member_index<"accent_color", "type", "id", "style", "disabled", "label", "content", "custom_id", "url",
+                         "placeholder", "description", "value", "name", "components", "accessory", "media", "file",
+                         "emoji", "options", "items", "min_values", "max_values", "spacing", "spoiler", "divider",
+                         "default">(name)) {
+    case 0:
         context->has_accent_color = value.kind != JsonValueKind::null_value;
         return accept_member(&context->seen, component_seen_accent,
                              !context->has_accent_color || (value_u32(value, &context->accent_color) &&
                                                             context->accent_color <= 0xFFFFFFu),
                              &context->error);
-    } else if (component_key(name, "type")) {
+    case 1:
         return accept_member(&context->seen, component_seen_type,
                              value_u32(value, &context->type) && context->type != 0 &&
                                  context->type < gateway_component_select_option,
                              &context->error);
-    } else if (component_key(name, "id")) {
+    case 2:
         return accept_member(&context->seen, component_seen_id, value_u32(value, &context->id),
                              &context->error);
-    } else if (component_key(name, "style")) {
-        return component_number(context, component_seen_style, value, &context->style, 0xFFFFu);
-    } else if (component_key(name, "disabled")) {
-        return component_bool(context, component_seen_disabled, value, &context->disabled);
-    } else if (component_key(name, "label")) {
-        return component_text(context, component_seen_label, value, &context->label);
-    } else if (component_key(name, "content")) {
-        return component_text(context, component_seen_content, value, &context->content);
-    } else if (component_key(name, "custom_id")) {
-        return component_text(context, component_seen_custom_id, value, &context->custom_id);
-    } else if (component_key(name, "url")) {
-        return component_text(context, component_seen_url, value, &context->url);
-    } else if (component_key(name, "placeholder")) {
-        return component_text(context, component_seen_placeholder, value, &context->placeholder);
-    } else if (component_key(name, "description")) {
-        return component_text(context, component_seen_description, value, &context->description);
-    } else if (component_key(name, "value")) {
-        return component_text(context, component_seen_value, value, &context->value);
-    } else if (component_key(name, "name")) {
-        return component_text(context, component_seen_name, value, &context->name);
-    } else if (component_key(name, "components")) {
+    case 3: return component_number(context, component_seen_style, value, &context->style, 0xFFFFu);
+    case 4: return component_bool(context, component_seen_disabled, value, &context->disabled);
+    case 5: return component_text(context, component_seen_label, value, &context->label);
+    case 6: return component_text(context, component_seen_content, value, &context->content);
+    case 7: return component_text(context, component_seen_custom_id, value, &context->custom_id);
+    case 8: return component_text(context, component_seen_url, value, &context->url);
+    case 9: return component_text(context, component_seen_placeholder, value, &context->placeholder);
+    case 10: return component_text(context, component_seen_description, value, &context->description);
+    case 11: return component_text(context, component_seen_value, value, &context->value);
+    case 12: return component_text(context, component_seen_name, value, &context->name);
+    case 13:
         return component_value(context, component_seen_children, value, JsonValueKind::array,
                                &context->children);
-    } else if (component_key(name, "accessory")) {
+    case 14:
         return component_value(context, component_seen_accessory, value, JsonValueKind::object,
                                &context->accessory);
-    } else if (component_key(name, "media")) {
-        return component_value(context, component_seen_media, value, JsonValueKind::object, &context->media);
-    } else if (component_key(name, "file")) {
-        return component_value(context, component_seen_file, value, JsonValueKind::object, &context->file);
-    } else if (component_key(name, "emoji")) {
-        return component_value(context, component_seen_emoji, value, JsonValueKind::object, &context->emoji);
-    } else if (component_key(name, "options")) {
+    case 15: return component_value(context, component_seen_media, value, JsonValueKind::object, &context->media);
+    case 16: return component_value(context, component_seen_file, value, JsonValueKind::object, &context->file);
+    case 17: return component_value(context, component_seen_emoji, value, JsonValueKind::object, &context->emoji);
+    case 18:
         return component_value(context, component_seen_options, value, JsonValueKind::array,
                                &context->options);
-    } else if (component_key(name, "items")) {
-        return component_value(context, component_seen_items, value, JsonValueKind::array, &context->items);
-    } else if (component_key(name, "min_values")) {
-        return component_number(context, component_seen_min, value, &context->min_values, 25);
-    } else if (component_key(name, "max_values")) {
-        return component_number(context, component_seen_max, value, &context->max_values, 25);
-    } else if (component_key(name, "spacing")) {
-        return component_number(context, component_seen_spacing, value, &context->spacing, 0xFFFFu);
-    } else if (component_key(name, "spoiler")) {
-        return component_bool(context, component_seen_spoiler, value, &context->spoiler);
-    } else if (component_key(name, "divider")) {
-        return component_bool(context, component_seen_divider, value, &context->divider);
-    } else if (component_key(name, "default")) {
-        return component_bool(context, component_seen_default, value, &context->selected_default);
+    case 19: return component_value(context, component_seen_items, value, JsonValueKind::array, &context->items);
+    case 20: return component_number(context, component_seen_min, value, &context->min_values, 25);
+    case 21: return component_number(context, component_seen_max, value, &context->max_values, 25);
+    case 22: return component_number(context, component_seen_spacing, value, &context->spacing, 0xFFFFu);
+    case 23: return component_bool(context, component_seen_spoiler, value, &context->spoiler);
+    case 24: return component_bool(context, component_seen_divider, value, &context->divider);
+    case 25: return component_bool(context, component_seen_default, value, &context->selected_default);
+    default: break;
     }
     return true;
 }
@@ -1901,21 +1934,25 @@ struct ComponentEmojiContext {
 bool visit_component_emoji(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ComponentEmojiContext*>(opaque);
     const bool null_value = value.kind == JsonValueKind::null_value;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "name", "animated">(name)) {
+    case 0: {
         JsonString text{};
         return accept_member(
             &context->seen, 1ull << 0,
             null_value || (json_value_as_string(value, &text) && json_string_to_u64(text, &context->id)),
             &context->error);
-    } else if (json_string_equals_ascii(name, utf8_literal("name"))) {
+    }
+    case 1:
         if (!accept_member(&context->seen, 1ull << 1,
                            null_value || json_value_as_string(value, &context->name), &context->error))
             return false;
         if (null_value)
             context->seen &= ~(1ull << 1);
-    } else if (json_string_equals_ascii(name, utf8_literal("animated"))) {
+        break;
+    case 2:
         return accept_member(&context->seen, 1ull << 2,
                              null_value || json_value_to_bool(value, &context->animated), &context->error);
+    default: break;
     }
     return true;
 }

@@ -3,8 +3,12 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
+
+using protocol_detail::member_bit;
+using protocol_detail::member_index;
 static_assert(kGatewayReadStateMaximumEntries * sizeof(GatewayClientReadStateMutation) == kGatewayClientGuildRecordCapacity);
 namespace {
 GatewayClientDispatchRouteResult failure(GatewayEventDecodeError error,
@@ -28,11 +32,8 @@ struct Root {
 };
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& r = *static_cast<Root*>(opaque);
-    u8 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("entries"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("partial"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("version"))) bit = 4;
-    else return true;
+    const u8 bit = static_cast<u8>(member_bit<"entries", "partial", "version">(name));
+    if (!bit) return true;
     if (r.seen & bit) return reject(&r.error, GatewayEventDecodeError::duplicate_field);
     r.seen |= bit;
     if (bit == 1) {
@@ -69,14 +70,15 @@ struct Entry {
 bool visit_entry(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& e = *static_cast<Entry*>(opaque);
     u32 index = 8;
-    if (json_string_equals_ascii(name, e.ack ? utf8_literal("channel_id") : utf8_literal("id"))) index = 0;
-    else if (json_string_equals_ascii(name, e.ack ? utf8_literal("message_id") : utf8_literal("last_message_id"))) index = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("mention_count"))) index = 2;
-    else if (!e.ack && json_string_equals_ascii(name, utf8_literal("last_viewed"))) index = 3;
-    else if (!e.ack && json_string_equals_ascii(name, utf8_literal("flags"))) index = 4;
-    else if (!e.ack && json_string_equals_ascii(name, utf8_literal("read_state_type"))) index = 5;
-    else if (e.ack && json_string_equals_ascii(name, utf8_literal("manual"))) index = 6;
-    else if (e.ack && json_string_equals_ascii(name, utf8_literal("version"))) index = 7;
+    if (e.ack) {
+        static constexpr u8 fields[] = {0, 1, 2, 6, 7};
+        const u32 found = member_index<"channel_id", "message_id", "mention_count", "manual", "version">(name);
+        if (found < 5) index = fields[found];
+    } else {
+        const u32 found =
+            member_index<"id", "last_message_id", "mention_count", "last_viewed", "flags", "read_state_type">(name);
+        if (found < 6) index = found;
+    }
     if (index == 8) return true;
     const u16 bit = static_cast<u16>(1u << index);
     if (e.seen & bit) return reject(&e.error, GatewayEventDecodeError::duplicate_field);
@@ -193,15 +195,15 @@ void sort_records(Slice<char> output, u32 count) noexcept {
 struct CursorRoot {
     JsonValue rows;
     u64 guild_id;
-    Utf8View array_name;
+    bool unread_update;
     u8 seen;
     GatewayEventDecodeError error;
 };
 bool cursor_root_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& root = *static_cast<CursorRoot*>(opaque);
-    const u8 bit = static_cast<u8>(json_string_equals_ascii(name, utf8_literal("guild_id")) ? 1u
-                   : json_string_equals_ascii(name, root.array_name) ? 2u : 0u);
-    if (!bit) return true;
+    const u32 index = member_index<"guild_id", "updated_channels", "channel_unread_updates">(name);
+    const u8 bit = static_cast<u8>(index == 0 ? 1u : index == 1u + root.unread_update ? 2u : 3u);
+    if (bit == 3) return true;
     if (root.seen & bit) return reject(&root.error, GatewayEventDecodeError::duplicate_field);
     root.seen |= bit;
     if (bit == 1) {
@@ -219,8 +221,7 @@ struct CursorRow {
 };
 bool cursor_row_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& row = *static_cast<CursorRow*>(opaque);
-    const u8 bit = static_cast<u8>(json_string_equals_ascii(name, utf8_literal("id")) ? 1u
-                   : json_string_equals_ascii(name, utf8_literal("last_message_id")) ? 2u : 0u);
+    const u8 bit = static_cast<u8>(member_bit<"id", "last_message_id">(name));
     // Optional pin metadata does not imply a pin change or a read acknowledgement.
     if (!bit) return true;
     if (row.seen & bit) return reject(&row.error, GatewayEventDecodeError::duplicate_field);
@@ -275,11 +276,9 @@ GatewayClientDispatchRouteResult gateway_client_route_channel_cursors(const Gate
                             {reinterpret_cast<const u8*>(storage.data), storage.count}))
         return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
     CursorRoot root{};
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("PASSIVE_UPDATE_V2")))
-        root.array_name = utf8_literal("updated_channels");
-    else if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_UNREAD_UPDATE")))
-        root.array_name = utf8_literal("channel_unread_updates");
-    else return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
+    const u32 event_index = member_index<"PASSIVE_UPDATE_V2", "CHANNEL_UNREAD_UPDATE">(envelope.event_name);
+    if (event_index > 1) return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
+    root.unread_update = event_index == 1;
     if (envelope.data.kind != JsonValueKind::object)
         return failure(GatewayEventDecodeError::invalid_data);
     const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);

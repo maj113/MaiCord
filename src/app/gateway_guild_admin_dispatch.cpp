@@ -3,6 +3,7 @@
 #include "maicord/protocol/json_ids.hpp"
 
 #include "gateway_dispatch_common.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 #include "gateway_payload_writer.hpp"
 #include "gateway_user_payload.hpp"
@@ -21,7 +22,7 @@ struct MembershipRoot {
 
 // A guild sticker list: an array, or a CLIENT_STATE_V2 {"items": [...]} set.
 bool items_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("items")))
+    if (json_name_is(name, utf8_literal("items")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }
@@ -35,17 +36,18 @@ JsonValue sticker_array(JsonValue value, Slice<u32> scratch) noexcept {
     return items;
 }
 bool stickers_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("stickers")))
+    if (json_name_is(name, utf8_literal("stickers")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }
 
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& root = *static_cast<MembershipRoot*>(opaque);
-    const bool guild = json_string_equals_ascii(name, utf8_literal("guild_id"));
-    const bool user = !guild && json_string_equals_ascii(name, utf8_literal("user"));
+    const u32 index = protocol_detail::member_index<"guild_id", "user", "stickers">(name);
+    const bool guild = index == 0;
+    const bool user = index == 1;
     if (!guild && !user) {
-        if (json_string_equals_ascii(name, utf8_literal("stickers")))
+        if (index == 2)
             root.stickers = value;
         return true;
     }
@@ -81,11 +83,12 @@ GatewayClientDispatchRouteResult gateway_client_route_guild_admin_dispatch(
     Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload, bool* handled) noexcept {
     if (!event || !payload || !handled)
         return failure(GatewayClientDispatchRouteError::invalid_input, GatewayEventDecodeError::none);
-    const bool member_remove = json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_MEMBER_REMOVE"));
-    const bool ban_add = json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_BAN_ADD"));
-    const bool ban_remove = json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_BAN_REMOVE"));
-    const bool stickers = json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_STICKERS_UPDATE"));
-    *handled = member_remove || ban_add || ban_remove || stickers;
+    const u32 event_index = protocol_detail::skim_member_index<"GUILD_MEMBER_REMOVE", "GUILD_BAN_ADD", "GUILD_BAN_REMOVE",
+                                                               "GUILD_STICKERS_UPDATE">(envelope.event_name);
+    const bool member_remove = event_index == 0;
+    const bool ban_add = event_index == 1;
+    const bool stickers = event_index == 3;
+    *handled = event_index < 4;
     if (!*handled)
         return {};
     if (!structural_scratch.data || !structural_scratch.count || !payload_scratch.data || !maximum_depth ||

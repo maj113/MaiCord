@@ -1,6 +1,7 @@
 #include "maicord/protocol/voice_participants.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -24,12 +25,7 @@ struct SourceRead {
 };
 bool source_field(void* context, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<SourceRead*>(context);
-    const Utf8View names[]{utf8_literal("ssrc"), utf8_literal("rtx_ssrc"), utf8_literal("type"),
-                           utf8_literal("active"), utf8_literal("quality")};
-    u32 index = 0;
-    for (; index != 5; ++index)
-        if (json_string_equals_ascii(name, names[index]))
-            break;
+    const u32 index = protocol_detail::member_index<"ssrc", "rtx_ssrc", "type", "active", "quality">(name);
     if (index == 5)
         return true;
     if (read.seen & (1u << index))
@@ -55,12 +51,12 @@ bool source_field(void* context, JsonString name, JsonValue value) noexcept {
     if (!json_value_as_string(value, &type) || !type.encoded.bytes)
         return false;
     // Unknown or missing types stay video.
-    if (json_string_equals_ascii(type, utf8_literal("audio")))
-        read.source.kind = VoiceSourceKind::audio;
-    else if (json_string_equals_ascii(type, utf8_literal("screen")))
-        read.source.kind = VoiceSourceKind::screen;
-    else if (json_string_equals_ascii(type, utf8_literal("test")))
-        read.source.kind = VoiceSourceKind::test;
+    switch (protocol_detail::member_index<"audio", "screen", "test">(type)) {
+    case 0: read.source.kind = VoiceSourceKind::audio; break;
+    case 1: read.source.kind = VoiceSourceKind::screen; break;
+    case 2: read.source.kind = VoiceSourceKind::test; break;
+    default: break;
+    }
     return true;
 }
 bool source(const VoiceParticipantEvent& event, JsonValue value, VoiceVideoSource* output) noexcept {
@@ -85,14 +81,8 @@ bool valid_source(void* context, u32, JsonValue value) noexcept {
 bool field(void* context, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<Read*>(context);
     auto& event = read.event;
-    const Utf8View names[]{utf8_literal("user_id"),  utf8_literal("speaking"),   utf8_literal("ssrc"),
-                           utf8_literal("user_ids"), utf8_literal("audio_ssrc"), utf8_literal("video_ssrc"),
-                           utf8_literal("streams"),  utf8_literal("flags"),      utf8_literal("platform"),
-                           utf8_literal("delay")};
-    u32 index = 0;
-    for (; index != 10; ++index)
-        if (json_string_equals_ascii(name, names[index]))
-            break;
+    const u32 index = protocol_detail::member_index<"user_id", "speaking", "ssrc", "user_ids", "audio_ssrc", "video_ssrc",
+                                                    "streams", "flags", "platform", "delay">(name);
     const u32 bit = 1u << index;
     if (!(read.allowed & bit))
         return true;

@@ -4,6 +4,7 @@
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -101,45 +102,22 @@ bool read_failed(Context& c, const JsonReadResult& read, u32 offset) noexcept {
 }
 bool member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& w = *static_cast<WireItem*>(opaque);
-    u32 bit = 0;
-    JsonString* string = nullptr;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("name"))) {
-        bit = 2;
-        string = &w.name;
-    } else if (json_string_equals_ascii(name, utf8_literal("title"))) {
-        bit = 4;
-        string = &w.title;
-    } else if (json_string_equals_ascii(name, utf8_literal("src"))) {
-        bit = 8;
-        string = &w.src;
-    } else if (json_string_equals_ascii(name, utf8_literal("gif_src"))) {
-        bit = 16;
-        string = &w.gif;
-    } else if (json_string_equals_ascii(name, utf8_literal("url"))) {
-        bit = 32;
-        string = &w.url;
-    } else if (json_string_equals_ascii(name, utf8_literal("width")))
-        bit = 64;
-    else if (json_string_equals_ascii(name, utf8_literal("height")))
-        bit = 128;
-    else if (json_string_equals_ascii(name, utf8_literal("format_type")))
-        bit = 256;
-    else if (json_string_equals_ascii(name, utf8_literal("available")))
-        bit = 512;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        bit = 1024;
-    else if (json_string_equals_ascii(name, utf8_literal("pack_id")))
-        bit = 2048;
-    else if (json_string_equals_ascii(name, utf8_literal("description"))) {
-        bit = 4096;
-        string = &w.description;
-    } else if (json_string_equals_ascii(name, utf8_literal("tags"))) {
-        bit = 8192;
-        string = &w.tags;
-    } else
+    const u32 index = protocol_detail::member_index<"id", "name", "title", "src", "gif_src", "url", "width", "height",
+        "format_type", "available", "guild_id", "pack_id", "description", "tags">(name);
+    if (index == 14)
         return true;
+    const u32 bit = 1u << index;
+    JsonString* string = nullptr;
+    switch (index) {
+    case 1: string = &w.name; break;
+    case 2: string = &w.title; break;
+    case 3: string = &w.src; break;
+    case 4: string = &w.gif; break;
+    case 5: string = &w.url; break;
+    case 12: string = &w.description; break;
+    case 13: string = &w.tags; break;
+    default: break;
+    }
     if (w.seen & bit) {
         w.error = E::schema;
         return false;
@@ -327,11 +305,7 @@ struct Pack {
 };
 bool pack_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<Pack*>(opaque);
-    const u32 bit = json_string_equals_ascii(name, utf8_literal("id"))                 ? 1
-                    : json_string_equals_ascii(name, utf8_literal("stickers"))         ? 2
-                    : json_string_equals_ascii(name, utf8_literal("name"))             ? 4
-                    : json_string_equals_ascii(name, utf8_literal("cover_sticker_id")) ? 8
-                                                                                       : 0;
+    const u32 bit = protocol_detail::member_bit<"id", "stickers", "name", "cover_sticker_id">(name);
     if (!bit)
         return true;
     if (p.seen & bit)

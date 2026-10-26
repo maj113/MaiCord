@@ -1,4 +1,5 @@
 #include "maicord/protocol/embed_player.hpp"
+#include "json_field_lists.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
@@ -8,34 +9,84 @@
 
 namespace maicord {
 namespace {
-bool video_id(Utf8View id) noexcept {
-    if (!id.data || id.bytes != 11) return false;
+// Callers check the length; only the characters are validated here.
+bool id_chars(const Utf8View& id, bool dashes = false) noexcept {
+    if (!id.data) return false;
     for (u32 i = 0; i < id.bytes; ++i)
-        if (!ascii_is_alnum(id.data[i]) && id.data[i] != '_' && id.data[i] != '-') return false;
+        if (!ascii_is_alnum(id.data[i]) && !(dashes && (id.data[i] == '_' || id.data[i] == '-'))) return false;
     return true;
 }
-struct Field { Utf8View name; JsonValue value{}; bool seen{}; };
-struct Fields { Field* fields; u32 count; };
-bool field(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& f = *static_cast<Fields*>(opaque);
-    for (u32 i = 0; i < f.count; ++i)
-        if (json_name_is(name, f.fields[i].name)) {
-            if (f.fields[i].seen) return false;
-            f.fields[i].seen = true;
-            f.fields[i].value = value;
-            break;
-        }
-    return true;
+bool video_id(Utf8View id) noexcept { return id.bytes == 11 && id_chars(id, true); }
+// Decimal identifier of at most 20 digits without a leading zero; 0 when invalid or above 2^64.
+u64 numeric_id(const Utf8View& id) noexcept {
+    if (!id.data || !id.bytes || id.bytes > 20 || id.data[0] == '0') return 0;
+    u64 value = 0;
+    for (u32 i = 0; i < id.bytes; ++i) {
+        const u32 digit = static_cast<u8>(id.data[i]) - '0';
+        if (digit > 9 || value > (~u64{0} - digit) / 10) return 0;
+        value = value * 10 + digit;
+    }
+    return value;
 }
-template <usize N>
-bool fields(const JsonIndexedDocument& doc, const JsonValue& value, Field (&out)[N]) noexcept {
-    Fields list{out, static_cast<u32>(N)};
-    return json_visit_indexed_object(doc, value, 24, field, &list).ok();
+// Value of already validated digits; empty is 0.
+u64 decimal(const Utf8View& digits) noexcept {
+    u64 value = 0;
+    for (u32 i = 0; i < digits.bytes; ++i) value = value * 10 + digits.data[i] - '0';
+    return value;
 }
+u32 id_target(const Utf8View& prefix, const Utf8View& id, const Slice<u8>& output) noexcept {
+    if (!output.data || output.count < prefix.bytes + id.bytes) return 0;
+    copy_bytes(output.data, prefix.data, prefix.bytes);
+    copy_bytes(output.data + prefix.bytes, id.data, id.bytes);
+    return prefix.bytes + id.bytes;
+}
+using protocol_detail::FieldSet;
+using protocol_detail::MemberName;
+using protocol_detail::MemberNames;
+using Field = protocol_detail::FieldValue;
+using protocol_detail::fields_n;
+template <MemberName... Names>
+__forceinline bool fields(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {
+    return protocol_detail::fields_at<24>(doc, value, set);
+}
+template <MemberName... Names>
+__forceinline bool fields(const JsonIndexedDocument& doc, FieldSet<Names...>& set) noexcept {
+    return protocol_detail::fields_at<24>(doc, set);
+}
+bool u64_of(const Field& f, u64* out) noexcept { return f.seen && json_value_to_u64(f.value, out); }
+bool bool_of(const Field& f, bool* out) noexcept { return f.seen && json_value_to_bool(f.value, out); }
 bool text(const Field& f, JsonString* out) noexcept { return f.seen && json_value_as_string(f.value, out); }
-bool equal(const Field& f, const Utf8View& value) noexcept {
+bool equal_chars(const Field& f, const char* value, u32 bytes) noexcept {
     JsonString string{};
-    return text(f, &string) && json_string_equals_ascii(string, value);
+    return text(f, &string) && json_string_equals_ascii_bytes(string.encoded.data, string.encoded.bytes, value, bytes);
+}
+bool equal(const Field& f, const Utf8View& value) noexcept { return equal_chars(f, value.data, value.bytes); }
+// Literal operands travel as pointer and length instead of a view built on the stack.
+template <usize N> __forceinline bool equal(const Field& f, const char (&value)[N]) noexcept { return equal_chars(f, value, N - 1); }
+bool has_prefix_chars(const Utf8View& view, const char* prefix, u32 bytes) noexcept {
+    return view.bytes >= bytes && bytes_equal(view.data, prefix, bytes);
+}
+template <usize N> __forceinline bool has_prefix(const Utf8View& view, const char (&prefix)[N]) noexcept {
+    return has_prefix_chars(view, prefix, N - 1);
+}
+bool is_text_chars(const Utf8View& view, const char* value, u32 bytes) noexcept {
+    return view.bytes == bytes && bytes_equal(view.data, value, bytes);
+}
+template <usize N> __forceinline bool is_text(const Utf8View& view, const char (&value)[N]) noexcept {
+    return is_text_chars(view, value, N - 1);
+}
+bool is_text_nocase_chars(const Utf8View& view, const char* value, u32 bytes) noexcept {
+    return ascii_equal_ignore_case(view, {value, bytes});
+}
+template <usize N> __forceinline bool is_text_nocase(const Utf8View& view, const char (&value)[N]) noexcept {
+    return is_text_nocase_chars(view, value, N - 1);
+}
+// Decodes into a caller buffer; the scalar arguments avoid building a slice at each call.
+JsonStringDecodeResult decode(const JsonString& value, char* out, u32 capacity) noexcept {
+    return json_string_decode_utf8(value, {out, capacity});
+}
+bool visit_array(const JsonIndexedDocument& doc, const JsonValue& value, JsonArrayVisitor visitor, void* context) noexcept {
+    return json_visit_indexed_array(doc, value, 24, visitor, context).ok();
 }
 bool number(const Field& f, u32* out) noexcept {
     u64 n = 0;
@@ -45,6 +96,35 @@ bool number(const Field& f, u32* out) noexcept {
             json_value_to_u64(f.value, &n)) || n > ~u32{0}) return false;
     *out = static_cast<u32>(n);
     return true;
+}
+// Builds the structural index of one JSON document in the caller's scratch.
+EmbedPlayerError index_json(const Utf8View& json, const Slice<u32>& scratch, JsonIndexedDocument* doc) noexcept {
+    const auto scan = json_scan_structurals_avx1(json, scratch);
+    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? EmbedPlayerError::capacity : EmbedPlayerError::malformed;
+    *doc = {json, {scratch.data, scan.count}};
+    return EmbedPlayerError::none;
+}
+// Control bytes are not displayable in a title.
+void sanitize_title(MediaTrackTitle* title) noexcept {
+    for (u32 i = 0; i < title->bytes; ++i) if (static_cast<u8>(title->text[i]) < 32) title->text[i] = ' ';
+}
+JsonStringDecodeResult decode_title(const JsonString& name, MediaTrackTitle* title) noexcept {
+    const auto decoded = decode(name, title->text, sizeof(title->text));
+    if (decoded.ok()) { title->bytes = static_cast<u16>(decoded.bytes); sanitize_title(title); }
+    return decoded;
+}
+// True when a store track page names track `id` (not a music video) in `country`.
+bool track_page_is(const JsonString& page, u64 id, const Utf8View& country, u32 capacity) noexcept {
+    char url[1024];
+    const auto decoded = decode(page, url, capacity);
+    const auto match = decoded.ok() ? apple_music_track_locator({url, decoded.bytes}) : AppleMusicTrackLocator{};
+    return decimal(match.id) == id && !match.video && ascii_equal_ignore_case(match.country, country);
+}
+// Publishes a decoded, validated stream URL and wipes the staging copy either way.
+EmbedPlayerError publish_stream(EmbedStream* staged, u32 url_bytes, bool valid, EmbedStream* output) noexcept {
+    if (valid) { staged->url_bytes = url_bytes; *output = *staged; }
+    secure_clear_bytes(staged, sizeof(*staged));
+    return valid ? EmbedPlayerError::none : EmbedPlayerError::malformed;
 }
 EmbedPlayerError embedded_json(Utf8View html, Utf8View marker, Utf8View* output, bool array = false) noexcept {
     using E = EmbedPlayerError;
@@ -103,21 +183,19 @@ bool better_video(const Candidate& a, const Candidate& b, u32 cap) noexcept {
 bool format(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<Selection*>(opaque);
     if (++s.count > 256) return false;
-    Field f[]{{utf8_literal("url")}, {utf8_literal("mimeType")}, {utf8_literal("contentLength")},
-        {utf8_literal("bitrate")}, {utf8_literal("width")}, {utf8_literal("height")},
-        {utf8_literal("audioQuality")}, {utf8_literal("audioChannels")}, {utf8_literal("audioTrack")},
-        {utf8_literal("drmFamilies")}, {utf8_literal("signatureCipher")}, {utf8_literal("cipher")}, {utf8_literal("isDrc")}};
+    FieldSet<"url", "mimeType", "contentLength", "bitrate", "width", "height", "audioQuality", "audioChannels",
+        "audioTrack", "drmFamilies", "signatureCipher", "cipher", "isDrc"> f;
     if (!fields(s.doc, value, f)) return false;
     if (f[9].seen || f[10].seen || f[11].seen || !f[0].seen) return true;
     Candidate c{};
     JsonString mime{};
     char mime_bytes[128];
     if (!text(f[0], &c.url) || !text(f[1], &mime)) return false;
-    const auto decoded = json_string_decode_utf8(mime, {mime_bytes, sizeof(mime_bytes)});
+    const auto decoded = decode(mime, mime_bytes, sizeof(mime_bytes));
     if (!decoded.ok()) return true;
     const Utf8View type{mime_bytes, decoded.bytes};
-    const bool video = utf8_starts_with(type, utf8_literal("video/mp4; codecs=\"avc1."));
-    const bool audio = utf8_equal(type, utf8_literal("audio/mp4; codecs=\"mp4a.40.2\""));
+    const bool video = has_prefix(type, "video/mp4; codecs=\"avc1.");
+    const bool audio = is_text(type, "audio/mp4; codecs=\"mp4a.40.2\"");
     if (!video && !audio) return true;
     if (f[2].seen && (!number(f[2], &c.content) || !c.content)) return false;
     if (c.content > kMediaMaximumProgressiveVideoBytes) return true;
@@ -134,7 +212,7 @@ bool format(void* opaque, u32, JsonValue value) noexcept {
         u32 channels = 0;
         if (!number(f[7], &channels) || !channels || channels > 2) return true;
         if (f[8].seen) {
-            Field track[]{{utf8_literal("audioIsDefault")}};
+            FieldSet<"audioIsDefault"> track;
             bool is_default = false;
             if (!fields(s.doc, f[8].value, track) || !track[0].seen ||
                 !json_value_to_bool(track[0].value, &is_default)) return false;
@@ -149,7 +227,7 @@ bool format(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 bool store(const Candidate& candidate, EmbedStream* out) noexcept {
-    const auto decoded = json_string_decode_utf8(candidate.url, {out->url, sizeof(out->url)});
+    const auto decoded = decode(candidate.url, out->url, sizeof(out->url));
     if (!decoded.ok() || !youtube_stream_url({out->url, decoded.bytes})) return false;
     out->url_bytes = decoded.bytes;
     out->content_bytes = candidate.content;
@@ -159,7 +237,8 @@ bool store(const Candidate& candidate, EmbedStream* out) noexcept {
     return true;
 }
 struct TikTokSelection { JsonIndexedDocument doc; Utf8View id; u64 now; u32 height, items, profiles; EmbedStreams best{}; };
-u64 stream_expiry(Utf8View url, Utf8View key = utf8_literal("expire="), bool* present = nullptr) noexcept {
+u64 stream_expiry_chars(const Utf8View& url, const char* key_data, u32 key_bytes, bool* present) noexcept {
+    const Utf8View key{key_data, key_bytes};
     u64 result = 0;
     bool seen = false;
     for (u32 i = 0; i < url.bytes; ++i) {
@@ -180,6 +259,10 @@ u64 stream_expiry(Utf8View url, Utf8View key = utf8_literal("expire="), bool* pr
     }
     return result;
 }
+template <usize N> __forceinline u64 stream_expiry(const Utf8View& url, const char (&key)[N], bool* present = nullptr) noexcept {
+    return stream_expiry_chars(url, key, N - 1, present);
+}
+u64 stream_expiry(const Utf8View& url) noexcept { return stream_expiry(url, "expire="); }
 struct TikTokUrls { TikTokSelection* selection; EmbedStream* stream; u32 expires, count; };
 bool tiktok_url(void* opaque, u32, JsonValue value) noexcept {
     auto& u = *static_cast<TikTokUrls*>(opaque);
@@ -187,7 +270,7 @@ bool tiktok_url(void* opaque, u32, JsonValue value) noexcept {
     if (u.expires) return true;
     JsonString text{};
     if (!json_value_as_string(value, &text)) return false;
-    const auto decoded = json_string_decode_utf8(text, {u.stream->url, sizeof(u.stream->url)});
+    const auto decoded = decode(text, u.stream->url, sizeof(u.stream->url));
     if (!decoded.ok()) return true;
     const Utf8View url{u.stream->url, decoded.bytes};
     if (!embed_stream_location(CdnHost::tiktok_video, url)) return true;
@@ -200,11 +283,10 @@ bool tiktok_url(void* opaque, u32, JsonValue value) noexcept {
 bool tiktok_profile(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<TikTokSelection*>(opaque);
     if (++s.profiles > 32) return false;
-    Field f[]{{utf8_literal("codec_type")}, {utf8_literal("bitrate")}, {utf8_literal("play_addr")}};
+    FieldSet<"codec_type", "bitrate", "play_addr"> f;
     if (!fields(s.doc, value, f)) return false;
-    if (!equal(f[0], utf8_literal("h264"))) return true;
-    Field address[]{{utf8_literal("width")}, {utf8_literal("height")}, {utf8_literal("data_size")},
-                    {utf8_literal("url_list")}};
+    if (!equal(f[0], "h264")) return true;
+    FieldSet<"width", "height", "data_size", "url_list"> address;
     if (!f[2].seen || !fields(s.doc, f[2].value, address)) return false;
     EmbedStreams candidate{};
     u32 width = 0, height = 0;
@@ -214,7 +296,7 @@ bool tiktok_profile(void* opaque, u32, JsonValue value) noexcept {
     if (width > 2048 || height > 2048 || candidate.video.content_bytes > kMediaMaximumProgressiveVideoBytes) return true;
     candidate.video.width = static_cast<u16>(width); candidate.video.height = static_cast<u16>(height);
     TikTokUrls urls{&s, &candidate.video};
-    if (!json_visit_indexed_array(s.doc, address[3].value, 24, tiktok_url, &urls).ok()) return false;
+    if (!visit_array(s.doc, address[3].value, tiktok_url, &urls)) return false;
     if (!urls.expires) return true;
     if (better_rendition(height, candidate.video.bitrate, s.best.video.height, s.best.video.bitrate, s.height)) {
         candidate.expires_seconds = urls.expires;
@@ -227,21 +309,20 @@ bool tiktok_profile(void* opaque, u32, JsonValue value) noexcept {
 bool tiktok_item(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<TikTokSelection*>(opaque);
     if (++s.items > 1) return false;
-    Field f[]{{utf8_literal("id_str")}, {utf8_literal("video_info")}};
+    FieldSet<"id_str", "video_info"> f;
     if (!fields(s.doc, value, f) || !equal(f[0], s.id)) return false;
     if (!f[1].seen) return true; // Photos and other non-video posts.
-    Field video[]{{utf8_literal("profiles")}};
+    FieldSet<"profiles"> video;
     if (!fields(s.doc, f[1].value, video)) return false;
-    return !video[0].seen || json_visit_indexed_array(s.doc, video[0].value, 24, tiktok_profile, &s).ok();
+    return !video[0].seen || visit_array(s.doc, video[0].value, tiktok_profile, &s);
 }
 struct ClipSelection { JsonIndexedDocument doc; EmbedStream best{}; u32 height, assets{}, profiles{}; };
 bool clip_quality(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<ClipSelection*>(opaque);
     if (++s.profiles > 32) return false;
-    Field f[]{{utf8_literal("videoCodec")}, {utf8_literal("height")}, {utf8_literal("width")},
-              {utf8_literal("bitrate")}, {utf8_literal("sourceURL")}};
+    FieldSet<"videoCodec", "height", "width", "bitrate", "sourceURL"> f;
     if (!fields(s.doc, value, f)) return false;
-    if (!equal(f[0], utf8_literal("AVC"))) return true;
+    if (!equal(f[0], "AVC")) return true;
     u32 height = 0, width = 0, bitrate = 0;
     JsonString source{};
     if (!number(f[1], &height) || !number(f[2], &width) || !number(f[3], &bitrate) ||
@@ -249,7 +330,7 @@ bool clip_quality(void* opaque, u32, JsonValue value) noexcept {
     if (height > 2048 || width > 2048) return true;
     if (!better_rendition(height, bitrate, s.best.height, s.best.bitrate, s.height)) return true;
     EmbedStream candidate{};
-    const auto decoded = json_string_decode_utf8(source, {candidate.url, sizeof(candidate.url)});
+    const auto decoded = decode(source, candidate.url, sizeof(candidate.url));
     if (!decoded.ok() || !embed_stream_location(CdnHost::twitch_video, {candidate.url, decoded.bytes})) return true;
     for (u32 i = 0; i < decoded.bytes; ++i) if (candidate.url[i] == '?') return true;
     candidate.url_bytes = decoded.bytes;
@@ -261,9 +342,9 @@ bool clip_quality(void* opaque, u32, JsonValue value) noexcept {
 bool clip_asset(void* opaque, u32, JsonValue value) noexcept {
     auto& s = *static_cast<ClipSelection*>(opaque);
     if (++s.assets > 8) return false;
-    Field f[]{{utf8_literal("videoQualities")}};
+    FieldSet<"videoQualities"> f;
     return fields(s.doc, value, f) && f[0].seen &&
-        json_visit_indexed_array(s.doc, f[0].value, 24, clip_quality, &s).ok();
+        visit_array(s.doc, f[0].value, clip_quality, &s);
 }
 // The dimensions in the public MP4 path describe the rendition, unlike the
 // post's original_info dimensions. Keep them tied to the exact media host.
@@ -271,7 +352,7 @@ bool twitter_location(Utf8View url, EmbedStreamLocation* out, u16* width=nullptr
     constexpr auto origin=utf8_literal("https://video.twimg.com");
     if(!url.data || url.bytes>kEmbedStreamUrlBytes || !utf8_starts_with(url,origin)) return false;
     const Utf8View target{url.data+origin.bytes,url.bytes-origin.bytes};
-    const bool amplify=utf8_starts_with(target,utf8_literal("/amplify_video/"));
+    const bool amplify=has_prefix(target, "/amplify_video/");
     const auto prefix=amplify?utf8_literal("/amplify_video/"):utf8_literal("/ext_tw_video/");
     if(!utf8_starts_with(target,prefix)) return false;
     u32 at=prefix.bytes, start=at;
@@ -280,7 +361,7 @@ bool twitter_location(Utf8View url, EmbedStreamLocation* out, u16* width=nullptr
     const auto path=amplify?utf8_literal("/vid/"):utf8_literal("/pu/vid/");
     if(!utf8_starts_with({target.data+at,target.bytes-at},path)) return false;
     at+=path.bytes;
-    if(utf8_starts_with({target.data+at,target.bytes-at},utf8_literal("avc1/"))) at+=5;
+    if(has_prefix({target.data+at,target.bytes-at}, "avc1/")) at+=5;
     u32 dimensions[2]{};
     for(u32 i=0;i<2;++i) {
         start=at;
@@ -292,10 +373,10 @@ bool twitter_location(Utf8View url, EmbedStreamLocation* out, u16* width=nullptr
     }
     start=at;
     while(at<target.bytes && (ascii_is_alnum(target.data[at]) || target.data[at]=='_' || target.data[at]=='-')) ++at;
-    if(at==start || at-start>128 || !utf8_starts_with({target.data+at,target.bytes-at},utf8_literal(".mp4"))) return false;
+    if(at==start || at-start>128 || !has_prefix({target.data+at,target.bytes-at}, ".mp4")) return false;
     at+=4;
     if(at!=target.bytes) {
-        if(!utf8_starts_with({target.data+at,target.bytes-at},utf8_literal("?tag="))) return false;
+        if(!has_prefix({target.data+at,target.bytes-at}, "?tag=")) return false;
         at+=5;start=at;
         while(at<target.bytes && ascii_is_digit(target.data[at])) ++at;
         if(at==start || at-start>10 || at!=target.bytes) return false;
@@ -309,10 +390,10 @@ struct TwitterMedia { JsonIndexedDocument doc; JsonValue selected{}; u8 index; u
 bool twitter_media(void* context,u32 index,JsonValue value) noexcept {
     auto& s=*static_cast<TwitterMedia*>(context);
     if(++s.count>4) return false;
-    Field f[]{{utf8_literal("type")}};
+    FieldSet<"type"> f;
     if(!fields(s.doc,value,f)) return false;
     if((!s.index && !s.found) || s.index==index+1) {
-        if(equal(f[0],utf8_literal("video")) || equal(f[0],utf8_literal("animated_gif"))) {
+        if(equal(f[0], "video") || equal(f[0], "animated_gif")) {
             s.selected=value;s.found=true;
         }
     }
@@ -322,12 +403,12 @@ struct TwitterVariants { JsonIndexedDocument doc; EmbedStream selected{}; u16 ca
 bool twitter_variant(void* context,u32,JsonValue value) noexcept {
     auto& s=*static_cast<TwitterVariants*>(context);
     if(++s.count>16) return false;
-    Field f[]{{utf8_literal("content_type")},{utf8_literal("url")},{utf8_literal("bitrate")}};
+    FieldSet<"content_type", "url", "bitrate"> f;
     if(!fields(s.doc,value,f)) return false;
-    if(!equal(f[0],utf8_literal("video/mp4"))) return true;
+    if(!equal(f[0], "video/mp4")) return true;
     JsonString url{}; EmbedStream candidate{};
     if(!text(f[1],&url) || (f[2].seen && !number(f[2],&candidate.bitrate))) return false;
-    const auto decoded=json_string_decode_utf8(url,{candidate.url,sizeof(candidate.url)});
+    const auto decoded=decode(url, candidate.url, sizeof(candidate.url));
     bool valid=decoded.ok();
     if(valid) {
         candidate.url_bytes=decoded.bytes;
@@ -340,12 +421,7 @@ bool twitter_variant(void* context,u32,JsonValue value) noexcept {
     return decoded.ok();
 }
 } // namespace
-bool twitch_clip_id(Utf8View id) noexcept {
-    if (!id.data || !id.bytes || id.bytes > 128) return false;
-    for (u32 i = 0; i < id.bytes; ++i)
-        if (!ascii_is_alnum(id.data[i]) && id.data[i] != '_' && id.data[i] != '-') return false;
-    return true;
-}
+bool twitch_clip_id(Utf8View id) noexcept { return id.bytes && id.bytes <= 128 && id_chars(id, true); }
 u32 twitch_clip_body(Utf8View id, Slice<u8> out) noexcept {
     if (!twitch_clip_id(id)) return 0;
     u8 staged[1024];
@@ -362,40 +438,38 @@ EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 height, u64
     using E = EmbedPlayerError;
     if (!out || !twitch_clip_id(id) || !height || height > 2048 || !now ||
         !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    ClipSelection s{{json, {scratch.data, scan.count}}, {}, height};
-    Field root[]{{utf8_literal("data")}, {utf8_literal("errors")}};
-    if (!fields(s.doc, {json, 0, JsonValueKind::object}, root)) return E::malformed;
+    ClipSelection s{{}, {}, height};
+    if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
+    FieldSet<"data", "errors"> root;
+    if (!fields(s.doc, root)) return E::malformed;
     if (root[1].seen) return E::unavailable;
-    Field data[]{{utf8_literal("clip")}};
+    FieldSet<"clip"> data;
     if (!root[0].seen || !fields(s.doc, root[0].value, data) || !data[0].seen) return E::malformed;
     if (data[0].value.kind == JsonValueKind::null_value) return E::unavailable;
-    Field clip[]{{utf8_literal("slug")}, {utf8_literal("playbackAccessToken")}, {utf8_literal("assets")}};
+    FieldSet<"slug", "playbackAccessToken", "assets"> clip;
     if (!fields(s.doc, data[0].value, clip) || !equal(clip[0], id) || !clip[1].seen || !clip[2].seen) return E::malformed;
-    if (!json_visit_indexed_array(s.doc, clip[2].value, 24, clip_asset, &s).ok()) return E::malformed;
+    if (!visit_array(s.doc, clip[2].value, clip_asset, &s)) return E::malformed;
     if (!s.best.url_bytes) return E::unsupported;
-    Field access[]{{utf8_literal("signature")}, {utf8_literal("value")}};
+    FieldSet<"signature", "value"> access;
     JsonString signature{}, token{};
     if (!fields(s.doc, clip[1].value, access) || !text(access[0], &signature) || !text(access[1], &token)) return E::malformed;
     char signature_text[128], token_text[1024];
-    const auto sig = json_string_decode_utf8(signature, {signature_text, sizeof(signature_text)});
-    const auto tok = json_string_decode_utf8(token, {token_text, sizeof(token_text)});
+    const auto sig = decode(signature, signature_text, sizeof(signature_text));
+    const auto tok = decode(token, token_text, sizeof(token_text));
     if (!sig.ok() || !sig.bytes || !tok.ok()) return E::malformed;
     for (u32 i = 0; i < sig.bytes; ++i) if (!ascii_is_hex_digit(signature_text[i])) return E::malformed;
     const Utf8View token_json{token_text, tok.bytes};
     // Reuse the caller's structural index after all outer fields are consumed.
-    const auto token_scan = json_scan_structurals_avx1(token_json, scratch);
-    if (!token_scan.ok()) return token_scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{token_json, {scratch.data, token_scan.count}};
-    Field claims[]{{utf8_literal("clip_slug")}, {utf8_literal("expires")}, {utf8_literal("authorization")}};
-    Field authorization[]{{utf8_literal("forbidden")}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(token_json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"clip_slug", "expires", "authorization"> claims;
+    FieldSet<"forbidden"> authorization;
     u64 expires = 0;
     bool forbidden = true;
-    if (!fields(doc, {token_json, 0, JsonValueKind::object}, claims) || !equal(claims[0], id) ||
-        !claims[1].seen || !json_value_to_u64(claims[1].value, &expires) || !claims[2].seen ||
-        !fields(doc, claims[2].value, authorization) || !authorization[0].seen ||
-        !json_value_to_bool(authorization[0].value, &forbidden)) return E::malformed;
+    if (!fields(doc, claims) || !equal(claims[0], id) ||
+        !u64_of(claims[1], &expires) || !claims[2].seen ||
+        !fields(doc, claims[2].value, authorization) ||
+        !bool_of(authorization[0], &forbidden)) return E::malformed;
     if (forbidden || expires <= now) return E::unavailable;
     ProtocolWriter w{{reinterpret_cast<u8*>(s.best.url), sizeof(s.best.url)}, s.best.url_bytes};
     const bool written = protocol_writer_append_literal(&w, "?sig=") &&
@@ -410,13 +484,7 @@ EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 height, u64
     return E::none;
 }
 u32 tiktok_player_target(Utf8View id, Slice<u8> output) noexcept {
-    if (!id.data || !id.bytes || id.bytes > 20 || id.data[0] == '0') return 0;
-    u64 value = 0;
-    for (u32 i = 0; i < id.bytes; ++i) {
-        const u32 d = static_cast<u8>(id.data[i]) - '0';
-        if (d > 9 || value > (~u64{0} - d) / 10) return 0;
-        value = value * 10 + d;
-    }
+    if (!numeric_id(id)) return 0;
     ProtocolWriter w{output, 0};
     return protocol_writer_append_literal(&w, "/player/api/v1/items?item_ids=") &&
         protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(id.data), id.bytes) &&
@@ -428,14 +496,13 @@ EmbedPlayerError tiktok_player_streams(Utf8View json, Utf8View id, u16 height, u
     u8 target[128];
     if (!out || !height || height > 2048 || !now || !tiktok_player_target(id, {target, sizeof(target)}) ||
         !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    TikTokSelection s{{json, {scratch.data, scan.count}}, id, now, height};
-    Field root[]{{utf8_literal("status_code")}, {utf8_literal("items")}};
+    TikTokSelection s{{}, id, now, height};
+    if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
+    FieldSet<"status_code", "items"> root;
     u32 status = 0;
-    if (!fields(s.doc, {json, 0, JsonValueKind::object}, root) || !number(root[0], &status)) return E::malformed;
+    if (!fields(s.doc, root) || !number(root[0], &status)) return E::malformed;
     if (status) return E::unavailable;
-    if (!root[1].seen || !json_visit_indexed_array(s.doc, root[1].value, 24, tiktok_item, &s).ok()) return E::malformed;
+    if (!root[1].seen || !visit_array(s.doc, root[1].value, tiktok_item, &s)) return E::malformed;
     if (!s.best.video.url_bytes) return E::unsupported;
     *out = s.best;
     secure_clear_bytes(&s.best, sizeof(s.best));
@@ -463,55 +530,55 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
     if (cdn == CdnHost::pornhub_video) {
         constexpr auto tail = utf8_literal(".phncdn.com");
         if (host.bytes <= tail.bytes || !ascii_equal_ignore_case({host.data + host.bytes - tail.bytes, tail.bytes}, tail) ||
-            !utf8_starts_with(target, utf8_literal("/videos/"))) return false;
+            !has_prefix(target, "/videos/")) return false;
         u32 path_end = 0;
         for (; path_end < target.bytes && target.data[path_end] != '?'; ++path_end) {
             const char c = target.data[path_end];
             if (!ascii_is_alnum(c) && c != '/' && c != '_' && c != '-' && c != '.') return false;
             if (c == '.' && path_end && target.data[path_end - 1] == '.') return false;
         }
-        if (path_end < 4 || !utf8_equal({target.data + path_end - 4, 4}, utf8_literal(".mp4")) ||
-            !stream_expiry(url, utf8_literal("validto="))) return false;
+        if (path_end < 4 || !is_text({target.data + path_end - 4, 4}, ".mp4") ||
+            !stream_expiry(url, "validto=")) return false;
     } else if (cdn == CdnHost::youtube_playlist) {
-        if (!ascii_equal_ignore_case(host,utf8_literal("manifest.googlevideo.com")) ||
-            (!utf8_starts_with(target,utf8_literal("/api/manifest/hls_variant/")) &&
-             !utf8_starts_with(target,utf8_literal("/api/manifest/hls_playlist/")))) return false;
+        if (!is_text_nocase(host, "manifest.googlevideo.com") ||
+            (!has_prefix(target, "/api/manifest/hls_variant/") &&
+             !has_prefix(target, "/api/manifest/hls_playlist/"))) return false;
     } else if (cdn == CdnHost::youtube_live) {
         if (host.bytes<=suffix.bytes || !ascii_equal_ignore_case({host.data+host.bytes-suffix.bytes,suffix.bytes},suffix) ||
-            !utf8_starts_with(target,utf8_literal("/videoplayback/"))) return false;
+            !has_prefix(target, "/videoplayback/")) return false;
     } else if (cdn == CdnHost::google_video) {
         if (host.bytes <= suffix.bytes || !ascii_equal_ignore_case({host.data + host.bytes - suffix.bytes, suffix.bytes}, suffix) ||
-            !utf8_starts_with(target, utf8_literal("/videoplayback?"))) return false;
+            !has_prefix(target, "/videoplayback?")) return false;
     } else if (cdn == CdnHost::tiktok_video) {
         constexpr auto tail = utf8_literal("-webapp-prime.tiktok.com");
         if (host.bytes < tail.bytes + 2 || host.bytes > tail.bytes + 5 || ascii_lower(host.data[0]) != 'v' ||
             !ascii_equal_ignore_case({host.data + host.bytes - tail.bytes, tail.bytes}, tail) ||
-            !utf8_starts_with(target, utf8_literal("/video/tos/"))) return false;
+            !has_prefix(target, "/video/tos/")) return false;
         for (u32 i = 1; i < host.bytes - tail.bytes; ++i)
             if (!ascii_is_digit(host.data[i]) || (i == 1 && host.data[i] == '0')) return false;
     } else if (cdn == CdnHost::twitch_video) {
         // A specific Twitch distribution; accepting arbitrary CloudFront
         // tenants would let metadata redirect media fetches to unrelated sites.
-        if (!ascii_equal_ignore_case(host, utf8_literal("d1ndex63qxojbr.cloudfront.net")) ||
-            !utf8_starts_with(target, utf8_literal("/nauth/"))) return false;
+        if (!is_text_nocase(host, "d1ndex63qxojbr.cloudfront.net") ||
+            !has_prefix(target, "/nauth/")) return false;
         u32 path_end = 0;
         while (path_end < target.bytes && target.data[path_end] != '?') ++path_end;
-        if (path_end < 4 || !utf8_equal({target.data + path_end - 4, 4}, utf8_literal(".mp4"))) return false;
+        if (path_end < 4 || !is_text({target.data + path_end - 4, 4}, ".mp4")) return false;
     } else if (cdn == CdnHost::imgur_video) {
-        if(!ascii_equal_ignore_case(host,utf8_literal("i.imgur.com")) || target.bytes<6 || target.data[0]!='/' ||
-            !utf8_equal({target.data+target.bytes-4,4},utf8_literal(".mp4")) ||
+        if(!is_text_nocase(host, "i.imgur.com") || target.bytes<6 || target.data[0]!='/' ||
+            !is_text({target.data+target.bytes-4,4}, ".mp4") ||
             !imgur_video_id({target.data+1,target.bytes-5})) return false;
     } else if (cdn == CdnHost::streamable_video) {
         static constexpr Utf8View hosts[]{utf8_literal("cdn-cf-east.streamable.com"), utf8_literal("cdn-cf-west.streamable.com"),
             utf8_literal("cdn-b-east.streamable.com"), utf8_literal("cdn-b-west.streamable.com")};
         bool allowed = false;
         for (auto name : hosts) allowed = allowed || ascii_equal_ignore_case(host, name);
-        const u32 prefix_bytes = utf8_starts_with(target, utf8_literal("/video/mp4/")) ? 11
-            : utf8_starts_with(target, utf8_literal("/video/mp4-mobile/")) ? 18 : 0;
+        const u32 prefix_bytes = has_prefix(target, "/video/mp4/") ? 11
+            : has_prefix(target, "/video/mp4-mobile/") ? 18 : 0;
         u32 path_end = 0;
         while (path_end < target.bytes && target.data[path_end] != '?') ++path_end;
         if (!allowed || !prefix_bytes || path_end <= prefix_bytes + 4 ||
-            !utf8_equal({target.data + path_end - 4, 4}, utf8_literal(".mp4")) ||
+            !is_text({target.data + path_end - 4, 4}, ".mp4") ||
             !streamable_video_id({target.data + prefix_bytes, path_end - prefix_bytes - 4})) return false;
     } else if (cdn == CdnHost::apple_music_preview || cdn == CdnHost::apple_music_video_preview) {
         const bool video = cdn == CdnHost::apple_music_video_preview;
@@ -528,26 +595,26 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
             if (c == '.' && i + 1 < target.bytes && target.data[i + 1] == '.') return false;
         }
     } else if (cdn == CdnHost::amazon_music_preview) {
-        if((!ascii_equal_ignore_case(host,utf8_literal("d28julafmv4ekl.cloudfront.net")) &&
-            !ascii_equal_ignore_case(host,utf8_literal("d2q1srilgjznst.cloudfront.net"))) || !target.bytes || target.data[0]!='/') return false;
+        if((!is_text_nocase(host, "d28julafmv4ekl.cloudfront.net") &&
+            !is_text_nocase(host, "d2q1srilgjznst.cloudfront.net")) || !target.bytes || target.data[0]!='/') return false;
         u32 at=1;
         for(u32 part=0;part<3;++part) {
             const u32 start=at;
             while(at<target.bytes && ascii_is_digit(target.data[at])) ++at;
             if(at==start || at-start>(part==2?16u:3u)) return false;
             if(part<2) {
-                if(at+3>target.bytes || !ascii_equal_ignore_case({target.data+at,3},utf8_literal("%2F"))) return false;
+                if(at+3>target.bytes || !is_text_nocase({target.data+at,3}, "%2F")) return false;
                 at+=3;
             }
         }
-        if(!utf8_starts_with({target.data+at,target.bytes-at},utf8_literal("_S64.mp3?"))) return false;
-        if(!stream_expiry(url,utf8_literal("Expires="))) return false;
-    } else if (cdn == CdnHost::spotify_preview && ascii_equal_ignore_case(host, utf8_literal("podz-content.spotifycdn.com"))) {
+        if(!has_prefix({target.data+at,target.bytes-at}, "_S64.mp3?")) return false;
+        if(!stream_expiry(url, "Expires=")) return false;
+    } else if (cdn == CdnHost::spotify_preview && is_text_nocase(host, "podz-content.spotifycdn.com")) {
         constexpr auto path = utf8_literal("/audio/clips/");
         if (!utf8_starts_with(target,path) || target.bytes < path.bytes+22+1 ||
             !spotify_audio_id({target.data+path.bytes,22}) || target.data[path.bytes+22]!='/') return false;
         u32 at=path.bytes+23;
-        if (!utf8_starts_with({target.data+at,target.bytes-at},utf8_literal("clip_"))) return false;
+        if (!has_prefix({target.data+at,target.bytes-at}, "clip_")) return false;
         at+=5;
         for(u32 part=0;part<2;++part) {
             const u32 first=at;
@@ -555,10 +622,10 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
             if(at==first || at-first>10) return false;
             if(!part && (at==target.bytes || target.data[at++]!='_')) return false;
         }
-        if(!utf8_equal({target.data+at,target.bytes-at},utf8_literal(".mp3"))) return false;
+        if(!is_text({target.data+at,target.bytes-at}, ".mp3")) return false;
     } else if (cdn == CdnHost::spotify_preview) {
         constexpr auto path = utf8_literal("/mp3-preview/");
-        if (!ascii_equal_ignore_case(host, utf8_literal("p.scdn.co")) || !utf8_starts_with(target, path)) return false;
+        if (!is_text_nocase(host, "p.scdn.co") || !utf8_starts_with(target, path)) return false;
         u32 path_end = path.bytes;
         while (path_end < target.bytes && target.data[path_end] != '?') {
             if (!ascii_is_hex_digit(target.data[path_end])) return false;
@@ -593,16 +660,16 @@ u32 embed_stream_get(CdnHost cdn, Utf8View url, u64 first, u32 bytes, Slice<u8> 
     const auto add = [&](Utf8View text) noexcept {
         return protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(text.data), text.bytes);
     };
-    const bool ok = add(utf8_literal("GET ")) && add(location.target) &&
-        add(utf8_literal(" HTTP/1.1\r\nHost: ")) && add(location.host) &&
-        add(utf8_literal("\r\nUser-Agent: ")) && add(cdn == CdnHost::google_video ? kYoutubeNativeUserAgent : utf8_literal("Mozilla/5.0")) &&
-        (cdn != CdnHost::tiktok_video || add(utf8_literal("\r\nReferer: https://www.tiktok.com/"))) &&
-        (cdn != CdnHost::pornhub_video || add(utf8_literal("\r\nReferer: https://www.pornhub.com/"))) &&
-        add(utf8_literal("\r\nAccept: */*\r\nAccept-Encoding: identity")) &&
-        (whole_preview || (add(utf8_literal("\r\nRange: bytes=")) &&
-        protocol_writer_append_u64(&w, first) && add(utf8_literal("-")) &&
+    const bool ok = protocol_writer_append_literal(&w, "GET ") && add(location.target) &&
+        protocol_writer_append_literal(&w, " HTTP/1.1\r\nHost: ") && add(location.host) &&
+        protocol_writer_append_literal(&w, "\r\nUser-Agent: ") && add(cdn == CdnHost::google_video ? kYoutubeNativeUserAgent : utf8_literal("Mozilla/5.0")) &&
+        (cdn != CdnHost::tiktok_video || protocol_writer_append_literal(&w, "\r\nReferer: https://www.tiktok.com/")) &&
+        (cdn != CdnHost::pornhub_video || protocol_writer_append_literal(&w, "\r\nReferer: https://www.pornhub.com/")) &&
+        protocol_writer_append_literal(&w, "\r\nAccept: */*\r\nAccept-Encoding: identity") &&
+        (whole_preview || (protocol_writer_append_literal(&w, "\r\nRange: bytes=") &&
+        protocol_writer_append_u64(&w, first) && protocol_writer_append_literal(&w, "-") &&
           protocol_writer_append_u64(&w, first + bytes - 1))) &&
-        add(utf8_literal("\r\nConnection: keep-alive\r\n\r\n")) && w.used <= output.count;
+        protocol_writer_append_literal(&w, "\r\nConnection: keep-alive\r\n\r\n") && w.used <= output.count;
     if (ok) copy_bytes(output.data, staged, w.used);
     secure_clear_bytes(staged, sizeof(staged));
     return ok ? w.used : 0;
@@ -612,24 +679,21 @@ EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View id, u16 maximum_
     using E = EmbedPlayerError;
     if (!output || !video_id(id) || !maximum_height || maximum_height > 2048 ||
         !json.data || !json.bytes || json.bytes > 2u * 1024u * 1024u) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    Selection s{{json, {scratch.data, scan.count}}, {}, {}, {}, maximum_height, 0};
-    Field root[]{{utf8_literal("playabilityStatus")}, {utf8_literal("videoDetails")},
-                 {utf8_literal("streamingData")}};
-    if (!fields(s.doc, {json, 0, JsonValueKind::object}, root) || !root[0].seen) return E::malformed;
-    Field status[]{{utf8_literal("status")}, {utf8_literal("playableInEmbed")}};
+    Selection s{{}, {}, {}, {}, maximum_height, 0};
+    if (const auto indexed = index_json(json, scratch, &s.doc); indexed != E::none) return indexed;
+    FieldSet<"playabilityStatus", "videoDetails", "streamingData"> root;
+    if (!fields(s.doc, root) || !root[0].seen) return E::malformed;
+    FieldSet<"status", "playableInEmbed"> status;
     if (!fields(s.doc, root[0].value, status)) return E::malformed;
-    if (equal(status[0], utf8_literal("LOGIN_REQUIRED"))) return E::login_required;
-    if (!equal(status[0], utf8_literal("OK"))) return status[0].seen ? E::unavailable : E::malformed;
+    if (equal(status[0], "LOGIN_REQUIRED")) return E::login_required;
+    if (!equal(status[0], "OK")) return status[0].seen ? E::unavailable : E::malformed;
     bool embeddable = false;
-    if (!status[1].seen || !json_value_to_bool(status[1].value, &embeddable)) return E::malformed;
+    if (!bool_of(status[1], &embeddable)) return E::malformed;
     if (!embeddable) return E::not_embeddable;
-    Field details[]{{utf8_literal("videoId")},{utf8_literal("isLive")}};
+    FieldSet<"videoId", "isLive"> details;
     if (!root[1].seen || !fields(s.doc, root[1].value, details) || !equal(details[0], id)) return E::malformed;
     if (!root[2].seen) return E::unsupported;
-    Field data[]{{utf8_literal("formats")}, {utf8_literal("adaptiveFormats")}, {utf8_literal("expiresInSeconds")},
-        {utf8_literal("hlsManifestUrl")}};
+    FieldSet<"formats", "adaptiveFormats", "expiresInSeconds", "hlsManifestUrl"> data;
     if (!fields(s.doc, root[2].value, data)) return E::malformed;
     u32 expires = 0;
     if (!number(data[2], &expires) || !expires || expires > 86400) return E::malformed;
@@ -638,13 +702,13 @@ EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View id, u16 maximum_
     if(live) {
         JsonString manifest{};EmbedStreams staged{};EmbedStreamLocation location{};
         if(!text(data[3],&manifest)) return E::unsupported;
-        const auto decoded=json_string_decode_utf8(manifest,{staged.video.url,sizeof(staged.video.url)});
+        const auto decoded=decode(manifest, staged.video.url, sizeof(staged.video.url));
         if(!decoded.ok() || !embed_stream_location(CdnHost::youtube_playlist,{staged.video.url,decoded.bytes},&location) ||
-            !utf8_starts_with(location.target,utf8_literal("/api/manifest/hls_variant/"))) return E::malformed;
+            !has_prefix(location.target, "/api/manifest/hls_variant/")) return E::malformed;
         staged.video.url_bytes=decoded.bytes;staged.expires_seconds=expires;staged.live=true;*output=staged;return E::none;
     }
     for (u32 i = 0; i < 2; ++i)
-        if (data[i].seen && !json_visit_indexed_array(s.doc, data[i].value, 24, format, &s).ok())
+        if (data[i].seen && !visit_array(s.doc, data[i].value, format, &s))
             return E::malformed;
     if (!s.video.combined && !s.audio.url.encoded.bytes) s.video = s.combined;
     if (!s.video.url.encoded.bytes) return E::unsupported;
@@ -673,23 +737,14 @@ EmbedPlayerError amazon_music_preview_stream(Utf8View url,u64 now,EmbedStreams* 
     using E=EmbedPlayerError;
     if(!out || !now) return E::invalid_input;
     if(!embed_stream_location(CdnHost::amazon_music_preview,url)) return E::malformed;
-    const auto expires=stream_expiry(url,utf8_literal("Expires="));
+    const auto expires=stream_expiry(url, "Expires=");
     if(expires<=now) return E::unavailable;
     EmbedStreams staged{};
     copy_bytes(staged.audio.url,url.data,url.bytes);staged.audio.url_bytes=url.bytes;
     staged.expires_seconds=static_cast<u32>(minimum<u64>(expires-now,3600));
     *out=staged;secure_clear_bytes(&staged,sizeof(staged));return E::none;
 }
-u64 twitter_post_id(Utf8View id) noexcept {
-    if(!id.data || !id.bytes || id.bytes>20 || id.data[0]=='0') return 0;
-    u64 value=0;
-    for(u32 i=0;i<id.bytes;++i) {
-        const u32 digit=static_cast<u8>(id.data[i])-'0';
-        if(digit>9 || value>(~u64{0}-digit)/10) return 0;
-        value=value*10+digit;
-    }
-    return value;
-}
+u64 twitter_post_id(Utf8View id) noexcept { return numeric_id(id); }
 #pragma float_control(precise, on, push)
 u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
     const u64 post=twitter_post_id(id);
@@ -736,36 +791,34 @@ EmbedPlayerError twitter_video_streams(Utf8View json,Utf8View id,u16 height,u8 m
     using E=EmbedPlayerError;
     if(!output || !twitter_post_id(id) || !height || height>2048 || media_index>4 ||
         !json.data || !json.bytes || json.bytes>kTwitterMetadataMaximumBytes) return E::invalid_input;
-    const auto scan=json_scan_structurals_avx1(json,scratch);
-    if(!scan.ok()) return scan.error==JsonScanError::output_overflow?E::capacity:E::malformed;
-    const JsonIndexedDocument doc{json,{scratch.data,scan.count}};
-    Field root[]{{utf8_literal("__typename")},{utf8_literal("id_str")},{utf8_literal("mediaDetails")}};
-    if(!fields(doc,{json,0,JsonValueKind::object},root)) return E::malformed;
-    if(equal(root[0],utf8_literal("TweetTombstone"))) return E::unavailable;
-    if(!equal(root[0],utf8_literal("Tweet")) || !equal(root[1],id)) return E::malformed;
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"__typename", "id_str", "mediaDetails"> root;
+    if(!fields(doc,root)) return E::malformed;
+    if(equal(root[0], "TweetTombstone")) return E::unavailable;
+    if(!equal(root[0], "Tweet") || !equal(root[1],id)) return E::malformed;
     if(!root[2].seen) return E::unsupported;
     TwitterMedia media{doc,{},media_index};
-    if(!json_visit_indexed_array(doc,root[2].value,24,twitter_media,&media).ok()) return E::malformed;
+    if(!visit_array(doc, root[2].value, twitter_media, &media)) return E::malformed;
     if(!media.found) return E::unsupported;
-    Field selected[]{{utf8_literal("video_info")},{utf8_literal("ext_media_availability")},
-        {utf8_literal("additional_media_info")}};
+    FieldSet<"video_info", "ext_media_availability", "additional_media_info"> selected;
     if(!fields(doc,media.selected,selected)) return E::malformed;
     if(selected[1].seen) {
-        Field availability[]{{utf8_literal("status")}};
+        FieldSet<"status"> availability;
         if(!fields(doc,selected[1].value,availability)) return E::malformed;
-        if(!equal(availability[0],utf8_literal("Available"))) return E::unavailable;
+        if(!equal(availability[0], "Available")) return E::unavailable;
     }
     if(selected[2].seen) {
-        Field info[]{{utf8_literal("embeddable")}};bool allowed=true;
+        FieldSet<"embeddable"> info;bool allowed=true;
         if(!fields(doc,selected[2].value,info) ||
             (info[0].seen && !json_value_to_bool(info[0].value,&allowed))) return E::malformed;
         if(!allowed) return E::not_embeddable;
     }
-    Field video[]{{utf8_literal("variants")}};
+    FieldSet<"variants"> video;
     if(!selected[0].seen || !fields(doc,selected[0].value,video) || !video[0].seen) return E::malformed;
     TwitterVariants variants{doc,{},height};
     E error=E::unsupported;
-    if(!json_visit_indexed_array(doc,video[0].value,24,twitter_variant,&variants).ok()) error=E::malformed;
+    if(!visit_array(doc, video[0].value, twitter_variant, &variants)) error=E::malformed;
     else if(variants.selected.url_bytes) {
         reset_value(output);output->video=variants.selected;output->combined=true;output->expires_seconds=3600;
         error=E::none;
@@ -775,17 +828,13 @@ EmbedPlayerError twitter_video_streams(Utf8View json,Utf8View id,u16 height,u8 m
 }
 bool pornhub_video_id(Utf8View id) noexcept {
     if (!id.data) return false;
-    if (utf8_starts_with(id, utf8_literal("ph"))) id = {id.data + 2, id.bytes - 2};
+    if (has_prefix(id, "ph")) id = {id.data + 2, id.bytes - 2};
     if (id.bytes < 13 || id.bytes > 32) return false;
     for (u32 i = 0; i < id.bytes; ++i) if (!ascii_is_hex_digit(id.data[i])) return false;
     return true;
 }
 u32 pornhub_embed_target(Utf8View id, Slice<u8> output) noexcept {
-    constexpr auto prefix = utf8_literal("/embed/");
-    if (!pornhub_video_id(id) || !output.data || output.count < prefix.bytes + id.bytes) return 0;
-    copy_bytes(output.data, prefix.data, prefix.bytes);
-    copy_bytes(output.data + prefix.bytes, id.data, id.bytes);
-    return prefix.bytes + id.bytes;
+    return pornhub_video_id(id) ? id_target(utf8_literal("/embed/"), id, output) : 0;
 }
 bool pornhub_metadata_location(Utf8View url, EmbedStreamLocation* output) noexcept {
     constexpr auto origin = utf8_literal("https://www.pornhub.com");
@@ -804,13 +853,13 @@ bool vimeo_location(Utf8View url, bool playlist, EmbedStreamLocation* out) noexc
     u32 end = scheme.bytes;
     while (end < url.bytes && url.data[end] != '/') ++end;
     const Utf8View host{url.data + scheme.bytes, end - scheme.bytes};
-    if (end == url.bytes || (!utf8_equal(host, utf8_literal("vod-adaptive-ak.vimeocdn.com")) &&
-        !utf8_equal(host, utf8_literal("vod-adaptive.vimeocdn.com")))) return false;
+    if (end == url.bytes || (!is_text(host, "vod-adaptive-ak.vimeocdn.com") &&
+        !is_text(host, "vod-adaptive.vimeocdn.com"))) return false;
     const u32 path = end;
     while (end < url.bytes && url.data[end] != '?') ++end;
     u32 token_end = path + 1;
     while (token_end < end && url.data[token_end] != '/') ++token_end;
-    const bool signed_prefix = utf8_starts_with({url.data + path, end - path}, utf8_literal("/exp="));
+    const bool signed_prefix = has_prefix({url.data + path, end - path}, "/exp=");
     bool kind = false, dots_only = true;
     u32 dots = 0;
     const auto expected = playlist ? utf8_literal("/v2/playlist/") : utf8_literal("/v2/range/");
@@ -845,30 +894,32 @@ EmbedPlayerError vimeo_video_manifest(Utf8View html, Utf8View id, Slice<u32> scr
     Utf8View json{};
     const auto extracted = embedded_json(html, utf8_literal("window.playerConfig"), &json);
     if (extracted != E::none) return extracted;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field root[]{{utf8_literal("video")}, {utf8_literal("request")}};
-    Field video[]{{utf8_literal("id")}, {utf8_literal("privacy")}, {utf8_literal("embed_permission")}, {utf8_literal("unlisted_hash")}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"video", "request"> root;
+    FieldSet<"id", "privacy", "embed_permission", "unlisted_hash"> video;
     u32 actual{};
-    if (!fields(doc, {json, 0, JsonValueKind::object}, root) || !root[0].seen || !root[1].seen ||
+    if (!fields(doc, root) || !root[0].seen || !root[1].seen ||
         !fields(doc, root[0].value, video) || !number(video[0], &actual) || actual != steam_id(id)) return E::malformed;
-    const bool unlisted = privacy_hash.bytes && equal(video[1], utf8_literal("unlisted")) && equal(video[3], privacy_hash);
-    if ((!equal(video[1], utf8_literal("anybody")) && !unlisted) || !equal(video[2], utf8_literal("public"))) return E::not_embeddable;
-    Field request[]{{utf8_literal("files")}}, files[]{{utf8_literal("hls")}},
-          hls[]{{utf8_literal("default_cdn")}, {utf8_literal("cdns")}};
+    const bool unlisted = privacy_hash.bytes && equal(video[1], "unlisted") && equal(video[3], privacy_hash);
+    if ((!equal(video[1], "anybody") && !unlisted) || !equal(video[2], "public")) return E::not_embeddable;
+    FieldSet<"files"> request;
+    FieldSet<"hls"> files;
+    FieldSet<"default_cdn", "cdns"> hls;
     if (!fields(doc, root[1].value, request) || !request[0].seen ||
         !fields(doc, request[0].value, files) || !files[0].seen ||
         !fields(doc, files[0].value, hls) || !hls[0].seen || !hls[1].seen) return E::unsupported;
-    char name[64]; JsonString selected{};
+    char name[65]; JsonString selected{};
     if (!text(hls[0], &selected)) return E::malformed;
-    const auto decoded = json_string_decode_utf8(selected, {name, sizeof(name)});
+    const auto decoded = decode(selected, name + 1, 64);
     if (!decoded.ok() || !decoded.bytes) return E::malformed;
-    Field cdn[]{{{name, decoded.bytes}}}, record[]{{utf8_literal("url")}};
-    if (!fields(doc, hls[1].value, cdn) || !cdn[0].seen || !fields(doc, cdn[0].value, record) ||
+    name[0] = static_cast<char>(decoded.bytes); // length-prefixed member name
+    Field cdn{};
+    FieldSet<"url"> record;
+    if (!fields_n(doc, hls[1].value, 24, &cdn, 1, reinterpret_cast<const u8*>(name)) || !cdn.seen || !fields(doc, cdn.value, record) ||
         !text(record[0], &selected)) return E::malformed;
     EmbedStream staged{};
-    const auto url = json_string_decode_utf8(selected, {staged.url, sizeof(staged.url)});
+    const auto url = decode(selected, staged.url, sizeof(staged.url));
     if (!url.ok() || !vimeo_location({staged.url, url.bytes}, true)) return E::unsupported;
     staged.url_bytes = url.bytes;
     *output = staged;
@@ -880,12 +931,10 @@ EmbedPlayerError pornhub_embed_metadata(Utf8View html, Utf8View id, Slice<u32> s
     Utf8View json{};
     const auto extracted = embedded_json(html, utf8_literal("flashvars"), &json);
     if (extracted != E::none) return extracted;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field root[]{{utf8_literal("link_url")}, {utf8_literal("video_unavailable")},
-        {utf8_literal("video_unavailable_country")}, {utf8_literal("mediaDefinitions")}};
-    if (!fields(doc, {json, 0, JsonValueKind::object}, root) || !root[1].seen || !root[3].seen) return E::malformed;
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"link_url", "video_unavailable", "video_unavailable_country", "mediaDefinitions"> root;
+    if (!fields(doc, root) || !root[1].seen || !root[3].seen) return E::malformed;
     for (u32 i = 1; i <= 2; ++i) {
         if (!root[i].seen) continue;
         bool blocked = true;
@@ -895,7 +944,7 @@ EmbedPlayerError pornhub_embed_metadata(Utf8View html, Utf8View id, Slice<u32> s
     }
     JsonString link{}; char identity[512];
     if (!text(root[0], &link)) return E::malformed;
-    const auto decoded = json_string_decode_utf8(link, {identity, sizeof(identity)});
+    const auto decoded = decode(link, identity, sizeof(identity));
     const auto locator = decoded.ok() ? embed_video_locator({identity, decoded.bytes}) : EmbedVideoLocator{};
     if (locator.provider != EmbedProvider::pornhub || !utf8_equal(locator.id, id)) return E::malformed;
     struct Metadata { JsonIndexedDocument doc; EmbedStream target{}; u32 count{}; } selected{doc};
@@ -903,12 +952,12 @@ EmbedPlayerError pornhub_embed_metadata(Utf8View html, Utf8View id, Slice<u32> s
         +[](void* context, u32 index, JsonValue value) noexcept {
             auto& s = *static_cast<Metadata*>(context);
             if (index >= 32) return false;
-            Field f[]{{utf8_literal("format")}, {utf8_literal("remote")}, {utf8_literal("videoUrl")}};
+            FieldSet<"format", "remote", "videoUrl"> f;
             if (!fields(s.doc, value, f)) return false;
-            if (!equal(f[0], utf8_literal("mp4"))) return true;
+            if (!equal(f[0], "mp4")) return true;
             bool remote = false; JsonString url{};
-            if (!f[1].seen || !json_value_to_bool(f[1].value, &remote) || !remote || !text(f[2], &url) || ++s.count != 1) return false;
-            const auto result = json_string_decode_utf8(url, {s.target.url, sizeof(s.target.url)});
+            if (!bool_of(f[1], &remote) || !remote || !text(f[2], &url) || ++s.count != 1) return false;
+            const auto result = decode(url, s.target.url, sizeof(s.target.url));
             if (!result.ok() || !pornhub_metadata_location({s.target.url, result.bytes})) return false;
             s.target.url_bytes = result.bytes; return true;
         }, &selected);
@@ -920,25 +969,24 @@ EmbedPlayerError pornhub_embed_metadata(Utf8View html, Utf8View id, Slice<u32> s
 EmbedPlayerError pornhub_video_streams(Utf8View json, u16 height, u64 now, Slice<u32> scratch, EmbedStreams* output) noexcept {
     using E = EmbedPlayerError;
     if (!output || !json.data || !json.bytes || json.bytes > kPornhubMetadataMaximumBytes || !height || height > 2048 || !now) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     struct Selection { JsonIndexedDocument doc; EmbedStreams streams{}; u64 now; u16 height; } selected{doc, {}, now, height};
     const auto visited = json_visit_indexed_array(doc, {json, 0, JsonValueKind::array}, 24,
         +[](void* context, u32 index, JsonValue value) noexcept {
             auto& s = *static_cast<Selection*>(context);
             if (index >= 32) return false;
-            Field f[]{{utf8_literal("format")}, {utf8_literal("width")}, {utf8_literal("height")}, {utf8_literal("videoUrl")}};
+            FieldSet<"format", "width", "height", "videoUrl"> f;
             if (!fields(s.doc, value, f)) return false;
-            if (!equal(f[0], utf8_literal("mp4"))) return true;
+            if (!equal(f[0], "mp4")) return true;
             u32 width = 0, height = 0; JsonString url{};
             if (!number(f[1], &width) || !number(f[2], &height) || !width || !height || !text(f[3], &url)) return false;
             if (width > 2048 || height > 2048) return true;
             EmbedStream candidate{};
-            const auto decoded = json_string_decode_utf8(url, {candidate.url, sizeof(candidate.url)});
+            const auto decoded = decode(url, candidate.url, sizeof(candidate.url));
             const Utf8View source{candidate.url, decoded.bytes};
             const bool valid = decoded.ok() && embed_stream_location(CdnHost::pornhub_video, source);
-            const u64 expiry = valid ? stream_expiry(source, utf8_literal("validto=")) : 0;
+            const u64 expiry = valid ? stream_expiry(source, "validto=") : 0;
             if (valid && expiry > s.now && better_rendition(height, 0, s.streams.video.height, 0, s.height)) {
                 candidate.url_bytes = decoded.bytes; candidate.width = static_cast<u16>(width); candidate.height = static_cast<u16>(height);
                 s.streams.video = candidate; s.streams.combined = true;
@@ -952,11 +1000,7 @@ EmbedPlayerError pornhub_video_streams(Utf8View json, u16 height, u64 now, Slice
     secure_clear_bytes(&selected, sizeof(selected));
     return error;
 }
-bool imgur_video_id(Utf8View id) noexcept {
-    if(!id.data || (id.bytes!=5 && id.bytes!=7)) return false;
-    for(u32 i=0;i<id.bytes;++i) if(!ascii_is_alnum(id.data[i])) return false;
-    return true;
-}
+bool imgur_video_id(Utf8View id) noexcept { return (id.bytes == 5 || id.bytes == 7) && id_chars(id); }
 EmbedPlayerError imgur_video_streams(Utf8View id,EmbedStreams* output) noexcept {
     if(!output || !imgur_video_id(id)) return EmbedPlayerError::invalid_input;
     constexpr auto prefix=utf8_literal("https://i.imgur.com/");
@@ -968,42 +1012,32 @@ EmbedPlayerError imgur_video_streams(Utf8View id,EmbedStreams* output) noexcept 
     value.combined=true;value.expires_seconds=3600;
     *output=value;return EmbedPlayerError::none;
 }
-bool streamable_video_id(Utf8View id) noexcept {
-    if (!id.data || id.bytes < 3 || id.bytes > 12) return false;
-    for (u32 i = 0; i < id.bytes; ++i) if (!ascii_is_alnum(id.data[i])) return false;
-    return true;
-}
+bool streamable_video_id(Utf8View id) noexcept { return id.bytes >= 3 && id.bytes <= 12 && id_chars(id); }
 u32 streamable_video_target(Utf8View id, Slice<u8> output) noexcept {
-    constexpr auto prefix = utf8_literal("/videos/");
-    if (!streamable_video_id(id) || !output.data || output.count < prefix.bytes + id.bytes) return 0;
-    copy_bytes(output.data, prefix.data, prefix.bytes);
-    copy_bytes(output.data + prefix.bytes, id.data, id.bytes);
-    return prefix.bytes + id.bytes;
+    return streamable_video_id(id) ? id_target(utf8_literal("/videos/"), id, output) : 0;
 }
 EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height, u64 now,
     Slice<u32> scratch, EmbedStreams* output) noexcept {
     using E = EmbedPlayerError;
     if (!output || !streamable_video_id(id) || !height || height > 2048 || !now ||
         !json.data || !json.bytes || json.bytes > kStreamableMetadataMaximumBytes) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field root[]{{utf8_literal("status")}, {utf8_literal("url")}, {utf8_literal("files")}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"status", "url", "files"> root;
     u32 status = 0;
-    if (!fields(doc, {json, 0, JsonValueKind::object}, root) || !number(root[0], &status)) return E::malformed;
+    if (!fields(doc, root) || !number(root[0], &status)) return E::malformed;
     if (status != 2) return E::unavailable;
     char canonical[40]; constexpr auto host = utf8_literal("https://streamable.com/");
     copy_bytes(canonical, host.data, host.bytes); copy_bytes(canonical + host.bytes, id.data, id.bytes);
     if ((!equal(root[1], {canonical, host.bytes + id.bytes}) &&
          !equal(root[1], {canonical + 8, host.bytes + id.bytes - 8})) || !root[2].seen) return E::malformed;
-    Field files[]{{utf8_literal("mp4-mobile")}, {utf8_literal("mp4")}};
+    FieldSet<"mp4-mobile", "mp4"> files;
     if (!fields(doc, root[2].value, files)) return E::malformed;
     EmbedStreams staged{};
     E error = E::unsupported;
     for (auto file : files) {
         if (!file.seen) continue;
-        Field f[]{{utf8_literal("status")}, {utf8_literal("url")}, {utf8_literal("height")},
-            {utf8_literal("width")}, {utf8_literal("size")}, {utf8_literal("bitrate")}};
+        FieldSet<"status", "url", "height", "width", "size", "bitrate"> f;
         u32 width = 0, pixels = 0, bytes = 0, bitrate = 0;
         JsonString source{};
         if (!fields(doc, file.value, f) || !number(f[0], &status)) { error = E::malformed; break; }
@@ -1014,9 +1048,9 @@ EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height
         }
         if (pixels > 2048 || width > 2048 || bytes > kMediaMaximumProgressiveVideoBytes) continue;
         EmbedStream candidate{};
-        const auto decoded = json_string_decode_utf8(source, {candidate.url + 6, sizeof(candidate.url) - 6});
+        const auto decoded = decode(source, candidate.url + 6, sizeof(candidate.url) - 6);
         if (!decoded.ok()) { secure_clear_bytes(&candidate, sizeof(candidate)); error = E::malformed; break; }
-        if (utf8_starts_with({candidate.url + 6, decoded.bytes}, utf8_literal("//"))) {
+        if (has_prefix({candidate.url + 6, decoded.bytes}, "//")) {
             copy_bytes(candidate.url, "https:", 6); candidate.url_bytes = decoded.bytes + 6;
         } else {
             for (u32 i = 0; i < decoded.bytes; ++i) candidate.url[i] = candidate.url[i + 6];
@@ -1025,12 +1059,12 @@ EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height
         const Utf8View url{candidate.url, candidate.url_bytes};
         EmbedStreamLocation location{};
         const bool located = embed_stream_location(CdnHost::streamable_video, url, &location);
-        const u32 prefix_bytes = located && utf8_starts_with(location.target, utf8_literal("/video/mp4/")) ? 11 : 18;
+        const u32 prefix_bytes = located && has_prefix(location.target, "/video/mp4/") ? 11 : 18;
         const bool same_id = located && location.target.bytes > prefix_bytes + id.bytes &&
             bytes_equal(location.target.data + prefix_bytes, id.data, id.bytes) && location.target.data[prefix_bytes + id.bytes] == '.';
         bool modern_seen = false, legacy_seen = false;
-        const u64 expires = stream_expiry(url, utf8_literal("Expires="), &modern_seen);
-        const u64 legacy = stream_expiry(url, utf8_literal("expires="), &legacy_seen);
+        const u64 expires = stream_expiry(url, "Expires=", &modern_seen);
+        const u64 legacy = stream_expiry(url, "expires=", &legacy_seen);
         if (!same_id || modern_seen == legacy_seen || !maximum(expires, legacy)) error = E::malformed;
         else if (maximum(expires, legacy) > now) {
             if (better_rendition(pixels, bitrate, staged.video.height, staged.video.bitrate, height)) {
@@ -1048,16 +1082,7 @@ EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height
     secure_clear_bytes(&staged, sizeof(staged));
     return error;
 }
-bool apple_music_track_id(const Utf8View& id) noexcept {
-    if (!id.data || !id.bytes || id.bytes > 20 || id.data[0] == '0') return false;
-    u64 value = 0;
-    for (u32 i = 0; i < id.bytes; ++i) {
-        const u32 digit = static_cast<u8>(id.data[i]) - '0';
-        if (digit > 9 || value > (~u64{0} - digit) / 10) return false;
-        value = value * 10 + digit;
-    }
-    return value != 0;
-}
+bool apple_music_track_id(const Utf8View& id) noexcept { return numeric_id(id) != 0; }
 u32 apple_music_track_target(const Utf8View& id_view, const Utf8View& country_view, const Slice<u8>& output_view) noexcept {
     const Utf8View id = id_view, country = country_view; // the output stores below must not force reloads
     const Slice<u8> output = output_view;
@@ -1076,12 +1101,11 @@ EmbedPlayerError apple_music_track_preview(Utf8View json, Utf8View id, Utf8View 
     u8 target[64];
     if (!output || !apple_music_track_target(id, country, {target, sizeof(target)}) ||
         !json.data || !json.bytes || json.bytes > kAppleMusicMetadataMaximumBytes) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field root[]{{utf8_literal("resultCount")}, {utf8_literal("results")}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"resultCount", "results"> root;
     u32 count = 0;
-    if (!fields(doc, {json, 0, JsonValueKind::object}, root) || !number(root[0], &count)) return E::malformed;
+    if (!fields(doc, root) || !number(root[0], &count)) return E::malformed;
     if (!count) return E::unavailable;
     if (count != 1 || !root[1].seen) return E::malformed;
     JsonValue track{};
@@ -1090,64 +1114,57 @@ EmbedPlayerError apple_music_track_preview(Utf8View json, Utf8View id, Utf8View 
             if (index || value.kind != JsonValueKind::object) return false;
             *static_cast<JsonValue*>(context) = value; return true;
         }, &track).ok()) return E::malformed;
-    Field f[]{{utf8_literal("wrapperType")}, {utf8_literal("kind")}, {utf8_literal("trackId")},
-        {utf8_literal("previewUrl")}, {utf8_literal("trackViewUrl")}};
-    u64 identity = 0, expected = 0;
-    for (u32 i = 0; i < id.bytes; ++i) expected = expected * 10 + id.data[i] - '0';
-    if (!fields(doc, track, f) || !equal(f[0], utf8_literal("track")) ||
+    FieldSet<"wrapperType", "kind", "trackId", "previewUrl", "trackViewUrl"> f;
+    u64 identity = 0;
+    const u64 expected = decimal(id);
+    if (!fields(doc, track, f) || !equal(f[0], "track") ||
         !equal(f[1], video ? utf8_literal("music-video") : utf8_literal("song")) ||
-        !f[2].seen || !json_value_to_u64(f[2].value, &identity) || identity != expected) return E::malformed;
+        !u64_of(f[2], &identity) || identity != expected) return E::malformed;
     if (!f[3].seen || f[3].value.kind == JsonValueKind::null_value) return E::unsupported;
     JsonString view{}, source{};
     char link[512];
     if (!text(f[4], &view) || !text(f[3], &source)) return E::malformed;
-    const auto decoded_view = json_string_decode_utf8(view, {link, sizeof(link)});
+    const auto decoded_view = decode(view, link, sizeof(link));
     const auto matched = decoded_view.ok() ? apple_music_track_locator({link, decoded_view.bytes}) : AppleMusicTrackLocator{};
     if (!utf8_equal(matched.id, id) || !ascii_equal_ignore_case(matched.country, country) || matched.video != video) return E::malformed;
     EmbedStream staged{};
-    const auto decoded = json_string_decode_utf8(source, {staged.url, sizeof(staged.url)});
-    const bool valid = decoded.ok() && embed_stream_location(video ? CdnHost::apple_music_video_preview : CdnHost::apple_music_preview,
-                                                           {staged.url, decoded.bytes});
-    if (valid) { staged.url_bytes = decoded.bytes; *output = staged; }
-    secure_clear_bytes(&staged, sizeof(staged));
-    return valid ? E::none : E::malformed;
+    const auto decoded = decode(source, staged.url, sizeof(staged.url));
+    return publish_stream(&staged, decoded.bytes, decoded.ok() &&
+        embed_stream_location(video ? CdnHost::apple_music_video_preview : CdnHost::apple_music_preview, {staged.url, decoded.bytes}),
+        output);
 }
 EmbedPlayerError apple_music_album(Utf8View json, Utf8View id, Utf8View country,
     Slice<u32> scratch, u16* output, AppleMusicCollectionSink sink) noexcept {
     using E=EmbedPlayerError;
     u8 target[64];
     if (!output || !sink.write || !apple_music_track_target(id,country,{target,sizeof(target)}) || !json.bytes || json.bytes>512*1024) return E::invalid_input;
-    const auto scan=json_scan_structurals_avx1(json,scratch);
-    if (!scan.ok()) return scan.error==JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json,{scratch.data,scan.count}};
-    Field root[]{{utf8_literal("resultCount")},{utf8_literal("results")}};
-    u32 count=0; u64 expected=0;
-    for (u32 i=0;i<id.bytes;++i) expected=expected*10+id.data[i]-'0';
-    if (!fields(doc,{json,0,JsonValueKind::object},root) || !number(root[0],&count) || !root[1].seen) return E::malformed;
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"resultCount", "results"> root;
+    u32 count=0; const u64 expected=decimal(id);
+    if (!fields(doc,root) || !number(root[0],&count) || !root[1].seen) return E::malformed;
     if (!count) return E::unavailable;
     if (count>201) return E::capacity;
     struct Item { JsonValue value; u16 disc,track; };
     struct Album { const JsonIndexedDocument* doc; u64 id; Utf8View country; Item items[200]; u32 count{},expected{},seen{}; } album{&doc,expected,country};
     const auto visit=+[](void* opaque,u32 index,JsonValue value) noexcept {
         auto& a=*static_cast<Album*>(opaque); ++a.seen;
-        Field f[]{{utf8_literal("wrapperType")},{utf8_literal("collectionId")},{utf8_literal("collectionType")},
-            {utf8_literal("trackCount")},{utf8_literal("collectionViewUrl")},{utf8_literal("kind")},{utf8_literal("discNumber")},{utf8_literal("trackNumber")}};
+        FieldSet<"wrapperType", "collectionId", "collectionType", "trackCount", "collectionViewUrl", "kind", "discNumber", "trackNumber"> f;
         u64 id{};
-        if (!fields(*a.doc,value,f) || !f[1].seen || !json_value_to_u64(f[1].value,&id) || id!=a.id) return false;
+        if (!fields(*a.doc,value,f) || !u64_of(f[1],&id) || id!=a.id) return false;
         if (!index) {
             JsonString view{}; char url[512];
-            if (!equal(f[0],utf8_literal("collection")) || (!equal(f[2],utf8_literal("Album")) && !equal(f[2],utf8_literal("Compilation"))) || !number(f[3],&a.expected) || !text(f[4],&view)) return false;
-            const auto decoded=json_string_decode_utf8(view,{url,sizeof(url)});
+            if (!equal(f[0], "collection") || (!equal(f[2], "Album") && !equal(f[2], "Compilation")) || !number(f[3],&a.expected) || !text(f[4],&view)) return false;
+            const auto decoded=decode(view, url, sizeof(url));
             const auto located=decoded.ok()?apple_music_album_locator({url,decoded.bytes}):AppleMusicTrackLocator{};
-            u64 located_id{}; for (u32 i=0;i<located.id.bytes;++i) located_id=located_id*10+located.id.data[i]-'0';
-            return located_id==a.id && ascii_equal_ignore_case(located.country,a.country);
+            return decimal(located.id)==a.id && ascii_equal_ignore_case(located.country,a.country);
         }
         u32 disc{},track{};
-        if (a.count==200 || !equal(f[0],utf8_literal("track")) || !equal(f[5],utf8_literal("song")) ||
+        if (a.count==200 || !equal(f[0], "track") || !equal(f[5], "song") ||
             !number(f[6],&disc) || !disc || disc>65535 || !number(f[7],&track) || !track || track>65535) return false;
         a.items[a.count++]={value,static_cast<u16>(disc),static_cast<u16>(track)}; return true;
     };
-    if (!json_visit_indexed_array(doc,root[1].value,24,visit,&album).ok() || album.seen!=count) return E::malformed;
+    if (!visit_array(doc, root[1].value, visit, &album) || album.seen!=count) return E::malformed;
     if (!album.count) return E::unavailable;
     if (album.count!=album.expected) return E::unsupported; // Never present a truncated album as complete.
     for (u32 i=1;i<album.count;++i) {
@@ -1160,21 +1177,16 @@ EmbedPlayerError apple_music_album(Utf8View json, Utf8View id, Utf8View country,
     for (u32 i=0;i<album.count;++i) {
         const auto& item=album.items[i];
         if (i && item.disc==album.items[i-1].disc && item.track==album.items[i-1].track) return E::malformed;
-        Field f[]{{utf8_literal("trackId")},{utf8_literal("trackViewUrl")},{utf8_literal("trackName")},{utf8_literal("previewUrl")}};
-        u64 track{}; JsonString view{},name{},preview{}; char link[512],source[kEmbedStreamUrlBytes];
-        if (!fields(doc,item.value,f) || !f[0].seen || !json_value_to_u64(f[0].value,&track) || !track || !text(f[1],&view) || !text(f[2],&name)) return E::malformed;
-        const auto decoded=json_string_decode_utf8(view,{link,sizeof(link)});
-        const auto located=decoded.ok()?apple_music_track_locator({link,decoded.bytes}):AppleMusicTrackLocator{};
-        u64 located_id{}; for (u32 j=0;j<located.id.bytes;++j) located_id=located_id*10+located.id.data[j]-'0';
-        if (located_id!=track || located.video || !ascii_equal_ignore_case(located.country,country)) return E::malformed;
-        MediaTrackTitle title{}; const auto named=json_string_decode_utf8(name,{title.text,sizeof(title.text)});
+        FieldSet<"trackId", "trackViewUrl", "trackName", "previewUrl"> f;
+        u64 track{}; JsonString view{},name{},preview{}; char source[kEmbedStreamUrlBytes];
+        if (!fields(doc,item.value,f) || !u64_of(f[0],&track) || !track || !text(f[1],&view) || !text(f[2],&name)) return E::malformed;
+        if (!track_page_is(view,track,country,512)) return E::malformed;
+        MediaTrackTitle title{}; const auto named=decode_title(name,&title);
         if (!named.ok() || !named.bytes) return E::capacity;
-        title.bytes=static_cast<u16>(named.bytes);
-        for (u32 j=0;j<title.bytes;++j) if (static_cast<u8>(title.text[j])<32) title.text[j]=' ';
         Utf8View url{};
         if (f[3].seen && f[3].value.kind!=JsonValueKind::null_value) {
             if (!text(f[3],&preview)) return E::malformed;
-            const auto decoded_preview=json_string_decode_utf8(preview,{source,sizeof(source)});
+            const auto decoded_preview=decode(preview, source, sizeof(source));
             if (!decoded_preview.ok() || !embed_stream_location(CdnHost::apple_music_preview,{source,decoded_preview.bytes})) return E::malformed;
             url={source,decoded_preview.bytes};
         }
@@ -1182,17 +1194,9 @@ EmbedPlayerError apple_music_album(Utf8View json, Utf8View id, Utf8View country,
     }
     *output=static_cast<u16>(album.count); return E::none;
 }
-bool spotify_audio_id(Utf8View id) noexcept {
-    if (!id.data || id.bytes != 22) return false;
-    for (u32 i = 0; i < id.bytes; ++i) if (!ascii_is_alnum(id.data[i])) return false;
-    return true;
-}
+bool spotify_audio_id(Utf8View id) noexcept { return id.bytes == 22 && id_chars(id); }
 u32 spotify_audio_target(Utf8View id, Slice<u8> output, bool episode) noexcept {
-    const auto prefix = episode ? utf8_literal("/embed/episode/") : utf8_literal("/embed/track/");
-    if (!spotify_audio_id(id) || !output.data || output.count < prefix.bytes + id.bytes) return 0;
-    copy_bytes(output.data, prefix.data, prefix.bytes);
-    copy_bytes(output.data + prefix.bytes, id.data, id.bytes);
-    return prefix.bytes + id.bytes;
+    return spotify_audio_id(id) ? id_target(episode ? utf8_literal("/embed/episode/") : utf8_literal("/embed/track/"), id, output) : 0;
 }
 EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> scratch, EmbedStream* output, bool episode) noexcept {
     using E = EmbedPlayerError;
@@ -1212,22 +1216,19 @@ EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> sc
         i = last + end.bytes - 1;
     }
     if (!json.bytes) return E::unsupported;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     JsonValue value{json, 0, JsonValueKind::object};
-    static constexpr Utf8View path[]{utf8_literal("props"), utf8_literal("pageProps"), utf8_literal("state"),
-        utf8_literal("data"), utf8_literal("entity")};
-    for (auto name : path) {
-        Field entry[]{{name}};
-        if (!fields(doc, value, entry) || !entry[0].seen) return E::malformed;
-        value = entry[0].value;
+    const u8* name = MemberNames<"props", "pageProps", "state", "data", "entity">::data.bytes + 1;
+    for (u32 i = 0; i < 5; ++i, name += 1 + name[0]) {
+        Field entry{};
+        if (!fields_n(doc, value, 24, &entry, 1, name) || !entry.seen) return E::malformed;
+        value = entry.value;
     }
-    Field track[]{{utf8_literal("type")}, {utf8_literal("id")}, {utf8_literal("isPlayable")},
-        {utf8_literal("audioPreview")}, {utf8_literal("uri")}, {utf8_literal("isNineteenPlus")}};
+    FieldSet<"type", "id", "isPlayable", "audioPreview", "uri", "isNineteenPlus"> track;
     if (!fields(doc, value, track) || !equal(track[0], episode ? utf8_literal("episode") : utf8_literal("track")) || !equal(track[1], id)) return E::malformed;
     bool playable = false, restricted = false;
-    if (!track[2].seen || !json_value_to_bool(track[2].value, &playable) ||
+    if (!bool_of(track[2], &playable) ||
         (track[5].seen && !json_value_to_bool(track[5].value, &restricted))) return E::malformed;
     if (!playable || restricted) return E::unavailable;
     if (track[4].seen) {
@@ -1236,16 +1237,15 @@ EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> sc
         if (!equal(track[4], {uri, prefix.bytes+id.bytes})) return E::malformed;
     }
     if (!track[3].seen || track[3].value.kind == JsonValueKind::null_value) return E::unsupported;
-    Field preview[]{{utf8_literal("url")}}; JsonString url{};
+    FieldSet<"url"> preview; JsonString url{};
     if (!fields(doc, track[3].value, preview) || !text(preview[0], &url)) return E::malformed;
     EmbedStream staged{};
-    const auto decoded = json_string_decode_utf8(url, {staged.url, sizeof(staged.url)});
+    const auto decoded = decode(url, staged.url, sizeof(staged.url));
     EmbedStreamLocation location{};
-    const bool valid = decoded.ok() && embed_stream_location(CdnHost::spotify_preview, {staged.url, decoded.bytes},&location) &&
-        ascii_equal_ignore_case(location.host,episode ? utf8_literal("podz-content.spotifycdn.com") : utf8_literal("p.scdn.co"));
-    if (valid) { staged.url_bytes = decoded.bytes; *output = staged; }
-    secure_clear_bytes(&staged, sizeof(staged));
-    return valid ? E::none : E::malformed;
+    return publish_stream(&staged, decoded.bytes, decoded.ok() &&
+        embed_stream_location(CdnHost::spotify_preview, {staged.url, decoded.bytes}, &location) &&
+        ascii_equal_ignore_case(location.host, episode ? utf8_literal("podz-content.spotifycdn.com") : utf8_literal("p.scdn.co")),
+        output);
 }
 bool soundcloud_location(Utf8View url, bool playlist, EmbedStreamLocation* out) noexcept {
     constexpr auto origin = utf8_literal("https://playback.media-streaming.soundcloud.cloud");
@@ -1258,42 +1258,40 @@ bool soundcloud_location(Utf8View url, bool playlist, EmbedStreamLocation* out) 
         if (count == 4 || i == begin) return false;
         parts[count++] = {url.data + begin, i - begin}; begin = i + 1;
     }
-    if (count != 4 || (!utf8_equal(parts[1], utf8_literal("aac_160k")) &&
-        !utf8_equal(parts[1], utf8_literal("aac_96k")))) return false;
+    if (count != 4 || (!is_text(parts[1], "aac_160k") &&
+        !is_text(parts[1], "aac_96k"))) return false;
     for (u32 part = 0; part <= 2; part += 2) {
         if (parts[part].bytes > 128) return false;
         for (u32 i = 0; i < parts[part].bytes; ++i)
             if (!ascii_is_alnum(parts[part].data[i]) && parts[part].data[i] != '-' && parts[part].data[i] != '_') return false;
     }
     const auto leaf = parts[3];
-    if (playlist) { if (!utf8_equal(leaf, utf8_literal("playlist.m3u8"))) return false; }
-    else if (!utf8_equal(leaf, utf8_literal("init.mp4"))) {
-        if (leaf.bytes < 9 || leaf.bytes > 16 || !utf8_starts_with(leaf, utf8_literal("data")) ||
-            !utf8_equal({leaf.data + leaf.bytes - 4, 4}, utf8_literal(".m4s"))) return false;
+    if (playlist) { if (!is_text(leaf, "playlist.m3u8")) return false; }
+    else if (!is_text(leaf, "init.mp4")) {
+        if (leaf.bytes < 9 || leaf.bytes > 16 || !has_prefix(leaf, "data") ||
+            !is_text({leaf.data + leaf.bytes - 4, 4}, ".m4s")) return false;
         for (u32 i = 4; i < leaf.bytes - 4; ++i) if (!ascii_is_digit(leaf.data[i])) return false;
     }
     for (u32 i = end; i < url.bytes; ++i) {
         const u8 c = static_cast<u8>(url.data[i]);
         if (c <= 32 || c >= 127 || c == '\\' || c == '#' || c == '"' || c == '<' || c == '>') return false;
     }
-    if (!stream_expiry(url, utf8_literal("expires="))) return false;
+    if (!stream_expiry(url, "expires=")) return false;
     if (out) *out = {{origin.data + 8, origin.bytes - 8}, {url.data + origin.bytes, url.bytes - origin.bytes}};
     return true;
 }
 static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Slice<u32> scratch, MediaTrackTitle* out) noexcept {
     using E = EmbedPlayerError;
     if (!out || (!track && !video_id(video)) || !json.data || !json.bytes || json.bytes > 32768) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field f[]{{utf8_literal("type")}, {utf8_literal("provider_name")}, {utf8_literal("provider_url")},
-        {utf8_literal("title")}, {utf8_literal("html")}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"type", "provider_name", "provider_url", "title", "html"> f;
     JsonString title{}, markup{};
-    if (!fields(doc, {json, 0, JsonValueKind::object}, f) || !equal(f[0], video.bytes ? utf8_literal("video") : utf8_literal("rich")) ||
+    if (!fields(doc, f) || !equal(f[0], video.bytes ? utf8_literal("video") : utf8_literal("rich")) ||
         !equal(f[1], video.bytes ? utf8_literal("YouTube") : utf8_literal("SoundCloud")) || !equal(f[2], video.bytes ? utf8_literal("https://www.youtube.com/") : utf8_literal("https://soundcloud.com")) ||
         !text(f[3], &title) || !text(f[4], &markup)) return E::malformed;
     char html[4096], decoded[1024];
-    const auto rendered = json_string_decode_utf8(markup, {html, sizeof(html)});
+    const auto rendered = decode(markup, html, sizeof(html));
     if (!rendered.ok()) return E::malformed;
     constexpr auto marker = utf8_literal("src=\""); Utf8View source{};
     for (u32 at = 0; at + marker.bytes < rendered.bytes; ++at) {
@@ -1312,39 +1310,37 @@ static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Sl
         if (locator.id != track || locator.path.bytes) return E::malformed;
     }
     MediaTrackTitle staged{};
-    const auto name = json_string_decode_utf8(title, {staged.text, sizeof(staged.text)});
+    const auto name = decode_title(title, &staged);
     if (!name.ok()) return name.error == JsonStringDecodeError::output_too_small ? E::capacity : E::malformed;
     if (!name.bytes) return E::unavailable;
-    staged.bytes = static_cast<u16>(name.bytes);
-    for (u32 i = 0; i < name.bytes; ++i) if (static_cast<u8>(staged.text[i]) < 32) staged.text[i] = ' ';
     copy_value(out, staged);
     return E::none;
 }
 
 namespace {
-JsonValue queue_child(const JsonIndexedDocument& doc, const JsonValue& parent, const Utf8View& name) noexcept {
-    if (!parent.source.bytes || parent.kind != JsonValueKind::object) return {{}, 0, JsonValueKind::null_value};
-    Field f[]{{name}};
-    Fields selected{f, 1};
-    return json_visit_indexed_object(doc, parent, 48, field, &selected).ok() && f[0].seen ? f[0].value : JsonValue{{}, 0, JsonValueKind::null_value};
+JsonValue child_path(const JsonIndexedDocument& doc, JsonValue value, const u8* list) noexcept {
+    const u8* names = list + 1;
+    for (u32 count = list[0]; count; --count, names += 1 + names[0]) {
+        Field f{};
+        if (!value.source.bytes || value.kind != JsonValueKind::object || !fields_n(doc, value, 48, &f, 1, names) || !f.seen)
+            return {{}, 0, JsonValueKind::null_value};
+        value = f.value;
+    }
+    return value;
+}
+template <MemberName... Names>
+__forceinline JsonValue child(const JsonIndexedDocument& doc, const JsonValue& parent) noexcept {
+    return child_path(doc, parent, MemberNames<Names...>::data.bytes);
 }
 bool queue_panel(const JsonIndexedDocument& doc, JsonValue root, JsonValue* panel) noexcept {
-    auto next = queue_child(doc, root, utf8_literal("continuationContents"));
-    next = queue_child(doc, next, utf8_literal("playlistPanelContinuation"));
+    auto next = child<"continuationContents", "playlistPanelContinuation">(doc, root);
     if (next.kind == JsonValueKind::object) { *panel = next; return true; }
-    next = queue_child(doc, root, utf8_literal("contents"));
-    next = queue_child(doc, next, utf8_literal("singleColumnMusicWatchNextResultsRenderer"));
-    next = queue_child(doc, next, utf8_literal("tabbedRenderer"));
-    next = queue_child(doc, next, utf8_literal("watchNextTabbedResultsRenderer"));
-    next = queue_child(doc, next, utf8_literal("tabs"));
+    next = child<"contents", "singleColumnMusicWatchNextResultsRenderer", "tabbedRenderer",
+        "watchNextTabbedResultsRenderer", "tabs">(doc, root);
     struct Tabs { const JsonIndexedDocument* doc; JsonValue panel; u32 count; } tabs{&doc};
     const auto visit = [](void* opaque, u32, JsonValue tab) noexcept {
         auto& t = *static_cast<Tabs*>(opaque);
-        auto v = queue_child(*t.doc, tab, utf8_literal("tabRenderer"));
-        v = queue_child(*t.doc, v, utf8_literal("content"));
-        v = queue_child(*t.doc, v, utf8_literal("musicQueueRenderer"));
-        v = queue_child(*t.doc, v, utf8_literal("content"));
-        v = queue_child(*t.doc, v, utf8_literal("playlistPanelRenderer"));
+        const auto v = child<"tabRenderer", "content", "musicQueueRenderer", "content", "playlistPanelRenderer">(*t.doc, tab);
         if (v.kind == JsonValueKind::object) { t.panel = v; ++t.count; }
         return t.count <= 1;
     };
@@ -1355,29 +1351,25 @@ bool queue_panel(const JsonIndexedDocument& doc, JsonValue root, JsonValue* pane
 EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32> scratch, YoutubeCollectionPage* out, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
     if (!out || !list.bytes || !json.bytes || json.bytes > 2 * 1024 * 1024) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
     JsonValue panel{};
     if (!queue_panel(doc, {json, 0, JsonValueKind::object}, &panel)) return E::unavailable;
-    Field f[]{{utf8_literal("playlistId")}, {utf8_literal("contents")}, {utf8_literal("continuations")}};
+    FieldSet<"playlistId", "contents", "continuations"> f;
     if (!fields(doc, panel, f) || !equal(f[0], list) || !f[1].seen) return E::malformed;
     YoutubeCollectionPage staged{};
     struct Items { const JsonIndexedDocument* doc; YoutubeCollectionPage* page; MediaTrackTitleSink sink; bool overflow; } items{&doc, &staged, sink};
     const auto visit = [](void* opaque, u32, JsonValue value) noexcept {
         auto& c = *static_cast<Items*>(opaque); auto& page = *c.page;
-        auto v = queue_child(*c.doc, value, utf8_literal("playlistPanelVideoRenderer"));
-        if (v.kind != JsonValueKind::object) {
-            v = queue_child(*c.doc, value, utf8_literal("playlistPanelVideoWrapperRenderer"));
-            v = queue_child(*c.doc, v, utf8_literal("primaryRenderer"));
-            v = queue_child(*c.doc, v, utf8_literal("playlistPanelVideoRenderer"));
-        }
+        auto v = child<"playlistPanelVideoRenderer">(*c.doc, value);
+        if (v.kind != JsonValueKind::object)
+            v = child<"playlistPanelVideoWrapperRenderer", "primaryRenderer", "playlistPanelVideoRenderer">(*c.doc, value);
         if (v.kind != JsonValueKind::object) return true; // Automix controls are not songs.
-        Field fields_out[]{{utf8_literal("videoId")}, {utf8_literal("selected")}, {utf8_literal("title")}};
+        FieldSet<"videoId", "selected", "title"> fields_out;
         JsonString id{};
         if (!fields(*c.doc, v, fields_out) || !text(fields_out[0], &id)) return false;
         MediaTrackId track{}; track.youtube_track = true;
-        const auto decoded = json_string_decode_utf8(id, {track.youtube, 11});
+        const auto decoded = decode(id, track.youtube, 11);
         if (!decoded.ok() || !video_id({track.youtube, decoded.bytes})) return false;
         if (page.count == kYoutubeCollectionPageTracks) { c.overflow = true; return false; }
         bool selected = false;
@@ -1386,41 +1378,41 @@ EmbedPlayerError youtube_collection_page(Utf8View json, Utf8View list, Slice<u32
         page.tracks[page.count++] = track;
         if (fields_out[2].seen) {
             MediaTrackTitle cached{};
-            const auto runs = queue_child(*c.doc, fields_out[2].value, utf8_literal("runs"));
+            const auto runs = child<"runs">(*c.doc, fields_out[2].value);
             struct TitleRuns { const JsonIndexedDocument* doc; MediaTrackTitle* title; } title_runs{c.doc, &cached};
             const auto run = [](void* opaque_title, u32, JsonValue item) noexcept {
                 auto& t = *static_cast<TitleRuns*>(opaque_title);
-                const auto value = queue_child(*t.doc, item, utf8_literal("text")); JsonString text{};
+                const auto value = child<"text">(*t.doc, item); JsonString text{};
                 if (!json_value_as_string(value, &text)) return false;
                 auto& title = *t.title;
-                const auto decoded = json_string_decode_utf8(text, {title.text + title.bytes, static_cast<u32>(sizeof(title.text) - title.bytes)});
+                const auto decoded = decode(text, title.text + title.bytes, static_cast<u32>(sizeof(title.text) - title.bytes));
                 if (!decoded.ok()) return false;
                 title.bytes += static_cast<u16>(decoded.bytes); return true;
             };
-            if (!json_visit_indexed_array(*c.doc, runs, 24, run, &title_runs).ok()) reset_value(&cached);
-            for (u32 i = 0; i < cached.bytes; ++i) if (static_cast<u8>(cached.text[i]) < 32) cached.text[i] = ' ';
+            if (!visit_array(*c.doc, runs, run, &title_runs)) reset_value(&cached);
+            sanitize_title(&cached);
             if (cached.bytes) {
                 if (c.sink.write && !c.sink.write(c.sink.context, page.count, cached)) { c.overflow = true; return false; }
             }
         }
         return true;
     };
-    if (!json_visit_indexed_array(doc, f[1].value, 24, visit, &items).ok()) return items.overflow ? E::capacity : E::malformed;
+    if (!visit_array(doc, f[1].value, visit, &items)) return items.overflow ? E::capacity : E::malformed;
     if (!staged.count) return E::unavailable;
     if (f[2].seen) {
         const auto continuation = [](void* opaque, u32, JsonValue value) noexcept {
             auto& c = *static_cast<Items*>(opaque);
-            auto v = queue_child(*c.doc, value, utf8_literal("nextRadioContinuationData"));
-            if (v.kind != JsonValueKind::object) v = queue_child(*c.doc, value, utf8_literal("nextContinuationData"));
-            v = queue_child(*c.doc, v, utf8_literal("continuation"));
+            auto v = child<"nextRadioContinuationData">(*c.doc, value);
+            if (v.kind != JsonValueKind::object) v = child<"nextContinuationData">(*c.doc, value);
+            v = child<"continuation">(*c.doc, v);
             if (!v.source.bytes) return true;
             JsonString text{};
             if (c.page->continuation_bytes || !json_value_as_string(v, &text)) return false;
-            const auto decoded = json_string_decode_utf8(text, {c.page->continuation, sizeof(c.page->continuation)});
+            const auto decoded = decode(text, c.page->continuation, sizeof(c.page->continuation));
             if (!decoded.ok()) return false;
             c.page->continuation_bytes = static_cast<u16>(decoded.bytes); return true;
         };
-        if (!json_visit_indexed_array(doc, f[2].value, 24, continuation, &items).ok()) return E::malformed;
+        if (!visit_array(doc, f[2].value, continuation, &items)) return E::malformed;
     }
     *out = staged; return E::none;
 }
@@ -1450,15 +1442,15 @@ EmbedPlayerError playlist_json(Utf8View html, Utf8View* out) noexcept {
                 value={html.data+begin,at-begin};
                 if (quote) { if (at==html.bytes) return EmbedPlayerError::malformed; ++at; }
             }
-            if (ascii_equal_ignore_case(name,utf8_literal("id"))) { if (seen_id) return EmbedPlayerError::malformed; seen_id=true; id=value; }
-            if (ascii_equal_ignore_case(name,utf8_literal("type"))) { if (seen_type) return EmbedPlayerError::malformed; seen_type=true; type=value; }
+            if (is_text_nocase(name, "id")) { if (seen_id) return EmbedPlayerError::malformed; seen_id=true; id=value; }
+            if (is_text_nocase(name, "type")) { if (seen_type) return EmbedPlayerError::malformed; seen_type=true; type=value; }
         }
         if (at==html.bytes) return EmbedPlayerError::malformed;
         const u32 begin=++at;
         while (at+end.bytes<=html.bytes && !bytes_equal(html.data+at,end.data,end.bytes)) ++at;
         if (at+end.bytes>html.bytes) return EmbedPlayerError::malformed;
-        if (utf8_equal(id,utf8_literal("serialized-server-data"))) {
-            if (out->bytes || !utf8_equal(type,utf8_literal("application/json"))) return EmbedPlayerError::malformed;
+        if (is_text(id, "serialized-server-data")) {
+            if (out->bytes || !is_text(type, "application/json")) return EmbedPlayerError::malformed;
             *out={html.data+begin,at-begin};
         }
         i=at+end.bytes-1;
@@ -1473,11 +1465,11 @@ JsonValue single_item(const JsonIndexedDocument& doc,const JsonValue& array) noe
     return item;
 }
 bool playlist_identity(const JsonIndexedDocument& doc,const JsonValue& descriptor,const Utf8View& id,const Utf8View& country) noexcept {
-    Field f[]{{utf8_literal("kind")},{utf8_literal("identifiers")},{utf8_literal("url")}};
+    FieldSet<"kind", "identifiers", "url"> f;
     JsonString identifier{},url{}; char buffer[1024];
-    if (!fields(doc,descriptor,f) || !equal(f[0],utf8_literal("playlist")) || !text(f[2],&url) ||
-        !json_value_as_string(queue_child(doc,f[1].value,utf8_literal("storeAdamID")),&identifier) || !json_string_equals_ascii(identifier,id)) return false;
-    const auto decoded=json_string_decode_utf8(url,{buffer,sizeof(buffer)});
+    if (!fields(doc,descriptor,f) || !equal(f[0], "playlist") || !text(f[2],&url) ||
+        !json_value_as_string(child<"storeAdamID">(doc,f[1].value),&identifier) || !json_string_equals_ascii(identifier,id)) return false;
+    const auto decoded=decode(url, buffer, sizeof(buffer));
     const auto match=decoded.ok()?apple_music_collection_locator({buffer,decoded.bytes}):AppleMusicCollectionLocator{};
     return match.playlist && utf8_equal(match.id,id) && ascii_equal_ignore_case(match.country,country);
 }
@@ -1487,52 +1479,47 @@ EmbedPlayerError apple_music_playlist(Utf8View html,Utf8View id,Utf8View country
     using E=EmbedPlayerError;
     if (!output || !sink.write || !html.bytes || html.bytes>2*1024*1024) return E::invalid_input;
     Utf8View json{}; const auto extracted=playlist_json(html,&json); if (extracted!=E::none) return extracted;
-    const auto scan=json_scan_structurals_avx1(json,scratch);
-    if (!scan.ok()) return scan.error==JsonScanError::output_overflow?E::capacity:E::malformed;
-    const JsonIndexedDocument doc{json,{scratch.data,scan.count}};
-    auto page=single_item(doc,queue_child(doc,{json,0,JsonValueKind::object},utf8_literal("data")));
-    page=queue_child(doc,page,utf8_literal("data"));
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    auto page=single_item(doc,child<"data">(doc,{json,0,JsonValueKind::object}));
+    page=child<"data">(doc,page);
     char canonical[1024]; JsonString url{};
-    if (!json_value_as_string(queue_child(doc,page,utf8_literal("canonicalURL")),&url)) return E::malformed;
-    const auto decoded=json_string_decode_utf8(url,{canonical,sizeof(canonical)});
+    if (!json_value_as_string(child<"canonicalURL">(doc,page),&url)) return E::malformed;
+    const auto decoded=decode(url, canonical, sizeof(canonical));
     const auto located=decoded.ok()?apple_music_collection_locator({canonical,decoded.bytes}):AppleMusicCollectionLocator{};
     if (!located.playlist || !utf8_equal(located.id,id) || !ascii_equal_ignore_case(located.country,country)) return E::malformed;
     struct Sections { const JsonIndexedDocument* doc; Utf8View id,country; JsonValue tracks{}; u32 count{}; bool header{},list{}; } sections{&doc,id,country};
     const auto visit=+[](void* opaque,u32,JsonValue value) noexcept {
-        auto& s=*static_cast<Sections*>(opaque); Field f[]{{utf8_literal("itemKind")},{utf8_literal("items")},{utf8_literal("containerContentDescriptor")}};
+        auto& s=*static_cast<Sections*>(opaque); FieldSet<"itemKind","items","containerContentDescriptor"> f;
         if (!fields(*s.doc,value,f)) return false;
-        if (equal(f[0],utf8_literal("containerDetailHeaderLockup"))) {
+        if (equal(f[0], "containerDetailHeaderLockup")) {
             if (s.header) return false; s.header=true; const auto item=single_item(*s.doc,f[1].value);
-            Field header[]{{utf8_literal("contentDescriptor")},{utf8_literal("trackCount")}};
+            FieldSet<"contentDescriptor","trackCount"> header;
             return fields(*s.doc,item,header) && playlist_identity(*s.doc,header[0].value,s.id,s.country) && number(header[1],&s.count);
         }
-        if (equal(f[0],utf8_literal("trackLockup"))) {
+        if (equal(f[0], "trackLockup")) {
             if (s.list || !playlist_identity(*s.doc,f[2].value,s.id,s.country)) return false;
             s.list=true; s.tracks=f[1].value;
         }
         return true;
     };
-    if (!json_visit_indexed_array(doc,queue_child(doc,page,utf8_literal("sections")),48,visit,&sections).ok() || !sections.header || !sections.list) return E::malformed;
+    if (!json_visit_indexed_array(doc,child<"sections">(doc,page),48,visit,&sections).ok() || !sections.header || !sections.list) return E::malformed;
     if (!sections.count) return E::unavailable;
     if (sections.count>200) return E::capacity;
     AppleMusicPlaylist staged{};
     struct Tracks { const JsonIndexedDocument* doc; Utf8View country; AppleMusicPlaylist* out; AppleMusicCollectionSink sink; } tracks{&doc,country,&staged,sink};
     const auto song=+[](void* opaque,u32 index,JsonValue value) noexcept {
         auto& t=*static_cast<Tracks*>(opaque); if (index>=200) return false;
-        Field f[]{{utf8_literal("title")},{utf8_literal("contentDescriptor")},{utf8_literal("isDisabled")}};
+        FieldSet<"title","contentDescriptor","isDisabled"> f;
         if (!fields(*t.doc,value,f)) return false;
-        Field d[]{{utf8_literal("kind")},{utf8_literal("identifiers")},{utf8_literal("url")}};
+        FieldSet<"kind","identifiers","url"> d;
         JsonString identifier{},name{},view{}; bool disabled=false; u64 id{};
-        if (!fields(*t.doc,f[1].value,d) || !equal(d[0],utf8_literal("song")) || !text(f[0],&name) || !text(d[2],&view) ||
-            !json_value_as_string(queue_child(*t.doc,d[1].value,utf8_literal("storeAdamID")),&identifier) || !json_string_to_u64(identifier,&id) || !id ||
+        if (!fields(*t.doc,f[1].value,d) || !equal(d[0], "song") || !text(f[0],&name) || !text(d[2],&view) ||
+            !json_value_as_string(child<"storeAdamID">(*t.doc,d[1].value),&identifier) || !json_string_to_u64(identifier,&id) || !id ||
             (f[2].seen && !json_value_to_bool(f[2].value,&disabled))) return false;
-        char url[1024]; const auto decoded=json_string_decode_utf8(view,{url,sizeof(url)});
-        const auto match=decoded.ok()?apple_music_track_locator({url,decoded.bytes}):AppleMusicTrackLocator{};
-        u64 match_id{}; for (u32 i=0;i<match.id.bytes;++i) match_id=match_id*10+match.id.data[i]-'0';
-        if (match_id!=id || match.video || !ascii_equal_ignore_case(match.country,t.country)) return false;
-        MediaTrackTitle title{}; const auto named=json_string_decode_utf8(name,{title.text,sizeof(title.text)});
+        if (!track_page_is(view,id,t.country,1024)) return false;
+        MediaTrackTitle title{}; const auto named=decode_title(name,&title);
         if (!named.ok() || !named.bytes) return false;
-        title.bytes=static_cast<u16>(named.bytes); for (u32 i=0;i<title.bytes;++i) if (static_cast<u8>(title.text[i])<32) title.text[i]=' ';
         t.out->tracks[t.out->count++]=disabled?0:id;
         return t.sink.write(t.sink.context,static_cast<u16>(index+1),id,title,{});
     };
@@ -1543,34 +1530,29 @@ EmbedPlayerError apple_music_playlist(Utf8View html,Utf8View id,Utf8View country
 EmbedPlayerError apple_music_preview_batch(Utf8View json,ConstSlice<u64> ids,u16 offset,Utf8View country,Slice<u32> scratch,AppleMusicCollectionSink sink) noexcept {
     using E=EmbedPlayerError;
     if (!ids.count || ids.count>50 || !sink.write || !json.bytes || json.bytes>512*1024 || offset+ids.count>200) return E::invalid_input;
-    const auto scan=json_scan_structurals_avx1(json,scratch);
-    if (!scan.ok()) return scan.error==JsonScanError::output_overflow?E::capacity:E::malformed;
-    const JsonIndexedDocument doc{json,{scratch.data,scan.count}}; Field root[]{{utf8_literal("resultCount")},{utf8_literal("results")}}; u32 count{};
-    if (!fields(doc,{json,0,JsonValueKind::object},root) || !number(root[0],&count) || count>ids.count) return E::malformed;
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"resultCount","results"> root; u32 count{};
+    if (!fields(doc,root) || !number(root[0],&count) || count>ids.count) return E::malformed;
     struct Batch { const JsonIndexedDocument* doc; ConstSlice<u64> ids; Utf8View country; AppleMusicCollectionSink sink; u64 seen{}; u32 count{}; u16 offset; } batch{&doc,ids,country,sink,0,0,offset};
     const auto visit=+[](void* opaque,u32,JsonValue value) noexcept {
         auto& b=*static_cast<Batch*>(opaque); ++b.count;
-        Field f[]{{utf8_literal("wrapperType")},{utf8_literal("kind")},{utf8_literal("trackId")},{utf8_literal("trackName")},{utf8_literal("trackViewUrl")},{utf8_literal("previewUrl")}};
+        FieldSet<"wrapperType","kind","trackId","trackName","trackViewUrl","previewUrl"> f;
         u64 id{}; JsonString name{},view{},preview{};
-        if (!fields(*b.doc,value,f) || !equal(f[0],utf8_literal("track")) || !equal(f[1],utf8_literal("song")) || !f[2].seen || !json_value_to_u64(f[2].value,&id) || !id || !text(f[3],&name) || !text(f[4],&view)) return false;
+        if (!fields(*b.doc,value,f) || !equal(f[0], "track") || !equal(f[1], "song") || !u64_of(f[2],&id) || !id || !text(f[3],&name) || !text(f[4],&view)) return false;
         u32 found=0; while (found<b.ids.count && b.ids[found]!=id) ++found;
         if (found==b.ids.count || (b.seen&(u64{1}<<found))) return false;
         b.seen|=u64{1}<<found;
-        char url[1024]; const auto decoded=json_string_decode_utf8(view,{url,sizeof(url)});
-        const auto match=decoded.ok()?apple_music_track_locator({url,decoded.bytes}):AppleMusicTrackLocator{};
-        u64 match_id{}; for (u32 i=0;i<match.id.bytes;++i) match_id=match_id*10+match.id.data[i]-'0';
-        if (match_id!=id || match.video || !ascii_equal_ignore_case(match.country,b.country)) return false;
+        if (!track_page_is(view,id,b.country,1024)) return false;
         if (!f[5].seen || f[5].value.kind==JsonValueKind::null_value) return true;
-        MediaTrackTitle title{}; const auto named=json_string_decode_utf8(name,{title.text,sizeof(title.text)});
+        MediaTrackTitle title{}; const auto named=decode_title(name,&title);
         if (!named.ok() || !named.bytes || !text(f[5],&preview)) return false;
-        title.bytes=static_cast<u16>(named.bytes);
-        for (u32 i=0;i<title.bytes;++i) if (static_cast<u8>(title.text[i])<32) title.text[i]=' ';
-        char source[kEmbedStreamUrlBytes]; const auto source_bytes=json_string_decode_utf8(preview,{source,sizeof(source)});
+        char source[kEmbedStreamUrlBytes]; const auto source_bytes=decode(preview, source, sizeof(source));
         if (!source_bytes.ok() || !embed_stream_location(CdnHost::apple_music_preview,{source,source_bytes.bytes})) return false;
         for (u32 i=0;i<b.ids.count;++i) if (b.ids[i]==id && !b.sink.write(b.sink.context,static_cast<u16>(b.offset+i+1),id,title,{source,source_bytes.bytes})) return false;
         return true;
     };
-    return json_visit_indexed_array(doc,root[1].value,24,visit,&batch).ok() && batch.count==count ? E::none : E::malformed;
+    return visit_array(doc, root[1].value, visit, &batch) && batch.count==count ? E::none : E::malformed;
 }
 EmbedPlayerError soundcloud_track_title(Utf8View json, u64 track, Slice<u32> scratch, MediaTrackTitle* out) noexcept {
     return track_title(json, track, {}, scratch, out);
@@ -1581,16 +1563,12 @@ EmbedPlayerError youtube_track_title(Utf8View json, Utf8View video, Slice<u32> s
 EmbedPlayerError soundcloud_manifest(Utf8View json, Slice<u32> scratch, EmbedStream* out) noexcept {
     using E = EmbedPlayerError;
     if (!out || !json.data || !json.bytes || json.bytes > 8192) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field f[]{{utf8_literal("url")}}; JsonString value{}; EmbedStream staged{};
-    if (!fields(doc, {json, 0, JsonValueKind::object}, f) || !text(f[0], &value)) return E::malformed;
-    const auto decoded = json_string_decode_utf8(value, {staged.url, sizeof(staged.url)});
-    const bool valid = decoded.ok() && soundcloud_location({staged.url, decoded.bytes}, true);
-    if (valid) { staged.url_bytes = decoded.bytes; *out = staged; }
-    secure_clear_bytes(&staged, sizeof(staged));
-    return valid ? E::none : E::malformed;
+    JsonIndexedDocument doc;
+    if (const auto indexed = index_json(json, scratch, &doc); indexed != E::none) return indexed;
+    FieldSet<"url"> f; JsonString value{}; EmbedStream staged{};
+    if (!fields(doc, f) || !text(f[0], &value)) return E::malformed;
+    const auto decoded = decode(value, staged.url, sizeof(staged.url));
+    return publish_stream(&staged, decoded.bytes, decoded.ok() && soundcloud_location({staged.url, decoded.bytes}, true), out);
 }
 EmbedPlayerError soundcloud_widget_page(Utf8View html, EmbedStream* out, bool collection) noexcept {
     using E = EmbedPlayerError;
@@ -1621,75 +1599,79 @@ EmbedPlayerError soundcloud_hydration(Utf8View html, Utf8View kind, Slice<u32> s
     Utf8View json{};
     const auto extracted = embedded_json(html, utf8_literal("window.__sc_hydration"), &json, true);
     if (extracted != E::none) return extracted;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    SoundcloudHydration h{{json, {scratch.data, scan.count}}, {}, {}, kind};
+    SoundcloudHydration h{{}, {}, {}, kind};
+    if (const auto indexed = index_json(json, scratch, &h.doc); indexed != E::none) return indexed;
     const auto visit = +[](void* opaque, u32, JsonValue value) noexcept {
         auto& h = *static_cast<SoundcloudHydration*>(opaque);
         if (++h.count > 64) return false;
-        Field f[]{{utf8_literal("hydratable")}, {utf8_literal("data")}};
+        FieldSet<"hydratable", "data"> f;
         if (!fields(h.doc, value, f) || !f[1].seen) return false;
-        auto* selected = equal(f[0], h.kind) ? &h.record : equal(f[0], utf8_literal("apiClient")) ? &h.client : nullptr;
+        auto* selected = equal(f[0], h.kind) ? &h.record : equal(f[0], "apiClient") ? &h.client : nullptr;
         if (selected) { if (selected->source.bytes) return false; *selected = f[1].value; }
         return true;
     };
-    if (!json_visit_indexed_array(h.doc, {json, 0, JsonValueKind::array}, 24, visit, &h).ok() ||
+    if (!visit_array(h.doc, {json, 0, JsonValueKind::array}, visit, &h) ||
         !h.record.source.bytes) return E::malformed;
     *out = h;
     return E::none;
+}
+// Canonical page URL of a SoundCloud track or collection path; 0 bytes when the path is not one.
+u32 soundcloud_permalink(const Utf8View& path, bool collection, char (&out)[544]) noexcept {
+    ProtocolWriter canonical{{reinterpret_cast<u8*>(out), sizeof(out)}, 0};
+    if (!protocol_writer_append_literal(&canonical, "https://soundcloud.com") ||
+        !protocol_writer_append_bytes(&canonical, reinterpret_cast<const u8*>(path.data), path.bytes)) return 0;
+    const Utf8View page{out, canonical.used};
+    return (collection ? soundcloud_collection_path(page) : soundcloud_track_path(page)).bytes ? canonical.used : 0;
 }
 } // namespace
 EmbedPlayerError soundcloud_track_request(Utf8View html, Utf8View path, Slice<u32> scratch, EmbedStream* out, u64 expected_id) noexcept {
     using E = EmbedPlayerError;
     if (!out || !html.data || !html.bytes || html.bytes > 512 * 1024 || !path.data || path.bytes > 512) return E::invalid_input;
-    char permalink[544]; ProtocolWriter canonical{{reinterpret_cast<u8*>(permalink), sizeof(permalink)}, 0};
-    if (!protocol_writer_append_literal(&canonical, "https://soundcloud.com") ||
-        !protocol_writer_append_bytes(&canonical, reinterpret_cast<const u8*>(path.data), path.bytes) ||
-        !soundcloud_track_path({permalink, canonical.used}).bytes) return E::invalid_input;
+    char permalink[544]; const u32 permalink_bytes = soundcloud_permalink(path, false, permalink);
+    if (!permalink_bytes) return E::invalid_input;
     SoundcloudHydration h{};
     const auto parsed = soundcloud_hydration(html, utf8_literal("sound"), scratch, &h);
     if (parsed != E::none) return parsed;
     if (!h.client.source.bytes) return E::malformed;
-    Field sound[]{{utf8_literal("id")}, {utf8_literal("kind")}, {utf8_literal("permalink_url")},
-        {utf8_literal("streamable")}, {utf8_literal("policy")}, {utf8_literal("embeddable_by")},
-        {utf8_literal("media")}, {utf8_literal("track_authorization")}, {utf8_literal("public")}};
+    FieldSet<"id", "kind", "permalink_url", "streamable", "policy", "embeddable_by", "media", "track_authorization", "public"> sound;
     u64 id{}; bool streamable{}, public_track{};
-    if (!fields(h.doc, h.record, sound) || !sound[0].seen || !json_value_to_u64(sound[0].value, &id) || !id ||
-        !equal(sound[1], utf8_literal("track")) || !equal(sound[2], {permalink, canonical.used}) ||
-        !sound[3].seen || !json_value_to_bool(sound[3].value, &streamable) ||
-        !sound[8].seen || !json_value_to_bool(sound[8].value, &public_track) || (expected_id && id != expected_id)) return E::malformed;
-    if (!streamable || !public_track || !equal(sound[4], utf8_literal("ALLOW"))) return E::unavailable;
-    if (!equal(sound[5], utf8_literal("all"))) return E::not_embeddable;
-    Field media[]{{utf8_literal("transcodings")}}, client[]{{utf8_literal("id")}};
+    if (!fields(h.doc, h.record, sound) || !u64_of(sound[0], &id) || !id ||
+        !equal(sound[1], "track") || !equal(sound[2], {permalink, permalink_bytes}) ||
+        !bool_of(sound[3], &streamable) ||
+        !bool_of(sound[8], &public_track) || (expected_id && id != expected_id)) return E::malformed;
+    if (!streamable || !public_track || !equal(sound[4], "ALLOW")) return E::unavailable;
+    if (!equal(sound[5], "all")) return E::not_embeddable;
+    FieldSet<"transcodings"> media;
+    FieldSet<"id"> client;
     if (!sound[6].seen || !fields(h.doc, sound[6].value, media) || !media[0].seen || !fields(h.doc, h.client, client)) return E::malformed;
     struct Renditions { JsonIndexedDocument doc; JsonString url{}; u32 count{}, bitrate{}; } r{h.doc};
     const auto rendition = +[](void* opaque, u32, JsonValue value) noexcept {
         auto& r = *static_cast<Renditions*>(opaque);
         if (++r.count > 32) return false;
-        Field f[]{{utf8_literal("url")}, {utf8_literal("preset")}, {utf8_literal("snipped")}, {utf8_literal("format")}};
+        FieldSet<"url", "preset", "snipped", "format"> f;
         if (!fields(r.doc, value, f)) return false;
-        const u32 bitrate = equal(f[1], utf8_literal("aac_160k")) ? 160 : equal(f[1], utf8_literal("aac_96k")) ? 96 : 0;
+        const u32 bitrate = equal(f[1], "aac_160k") ? 160 : equal(f[1], "aac_96k") ? 96 : 0;
         if (!bitrate) return true;
-        bool snipped{}; Field format[]{{utf8_literal("protocol")}, {utf8_literal("mime_type")}}; JsonString url{};
-        if (!f[2].seen || !json_value_to_bool(f[2].value, &snipped) || !f[3].seen || !fields(r.doc, f[3].value, format) || !text(f[0], &url)) return false;
-        if (!snipped && equal(format[0], utf8_literal("hls")) &&
-            equal(format[1], utf8_literal("audio/mp4; codecs=\"mp4a.40.2\"")) && bitrate > r.bitrate) { r.url = url; r.bitrate = bitrate; }
+        bool snipped{}; FieldSet<"protocol", "mime_type"> format; JsonString url{};
+        if (!bool_of(f[2], &snipped) || !f[3].seen || !fields(r.doc, f[3].value, format) || !text(f[0], &url)) return false;
+        if (!snipped && equal(format[0], "hls") &&
+            equal(format[1], "audio/mp4; codecs=\"mp4a.40.2\"") && bitrate > r.bitrate) { r.url = url; r.bitrate = bitrate; }
         return true;
     };
-    if (!json_visit_indexed_array(h.doc, media[0].value, 24, rendition, &r).ok()) return E::malformed;
+    if (!visit_array(h.doc, media[0].value, rendition, &r)) return E::malformed;
     if (!r.bitrate) return E::unsupported;
     EmbedStream staged{};
-    const auto decoded = json_string_decode_utf8(r.url, {staged.url, sizeof(staged.url)});
+    const auto decoded = decode(r.url, staged.url, sizeof(staged.url));
     char prefix[128]; ProtocolWriter head{{reinterpret_cast<u8*>(prefix), sizeof(prefix)}, 0};
     protocol_writer_append_literal(&head, "https://api-v2.soundcloud.com/media/soundcloud:tracks:");
     protocol_writer_append_u64(&head, id); protocol_writer_append_literal(&head, "/");
     bool valid = decoded.ok() && utf8_starts_with({staged.url, decoded.bytes}, {prefix, head.used});
     u32 at = head.used;
     while (valid && at < decoded.bytes && (ascii_is_alnum(staged.url[at]) || staged.url[at] == '-' || staged.url[at] == '_')) ++at;
-    valid = valid && at > head.used && utf8_equal({staged.url + at, decoded.bytes - at}, utf8_literal("/stream/hls"));
+    valid = valid && at > head.used && is_text({staged.url + at, decoded.bytes - at}, "/stream/hls");
     char key[64]{}, grant[512]{}; JsonString key_json{}, grant_json{};
-    const auto key_decoded = text(client[0], &key_json) ? json_string_decode_utf8(key_json, {key, sizeof(key)}) : JsonStringDecodeResult{};
-    const auto grant_decoded = text(sound[7], &grant_json) ? json_string_decode_utf8(grant_json, {grant, sizeof(grant)}) : JsonStringDecodeResult{};
+    const auto key_decoded = text(client[0], &key_json) ? decode(key_json, key, sizeof(key)) : JsonStringDecodeResult{};
+    const auto grant_decoded = text(sound[7], &grant_json) ? decode(grant_json, grant, sizeof(grant)) : JsonStringDecodeResult{};
     valid = valid && key_decoded.ok() && key_decoded.bytes == 32 && grant_decoded.ok() && grant_decoded.bytes;
     for (u32 i = 0; valid && i < key_decoded.bytes; ++i) valid = ascii_is_alnum(key[i]);
     ProtocolWriter request{{reinterpret_cast<u8*>(staged.url), sizeof(staged.url)}, decoded.ok() ? decoded.bytes : 0};
@@ -1706,25 +1688,21 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
     using E = EmbedPlayerError;
     if (!out || !tracks.data || !tracks.count || !html.data || !html.bytes || html.bytes > 512 * 1024 ||
         !path.data || path.bytes > 512) return E::invalid_input;
-    char permalink[544]; ProtocolWriter canonical{{reinterpret_cast<u8*>(permalink), sizeof(permalink)}, 0};
-    if (!protocol_writer_append_literal(&canonical, "https://soundcloud.com") ||
-        !protocol_writer_append_bytes(&canonical, reinterpret_cast<const u8*>(path.data), path.bytes) ||
-        !soundcloud_collection_path({permalink, canonical.used}).bytes) return E::invalid_input;
+    char permalink[544]; const u32 permalink_bytes = soundcloud_permalink(path, true, permalink);
+    if (!permalink_bytes) return E::invalid_input;
     SoundcloudHydration h{};
     const auto station = soundcloud_station_locator(path);
     const auto parsed = soundcloud_hydration(html, station.seed ? utf8_literal("systemPlaylist") : utf8_literal("playlist"), scratch, &h);
     if (parsed != E::none) return parsed;
-    Field f[]{{utf8_literal("id")}, {utf8_literal("kind")}, {utf8_literal("permalink_url")},
-        {utf8_literal("public")}, {utf8_literal("sharing")}, {utf8_literal("embeddable_by")},
-        {utf8_literal("track_count")}, {utf8_literal("tracks")}, {utf8_literal("is_public")},
-        {utf8_literal("urn")}, {utf8_literal("playlist_type")}, {utf8_literal("seed")}};
+    FieldSet<"id", "kind", "permalink_url", "public", "sharing", "embeddable_by", "track_count", "tracks", "is_public",
+        "urn", "playlist_type", "seed"> f;
     SoundcloudCollection staged{}; bool public_set{}; u64 count{};
-    Field client[]{{utf8_literal("id")}}; JsonString client_id{};
+    FieldSet<"id"> client; JsonString client_id{};
     if (h.client.source.bytes && fields(h.doc, h.client, client) && text(client[0], &client_id)) {
-        const auto decoded = json_string_decode_utf8(client_id, {staged.client, sizeof(staged.client)});
+        const auto decoded = decode(client_id, staged.client, sizeof(staged.client));
         if (!decoded.ok() || decoded.bytes != 32) secure_clear_bytes(staged.client, sizeof(staged.client));
     }
-    if (!fields(h.doc, h.record, f) || !equal(f[2], {permalink, canonical.used}) || !f[7].seen) return E::malformed;
+    if (!fields(h.doc, h.record, f) || !equal(f[2], {permalink, permalink_bytes}) || !f[7].seen) return E::malformed;
     if (station.seed) {
         // Stations publish one finite public queue, without track_count. Bind
         // its string identity, seed kind and seed ID to the requested station before reading it.
@@ -1737,20 +1715,20 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
         protocol_writer_append_u64(&identity, station.seed);
         const auto kind = station.track ? utf8_literal("soundcloud:tracks:") : utf8_literal("soundcloud:users:");
         protocol_writer_append_bytes(&origin,reinterpret_cast<const u8*>(kind.data),kind.bytes); protocol_writer_append_u64(&origin, station.seed);
-        Field seed_fields[]{{utf8_literal("urn")}};
+        FieldSet<"urn"> seed_fields;
         if (expected_id || !equal(f[0], {urn, identity.used}) || !equal(f[9], {urn, identity.used}) ||
-            !equal(f[1], utf8_literal("system-playlist")) || !equal(f[10], station.track ? utf8_literal("TRACK_STATION") : utf8_literal("ARTIST_STATION")) ||
-            !f[8].seen || !json_value_to_bool(f[8].value, &public_set) || !f[11].seen ||
+            !equal(f[1], "system-playlist") || !equal(f[10], station.track ? utf8_literal("TRACK_STATION") : utf8_literal("ARTIST_STATION")) ||
+            !bool_of(f[8], &public_set) || !f[11].seen ||
             !fields(h.doc, f[11].value, seed_fields) || !equal(seed_fields[0], {seed, origin.used})) return E::malformed;
         if (!public_set) return E::unavailable;
         staged.id = station.seed;
     } else {
-        if (!f[0].seen || !json_value_to_u64(f[0].value, &staged.id) || !staged.id ||
-            (expected_id && expected_id != staged.id) || !equal(f[1], utf8_literal("playlist")) ||
-            !equal(f[2], {permalink, canonical.used}) || !f[3].seen || !json_value_to_bool(f[3].value, &public_set) ||
-            !f[6].seen || !json_value_to_u64(f[6].value, &count) || !f[7].seen) return E::malformed;
-        if (!public_set || !equal(f[4], utf8_literal("public"))) return E::unavailable;
-        if (!equal(f[5], utf8_literal("all"))) return E::not_embeddable;
+        if (!u64_of(f[0], &staged.id) || !staged.id ||
+            (expected_id && expected_id != staged.id) || !equal(f[1], "playlist") ||
+            !equal(f[2], {permalink, permalink_bytes}) || !bool_of(f[3], &public_set) ||
+            !u64_of(f[6], &count) || !f[7].seen) return E::malformed;
+        if (!public_set || !equal(f[4], "public")) return E::unavailable;
+        if (!equal(f[5], "all")) return E::not_embeddable;
         if (!count) return E::unavailable;
         if (count > kMediaCollectionTracks || count > tracks.count) return E::capacity;
         if (selected >= count) return E::invalid_input;
@@ -1759,31 +1737,28 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
     const auto visit = +[](void* opaque, u32, JsonValue value) noexcept {
         auto& list = *static_cast<Tracks*>(opaque);
         if (list.count == list.limit) return false;
-        Field f[]{{utf8_literal("id")}, {utf8_literal("kind")}, {utf8_literal("title")}}; u64 id{};
-        if (!fields(list.doc, value, f) || !f[0].seen || !json_value_to_u64(f[0].value, &id) || !id ||
-            (f[1].seen && !equal(f[1], utf8_literal("track")))) return false;
+        FieldSet<"id", "kind", "title"> f; u64 id{};
+        if (!fields(list.doc, value, f) || !u64_of(f[0], &id) || !id ||
+            (f[1].seen && !equal(f[1], "track"))) return false;
         if (list.output) {
             list.output[list.count] = id;
             JsonString name{}; MediaTrackTitle title{};
             if (list.sink.write && text(f[2], &name)) {
-                const auto decoded = json_string_decode_utf8(name, {title.text, sizeof(title.text)});
-                if (decoded.ok() && decoded.bytes) {
-                    title.bytes = static_cast<u16>(decoded.bytes);
-                    for (u32 i = 0; i < title.bytes; ++i) if (static_cast<u8>(title.text[i]) < 32) title.text[i] = ' ';
-                    if (!list.sink.write(list.sink.context, static_cast<u16>(list.count + 1), title)) return false;
-                }
+                const auto decoded = decode_title(name, &title);
+                if (decoded.ok() && decoded.bytes &&
+                    !list.sink.write(list.sink.context, static_cast<u16>(list.count + 1), title)) return false;
             }
         }
         ++list.count;
         return true;
     };
     // Validate first so malformed trailing entries cannot corrupt a live queue.
-    if (!json_visit_indexed_array(h.doc, f[7].value, 24, visit, &list).ok() || (!station.seed && list.count != count)) return E::malformed;
+    if (!visit_array(h.doc, f[7].value, visit, &list) || (!station.seed && list.count != count)) return E::malformed;
     if (!list.count) return E::unavailable;
     if (list.count > tracks.count) return E::capacity;
     if (selected >= list.count) return E::invalid_input;
     list.count = 0; list.output = tracks.data;
-    if (!json_visit_indexed_array(h.doc, f[7].value, 24, visit, &list).ok()) return E::capacity;
+    if (!visit_array(h.doc, f[7].value, visit, &list)) return E::capacity;
     staged.count = list.count; staged.selected = selected; *out = staged;
     return E::none;
 }
@@ -1792,24 +1767,21 @@ EmbedPlayerError soundcloud_batch_titles(Utf8View json, const SoundcloudTitleBat
     Slice<u32> scratch, MediaTrackTitleSink sink) noexcept {
     using E = EmbedPlayerError;
     if (!batch.count || batch.count > 50 || !sink.write || !json.bytes || json.bytes > 512 * 1024) return E::invalid_input;
-    const auto scan = json_scan_structurals_avx1(json, scratch);
-    if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
-    struct Names { JsonIndexedDocument doc; const SoundcloudTitleBatch* batch; MediaTrackTitleSink sink; u64 seen; u16 preferred; bool first; } names{{json,{scratch.data,scan.count}},&batch,sink,0,preferred,true};
+    struct Names { JsonIndexedDocument doc; const SoundcloudTitleBatch* batch; MediaTrackTitleSink sink; u64 seen; u16 preferred; bool first; } names{{},&batch,sink,0,preferred,true};
+    if (const auto indexed = index_json(json, scratch, &names.doc); indexed != E::none) return indexed;
     const auto visit = [](void* opaque, u32, JsonValue value) noexcept {
         auto& n = *static_cast<Names*>(opaque);
-        Field f[]{{utf8_literal("id")}, {utf8_literal("kind")}, {utf8_literal("title")}, {utf8_literal("public")}};
+        FieldSet<"id", "kind", "title", "public"> f;
         u64 id{}; JsonString name{}; bool public_track = true;
-        if (!fields(n.doc,value,f) || !f[0].seen || !json_value_to_u64(f[0].value,&id) || !equal(f[1],utf8_literal("track")) ||
+        if (!fields(n.doc,value,f) || !u64_of(f[0],&id) || !equal(f[1], "track") ||
             !text(f[2],&name) || (f[3].seen && !json_value_to_bool(f[3].value,&public_track))) return false;
         u32 found = 0;
         while (found < n.batch->count && n.batch->tracks[found].id != id) ++found;
         if (found == n.batch->count || (n.seen & (u64{1} << found))) return false;
         n.seen |= u64{1} << found;
         if (!public_track) return true;
-        MediaTrackTitle title{}; const auto decoded = json_string_decode_utf8(name,{title.text,sizeof(title.text)});
+        MediaTrackTitle title{}; const auto decoded = decode_title(name,&title);
         if (!decoded.ok() || !decoded.bytes) return true;
-        title.bytes = static_cast<u16>(decoded.bytes);
-        for (u32 i=0;i<title.bytes;++i) if (static_cast<u8>(title.text[i]) < 32) title.text[i]=' ';
         for (u32 i=0;i<n.batch->count;++i) if (n.batch->tracks[i].id == id && ((n.batch->tracks[i].index == n.preferred) == n.first))
             if (!n.sink.write(n.sink.context,n.batch->tracks[i].index,title)) return false;
         return true;
@@ -1817,7 +1789,7 @@ EmbedPlayerError soundcloud_batch_titles(Utf8View json, const SoundcloudTitleBat
     // The demanded title is first, so bounded mailbox capacity cannot starve it.
     for (u32 pass=0;pass<2;++pass) {
         names.first = pass == 0; names.seen=0;
-        if (!json_visit_indexed_array(names.doc,{json,0,JsonValueKind::array},24,visit,&names).ok()) return E::malformed;
+        if (!visit_array(names.doc, {json,0,JsonValueKind::array}, visit, &names)) return E::malformed;
     }
     return E::none;
 }

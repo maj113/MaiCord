@@ -45,7 +45,7 @@ bool guild_row(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 bool instances_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("stage_instances")))
+    if (json_name_is(name, utf8_literal("stage_instances")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }

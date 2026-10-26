@@ -2,6 +2,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/http1.hpp"
 #include "maicord/core/ascii.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -54,9 +55,8 @@ bool decode(Utf8View in, Slice<u8> out, u32* bytes) noexcept {
 struct Fields { JsonValue values[6]{}; u32 seen{}; };
 bool token_field(void* context, JsonString name, JsonValue value) noexcept {
     auto& f = *static_cast<Fields*>(context);
-    static constexpr Utf8View names[]{utf8_literal("access_token"), utf8_literal("refresh_token"),
-        utf8_literal("expires_in"), utf8_literal("token_type"), utf8_literal("scope"), utf8_literal("error")};
-    for (u32 i = 0; i < 6; ++i) if (json_name_is(name, names[i])) {
+    const u32 i = protocol_detail::member_index<"access_token", "refresh_token", "expires_in", "token_type", "scope", "error">(name);
+    if (i < 6) {
         if (f.seen & (1u << i)) return false;
         f.seen |= 1u << i; f.values[i] = value;
     }

@@ -8,9 +8,13 @@
 #include "gateway_dispatch_common.hpp"
 #include "gateway_payload_writer.hpp"
 #include "gateway_member_list_validation.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
+
+using protocol_detail::member_index;
+using protocol_detail::skim_member_index;
 
 inline constexpr u32 kMemberListMaximumRoles = 256;
 inline constexpr u32 kMemberListMaximumRecords = 2048;
@@ -176,52 +180,62 @@ bool u32_value(JsonValue value, u32* output) noexcept {
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RootContext*>(opaque);
     const bool array = value.kind == JsonValueKind::array;
-    if (json_name_is(name, utf8_literal("guild_id"))) {
+    switch (skim_member_index<"guild_id", "id", "member_count", "online_count", "groups", "members", "ops">(name)) {
+    case 0:
         if (context->guild_seen || !json_value_to_snowflake(value, &context->guild_id))
             return reject(&context->error, gateway_field_error(context->guild_seen));
         context->guild_seen = true;
-    } else if (json_name_is(name, utf8_literal("id"))) {
+        break;
+    case 1:
         if (context->list_seen || !json_value_to_member_list_id(value, &context->list_id))
             return reject(&context->error, gateway_field_error(context->list_seen));
         context->list_seen = true;
-    } else if (json_name_is(name, utf8_literal("member_count"))) {
+        break;
+    case 2:
         if (context->members_seen || !u32_value(value, &context->member_count))
             return reject(&context->error, gateway_field_error(context->members_seen));
         context->members_seen = true;
-    } else if (json_name_is(name, utf8_literal("online_count"))) {
+        break;
+    case 3:
         if (context->online_seen || !u32_value(value, &context->online_count))
             return reject(&context->error, gateway_field_error(context->online_seen));
         context->online_seen = true;
-    } else if (json_name_is(name, utf8_literal("groups"))) {
+        break;
+    case 4:
         return gateway_keep_member(&context->error, &context->groups_seen, &context->groups, value, array);
-    } else if (json_name_is(name, utf8_literal("members"))) {
-        return gateway_keep_member(&context->error, &context->member_array_seen, &context->member_array,
-                                   value, array);
-    } else if (json_name_is(name, utf8_literal("ops"))) {
+    case 5:
+        return gateway_keep_member(&context->error, &context->member_array_seen, &context->member_array, value,
+                                   array);
+    case 6:
         return gateway_keep_member(&context->error, &context->ops_seen, &context->ops, value, array);
+    default: break;
     }
     return true;
 }
 
 bool visit_op(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<OpObject*>(opaque);
-    if (json_name_is(name, utf8_literal("op"))) {
+    switch (skim_member_index<"op", "range", "items", "item", "index">(name)) {
+    case 0:
         if (context->operation_seen || !json_value_as_string(value, &context->operation))
             return reject(&context->error, gateway_field_error(context->operation_seen));
         context->operation_seen = true;
-    } else if (json_name_is(name, utf8_literal("range"))) {
+        break;
+    case 1:
         return gateway_keep_member(&context->error, &context->range_seen, &context->range, value,
                                    value.kind == JsonValueKind::array);
-    } else if (json_name_is(name, utf8_literal("items"))) {
+    case 2:
         return gateway_keep_member(&context->error, &context->items_seen, &context->items, value,
                                    value.kind == JsonValueKind::array);
-    } else if (json_name_is(name, utf8_literal("item"))) {
+    case 3:
         return gateway_keep_member(&context->error, &context->item_seen, &context->item, value,
                                    value.kind == JsonValueKind::object);
-    } else if (json_name_is(name, utf8_literal("index"))) {
+    case 4:
         if (context->index_seen || !u32_value(value, &context->index))
             return reject(&context->error, gateway_field_error(context->index_seen));
         context->index_seen = true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -230,39 +244,36 @@ bool visit_item(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ItemObject*>(opaque);
     const bool object_or_null =
         value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value;
-    if (json_name_is(name, utf8_literal("member"))) {
-        context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        return gateway_keep_member(&context->error, &context->member_seen, &context->member, value,
-                                   object_or_null);
-    }
-    if (json_name_is(name, utf8_literal("group"))) {
-        context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
-        return gateway_keep_member(&context->error, &context->group_seen, &context->group, value,
-                                   object_or_null);
+    const u32 index = skim_member_index<"member", "group">(name);
+    if (index < 2) {
+        context->field_detail = ((index + 1) << 8) | static_cast<u32>(value.kind);
+        return index == 0 ? gateway_keep_member(&context->error, &context->member_seen, &context->member, value,
+                                                object_or_null)
+                          : gateway_keep_member(&context->error, &context->group_seen, &context->group, value,
+                                                object_or_null);
     }
     return true;
 }
 
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MemberObject*>(opaque);
-    if (json_name_is(name, utf8_literal("user"))) {
-        context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
+    static constexpr u8 details[] = {1, 2, 3, 4, 6, 5};
+    const u32 index = skim_member_index<"user", "roles", "presence", "nick", "flags", "communication_disabled_until">(name);
+    if (index > 5)
+        return true;
+    context->field_detail = (u32{details[index]} << 8) | static_cast<u32>(value.kind);
+    switch (index) {
+    case 0:
         return gateway_keep_member(&context->error, &context->user_seen, &context->user, value,
                                    value.kind == JsonValueKind::object);
-    }
-    if (json_name_is(name, utf8_literal("roles"))) {
-        context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
+    case 1:
         return gateway_keep_member(&context->error, &context->roles_seen, &context->roles, value,
                                    value.kind == JsonValueKind::array);
-    }
-    if (json_name_is(name, utf8_literal("presence"))) {
-        context->field_detail = (3u << 8) | static_cast<u32>(value.kind);
+    case 2:
         return gateway_keep_member(
             &context->error, &context->presence_seen, &context->presence, value,
             value.kind == JsonValueKind::object || value.kind == JsonValueKind::null_value);
-    }
-    if (json_name_is(name, utf8_literal("nick"))) {
-        context->field_detail = (4u << 8) | static_cast<u32>(value.kind);
+    case 3:
         if (context->nickname_seen) {
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         }
@@ -271,15 +282,15 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
         if (!context->nickname_null && !json_value_as_string(value, &context->nickname)) {
             return reject(&context->error);
         }
-    } else if (json_name_is(name, utf8_literal("flags"))) {
-        context->field_detail = (6u << 8) | static_cast<u32>(value.kind);
+        break;
+    case 4:
         if (context->flags_seen)
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         context->flags_seen = true;
         if (!u32_value(value, &context->flags))
             return reject(&context->error);
-    } else if (json_name_is(name, utf8_literal("communication_disabled_until"))) {
-        context->field_detail = (5u << 8) | static_cast<u32>(value.kind);
+        break;
+    default:
         if (context->timeout_seen)
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         context->timeout_seen = true;
@@ -291,24 +302,29 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
                 return reject(&context->error);
             context->timeout_until = static_cast<u32>(milliseconds / 1000);
         }
+        break;
     }
     return true;
 }
 
 bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<PresenceObject*>(opaque);
-    if (json_name_is(name, utf8_literal("status"))) {
+    switch (skim_member_index<"status", "client_status">(name)) {
+    case 0:
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
         if (context->status_seen || !json_value_as_string(value, &context->status))
             return reject(&context->error, gateway_field_error(context->status_seen));
         context->status_seen = true;
-    } else if (json_name_is(name, utf8_literal("client_status"))) {
+        break;
+    case 1:
         if (context->client_status_seen)
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
         context->client_status_seen = true;
         // Advisory per-platform detail: a malformed object reads as offline.
         if (!client_status_decode(value, &context->client_status))
             context->client_status = 0;
+        break;
+    default: break;
     }
     return true;
 }
@@ -376,26 +392,31 @@ struct GroupObject {
 };
 bool visit_group(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* group = static_cast<GroupObject*>(opaque);
-    if (json_name_is(name, utf8_literal("id"))) {
+    switch (skim_member_index<"id", "count">(name)) {
+    case 0: {
         group->field_detail = (3u << 8) | static_cast<u32>(value.kind);
         if (group->id_seen)
             return reject(&group->error, GatewayEventDecodeError::duplicate_field);
         JsonString text{};
-        if (json_value_as_string(value, &text) && json_name_is(text, utf8_literal("online")))
+        const u32 keyword = json_value_as_string(value, &text) ? member_index<"online", "offline">(text) : 2;
+        if (keyword == 0)
             group->id = 0;
-        else if (json_value_as_string(value, &text) &&
-                 json_name_is(text, utf8_literal("offline")))
+        else if (keyword == 1)
             group->id = ~0ull;
         else if (!json_value_to_snowflake(value, &group->id))
             return reject(&group->error);
         group->id_seen = true;
-    } else if (json_name_is(name, utf8_literal("count"))) {
+        break;
+    }
+    case 1:
         group->field_detail = (4u << 8) | static_cast<u32>(value.kind);
         if (group->count_seen)
             return reject(&group->error, GatewayEventDecodeError::duplicate_field);
         if (!u32_value(value, &group->count))
             return reject(&group->error);
         group->count_seen = true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -692,7 +713,8 @@ bool visit_operation(void* opaque, u32, JsonValue value) noexcept {
                                            ? operation.error
                                            : GatewayEventDecodeError::missing_required_field);
     }
-    if (json_name_is(operation.operation, utf8_literal("SYNC"))) {
+    const u32 operation_index = member_index<"SYNC", "INVALIDATE", "DELETE", "INSERT", "UPDATE">(operation.operation);
+    if (operation_index == 0) {
         u32 first = 0;
         u32 last = 0;
         if (!operation.range_seen || !operation.items_seen ||
@@ -716,7 +738,7 @@ bool visit_operation(void* opaque, u32, JsonValue value) noexcept {
         }
         return true;
     }
-    if (json_name_is(operation.operation, utf8_literal("INVALIDATE"))) {
+    if (operation_index == 1) {
         u32 first = 0;
         u32 last = 0;
         return operation.range_seen &&
@@ -724,18 +746,14 @@ bool visit_operation(void* opaque, u32, JsonValue value) noexcept {
                            &context->error) &&
                append_simple(context->writer, GatewayClientMemberListOperation::invalidate, first, last);
     }
-    if (json_name_is(operation.operation, utf8_literal("DELETE"))) {
+    if (operation_index == 2) {
         return operation.index_seen &&
                append_simple(context->writer, GatewayClientMemberListOperation::remove, operation.index,
                              operation.index);
     }
     const GatewayClientMemberListOperation kind =
-        json_name_is(operation.operation, utf8_literal("INSERT"))
-            ? GatewayClientMemberListOperation::insert
-            : GatewayClientMemberListOperation::update;
-    if ((!json_name_is(operation.operation, utf8_literal("INSERT")) &&
-         !json_name_is(operation.operation, utf8_literal("UPDATE"))) ||
-        !operation.index_seen || !operation.item_seen) {
+        operation_index == 3 ? GatewayClientMemberListOperation::insert : GatewayClientMemberListOperation::update;
+    if (operation_index > 4 || !operation.index_seen || !operation.item_seen) {
         return reject(&context->error);
     }
     return append_member_item(context->writer, operation.item, operation.index, kind, *context->document,
@@ -755,19 +773,23 @@ template <typename Value> bool read_packed(ConstSlice<u8> payload, u32* cursor, 
 
 bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<GatewayMemberUser*>(opaque);
-    if (json_name_is(name, utf8_literal("id"))) {
+    const u32 name_index = skim_member_index<"id", "username", "global_name", "display_name", "avatar">(name);
+    switch (name_index) {
+    case 0:
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
         if (context->id_seen || !json_value_to_snowflake(value, &context->id))
             return reject(&context->error, gateway_field_error(context->id_seen));
         context->id_seen = true;
-    } else if (json_name_is(name, utf8_literal("username"))) {
+        break;
+    case 1:
         context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
         if (context->username_seen || !json_value_as_string(value, &context->username))
             return reject(&context->error, gateway_field_error(context->username_seen));
         context->username_seen = true;
-    } else if (json_name_is(name, utf8_literal("global_name")) ||
-               json_name_is(name, utf8_literal("display_name"))) {
-        const bool global = json_name_is(name, utf8_literal("global_name"));
+        break;
+    case 2:
+    case 3: {
+        const bool global = name_index == 2;
         context->field_detail = ((global ? 3u : 4u) << 8) | static_cast<u32>(value.kind);
         bool& seen = global ? context->global_name_seen : context->display_name_seen;
         bool& null_value = global ? context->global_name_null : context->display_name_null;
@@ -780,7 +802,9 @@ bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) n
         if (!null_value && !json_value_as_string(value, &destination)) {
             return reject(&context->error);
         }
-    } else if (json_name_is(name, utf8_literal("avatar"))) {
+        break;
+    }
+    case 4:
         context->field_detail = (5u << 8) | static_cast<u32>(value.kind);
         if (context->avatar_seen) {
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
@@ -790,6 +814,8 @@ bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) n
         if (!context->avatar_null && !json_value_as_string(value, &context->avatar_hash)) {
             return reject(&context->error);
         }
+        break;
+    default: break;
     }
     return true;
 }
@@ -827,18 +853,13 @@ GatewayClientMemberListStatus gateway_member_status(bool seen, JsonString status
     if (!seen) {
         return GatewayClientMemberListStatus::unknown;
     }
-    if (json_name_is(status, utf8_literal("online"))) {
-        return GatewayClientMemberListStatus::online;
-    }
-    if (json_name_is(status, utf8_literal("idle"))) {
-        return GatewayClientMemberListStatus::idle;
-    }
-    if (json_name_is(status, utf8_literal("dnd"))) {
-        return GatewayClientMemberListStatus::dnd;
-    }
-    if (json_name_is(status, utf8_literal("offline")) ||
-        json_name_is(status, utf8_literal("invisible"))) {
-        return GatewayClientMemberListStatus::offline;
+    switch (member_index<"online", "idle", "dnd", "offline", "invisible">(status)) {
+    case 0: return GatewayClientMemberListStatus::online;
+    case 1: return GatewayClientMemberListStatus::idle;
+    case 2: return GatewayClientMemberListStatus::dnd;
+    case 3:
+    case 4: return GatewayClientMemberListStatus::offline;
+    default: break;
     }
     return GatewayClientMemberListStatus::unknown;
 }
@@ -851,13 +872,12 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
         maximum_depth == 0 || !payload_scratch.data || payload_scratch.count == 0) {
         return result(GatewayClientDispatchRouteError::invalid_input);
     }
-    const bool chunk = json_name_is(envelope.event_name, utf8_literal("GUILD_MEMBERS_CHUNK"));
+    const u32 event_index = skim_member_index<"GUILD_MEMBERS_CHUNK", "GUILD_MEMBER_UPDATE", "GUILD_MEMBER_ADD",
+                                              "GUILD_MEMBER_LIST_UPDATE">(envelope.event_name);
+    const bool chunk = event_index == 0;
     // A joined member is hydrated exactly like a member update.
-    const bool member_update =
-        json_name_is(envelope.event_name, utf8_literal("GUILD_MEMBER_UPDATE")) ||
-        json_name_is(envelope.event_name, utf8_literal("GUILD_MEMBER_ADD"));
-    *handled = chunk || member_update ||
-               json_name_is(envelope.event_name, utf8_literal("GUILD_MEMBER_LIST_UPDATE"));
+    const bool member_update = event_index == 1 || event_index == 2;
+    *handled = event_index < 4;
     if (!*handled) {
         return result(GatewayClientDispatchRouteError::none);
     }
@@ -902,7 +922,7 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
         event->member_list.record_count = writer.records;
         event->member_list.member_record_count = writer.members;
         event->member_list.member_added =
-            !chunk && json_name_is(envelope.event_name, utf8_literal("GUILD_MEMBER_ADD"));
+            !chunk && event_index == 2;
         *payload = {reinterpret_cast<const u8*>(payload_scratch.data), writer.used};
         return {};
     }

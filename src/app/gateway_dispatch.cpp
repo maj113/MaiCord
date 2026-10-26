@@ -12,6 +12,7 @@
 #include "gateway_private_dispatch.hpp"
 #include "gateway_relationship_dispatch.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 #include "maicord/protocol/account_requirement.hpp"
 #include "maicord/model/user_profile.hpp"
 
@@ -56,10 +57,7 @@ struct ChannelPinsUpdateContext {
 
 bool channel_pins_update_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<ChannelPinsUpdateContext*>(opaque);
-    const u32 field = json_string_equals_ascii(name, utf8_literal("channel_id"))           ? 1u
-                      : json_string_equals_ascii(name, utf8_literal("guild_id"))           ? 2u
-                      : json_string_equals_ascii(name, utf8_literal("last_pin_timestamp")) ? 4u
-                                                                                           : 0u;
+    const u32 field = protocol_detail::member_bit<"channel_id", "guild_id", "last_pin_timestamp">(name);
     if (!field)
         return true;
     if (context.fields & field) {
@@ -131,7 +129,7 @@ void route_command_index_update(JsonValue data, Slice<u32> scratch, u32 maximum_
     const auto read = json_visit_value_object(
         data, {scratch.data, scan.count}, maximum_depth,
         [](void* opaque, JsonString name, JsonValue value) noexcept {
-            if (!json_string_equals_ascii(name, utf8_literal("guild_id")))
+            if (!json_name_is(name, utf8_literal("guild_id")))
                 return true;
             auto& fields = *static_cast<Context*>(opaque);
             if (fields.seen)
@@ -581,64 +579,11 @@ struct NotificationFields {
 };
 bool notification_fields(void* opaque, JsonString name, JsonValue v) noexcept {
     auto& f = *static_cast<NotificationFields*>(opaque);
-    u32 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("user_id")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("entries")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("partial")))
-        bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("version")))
-        bit = 32;
-    else if (json_string_equals_ascii(name, utf8_literal("proto")))
-        bit = 64;
-    else if (json_string_equals_ascii(name, utf8_literal("settings")))
-        bit = 128;
-    else if (json_string_equals_ascii(name, utf8_literal("threads")))
-        bit = 256;
-    else if (json_string_equals_ascii(name, utf8_literal("member")))
-        bit = 512;
-    else if (json_string_equals_ascii(name, utf8_literal("added_members")))
-        bit = 1024;
-    else if (json_string_equals_ascii(name, utf8_literal("removed_member_ids")))
-        bit = 2048;
-    else if (json_string_equals_ascii(name, utf8_literal("flags")))
-        bit = 4096;
-    else if (json_string_equals_ascii(name, utf8_literal("default_message_notifications")))
-        bit = 8192;
-    else if (json_string_equals_ascii(name, utf8_literal("lurking")))
-        bit = 16384;
-    else if (json_string_equals_ascii(name, utf8_literal("joined_at")))
-        bit = 32768;
-    else if (json_string_equals_ascii(name, utf8_literal("application_id")))
-        bit = 65536;
-    else if (json_string_equals_ascii(name, utf8_literal("is_message_request")))
-        bit = 131072;
-    else if (json_string_equals_ascii(name, utf8_literal("unavailable")))
-        bit = 262144;
-    else if (json_string_equals_ascii(name, utf8_literal("members")))
-        bit = 524288;
-    else if (json_string_equals_ascii(name, utf8_literal("type")))
-        bit = 1048576;
-    else if (json_string_equals_ascii(name, utf8_literal("is_spam")))
-        bit = 2097152;
-    else if (json_string_equals_ascii(name, utf8_literal("restricted_schedule")))
-        bit = 4194304;
-    else if (json_string_equals_ascii(name, utf8_literal("rules")))
-        bit = 8388608;
-    else if (json_string_equals_ascii(name, utf8_literal("channels")))
-        bit = 16777216;
-    else if (json_string_equals_ascii(name, utf8_literal("nsfw")))
-        bit = 33554432;
-    else if (json_string_equals_ascii(name, utf8_literal("nsfw_level")))
-        bit = 67108864;
-    else if (json_string_equals_ascii(name, utf8_literal("owner_configured_content_level")))
-        bit = 134217728;
-    else
+    const u32 bit = protocol_detail::member_bit<"id", "guild_id", "user_id", "entries", "partial", "version", "proto",
+        "settings", "threads", "member", "added_members", "removed_member_ids", "flags", "default_message_notifications",
+        "lurking", "joined_at", "application_id", "is_message_request", "unavailable", "members", "type", "is_spam",
+        "restricted_schedule", "rules", "channels", "nsfw", "nsfw_level", "owner_configured_content_level">(name);
+    if (!bit)
         return true;
     if (f.seen & bit) {
         f.bad = true;
@@ -766,7 +711,7 @@ struct RestrictionRule {
     bool seen = false, enabled = false;
 };
 bool restriction_enabled(void* opaque, JsonString name, JsonValue v) noexcept {
-    if (!json_string_equals_ascii(name, utf8_literal("enabled")))
+    if (!json_name_is(name, utf8_literal("enabled")))
         return true;
     auto& r = *static_cast<RestrictionRule*>(opaque);
     if (r.seen)
@@ -868,15 +813,10 @@ bool notification_proto(JsonValue value, Slice<char> storage, MessageNotificatio
     return decode_notification_global_base64(encoded, g) == NotificationSettingsDecodeError::none;
 }
 bool notification_route(const GatewayEnvelope& env, Slice<u32> scratch, Slice<char> storage,
-                        GatewayClientEvent* e, ConstSlice<u8>* payload) noexcept {
-    if (json_string_equals_ascii(env.event_name, utf8_literal("USER_GUILD_SETTINGS_UPDATE")))
+                        GatewayClientEvent* e, ConstSlice<u8>* payload, u32 kind) noexcept {
+    if (kind == 0)
         return notification_entry(env.data, scratch, storage, e, payload);
-    const bool proto_update =
-        json_string_equals_ascii(env.event_name, utf8_literal("USER_SETTINGS_PROTO_UPDATE"));
-    const bool account_update =
-        json_string_equals_ascii(env.event_name, utf8_literal("NOTIFICATION_SETTINGS_UPDATE"));
-    if (!proto_update && !account_update)
-        return false;
+    const bool proto_update = kind == 1;
     JsonIndexedDocument doc{};
     NotificationFields f{};
     if (!notification_document(env.data, scratch, &doc, &f)) {
@@ -1055,21 +995,18 @@ bool notification_sync(void* opaque, u32, JsonValue value) noexcept {
 void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slice<u32> scratch,
                                                 Slice<char> storage, u64 self, GatewayClientEvent* e,
                                                 ConstSlice<u8>* payload) noexcept {
-    const bool guild = json_string_equals_ascii(env.event_name, utf8_literal("GUILD_CREATE")) ||
-                       json_string_equals_ascii(env.event_name, utf8_literal("READY_GUILD")) ||
-                       json_string_equals_ascii(env.event_name, utf8_literal("GUILD_UPDATE"));
-    const bool self_thread = json_string_equals_ascii(env.event_name, utf8_literal("THREAD_MEMBER_UPDATE"));
-    const bool thread = self_thread ||
-                        json_string_equals_ascii(env.event_name, utf8_literal("THREAD_CREATE")) ||
-                        json_string_equals_ascii(env.event_name, utf8_literal("THREAD_UPDATE"));
-    const bool delta = json_string_equals_ascii(env.event_name, utf8_literal("THREAD_MEMBERS_UPDATE"));
-    const bool sync = json_string_equals_ascii(env.event_name, utf8_literal("THREAD_LIST_SYNC"));
-    const bool channel = thread ||
-                         json_string_equals_ascii(env.event_name, utf8_literal("CHANNEL_CREATE")) ||
-                         json_string_equals_ascii(env.event_name, utf8_literal("CHANNEL_UPDATE"));
-    const bool user = json_string_equals_ascii(env.event_name, utf8_literal("USER_UPDATE"));
-    if (!guild && !thread && !delta && !sync && !channel && !user)
+    const u32 named = protocol_detail::skim_member_index<
+        "GUILD_CREATE", "READY_GUILD", "GUILD_UPDATE", "THREAD_MEMBER_UPDATE", "THREAD_CREATE", "THREAD_UPDATE",
+        "THREAD_MEMBERS_UPDATE", "THREAD_LIST_SYNC", "CHANNEL_CREATE", "CHANNEL_UPDATE", "USER_UPDATE">(env.event_name);
+    if (named >= 11)
         return;
+    const bool guild = named <= 2;
+    const bool self_thread = named == 3;
+    const bool thread = named >= 3 && named <= 5;
+    const bool delta = named == 6;
+    const bool sync = named == 7;
+    const bool channel = thread || named == 8 || named == 9;
+    const bool user = named == 10;
     JsonIndexedDocument doc{};
     NotificationFields f{};
     bool valid = notification_document(env.data, scratch, &doc, &f);
@@ -1100,12 +1037,8 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slic
         else
             side.header.flags |= gateway_notification_incomplete;
     }
-    const bool full_channel =
-        channel && (json_string_equals_ascii(env.event_name, utf8_literal("CHANNEL_CREATE")) ||
-                    json_string_equals_ascii(env.event_name, utf8_literal("THREAD_CREATE")));
-    const bool full_guild =
-        guild && (json_string_equals_ascii(env.event_name, utf8_literal("READY_GUILD")) ||
-                  json_string_equals_ascii(env.event_name, utf8_literal("GUILD_CREATE")));
+    const bool full_channel = channel && (named == 4 || named == 8);
+    const bool full_guild = guild && named <= 1;
     const bool sensitive_guild =
         f.nsfw_level == 1 || f.nsfw_level == 3 || f.owner_content_level == 1 || f.owner_content_level == 3;
     if (guild && sensitive_guild) {
@@ -1281,32 +1214,48 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     event->sequence = envelope.sequence;
     event->has_sequence = envelope.has_sequence;
     event->dispatch_kind = GatewayClientDispatchKind::unknown;
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("PASSIVE_UPDATE_V2")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_UNREAD_UPDATE")))
+    // One lookup for every event that is routed by name before the state, thread, administration and
+    // member list routes: the cursor, notification and acknowledgement events, the verbatim interaction
+    // kinds (positions 7-26), and the stage, call and user events.
+    const u32 early = protocol_detail::wide_member_index<
+        "PASSIVE_UPDATE_V2", "CHANNEL_UNREAD_UPDATE", "MESSAGE_ACK", "CHANNEL_PINS_UPDATE",
+        "GUILD_APPLICATION_COMMAND_INDEX_UPDATE", "USER_REQUIRED_ACTION_UPDATE",
+        "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
+        "INTERACTION_CREATE", "INTERACTION_SUCCESS", "INTERACTION_FAILURE", "INTERACTION_MODAL_CREATE",
+        "USER_NOTE_UPDATE", "GUILD_SCHEDULED_EVENT_CREATE", "GUILD_SCHEDULED_EVENT_UPDATE",
+        "GUILD_SCHEDULED_EVENT_DELETE", "GUILD_SCHEDULED_EVENT_USER_ADD", "GUILD_SCHEDULED_EVENT_USER_REMOVE",
+        "VOICE_CHANNEL_EFFECT_SEND", "GUILD_SOUNDBOARD_SOUND_CREATE", "GUILD_SOUNDBOARD_SOUND_UPDATE",
+        "GUILD_SOUNDBOARD_SOUND_DELETE", "GUILD_SOUNDBOARD_SOUNDS_UPDATE", "SOUNDBOARD_SOUNDS",
+        "GUILD_BULK_BAN_UPDATE", "CHANNEL_INFO", "VOICE_CHANNEL_START_TIME_UPDATE",
+        "VOICE_CHANNEL_STATUS_UPDATE",
+        "STATE_UPDATE", "CHANNEL_RECIPIENT_ADD", "CHANNEL_RECIPIENT_REMOVE", "STAGE_INSTANCE_CREATE",
+        "STAGE_INSTANCE_UPDATE", "STAGE_INSTANCE_DELETE", "CALL_CREATE", "CALL_UPDATE", "CALL_DELETE",
+        "READY_USER", "USER_UPDATE", "USER_GUILD_SETTINGS_UPDATE", "USER_SETTINGS_PROTO_UPDATE",
+        "NOTIFICATION_SETTINGS_UPDATE">(envelope.event_name);
+    if (early <= 1)
         return gateway_client_route_channel_cursors(envelope, structural_scratch, maximum_depth,
                                                      content_scratch, event, payload);
-    if (notification_route(envelope, structural_scratch, content_scratch, event, payload))
+    if (early >= 38 && early <= 40 &&
+        notification_route(envelope, structural_scratch, content_scratch, event, payload, early - 38))
         return {};
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_ACK")))
+    if (early == 2)
         return gateway_client_route_message_ack(envelope.data, structural_scratch, maximum_depth, event,
                                                 payload);
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_PINS_UPDATE")))
+    if (early == 3)
         return route_channel_pins_update(envelope.data, structural_scratch, maximum_depth, event);
-    if (json_string_equals_ascii(envelope.event_name,
-                                 utf8_literal("GUILD_APPLICATION_COMMAND_INDEX_UPDATE"))) {
+    if (early == 4) {
         // A cache hint is ancillary; malformed data never fails the session.
         route_command_index_update(envelope.data, structural_scratch, maximum_depth, event);
         return {};
     }
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("USER_REQUIRED_ACTION_UPDATE"))) {
+    if (early == 5) {
         if (!account_requirement_update(envelope.data, structural_scratch, &event->required_action))
             return route_error(GatewayClientDispatchRouteError::decode,
                                GatewayEventDecodeError::invalid_data);
         event->dispatch_kind = GatewayClientDispatchKind::account_required_action;
         return {};
     }
-    if (json_string_equals_ascii(envelope.event_name,
-                                 utf8_literal("APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE"))) {
+    if (early == 6) {
         // Suggestions are ancillary: malformed/oversized responses must not
         // tear down the Gateway or invalidate channel history.
         if (envelope.data.kind == JsonValueKind::object &&
@@ -1318,65 +1267,43 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         }
         return {};
     }
-    {
+    if (early >= 7 && early <= 26) {
         // Interaction lifecycle events are small and ancillary like
         // autocomplete: a malformed one never fails the session.
-        GatewayClientDispatchKind interaction = GatewayClientDispatchKind::none;
-        if (json_string_equals_ascii(envelope.event_name, utf8_literal("INTERACTION_CREATE")))
-            interaction = GatewayClientDispatchKind::interaction_create;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("INTERACTION_SUCCESS")))
-            interaction = GatewayClientDispatchKind::interaction_success;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("INTERACTION_FAILURE")))
-            interaction = GatewayClientDispatchKind::interaction_failure;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("INTERACTION_MODAL_CREATE")))
-            interaction = GatewayClientDispatchKind::interaction_modal_create;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("USER_NOTE_UPDATE")))
-            interaction = GatewayClientDispatchKind::user_note_update;
-        // Scheduled events ride the same verbatim path (guild_community.hpp).
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SCHEDULED_EVENT_CREATE")))
-            interaction = GatewayClientDispatchKind::guild_scheduled_event_create;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SCHEDULED_EVENT_UPDATE")))
-            interaction = GatewayClientDispatchKind::guild_scheduled_event_update;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SCHEDULED_EVENT_DELETE")))
-            interaction = GatewayClientDispatchKind::guild_scheduled_event_delete;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SCHEDULED_EVENT_USER_ADD")))
-            interaction = GatewayClientDispatchKind::guild_scheduled_event_user_add;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SCHEDULED_EVENT_USER_REMOVE")))
-            interaction = GatewayClientDispatchKind::guild_scheduled_event_user_remove;
-        // Soundboard (soundboard.hpp): effects in voice channels and sound lists.
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_CHANNEL_EFFECT_SEND")))
-            interaction = GatewayClientDispatchKind::voice_channel_effect_send;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SOUNDBOARD_SOUND_CREATE")))
-            interaction = GatewayClientDispatchKind::guild_soundboard_sound_create;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SOUNDBOARD_SOUND_UPDATE")))
-            interaction = GatewayClientDispatchKind::guild_soundboard_sound_update;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SOUNDBOARD_SOUND_DELETE")))
-            interaction = GatewayClientDispatchKind::guild_soundboard_sound_delete;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_SOUNDBOARD_SOUNDS_UPDATE")))
-            interaction = GatewayClientDispatchKind::guild_soundboard_sounds_update;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("SOUNDBOARD_SOUNDS")))
-            interaction = GatewayClientDispatchKind::soundboard_sounds;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_BULK_BAN_UPDATE")))
-            interaction = GatewayClientDispatchKind::guild_bulk_ban_update;
-        // Voice channel statuses and start times (voice_channel_info.hpp).
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_INFO")))
-            interaction = GatewayClientDispatchKind::channel_info;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_CHANNEL_START_TIME_UPDATE")))
-            interaction = GatewayClientDispatchKind::voice_channel_start_time_update;
-        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_CHANNEL_STATUS_UPDATE")))
-            interaction = GatewayClientDispatchKind::voice_channel_status_update;
-        if (interaction != GatewayClientDispatchKind::none) {
-            if (envelope.data.kind == JsonValueKind::object &&
-                envelope.data.source.bytes <= content_scratch.count) {
-                copy_bytes(content_scratch.data, envelope.data.source.data, envelope.data.source.bytes);
-                event->dispatch_kind = interaction;
-                event->dispatch_payload_bytes = envelope.data.source.bytes;
-                *payload = {reinterpret_cast<const u8*>(content_scratch.data), envelope.data.source.bytes};
-            }
-            return {};
+        static constexpr GatewayClientDispatchKind kinds[]{
+            GatewayClientDispatchKind::interaction_create,
+            GatewayClientDispatchKind::interaction_success,
+            GatewayClientDispatchKind::interaction_failure,
+            GatewayClientDispatchKind::interaction_modal_create,
+            GatewayClientDispatchKind::user_note_update,
+            // Scheduled events ride the same verbatim path (guild_community.hpp).
+            GatewayClientDispatchKind::guild_scheduled_event_create,
+            GatewayClientDispatchKind::guild_scheduled_event_update,
+            GatewayClientDispatchKind::guild_scheduled_event_delete,
+            GatewayClientDispatchKind::guild_scheduled_event_user_add,
+            GatewayClientDispatchKind::guild_scheduled_event_user_remove,
+            // Soundboard (soundboard.hpp): effects in voice channels and sound lists.
+            GatewayClientDispatchKind::voice_channel_effect_send,
+            GatewayClientDispatchKind::guild_soundboard_sound_create,
+            GatewayClientDispatchKind::guild_soundboard_sound_update,
+            GatewayClientDispatchKind::guild_soundboard_sound_delete,
+            GatewayClientDispatchKind::guild_soundboard_sounds_update,
+            GatewayClientDispatchKind::soundboard_sounds,
+            GatewayClientDispatchKind::guild_bulk_ban_update,
+            // Voice channel statuses and start times (voice_channel_info.hpp).
+            GatewayClientDispatchKind::channel_info,
+            GatewayClientDispatchKind::voice_channel_start_time_update,
+            GatewayClientDispatchKind::voice_channel_status_update};
+        if (envelope.data.kind == JsonValueKind::object &&
+            envelope.data.source.bytes <= content_scratch.count) {
+            copy_bytes(content_scratch.data, envelope.data.source.data, envelope.data.source.bytes);
+            event->dispatch_kind = kinds[early - 7];
+            event->dispatch_payload_bytes = envelope.data.source.bytes;
+            *payload = {reinterpret_cast<const u8*>(content_scratch.data), envelope.data.source.bytes};
         }
+        return {};
     }
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("STATE_UPDATE"))) {
+    if (early == 27) {
         if (!upload_policy_state(envelope.data, self_user_id, structural_scratch,
                                  &event->state.upload_policy, &event->state.upload_policy_known))
             return route_error(GatewayClientDispatchRouteError::decode,
@@ -1389,22 +1316,16 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                                          event, payload, &relationship_handled);
     if (relationship_handled)
         return relationship;
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_RECIPIENT_ADD")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_RECIPIENT_REMOVE")))
+    if (early == 28 || early == 29)
         return gateway_route_recipient(envelope, structural_scratch, maximum_depth, content_scratch, event,
                                        payload);
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("STAGE_INSTANCE_CREATE")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("STAGE_INSTANCE_UPDATE")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("STAGE_INSTANCE_DELETE")))
+    if (early >= 30 && early <= 32)
         return gateway_client_route_stage_instance(envelope, structural_scratch, maximum_depth, content_scratch, event,
                                                    payload);
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("CALL_CREATE")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("CALL_UPDATE")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("CALL_DELETE")))
+    if (early >= 33 && early <= 35)
         return gateway_route_call(envelope, structural_scratch, maximum_depth, self_user_id, event, payload);
 
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("READY_USER")) ||
-        json_string_equals_ascii(envelope.event_name, utf8_literal("USER_UPDATE"))) {
+    if (early == 36 || early == 37) {
         if (!copy_event_name(envelope.event_name, event))
             return route_error(GatewayClientDispatchRouteError::event_name_capacity);
         GatewayPayloadWriter writer{content_scratch, 0};
@@ -1461,7 +1382,12 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     }
 
     GatewayEventDecodeResult decoded{};
-    if (json_string_equals_ascii(envelope.event_name, utf8_literal("PRESENCE_UPDATE"))) {
+    const u32 late = protocol_detail::wide_member_index<
+        "PRESENCE_UPDATE", "TYPING_START", "MESSAGE_CREATE", "MESSAGE_UPDATE", "MESSAGE_POLL_VOTE_ADD",
+        "MESSAGE_POLL_VOTE_REMOVE", "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE",
+        "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI", "MESSAGE_DELETE",
+        "MESSAGE_DELETE_BULK">(envelope.event_name);
+    if (late == 0) {
         UserAppearance appearance{};
         decoded = gateway_client_decode_presence(envelope.data, structural_scratch, maximum_depth,
                                                  &event->presence, &appearance);
@@ -1491,7 +1417,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         }
         *payload = {reinterpret_cast<const u8*>(content_scratch.data), extra};
         event->dispatch_kind = GatewayClientDispatchKind::presence_update;
-    } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("TYPING_START"))) {
+    } else if (late == 1) {
         GatewayTypingStartEvent typing{};
         decoded = gateway_decode_typing_start(envelope.data, structural_scratch, maximum_depth, &typing);
         if (!decoded.ok()) {
@@ -1500,8 +1426,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->dispatch_kind = GatewayClientDispatchKind::typing_start;
         event->typing = GatewayClientTypingStartEvent{typing.channel_id, typing.guild_id, typing.user_id,
                                                       typing.timestamp_seconds};
-    } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_CREATE")) ||
-               json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_UPDATE"))) {
+    } else if (late == 2 || late == 3) {
         GatewayMessageEvent message{};
         GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum]{};
         GatewayMessageReaction reactions[kGatewayMessageReactionMaximum]{};
@@ -1534,7 +1459,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
              {snapshot_users, kGatewayMessageMentionUserMaximum}},
             {{poll_answers, kGatewayMessagePollMaximumAnswers},
              {poll_counts, kGatewayMessagePollMaximumAnswers}}};
-        const bool create = json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_CREATE"));
+        const bool create = late == 2;
         decoded =
             create ? gateway_decode_message_create(
                          envelope.data, structural_scratch, maximum_depth, content_scratch, bulk_ids,
@@ -1556,10 +1481,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                      payload)) {
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
         }
-    } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_POLL_VOTE_ADD")) ||
-               json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_POLL_VOTE_REMOVE"))) {
-        const bool add =
-            json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_POLL_VOTE_ADD"));
+    } else if (late == 4 || late == 5) {
+        const bool add = late == 4;
         GatewayMessagePollVoteEvent vote{};
         decoded =
             gateway_decode_message_poll_vote(envelope.data, structural_scratch, maximum_depth, add, &vote);
@@ -1568,17 +1491,10 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->dispatch_kind = add ? GatewayClientDispatchKind::message_poll_vote_add
                                    : GatewayClientDispatchKind::message_poll_vote_remove;
         event->poll_vote = vote;
-    } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_ADD")) ||
-               json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_REMOVE")) ||
-               json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_REMOVE_ALL")) ||
-               json_string_equals_ascii(envelope.event_name,
-                                        utf8_literal("MESSAGE_REACTION_REMOVE_EMOJI"))) {
-        const bool add =
-            json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_ADD"));
-        const bool remove =
-            json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_REMOVE"));
-        const bool remove_all =
-            json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_REMOVE_ALL"));
+    } else if (late >= 6 && late <= 9) {
+        const bool add = late == 6;
+        const bool remove = late == 7;
+        const bool remove_all = late == 8;
         const GatewayMessageReactionEventKind kind = add      ? GatewayMessageReactionEventKind::add
                                                      : remove ? GatewayMessageReactionEventKind::remove
                                                      : remove_all
@@ -1596,7 +1512,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                             : GatewayClientDispatchKind::message_reaction_remove_emoji;
         copy_reaction(reaction, &event->reaction);
         *payload = ConstSlice<u8>{reinterpret_cast<const u8*>(content_scratch.data), reaction.name.bytes};
-    } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_DELETE"))) {
+    } else if (late == 10) {
         GatewayMessageDeleteEvent message{};
         decoded = gateway_decode_message_delete(envelope.data, structural_scratch, maximum_depth, &message);
         if (!decoded.ok()) {
@@ -1606,7 +1522,7 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->message.id = message.id;
         event->message.channel_id = message.channel_id;
         event->message.fields = gateway_message_field_id | gateway_message_field_channel_id;
-    } else if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_DELETE_BULK"))) {
+    } else if (late == 11) {
         GatewayMessageBulkDeleteEvent message{};
         decoded = gateway_decode_message_bulk_delete(envelope.data, structural_scratch, maximum_depth,
                                                      bulk_ids, &message);
@@ -1633,9 +1549,6 @@ void gateway_client_route_failure_event(const GatewayEnvelope& envelope,
                                         GatewayClientEvent* event) noexcept {
     if (!event)
         return;
-    const auto named = [&](Utf8View name) noexcept {
-        return json_string_equals_ascii(envelope.event_name, name);
-    };
     event->kind = GatewayClientEventKind::dispatch;
     event->sequence = envelope.sequence;
     event->has_sequence = envelope.has_sequence;
@@ -1646,23 +1559,16 @@ void gateway_client_route_failure_event(const GatewayEnvelope& envelope,
     event->json_read_error = routed.read_error;
     event->route_error_offset = routed.error_offset;
     event->route_detail = routed.detail;
-    const bool message_event = named(utf8_literal("MESSAGE_CREATE")) || named(utf8_literal("MESSAGE_UPDATE")) ||
-                               named(utf8_literal("MESSAGE_DELETE")) || named(utf8_literal("MESSAGE_DELETE_BULK"));
-    const bool reaction_event =
-        named(utf8_literal("MESSAGE_REACTION_ADD_MANY")) || named(utf8_literal("MESSAGE_REACTION_ADD")) ||
-        named(utf8_literal("MESSAGE_REACTION_REMOVE")) || named(utf8_literal("MESSAGE_REACTION_REMOVE_ALL")) ||
-        named(utf8_literal("MESSAGE_REACTION_REMOVE_EMOJI")) || named(utf8_literal("MESSAGE_POLL_VOTE_ADD")) ||
-        named(utf8_literal("MESSAGE_POLL_VOTE_REMOVE")) || named(utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY"));
-    const bool private_event = named(utf8_literal("READY_SUPPLEMENTAL")) ||
-                               named(utf8_literal("CHANNEL_RECIPIENT_ADD")) ||
-                               named(utf8_literal("CHANNEL_RECIPIENT_REMOVE"));
-    const bool relationship_event = named(utf8_literal("RELATIONSHIP_ADD")) ||
-                                    named(utf8_literal("RELATIONSHIP_UPDATE")) ||
-                                    named(utf8_literal("RELATIONSHIP_REMOVE"));
-    event->dispatch_kind = relationship_event ? GatewayClientDispatchKind::relationship_state_incomplete
-                           : private_event    ? GatewayClientDispatchKind::private_state_incomplete
-                           : message_event || reaction_event ? GatewayClientDispatchKind::message_catchup_required
-                                                             : GatewayClientDispatchKind::unknown;
+    const u32 failed_event = protocol_detail::member_index<
+        "RELATIONSHIP_ADD", "RELATIONSHIP_UPDATE", "RELATIONSHIP_REMOVE", "READY_SUPPLEMENTAL",
+        "CHANNEL_RECIPIENT_ADD", "CHANNEL_RECIPIENT_REMOVE", "MESSAGE_CREATE", "MESSAGE_UPDATE", "MESSAGE_DELETE",
+        "MESSAGE_DELETE_BULK", "MESSAGE_REACTION_ADD_MANY", "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE",
+        "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI", "MESSAGE_POLL_VOTE_ADD",
+        "MESSAGE_POLL_VOTE_REMOVE", "MESSAGE_POLL_VOTE_ADD_MANY">(envelope.event_name);
+    event->dispatch_kind = failed_event < 3    ? GatewayClientDispatchKind::relationship_state_incomplete
+                           : failed_event < 6  ? GatewayClientDispatchKind::private_state_incomplete
+                           : failed_event < 18 ? GatewayClientDispatchKind::message_catchup_required
+                                               : GatewayClientDispatchKind::unknown;
     event->event_name_bytes = 0;
     // The other kinds use the union; only the unknown marker has room for a name.
     if (event->dispatch_kind == GatewayClientDispatchKind::unknown)

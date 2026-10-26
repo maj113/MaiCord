@@ -3,6 +3,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -12,12 +13,10 @@ struct MemberParse {
 };
 bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<MemberParse*>(opaque);
-    u32 field{};
-    if (json_string_equals_ascii(name, utf8_literal("id"))) field = thread_member_thread_id;
-    else if (json_string_equals_ascii(name, utf8_literal("user_id"))) field = thread_member_user_id;
-    else if (json_string_equals_ascii(name, utf8_literal("join_timestamp"))) field = thread_member_join_timestamp;
-    else if (json_string_equals_ascii(name, utf8_literal("flags"))) field = thread_member_flags;
-    else return true;
+    static_assert(thread_member_thread_id == 1 && thread_member_user_id == 2 && thread_member_join_timestamp == 4 &&
+                  thread_member_flags == 8);
+    const u32 field = protocol_detail::member_bit<"id", "user_id", "join_timestamp", "flags">(name);
+    if (!field) return true;
     if (parse.value.fields & field) {
         parse.error = ThreadActionError::duplicate;
         return false;

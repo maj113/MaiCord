@@ -2,6 +2,8 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/memory.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 u32 steam_id(const Utf8View& value) noexcept {
@@ -66,19 +68,10 @@ bool location(Utf8View url, bool manifest, Utf8View app, EmbedStreamLocation* ou
     if (out) *out = {{origin.data + 8, origin.bytes - 8}, {url.data + origin.bytes, url.bytes - origin.bytes}};
     return true;
 }
-struct Field { Utf8View name; JsonValue value{}; bool seen{}; };
-struct Fields { Field* data; u32 count; };
-bool member(void* context, JsonString name, JsonValue value) noexcept {
-    auto& fields = *static_cast<Fields*>(context);
-    for (u32 i = 0; i < fields.count; ++i) if (json_name_is(name, fields.data[i].name)) {
-        if (fields.data[i].seen) return false;
-        fields.data[i].seen = true; fields.data[i].value = value; break;
-    }
-    return true;
-}
-template<usize N> bool fields(const JsonIndexedDocument& doc, JsonValue object, Field (&entries)[N]) noexcept {
-    Fields list{entries, static_cast<u32>(N)};
-    return json_visit_indexed_object(doc, object, 16, member, &list).ok();
+using protocol_detail::FieldSet;
+template <protocol_detail::MemberName... Names>
+__forceinline bool fields(const JsonIndexedDocument& doc, const JsonValue& value, FieldSet<Names...>& set) noexcept {
+    return protocol_detail::fields_at<16>(doc, value, set);
 }
 }
 bool steam_manifest_location(Utf8View url, Utf8View app, EmbedStreamLocation* out) noexcept { return location(url, true, app, out); }
@@ -91,12 +84,14 @@ EmbedPlayerError steam_video_manifest(Utf8View json, Utf8View app, Utf8View movi
     const auto scan = json_scan_structurals_avx1(json, scratch);
     if (!scan.ok()) return scan.error == JsonScanError::output_overflow ? E::capacity : E::malformed;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field root[]{{app}};
-    if (!fields(doc, {json, 0, JsonValueKind::object}, root) || !root[0].seen) return E::malformed;
-    Field product[]{{utf8_literal("success")}, {utf8_literal("data")}}; bool success{};
-    if (!fields(doc, root[0].value, product) || !product[0].seen || !json_value_to_bool(product[0].value, &success)) return E::malformed;
+    u8 app_name[11]{static_cast<u8>(app.bytes)}; // length-prefixed member name
+    copy_bytes(app_name + 1, app.data, app.bytes);
+    protocol_detail::FieldValue root;
+    if (!protocol_detail::fields_n(doc, {json, 0, JsonValueKind::object}, 16, &root, 1, app_name) || !root.seen) return E::malformed;
+    FieldSet<"success", "data"> product; bool success{};
+    if (!fields(doc, root.value, product) || !product[0].seen || !json_value_to_bool(product[0].value, &success)) return E::malformed;
     if (!success) return E::unavailable;
-    Field data[]{{utf8_literal("movies")}};
+    FieldSet<"movies"> data;
     if (!product[1].seen || !fields(doc, product[1].value, data)) return E::malformed;
     if (!data[0].seen) return E::unavailable;
     struct Selection { const JsonIndexedDocument* doc; u32 wanted; JsonString url{}; bool selected{}, supported{}; } selected{&doc, steam_id(movie)};
@@ -104,7 +99,7 @@ EmbedPlayerError steam_video_manifest(Utf8View json, Utf8View app, Utf8View movi
         +[](void* context, u32 index, JsonValue value) noexcept {
             auto& s = *static_cast<Selection*>(context);
             if (index >= 64) return false;
-            Field record[]{{utf8_literal("id")}, {utf8_literal("dash_h264")}}; u64 id{};
+            FieldSet<"id", "dash_h264"> record; u64 id{};
             if (!fields(*s.doc, value, record) || !record[0].seen || !json_value_to_u64(record[0].value, &id) || !id || id > ~u32{0}) return false;
             if (s.wanted ? id != s.wanted : index != 0) return true;
             if (s.selected) return false;

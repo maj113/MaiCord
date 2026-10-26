@@ -2,6 +2,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -27,22 +28,9 @@ struct Parse {
 };
 bool member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
-    u32 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        bit = 32;
-    else if (json_string_equals_ascii(name, utf8_literal("type")))
-        bit = 64;
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        bit = channel_overview_name;
-    else if (json_string_equals_ascii(name, utf8_literal("topic")))
-        bit = channel_overview_topic;
-    else if (json_string_equals_ascii(name, utf8_literal("rate_limit_per_user")))
-        bit = channel_overview_slowmode;
-    else if (json_string_equals_ascii(name, utf8_literal("nsfw")))
-        bit = channel_overview_nsfw;
-    else
+    // Bits: name 1, topic 2, slowmode 4, nsfw 8, then id 16, guild 32 and type 64.
+    const u32 bit = protocol_detail::member_bit<"name", "topic", "rate_limit_per_user", "nsfw", "id", "guild_id", "type">(name);
+    if (!bit)
         return true;
     if (parse.seen & bit) {
         parse.error = ChannelOverviewError::duplicate;

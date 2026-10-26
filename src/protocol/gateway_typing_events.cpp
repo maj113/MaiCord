@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "gateway_decode.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -26,28 +27,26 @@ struct TypingContext {
 bool visit_typing(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<TypingContext*>(opaque);
     auto& event = context->event;
-    if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+    switch (protocol_detail::member_index<"channel_id", "guild_id", "user_id", "timestamp">(name)) {
+    case 0:
         return accept_member(&context->fields, typing_field_channel_id,
                              json_value_to_snowflake(value, &event.channel_id), &context->error,
                              GatewayEventDecodeError::invalid_channel_id);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
+    case 1:
         return accept_member(&context->fields, typing_field_guild_id,
                              value.kind == JsonValueKind::null_value ||
                                  json_value_to_snowflake(value, &event.guild_id),
                              &context->error);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("user_id"))) {
+    case 2:
         return accept_member(&context->fields, typing_field_user_id,
                              json_value_to_snowflake(value, &event.user_id), &context->error);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("timestamp"))) {
+    case 3:
         return accept_member(&context->fields, typing_field_timestamp,
                              json_value_to_u64(value, &event.timestamp_seconds) &&
                                  event.timestamp_seconds != 0,
                              &context->error);
+    default: return true;
     }
-    return true;
 }
 
 } // namespace

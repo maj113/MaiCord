@@ -7,6 +7,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 
 namespace maicord {
@@ -308,25 +309,21 @@ struct MemberParse {
 bool visit_user(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<MemberParse*>(opaque);
     auto& m = *p.member;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &m.user_id);
-    if (json_string_equals_ascii(name, utf8_literal("username")))
-        return decode_text(value, m.username, kGuildModerationNameBytes, &m.username_bytes);
-    if (json_string_equals_ascii(name, utf8_literal("global_name")))
-        return decode_text(value, m.global_name, kGuildModerationNameBytes, &m.global_name_bytes);
-    if (json_string_equals_ascii(name, utf8_literal("avatar")))
-        return decode_text(value, m.avatar, kGuildModerationHashBytes, &m.avatar_bytes);
-    if (json_string_equals_ascii(name, utf8_literal("bot")))
-        return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &m.bot);
-    if (json_string_equals_ascii(name, utf8_literal("public_flags")) ||
-        json_string_equals_ascii(name, utf8_literal("flags"))) {
+    switch (member_index<"id", "username", "global_name", "avatar", "bot", "public_flags", "flags", "discriminator">(name)) {
+    case 0: return json_value_to_snowflake(value, &m.user_id);
+    case 1: return decode_text(value, m.username, kGuildModerationNameBytes, &m.username_bytes);
+    case 2: return decode_text(value, m.global_name, kGuildModerationNameBytes, &m.global_name_bytes);
+    case 3: return decode_text(value, m.avatar, kGuildModerationHashBytes, &m.avatar_bytes);
+    case 4: return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &m.bot);
+    case 5:
+    case 6: {
         u64 flags = 0;
         if (!nullable_u64(value, &flags))
             return false;
         m.user_flags |= flags;
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("discriminator"))) {
+    case 7: {
         char digits[8];
         u8 bytes = 0;
         if (!decode_text(value, digits, sizeof(digits), &bytes))
@@ -336,6 +333,9 @@ bool visit_user(void* opaque, JsonString name, JsonValue value) noexcept {
             if (digits[i] >= '0' && digits[i] <= '9')
                 parsed = parsed * 10 + static_cast<u32>(digits[i] - '0');
         m.discriminator = static_cast<u16>(parsed);
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -355,28 +355,27 @@ bool visit_role(void* opaque, u32, JsonValue value) noexcept {
 bool visit_member_object(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<MemberParse*>(opaque);
     auto& m = *p.member;
-    if (json_string_equals_ascii(name, utf8_literal("user"))) {
+    switch (member_index<"user", "nick", "roles", "joined_at", "communication_disabled_until",
+                         "unusual_dm_activity_until", "pending", "flags">(name)) {
+    case 0:
         p.user_seen = value.kind == JsonValueKind::object;
         return p.user_seen && json_visit_indexed_object(*p.document, value, kDepth, visit_user, &p).ok();
-    }
-    if (json_string_equals_ascii(name, utf8_literal("nick")))
-        return decode_text(value, m.nick, kGuildModerationNameBytes, &m.nick_bytes);
-    if (json_string_equals_ascii(name, utf8_literal("roles")))
+    case 1: return decode_text(value, m.nick, kGuildModerationNameBytes, &m.nick_bytes);
+    case 2:
         return value.kind == JsonValueKind::array &&
                json_visit_indexed_array(*p.document, value, kDepth, visit_role, &m).ok();
-    if (json_string_equals_ascii(name, utf8_literal("joined_at")))
-        return timestamp(value, &m.joined_at_ms);
-    if (json_string_equals_ascii(name, utf8_literal("communication_disabled_until")))
-        return timestamp(value, &m.communication_disabled_until_ms);
-    if (json_string_equals_ascii(name, utf8_literal("unusual_dm_activity_until")))
-        return timestamp(value, &m.unusual_dm_activity_until_ms);
-    if (json_string_equals_ascii(name, utf8_literal("pending")))
-        return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &m.pending);
-    if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+    case 3: return timestamp(value, &m.joined_at_ms);
+    case 4: return timestamp(value, &m.communication_disabled_until_ms);
+    case 5: return timestamp(value, &m.unusual_dm_activity_until_ms);
+    case 6: return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &m.pending);
+    case 7: {
         u64 flags = 0;
         if (!nullable_u64(value, &flags) || flags > 0xFFFFFFFFull)
             return false;
         m.member_flags = static_cast<u32>(flags);
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -391,7 +390,9 @@ struct ResultParse {
 bool visit_result(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<ResultParse*>(opaque);
     auto& m = p.member;
-    if (json_string_equals_ascii(name, utf8_literal("member"))) {
+    switch (member_index<"member", "source_invite_code", "join_source_type", "inviter_id", "join_source_application_id",
+                         "join_source_channel_id">(name)) {
+    case 0: {
         if (value.kind != JsonValueKind::object)
             return false;
         MemberParse member{p.document, &m, false};
@@ -399,21 +400,22 @@ bool visit_result(void* opaque, JsonString name, JsonValue value) noexcept {
                         member.user_seen && m.user_id;
         return p.member_seen;
     }
-    if (json_string_equals_ascii(name, utf8_literal("source_invite_code")))
-        return decode_text(value, m.invite_code, kGuildMemberSearchInviteCodeBytes, &m.invite_code_bytes);
-    if (json_string_equals_ascii(name, utf8_literal("join_source_type"))) {
+    case 1: return decode_text(value, m.invite_code, kGuildMemberSearchInviteCodeBytes, &m.invite_code_bytes);
+    case 2: {
         u64 type = 0;
         if (!nullable_u64(value, &type) || type > 255)
             return false;
         m.join_source_type = static_cast<u8>(type);
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("inviter_id")))
-        return json_value_to_nullable_snowflake(value, &m.inviter_id);
-    u64 checked = 0; // Validated, not kept.
-    if (json_string_equals_ascii(name, utf8_literal("join_source_application_id")) ||
-        json_string_equals_ascii(name, utf8_literal("join_source_channel_id")))
+    case 3: return json_value_to_nullable_snowflake(value, &m.inviter_id);
+    case 4:
+    case 5: {
+        u64 checked = 0; // Validated, not kept.
         return json_value_to_nullable_snowflake(value, &checked);
+    }
+    default: break;
+    }
     return true;
 }
 
@@ -454,15 +456,15 @@ bool visit_result_item(void* opaque, u32, JsonValue value) noexcept {
 
 bool visit_page(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<PageParse*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("members"))) {
+    switch (member_index<"members", "total_result_count">(name)) {
+    case 0:
         if (p.members_seen || value.kind != JsonValueKind::array) {
             p.error = p.members_seen ? GuildModerationError::duplicate : GuildModerationError::field;
             return false;
         }
         p.members_seen = true;
         return json_visit_indexed_array(*p.document, value, kDepth, visit_result_item, &p).ok();
-    }
-    if (json_string_equals_ascii(name, utf8_literal("total_result_count"))) {
+    case 1: {
         u64 total = 0;
         if (value.kind == JsonValueKind::null_value)
             return true;
@@ -472,6 +474,9 @@ bool visit_page(void* opaque, JsonString name, JsonValue value) noexcept {
         }
         p.page->total_result_count = static_cast<u32>(total);
         p.page->total_known = true;
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -520,12 +525,12 @@ bool count_item(void* opaque, u32, JsonValue value) noexcept {
 
 bool visit_bulk_ban_body(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<BulkBanParse*>(opaque);
-    const bool banned = json_string_equals_ascii(name, utf8_literal("banned_users"));
-    if (!banned && !json_string_equals_ascii(name, utf8_literal("failed_users")))
+    const u32 banned = member_index<"banned_users", "failed_users">(name);
+    if (banned > 1)
         return true;
     if (value.kind == JsonValueKind::null_value)
         return true;
-    u32& count = banned ? p.value.banned_count : p.value.failed_count;
+    u32& count = banned == 0 ? p.value.banned_count : p.value.failed_count;
     count = 0;
     return value.kind == JsonValueKind::array &&
            json_visit_indexed_array(*p.document, value, kDepth, count_item, &count).ok();
@@ -533,14 +538,16 @@ bool visit_bulk_ban_body(void* opaque, JsonString name, JsonValue value) noexcep
 
 bool visit_bulk_ban(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<BulkBanParse*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
+    switch (member_index<"guild_id", "bulk_ban">(name)) {
+    case 0:
         p.guild_seen = json_value_to_snowflake(value, &p.value.guild_id);
         return p.guild_seen;
-    }
-    if (json_string_equals_ascii(name, utf8_literal("bulk_ban")))
+    case 1:
         return value.kind == JsonValueKind::null_value ||
                (value.kind == JsonValueKind::object &&
                 json_visit_indexed_object(*p.document, value, kDepth, visit_bulk_ban_body, &p).ok());
+    default: break;
+    }
     return true;
 }
 

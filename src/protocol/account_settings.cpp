@@ -10,10 +10,12 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 #include "json_write.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::member_index;
 using Op = AccountSettingsOperation;
 using W = AccountSettingsWriteError;
 
@@ -66,25 +68,30 @@ bool client_info_member(void* opaque, JsonString name, JsonValue value) noexcept
     auto& s = *static_cast<AccountSession*>(opaque);
     if (value.kind != JsonValueKind::string)
         return true;
-    if (json_string_equals_ascii(name, utf8_literal("os")))
-        s.os_bytes = copy_small(value, s.os);
-    else if (json_string_equals_ascii(name, utf8_literal("platform")))
-        s.platform_bytes = copy_small(value, s.platform);
-    else if (json_string_equals_ascii(name, utf8_literal("location")))
-        s.location_bytes = copy_small(value, s.location);
+    switch (member_index<"os", "platform", "location">(name)) {
+    case 0: s.os_bytes = copy_small(value, s.os); break;
+    case 1: s.platform_bytes = copy_small(value, s.platform); break;
+    case 2: s.location_bytes = copy_small(value, s.location); break;
+    default: break;
+    }
     return true;
 }
 bool session_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<SessionContext*>(opaque);
     auto& s = *c.current;
-    if (json_string_equals_ascii(name, utf8_literal("id_hash"))) {
-        s.id_hash_bytes = copy_small(value, s.id_hash);
-    } else if (json_string_equals_ascii(name, utf8_literal("approx_last_used_time"))) {
+    switch (member_index<"id_hash", "approx_last_used_time", "client_info">(name)) {
+    case 0: s.id_hash_bytes = copy_small(value, s.id_hash); break;
+    case 1: {
         JsonString string{};
         if (json_value_as_string(value, &string))
             parse_iso_timestamp(string, &s.last_used_ms);
-    } else if (json_string_equals_ascii(name, utf8_literal("client_info")) && value.kind == JsonValueKind::object) {
-        return json_visit_indexed_object(c.document, value, 4, client_info_member, &s).ok();
+        break;
+    }
+    case 2:
+        if (value.kind == JsonValueKind::object)
+            return json_visit_indexed_object(c.document, value, 4, client_info_member, &s).ok();
+        break;
+    default: break;
     }
     return true;
 }
@@ -134,21 +141,28 @@ bool scope_item(void* opaque, u32, JsonValue value) noexcept {
 }
 bool application_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& app = *static_cast<AccountAuthorizedApp*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &app.application_id);
-    if (json_string_equals_ascii(name, utf8_literal("name")))
-        app.name_bytes = copy_small(value, app.name);
+    switch (member_index<"id", "name">(name)) {
+    case 0: return json_value_to_snowflake(value, &app.application_id);
+    case 1: app.name_bytes = copy_small(value, app.name); break;
+    default: break;
+    }
     return true;
 }
 bool token_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& c = *static_cast<TokenContext*>(opaque);
     auto& app = *c.current;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &app.token_id);
-    if (json_string_equals_ascii(name, utf8_literal("scopes")) && value.kind == JsonValueKind::array)
-        return json_visit_indexed_array(c.document, value, 4, scope_item, &app).ok();
-    if (json_string_equals_ascii(name, utf8_literal("application")) && value.kind == JsonValueKind::object)
-        return json_visit_indexed_object(c.document, value, 6, application_member, &app).ok();
+    switch (member_index<"id", "scopes", "application">(name)) {
+    case 0: return json_value_to_snowflake(value, &app.token_id);
+    case 1:
+        if (value.kind == JsonValueKind::array)
+            return json_visit_indexed_array(c.document, value, 4, scope_item, &app).ok();
+        break;
+    case 2:
+        if (value.kind == JsonValueKind::object)
+            return json_visit_indexed_object(c.document, value, 6, application_member, &app).ok();
+        break;
+    default: break;
+    }
     return true;
 }
 struct TokenList {
@@ -174,18 +188,15 @@ bool token_item(void* opaque, u32, JsonValue value) noexcept {
 bool self_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& u = *static_cast<AccountSelfUser*>(opaque);
     const bool string = value.kind == JsonValueKind::string;
-    if (json_string_equals_ascii(name, utf8_literal("username")))
-        u.username_bytes = string ? copy_small(value, u.username) : 0;
-    else if (json_string_equals_ascii(name, utf8_literal("global_name")))
-        u.global_name_bytes = string ? copy_small(value, u.global_name) : 0;
-    else if (json_string_equals_ascii(name, utf8_literal("email")))
-        u.email_bytes = string ? copy_small(value, u.email) : 0;
-    else if (json_string_equals_ascii(name, utf8_literal("phone")))
-        u.phone_bytes = string ? copy_small(value, u.phone) : 0;
-    else if (json_string_equals_ascii(name, utf8_literal("verified")))
-        json_value_to_bool(value, &u.verified);
-    else if (json_string_equals_ascii(name, utf8_literal("mfa_enabled")))
-        json_value_to_bool(value, &u.mfa_enabled);
+    switch (member_index<"username", "global_name", "email", "phone", "verified", "mfa_enabled">(name)) {
+    case 0: u.username_bytes = string ? copy_small(value, u.username) : 0; break;
+    case 1: u.global_name_bytes = string ? copy_small(value, u.global_name) : 0; break;
+    case 2: u.email_bytes = string ? copy_small(value, u.email) : 0; break;
+    case 3: u.phone_bytes = string ? copy_small(value, u.phone) : 0; break;
+    case 4: json_value_to_bool(value, &u.verified); break;
+    case 5: json_value_to_bool(value, &u.mfa_enabled); break;
+    default: break;
+    }
     return true;
 }
 struct ProfileContext {
@@ -196,10 +207,11 @@ bool profile_text_member(void* opaque, JsonString name, JsonValue value) noexcep
     auto& p = *static_cast<ProfileContext*>(opaque)->profile;
     if (value.kind != JsonValueKind::string)
         return true;
-    if (json_string_equals_ascii(name, utf8_literal("bio")))
-        p.bio_bytes = static_cast<u16>(copy_text(value, p.bio, sizeof(p.bio)));
-    else if (json_string_equals_ascii(name, utf8_literal("pronouns")))
-        p.pronouns_bytes = static_cast<u16>(copy_text(value, p.pronouns, sizeof(p.pronouns)));
+    switch (member_index<"bio", "pronouns">(name)) {
+    case 0: p.bio_bytes = static_cast<u16>(copy_text(value, p.bio, sizeof(p.bio))); break;
+    case 1: p.pronouns_bytes = static_cast<u16>(copy_text(value, p.pronouns, sizeof(p.pronouns))); break;
+    default: break;
+    }
     return true;
 }
 bool profile_root(void* opaque, JsonString name, JsonValue value) noexcept {

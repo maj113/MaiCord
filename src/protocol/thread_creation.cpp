@@ -5,6 +5,7 @@
 #include "maicord/protocol/thread_actions.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -46,24 +47,9 @@ bool reject(Parse& parse, ThreadCreationError error) noexcept {
 }
 bool root_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("parent_id")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("type")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("thread_metadata")))
-        bit = 32;
-    else if (json_string_equals_ascii(name, utf8_literal("last_message_id")))
-        bit = 64;
-    else if (json_string_equals_ascii(name, utf8_literal("member")))
-        bit = 128;
-    else
+    const u32 bit = protocol_detail::member_bit<"id", "parent_id", "guild_id", "type", "name", "thread_metadata",
+                                                "last_message_id", "member">(name);
+    if (!bit)
         return true;
     if (parse.seen & bit)
         return reject(parse, ThreadCreationError::duplicate);
@@ -108,20 +94,9 @@ bool root_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<Parse*>(opaque);
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("archived")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("locked")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("auto_archive_duration")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("archive_timestamp")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("create_timestamp")))
-        bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("invitable")))
-        bit = 32;
-    else
+    const u32 bit = protocol_detail::member_bit<"archived", "locked", "auto_archive_duration", "archive_timestamp",
+                                                "create_timestamp", "invitable">(name);
+    if (!bit)
         return true;
     if (parse.metadata_seen & bit)
         return reject(parse, ThreadCreationError::duplicate);

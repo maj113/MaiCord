@@ -6,6 +6,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/rest.hpp"
 
+#include "json_field_lists.hpp"
 #include "json_write.hpp"
 
 namespace maicord {
@@ -177,80 +178,57 @@ bool capture_optional_bool(ResponseContext* context, u32 field, JsonString name,
 
 bool visit_response(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ResponseContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("method")))
-        return mark_field(context, response_field_recovery_method, name.source_offset);
-    if (json_string_equals_ascii(name, utf8_literal("user")))
-        return mark_field(context, response_field_user, name.source_offset);
-    if (json_string_equals_ascii(name, utf8_literal("token"))) {
-        return capture_string(context, response_field_token, name, value, &context->token);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("ticket"))) {
-        return capture_string(context, response_field_ticket, name, value, &context->ticket);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("login_instance_id"))) {
-        return capture_optional_string(context, response_field_login_instance, name, value,
-                                       &context->login_instance);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("captcha_service"))) {
-        return capture_optional_string(context, response_field_captcha_service, name, value,
-                                       &context->captcha_service);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("captcha_sitekey"))) {
-        return capture_optional_string(context, response_field_captcha_sitekey, name, value,
-                                       &context->captcha_sitekey);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("captcha_rqdata"))) {
-        return capture_optional_string(context, response_field_captcha_rqdata, name, value,
-                                       &context->captcha_rqdata);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("captcha_rqtoken"))) {
-        return capture_optional_string(context, response_field_captcha_rqtoken, name, value,
-                                       &context->captcha_rqtoken);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("captcha_session_id"))) {
-        return capture_optional_string(context, response_field_captcha_session, name, value,
-                                       &context->captcha_session);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("user_flow"))) {
-        return capture_optional_string(context, response_field_captcha_user_flow, name, value,
-                                       &context->captcha_user_flow);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("suspended_user_token"))) {
-        return capture_string(context, response_field_suspended_token, name, value,
-                              &context->suspended_token);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("mfa"))) {
-        return capture_bool(context, response_field_mfa, name, value, &context->mfa);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("should_serve_invisible"))) {
-        return capture_optional_bool(context, response_field_captcha_invisible, name, value,
-                                     &context->captcha_invisible);
-    }
-
     u8 capability = user_auth_mfa_capability_none;
     u32 field = 0;
-    if (json_string_equals_ascii(name, utf8_literal("totp"))) {
+    switch (protocol_detail::member_index<"method", "user", "token", "ticket", "login_instance_id", "captcha_service",
+                                          "captcha_sitekey", "captcha_rqdata", "captcha_rqtoken", "captcha_session_id",
+                                          "user_flow", "suspended_user_token", "mfa", "should_serve_invisible", "totp",
+                                          "sms", "backup", "webauthn", "captcha_key", "user_id", "code">(name)) {
+    case 0: return mark_field(context, response_field_recovery_method, name.source_offset);
+    case 1: return mark_field(context, response_field_user, name.source_offset);
+    case 2: return capture_string(context, response_field_token, name, value, &context->token);
+    case 3: return capture_string(context, response_field_ticket, name, value, &context->ticket);
+    case 4:
+        return capture_optional_string(context, response_field_login_instance, name, value,
+                                       &context->login_instance);
+    case 5:
+        return capture_optional_string(context, response_field_captcha_service, name, value,
+                                       &context->captcha_service);
+    case 6:
+        return capture_optional_string(context, response_field_captcha_sitekey, name, value,
+                                       &context->captcha_sitekey);
+    case 7:
+        return capture_optional_string(context, response_field_captcha_rqdata, name, value,
+                                       &context->captcha_rqdata);
+    case 8:
+        return capture_optional_string(context, response_field_captcha_rqtoken, name, value,
+                                       &context->captcha_rqtoken);
+    case 9:
+        return capture_optional_string(context, response_field_captcha_session, name, value,
+                                       &context->captcha_session);
+    case 10:
+        return capture_optional_string(context, response_field_captcha_user_flow, name, value,
+                                       &context->captcha_user_flow);
+    case 11:
+        return capture_string(context, response_field_suspended_token, name, value,
+                              &context->suspended_token);
+    case 12: return capture_bool(context, response_field_mfa, name, value, &context->mfa);
+    case 13:
+        return capture_optional_bool(context, response_field_captcha_invisible, name, value,
+                                     &context->captcha_invisible);
+    case 14:
         capability = user_auth_mfa_capability_totp;
         field = response_field_totp;
-    } else if (json_string_equals_ascii(name, utf8_literal("sms"))) {
+        break;
+    case 15:
         capability = user_auth_mfa_capability_sms;
         field = response_field_sms;
-    } else if (json_string_equals_ascii(name, utf8_literal("backup"))) {
+        break;
+    case 16:
         capability = user_auth_mfa_capability_backup;
         field = response_field_backup;
-    }
-    if (field != 0) {
-        bool enabled = false;
-        if (!capture_optional_bool(context, field, name, value, &enabled)) {
-            return false;
-        }
-        if (enabled) {
-            context->capabilities = static_cast<u8>(context->capabilities | capability);
-        }
-        return true;
-    }
-
-    if (json_string_equals_ascii(name, utf8_literal("webauthn"))) {
+        break;
+    case 17:
         if (!mark_field(context, response_field_webauthn, name.source_offset)) {
             return false;
         }
@@ -263,15 +241,12 @@ bool visit_response(void* opaque, JsonString name, JsonValue value) noexcept {
         context->webauthn_challenge = RawField{value, 0, true};
         context->capabilities = static_cast<u8>(context->capabilities | user_auth_mfa_capability_webauthn);
         return true;
-    }
-
-    if (json_string_equals_ascii(name, utf8_literal("captcha_key"))) {
+    case 18:
         if (!mark_field(context, response_field_captcha_key, name.source_offset)) {
             return false;
         }
         return value.kind == JsonValueKind::array ? true : reject_field(context, value.source_offset);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("user_id"))) {
+    case 19: {
         if (!mark_field(context, response_field_user_id, name.source_offset)) {
             return false;
         }
@@ -284,13 +259,22 @@ bool visit_response(void* opaque, JsonString name, JsonValue value) noexcept {
         }
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("code"))) {
+    case 20:
         if (!mark_field(context, response_field_error_code, name.source_offset) ||
             !json_value_to_u64(value, &context->error_code)) {
             return context->error == UserAuthDecodeError::duplicate_field
                        ? false
                        : reject_field(context, value.source_offset);
         }
+        return true;
+    default: return true;
+    }
+    bool enabled = false;
+    if (!capture_optional_bool(context, field, name, value, &enabled)) {
+        return false;
+    }
+    if (enabled) {
+        context->capabilities = static_cast<u8>(context->capabilities | capability);
     }
     return true;
 }
@@ -1009,8 +993,7 @@ bool visit_handoff_response(void* opaque, JsonString name, JsonValue value) noex
 struct HandoffRequestContext { JsonString key, token; u32 fields; };
 bool visit_handoff_request(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<HandoffRequestContext*>(opaque);
-    const u32 field = json_string_equals_ascii(name, utf8_literal("key")) ? 1u :
-        json_string_equals_ascii(name, utf8_literal("handoff_token")) ? 2u : 0u;
+    const u32 field = protocol_detail::member_bit<"key", "handoff_token">(name);
     if (!field || (context->fields & field)) return false;
     context->fields |= field;
     return json_value_as_string(value, field == 1 ? &context->key : &context->token);

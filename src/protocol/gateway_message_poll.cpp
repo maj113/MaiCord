@@ -4,10 +4,13 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
 #include "gateway_decode.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 using protocol_detail::accept_member;
+using protocol_detail::member_bit;
+using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::mark_seen;
 using protocol_detail::read_failure;
@@ -74,25 +77,31 @@ struct Media {
 };
 bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Media*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "name", "animated">(name)) {
+    case 0:
         if (!mark_seen(&context.fields, 2, &context.error))
             return false;
         if (value.kind != JsonValueKind::null_value && !canonical_snowflake(value, &context.emoji_id))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("name"))) {
+        break;
+    case 1:
         if (!mark_seen(&context.fields, 4, &context.error) ||
             !text(value, context.bank, kGatewayMessagePollEmojiMaximumBytes,
                   kGatewayMessagePollEmojiMaximumBytes, &context.emoji_name, true))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("animated"))) {
+        break;
+    case 2:
         if (!mark_seen(&context.fields, 8, &context.error) || !json_value_to_bool(value, &context.animated))
             return false;
+        break;
+    default: break;
     }
     return true;
 }
 bool media_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Media*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("text"))) {
+    switch (member_index<"text", "emoji">(name)) {
+    case 0:
         if (!mark_seen(&context.fields, 1, &context.error) ||
             !text(value, context.bank,
                   context.answer ? kGatewayMessagePollAnswerMaximumBytes
@@ -101,7 +110,10 @@ bool media_member(void* opaque, JsonString name, JsonValue value) noexcept {
                                  : kGatewayMessagePollQuestionMaximumScalars,
                   &context.value, true))
             return false;
-    } else if (context.answer && json_string_equals_ascii(name, utf8_literal("emoji"))) {
+        break;
+    case 1: {
+        if (!context.answer)
+            break;
         if (!mark_seen(&context.fields, 16, &context.error))
             return false;
         if (value.kind == JsonValueKind::null_value)
@@ -114,6 +126,9 @@ bool media_member(void* opaque, JsonString name, JsonValue value) noexcept {
             return false;
         if (!context.emoji_id && !context.emoji_name.bytes)
             return false;
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -126,11 +141,11 @@ struct Answer {
 };
 bool answer_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Answer*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("answer_id"))) {
+    switch (member_index<"answer_id", "poll_media">(name)) {
+    case 0:
         return accept_member(&context.fields, 1, nonzero_u32(value, &context.value.answer_id),
                              &context.error);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("poll_media"))) {
+    case 1: {
         if (!mark_seen(&context.fields, 2, &context.error) || value.kind != JsonValueKind::object)
             return false;
         Media media{context.document, context.bank, context.depth, 0, {}, {}, 0, false, true, {}};
@@ -144,6 +159,9 @@ bool answer_member(void* opaque, JsonString name, JsonValue value) noexcept {
         context.value.emoji_id = media.emoji_id;
         context.value.emoji_name = media.emoji_name;
         context.value.emoji_animated = media.animated;
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -154,18 +172,23 @@ struct Count {
 };
 bool count_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Count*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id")))
+    switch (member_index<"id", "count", "me_voted">(name)) {
+    case 0:
         return accept_member(&context.fields, 1, nonzero_u32(value, &context.value.answer_id),
                              &context.error);
-    if (json_string_equals_ascii(name, utf8_literal("count"))) {
+    case 1: {
         u64 count = 0;
         if (!accept_member(&context.fields, 2, json_value_to_u64(value, &count) && count <= ~0u,
                            &context.error))
             return false;
         context.value.count = static_cast<u32>(count);
-    } else if (json_string_equals_ascii(name, utf8_literal("me_voted")))
+        break;
+    }
+    case 2:
         return accept_member(&context.fields, 4, json_value_to_bool(value, &context.value.me_voted),
                              &context.error);
+    default: break;
+    }
     return true;
 }
 struct Poll {
@@ -232,20 +255,8 @@ bool results_member(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool poll_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Poll*>(opaque);
-    u32 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("question")))
-        bit = gateway_message_poll_field_question;
-    else if (json_string_equals_ascii(name, utf8_literal("answers")))
-        bit = gateway_message_poll_field_answers;
-    else if (json_string_equals_ascii(name, utf8_literal("expiry")))
-        bit = gateway_message_poll_field_expiry;
-    else if (json_string_equals_ascii(name, utf8_literal("allow_multiselect")))
-        bit = gateway_message_poll_field_multiselect;
-    else if (json_string_equals_ascii(name, utf8_literal("layout_type")))
-        bit = gateway_message_poll_field_layout;
-    else if (json_string_equals_ascii(name, utf8_literal("results")))
-        bit = gateway_message_poll_field_results;
-    else
+    const u32 bit = member_bit<"question", "answers", "expiry", "allow_multiselect", "layout_type", "results">(name);
+    if (!bit)
         return true;
     if (!mark_seen(&context.value.fields, bit, &context.error))
         return false;
@@ -300,24 +311,14 @@ struct Vote {
 };
 bool vote_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Vote*>(opaque);
-    u32 bit = 0;
-    u64* id = nullptr;
-    if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
-        bit = 1;
-        id = &context.value.channel_id;
-    } else if (json_string_equals_ascii(name, utf8_literal("message_id"))) {
-        bit = 2;
-        id = &context.value.message_id;
-    } else if (json_string_equals_ascii(name, utf8_literal("user_id"))) {
-        bit = 4;
-        id = &context.value.user_id;
-    } else if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
-        bit = 8;
-        id = &context.value.guild_id;
-    } else if (json_string_equals_ascii(name, utf8_literal("answer_id")))
-        bit = 16;
-    else
+    const u32 bit = member_bit<"channel_id", "message_id", "user_id", "guild_id", "answer_id">(name);
+    if (!bit)
         return true;
+    u64* const id = bit == 1   ? &context.value.channel_id
+                    : bit == 2 ? &context.value.message_id
+                    : bit == 4 ? &context.value.user_id
+                    : bit == 8 ? &context.value.guild_id
+                               : nullptr;
     if (!mark_seen(&context.fields, bit, &context.error))
         return false;
     if (id) {

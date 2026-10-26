@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/model/user_activity.hpp"
@@ -57,13 +58,10 @@ struct Presence {
 };
 bool presence_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& presence = *static_cast<Presence*>(opaque);
-    u32 bit = 0;
-    if (json_string_equals_ascii(name, utf8_literal("user_id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("user"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("status"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id"))) bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("client_status"))) bit = 32;
-    else return true;
+    static constexpr u8 bits[] = {1, 2, 4, 8, 32};
+    const u32 index = protocol_detail::member_index<"user_id", "user", "status", "guild_id", "client_status">(name);
+    if (index > 4) return true;
+    const u32 bit = bits[index];
     if (presence.seen & bit) return presence.valid = false;
     presence.seen |= bit;
     if (bit == 1) return presence.valid = json_value_to_snowflake(value, &presence.value.user_id) && presence.value.user_id;
@@ -81,7 +79,7 @@ bool presence_member(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool user_id_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& presence = *static_cast<Presence*>(opaque);
-    if (!json_string_equals_ascii(name, utf8_literal("id"))) return true;
+    if (!json_name_is(name, utf8_literal("id"))) return true;
     if (presence.seen & 16) return presence.valid = false;
     presence.seen |= 16;
     u64 id = 0;
@@ -281,10 +279,10 @@ bool gateway_client_relationship_record(ConstSlice<u8> payload, u32* cursor, Rel
 }
 GatewayClientDispatchRouteResult gateway_route_relationship(const GatewayEnvelope& envelope, Slice<u32> scratch,
     Slice<char> output, GatewayClientEvent* event, ConstSlice<u8>* payload, bool* handled) noexcept {
-    const bool add = json_string_equals_ascii(envelope.event_name, utf8_literal("RELATIONSHIP_ADD"));
-    const bool update = json_string_equals_ascii(envelope.event_name, utf8_literal("RELATIONSHIP_UPDATE"));
-    const bool remove = json_string_equals_ascii(envelope.event_name, utf8_literal("RELATIONSHIP_REMOVE"));
-    *handled = add || update || remove;
+    const u32 event_index = protocol_detail::skim_member_index<"RELATIONSHIP_ADD", "RELATIONSHIP_UPDATE", "RELATIONSHIP_REMOVE">(envelope.event_name);
+    const bool update = event_index == 1;
+    const bool remove = event_index == 2;
+    *handled = event_index < 3;
     if (!*handled) return {};
     if (!event || !payload || !output.data || output.count < sizeof(RelationshipMutation)) return fail(GatewayClientDispatchRouteError::payload_capacity);
     RelationshipMutation mutation;

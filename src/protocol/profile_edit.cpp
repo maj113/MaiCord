@@ -205,7 +205,7 @@ struct Collectibles {
 };
 bool collectible_item(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Collectibles*>(opaque);
-    Field f[] = {{utf8_literal("sku_id")}, {utf8_literal("type")}};
+    FieldSet<"sku_id", "type"> f;
     u64 sku = 0, type = 0;
     if (!object(*c.doc, value, f) || !number(f[0].value, &sku) || !number(f[1].value, &type))
         return false;
@@ -221,7 +221,7 @@ bool collectibles(const JsonIndexedDocument& doc, JsonValue v, ProfileCollectibl
     return json_visit_indexed_array(doc, v, 64, collectible_item, &context).ok();
 }
 bool decoration(const JsonIndexedDocument& doc, JsonValue v, ProfileString<64>* asset, u64* sku) noexcept {
-    Field f[] = {{utf8_literal("asset")}, {utf8_literal("sku_id")}};
+    FieldSet<"asset", "sku_id"> f;
     return object(doc, v, f) && string(f[0].value, asset) && number(f[1].value, sku);
 }
 } // namespace
@@ -355,19 +355,10 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
     if (!scan.ok())
         return false;
     const JsonIndexedDocument doc{body, {structurals.data, scan.count}};
-    Field f[] = {{utf8_literal("user")},
-                 {utf8_literal("user_profile")},
-                 {utf8_literal("guild_member")},
-                 {utf8_literal("guild_member_profile")},
-                 {utf8_literal("premium_type")}};
+    FieldSet<"user", "user_profile", "guild_member", "guild_member_profile", "premium_type"> f;
     if (!object(doc, {body, 0, JsonValueKind::object}, f) || !filled(f[0].value))
         return false;
-    Field u[] = {{utf8_literal("id")},
-                 {utf8_literal("username")},
-                 {utf8_literal("global_name")},
-                 {utf8_literal("avatar")},
-                 {utf8_literal("avatar_decoration_data")},
-                 {utf8_literal("banner")}};
+    FieldSet<"id", "username", "global_name", "avatar", "avatar_decoration_data", "banner"> u;
     u64 premium = 0;
     if (!object(doc, f[0].value, u) || !number(u[0].value, &p->user_id) || p->user_id != user ||
         !string(u[1].value, &p->username) || !string(u[2].value, &p->global_name) || !string(u[3].value, &p->avatar) ||
@@ -376,8 +367,7 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
         return false;
     p->premium_type = static_cast<u8>(premium);
     p->guild_id = guild;
-    Field profile[] = {{utf8_literal("bio")},          {utf8_literal("pronouns")},     {utf8_literal("banner")},
-                       {utf8_literal("accent_color")}, {utf8_literal("theme_colors")}, {utf8_literal("collectibles")}};
+    FieldSet<"bio", "pronouns", "banner", "accent_color", "theme_colors", "collectibles"> profile;
     u64 accent = 0;
     if (!object(doc, f[1].value, profile) || !string(profile[0].value, &p->bio) ||
         !string(profile[1].value, &p->pronouns) || !string(profile[2].value, &p->banner) ||
@@ -391,16 +381,12 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
     if (!p->banner.bytes && !string(u[5].value, &p->banner))
         return false;
     if (filled(f[2].value)) {
-        Field m[] = {{utf8_literal("nick")}, {utf8_literal("avatar")}, {utf8_literal("avatar_decoration_data")}};
+        FieldSet<"nick", "avatar", "avatar_decoration_data"> m;
         if (!object(doc, f[2].value, m) || !string(m[0].value, &p->nick) || !string(m[1].value, &p->member_avatar) ||
             !decoration(doc, m[2].value, &p->member_decoration_asset, &p->member_decoration_sku))
             return false;
     }
-    Field gm[] = {{utf8_literal("bio")},
-                  {utf8_literal("pronouns")},
-                  {utf8_literal("banner")},
-                  {utf8_literal("theme_colors")},
-                  {utf8_literal("collectibles")}};
+    FieldSet<"bio", "pronouns", "banner", "theme_colors", "collectibles"> gm;
     return object(doc, f[3].value, gm) && string(gm[0].value, &p->member_bio) &&
            string(gm[1].value, &p->member_pronouns) && string(gm[2].value, &p->member_banner) &&
            theme(doc, gm[3].value, p->member_theme_colors, &p->has_member_theme) &&
@@ -424,8 +410,7 @@ struct Owned {
 };
 bool owned_item(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Owned*>(opaque);
-    Field f[] = {{utf8_literal("type")},  {utf8_literal("sku_id")}, {utf8_literal("asset")},
-                 {utf8_literal("label")}, {utf8_literal("title")},  {utf8_literal("thumbnailPreviewSrc")}};
+    FieldSet<"type", "sku_id", "asset", "label", "title", "thumbnailPreviewSrc"> f;
     u64 type = 0, sku = 0;
     if (!object(*c.doc, value, f) || !number(f[0].value, &type) || !number(f[1].value, &sku))
         return false;
@@ -455,7 +440,7 @@ bool owned_variants(Owned& c, JsonValue variants) noexcept {
 }
 bool owned_purchase(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Owned*>(opaque);
-    Field f[] = {{utf8_literal("sku_id")}, {utf8_literal("name")}, {utf8_literal("items")}, {utf8_literal("variants")}};
+    FieldSet<"sku_id", "name", "items", "variants"> f;
     if (!object(*c.doc, value, f) || !number(f[0].value, &c.purchase_sku) || !string(f[1].value, &c.name))
         return false;
     const auto name = c.name;
@@ -495,7 +480,7 @@ bool message_item(void* opaque, u32 index, JsonValue value) noexcept {
     auto& c = *static_cast<MessageContext*>(opaque);
     if (index)
         return true;
-    Field f[] = {{utf8_literal("message")}};
+    FieldSet<"message"> f;
     return object(*c.doc, value, f) && string(f[0].value, c.out);
 }
 bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
@@ -523,7 +508,7 @@ bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
                    ? json_visit_indexed_array(*c.doc, value, 64, message_item, &m).ok()
                    : true;
     }
-    Field f[] = {{utf8_literal("_errors")}};
+    FieldSet<"_errors"> f;
     if (!object(*c.doc, value, f))
         return false;
     if (filled(f[0].value)) {
@@ -540,7 +525,7 @@ bool profile_edit_decode_errors(Utf8View body, Slice<u32> structurals, ProfileEd
     if (!scan.ok())
         return false;
     const JsonIndexedDocument doc{body, {structurals.data, scan.count}};
-    Field f[] = {{utf8_literal("code")}, {utf8_literal("message")}, {utf8_literal("errors")}, {utf8_literal("username")}};
+    FieldSet<"code", "message", "errors", "username"> f;
     if (!object(doc, {body, 0, JsonValueKind::object}, f) || !number(f[0].value, &output->code) ||
         !string(f[1].value, &output->message))
         return false;

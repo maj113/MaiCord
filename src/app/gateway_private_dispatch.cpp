@@ -1,14 +1,14 @@
 #include "maicord/core/memory.hpp"
 #include "gateway_user_payload.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 struct Recipient { u64 channel; JsonValue user; JsonString nick; u8 fields; bool nick_null; GatewayEventDecodeError error; };
 bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& record = *static_cast<Recipient*>(opaque);
-    const u8 field = json_string_equals_ascii(name, utf8_literal("channel_id")) ? 1 :
-        json_string_equals_ascii(name, utf8_literal("user")) ? 2 : json_string_equals_ascii(name, utf8_literal("nick")) ? 4 : 0;
+    const u8 field = static_cast<u8>(protocol_detail::member_bit<"channel_id", "user", "nick">(name));
     if (!field) return true;
     if (record.fields & field) { record.error = GatewayEventDecodeError::duplicate_field; return false; }
     record.fields |= field;
@@ -33,8 +33,7 @@ bool ringing_entry(void* opaque, u32, JsonValue value) noexcept {
 }
 bool call_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& call = *static_cast<Call*>(opaque);
-    const u8 field = json_string_equals_ascii(name, utf8_literal("channel_id")) ? 1 :
-        json_string_equals_ascii(name, utf8_literal("ringing")) ? 2 : 0;
+    const u8 field = static_cast<u8>(protocol_detail::member_bit<"channel_id", "ringing">(name));
     if (!field) return true;
     if (call.fields & field) { call.error = GatewayEventDecodeError::duplicate_field; return false; }
     call.fields |= field;

@@ -1,5 +1,6 @@
 #include "maicord/protocol/webauthn_mfa.hpp"
 #include "maicord/core/memory.hpp"
+#include "json_field_lists.hpp"
 
 
 namespace maicord {
@@ -84,7 +85,8 @@ bool decode_string(const JsonString& string, const Slice<char>& output, u32* byt
 
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RootContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("publicKey"))) {
+    const u32 index = protocol_detail::member_index<"publicKey", "mediation">(name);
+    if (index == 0) {
         if (context->public_key_seen) {
             context->error = WebAuthnMfaError::duplicate_field;
             return false;
@@ -95,7 +97,7 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
             return false;
         }
         context->public_key = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("mediation"))) {
+    } else if (index == 1) {
         if (context->mediation_seen) {
             context->error = WebAuthnMfaError::duplicate_field;
             return false;
@@ -111,38 +113,50 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
 
 bool visit_public_key(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<PublicKeyContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("challenge"))) {
-        if (!mark(&context->fields, 1u << 0, &context->error) ||
-            !json_value_as_string(value, &context->challenge)) {
+    const u32 index = protocol_detail::member_index<"challenge", "rpId", "timeout", "allowCredentials",
+                                                    "userVerification", "extensions">(name);
+    if (index > 5) {
+        return true;
+    }
+    if (!mark(&context->fields, 1u << index, &context->error)) {
+        return reject(&context->error);
+    }
+    switch (index) {
+    case 0:
+        if (!json_value_as_string(value, &context->challenge)) {
             return reject(&context->error);
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("rpId"))) {
-        if (!mark(&context->fields, 1u << 1, &context->error) ||
-            !json_value_as_string(value, &context->rp_id)) {
+        break;
+    case 1:
+        if (!json_value_as_string(value, &context->rp_id)) {
             return reject(&context->error);
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("timeout"))) {
+        break;
+    case 2: {
         u64 timeout = 0;
-        if (!mark(&context->fields, 1u << 2, &context->error) || !json_value_to_u64(value, &timeout) ||
-            timeout == 0 || timeout > 600'000ull) {
+        if (!json_value_to_u64(value, &timeout) || timeout == 0 || timeout > 600'000ull) {
             return reject(&context->error);
         }
         context->timeout_ms = static_cast<u32>(timeout);
-    } else if (json_string_equals_ascii(name, utf8_literal("allowCredentials"))) {
-        if (!mark(&context->fields, 1u << 3, &context->error) || value.kind != JsonValueKind::array) {
+        break;
+    }
+    case 3:
+        if (value.kind != JsonValueKind::array) {
             return reject(&context->error);
         }
         context->allow_credentials = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("userVerification"))) {
-        if (!mark(&context->fields, 1u << 4, &context->error) ||
-            !json_value_as_string(value, &context->user_verification)) {
+        break;
+    case 4:
+        if (!json_value_as_string(value, &context->user_verification)) {
             return reject(&context->error);
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("extensions"))) {
-        if (!mark(&context->fields, 1u << 5, &context->error) || value.kind != JsonValueKind::object) {
+        break;
+    default:
+        if (value.kind != JsonValueKind::object) {
             return reject(&context->error);
         }
         context->extensions = value;
+        break;
     }
     return true;
 }
@@ -164,19 +178,19 @@ bool visit_credential_array(void* opaque, u32, JsonValue value) noexcept {
 bool visit_credential(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<CredentialContext*>(opaque);
     u32 fields = context->fields;
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (!mark(&fields, 1u << 0, &context->error) || !json_value_as_string(value, &context->id)) {
+    const u32 index = protocol_detail::member_index<"id", "type", "transports">(name);
+    if (index < 3) {
+        if (!mark(&fields, 1u << index, &context->error)) {
             return reject(&context->error);
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("type"))) {
-        if (!mark(&fields, 1u << 1, &context->error) || !json_value_as_string(value, &context->type)) {
+        if (index == 2) {
+            if (value.kind != JsonValueKind::array) {
+                return reject(&context->error);
+            }
+            context->transports = value;
+        } else if (!json_value_as_string(value, index == 0 ? &context->id : &context->type)) {
             return reject(&context->error);
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("transports"))) {
-        if (!mark(&fields, 1u << 2, &context->error) || value.kind != JsonValueKind::array) {
-            return reject(&context->error);
-        }
-        context->transports = value;
     }
     context->fields = static_cast<u8>(fields);
     return true;

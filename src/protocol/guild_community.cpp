@@ -8,9 +8,11 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::member_index;
 constexpr u32 kDepth = 32;
 
 // Decodes a JSON string into output, truncated at a code point boundary.
@@ -97,17 +99,14 @@ GuildVerificationFieldType field_type(JsonValue value) noexcept {
     JsonString name{};
     if (!json_value_as_string(value, &name))
         return GuildVerificationFieldType::unknown;
-    if (json_string_equals_ascii(name, utf8_literal("TERMS")))
-        return GuildVerificationFieldType::terms;
-    if (json_string_equals_ascii(name, utf8_literal("TEXT_INPUT")))
-        return GuildVerificationFieldType::text_input;
-    if (json_string_equals_ascii(name, utf8_literal("PARAGRAPH")))
-        return GuildVerificationFieldType::paragraph;
-    if (json_string_equals_ascii(name, utf8_literal("MULTIPLE_CHOICE")))
-        return GuildVerificationFieldType::multiple_choice;
-    if (json_string_equals_ascii(name, utf8_literal("VERIFICATION")))
-        return GuildVerificationFieldType::verification;
-    return GuildVerificationFieldType::unknown;
+    switch (member_index<"TERMS", "TEXT_INPUT", "PARAGRAPH", "MULTIPLE_CHOICE", "VERIFICATION">(name)) {
+    case 0: return GuildVerificationFieldType::terms;
+    case 1: return GuildVerificationFieldType::text_input;
+    case 2: return GuildVerificationFieldType::paragraph;
+    case 3: return GuildVerificationFieldType::multiple_choice;
+    case 4: return GuildVerificationFieldType::verification;
+    default: return GuildVerificationFieldType::unknown;
+    }
 }
 bool form_value(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<FormPass*>(opaque);
@@ -124,22 +123,20 @@ bool form_value(void* opaque, u32, JsonValue value) noexcept {
 bool form_field_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<FormPass*>(opaque);
     auto& f = *p.field;
-    if (json_string_equals_ascii(name, utf8_literal("field_type")))
-        f.type = field_type(value);
-    else if (json_string_equals_ascii(name, utf8_literal("label")))
-        f.label = p.bank.add(value, 512);
-    else if (json_string_equals_ascii(name, utf8_literal("description")))
-        f.description = p.bank.add(value, 1024);
-    else if (json_string_equals_ascii(name, utf8_literal("placeholder")))
-        f.placeholder = p.bank.add(value, 256);
-    else if (json_string_equals_ascii(name, utf8_literal("required")))
-        json_value_to_bool(value, &f.required);
-    else if (json_string_equals_ascii(name, utf8_literal("values")) ||
-             json_string_equals_ascii(name, utf8_literal("choices"))) {
+    switch (member_index<"field_type", "label", "description", "placeholder", "required", "values", "choices">(name)) {
+    case 0: f.type = field_type(value); break;
+    case 1: f.label = p.bank.add(value, 512); break;
+    case 2: f.description = p.bank.add(value, 1024); break;
+    case 3: f.placeholder = p.bank.add(value, 256); break;
+    case 4: json_value_to_bool(value, &f.required); break;
+    case 5:
+    case 6:
         if (value.kind == JsonValueKind::array)
             return json_visit_indexed_array(p.document, value, kDepth, form_value, &p).ok();
         if (value.kind != JsonValueKind::null_value)
             p.form->truncated = true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -162,17 +159,20 @@ bool form_field(void* opaque, u32, JsonValue value) noexcept {
 }
 bool form_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<FormPass*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("version"))) {
+    switch (member_index<"version", "description", "form_fields">(name)) {
+    case 0:
         if (value.kind == JsonValueKind::string)
             p.form->version_bytes =
                 static_cast<u8>(decode_text(value, p.form->version, kGuildVerificationVersionBytes));
-    } else if (json_string_equals_ascii(name, utf8_literal("description"))) {
-        p.form->description = p.bank.add(value, 2048);
-    } else if (json_string_equals_ascii(name, utf8_literal("form_fields"))) {
+        break;
+    case 1: p.form->description = p.bank.add(value, 2048); break;
+    case 2:
         if (value.kind != JsonValueKind::array)
             return false;
         p.fields = value;
         p.fields_seen = true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -221,30 +221,41 @@ bool onboarding_response(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("name")))
-        p.option->emoji = p.bank.add(value, 64);
-    else if (json_string_equals_ascii(name, utf8_literal("id")) && value.kind != JsonValueKind::null_value)
-        json_value_to_snowflake(value, &p.option->emoji_id);
+    switch (member_index<"name", "id">(name)) {
+    case 0: p.option->emoji = p.bank.add(value, 64); break;
+    case 1:
+        if (value.kind != JsonValueKind::null_value)
+            json_value_to_snowflake(value, &p.option->emoji_id);
+        break;
+    default: break;
+    }
     return true;
 }
 bool option_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.option;
     u32 count = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &o.id);
-    if (json_string_equals_ascii(name, utf8_literal("title")))
-        o.title = p.bank.add(value, 512);
-    else if (json_string_equals_ascii(name, utf8_literal("description")))
-        o.description = p.bank.add(value, 512);
-    else if (json_string_equals_ascii(name, utf8_literal("emoji")) && value.kind == JsonValueKind::object)
-        return json_visit_indexed_object(p.document, value, kDepth, emoji_member, &p).ok();
-    else if (json_string_equals_ascii(name, utf8_literal("role_ids")) && value.kind == JsonValueKind::array) {
-        snowflake_string_array(p.document, value, nullptr, 0, &count);
-        o.role_count = static_cast<u16>(minimum<u32>(count, 0xFFFF));
-    } else if (json_string_equals_ascii(name, utf8_literal("channel_ids")) && value.kind == JsonValueKind::array) {
-        snowflake_string_array(p.document, value, nullptr, 0, &count);
-        o.channel_count = static_cast<u16>(minimum<u32>(count, 0xFFFF));
+    switch (member_index<"id", "title", "description", "emoji", "role_ids", "channel_ids">(name)) {
+    case 0: return json_value_to_snowflake(value, &o.id);
+    case 1: o.title = p.bank.add(value, 512); break;
+    case 2: o.description = p.bank.add(value, 512); break;
+    case 3:
+        if (value.kind == JsonValueKind::object)
+            return json_visit_indexed_object(p.document, value, kDepth, emoji_member, &p).ok();
+        break;
+    case 4:
+        if (value.kind == JsonValueKind::array) {
+            snowflake_string_array(p.document, value, nullptr, 0, &count);
+            o.role_count = static_cast<u16>(minimum<u32>(count, 0xFFFF));
+        }
+        break;
+    case 5:
+        if (value.kind == JsonValueKind::array) {
+            snowflake_string_array(p.document, value, nullptr, 0, &count);
+            o.channel_count = static_cast<u16>(minimum<u32>(count, 0xFFFF));
+        }
+        break;
+    default: break;
     }
     return true;
 }
@@ -273,19 +284,17 @@ bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& prompt = *p.prompt;
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &prompt.id);
-    if (json_string_equals_ascii(name, utf8_literal("title")))
-        prompt.title = p.bank.add(value, 512);
-    else if (json_string_equals_ascii(name, utf8_literal("type")) && json_value_to_u64(value, &number))
-        prompt.type = static_cast<u8>(minimum<u64>(number, 255));
-    else if (json_string_equals_ascii(name, utf8_literal("single_select")))
-        json_value_to_bool(value, &prompt.single_select);
-    else if (json_string_equals_ascii(name, utf8_literal("required")))
-        json_value_to_bool(value, &prompt.required);
-    else if (json_string_equals_ascii(name, utf8_literal("in_onboarding")))
-        json_value_to_bool(value, &prompt.in_onboarding);
-    else if (json_string_equals_ascii(name, utf8_literal("options"))) {
+    switch (member_index<"id", "title", "type", "single_select", "required", "in_onboarding", "options">(name)) {
+    case 0: return json_value_to_snowflake(value, &prompt.id);
+    case 1: prompt.title = p.bank.add(value, 512); break;
+    case 2:
+        if (json_value_to_u64(value, &number))
+            prompt.type = static_cast<u8>(minimum<u64>(number, 255));
+        break;
+    case 3: json_value_to_bool(value, &prompt.single_select); break;
+    case 4: json_value_to_bool(value, &prompt.required); break;
+    case 5: json_value_to_bool(value, &prompt.in_onboarding); break;
+    case 6:
         if (value.kind != JsonValueKind::array) {
             p.onboarding->truncated = true;
             return true;
@@ -293,6 +302,7 @@ bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
         prompt.first_option = static_cast<u16>(p.onboarding->option_count);
         prompt.option_count = 0;
         return json_visit_indexed_array(p.document, value, kDepth, prompt_option, &p).ok();
+    default: break;
     }
     return true;
 }
@@ -323,26 +333,33 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.onboarding;
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("prompts"))) {
+    switch (member_index<"prompts", "default_channel_ids", "responses", "enabled", "mode">(name)) {
+    case 0:
         if (value.kind != JsonValueKind::array) {
             o.truncated = true;
             return true;
         }
         p.prompts = value;
         p.prompts_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("default_channel_ids"))) {
+        break;
+    case 1: {
         u32 count = 0;
         snowflake_string_array(p.document, value, o.default_channels, kGuildOnboardingDefaultChannelMaximum, &count);
         o.default_channel_count = minimum(count, kGuildOnboardingDefaultChannelMaximum);
-    } else if (json_string_equals_ascii(name, utf8_literal("responses"))) {
+        break;
+    }
+    case 2:
         if (p.responses_seen || value.kind != JsonValueKind::array)
             o.truncated = true;
         p.responses_seen = true;
         p.responses = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("enabled"))) {
-        json_value_to_bool(value, &o.enabled);
-    } else if (json_string_equals_ascii(name, utf8_literal("mode")) && json_value_to_u64(value, &number)) {
-        o.mode = static_cast<u8>(minimum<u64>(number, 255));
+        break;
+    case 3: json_value_to_bool(value, &o.enabled); break;
+    case 4:
+        if (json_value_to_u64(value, &number))
+            o.mode = static_cast<u8>(minimum<u64>(number, 255));
+        break;
+    default: break;
     }
     return true;
 }
@@ -372,33 +389,41 @@ bool event_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<EventPass*>(opaque);
     auto& e = *p.event;
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        p.bad = p.bad || !json_value_to_snowflake(value, &e.id);
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        p.bad = p.bad || !json_value_to_snowflake(value, &e.guild_id);
-    else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+    switch (member_index<"id", "guild_id", "channel_id", "name", "description", "image", "scheduled_start_time",
+                         "scheduled_end_time", "status", "entity_type", "user_count", "entity_metadata">(name)) {
+    case 0: p.bad = p.bad || !json_value_to_snowflake(value, &e.id); break;
+    case 1: p.bad = p.bad || !json_value_to_snowflake(value, &e.guild_id); break;
+    case 2:
         if (value.kind != JsonValueKind::null_value)
             json_value_to_snowflake(value, &e.channel_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("name")))
-        e.name_bytes = static_cast<u16>(decode_text(value, e.name, kScheduledEventNameBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("description")))
+        break;
+    case 3: e.name_bytes = static_cast<u16>(decode_text(value, e.name, kScheduledEventNameBytes)); break;
+    case 4:
         e.description_bytes = static_cast<u16>(decode_text(value, e.description, kScheduledEventDescriptionBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("image")))
-        e.image_bytes = static_cast<u8>(decode_text(value, e.image, kScheduledEventImageBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("scheduled_start_time")))
-        p.bad = p.bad || !timestamp(value, &e.start_ms);
-    else if (json_string_equals_ascii(name, utf8_literal("scheduled_end_time")))
-        timestamp(value, &e.end_ms);
-    else if (json_string_equals_ascii(name, utf8_literal("status")) && json_value_to_u64(value, &number))
-        e.status = number >= 1 && number <= 4 ? static_cast<ScheduledEventStatus>(number) : ScheduledEventStatus::unknown;
-    else if (json_string_equals_ascii(name, utf8_literal("entity_type")) && json_value_to_u64(value, &number))
-        e.entity = number >= 1 && number <= 3 ? static_cast<ScheduledEventEntity>(number) : ScheduledEventEntity::unknown;
-    else if (json_string_equals_ascii(name, utf8_literal("user_count")) && json_value_to_u64(value, &number)) {
-        e.user_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
-        e.user_count_known = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("entity_metadata")) &&
-               value.kind == JsonValueKind::object)
-        return json_visit_indexed_object(p.document, value, kDepth, metadata_member, &p).ok();
+        break;
+    case 5: e.image_bytes = static_cast<u8>(decode_text(value, e.image, kScheduledEventImageBytes)); break;
+    case 6: p.bad = p.bad || !timestamp(value, &e.start_ms); break;
+    case 7: timestamp(value, &e.end_ms); break;
+    case 8:
+        if (json_value_to_u64(value, &number))
+            e.status = number >= 1 && number <= 4 ? static_cast<ScheduledEventStatus>(number) : ScheduledEventStatus::unknown;
+        break;
+    case 9:
+        if (json_value_to_u64(value, &number))
+            e.entity = number >= 1 && number <= 3 ? static_cast<ScheduledEventEntity>(number) : ScheduledEventEntity::unknown;
+        break;
+    case 10:
+        if (json_value_to_u64(value, &number)) {
+            e.user_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
+            e.user_count_known = true;
+        }
+        break;
+    case 11:
+        if (value.kind == JsonValueKind::object)
+            return json_visit_indexed_object(p.document, value, kDepth, metadata_member, &p).ok();
+        break;
+    default: break;
+    }
     return true;
 }
 bool event_valid(const EventPass& pass) noexcept {
@@ -419,12 +444,12 @@ struct UserPass {
 };
 bool user_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& u = *static_cast<UserPass*>(opaque)->user;
-    if (json_string_equals_ascii(name, utf8_literal("guild_scheduled_event_id")))
-        json_value_to_snowflake(value, &u.event_id);
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        json_value_to_snowflake(value, &u.guild_id);
-    else if (json_string_equals_ascii(name, utf8_literal("user_id")))
-        json_value_to_snowflake(value, &u.user_id);
+    switch (member_index<"guild_scheduled_event_id", "guild_id", "user_id">(name)) {
+    case 0: json_value_to_snowflake(value, &u.event_id); break;
+    case 1: json_value_to_snowflake(value, &u.guild_id); break;
+    case 2: json_value_to_snowflake(value, &u.user_id); break;
+    default: break;
+    }
     return true;
 }
 bool decode_user(const JsonIndexedDocument& document, JsonValue value, ScheduledEventUser* output) noexcept {
@@ -688,12 +713,18 @@ struct SubmitPass {
 };
 bool submit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<SubmitPass*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("version"))) {
+    switch (member_index<"version", "form_fields">(name)) {
+    case 0:
         p.version = value;
         p.version_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("form_fields")) && value.kind == JsonValueKind::array) {
-        p.fields = value;
-        p.fields_seen = true;
+        break;
+    case 1:
+        if (value.kind == JsonValueKind::array) {
+            p.fields = value;
+            p.fields_seen = true;
+        }
+        break;
+    default: break;
     }
     return true;
 }
@@ -813,11 +844,11 @@ GuildApplicationStatus guild_verification_decode_status(Utf8View body, Slice<u32
                                    !json_value_as_string(value, &text))
                                    return true;
                                auto& out = *static_cast<GuildApplicationStatus*>(opaque);
-                               out = json_string_equals_ascii(text, utf8_literal("APPROVED"))    ? GuildApplicationStatus::approved
-                                     : json_string_equals_ascii(text, utf8_literal("SUBMITTED")) ? GuildApplicationStatus::submitted
-                                     : json_string_equals_ascii(text, utf8_literal("REJECTED"))  ? GuildApplicationStatus::rejected
-                                     : json_string_equals_ascii(text, utf8_literal("STARTED"))   ? GuildApplicationStatus::started
-                                                                                                 : GuildApplicationStatus::unknown;
+                               static constexpr GuildApplicationStatus kStatuses[]{
+                                   GuildApplicationStatus::approved, GuildApplicationStatus::submitted,
+                                   GuildApplicationStatus::rejected, GuildApplicationStatus::started,
+                                   GuildApplicationStatus::unknown};
+                               out = kStatuses[member_index<"APPROVED", "SUBMITTED", "REJECTED", "STARTED">(text)];
                                return true;
                            },
                            &status);
@@ -1109,20 +1140,13 @@ u32 profile_color(JsonValue value) noexcept {
     return color;
 }
 bool visit_profile_feature(void* context, u32, JsonValue feature) noexcept {
-    struct Known {
-        Utf8View name;
-        u32 bit;
-    };
-    static constexpr Known known[]{
-        {utf8_literal("DISCOVERABLE"), guild_profile_discoverable},
-        {utf8_literal("GUILD_TAGS"), guild_profile_tags},
-    };
+    static constexpr u32 bits[]{guild_profile_discoverable, guild_profile_tags};
     JsonString text{};
     if (!json_value_as_string(feature, &text))
         return true;
-    for (const auto& k : known)
-        if (json_string_equals_ascii(text, k.name))
-            *static_cast<u32*>(context) |= k.bit;
+    const u32 known = member_index<"DISCOVERABLE", "GUILD_TAGS">(text);
+    if (known < 2)
+        *static_cast<u32*>(context) |= bits[known];
     return true;
 }
 struct ProfileTraitItem {
@@ -1132,10 +1156,11 @@ struct ProfileTraitItem {
 };
 bool visit_profile_trait_member(void* context, JsonString key, JsonValue value) noexcept {
     auto& e = *static_cast<ProfileTraitItem*>(context);
-    if (json_string_equals_ascii(key, utf8_literal("label")))
-        e.trait.label_bytes = static_cast<u8>(decode_text(value, e.trait.label, kGuildProfileTraitBytes));
-    else if (json_string_equals_ascii(key, utf8_literal("position")))
-        e.positioned = json_value_to_u64(value, &e.position);
+    switch (member_index<"label", "position">(key)) {
+    case 0: e.trait.label_bytes = static_cast<u8>(decode_text(value, e.trait.label, kGuildProfileTraitBytes)); break;
+    case 1: e.positioned = json_value_to_u64(value, &e.position); break;
+    default: break;
+    }
     return true;
 }
 struct ProfileTraits {
@@ -1156,40 +1181,49 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<ProfileParse*>(opaque);
     auto& o = *p.output;
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        json_value_to_snowflake(value, &o.id);
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        o.name_bytes = static_cast<u16>(decode_text(value, o.name, kGuildProfileNameBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("description")))
-        o.description_bytes = static_cast<u16>(decode_text(value, o.description, kGuildProfileDescriptionBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("icon_hash")))
-        o.icon_bytes = static_cast<u8>(decode_text(value, o.icon, kGuildProfileHashBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("custom_banner_hash")))
-        o.banner_bytes = static_cast<u8>(decode_text(value, o.banner, kGuildProfileHashBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("badge_hash")))
-        o.badge_bytes = static_cast<u8>(decode_text(value, o.badge, kGuildProfileHashBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("tag")))
-        o.tag_bytes = static_cast<u8>(decode_text(value, o.tag, kGuildProfileTagBytes));
-    else if (json_string_equals_ascii(name, utf8_literal("online_count")) && json_value_to_u64(value, &number))
-        o.online_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
-    else if (json_string_equals_ascii(name, utf8_literal("member_count")) && json_value_to_u64(value, &number))
-        o.member_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
-    else if (json_string_equals_ascii(name, utf8_literal("visibility")) && json_value_to_u64(value, &number))
-        o.visibility = number <= 3 ? static_cast<GuildProfileVisibility>(number) : GuildProfileVisibility::not_specified;
-    else if (json_string_equals_ascii(name, utf8_literal("brand_color_primary"))) {
+    switch (member_index<"id", "name", "description", "icon_hash", "custom_banner_hash", "badge_hash", "tag",
+                         "online_count", "member_count", "visibility", "brand_color_primary", "features", "traits">(name)) {
+    case 0: json_value_to_snowflake(value, &o.id); break;
+    case 1: o.name_bytes = static_cast<u16>(decode_text(value, o.name, kGuildProfileNameBytes)); break;
+    case 2: o.description_bytes = static_cast<u16>(decode_text(value, o.description, kGuildProfileDescriptionBytes)); break;
+    case 3: o.icon_bytes = static_cast<u8>(decode_text(value, o.icon, kGuildProfileHashBytes)); break;
+    case 4: o.banner_bytes = static_cast<u8>(decode_text(value, o.banner, kGuildProfileHashBytes)); break;
+    case 5: o.badge_bytes = static_cast<u8>(decode_text(value, o.badge, kGuildProfileHashBytes)); break;
+    case 6: o.tag_bytes = static_cast<u8>(decode_text(value, o.tag, kGuildProfileTagBytes)); break;
+    case 7:
+        if (json_value_to_u64(value, &number))
+            o.online_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
+        break;
+    case 8:
+        if (json_value_to_u64(value, &number))
+            o.member_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
+        break;
+    case 9:
+        if (json_value_to_u64(value, &number))
+            o.visibility = number <= 3 ? static_cast<GuildProfileVisibility>(number) : GuildProfileVisibility::not_specified;
+        break;
+    case 10: {
         const u32 color = profile_color(value);
         o.has_brand_color = color != ~0u;
         o.brand_color = o.has_brand_color ? color : 0;
-    } else if (json_string_equals_ascii(name, utf8_literal("features")) && value.kind == JsonValueKind::array)
-        json_visit_indexed_array(*p.document, value, kDepth, visit_profile_feature, &o.features);
-    else if (json_string_equals_ascii(name, utf8_literal("traits")) && value.kind == JsonValueKind::array) {
-        // Up to five {label, position}, laid out by position.
-        ProfileTraits traits{p.document, {}};
-        json_visit_indexed_array(*p.document, value, kDepth, visit_profile_trait, &traits);
-        o.trait_count = 0;
-        for (const auto& slot : traits.slots)
-            if (slot.label_bytes)
-                o.traits[o.trait_count++] = slot;
+        break;
+    }
+    case 11:
+        if (value.kind == JsonValueKind::array)
+            json_visit_indexed_array(*p.document, value, kDepth, visit_profile_feature, &o.features);
+        break;
+    case 12:
+        if (value.kind == JsonValueKind::array) {
+            // Up to five {label, position}, laid out by position.
+            ProfileTraits traits{p.document, {}};
+            json_visit_indexed_array(*p.document, value, kDepth, visit_profile_trait, &traits);
+            o.trait_count = 0;
+            for (const auto& slot : traits.slots)
+                if (slot.label_bytes)
+                    o.traits[o.trait_count++] = slot;
+        }
+        break;
+    default: break;
     }
     return true;
 }

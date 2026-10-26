@@ -3,6 +3,7 @@
 #include "gateway_user_payload.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -16,7 +17,7 @@ struct Batch {
 };
 bool field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& batch = *static_cast<Batch*>(opaque);
-    if (!json_string_equals_ascii(name, utf8_literal("voice_states")))
+    if (!json_name_is(name, utf8_literal("voice_states")))
         return true;
     if (batch.found || value.kind != JsonValueKind::array)
         return false;
@@ -52,13 +53,11 @@ bool decode_batch(GatewayVoiceControl* voice, JsonValue data, Slice<u32> scratch
 
 bool gateway_voice_dispatch(GatewayVoiceControl* voice, const GatewayEnvelope& envelope, Slice<u32> scratch,
                             u32 maximum_depth, u64 now_ms) noexcept {
-    const bool state_event =
-        json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_STATE_UPDATE"));
-    const bool server_event =
-        json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_SERVER_UPDATE"));
-    const bool batch_event =
-        json_string_equals_ascii(envelope.event_name, utf8_literal("VOICE_STATE_UPDATE_BATCH"));
-    if (!state_event && !server_event && !batch_event)
+    const u32 event_index = protocol_detail::skim_member_index<"VOICE_STATE_UPDATE", "VOICE_SERVER_UPDATE",
+                                                               "VOICE_STATE_UPDATE_BATCH">(envelope.event_name);
+    const bool state_event = event_index == 0;
+    const bool server_event = event_index == 1;
+    if (event_index > 2)
         return false;
     // Nothing from these documents belongs in the UI mailbox, even while idle.
     if (!voice || !voice->requested)
@@ -135,7 +134,7 @@ bool flush_records(Projection& p, bool final) noexcept {
     return ok;
 }
 bool find_user(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("user")) && value.kind == JsonValueKind::object)
+    if (json_name_is(name, utf8_literal("user")) && value.kind == JsonValueKind::object)
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }
@@ -146,7 +145,7 @@ struct MemberLookup {
 };
 bool find_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& lookup = *static_cast<MemberLookup*>(opaque);
-    if (!json_string_equals_ascii(name, utf8_literal("member")) || value.kind != JsonValueKind::object)
+    if (!json_name_is(name, utf8_literal("member")) || value.kind != JsonValueKind::object)
         return true;
     return json_visit_indexed_object(*lookup.document, value, lookup.depth, find_user, &lookup.user).ok();
 }
@@ -212,7 +211,7 @@ bool visit_array(Projection& p, JsonValue array, Slice<u32> index, JsonArrayVisi
     return json_visit_value_array(array, p.array.structurals, p.depth, visit, &p).ok();
 }
 bool states_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("voice_states")))
+    if (json_name_is(name, utf8_literal("voice_states")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }
@@ -221,23 +220,23 @@ struct PassiveFields {
 };
 bool passive_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& fields = *static_cast<PassiveFields*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        fields.guild_id = value;
-    else if (json_string_equals_ascii(name, utf8_literal("updated_voice_states")))
-        fields.states = value;
-    else if (json_string_equals_ascii(name, utf8_literal("removed_voice_states")))
-        fields.removed = value;
-    else if (json_string_equals_ascii(name, utf8_literal("updated_members")))
-        fields.members = value;
+    switch (protocol_detail::member_index<"guild_id", "updated_voice_states", "removed_voice_states",
+                                          "updated_members">(name)) {
+    case 0: fields.guild_id = value; break;
+    case 1: fields.states = value; break;
+    case 2: fields.removed = value; break;
+    case 3: fields.members = value; break;
+    default: break;
+    }
     return true;
 }
 bool supplemental_guilds(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("guilds")))
+    if (json_name_is(name, utf8_literal("guilds")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }
 bool guild_id_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("id")))
+    if (json_name_is(name, utf8_literal("id")))
         *static_cast<JsonValue*>(opaque) = value;
     return true;
 }

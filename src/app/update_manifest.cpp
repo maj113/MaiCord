@@ -1,6 +1,7 @@
 #include "maicord/app/update_manifest.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -24,12 +25,8 @@ i32 hex(char value) noexcept {
 }
 bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parsed = *static_cast<Parse*>(opaque);
-    static constexpr Utf8View names[]{utf8_literal("format"), utf8_literal("product"), utf8_literal("arch"),
-        utf8_literal("channel"), utf8_literal("version"), utf8_literal("issued"), utf8_literal("expires"),
-        utf8_literal("bytes"), utf8_literal("sha256"), utf8_literal("artifact")};
-    u32 field = field_count;
-    for (u32 i = 0; i < field_count; ++i)
-        if (json_string_equals_ascii(name, names[i])) { field = i; break; }
+    const u32 field = protocol_detail::member_index<"format", "product", "arch", "channel", "version", "issued", "expires",
+                                                    "bytes", "sha256", "artifact">(name);
     if (field == field_count) { parsed.error = UpdateManifestError::field; return false; }
     const u32 bit = 1u << field;
     if (parsed.seen & bit) { parsed.error = UpdateManifestError::duplicate_field; return false; }

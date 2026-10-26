@@ -2,11 +2,13 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "gateway_decode.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 
 using protocol_detail::accept_member;
+using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::mark_seen;
 using protocol_detail::read_failure;
@@ -45,7 +47,8 @@ bool visit_call_participant(void* opaque, u32, JsonValue value) noexcept {
 
 bool visit_call_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<CallContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("ended_timestamp"))) {
+    switch (member_index<"ended_timestamp", "participants">(name)) {
+    case 0: {
         JsonString text{};
         const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&context->seen, 1,
@@ -54,10 +57,14 @@ bool visit_call_member(void* opaque, JsonString name, JsonValue value) noexcept 
                            &context->error))
             return false;
         context->ended = !null;
-    } else if (json_string_equals_ascii(name, utf8_literal("participants"))) {
+        break;
+    }
+    case 1:
         if (!accept_member(&context->seen, 2, value.kind == JsonValueKind::array, &context->error))
             return false;
         context->participants = value;
+        break;
+    default: break;
     }
     return true;
 }
@@ -172,16 +179,22 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
     auto& event = context->event;
     auto& error = context->error;
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("type"))) {
+    const u32 index = member_index<"type", "activity_instance", "application_id", "changelog_id",
+                                   "interaction_metadata", "poll", "call", "activity", "id", "channel_id", "author",
+                                   "content", "timestamp", "edited_timestamp", "flags", "nonce", "pinned",
+                                   "mention_everyone", "mentions", "mention_roles", "member">(name);
+    switch (index) {
+    case 0:
         if (!accept_member(&event.fields, gateway_message_field_type,
                            json_value_to_u64(value, &number) && number <= 65535, &error))
             return false;
         event.type = static_cast<u16>(number);
-    } else if (json_string_equals_ascii(name, utf8_literal("activity_instance")) ||
-               json_string_equals_ascii(name, utf8_literal("application_id")) ||
-               json_string_equals_ascii(name, utf8_literal("changelog_id"))) {
-        const bool activity = json_string_equals_ascii(name, utf8_literal("activity_instance"));
-        const bool application = json_string_equals_ascii(name, utf8_literal("application_id"));
+        break;
+    case 1:
+    case 2:
+    case 3: {
+        const bool activity = index == 1;
+        const bool application = index == 2;
         const u32 field = activity      ? gateway_message_field_activity_instance
                           : application ? gateway_message_field_application_id
                                         : gateway_message_field_changelog_id;
@@ -193,15 +206,18 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
             event.application_present = value.kind != JsonValueKind::null_value;
         else
             event.changelog_present = value.kind != JsonValueKind::null_value;
-    } else if (json_string_equals_ascii(name, utf8_literal("interaction_metadata"))) {
+        break;
+    }
+    case 4:
         if (!mark_seen(&event.fields, gateway_message_field_interaction_metadata, &error))
             return false;
         event.interaction_metadata_present = value.kind != JsonValueKind::null_value;
-    } else if (json_string_equals_ascii(name, utf8_literal("poll")) ||
-               json_string_equals_ascii(name, utf8_literal("call")) ||
-               json_string_equals_ascii(name, utf8_literal("activity"))) {
-        const bool poll = json_string_equals_ascii(name, utf8_literal("poll"));
-        const bool call = json_string_equals_ascii(name, utf8_literal("call"));
+        break;
+    case 5:
+    case 6:
+    case 7: {
+        const bool poll = index == 5;
+        const bool call = index == 6;
         const u32 field = poll   ? gateway_message_field_poll
                           : call ? gateway_message_field_call
                                  : gateway_message_field_activity;
@@ -216,35 +232,43 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
             event.forwarding_features |= poll   ? gateway_message_forwarding_poll
                                          : call ? gateway_message_forwarding_call
                                                 : gateway_message_forwarding_activity;
-    } else if (json_string_equals_ascii(name, utf8_literal("id"))) {
+        break;
+    }
+    case 8:
         if (!accept_member(&event.fields, gateway_message_field_id,
                            json_value_to_snowflake(value, &event.id), &error,
                            GatewayEventDecodeError::invalid_message_id))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+        break;
+    case 9:
         if (!accept_member(&event.fields, gateway_message_field_channel_id,
                            json_value_to_snowflake(value, &event.channel_id), &error,
                            GatewayEventDecodeError::invalid_channel_id))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("author"))) {
+        break;
+    case 10:
         if (!accept_member(&event.fields, gateway_message_field_author_id,
                            value.kind == JsonValueKind::object, &error,
                            GatewayEventDecodeError::invalid_author))
             return false;
         context->author = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("content"))) {
+        break;
+    case 11:
         if (!accept_member(&event.fields, gateway_message_field_content,
                            json_value_as_string(value, &context->content), &error,
                            GatewayEventDecodeError::invalid_message_content))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("timestamp"))) {
+        break;
+    case 12: {
         JsonString timestamp{};
         if (!accept_member(&event.fields, gateway_message_field_timestamp,
                            json_value_as_string(value, &timestamp) &&
                                parse_iso_timestamp(timestamp, &event.timestamp_ms),
                            &error, GatewayEventDecodeError::invalid_message_timestamp))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("edited_timestamp"))) {
+        break;
+    }
+    case 13: {
         JsonString timestamp{};
         const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&event.fields, gateway_message_field_edited_timestamp,
@@ -254,42 +278,52 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
             return false;
         if (null)
             event.edited_timestamp_ms = 0;
-    } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+        break;
+    }
+    case 14:
         if (!accept_member(&event.fields, gateway_message_field_flags,
                            json_value_to_u64(value, &number) && number <= 0xFFFFFFFFull, &error,
                            GatewayEventDecodeError::invalid_message_flags))
             return false;
         event.flags = static_cast<u32>(number);
-    } else if (json_string_equals_ascii(name, utf8_literal("nonce"))) {
+        break;
+    case 15:
         if (!accept_member(&event.fields, gateway_message_field_nonce,
                            json_value_to_message_nonce(value, &event.nonce), &error,
                            GatewayEventDecodeError::invalid_message_nonce))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("pinned"))) {
+        break;
+    case 16:
         if (!accept_member(&event.fields, gateway_message_field_pinned,
                            json_value_to_bool(value, &event.pinned), &error))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("mention_everyone"))) {
+        break;
+    case 17:
         if (!accept_member(&event.fields, gateway_message_field_mention_everyone,
                            json_value_to_bool(value, &event.mention_everyone), &error))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("mentions"))) {
+        break;
+    case 18:
         if (!accept_member(&event.fields, gateway_message_field_mentions,
                            value.kind == JsonValueKind::array, &error))
             return false;
         context->mentions = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("mention_roles"))) {
+        break;
+    case 19:
         if (!accept_member(&event.fields, gateway_message_field_mention_roles,
                            value.kind == JsonValueKind::array, &error))
             return false;
         context->mention_roles = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("member"))) {
+        break;
+    case 20:
         if (!mark_seen(&event.fields, gateway_message_field_member, &error) ||
             value.kind != JsonValueKind::object) {
             error = GatewayEventDecodeError::invalid_data;
             return false;
         }
         context->member = value;
+        break;
+    default: break;
     }
     return true;
 }
@@ -300,40 +334,49 @@ bool visit_author_member(void* opaque, JsonString name, JsonValue value) noexcep
     u64 flags = 0;
     // Public and private flags combine; keep the low policy bits (including
     // SPAMMER) and accept unknown high flags.
-    if (json_string_equals_ascii(name, utf8_literal("public_flags"))) {
+    switch (member_index<"public_flags", "flags", "bot", "id", "username", "global_name", "avatar">(name)) {
+    case 0:
         if (!accept_member(&context->seen, author_seen_public_flags, json_value_to_u64(value, &flags),
                            &context->error))
             return false;
         context->public_flags = static_cast<u32>(flags);
-    } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+        break;
+    case 1:
         if (!accept_member(&context->seen, author_seen_private_flags, json_value_to_u64(value, &flags),
                            &context->error))
             return false;
         context->private_flags = static_cast<u32>(flags);
-    } else if (json_string_equals_ascii(name, utf8_literal("bot"))) {
+        break;
+    case 2:
         if (!accept_member(&context->seen, author_seen_bot, json_value_to_bool(value, &context->bot),
                            &context->error))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("id"))) {
+        break;
+    case 3:
         if (!accept_member(&context->seen, author_seen_id, json_value_to_snowflake(value, &context->id),
                            &context->error, GatewayEventDecodeError::invalid_author_id))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("username"))) {
+        break;
+    case 4:
         if (!accept_member(&context->seen, author_seen_username,
                            json_value_as_string(value, &context->username), &context->error,
                            GatewayEventDecodeError::invalid_user_name))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("global_name"))) {
+        break;
+    case 5:
         context->global_name_null = null;
         if (!accept_member(&context->seen, author_seen_global_name,
                            null || json_value_as_string(value, &context->global_name), &context->error,
                            GatewayEventDecodeError::invalid_user_name))
             return false;
-    } else if (json_string_equals_ascii(name, utf8_literal("avatar"))) {
+        break;
+    case 6:
         context->avatar_null = null;
         if (!accept_member(&context->seen, author_seen_avatar,
                            null || json_value_as_string(value, &context->avatar), &context->error))
             return false;
+        break;
+    default: break;
     }
     return true;
 }

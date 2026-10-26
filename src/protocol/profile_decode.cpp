@@ -59,7 +59,7 @@ bool colors(const JsonIndexedDocument& doc, const JsonValue& v, u32* out, u32 ca
     return true;
 }
 bool style(const JsonIndexedDocument& doc, const JsonValue& v, NameStyle* out) noexcept {
-    Field f[] = {{utf8_literal("font_id")}, {utf8_literal("effect_id")}, {utf8_literal("colors")}};
+    FieldSet<"font_id", "effect_id", "colors"> f;
     if (!object(doc, v, f))
         return false;
     u64 font = 0, effect = 0;
@@ -81,11 +81,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
     auto& c = *static_cast<Activities*>(opaque);
     if (v.kind != JsonValueKind::object)
         return true;
-    Field f[] = {{utf8_literal("type")},
-                 {utf8_literal("name")},
-                 {utf8_literal("state")},
-                 {utf8_literal("emoji")},
-                 {utf8_literal("details")}};
+    FieldSet<"type", "name", "state", "emoji", "details"> f;
     if (!object(*c.doc, v, f))
         return false;
     u64 type = 0;
@@ -110,7 +106,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
     copy_value(&c.out->activity, text);
     c.out->fields |= appearance_custom_status;
     c.custom = true;
-    Field emoji[] = {{utf8_literal("id")}, {utf8_literal("name")}, {utf8_literal("animated")}};
+    FieldSet<"id", "name", "animated"> emoji;
     if (!object(*c.doc, f[3].value, emoji) || !number(emoji[0].value, &c.out->status_emoji_id) ||
         !string(emoji[1].value, &c.out->status_emoji) || !boolean(emoji[2].value, &c.out->emoji_animated))
         return false;
@@ -124,7 +120,7 @@ bool badge_item(void* opaque, u32, JsonValue v) noexcept {
     auto& c = *static_cast<ProfileContext*>(opaque);
     if (c.profile->badge_count >= 24)
         return true;
-    Field f[] = {{utf8_literal("id")}, {utf8_literal("icon")}, {utf8_literal("description")}, {utf8_literal("link")}};
+    FieldSet<"id", "icon", "description", "link"> f;
     auto& b = c.profile->badges[c.profile->badge_count];
     if (!object(*c.doc, v, f))
         return false;
@@ -145,8 +141,7 @@ bool connection_item(void* opaque, u32 i, JsonValue v) noexcept {
     auto& c = *static_cast<ProfileContext*>(opaque);
     if (i >= 16)
         return true;
-    Field f[] = {{utf8_literal("type")}, {utf8_literal("name")}, {utf8_literal("verified")},
-                 {utf8_literal("metadata")}};
+    FieldSet<"type", "name", "verified", "metadata"> f;
     auto& b = c.profile->connections[c.profile->connection_count];
     if (!object(*c.doc, v, f))
         return false;
@@ -156,7 +151,7 @@ bool connection_item(void* opaque, u32 i, JsonValue v) noexcept {
         return true;
     }
     // Platform metadata is loosely typed; only a string created_at is read.
-    Field m[] = {{utf8_literal("created_at")}};
+    FieldSet<"created_at"> m;
     if (f[3].value.kind == JsonValueKind::object && object(*c.doc, f[3].value, m) &&
         m[0].value.kind == JsonValueKind::string && !string(m[0].value, &b.created_at))
         reset_value(&b.created_at);
@@ -173,9 +168,7 @@ bool peer_item(void* opaque, u32 i, JsonValue v) noexcept {
     auto& c = *static_cast<PeerContext*>(opaque);
     if (i >= 100)
         return true;
-    Field f[] = {{utf8_literal("id")},       {utf8_literal("nick")},        {utf8_literal("name")},
-                 {utf8_literal("username")}, {utf8_literal("global_name")}, {utf8_literal("avatar")},
-                 {utf8_literal("icon")}};
+    FieldSet<"id", "nick", "name", "username", "global_name", "avatar", "icon"> f;
     auto& b = c.peers[*c.count];
     if (!object(*c.doc, v, f) || !number(f[0].value, &b.id) || !b.id)
         return false;
@@ -228,9 +221,7 @@ bool profile_effect_layer(void* opaque, u32 index, JsonValue value) noexcept {
     auto& context = *static_cast<EffectLayerContext*>(opaque);
     if (index >= 8)
         return true;
-    Field f[] = {{utf8_literal("src")},      {utf8_literal("id")},        {utf8_literal("start")},
-                 {utf8_literal("duration")}, {utf8_literal("loopDelay")}, {utf8_literal("zIndex")},
-                 {utf8_literal("loop")},     {utf8_literal("position")}};
+    FieldSet<"src", "id", "start", "duration", "loopDelay", "zIndex", "loop", "position"> f;
     auto& layer = context.output->layers[context.output->count];
     if (!object(*context.doc, value, f) || !string(f[0].value, &layer.source) ||
         !string(f[1].value, &layer.id) || !boolean(f[6].value, &layer.loop))
@@ -242,7 +233,7 @@ bool profile_effect_layer(void* opaque, u32 index, JsonValue value) noexcept {
             return false;
         *numbers[i] = static_cast<u32>(n);
     }
-    Field position[] = {{utf8_literal("x")}, {utf8_literal("y")}};
+    FieldSet<"x", "y"> position;
     if (!object(*context.doc, f[7].value, position) || !signed_number(position[0].value, &layer.x) ||
         !signed_number(position[1].value, &layer.y))
         return false;
@@ -253,7 +244,7 @@ bool profile_effect_layer(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool profile_effect_item(void* opaque, u32, JsonValue value) noexcept {
     auto& context = *static_cast<EffectLayerContext*>(opaque);
-    Field f[] = {{utf8_literal("type")}, {utf8_literal("effects")}, {utf8_literal("reducedMotionSrc")}};
+    FieldSet<"type", "effects", "reducedMotionSrc"> f;
     u64 type = 0;
     if (!object(*context.doc, value, f) || !number(f[0].value, &type))
         return false;
@@ -269,7 +260,7 @@ struct Effect {
 };
 bool effect_item(void* opaque, u32, JsonValue v) noexcept {
     auto& e = *static_cast<Effect*>(opaque);
-    Field f[] = {{utf8_literal("type")}, {utf8_literal("sku_id")}};
+    FieldSet<"type", "sku_id"> f;
     u64 type = 0, sku = 0;
     if (!object(*e.doc, v, f) || !number(f[0].value, &type) || !number(f[1].value, &sku))
         return false;
@@ -279,9 +270,7 @@ bool effect_item(void* opaque, u32, JsonValue v) noexcept {
 }
 bool profile_details(const JsonIndexedDocument& doc, const JsonValue& value, UserProfile* p,
                      bool guild) noexcept {
-    Field f[] = {{utf8_literal("banner")},       {utf8_literal("bio")},
-                 {utf8_literal("pronouns")},     {utf8_literal("theme_colors")},
-                 {utf8_literal("accent_color")}, {utf8_literal("collectibles")}};
+    FieldSet<"banner", "bio", "pronouns", "theme_colors", "accent_color", "collectibles"> f;
     if (!object(doc, value, f) || !string(f[0].value, guild ? &p->guild_banner : &p->banner) ||
         !string(f[1].value, guild ? &p->guild_bio : &p->bio) ||
         !string(f[2].value, guild ? &p->guild_pronouns : &p->pronouns))
@@ -308,13 +297,8 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
     UserAppearance a{};
     a.user_id = id;
     a.guild_id = guild;
-    Field f[] = {{utf8_literal("bot")},
-                 {utf8_literal("public_flags")},
-                 {utf8_literal("display_name_styles")},
-                 {utf8_literal("avatar_decoration_data")},
-                 {utf8_literal("collectibles")},
-                 {utf8_literal("primary_guild")},
-                 {utf8_literal("avatar")}};
+    FieldSet<"bot", "public_flags", "display_name_styles", "avatar_decoration_data", "collectibles", "primary_guild",
+             "avatar"> f;
     if (!object(doc, user, f))
         return false;
     if (present(f[0].value)) {
@@ -334,17 +318,17 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
     }
     if (present(f[3].value)) {
         a.fields |= appearance_decoration;
-        Field d[] = {{utf8_literal("asset")}};
+        FieldSet<"asset"> d;
         if (!object(doc, f[3].value, d) || !string(d[0].value, &a.decoration))
             return false;
     }
     if (present(f[4].value)) {
-        Field c[] = {{utf8_literal("nameplate")}};
+        FieldSet<"nameplate"> c;
         if (!object(doc, f[4].value, c))
             return false;
         if (present(c[0].value) || f[4].value.kind == JsonValueKind::null_value) {
             a.fields |= appearance_nameplate;
-            Field n[] = {{utf8_literal("asset")}, {utf8_literal("sku_id")}};
+            FieldSet<"asset", "sku_id"> n;
             if (!object(doc, c[0].value, n) || !string(n[0].value, &a.nameplate) ||
                 !number(n[1].value, &a.nameplate_sku))
                 return false;
@@ -352,10 +336,7 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
     }
     if (present(f[5].value)) {
         a.fields |= appearance_guild_tag;
-        Field g[] = {{utf8_literal("identity_guild_id")},
-                     {utf8_literal("identity_enabled")},
-                     {utf8_literal("tag")},
-                     {utf8_literal("badge")}};
+        FieldSet<"identity_guild_id", "identity_enabled", "tag", "badge"> g;
         if (!object(doc, f[5].value, g) || !number(g[0].value, &a.primary_guild_id) ||
             !boolean(g[1].value, &a.primary_enabled) || !string(g[2].value, &a.primary_tag) ||
             !string(g[3].value, &a.primary_badge))
@@ -371,7 +352,7 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
 }
 bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
                              UserAppearance* output) noexcept {
-    Field f[] = {{utf8_literal("activities")}};
+    FieldSet<"activities"> f;
     if (!object(doc, presence, f))
         return false;
     if (!present(f[0].value))
@@ -394,25 +375,11 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
     if (!scan.ok())
         return false;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field f[] = {{utf8_literal("user")},
-                 {utf8_literal("user_profile")},
-                 {utf8_literal("guild_member")},
-                 {utf8_literal("guild_member_profile")},
-                 {utf8_literal("badges")},
-                 {utf8_literal("connected_accounts")},
-                 {utf8_literal("mutual_guilds")},
-                 {utf8_literal("mutual_friends")},
-                 {utf8_literal("mutual_friends_count")},
-                 {utf8_literal("premium_type")},
-                 {utf8_literal("private")},
-                 {utf8_literal("guild_badges")}};
+    FieldSet<"user", "user_profile", "guild_member", "guild_member_profile", "badges", "connected_accounts",
+             "mutual_guilds", "mutual_friends", "mutual_friends_count", "premium_type", "private", "guild_badges"> f;
     if (!object(doc, {json, 0, JsonValueKind::object}, f))
         return false;
-    Field u[] = {{utf8_literal("id")},
-                 {utf8_literal("username")},
-                 {utf8_literal("global_name")},
-                 {utf8_literal("avatar")},
-                 {utf8_literal("banner")}};
+    FieldSet<"id", "username", "global_name", "avatar", "banner"> u;
     if (!present(f[0].value) || !object(doc, f[0].value, u) || !number(u[0].value, &p->user_id) ||
         p->user_id != expected || !string(u[1].value, &p->username) || !p->username.bytes ||
         !string(u[2].value, &p->display_name) || !string(u[3].value, &p->avatar))
@@ -427,7 +394,7 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
     if (!p->banner.bytes && !string(u[4].value, &p->banner))
         return false;
     if (filled(f[2].value)) {
-        Field m[] = {{utf8_literal("nick")}, {utf8_literal("roles")}, {utf8_literal("joined_at")}};
+        FieldSet<"nick", "roles", "joined_at"> m;
         if (!object(doc, f[2].value, m) || !string(m[0].value, &p->nickname) ||
             !string(m[2].value, &p->joined_at) ||
             !user_appearance_decode(doc, f[2].value, expected, guild, &p->guild_appearance))
@@ -466,7 +433,7 @@ bool profile_effect_decode(Utf8View json, Slice<u32> scratch, u64 sku,
     if (!scan.ok())
         return false;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
-    Field f[] = {{utf8_literal("items")}, {utf8_literal("sku_id")}};
+    FieldSet<"items", "sku_id"> f;
     u64 received = 0;
     if (!object(doc, {json, 0, JsonValueKind::object}, f) || !number(f[1].value, &received) ||
         (received && received != sku))

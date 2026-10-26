@@ -3,27 +3,28 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_detail_store.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 
-struct Key {
-    Utf8View name;
-    u16 field;
-};
-constexpr Key kKeys[] = {
-    {utf8_literal("premium_tier"), guild_detail_premium_tier},
-    {utf8_literal("premium_subscription_count"), guild_detail_boost_count},
-    {utf8_literal("system_channel_flags"), guild_detail_system_channel_flags},
-    {utf8_literal("rules_channel_id"), guild_detail_rules_channel},
-    {utf8_literal("public_updates_channel_id"), guild_detail_public_updates_channel},
-    {utf8_literal("safety_alerts_channel_id"), guild_detail_safety_alerts_channel},
-    {utf8_literal("premium_progress_bar_enabled"), guild_detail_progress_bar},
-    {utf8_literal("description"), guild_detail_description},
-    {utf8_literal("vanity_url_code"), guild_detail_vanity},
-    {utf8_literal("incidents_data"), guild_detail_incidents},
-    {utf8_literal("member_count"), guild_detail_member_count},
-    {utf8_literal("splash"), guild_detail_splash},
+using protocol_detail::member_index;
+using protocol_detail::wide_member_index;
+
+// In the order of the member names listed in gateway_guild_detail_visit.
+constexpr u16 kFields[] = {
+    guild_detail_premium_tier,
+    guild_detail_boost_count,
+    guild_detail_system_channel_flags,
+    guild_detail_rules_channel,
+    guild_detail_public_updates_channel,
+    guild_detail_safety_alerts_channel,
+    guild_detail_progress_bar,
+    guild_detail_description,
+    guild_detail_vanity,
+    guild_detail_incidents,
+    guild_detail_member_count,
+    guild_detail_splash,
 };
 
 bool is_null(JsonValue value) noexcept {
@@ -111,22 +112,31 @@ bool incident_time(JsonValue value, u64* milliseconds) noexcept {
 bool visit_incident(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<GatewayGuildDetails*>(opaque);
     u64 stamp = 0;
-    if (json_name_is(name, utf8_literal("invites_disabled_until"))) {
+    switch (member_index<"invites_disabled_until", "dms_disabled_until", "raid_detected_at", "dm_spam_detected_at",
+                         "lockdown_duration_hours">(name)) {
+    case 0:
         if (incident_time(value, &stamp))
             d.invites_disabled_until_ms = stamp;
-    } else if (json_name_is(name, utf8_literal("dms_disabled_until"))) {
+        break;
+    case 1:
         if (incident_time(value, &stamp))
             d.dms_disabled_until_ms = stamp;
-    } else if (json_name_is(name, utf8_literal("raid_detected_at"))) {
+        break;
+    case 2:
         if (incident_time(value, &stamp))
             d.raid_detected_at_ms = stamp;
-    } else if (json_name_is(name, utf8_literal("dm_spam_detected_at"))) {
+        break;
+    case 3:
         if (incident_time(value, &stamp))
             d.dm_spam_detected_at_ms = stamp;
-    } else if (json_name_is(name, utf8_literal("lockdown_duration_hours"))) {
+        break;
+    case 4: {
         u64 hours = 0;
         if (!is_null(value) && json_value_to_u64(value, &hours))
             d.lockdown_duration_hours = static_cast<u8>(hours > 255 ? 255 : hours);
+        break;
+    }
+    default: break;
     }
     return true;
 }
@@ -134,14 +144,17 @@ bool visit_incident(void* opaque, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, JsonValue value) noexcept {
-    for (const Key& key : kKeys) {
-        if (!json_name_is(name, key.name))
-            continue;
-        if (d->seen & key.field)
+    const u32 index = wide_member_index<"premium_tier", "premium_subscription_count", "system_channel_flags",
+                                   "rules_channel_id", "public_updates_channel_id", "safety_alerts_channel_id",
+                                   "premium_progress_bar_enabled", "description", "vanity_url_code",
+                                   "incidents_data", "member_count", "splash">(name);
+    if (index < 12) {
+        const u16 field = kFields[index];
+        if (d->seen & field)
             return true;
         bool valid = true;
         u64 number = 0;
-        switch (key.field) {
+        switch (field) {
         case guild_detail_premium_tier:
             valid = json_value_to_u64(value, &number) && number <= 255;
             if (valid)
@@ -176,7 +189,7 @@ bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, Js
         default: break;
         }
         if (valid)
-            d->seen = static_cast<u16>(d->seen | key.field);
+            d->seen = static_cast<u16>(d->seen | field);
         return true;
     }
     return false;

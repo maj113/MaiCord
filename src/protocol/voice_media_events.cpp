@@ -1,16 +1,17 @@
 #include "maicord/protocol/voice_media_events.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 // Recognized wire names, not a claim that an encryptor is implemented.
 u32 voice_transport_mode(JsonString name) noexcept {
-    if (json_string_equals_ascii(name, utf8_literal("aead_aes256_gcm_rtpsize")))
-        return voice_transport_aes256_gcm_rtpsize;
-    if (json_string_equals_ascii(name, utf8_literal("aead_xchacha20_poly1305_rtpsize")))
-        return voice_transport_xchacha20_poly1305_rtpsize;
-    return 0;
+    switch (protocol_detail::member_index<"aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize">(name)) {
+    case 0: return voice_transport_aes256_gcm_rtpsize;
+    case 1: return voice_transport_xchacha20_poly1305_rtpsize;
+    default: return 0;
+    }
 }
 struct Read {
     JsonIndexedDocument document;
@@ -60,12 +61,7 @@ bool array(Read& read, JsonValue value, JsonArrayVisitor visitor, bool nonempty 
 }
 bool ready_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<Read*>(opaque);
-    const Utf8View names[]{utf8_literal("ssrc"),  utf8_literal("ip"),      utf8_literal("port"),
-                           utf8_literal("modes"), utf8_literal("streams"), utf8_literal("experiments")};
-    u32 index = 0;
-    for (; index < 6; ++index)
-        if (json_string_equals_ascii(name, names[index]))
-            break;
+    const u32 index = protocol_detail::member_index<"ssrc", "ip", "port", "modes", "streams", "experiments">(name);
     if (index == 6)
         return true; // In particular, ignore Ready's obsolete heartbeat_interval.
     const u32 bit = 1u << index;
@@ -100,19 +96,9 @@ bool ready_field(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool description_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<Read*>(opaque);
-    const Utf8View names[]{utf8_literal("mode"),
-                           utf8_literal("secret_key"),
-                           utf8_literal("sdp"),
-                           utf8_literal("audio_codec"),
-                           utf8_literal("video_codec"),
-                           utf8_literal("media_session_id"),
-                           utf8_literal("keyframe_interval"),
-                           utf8_literal("bandwidth_estimation_experiment"),
-                           utf8_literal("dave_protocol_version")};
-    u32 index = 0;
-    for (; index < 9; ++index)
-        if (json_string_equals_ascii(name, names[index]))
-            break;
+    const u32 index = protocol_detail::member_index<"mode", "secret_key", "sdp", "audio_codec", "video_codec",
+                                                    "media_session_id", "keyframe_interval",
+                                                    "bandwidth_estimation_experiment", "dave_protocol_version">(name);
     if (index == 9)
         return true;
     const u32 bit = 1u << index;

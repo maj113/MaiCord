@@ -2,6 +2,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -197,17 +198,7 @@ struct InstanceDecode {
 };
 bool visit_instance(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& d = *static_cast<InstanceDecode*>(opaque);
-    u32 field = 0;
-    if (json_string_equals_ascii(key, utf8_literal("id")))
-        field = 1;
-    else if (json_string_equals_ascii(key, utf8_literal("guild_id")))
-        field = 2;
-    else if (json_string_equals_ascii(key, utf8_literal("channel_id")))
-        field = 4;
-    else if (json_string_equals_ascii(key, utf8_literal("topic")))
-        field = 8;
-    else if (json_string_equals_ascii(key, utf8_literal("privacy_level")))
-        field = 16;
+    const u32 field = protocol_detail::member_bit<"id", "guild_id", "channel_id", "topic", "privacy_level">(key);
     if (!field)
         return true;
     if (d.seen & field) {

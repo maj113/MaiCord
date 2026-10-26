@@ -5,6 +5,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -357,36 +358,22 @@ u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application
     return w.finish();
 }
 namespace {
+enum ActivityMember : u32 {
+    activity_type, activity_name, activity_details, activity_state, activity_url, activity_application_id,
+    activity_timestamps, activity_created_at, activity_party, activity_assets, activity_buttons, activity_flags,
+    activity_session_id, activity_platform, activity_display, activity_member_count
+};
 struct ActivityFields {
-    JsonValue type, name, details, state, url, application_id, timestamps, created_at, party, assets, buttons,
-        flags, session_id, platform, display;
+    JsonValue v[activity_member_count];
 };
 bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& f = *static_cast<ActivityFields*>(opaque);
-    struct Entry {
-        Utf8View key;
-        JsonValue* slot;
-    } const entries[] = {{utf8_literal("type"), &f.type},
-                         {utf8_literal("name"), &f.name},
-                         {utf8_literal("details"), &f.details},
-                         {utf8_literal("state"), &f.state},
-                         {utf8_literal("url"), &f.url},
-                         {utf8_literal("application_id"), &f.application_id},
-                         {utf8_literal("timestamps"), &f.timestamps},
-                         {utf8_literal("created_at"), &f.created_at},
-                         {utf8_literal("party"), &f.party},
-                         {utf8_literal("assets"), &f.assets},
-                         {utf8_literal("buttons"), &f.buttons},
-                         {utf8_literal("flags"), &f.flags},
-                         {utf8_literal("session_id"), &f.session_id},
-                         {utf8_literal("platform"), &f.platform},
-                         {utf8_literal("status_display_type"), &f.display}};
-    for (const auto& entry : entries)
-        if (json_string_equals_ascii(key, entry.key)) {
-            if (!entry.slot->source.data) // first occurrence wins
-                *entry.slot = value;
-            break;
-        }
+    const u32 index = protocol_detail::wide_member_index<"type", "name", "details", "state", "url", "application_id",
+                                                         "timestamps", "created_at", "party", "assets", "buttons",
+                                                         "flags", "session_id", "platform", "status_display_type">(key);
+    // First occurrence wins.
+    if (index < activity_member_count && !f.v[index].source.data)
+        f.v[index] = value;
     return true;
 }
 bool present(const JsonValue& v) noexcept {
@@ -445,13 +432,13 @@ struct Members {
 };
 bool members(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& m = *static_cast<Members*>(opaque);
-    if (m.ka.bytes && json_string_equals_ascii(key, m.ka) && !m.a.source.data)
+    if (m.ka.bytes && json_name_is(key, m.ka) && !m.a.source.data)
         m.a = value;
-    else if (m.kb.bytes && json_string_equals_ascii(key, m.kb) && !m.b.source.data)
+    else if (m.kb.bytes && json_name_is(key, m.kb) && !m.b.source.data)
         m.b = value;
-    else if (m.kc.bytes && json_string_equals_ascii(key, m.kc) && !m.c.source.data)
+    else if (m.kc.bytes && json_name_is(key, m.kc) && !m.c.source.data)
         m.c = value;
-    else if (m.kd.bytes && json_string_equals_ascii(key, m.kd) && !m.d.source.data)
+    else if (m.kd.bytes && json_name_is(key, m.kd) && !m.d.source.data)
         m.d = value;
     return true;
 }
@@ -482,7 +469,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     ActivityFields f{};
     if (!json_visit_indexed_object(*c.doc, value, 64, activity_member, &f).ok())
         return false;
-    const u64 type = number(f.type);
+    const u64 type = number(f.v[activity_type]);
     if (type == 4 || type > 5 || c.out->count == kUserActivityMaximum)
         return true;
     Pending pending{};
@@ -491,26 +478,26 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
         const u32 i = static_cast<u32>(field);
         pending.bytes[i] = static_cast<u16>(decode(v, pending.text[i], kUserActivityFieldBudget[i], whole));
     };
-    take(F::name, f.name, false);
+    take(F::name, f.v[activity_name], false);
     if (!pending.bytes[0])
         return true;
-    take(F::details, f.details, false);
-    take(F::state, f.state, false);
+    take(F::details, f.v[activity_details], false);
+    take(F::state, f.v[activity_state], false);
     if (type == 1)
-        take(F::url, f.url, true);
-    take(F::session, f.session_id, true);
+        take(F::url, f.v[activity_url], true);
+    take(F::session, f.v[activity_session_id], true);
     Members assets{{}, {}, {}, {}, utf8_literal("large_image"), utf8_literal("large_text"),
                    utf8_literal("small_image"), utf8_literal("small_text")};
-    if (!object(*c.doc, f.assets, &assets))
+    if (!object(*c.doc, f.v[activity_assets], &assets))
         return false;
     take(F::large_image, assets.a, true);
     take(F::large_text, assets.b, false);
     take(F::small_image, assets.c, true);
     take(F::small_text, assets.d, false);
     u8 buttons = 0;
-    if (present(f.buttons) && f.buttons.kind == JsonValueKind::array) {
+    if (present(f.v[activity_buttons]) && f.v[activity_buttons].kind == JsonValueKind::array) {
         Array list{};
-        if (!json_visit_indexed_array(*c.doc, f.buttons, 64, array_item, &list).ok())
+        if (!json_visit_indexed_array(*c.doc, f.v[activity_buttons], 64, array_item, &list).ok())
             return false;
         for (u32 i = 0; i < list.count && i < 2; ++i) {
             // Other users' buttons are labels; our own may be {label,url}.
@@ -535,11 +522,11 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     auto& a = c.out->items[c.out->count];
     reset_value(&a);
     a.type = static_cast<UserActivityType>(type);
-    a.application_id = number(f.application_id);
-    a.created_ms = number(f.created_at);
-    a.flags = static_cast<u32>(number(f.flags));
+    a.application_id = number(f.v[activity_application_id]);
+    a.created_ms = number(f.v[activity_created_at]);
+    a.flags = static_cast<u32>(number(f.v[activity_flags]));
     Members times{{}, {}, {}, {}, utf8_literal("start"), utf8_literal("end")};
-    if (!object(*c.doc, f.timestamps, &times))
+    if (!object(*c.doc, f.v[activity_timestamps], &times))
         return false;
     a.start_ms = number(times.a);
     a.end_ms = number(times.b);
@@ -549,17 +536,17 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     if (a.end_ms && a.end_ms < 100'000'000'000ull)
         a.end_ms *= 1000;
     Members party{{}, {}, {}, {}, utf8_literal("size"), utf8_literal("id")};
-    if (!object(*c.doc, f.party, &party))
+    if (!object(*c.doc, f.v[activity_party], &party))
         return false;
-    if (present(f.party) && f.party.kind == JsonValueKind::object) {
+    if (present(f.v[activity_party]) && f.v[activity_party].kind == JsonValueKind::object) {
         a.detail |= user_activity_has_party;
         char id[16];
         if (decode(party.b, id, sizeof(id), false) >= 8 && bytes_equal(id, "spotify:", 8))
             a.detail |= user_activity_spotify_party;
     }
-    a.platform = platform(f.platform);
-    if (present(f.display) && f.display.kind == JsonValueKind::number) {
-        const u64 display = number(f.display);
+    a.platform = platform(f.v[activity_platform]);
+    if (present(f.v[activity_display]) && f.v[activity_display].kind == JsonValueKind::number) {
+        const u64 display = number(f.v[activity_display]);
         if (display <= 2)
             a.detail |= static_cast<u8>((display + 1) << user_activity_display_shift);
     }
@@ -598,7 +585,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
 }
 bool root_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& activities = *static_cast<JsonValue*>(opaque);
-    if (json_string_equals_ascii(key, utf8_literal("activities")) && !activities.source.data)
+    if (json_name_is(key, utf8_literal("activities")) && !activities.source.data)
         activities = value;
     return true;
 }

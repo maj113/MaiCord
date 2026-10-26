@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "../protocol/json_field_lists.hpp"
 
 #include "gateway_dispatch_common.hpp"
 #include "maicord/model/user_profile.hpp"
@@ -28,25 +29,32 @@ bool mark(PresenceContext* context, u8 field) noexcept {
 bool visit_presence(void* opaque, JsonString key, JsonValue value) noexcept {
     auto* context = static_cast<PresenceContext*>(opaque);
     bool valid = true;
-    if (json_string_equals_ascii(key, utf8_literal("guild_id"))) {
+    switch (protocol_detail::member_index<"guild_id", "user", "status", "client_status">(key)) {
+    case 0:
         if (!mark(context, 1)) return false;
         valid = value.kind == JsonValueKind::null_value ||
                 json_value_to_snowflake(value, &context->value.guild_id);
-    } else if (json_string_equals_ascii(key, utf8_literal("user"))) {
+        break;
+    case 1:
         if (!mark(context, 2)) return false;
         valid = value.kind == JsonValueKind::object;
         context->user = value;
-    } else if (json_string_equals_ascii(key, utf8_literal("status"))) {
+        break;
+    case 2: {
         if (!mark(context, 4)) return false;
         JsonString status{};
         valid = json_value_as_string(value, &status);
         if (valid)
             context->value.status = gateway_member_status(true, status);
-    } else if (json_string_equals_ascii(key, utf8_literal("client_status"))) {
+        break;
+    }
+    case 3:
         if (!mark(context, 16)) return false;
         // Per-platform detail is advisory: a malformed object leaves every
         // platform offline rather than dropping the presence.
         if (!client_status_decode(value, &context->value.client_status)) context->value.client_status = 0;
+        break;
+    default: break;
     }
     if (!valid) context->error = GatewayEventDecodeError::invalid_data;
     return valid;
@@ -54,7 +62,7 @@ bool visit_presence(void* opaque, JsonString key, JsonValue value) noexcept {
 
 bool visit_user(void* opaque, JsonString key, JsonValue value) noexcept {
     auto* context = static_cast<PresenceContext*>(opaque);
-    if (!json_string_equals_ascii(key, utf8_literal("id"))) return true;
+    if (!json_name_is(key, utf8_literal("id"))) return true;
     if (!mark(context, 8)) return false;
     if (!json_value_to_snowflake(value, &context->value.user_id)) {
         context->error = GatewayEventDecodeError::invalid_data;

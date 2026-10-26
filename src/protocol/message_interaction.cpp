@@ -4,6 +4,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -53,13 +54,14 @@ struct EventContext {
 
 bool visit_event(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EventContext*>(opaque);
-    if (name_is(name, "id"))
-        return (context->id_seen = json_value_to_u64_or_string(value, &context->event.id));
-    if (name_is(name, "nonce")) {
+    switch (member_index<"id", "nonce">(name)) {
+    case 0: return (context->id_seen = json_value_to_u64_or_string(value, &context->event.id));
+    case 1:
         // Other clients may use opaque nonces; only numeric ones can match ours.
         if (!json_value_to_u64_or_string(value, &context->event.nonce))
             context->event.nonce = 0;
-        return true;
+        break;
+    default: break;
     }
     return true;
 }
@@ -90,49 +92,47 @@ bool visit_input(void* opaque, JsonString name, JsonValue value) noexcept {
     Pool* pool = &context->modal->pool;
     MessageModalField& field = context->field;
     u64 number = 0;
-    if (name_is(name, "type"))
-        return json_value_to_u64(value, &context->type);
-    if (name_is(name, "id")) {
+    const u32 member = member_index<"type", "id", "custom_id", "label", "description", "placeholder", "value", "content",
+                                    "style", "min_length", "max_length", "required", "component", "components">(name);
+    switch (member) {
+    case 0: return json_value_to_u64(value, &context->type);
+    case 1:
         if (json_value_to_u64(value, &number) && number <= 0xFFFFFFFFu)
             field.id = static_cast<u32>(number);
-        return true;
-    }
-    if (name_is(name, "custom_id"))
-        return decode_string(value, pool, &field.custom_id, kMessageInteractionCustomIdMaximumBytes);
-    if (name_is(name, "label"))
-        return decode_string(value, pool, &field.label, 512);
-    if (name_is(name, "description"))
-        return decode_string(value, pool, &field.description, 512);
-    if (name_is(name, "placeholder"))
-        return decode_string(value, pool, &field.placeholder, 512);
-    if (name_is(name, "value"))
-        return decode_string(value, pool, &field.value, kMessageModalValueMaximumBytes);
-    if (name_is(name, "content"))
-        return decode_string(value, pool, &context->content, 4096);
-    if (name_is(name, "style")) {
+        break;
+    case 2: return decode_string(value, pool, &field.custom_id, kMessageInteractionCustomIdMaximumBytes);
+    case 3: return decode_string(value, pool, &field.label, 512);
+    case 4: return decode_string(value, pool, &field.description, 512);
+    case 5: return decode_string(value, pool, &field.placeholder, 512);
+    case 6: return decode_string(value, pool, &field.value, kMessageModalValueMaximumBytes);
+    case 7: return decode_string(value, pool, &context->content, 4096);
+    case 8:
         if (!json_value_to_u64(value, &number))
             return false;
         field.style = number == 2 ? MessageModalInputStyle::paragraph : MessageModalInputStyle::short_text;
-        return true;
-    }
-    if (name_is(name, "min_length") || name_is(name, "max_length")) {
+        break;
+    case 9:
+    case 10:
         if (value.kind == JsonValueKind::null_value)
             return true;
         if (!json_value_to_u64(value, &number) || number > 4000)
             return false;
-        (name_is(name, "min_length") ? field.min_length : field.max_length) = static_cast<u16>(number);
-        return true;
-    }
-    if (name_is(name, "required"))
-        return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &field.required);
-    if (name_is(name, "component") && value.kind == JsonValueKind::object) {
-        context->inner = value;
-        context->inner_seen = true;
-        return true;
-    }
-    if (name_is(name, "components") && value.kind == JsonValueKind::array) {
-        context->children = value;
-        context->children_seen = true;
+        (member == 9 ? field.min_length : field.max_length) = static_cast<u16>(number);
+        break;
+    case 11: return value.kind == JsonValueKind::null_value || json_value_to_bool(value, &field.required);
+    case 12:
+        if (value.kind == JsonValueKind::object) {
+            context->inner = value;
+            context->inner_seen = true;
+        }
+        break;
+    case 13:
+        if (value.kind == JsonValueKind::array) {
+            context->children = value;
+            context->children_seen = true;
+        }
+        break;
+    default: break;
     }
     return true;
 }
@@ -206,37 +206,38 @@ struct ApplicationContext {
 
 bool visit_application(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ApplicationContext*>(opaque);
-    if (name_is(name, "id"))
-        return json_value_to_u64_or_string(value, &context->modal->modal->application_id);
-    if (name_is(name, "name"))
-        return decode_string(value, &context->modal->pool, &context->modal->modal->application_name, 256);
-    return true;
+    switch (member_index<"id", "name">(name)) {
+    case 0: return json_value_to_u64_or_string(value, &context->modal->modal->application_id);
+    case 1: return decode_string(value, &context->modal->pool, &context->modal->modal->application_name, 256);
+    default: return true;
+    }
 }
 
 bool visit_modal(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ModalContext*>(opaque);
     MessageModal& modal = *context->modal;
-    if (name_is(name, "id"))
-        return json_value_to_u64_or_string(value, &modal.interaction_id);
-    if (name_is(name, "nonce")) {
+    switch (member_index<"id", "nonce", "channel_id", "custom_id", "title", "components", "application">(name)) {
+    case 0: return json_value_to_u64_or_string(value, &modal.interaction_id);
+    case 1:
         if (!json_value_to_u64_or_string(value, &modal.nonce))
             modal.nonce = 0;
         return true;
-    }
-    if (name_is(name, "channel_id"))
-        return json_value_to_u64_or_string(value, &modal.channel_id);
-    if (name_is(name, "custom_id"))
-        return decode_string(value, &context->pool, &modal.custom_id, kMessageInteractionCustomIdMaximumBytes);
-    if (name_is(name, "title"))
-        return decode_string(value, &context->pool, &modal.title, 256);
-    if (name_is(name, "components")) {
+    case 2: return json_value_to_u64_or_string(value, &modal.channel_id);
+    case 3: return decode_string(value, &context->pool, &modal.custom_id, kMessageInteractionCustomIdMaximumBytes);
+    case 4: return decode_string(value, &context->pool, &modal.title, 256);
+    case 5:
         if (value.kind != JsonValueKind::array)
             return false;
         context->components = value;
         context->components_seen = true;
-    } else if (name_is(name, "application") && value.kind == JsonValueKind::object) {
-        context->application = value;
-        context->application_seen = true;
+        break;
+    case 6:
+        if (value.kind == JsonValueKind::object) {
+            context->application = value;
+            context->application_seen = true;
+        }
+        break;
+    default: break;
     }
     return true;
 }

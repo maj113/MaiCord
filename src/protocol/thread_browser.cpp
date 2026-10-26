@@ -5,6 +5,7 @@
 #include "maicord/protocol/thread_actions.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -55,13 +56,8 @@ bool read_ok(PageParse& page, JsonReadResult read) noexcept {
 }
 bool root_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& page = *static_cast<PageParse*>(opaque);
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("threads"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("members"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("has_more"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("first_messages"))) bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("most_recent_messages"))) bit = 16;
-    else return true;
+    const u32 bit = protocol_detail::member_bit<"threads", "members", "has_more", "first_messages", "most_recent_messages">(name);
+    if (!bit) return true;
     if (page.root_fields & bit) return reject(page, ThreadBrowserError::duplicate);
     page.root_fields |= bit;
     if (bit == 4) return json_value_to_bool(value, &page.has_more) || reject(page, ThreadBrowserError::field);
@@ -96,22 +92,10 @@ bool applied_tag(void* opaque, u32 index, JsonValue value) noexcept {
 bool thread_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& thread = *static_cast<ThreadParse*>(opaque);
     auto& page = *thread.page;
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("parent_id"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("type"))) bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("name"))) bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("thread_metadata"))) bit = 32;
-    else if (json_string_equals_ascii(name, utf8_literal("last_message_id"))) bit = 64;
-    else if (json_string_equals_ascii(name, utf8_literal("member"))) bit = 128;
-    else if (!page.posts.data) return true;
-    else if (json_string_equals_ascii(name, utf8_literal("applied_tags"))) bit = 256;
-    else if (json_string_equals_ascii(name, utf8_literal("message_count"))) bit = 512;
-    else if (json_string_equals_ascii(name, utf8_literal("total_message_sent"))) bit = 1024;
-    else if (json_string_equals_ascii(name, utf8_literal("owner_id"))) bit = 2048;
-    else if (json_string_equals_ascii(name, utf8_literal("flags"))) bit = 4096;
-    else return true;
+    const u32 bit = protocol_detail::member_bit<"id", "parent_id", "guild_id", "type", "name", "thread_metadata",
+        "last_message_id", "member", "applied_tags", "message_count", "total_message_sent", "owner_id", "flags">(
+        name, page.posts.data ? 13 : 8);
+    if (!bit) return true;
     if (thread.seen & bit) return reject(page, ThreadBrowserError::duplicate);
     thread.seen |= bit;
     bool valid = false;
@@ -156,11 +140,9 @@ struct MetadataParse { ThreadParse* thread; u8 seen{}; };
 bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& metadata = *static_cast<MetadataParse*>(opaque);
     auto& thread = *metadata.thread;
-    u8 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("archived"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("locked"))) bit = 2;
-    else if (thread.page->posts.data && json_string_equals_ascii(name, utf8_literal("create_timestamp"))) bit = 4;
-    else return true;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"archived", "locked", "create_timestamp">(
+        name, thread.page->posts.data ? 3 : 2));
+    if (!bit) return true;
     if (metadata.seen & bit) return reject(*thread.page, ThreadBrowserError::duplicate);
     metadata.seen |= bit;
     if (bit == 4) {
@@ -242,12 +224,8 @@ struct AuthorParse {
 };
 bool author_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& author = *static_cast<AuthorParse*>(opaque);
-    u8 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("username"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("global_name"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("avatar"))) bit = 8;
-    else return true;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"id", "username", "global_name", "avatar">(name));
+    if (!bit) return true;
     if (author.seen & bit) return reject(*author.page, ThreadBrowserError::duplicate);
     author.seen |= bit;
     bool valid{};
@@ -266,13 +244,8 @@ struct AttachmentParse {
 };
 bool attachment_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& attachment = *static_cast<AttachmentParse*>(opaque);
-    u8 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("url"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("content_type"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("width"))) bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("height"))) bit = 16;
-    else return true;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"id", "url", "content_type", "width", "height">(name));
+    if (!bit) return true;
     if (attachment.seen & bit) return reject(*attachment.page, ThreadBrowserError::duplicate);
     attachment.seen |= bit;
     bool valid{};
@@ -296,11 +269,9 @@ struct StarterParse {
     char media_url[kThreadBrowserPostMediaUrlMaximumBytes];
 };
 ThreadBrowserMediaType media_type(JsonString content_type) noexcept {
-    if (json_string_equals_ascii(content_type, utf8_literal("image/png"))) return ThreadBrowserMediaType::png;
-    if (json_string_equals_ascii(content_type, utf8_literal("image/jpeg"))) return ThreadBrowserMediaType::jpeg;
-    if (json_string_equals_ascii(content_type, utf8_literal("image/webp"))) return ThreadBrowserMediaType::webp;
-    if (json_string_equals_ascii(content_type, utf8_literal("image/gif"))) return ThreadBrowserMediaType::gif;
-    return ThreadBrowserMediaType::none;
+    static constexpr ThreadBrowserMediaType types[]{ThreadBrowserMediaType::png, ThreadBrowserMediaType::jpeg,
+        ThreadBrowserMediaType::webp, ThreadBrowserMediaType::gif, ThreadBrowserMediaType::none};
+    return types[protocol_detail::member_index<"image/png", "image/jpeg", "image/webp", "image/gif">(content_type)];
 }
 bool visit_attachment(void* opaque, u32, JsonValue value) noexcept {
     auto& starter = *static_cast<StarterParse*>(opaque);
@@ -326,13 +297,8 @@ bool visit_attachment(void* opaque, u32, JsonValue value) noexcept {
 }
 bool starter_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& starter = *static_cast<StarterParse*>(opaque);
-    u8 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("content"))) bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("author"))) bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("attachments"))) bit = 16;
-    else return true;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"id", "channel_id", "content", "author", "attachments">(name));
+    if (!bit) return true;
     if (starter.seen & bit) return reject(*starter.page, ThreadBrowserError::duplicate);
     starter.seen |= bit;
     bool valid{};
@@ -433,10 +399,8 @@ __declspec(noinline) bool visit_starter(void* opaque, u32 index, JsonValue value
 struct MemberIdentity { PageParse* page; u64 id{}, user{}; u8 seen{}; };
 bool member_identity(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& identity = *static_cast<MemberIdentity*>(opaque);
-    u8 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id"))) bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("user_id"))) bit = 2;
-    else return true;
+    const u8 bit = static_cast<u8>(protocol_detail::member_bit<"id", "user_id">(name));
+    if (!bit) return true;
     if (identity.seen & bit) return reject(*identity.page, ThreadBrowserError::duplicate);
     identity.seen |= bit;
     return json_value_to_snowflake(value, bit == 1 ? &identity.id : &identity.user) ||

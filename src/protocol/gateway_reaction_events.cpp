@@ -3,11 +3,13 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "gateway_decode.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
 
 using protocol_detail::accept_member;
+using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::read_failure;
 
@@ -41,56 +43,57 @@ constexpr u32 emoji_seen_id = 1, emoji_seen_name = 2, emoji_seen_animated = 4;
 bool visit_reaction(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReactionContext*>(opaque);
     u64 type = 0;
-    if (json_string_equals_ascii(name, utf8_literal("message_id"))) {
+    switch (member_index<"message_id", "channel_id", "user_id", "emoji", "type", "burst">(name)) {
+    case 0:
         return accept_member(&context->fields, reaction_field_message_id,
                              json_value_to_snowflake(value, &context->event.message_id), &context->error,
                              GatewayEventDecodeError::invalid_message_id);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+    case 1:
         return accept_member(&context->fields, reaction_field_channel_id,
                              json_value_to_snowflake(value, &context->event.channel_id), &context->error,
                              GatewayEventDecodeError::invalid_channel_id);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("user_id"))) {
+    case 2:
         return accept_member(&context->fields, reaction_field_user_id,
                              json_value_to_snowflake(value, &context->event.user_id), &context->error);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("emoji"))) {
+    case 3:
         if (!accept_member(&context->fields, reaction_field_emoji, value.kind == JsonValueKind::object,
                            &context->error))
             return false;
         context->emoji = value;
-    } else if (json_string_equals_ascii(name, utf8_literal("type"))) {
+        break;
+    case 4:
         if (!accept_member(&context->fields, reaction_field_type,
                            json_value_to_u64(value, &type) &&
                                type <= static_cast<u8>(MessageReactionType::vote),
                            &context->error))
             return false;
         context->event.type = static_cast<MessageReactionType>(type);
-    } else if (json_string_equals_ascii(name, utf8_literal("burst"))) {
+        break;
+    case 5:
         return accept_member(&context->fields, reaction_field_burst,
                              json_value_to_bool(value, &context->burst), &context->error);
+    default: break;
     }
     return true;
 }
 
 bool visit_emoji(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<EmojiContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id"))) {
+    switch (member_index<"id", "name", "animated">(name)) {
+    case 0:
         return accept_member(&context->seen, emoji_seen_id,
                              value.kind == JsonValueKind::null_value ||
                                  json_value_to_snowflake(value, &context->id),
                              &context->error);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("name"))) {
+    case 1:
         context->name_null = value.kind == JsonValueKind::null_value;
         return accept_member(&context->seen, emoji_seen_name,
                              context->name_null || json_value_as_string(value, &context->name),
                              &context->error);
-    }
-    if (json_string_equals_ascii(name, utf8_literal("animated"))) {
+    case 2:
         return accept_member(&context->seen, emoji_seen_animated,
                              json_value_to_bool(value, &context->animated), &context->error);
+    default: break;
     }
     return true;
 }

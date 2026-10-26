@@ -4,6 +4,7 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "json_field_lists.hpp"
 #include "json_write.hpp"
 
 namespace maicord {
@@ -94,18 +95,8 @@ struct TagParse {
 };
 bool tag_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<TagParse*>(opaque);
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("moderated")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("emoji_id")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("emoji_name")))
-        bit = 16;
-    else
+    const u32 bit = protocol_detail::member_bit<"id", "name", "moderated", "emoji_id", "emoji_name">(name);
+    if (!bit)
         return true;
     if (parse.seen & bit) {
         parse.error = ForumPostError::duplicate;
@@ -171,28 +162,9 @@ bool tag_item(void* opaque, u32 index, JsonValue value) noexcept {
 }
 bool parent_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<ParentParse*>(opaque);
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("guild_id")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("type")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("name")))
-        bit = 8;
-    else if (json_string_equals_ascii(name, utf8_literal("flags")))
-        bit = 16;
-    else if (json_string_equals_ascii(name, utf8_literal("available_tags")))
-        bit = 32;
-    else if (json_string_equals_ascii(name, utf8_literal("default_auto_archive_duration")))
-        bit = 64;
-    else if (json_string_equals_ascii(name, utf8_literal("default_sort_order")))
-        bit = 128;
-    else if (json_string_equals_ascii(name, utf8_literal("default_forum_layout")))
-        bit = 256;
-    else if (json_string_equals_ascii(name, utf8_literal("default_tag_setting")))
-        bit = 512;
-    else
+    const u32 bit = protocol_detail::member_bit<"id", "guild_id", "type", "name", "flags", "available_tags",
+        "default_auto_archive_duration", "default_sort_order", "default_forum_layout", "default_tag_setting">(name);
+    if (!bit)
         return true;
     if (parse.seen & bit) {
         parse.error = ForumPostError::duplicate;
@@ -280,16 +252,8 @@ struct PostParse {
 };
 bool post_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<PostParse*>(opaque);
-    u32 bit{};
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        bit = 1;
-    else if (json_string_equals_ascii(name, utf8_literal("owner_id")))
-        bit = 2;
-    else if (json_string_equals_ascii(name, utf8_literal("message")))
-        bit = 4;
-    else if (json_string_equals_ascii(name, utf8_literal("applied_tags")))
-        bit = 8;
-    else
+    const u32 bit = protocol_detail::member_bit<"id", "owner_id", "message", "applied_tags">(name);
+    if (!bit)
         return true;
     if (parse.seen & bit) {
         parse.error = ForumPostError::duplicate;
@@ -378,18 +342,8 @@ struct AttachmentParse {
 };
 bool attachment_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& parse = *static_cast<AttachmentParse*>(opaque);
-    static constexpr const char* keys[]{"id",  "size",      "filename", "title",  "description", "content_type",
-                       "url", "proxy_url", "width",    "height", "flags",       "ephemeral"};
-    u32 index = 12;
-    for (u32 at = 0; at < 12; ++at) {
-        u32 bytes = 0;
-        while (keys[at][bytes])
-            ++bytes;
-        if (json_string_equals_ascii(name, {keys[at], bytes})) {
-            index = at;
-            break;
-        }
-    }
+    const u32 index = protocol_detail::member_index<"id", "size", "filename", "title", "description", "content_type",
+        "url", "proxy_url", "width", "height", "flags", "ephemeral">(name);
     if (index == 12)
         return true;
     const u32 bit = 1u << index;

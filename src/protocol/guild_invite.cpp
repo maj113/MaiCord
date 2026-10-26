@@ -7,6 +7,7 @@
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "json_helpers.hpp"
+#include "json_field_lists.hpp"
 
 namespace maicord {
 namespace {
@@ -23,53 +24,72 @@ u8 copy_text(JsonValue value, char* output, u32 capacity) noexcept {
 }
 bool guild_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& m = *static_cast<Members*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &m.invite->guild_id);
-    if (json_string_equals_ascii(name, utf8_literal("name")))
-        m.invite->name_bytes = copy_text(value, m.invite->name, kGuildInviteNameBytes);
-    else if (json_string_equals_ascii(name, utf8_literal("icon")))
+    switch (protocol_detail::member_index<"id", "name", "icon">(name)) {
+    case 0: return json_value_to_snowflake(value, &m.invite->guild_id);
+    case 1: m.invite->name_bytes = copy_text(value, m.invite->name, kGuildInviteNameBytes); break;
+    case 2:
         m.invite->icon_bytes = value.kind == JsonValueKind::string
                                    ? copy_text(value, m.invite->icon, kGuildInviteIconBytes)
                                    : 0;
+        break;
+    default: break;
+    }
     return true;
 }
 bool channel_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& m = *static_cast<Members*>(opaque);
     u64 type = 0;
-    if (json_string_equals_ascii(name, utf8_literal("id")))
-        return json_value_to_snowflake(value, &m.invite->channel_id);
-    if (json_string_equals_ascii(name, utf8_literal("name")))
+    switch (protocol_detail::member_index<"id", "name", "type">(name)) {
+    case 0: return json_value_to_snowflake(value, &m.invite->channel_id);
+    case 1:
         m.invite->channel_name_bytes = value.kind == JsonValueKind::string
                                            ? copy_text(value, m.invite->channel_name, kGuildInviteNameBytes)
                                            : 0;
-    else if (json_string_equals_ascii(name, utf8_literal("type")) && json_value_to_u64(value, &type))
-        m.invite->channel_type = static_cast<u8>(minimum<u64>(type, 255));
+        break;
+    case 2:
+        if (json_value_to_u64(value, &type))
+            m.invite->channel_type = static_cast<u8>(minimum<u64>(type, 255));
+        break;
+    default: break;
+    }
     return true;
 }
 bool root_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& m = *static_cast<Members*>(opaque);
     u64 number = 0;
-    if (json_string_equals_ascii(name, utf8_literal("code"))) {
+    switch (protocol_detail::member_index<"code", "guild", "channel", "approximate_member_count",
+                                          "approximate_presence_count", "captcha_key">(name)) {
+    case 0:
         // Invites carry a string code; API errors carry a numeric one.
         if (value.kind == JsonValueKind::string)
             m.invite->code_bytes = copy_text(value, m.invite->code, kGuildInviteCodeMaximumBytes);
         else if (json_value_to_u64(value, &m.error_code))
             m.error_code_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("guild")) && value.kind == JsonValueKind::object) {
-        m.guild = value;
-        m.guild_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("channel")) && value.kind == JsonValueKind::object) {
-        m.channel = value;
-        m.channel_seen = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("approximate_member_count")) &&
-               json_value_to_u64(value, &number)) {
-        m.invite->member_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
-        m.invite->counts_known = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("approximate_presence_count")) &&
-               json_value_to_u64(value, &number)) {
-        m.invite->presence_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
-    } else if (json_string_equals_ascii(name, utf8_literal("captcha_key"))) {
-        m.captcha = true;
+        break;
+    case 1:
+        if (value.kind == JsonValueKind::object) {
+            m.guild = value;
+            m.guild_seen = true;
+        }
+        break;
+    case 2:
+        if (value.kind == JsonValueKind::object) {
+            m.channel = value;
+            m.channel_seen = true;
+        }
+        break;
+    case 3:
+        if (json_value_to_u64(value, &number)) {
+            m.invite->member_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
+            m.invite->counts_known = true;
+        }
+        break;
+    case 4:
+        if (json_value_to_u64(value, &number))
+            m.invite->presence_count = static_cast<u32>(minimum<u64>(number, ~u32{0}));
+        break;
+    case 5: m.captcha = true; break;
+    default: break;
     }
     return true;
 }
